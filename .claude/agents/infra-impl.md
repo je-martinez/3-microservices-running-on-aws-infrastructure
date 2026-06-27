@@ -1,5 +1,6 @@
 ---
 name: infra-impl
+model: sonnet
 description: >-
   Code implementer for the 3MRAI infrastructure (Terraform with custom modules,
   cloudposse/label naming, AWS). Use to implement a single infrastructure task

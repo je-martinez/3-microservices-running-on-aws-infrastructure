@@ -1,5 +1,6 @@
 ---
 name: github-ops
+model: sonnet
 description: >-
   Git & GitHub operator for the 3MRAI repo. Use for commits, branches, pushes,
   pull requests, and merges. Implements the Linear-driven branch flow (milestone =

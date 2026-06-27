@@ -1,5 +1,6 @@
 ---
 name: solutions-architect
+model: opus
 description: >-
   Planner/coordinator for 3MRAI implementation. Use to turn raw superpowers
   output (specs/plans in docs/superpowers/) into an organized, domain-mapped

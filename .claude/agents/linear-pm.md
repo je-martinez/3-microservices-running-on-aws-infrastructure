@@ -1,5 +1,6 @@
 ---
 name: linear-pm
+model: sonnet
 description: >-
   Project manager for Linear. Use for any Linear work on the 3MRAI project —
   creating/updating milestones, issues, projects, labels, comments, status
