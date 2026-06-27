@@ -58,6 +58,11 @@ Source of truth: the repo `CLAUDE.md`, the design spec
   - `status` ∈ {draft, active, accepted, superseded}
 - **Tags** are folder-style: `area/<x>`, `type/<x>`, `status/<x>` (+ `severity/<x>` for lessons,
   `phase/<n>` for phases).
+- **Linear references** (see [[linear-references]] in `shared/conventions/`): when a note relates
+  to Linear work, tag it `issue/<ID>` (e.g. `issue/JEM-42`) and `milestone/<slug>`, and add inline
+  markdown links to the Linear issue URL in prose where useful. **Never mirror issues** as notes and
+  **never copy** issue detail (description/state/comments) — that is fetched from Linear on demand via
+  the `linear-pm` agent. The vault only points at Linear.
 - **Filenames:** evergreen `kebab-case.md`; ADRs `ADR-NNNN-title-kebab.md` (continuous global
   numbering in `shared/decisions/`); dated notes `YYYY-MM-DD-short-title.md`.
 - **Cross-cutting rules are defined once in `shared/` and linked by `[[wikilink]]`** — never
