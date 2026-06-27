@@ -29,6 +29,14 @@ This mirrors the repo's `CLAUDE.md` git policy — it is the whole point of this
   - `git branch` / `git checkout -b` (create), `git branch -d` / push-delete (delete)
   - `gh pr create`, `gh pr merge`, `gh pr close`
   - any history rewrite (`rebase`, `reset --hard`, force-push) — avoid unless asked
+- **Commit and push of the same branch are ONE approval.** Push is a first-class write,
+  exactly like commit. When you propose a commit, propose the `git push` of that same branch
+  (the obvious `origin <branch>`, with `-u` on first push) **in the same proposal**, and a
+  single user approval covers both — do NOT ask for a separate OK to push what you just
+  committed. This does NOT widen scope: it only bundles the push of the **same commit/branch**
+  the user just approved. `gh pr create`, `gh pr merge`, branch deletes, and history rewrites
+  still each need their own confirmation. If the user says "commit but don't push yet," honor
+  that — the bundling is the default, not a mandate.
 - If invoked as a subagent without interactive confirmation, return the proposed commands
   as your final message and DO NOT execute writes. The parent confirms with the user.
 
@@ -80,11 +88,14 @@ The feature→main PR is opened (`gh pr create`) but left for the user to merge.
 
 **Start a feature (new milestone):**
 1. `git fetch origin && git checkout main && git pull` (propose first).
-2. Propose `git checkout -b feature/<slug>` then `git push -u origin feature/<slug>`.
+2. Propose `git checkout -b feature/<slug>` then `git push -u origin feature/<slug>` — one approval.
 
 **Start a task:**
 1. From the feature branch: propose `git checkout -b <type>/<ISSUE-ID>-<slug>`.
-2. After the work is committed (separate confirmation), propose `git push -u origin <branch>`.
+
+**Commit a task's work:**
+1. Propose the commit **and** the push of that branch together (`git commit ...` then
+   `git push -u origin <branch>`). One approval covers both — don't split the push out.
 
 **Finish a task:**
 1. Propose `gh pr create --base feature/<slug> --head <task-branch> --title "<ISSUE-ID>: <title>" --body "<summary; closes/relates to Linear issue>"`.
