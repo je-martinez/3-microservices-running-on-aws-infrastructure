@@ -4,7 +4,7 @@ type: spec
 area: orders
 status: active
 created: 2026-06-26
-updated: 2026-06-26
+updated: 2026-06-27
 tags: [type/spec, area/orders, status/active]
 related:
   - soft-delete
@@ -47,6 +47,7 @@ All routes are versioned under the `/v1` prefix. See [[versioning]] for the vers
 | `POST` | `/v1/orders` | Create a new order. Publishes `ORDER_CREATED` to SQS. |
 | `GET` | `/v1/orders/my-orders` | List all orders belonging to the authenticated user. |
 | `GET` | `/v1/orders/{order_id}` | Fetch a single order. Returns `403` if the order does not belong to the requesting user. |
+| `GET` | `/health` | Liveness/readiness probe. Returns `200 { "status": "ok" }` when healthy. No auth required. Used by ALB/Fargate as health check target. |
 
 > [!note] Authorization check
 > `GET /orders/{order_id}` must compare the `user_id` stored on the order against the caller's identity (from the Cognito JWT). Return `403 Forbidden` — never `404` — to avoid leaking existence of other users' orders.
