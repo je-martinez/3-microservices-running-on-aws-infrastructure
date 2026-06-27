@@ -1,5 +1,6 @@
 ---
 name: obsidian-vault
+model: sonnet
 description: >-
   Sole owner of writes to the Obsidian vault under docs/. Use for ANY creation or
   edit of vault notes — service specs, ADRs, conventions, runbooks, overview/MOC,

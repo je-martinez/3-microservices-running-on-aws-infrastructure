@@ -1,5 +1,6 @@
 ---
 name: tracking-impl
+model: sonnet
 description: >-
   Code implementer for the 3MRAI Tracking service (FastAPI, Aurora MySQL). Use
   to implement a single Tracking-service task from the plan. Writes ONLY source

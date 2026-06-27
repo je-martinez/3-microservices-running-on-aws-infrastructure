@@ -1,5 +1,6 @@
 ---
 name: orders-impl
+model: sonnet
 description: >-
   Code implementer for the 3MRAI Orders service (.NET Core 10 Minimal APIs,
   Aurora MySQL). Use to implement a single Orders-service task from the plan.

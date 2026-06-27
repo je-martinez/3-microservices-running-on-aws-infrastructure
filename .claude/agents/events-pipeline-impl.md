@@ -1,5 +1,6 @@
 ---
 name: events-pipeline-impl
+model: sonnet
 description: >-
   Code implementer for the 3MRAI events pipeline (SQS → single Lambda,
   DocumentDB; CQRS dispatch by event type). Use to implement a single
