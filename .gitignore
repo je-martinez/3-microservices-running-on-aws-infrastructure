@@ -1,0 +1,6 @@
+# Ignore all configuration settings, themes, and community plugins
+.obsidian/
+
+# Ignore system junk files
+.trash/
+.DS_Store
