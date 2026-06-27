@@ -4,7 +4,7 @@ type: spec
 area: tracking
 status: active
 created: 2026-06-26
-updated: 2026-06-26
+updated: 2026-06-27
 tags: [type/spec, area/tracking, status/active]
 related:
   - "[[soft-delete]]"
@@ -39,11 +39,12 @@ All endpoints are versioned under `/v1`. See [[versioning]].
 
 | Method | Path                              | Description                          |
 |--------|-----------------------------------|--------------------------------------|
+| GET    | `/health`                         | Liveness/readiness probe. Returns `200 { "status": "ok" }` when healthy. No auth required. Used by ALB/Fargate as health check target. |
 | POST   | `/trackings`                      | Create a new tracking record         |
-| PUT    | `/trackings/{order_id}/status`    | Update the status of a tracking entry |
+| PUT    | `/trackings/{order_id}/status`    | Update the status of a tracking entry. `status` must be one of the four enum values defined in [Tracking statuses](#tracking-statuses). |
 
 > [!note] Auth
-> All endpoints require a valid Cognito JWT. The API Gateway validates the token before routing to the service.
+> All endpoints require a valid Cognito JWT, **except `/health`** which is unauthenticated. The API Gateway validates the token before routing to the service.
 
 ## gRPC Methods
 
@@ -65,7 +66,7 @@ All IDs use prefixed nano-IDs ([[nano-id]]). All tables apply soft-delete ([[sof
 | `id`         | VARCHAR(21)  | Prefixed nano-ID, PK               |
 | `user_id`    | VARCHAR(21)  | Reference to user                  |
 | `order_id`   | VARCHAR(21)  | Reference to order, unique         |
-| `status`     | VARCHAR(50)  | Current delivery status            |
+| `status`     | VARCHAR(50)  | Current delivery status — enum: `SHIPPED`, `ON_THE_WAY`, `OUT_FOR_DELIVERY`, `DELIVERED` (see [Tracking statuses](#tracking-statuses)) |
 | `datetime`   | DATETIME     | Timestamp of the current status    |
 | `created_at` | DATETIME     | Audit — see [[audit-fields]]       |
 | `updated_at` | DATETIME     | Audit — see [[audit-fields]]       |
@@ -80,13 +81,33 @@ Immutable log of every status transition.
 | `tracking_id` | VARCHAR(21)  | FK → `Tracking.id` (part of PK)         |
 | `user_id`     | VARCHAR(21)  | Reference to user                       |
 | `order_id`    | VARCHAR(21)  | Reference to order                      |
-| `status`      | VARCHAR(50)  | Status at the time of the event (part of PK) |
+| `status`      | VARCHAR(50)  | Status at the time of the event — enum: `SHIPPED \| ON_THE_WAY \| OUT_FOR_DELIVERY \| DELIVERED` (part of PK) |
 | `datetime`    | DATETIME     | Timestamp of this status transition     |
 | `created_at`  | DATETIME     | Audit — see [[audit-fields]]            |
 | `updated_at`  | DATETIME     | Audit — see [[audit-fields]]            |
 | `deleted_at`  | DATETIME     | Soft-delete — see [[soft-delete]]       |
 
 **Composite PK:** `(tracking_id, status)`.
+
+### Tracking statuses
+
+The `status` field is a fixed enum shared by `Tracking` and `Tracking_History`. Only these four values are valid:
+
+| Value                | Meaning                                           |
+|----------------------|---------------------------------------------------|
+| `SHIPPED`            | The order has been dispatched from the warehouse. |
+| `ON_THE_WAY`         | The shipment is in transit to the destination.    |
+| `OUT_FOR_DELIVERY`   | The shipment is out for final-mile delivery.      |
+| `DELIVERED`          | The shipment has been delivered to the recipient. |
+
+**State machine — allowed progression (forward only):**
+
+```
+SHIPPED → ON_THE_WAY → OUT_FOR_DELIVERY → DELIVERED
+```
+
+> [!warning] No backward transitions
+> Status updates must follow the progression above. A `PUT /trackings/{order_id}/status` request with a status that is equal to or earlier than the current status must be rejected with `400 Bad Request`.
 
 ## Events
 
