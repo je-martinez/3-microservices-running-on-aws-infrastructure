@@ -76,14 +76,24 @@ milestone/issue identifiers:
 - **Linear issue/task → task branch.** Name: `<type>/<ISSUE-ID>-<slug>`
   (e.g. `feat/JE-123-create-users-table`). Branched off its milestone's feature branch.
 - **Task integration:** open a PR from the task branch **into the feature branch**.
-  After the user approves, **squash-merge** it and **delete the task branch**.
+  After the user approves, **squash-merge** it.
 - **Milestone completion:** when every task of a milestone is merged into its feature
   branch, **propose** a PR from the feature branch **into `main`**. Do NOT auto-merge it —
   the user reviews and approves the final PR themselves.
 
-Default merge strategy: **squash merge + delete the merged branch**
-(`gh pr merge --squash --delete-branch`), applied to task→feature PRs after approval.
-The feature→main PR is opened (`gh pr create`) but left for the user to merge.
+Default merge strategy: **squash merge** (`gh pr merge --squash`), applied to task→feature
+PRs after approval. The feature→main PR is opened (`gh pr create`) but left for the user to merge.
+
+**Branch deletion is automatic.** The repo is configured to auto-delete head branches when a
+PR is merged, so do **not** pass `--delete-branch` to `gh pr merge` — GitHub removes the remote
+branch itself. After the merge, prune the local copy that is now gone: `git fetch --prune`, and
+delete the local task branch if it still lingers (`git branch -d <task-branch>` — safe, it is
+merged).
+
+**Always pull the base branch after a merge.** Once a PR merges into its base (task→feature, or
+feature→main), the local base branch is behind the remote. Before doing any further work on that
+base — creating the next task branch, opening the next PR — check it out and fast-forward it:
+`git checkout <base> && git pull`. Never branch off or PR from a stale local base.
 
 ## Standard procedures
 
@@ -100,7 +110,11 @@ The feature→main PR is opened (`gh pr create`) but left for the user to merge.
 
 **Finish a task:**
 1. Propose `gh pr create --base feature/<slug> --head <task-branch> --title "<ISSUE-ID>: <title>" --body "<summary; closes/relates to Linear issue>"`.
-2. On approval (and green checks): propose `gh pr merge <num> --squash --delete-branch`.
+2. On approval (and green checks): propose `gh pr merge <num> --squash` (no `--delete-branch` —
+   the repo auto-deletes merged branches).
+3. After the merge: `git checkout feature/<slug> && git pull` to fast-forward the base, then
+   `git fetch --prune` and `git branch -d <task-branch>` to clean up the local branch GitHub
+   already removed remotely.
 
 **Close a milestone:**
 1. Verify all task PRs merged (`gh pr list --base feature/<slug> --state open` is empty).
