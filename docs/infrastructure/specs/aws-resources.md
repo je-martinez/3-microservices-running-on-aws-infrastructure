@@ -4,7 +4,7 @@ type: spec
 area: infra
 status: active
 created: 2026-06-26
-updated: 2026-06-26
+updated: 2026-06-27
 tags: [type/spec, area/infra, status/active]
 related:
   - ADR-0006-read-write-replicas
@@ -30,6 +30,7 @@ and authentication ([[ADR-0010-cognito-auth]]).
 | ECS Fargate cluster | One cluster per environment; one service per microservice |
 | ECR repository | One repo per service (`3mrai-{env}-{service}`); image scanning enabled |
 | Task definitions | CPU/memory set per service; secrets injected from Secret Manager |
+| ALB target groups | One per service; health check path `GET /health` — see [[networking]] |
 
 ### Relational Databases (RDS Aurora)
 

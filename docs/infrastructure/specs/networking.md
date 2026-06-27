@@ -4,7 +4,7 @@ type: spec
 area: infra
 status: active
 created: 2026-06-26
-updated: 2026-06-26
+updated: 2026-06-27
 tags: [type/spec, area/infra, status/active]
 related:
   - ADR-0009-apigw-alb-fargate
@@ -42,6 +42,19 @@ Client
 
 Inter-service communication (gRPC) goes directly ALB-to-service or service-to-service over
 the private hosted zone, bypassing API Gateway. See [[ADR-0003-grpc-inter-service]].
+
+### ALB Health Checks
+
+Each ALB target group is configured with `GET /health` as the health check path:
+
+> [!info] Health check contract
+> - **Path:** `GET /health`
+> - **Expected response:** HTTP `200`
+> - Targets that fail to return `200` are marked **unhealthy** and removed from rotation until they recover.
+
+This applies to the three HTTP services — `users-service`, `orders-service`, and
+`tracking-service`. The `/health` endpoint is defined in each service's spec; this target group
+configuration simply points the ALB at it.
 
 ## Request Path — Local Development
 
