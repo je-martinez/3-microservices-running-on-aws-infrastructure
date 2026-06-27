@@ -11,6 +11,7 @@
 ## Global Constraints
 
 - Vault root is `docs/` (existing Obsidian vault — has `.obsidian/`).
+- Node is pinned by `.nvmrc` (24.18.0). Run `nvm use` before any Node command (e.g. `nvm use && node scripts/validate-vault.mjs`).
 - Content language: **English**.
 - Date for all `created`/`updated` frontmatter and dated filenames: **2026-06-26**.
 - Filenames: evergreen notes `kebab-case.md`; ADRs `ADR-NNNN-title-kebab.md`; dated notes `YYYY-MM-DD-short-title.md`.
@@ -148,12 +149,12 @@ Project knowledge base. The documentation lives in the Obsidian vault at [`docs/
 - `docs/superpowers/` — design specs & implementation plans for this documentation effort
 
 ## Validate
-`node scripts/validate-vault.mjs` — checks frontmatter and wikilinks.
+`nvm use && node scripts/validate-vault.mjs` — checks frontmatter and wikilinks.
 ```
 
 - [ ] **Step 5: Run validation (no notes yet → trivially passes)**
 
-Run: `node scripts/validate-vault.mjs`
+Run: `nvm use && node scripts/validate-vault.mjs`
 Expected: `Vault validation passed: 0 notes OK.` (the validator skips `superpowers/`)
 
 - [ ] **Step 6: Commit**
@@ -292,7 +293,7 @@ related: []
 
 - [ ] **Step 5: Validate**
 
-Run: `node scripts/validate-vault.mjs`
+Run: `nvm use && node scripts/validate-vault.mjs`
 Expected: `Vault validation passed: 8 notes OK.`
 
 - [ ] **Step 6: Commit**
@@ -338,7 +339,7 @@ Use `pattern-template.md`:
 
 - [ ] **Step 4: Validate**
 
-Run: `node scripts/validate-vault.mjs`
+Run: `nvm use && node scripts/validate-vault.mjs`
 Expected: passes; note count = 8 (templates) + 9 = 17.
 
 - [ ] **Step 5: Commit**
@@ -382,7 +383,7 @@ Use `adr-template.md`. Each: set `id`, `title`, fill Context / Decision / Conseq
 
 - [ ] **Step 3: Validate**
 
-Run: `node scripts/validate-vault.mjs`
+Run: `nvm use && node scripts/validate-vault.mjs`
 Expected: passes; note count = 17 + 14 = 31.
 
 - [ ] **Step 4: Commit**
@@ -414,7 +415,7 @@ Use `spec-template.md`, area `users`. Fill from `first-prompt-en.md`:
 
 - [ ] **Step 2: Validate**
 
-Run: `node scripts/validate-vault.mjs`
+Run: `nvm use && node scripts/validate-vault.mjs`
 Expected: passes; note count = 32.
 
 - [ ] **Step 3: Commit**
@@ -446,7 +447,7 @@ Use `spec-template.md`, area `orders`. From `first-prompt-en.md`:
 
 - [ ] **Step 2: Validate**
 
-Run: `node scripts/validate-vault.mjs`
+Run: `nvm use && node scripts/validate-vault.mjs`
 Expected: passes; note count = 33.
 
 - [ ] **Step 3: Commit**
@@ -478,7 +479,7 @@ Use `spec-template.md`, area `tracking`. From `first-prompt-en.md`:
 
 - [ ] **Step 2: Validate**
 
-Run: `node scripts/validate-vault.mjs`
+Run: `nvm use && node scripts/validate-vault.mjs`
 Expected: passes; note count = 34.
 
 - [ ] **Step 3: Commit**
@@ -509,7 +510,7 @@ Use `spec-template.md`, area `events-pipeline`. From `first-prompt-en.md`:
 
 - [ ] **Step 2: Validate**
 
-Run: `node scripts/validate-vault.mjs`
+Run: `nvm use && node scripts/validate-vault.mjs`
 Expected: passes; note count = 35.
 
 - [ ] **Step 3: Commit**
@@ -545,7 +546,7 @@ Use `runbook-template.md`, area `infra`:
 
 - [ ] **Step 3: Validate**
 
-Run: `node scripts/validate-vault.mjs`
+Run: `nvm use && node scripts/validate-vault.mjs`
 Expected: passes; note count = 40.
 
 - [ ] **Step 4: Commit**
@@ -596,7 +597,7 @@ Area `shared`. Define: nano-id, soft-delete, audit fields, isDeleted, CQRS, scre
 
 - [ ] **Step 5: Validate**
 
-Run: `node scripts/validate-vault.mjs`
+Run: `nvm use && node scripts/validate-vault.mjs`
 Expected: passes; note count = 44.
 
 - [ ] **Step 6: Commit**
@@ -630,7 +631,7 @@ Filter `type == "runbook"`, table columns `title`, `area`, `integration-status`,
 
 - [ ] **Step 4: Validate**
 
-Run: `node scripts/validate-vault.mjs` (`.base` files are skipped — they are not `.md`)
+Run: `nvm use && node scripts/validate-vault.mjs` (`.base` files are skipped — they are not `.md`)
 Expected: passes; note count = 44 unchanged.
 
 - [ ] **Step 5: Manual check in Obsidian**
