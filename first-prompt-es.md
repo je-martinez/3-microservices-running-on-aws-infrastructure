@@ -14,6 +14,7 @@ Vamos a crear un proyecto completo con 3 microservicios corriendo en infraestruc
 - Las bases de datos van a tener una replica de solo lectura y otra para escritura. Donde se creara un usuario para cada base de datos, donde este tendrá prohibido los DELETED, puesto que solo soft delete es soportado. Tan pronto como el usuario sea creado se va guardar como secreto en AWS Secret Manager.
 - Los microservicios corren en ECS como tasks de Fargate, trayendo su image de ECR. Esto solo para producción.Para desarrollo local redirigir a las instancias que corren en docker con docker-watch. Asegúrate que todo corra bajo la misma network y que tengan conectividad. Usar Route 53 para los nombres.
 - Todas las variables de entorno y secretos para los microservicios serán traídos usando AWS Parameter Store y AWS Secret Manager, los .env solo servirán para sincronizar localmente los parameters o secretos.
+- Incluir diagramas con draw.io para flujos, infrastructura, etc.
 
 ## Specs Compartidos para Microservicios
 - Usar dependency injection.
