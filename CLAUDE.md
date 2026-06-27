@@ -63,6 +63,16 @@ Anything brainstorming/writing-plans produces is a first-class vault note:
 - **Task integration:** PR task branch → feature branch; on approval, **squash-merge + delete branch**.
 - **Milestone completion:** when all task PRs are merged, **propose** a PR feature → `main` and stop — the user merges it after review (no auto-merge).
 
+## Project decisions & memory
+
+Project decisions and memory live in the **vault** (versioned, navigable) — **not** in any external `~/.claude/` memory file. There is no separate memory store; this repo is the source of truth. At session start, consult:
+
+- `docs/shared/conventions/linear-references.md` — the vault references Linear (tags + links), never mirrors it.
+- `docs/superpowers/specs/2026-06-26-implementation-workflow-design.md` — the two-layer agent topology (tool-layer + domain-layer) and the implementation flow (Phases A–D).
+- `docs/shared/decisions/` — global ADRs (once the vault-build plan runs and seeds them).
+
+How we work (git policy, language, Node, scope) is defined in the **Working rules** above — that is the source of truth, not a separate memory file.
+
 ## Documentation vault conventions
 
 The Obsidian vault lives in [`docs/`](docs/). Design and plan for it:
