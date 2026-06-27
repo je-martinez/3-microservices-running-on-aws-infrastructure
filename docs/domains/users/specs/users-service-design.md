@@ -4,7 +4,7 @@ type: spec
 area: users
 status: active
 created: 2026-06-26
-updated: 2026-06-26
+updated: 2026-06-27
 tags: [type/spec, area/users, status/active]
 related:
   - "[[soft-delete]]"
@@ -42,6 +42,7 @@ All routes are versioned under `/v1` (see [[versioning]]).
 | `POST` | `/users/login` | Authenticates via Cognito; returns tokens. |
 | `GET` | `/users/me` | Returns the authenticated user's profile. |
 | `PATCH` | `/users/me` | Updates the authenticated user's profile. |
+| `GET` | `/health` | Liveness/readiness probe. Returns `{ "status": "ok" }` when healthy. No auth required. Used by ALB/Fargate as the health check target. |
 
 Authentication on `GET /users/me` and `PATCH /users/me` is enforced via API Gateway + Cognito (see [[ADR-0009-apigw-alb-fargate]] and [[ADR-0010-cognito-auth]]).
 
