@@ -19,6 +19,7 @@ related:
   - "[[events-pipeline-design]]"
   - "[[2026-06-26-3mrai-docs-vault-design]]"
   - "[[2026-06-26-implementation-workflow-design]]"
+  - "[[ADR-0015-drawio-diagrams]]"
 ---
 
 # 3MRAI — Index
@@ -100,6 +101,10 @@ All ADRs use continuous global numbering and live in `docs/shared/decisions/`.
 
 - [[ADR-0011-observability-signoz]] — SigNoz (via CloudWatch) as the observability backend.
 
+### Documentation & Diagrams
+
+- [[ADR-0015-drawio-diagrams]] — draw.io (`.drawio.svg`) as the vault diagram format, replacing Mermaid.
+
 ---
 
 ## Conventions
@@ -159,3 +164,4 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[events-pipeline-design]]
 - [[2026-06-26-3mrai-docs-vault-design]]
 - [[2026-06-26-implementation-workflow-design]]
+- [[ADR-0015-drawio-diagrams]]

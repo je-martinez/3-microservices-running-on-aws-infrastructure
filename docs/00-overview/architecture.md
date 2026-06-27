@@ -18,6 +18,7 @@ related:
   - "[[ADR-0006-read-write-replicas]]"
   - "[[ADR-0011-observability-signoz]]"
   - "[[ADR-0012-ministack-local]]"
+  - "[[ADR-0015-drawio-diagrams]]"
 ---
 
 # System Architecture
@@ -31,61 +32,7 @@ This note describes the overall runtime architecture of **3MRAI**: how traffic f
 
 ## Architecture Overview
 
-```mermaid
-flowchart LR
-    Client(["Client\n(Browser / Mobile)"])
-
-    subgraph AWS ["AWS Cloud"]
-        APIGW["API Gateway\n+ Cognito Authorizer"]
-        ALB["Application\nLoad Balancer"]
-
-        subgraph ECS ["ECS Fargate"]
-            Users["Users Service"]
-            Orders["Orders Service"]
-            Tracking["Tracking Service"]
-        end
-
-        subgraph Queues ["SQS"]
-            SQS_U["users-events"]
-            SQS_O["orders-events"]
-        end
-
-        subgraph Lambda_Layer ["Lambda (CQRS Handlers)"]
-            L_U["users-write-handler"]
-            L_O["orders-write-handler"]
-        end
-
-        subgraph DocumentDB_Layer ["DocumentDB"]
-            DB_U_W["users-write\nreplica"]
-            DB_U_R["users-read\nreplica"]
-            DB_O_W["orders-write\nreplica"]
-            DB_O_R["orders-read\nreplica"]
-        end
-
-        CW["CloudWatch\nLogs & Metrics"]
-        SigNoz["SigNoz\nDashboards"]
-    end
-
-    Client --> APIGW
-    APIGW --> ALB
-    ALB --> Users
-    ALB --> Orders
-    ALB --> Tracking
-
-    Users -. "gRPC" .-> Orders
-    Orders -. "gRPC" .-> Tracking
-
-    Users --> SQS_U --> L_U --> DB_U_W
-    Orders --> SQS_O --> L_O --> DB_O_W
-
-    DB_U_W --> DB_U_R
-    DB_O_W --> DB_O_R
-
-    Users --> CW
-    Orders --> CW
-    Tracking --> CW
-    CW --> SigNoz
-```
+![[architecture.drawio.svg]]
 
 ---
 
@@ -204,3 +151,4 @@ The full stack can be reproduced locally using **Ministack** (Docker Compose). S
 - [[soft-delete]]
 - [[signoz-cloudwatch]]
 - [[local-dev-ministack]]
+- [[ADR-0015-drawio-diagrams]]
