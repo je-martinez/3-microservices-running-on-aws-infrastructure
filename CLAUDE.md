@@ -79,13 +79,14 @@ The Obsidian vault lives in [`docs/`](docs/). Design and plan for it:
 ### Conventions
 - **Cross-cutting rules are defined once in `shared/` and referenced by `[[wikilink]]`** — never duplicated in service specs.
 - Every note has YAML frontmatter: `title`, `type`, `area`, `status`, `created`, `updated`, `tags`, and `related` where applicable.
-  - `type` ∈ {spec, adr, runbook, convention, pattern, lesson, retro, plan}
+  - `type` ∈ {spec, adr, runbook, convention, pattern, lesson, retro, plan, reference}
+    - `reference` is raw source/origin material (e.g. the original prompt, early notes) kept under `docs/00-overview/sources/` — a starting point, **not** the source of truth.
   - `area` ∈ {users, orders, tracking, events-pipeline, infra, shared}
   - `status` ∈ {draft, active, accepted, superseded}
 - Tags are folder-style: `area/<x>`, `type/<x>`, `status/<x>` (plus `severity/<x>` for lessons, `phase/<n>` for phases).
 - Filenames: evergreen notes `kebab-case.md`; ADRs `ADR-NNNN-title-kebab.md` (continuous global numbering); dated notes `YYYY-MM-DD-short-title.md`.
 - Every note ends with a `## Related` section listing outgoing wikilinks.
-- Source of truth for technical content: [`first-prompt-en.md`](first-prompt-en.md).
+- Source of truth for technical content is the **organized vault** (specs, ADRs, conventions). The original prompt [`first-prompt-en.md`](docs/00-overview/sources/first-prompt-en.md) is only the **starting point** that planning grew from — it lives under `docs/00-overview/sources/` as reference material, not as the source of truth.
 
 ### Validation
 - `node scripts/validate-vault.mjs` checks frontmatter and broken wikilinks (run after editing vault notes).
