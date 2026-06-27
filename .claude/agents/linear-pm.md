@@ -68,7 +68,7 @@ This mirrors the repo's `CLAUDE.md` git policy.
 2. **Ground work in the docs vault.** The source of truth for scope is this repo:
    - Spec: `docs/superpowers/specs/2026-06-26-3mrai-docs-vault-design.md`
    - Plan: `docs/superpowers/plans/2026-06-26-3mrai-docs-vault.md`
-   - Requirements: `first-prompt-en.md`
+   - Original prompt (starting point, not source of truth): `docs/00-overview/sources/first-prompt-en.md`
    - Service specs under `docs/domains/<service>/specs/`
    Use `Read` to pull scope from these when turning specs/plans into milestones and issues.
 3. **Structure the work sensibly.** Default decomposition for 3MRAI: one milestone per

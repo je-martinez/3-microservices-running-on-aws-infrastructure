@@ -97,7 +97,7 @@ docs/
 ```yaml
 ---
 title: Users Service Design
-type: spec              # spec | adr | runbook | convention | pattern | lesson | retro | plan
+type: spec              # spec | adr | runbook | convention | pattern | lesson | retro | plan | reference
 area: users             # users | orders | tracking | events-pipeline | infra | shared
 status: draft           # draft | active | accepted | superseded
 created: 2026-06-26
@@ -106,7 +106,7 @@ tags: [area/users, type/spec, status/draft]
 related: ["[[soft-delete]]", "[[nano-id]]", "[[cqrs]]"]
 ---
 ```
-ADRs add `id`, `deciders`, `supersedes`/`superseded-by`. Integration runbooks add `integration-status`, `verified-on`, `verified-by`.
+ADRs add `id`, `deciders`, `supersedes`/`superseded-by`. Integration runbooks add `integration-status`, `verified-on`, `verified-by`. `reference` = raw source/origin material (the original prompt, early notes) kept under `docs/00-overview/sources/` — a starting point, not the source of truth.
 
 ## Seeded Content
 

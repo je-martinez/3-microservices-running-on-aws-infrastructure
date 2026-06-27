@@ -1,3 +1,13 @@
+---
+title: 3MRAI — Early Vault Notes
+type: reference
+area: shared
+status: active
+created: 2026-06-26
+updated: 2026-06-26
+tags: [type/reference, area/shared, status/active]
+---
+
 ## Folder map
 
 | Folder | Purpose |
@@ -20,3 +30,7 @@
 - **Tags:** `#lesson`, `#decision`, `#area/<subsystem>`, `#severity/<low|medium|high>`, `#phase/<n>`. Use folder-style tags for facets.
 - **Filenames:** `YYYY-MM-DD-short-title.md` for dated notes (lessons, retros, archived plans). ADRs use `ADR-NNNN-title.md`.
 - **Frontmatter:** every note has YAML frontmatter (start from a [template](templates/)). See the per-type field set below.
+
+## Related
+
+- [[00-overview/index|Vault Index]]
