@@ -24,7 +24,7 @@ related:
 
 C4-style context and container diagrams for the **3MRAI** system. These diagrams answer "what is this system and how does it fit with its environment?" (Level 1) and "what containers make up this system?" (Level 2).
 
-For the detailed runtime architecture (traffic flow, gRPC, SQS/Lambda, DocumentDB) see [[architecture]].
+For the detailed runtime architecture (traffic flow, gRPC, SQS/Lambda, Aurora, DocumentDB event store) see [[architecture]].
 
 ---
 
@@ -35,7 +35,7 @@ The system context diagram shows **3MRAI** as a black box and identifies its use
 ![[system-context-l1.drawio.svg]]
 
 > [!note] External Systems
-> Amazon Cognito, DocumentDB, SQS, Parameter Store, and CloudWatch are managed AWS services — they are **external** to the 3MRAI application code but **internal** to the AWS account boundary. SigNoz may run as a container within the VPC or as a managed external service depending on deployment configuration.
+> Amazon Cognito, Aurora, DocumentDB, SQS, Parameter Store, and CloudWatch are managed AWS services — they are **external** to the 3MRAI application code but **internal** to the AWS account boundary. Aurora (PostgreSQL/MySQL) is the operational database for each microservice; DocumentDB is the event store for the events pipeline only. SigNoz may run as a container within the VPC or as a managed external service depending on deployment configuration.
 
 ---
 
@@ -53,13 +53,15 @@ The container diagram zooms into the 3MRAI system and shows the independently de
 |---|---|---|
 | API Gateway | AWS API Gateway | TLS termination, JWT validation, rate limiting |
 | ALB | AWS ALB | Path-based routing to ECS tasks |
-| Users Service | Node.js, ECS Fargate | User CRUD, Cognito sync, soft-delete |
-| Orders Service | Node.js, ECS Fargate | Order lifecycle, gRPC calls to Tracking |
-| Tracking Service | Node.js, ECS Fargate | Shipment events, gRPC receiver |
-| users-write-handler | AWS Lambda | CQRS write handler, persists user events to DocumentDB |
-| orders-write-handler | AWS Lambda | CQRS write handler, persists order events to DocumentDB |
-| users-events / orders-events | SQS | Event buffers between services and Lambda handlers |
-| Users/Orders/Tracking DB | DocumentDB | Domain data with read/write replica topology |
+| Users Service | Fastify (Node.js), ECS Fargate | User CRUD, Cognito sync, soft-delete |
+| Orders Service | .NET Core 10 Minimal APIs, ECS Fargate | Order lifecycle, gRPC calls to Tracking |
+| Tracking Service | FastAPI (Python 3.12), ECS Fargate | Shipment events, gRPC receiver |
+| events-pipeline-handler | AWS Lambda (Node.js) | CQRS dispatcher; persists domain events to DocumentDB event store |
+| users-events / orders-events | SQS | Event buffers between services and Lambda handler |
+| Users DB | Aurora PostgreSQL | Operational data for Users service (read/write replicas) |
+| Orders DB | Aurora MySQL | Operational data for Orders service (read/write replicas) |
+| Tracking DB | Aurora MySQL | Operational data for Tracking service (read/write replicas) |
+| Event Store | DocumentDB | Append-only event store for the events pipeline (not an operational DB) |
 
 ---
 

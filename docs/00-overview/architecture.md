@@ -46,7 +46,15 @@ Relevant decisions: [[ADR-0009-apigw-alb-fargate]], [[ADR-0010-cognito-auth]].
 
 ## Compute Layer — ECS Fargate
 
-Each microservice (`users`, `orders`, `tracking`) runs as an independent ECS Fargate task definition. Services are stateless; all state lives in DocumentDB.
+Each microservice runs as an independent ECS Fargate task definition. Stacks differ per service:
+
+| Service | Runtime | Framework |
+|---|---|---|
+| Users | Node.js | Fastify |
+| Orders | .NET Core 10 | Minimal APIs + Entity Framework Core |
+| Tracking | Python 3.12 | FastAPI |
+
+Services are stateless at the HTTP layer; all domain state lives in the service's own Aurora cluster (see [Persistence](#persistence--aurora-per-service--documentdb-event-store) below).
 
 Services follow **screaming architecture** with **dependency injection** — see [[ADR-0008-screaming-arch-di]], [[screaming-architecture]], [[dependency-injection]].
 
@@ -65,29 +73,31 @@ Relevant decision: [[ADR-0003-grpc-inter-service]].
 
 ## Event Pipeline — SQS + Lambda (CQRS)
 
-Write operations follow the **CQRS** pattern:
+Domain events are published asynchronously via the **CQRS** pattern:
 
-1. A service emits a domain event to its **SQS queue**.
-2. A **Lambda handler** consumes the event and writes to the **DocumentDB write replica**.
-3. The write replica replicates to the **read replica**, which services use for queries.
+1. A service emits a domain event (e.g. `USER_CREATED`, `ORDER_CREATED`) to its **SQS queue**.
+2. A single **Lambda function** (Node.js) consumes the queue, validates the message with Zod, and dispatches it to the appropriate handler.
+3. The Lambda persists the full event document — including a `status_history` audit trail — to **DocumentDB** (the event store).
 
-This decouples write throughput from read latency and isolates DocumentDB writes behind Lambda concurrency controls.
+This pipeline is separate from the operational databases of each service. Services read and write their own domain state in their Aurora clusters (see [Persistence](#persistence--aurora-per-service--documentdb-event-store)); DocumentDB is the event store only.
 
 Relevant decisions: [[ADR-0002-cqrs]], [[ADR-0006-read-write-replicas]].
 Pattern reference: [[cqrs]].
 
 ---
 
-## Persistence — DocumentDB with Read/Write Replicas
+## Persistence — Aurora per service + DocumentDB event store
 
-Each service owns its DocumentDB cluster with two replicas:
+Each operational service owns its own **Aurora** cluster with read/write replica topology. DocumentDB is used exclusively by the events pipeline as the event store.
 
-| Replica | Purpose |
-|---|---|
-| Write replica | Receives Lambda-written events |
-| Read replica | Serves service query handlers |
+| Service | Engine | Topology |
+|---|---|---|
+| Users | Aurora PostgreSQL | 1 write replica + 1 read replica |
+| Orders | Aurora MySQL | 1 write replica + 1 read replica |
+| Tracking | Aurora MySQL | 1 write replica + 1 read replica |
+| Events pipeline | DocumentDB | Event store (append-only; not an operational DB) |
 
-Replication lag is acceptable for the eventual-consistency read paths in this system.
+Services send all mutations to their **write replica** and all query handlers to their **read replica**. Replication lag is acceptable for the eventual-consistency read paths in this system.
 
 Relevant decision: [[ADR-0006-read-write-replicas]].
 
