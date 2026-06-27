@@ -170,6 +170,8 @@ De terminar el procesamiento sin error, se coloca status COMPLETED.
 
 ## Obsidian
 
+Un par de reglas de obsidian
+
 ### Folder map
 
 | Folder | Purpose |
