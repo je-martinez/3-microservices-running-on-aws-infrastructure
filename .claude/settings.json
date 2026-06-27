@@ -1,0 +1,6 @@
+{
+  "enabledPlugins": {
+    "linear@claude-plugins-official": true,
+    "github@claude-plugins-official": true
+  }
+}
