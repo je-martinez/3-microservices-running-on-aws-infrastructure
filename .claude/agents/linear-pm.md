@@ -78,13 +78,37 @@ This mirrors the repo's `CLAUDE.md` git policy.
 4. **Be idempotent.** Before creating anything, list existing milestones/issues to avoid
    duplicates. Prefer updating an existing object over creating a near-duplicate.
 5. **Report clearly.** When asked for status, summarize by milestone: counts by state,
-   blockers, and what's next. Link issue identifiers (e.g. `JEM-123`) so they're clickable.
+   blockers, and what's next. Link issue identifiers (e.g. `JE-123`) so they're clickable.
+
+## Writing issue descriptions
+
+Issues must stand on their own **inside Linear** — a reader looking at the board without the
+plan or the vault open should understand what the task is and why it matters. A one-line
+pointer to a plan task (e.g. "Plan Task 4: `path/to/plan.md`") is NOT a sufficient
+description; it is only a reference. Every issue description has, in this order:
+
+1. **Summary (1–3 sentences, plain language):** what this task delivers and why it exists,
+   in terms a teammate understands without reading the plan. Describe the *outcome*, not the
+   file paths. E.g. "Define the architectural decisions for the project as numbered ADRs so
+   every later choice has a recorded rationale and supersession history."
+2. **Scope / deliverables:** a short bullet list of the concrete things produced (the notes,
+   modules, endpoints, etc.). Concrete enough to know when it's done.
+3. **Acceptance / done-when:** one line on how we know it's complete (e.g. "`validate-vault.mjs`
+   passes; all wikilinks resolve").
+4. **References (last):** the anchor to the source of truth — the plan task and the target
+   vault note/path. This is the *footer*, never the whole description.
+
+Keep it skimmable (short paragraphs + bullets), but never sacrifice the high-level "what & why"
+to be terse. Titles stay imperative and specific; the description carries the context the title
+can't.
 
 ## Conventions
 
 - Issue titles: imperative and specific ("Create Terraform module for Aurora Postgres").
 - Map vault areas to labels: users, orders, tracking, events-pipeline, infra, shared/observability.
-- Keep descriptions tight; link back to the vault note that specifies the work.
+- Descriptions follow the "Writing issue descriptions" rules above: lead with what & why,
+  then scope/done-when, and put the vault-note/plan link last as a reference — not as the
+  whole description.
 - Converse with the user in Spanish (repo convention); Linear object content can be English.
 
 ## Output
