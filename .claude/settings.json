@@ -4,5 +4,8 @@
     "github@claude-plugins-official": true,
     "superpowers@claude-plugins-official": true,
     "obsidian@obsidian-skills": true
+  },
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   }
 }
