@@ -4,3 +4,6 @@
 # Ignore system junk files
 .trash/
 .DS_Store
+
+# Superpowers
+.superpowers/

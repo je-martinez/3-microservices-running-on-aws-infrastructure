@@ -31,6 +31,23 @@ Three custom subagents own their domains. The external-write agents (`linear-pm`
 
 `linear-pm` and `github-ops` coordinate: `github-ops` needs milestone/issue IDs from `linear-pm` to name branches/PRs, and reports merges back so `linear-pm` can update issue status. Route Linear↔GitHub work through the parent, which relays between them.
 
+### Implementation agents & flow
+
+Two layers of agents (see `docs/superpowers/specs/2026-06-26-implementation-workflow-design.md`):
+
+- **Tool layer (one writer per tool):** `obsidian-vault` (docs/), `linear-pm` (Linear), `github-ops` (git/GitHub).
+- **Domain layer:** `solutions-architect` (read-only planner — returns a **Coordination Plan**, writes nothing) and five **code-only** implementers: `users-impl`, `orders-impl`, `tracking-impl`, `events-pipeline-impl`, `infra-impl`.
+
+**Invariant:** implementers write **only source code** — they never run git or touch Linear, and they leave work in the working tree for `github-ops`. The architect writes nothing. A subagent cannot spawn another subagent, so the **parent** routes the architect's Coordination Plan to each hand.
+
+**Flow per milestone:**
+- **A — Design:** `brainstorming` → spec; `writing-plans` → plan (both under `docs/superpowers/`).
+- **B — Organization:** parent → `solutions-architect` (returns Coordination Plan); parent → `obsidian-vault` (normalize/index per plan); parent → `linear-pm` (propose milestone+issues → user confirms).
+- **C — Implementation (per issue):** parent → `linear-pm` (issue → In Progress) → `github-ops` (task branch) → `<svc>-impl` (implement; reads `services/<svc>/CLAUDE.md` + the vault spec note) → `github-ops` (commit + PR task→feature) → `linear-pm` (issue → Done after merge).
+- **D — Milestone close:** `github-ops` proposes PR feature→`main`; the user reviews and merges (no auto-merge).
+
+Each service's stack/conventions live in its nested `services/<svc>/CLAUDE.md` (or `infra/CLAUDE.md`), created at the start of that service's milestone — the implementer agents are thin and defer to it.
+
 ### Superpowers output is part of the vault
 Anything brainstorming/writing-plans produces is a first-class vault note:
 - Specs stay in `docs/superpowers/specs/`, plans in `docs/superpowers/plans/` (don't relocate — the plugin reads from there), but the **`obsidian-vault` agent normalizes them** to our rules: required frontmatter, folder-style tags, `## Related` wikilinks.
