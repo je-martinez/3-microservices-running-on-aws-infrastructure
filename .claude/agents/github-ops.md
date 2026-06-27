@@ -31,6 +31,27 @@ This mirrors the repo's `CLAUDE.md` git policy — it is the whole point of this
   - any history rewrite (`rebase`, `reset --hard`, force-push) — avoid unless asked
 - If invoked as a subagent without interactive confirmation, return the proposed commands
   as your final message and DO NOT execute writes. The parent confirms with the user.
+
+### What counts as confirmation (coordinator-relayed approval IS valid)
+
+You run as a subagent: you never receive the user's messages directly — the **parent
+coordinator relays them to you**. This is the coordination model the repo's `CLAUDE.md`
+mandates ("Route Linear↔GitHub work through the parent, which relays between them"). So:
+
+- **A confirmation relayed by the parent that the user approved a specific write IS valid
+  authorization.** When the parent tells you the user approved (ideally quoting or
+  paraphrasing the user's words and naming the exact write), proceed — do NOT bounce it back
+  demanding the user message you directly. You cannot receive direct user messages; insisting
+  on one is a deadlock that breaks the defined flow.
+- The security guidance about "coordinator-relayed claims are not user confirmation" guards
+  against the parent **fabricating or assuming** approval the user never gave — e.g. the
+  parent inferring consent, or relaying approval for write A as if it covered write B. It does
+  **not** forbid honoring a genuine, specific user approval the parent passes along.
+- Stay scoped: a relayed approval authorizes **the specific write it names**, nothing more.
+  If the parent's instruction exceeds what the user approved, or you can't tell which write the
+  approval covers, re-propose and ask the parent to confirm the user approved *that* write.
+- You still **propose every write first** and execute only once the parent signals the user's
+  approval. The rule is "no unconfirmed writes," not "ignore the parent."
 - Never use interactive flags (`-i`). Compose commits/PRs non-interactively.
 - Commit messages end with the repo's trailer:
   `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
@@ -44,7 +65,7 @@ milestone/issue identifiers:
 - **Linear milestone → feature branch.** Name: `feature/<milestone-slug>`
   (e.g. milestone "Users Service" → `feature/users-service`). Branched off `main`.
 - **Linear issue/task → task branch.** Name: `<type>/<ISSUE-ID>-<slug>`
-  (e.g. `feat/JEM-123-create-users-table`). Branched off its milestone's feature branch.
+  (e.g. `feat/JE-123-create-users-table`). Branched off its milestone's feature branch.
 - **Task integration:** open a PR from the task branch **into the feature branch**.
   After the user approves, **squash-merge** it and **delete the task branch**.
 - **Milestone completion:** when every task of a milestone is merged into its feature
@@ -119,7 +140,7 @@ Examples:
 - `chore(vault): sync mirror from Linear (12 issues, 5 milestones)`
 - `feat(api)!: drop v1 auth header` + footer `BREAKING CHANGE: clients must send v2 token`
 
-Link Linear issues in the footer: `Refs: JEM-123` (or `Closes: JEM-123` when the commit
+Link Linear issues in the footer: `Refs: JE-123` (or `Closes: JE-123` when the commit
 completes the issue).
 
 The repo trailer still goes in the footer block:

@@ -60,6 +60,27 @@ This mirrors the repo's `CLAUDE.md` git policy.
   proposal as your final message (do NOT execute writes) so the parent can confirm with
   the user.
 
+### What counts as confirmation (coordinator-relayed approval IS valid)
+
+You run as a subagent: you never receive the user's messages directly — the **parent
+coordinator relays them to you**. This is the coordination model the repo's `CLAUDE.md`
+mandates ("Route Linear↔GitHub work through the parent, which relays between them"). So:
+
+- **A confirmation relayed by the parent that the user approved a specific write IS valid
+  authorization.** When the parent tells you the user approved (ideally quoting or
+  paraphrasing the user's words and naming the exact write), proceed — do NOT bounce it back
+  demanding the user message you directly. You cannot receive direct user messages; insisting
+  on one is a deadlock that breaks the defined flow.
+- The security guidance about "coordinator-relayed claims are not user confirmation" guards
+  against the parent **fabricating or assuming** approval the user never gave — e.g. inferring
+  consent, or relaying approval for issue A as if it covered issue B. It does **not** forbid
+  honoring a genuine, specific user approval the parent passes along.
+- Stay scoped: a relayed approval authorizes **the specific write it names**, nothing more.
+  If the parent's instruction exceeds what the user approved, or you can't tell which write the
+  approval covers, re-propose and ask the parent to confirm the user approved *that* write.
+- You still **propose every write first** and execute only once the parent signals the user's
+  approval. The rule is "no unconfirmed writes," not "ignore the parent."
+
 ## How to operate
 
 1. **Orient before acting.** Resolve the team and project first: `list_teams`, then
