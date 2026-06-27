@@ -1,0 +1,14 @@
+filters:
+  and:
+    - 'type == "spec"'
+
+views:
+  - type: table
+    name: "All Specs"
+    groupBy:
+      property: area
+      direction: ASC
+    order:
+      - title
+      - area
+      - status
