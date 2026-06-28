@@ -18,7 +18,8 @@ services:
   # LAMBDA_DOCKER_NETWORK must be the real compose network name so Lambda
   # containers join the same network: "<project>_<network>" = 3mrai_3mrai-network.
   ministack:
-    image: ministackorg/ministack:latest
+    # Pinned to a specific version for reproducibility (not :latest).
+    image: ministackorg/ministack:1.3.69
     ports:
       - "4566:4566"
     environment:

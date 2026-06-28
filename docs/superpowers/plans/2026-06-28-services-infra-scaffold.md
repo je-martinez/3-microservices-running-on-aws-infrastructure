@@ -587,7 +587,7 @@ Proposed commit: `feat(infra): scaffold Terraform module + environment skeleton 
 - Consumes: the four service `Dockerfile`s from Tasks 1–4 (so all `build:` contexts exist) and spec section "Docker (local dev)".
 - Produces: a root compose file that brings Ministack (local AWS substrate) and the four services up on one network with docker-watch. Runs LAST so every `build:` context resolves.
 
-**Ministack** (`ministackorg/ministack:latest`, port 4566) is the local AWS emulator. It emulates SQS, Lambda, ECS, RDS, S3, and DocumentDB so all four services can reach AWS APIs locally. The four services must not start until Ministack passes its health-check.
+**Ministack** (`ministackorg/ministack:1.3.69`, port 4566) is the local AWS emulator. It emulates SQS, Lambda, ECS, RDS, S3, and DocumentDB so all four services can reach AWS APIs locally. The four services must not start until Ministack passes its health-check.
 
 - [ ] **Step 1: Write `docker-compose.yml` (repo root)**
 
@@ -612,7 +612,8 @@ services:
   # LAMBDA_DOCKER_NETWORK must be the real compose network name so Lambda
   # containers join the same network: "<project>_<network>" = 3mrai_3mrai-network.
   ministack:
-    image: ministackorg/ministack:latest
+    # pinned for reproducibility
+    image: ministackorg/ministack:1.3.69
     ports:
       - "4566:4566"
     environment:
