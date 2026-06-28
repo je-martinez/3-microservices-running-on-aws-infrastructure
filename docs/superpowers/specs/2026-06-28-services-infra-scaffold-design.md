@@ -363,6 +363,8 @@ SkillsMP is a massive aggregator (~1.8 M entries) with many low-signal and perso
 
 One issue per unit. Each implementer writes **only code/config** and leaves work in the working tree for `github-ops`. The root `docker-compose.yml` is cross-cutting and goes to the parent or `infra-impl`.
 
+> **Note:** The original design had a single Task 7 "Skill discovery & install". During execution this was split into two Linear issues (JE-23 and JE-24) for tracking clarity: discovery/catalog first, then install/preload after user confirmation.
+
 | # | Issue | Agent |
 |---|---|---|
 | 1 | Scaffold + CLAUDE.md — Users | `users-impl` |
@@ -371,7 +373,8 @@ One issue per unit. Each implementer writes **only code/config** and leaves work
 | 4 | Scaffold + CLAUDE.md — events-pipeline | `events-pipeline-impl` |
 | 5 | Scaffold + CLAUDE.md — infra | `infra-impl` |
 | 6 | Root `docker-compose.yml` orchestrator | parent or `infra-impl` — last, once all Dockerfiles exist |
-| 7 | Skill discovery & install | validate catalog (license / maintenance / security), propose installs — user confirmation required |
+| 7 | Skill discovery & catalog (JE-23) | validate candidate-skills catalog, flag anomalies, propose installs — user confirmation required |
+| 8 | Skill install & preload (JE-24) | install Tier-2 skills via npx + plugins, preload domain skills into each implementer agent, record skills-catalog.md |
 
 ---
 
