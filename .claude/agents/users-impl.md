@@ -1,6 +1,11 @@
 ---
 name: users-impl
 model: sonnet
+skills:
+  - fastify-best-practices
+  - prisma-postgres
+  - prisma-postgres-setup
+  - database-designer
 description: >-
   Code implementer for the 3MRAI Users service (Fastify, Aurora Postgres). Use
   to implement a single Users-service task from the plan. Writes ONLY source

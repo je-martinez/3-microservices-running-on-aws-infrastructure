@@ -1,6 +1,8 @@
 ---
 name: infra-impl
 model: sonnet
+skills:
+  - terraform-skill
 description: >-
   Code implementer for the 3MRAI infrastructure (Terraform with custom modules,
   cloudposse/label naming, AWS). Use to implement a single infrastructure task

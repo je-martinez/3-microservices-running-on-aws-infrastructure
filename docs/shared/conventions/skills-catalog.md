@@ -10,6 +10,7 @@ tags:
   - area/shared
   - status/active
   - issue/JE-23
+  - issue/JE-24
 related:
   - "[[2026-06-28-services-infra-scaffold-design]]"
   - "[[2026-06-28-services-infra-scaffold]]"
@@ -18,19 +19,62 @@ related:
 
 # Skills Catalog
 
-This note records the Claude Code skills evaluated and approved for the 3MRAI services and infrastructure agents. It is the deliverable of [JE-23](https://linear.app/je-martinez/issue/JE-23) ("Skill discovery & install") and is the durable record of the candidate-skills catalog produced in the design spec [[2026-06-28-services-infra-scaffold-design]] after validation.
-
-**Important constraints:**
-
-- Skills are installed by the user via `/plugin install` — agents cannot self-install.
-- Nothing is installed without explicit user confirmation.
-- Reliability legend: 🟢 official (vendor or Anthropic, license verified) — ⚪ community (third-party, vet before install).
+This note records the Claude Code skills **actually installed** in the 3MRAI repo and the method used to install each one. It is the deliverable of [JE-23](https://linear.app/je-martinez/issue/JE-23) ("Skill discovery & install") and [JE-24](https://linear.app/je-martinez/issue/JE-24) ("Services & infra scaffold"), and supersedes the candidate-skills catalog produced during design spec [[2026-06-28-services-infra-scaffold-design]].
 
 ---
 
-## Already available (no install)
+## Install mechanisms
 
-The following skills ship with the Claude Code harness or are already installed in this repo and are available to all agents immediately:
+Two distinct install mechanisms exist in Claude Code. Knowing which one applies determines where a skill ends up and how it is versioned:
+
+**npx Agent Skills**
+Installed via `npx skills add <repo> --skill <name>`. The skill file lands in `.claude/skills/` and the version is pinned in `skills-lock.json`. This is the preferred mechanism for plain Agent Skills because it is version-controlled per skill, auditable in git, and requires no server running.
+
+**Claude Code plugins**
+Installed via `/plugin install`. Registration is written into `.claude/settings.json`. Use this mechanism **only** when the package bundles an MCP server (live tool access) or embedded sub-agents that `npx` cannot carry — installing such a package with `npx` would deliver only the `SKILL.md` text file and miss the runtime components entirely.
+
+**Decision rule:** prefer `npx` when the package is a plain Agent Skill. Use `/plugin` only when the package bundles an MCP server or agents.
+
+> [!tip] Why terraform moved from plugin to npx
+> The `terraform-skill` from Anton Babenko was initially evaluated as a plugin candidate. Because it is a plain Agent Skill (no MCP server, no embedded agents), it was converted to npx install — version-controlled in `.claude/skills/` and pinned in `skills-lock.json`. The `mongodb` and `aws-dev-toolkit` packages stayed as plugins because they bundle runtime components that npx cannot install.
+
+---
+
+## Installed — npx Agent Skills
+
+These skills are installed in `.claude/skills/` and pinned in `skills-lock.json`.
+
+| Skill | Source repo | Used by |
+|---|---|---|
+| `fastify-best-practices` | mcollina/skills | Users service |
+| `prisma-postgres` | prisma/skills (official) | Users service |
+| `prisma-postgres-setup` | prisma/skills (official) | Users service |
+| `efcore-patterns` | Aaronontheweb/dotnet-skills | Orders service |
+| `database-performance` | Aaronontheweb/dotnet-skills | Orders service |
+| `fastapi-expert` | Jeffallan/claude-skills | Tracking service |
+| `mysql` | planetscale/database-skills | Orders + Tracking |
+| `database-designer` | alirezarezvani/claude-skills | Cross-cutting DB design |
+| `terraform-skill` | antonbabenko/terraform-skill | Infrastructure (converted from plugin evaluation → npx) |
+
+---
+
+## Installed — Claude Code plugins
+
+These skills are registered in `.claude/settings.json` via `/plugin install`. They bundle MCP servers or embedded sub-agents that npx cannot carry.
+
+| Skill | Source | Why plugin (not npx) |
+|---|---|---|
+| `mongodb` | claude-plugins-official | Bundles an MCP server that provides live database access; `npx` would install `SKILL.md` only — no runtime |
+| `aws-dev-toolkit` | aws-samples marketplace | 40+ skills plus sub-agents embedded in the plugin; not exposed as standalone `SKILL.md` files |
+
+> [!warning] DocumentDB scope for the MongoDB plugin
+> For Amazon DocumentDB, use **only** the MongoDB plugin's **Schema Design** and **Query Optimizer** skills. Atlas-specific skills (Stream Processing, Atlas Search, Atlas Vector Search) do NOT apply to Amazon DocumentDB and must not be used in the events-pipeline service.
+
+---
+
+## Already available (no install needed)
+
+The following skills ship with the Claude Code harness or are already registered in this repo and are available to all agents without any additional install step:
 
 - **context7** — live documentation for every stack in this project: Fastify, Prisma, EF Core, SQLAlchemy, Terraform.
 - **superpowers** — brainstorming, writing-plans, executing-plans, subagent-driven-development, systematic-debugging, test-driven-development, code-review, verification-before-completion, and companion skills.
@@ -46,49 +90,20 @@ The following skills ship with the Claude Code harness or are already installed 
 
 ---
 
-## Tier 1 — Approved for install (official, license verified)
-
-🟢 These skills come from official vendor repositories or AWS samples. Licenses have been verified.
-
-| Skill | Install command | License | Used by |
-|---|---|---|---|
-| terraform-skill (Anton Babenko, AWS Hero) | `/plugin marketplace add antonbabenko/agent-plugins` then `/plugin install terraform-skill@antonbabenko` | Apache-2.0 | infra |
-| mongodb (official MongoDB) | `/plugin install mongodb` | Apache-2.0 | events-pipeline (DocumentDB) |
-| aws-dev-toolkit (AWS samples) | `/plugin marketplace add aws-samples/sample-claude-code-plugins-for-startups` then `/plugin install aws-dev-toolkit@aws-samples` | AWS samples repo (verify before install) | infra + events-pipeline |
-
-> [!warning] DocumentDB scope for the MongoDB skill
-> For DocumentDB, use ONLY the MongoDB plugin's **Schema Design** and **Query Optimizer** skills. Atlas-specific skills (Stream Processing, Atlas Search) do NOT apply to Amazon DocumentDB and must not be used.
-
----
-
-## Tier 2 — Candidates (community — vet before install)
-
-⚪ These skills come from community authors. Review the source repository, license, and contents before installing.
-
-| Service | Skill | Source |
-|---|---|---|
-| Users | fastify-best-practices (mcollina — Fastify author) + prisma-postgres (prisma/skills, official) | mcollina/skills · prisma/skills |
-| Orders | .NET Claude Kit or dotnet-skills (EF Core) | codewithmukesh / Aaronontheweb |
-| Tracking | fastapi-pro (SQLAlchemy 2.0 + Pydantic v2) | community |
-| Orders + Tracking (MySQL) | planetscale/database-skills `--skill mysql` | PlanetScale |
-| Cross-cutting DB | database-designer (indexes, soft-delete, replicas) | alirezarezvani |
-
----
-
 ## Where to find more skills
 
 See the appendix "Where to search for skills" in [[2026-06-28-services-infra-scaffold-design]] for the full source list: official vendor registries, marketplace aggregators (including skillsmp.com), and community awesome lists.
 
 ---
 
-## Caveat
+## Caveat — SkillsMP signal-to-noise
 
-SkillsMP is a massive aggregator (~1.8M entries) with low signal-to-noise ratio and significant duplicate content. One entry (`mysql-patterns`, shown as "219.4k★") is almost certainly a page error — this figure is not credible for a skills repository. That entry is treated as **UNVERIFIED** and is not recommended for use in this project.
+SkillsMP is a massive aggregator (~1.8 M entries) with low signal-to-noise ratio and significant duplicate content. One entry (`mysql-patterns`, shown as "219.4k★") is almost certainly a page error — this figure is not credible for a skills repository. That entry is treated as **UNVERIFIED** and is not recommended for use in this project.
 
 ---
 
 ## Related
 
-- [[2026-06-28-services-infra-scaffold-design]] — the design spec whose candidate-skills catalog this note records after validation.
+- [[2026-06-28-services-infra-scaffold-design]] — the design spec whose candidate-skills catalog this note supersedes after validation and install.
 - [[2026-06-28-services-infra-scaffold]] — the implementation plan that includes this catalog as Task 7.
 - [[linear-references]] — Linear reference convention (tags + inline links, no mirroring).

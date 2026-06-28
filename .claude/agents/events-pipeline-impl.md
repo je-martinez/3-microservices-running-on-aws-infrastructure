@@ -1,6 +1,12 @@
 ---
 name: events-pipeline-impl
 model: sonnet
+skills:
+  - mongodb-schema-design
+  - mongodb-query-optimizer
+  - database-designer
+  - lambda
+  - messaging
 description: >-
   Code implementer for the 3MRAI events pipeline (SQS → single Lambda,
   DocumentDB; CQRS dispatch by event type). Use to implement a single
