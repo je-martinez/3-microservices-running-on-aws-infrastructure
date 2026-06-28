@@ -118,6 +118,7 @@ Coding and data conventions defined once in `shared/` and referenced project-wid
 - [[db-naming]] — Database collection and field naming rules.
 - [[versioning]] — API and package versioning conventions.
 - [[linear-references]] — How the vault references Linear issues (tags + links, no mirroring).
+- [[skills-catalog]] — Claude Code skills evaluated and approved for the 3MRAI agents (deliverable of [JE-23](https://linear.app/je-martinez/issue/JE-23)).
 
 ---
 
