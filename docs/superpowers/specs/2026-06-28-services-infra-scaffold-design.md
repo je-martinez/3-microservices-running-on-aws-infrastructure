@@ -194,10 +194,29 @@ infra/
 
 Root `docker-compose.yml` orchestrator:
 
-- All 4 services on the same network `3mrai-network`.
+### Ministack — local AWS emulator
+
+> [!info] Ministack is the foundation of the local environment
+> `ministack` (`ministackorg/ministack:latest`, port 4566) emulates the AWS services used by all four microservices locally: SQS, Lambda, ECS, RDS, S3, DocumentDB, and more. All local AWS resources are created against it. The four services must not start until Ministack is healthy.
+
+Key configuration details:
+
+- **Port:** `4566` (standard LocalStack-compatible endpoint).
+- **Docker socket mount:** Ministack runs Lambda/ECS as real Docker containers, so it mounts `/var/run/docker.sock` from the host.
+- **Network alignment:** `LAMBDA_DOCKER_NETWORK=3mrai_3mrai-network` — the real Compose network name is `<project>_<network>` (i.e. `3mrai_3mrai-network`), so Lambda/ECS containers spawned by Ministack join the same network as the services.
+- **State persistence:** Ministack persists state and S3 objects under `./data` (git-ignored).
+
+### Services
+
+- All 4 services share the same network `3mrai-network`.
+- Each service declares `depends_on: ministack: condition: service_healthy` so they wait for Ministack's health-check before starting.
+- Each service sets `AWS_ENDPOINT_URL=http://ministack:4566` in its environment so the AWS SDK routes all calls to the local emulator (in-network hostname).
 - `develop: watch:` block sketched per service (docker-watch for live reload).
 - `build:` pointing to each `services/<svc>/Dockerfile`.
 - events-pipeline runs as a worker service locally (Lambda in production).
+
+### Dockerfiles
+
 - Skeleton `Dockerfile` per service: minimal, commented, no real build steps.
 
 ---
@@ -363,7 +382,7 @@ One issue per unit. Each implementer writes **only code/config** and leaves work
 | Agent location | Keep implementers global in root `.claude/agents/`; do not relocate (user directive). |
 | Nested `.claude/` per service | Created empty as a future extension point; not populated now. |
 | Scaffold depth | Structure + complete `CLAUDE.md` + screaming skeleton; `.gitkeep` leaves; no real code. |
-| Docker | Root orchestrator compose on one network + per-service Dockerfile skeleton. |
+| Docker | Root orchestrator compose on one network + Ministack (local AWS emulator, port 4566) + per-service Dockerfile skeleton. Services depend on Ministack health and point their AWS SDKs at `http://ministack:4566`. |
 | Skills | Catalog now; install gated to a separate confirmation-required issue. |
 
 ---

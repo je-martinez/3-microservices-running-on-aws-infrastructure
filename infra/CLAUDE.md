@@ -20,6 +20,17 @@ first, every time. Cross-cutting rules are **referenced**, never duplicated.
 > These run per environment under `environments/<env>/`; the configurations
 > themselves are created in the infrastructure implementation milestone.
 
+### Local AWS — Ministack
+Local development runs against **Ministack** (local AWS emulator: SQS, Lambda,
+ECS, RDS, S3, DocumentDB, …). The **root `docker-compose.yml`** brings it up as
+the `ministack` service on `3mrai-network`, exposed at `http://localhost:4566`
+(in-network: `http://ministack:4566`). It is the substrate where local AWS
+resources are created; Terraform's `environments/local` and the service SDKs
+target this endpoint (`AWS_ENDPOINT_URL`). Lambda/ECS execute as real Docker
+containers, so Ministack mounts the docker socket and runs them on the same
+compose network (`LAMBDA_DOCKER_NETWORK=3mrai_3mrai-network`). State persists
+under `./data` (git-ignored). Start everything with `docker compose up`.
+
 ## 3. Folder structure
 ```
 infra/

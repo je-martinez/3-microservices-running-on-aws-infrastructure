@@ -7,3 +7,6 @@
 
 # Superpowers
 .superpowers/
+
+# Ministack local state & data (created at runtime by docker-compose)
+/data/
