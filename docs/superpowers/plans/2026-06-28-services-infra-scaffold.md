@@ -66,7 +66,7 @@ touch services/users/.claude/.gitkeep \
 - [ ] **Step 2: Verify the tree matches the spec**
 
 Run: `find services/users -type f | sort`
-Expected: every `.gitkeep` listed above is present (11 `.gitkeep` files: 1 in `.claude/`, 4 feature, 5 shared, prisma, tests), and no extra files yet.
+Expected: every `.gitkeep` listed above is present (12 `.gitkeep` files: 1 in `.claude/`, 4 feature, 5 shared, prisma, tests), and no extra files yet.
 
 - [ ] **Step 3: Write `services/users/Dockerfile` (skeleton, commented)**
 
@@ -143,7 +143,7 @@ services/users/
 - [ ] **Step 5: Verify and report**
 
 Run: `test -f services/users/CLAUDE.md && test -f services/users/Dockerfile && find services/users -name .gitkeep | wc -l`
-Expected: exit 0 and `11`.
+Expected: exit 0 and `12`.
 Report: files created (paths), the structural-check output, and a proposed commit message:
 `feat(users): scaffold Users service skeleton + nested CLAUDE.md`
 
@@ -675,6 +675,30 @@ Present the proposal and wait for explicit confirmation before installing anythi
 
 If the user wants it recorded, route to `obsidian-vault` to create `docs/shared/conventions/skills-catalog.md` capturing the installed/approved set, then propose the commit `docs(vault): record approved skills catalog`.
 
+### Actual outcome (JE-23 + JE-24)
+
+Task 7 was executed as two Linear issues:
+
+- **JE-23** — Catalog & validate: enumerated candidates, verified sources, flagged anomalies (e.g. SkillsMP `mysql-patterns` star-count spike), produced the prioritized install proposal.
+- **JE-24** — Install + preload: installed approved skills and wired them into each implementer agent's frontmatter `skills:` field.
+
+**Two install mechanisms were used:**
+
+- `npx agent-skills add <skill>` — for plain skills; version-controlled via `.claude/skills/` + `skills-lock.json`.
+- `/plugin` — for packages that bundle an MCP server or agent definitions (mongodb, aws-dev-toolkit); these are installed as plugins, not plain skills.
+
+**Domain skills preloaded per implementer agent (frontmatter `skills:` field):**
+
+| Agent | Preloaded skills |
+|---|---|
+| `users-impl` | fastify-best-practices, prisma-postgres, prisma-postgres-setup, database-designer |
+| `orders-impl` | efcore-patterns, database-performance, mysql, database-designer |
+| `tracking-impl` | fastapi-expert, mysql, database-designer |
+| `events-pipeline-impl` | mongodb-schema-design, mongodb-query-optimizer, database-designer, lambda, messaging |
+| `infra-impl` | terraform-skill |
+
+The approved catalog is recorded in [[skills-catalog]] (`docs/shared/conventions/skills-catalog.md`).
+
 ---
 
 ## Self-Review
@@ -692,7 +716,7 @@ If the user wants it recorded, route to `obsidian-vault` to create `docs/shared/
 
 **Placeholder scan:** No "TBD/TODO/handle edge cases". Every file's full content is shown. ✔ (The `CLAUDE.md` "intended contract" notes are deliberate, not placeholders — commands exist as the contract; scripts come later by design.)
 
-**Type/path consistency:** `.gitkeep` counts match each tree (Users 11, Orders 10, Tracking 10, events-pipeline 8, infra 8). Orders uses PascalCase folders (.NET); others lowercase. infra uses `../docs/` (root level); services use `../../docs/` (two levels deep). Network name `3mrai-network` consistent between spec and Task 6. ✔
+**Type/path consistency:** `.gitkeep` counts match each tree (Users 12, Orders 10, Tracking 10, events-pipeline 8, infra 8). Orders uses PascalCase folders (.NET); others lowercase. infra uses `../docs/` (root level); services use `../../docs/` (two levels deep). Network name `3mrai-network` consistent between spec and Task 6. ✔
 
 **Note on TDD deviation:** the writing-plans skill defaults to TDD steps; this milestone creates structure with no logic to unit-test, so each task's verification is a structural check (file/folder existence, `.gitkeep` counts, `docker compose config`). This is the faithful adaptation — inventing unit tests for empty scaffolding would be a placeholder anti-pattern.
 
