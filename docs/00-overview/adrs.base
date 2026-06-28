@@ -1,0 +1,13 @@
+filters:
+  and:
+    - type == "adr"
+views:
+  - type: table
+    name: All ADRs
+    groupBy:
+      property: status
+      direction: ASC
+    order:
+      - title
+      - status
+      - id
