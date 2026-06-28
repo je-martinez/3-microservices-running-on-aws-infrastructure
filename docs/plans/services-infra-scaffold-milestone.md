@@ -17,6 +17,7 @@ tags:
   - issue/JE-21
   - issue/JE-22
   - issue/JE-23
+  - issue/JE-24
 related:
   - "[[milestone-plan]]"
   - "[[linear-references]]"
@@ -27,7 +28,7 @@ related:
 
 # Services & Infra Scaffold — Milestone Plan
 
-This plan documents the logical execution order and blocking relationships for the **Services & Infra Scaffold** milestone: creating the physical scaffold of the four microservices (Users, Orders, Tracking, events-pipeline) and the Terraform/AWS infrastructure layer. The milestone covers screaming-architecture folder skeletons, a nested `CLAUDE.md` per service and infra, a per-service skeleton `Dockerfile`, a root `docker-compose.yml` orchestrator that wires all services on a shared network with docker-watch, and a skill-discovery/install proposal for the tooling needed by implementer agents. No application code is written in this milestone — only structure. Live issue state is the source of truth in Linear — see the [Services & Infra Scaffold milestone](https://linear.app/je-martinez/milestone/43a18a43-eec4-4b72-b204-b94ae007728f) for current status. This note documents only structural design knowledge: task order and blocking relationships.
+This plan documents the logical execution order and blocking relationships for the **Services & Infra Scaffold** milestone: creating the physical scaffold of the four microservices (Users, Orders, Tracking, events-pipeline) and the Terraform/AWS infrastructure layer. The milestone covers screaming-architecture folder skeletons, a nested `CLAUDE.md` per service and infra, a per-service skeleton `Dockerfile`, a root `docker-compose.yml` orchestrator that wires all services on a shared network with docker-watch, a skill-discovery/install proposal for the tooling needed by implementer agents, and the install and preloading of those skills (Tier-2 via npx) into each implementer agent. No application code is written in this milestone — only structure. Live issue state is the source of truth in Linear — see the [Services & Infra Scaffold milestone](https://linear.app/je-martinez/milestone/43a18a43-eec4-4b72-b204-b94ae007728f) for current status. This note documents only structural design knowledge: task order and blocking relationships.
 
 This plan follows the [[milestone-plan]] convention. Detailed task content lives in the implementation plan [[2026-06-28-services-infra-scaffold]] and the design spec [[2026-06-28-services-infra-scaffold-design]].
 
@@ -38,7 +39,7 @@ This plan follows the [[milestone-plan]] convention. Detailed task content lives
 | Service scaffolds | JE-17, JE-18, JE-19, JE-20 | Folder skeletons + nested CLAUDE.md + skeleton Dockerfile for the four microservices (Users, Orders, Tracking, events-pipeline) |
 | Infrastructure | JE-21 | Terraform module + environment skeleton + nested CLAUDE.md |
 | Orchestration | JE-22 | Root docker-compose.yml wiring the four services on one network with docker-watch |
-| Tooling | JE-23 | Validate the candidate-skills catalog and propose installs (user-confirmed) |
+| Tooling | JE-23, JE-24 | JE-23: validate the candidate-skills catalog and propose installs (user-confirmed); JE-24: install & normalize service skills (Tier-2 via npx) and preload them per implementer agent |
 
 ## Task sequence
 
@@ -51,6 +52,7 @@ This plan follows the [[milestone-plan]] convention. Detailed task content lives
 | 5 | [JE-21](https://linear.app/je-martinez/issue/JE-21) | Terraform infra scaffold + nested CLAUDE.md | `infra/` modules + environments, `CLAUDE.md`, `README.md` | [[2026-06-28-services-infra-scaffold-design]] |
 | 6 | [JE-22](https://linear.app/je-martinez/issue/JE-22) | Root docker-compose orchestrator | `docker-compose.yml` (repo root) | [[2026-06-28-services-infra-scaffold-design]] |
 | 7 | [JE-23](https://linear.app/je-martinez/issue/JE-23) | Skill discovery & install proposal | Prioritized install proposal (user-confirmed); optional `docs/shared/conventions/skills-catalog.md` | [[2026-06-28-services-infra-scaffold-design]] |
+| 8 | [JE-24](https://linear.app/je-martinez/issue/JE-24) | Install & normalize service skills (Tier-2 via npx) + preload per implementer | 8 npx skills in `.claude/skills/` + `skills-lock.json`; 5 implementers get `skills: preload`; `skills-catalog.md` updated | [[2026-06-28-services-infra-scaffold-design]] |
 
 ## Dependencies
 
@@ -65,12 +67,13 @@ This plan follows the [[milestone-plan]] convention. Detailed task content lives
 | JE-21 | — |
 | JE-22 | JE-17, JE-18, JE-19, JE-20 |
 | JE-23 | — |
+| JE-24 | JE-23 |
 
 ### Dependency diagram
 
 ![[services-infra-scaffold-deps.drawio.svg]]
 
-The five scaffold tasks (JE-17 through JE-21) have no blockers and can run in parallel. JE-22 (root docker-compose) is blocked by the four service scaffolds JE-17–JE-20 because its `build:` contexts reference each service's `Dockerfile`; those files must exist before the compose file can reference them. JE-23 (skill discovery) is independent and can run at any time during the milestone. Note that infra (JE-21) does not block docker-compose since the compose file only wires the four application services — Terraform is a separate deployment concern.
+The five scaffold tasks (JE-17 through JE-21) have no blockers and can run in parallel. JE-22 (root docker-compose) is blocked by the four service scaffolds JE-17–JE-20 because its `build:` contexts reference each service's `Dockerfile`; those files must exist before the compose file can reference them. JE-23 (skill discovery) is independent and can run at any time during the milestone. JE-24 (skill install & preload) is blocked by JE-23 — skills must be cataloged and the install proposal confirmed before they can be installed via npx and preloaded into each implementer agent. Note that infra (JE-21) does not block docker-compose since the compose file only wires the four application services — Terraform is a separate deployment concern.
 
 ## Related
 
