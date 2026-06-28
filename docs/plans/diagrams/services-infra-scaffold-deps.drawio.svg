@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="910" height="340" viewBox="0 0 910 340" content="&lt;mxGraphModel dx=&quot;800&quot; dy=&quot;600&quot; grid=&quot;0&quot; gridSize=&quot;10&quot; guides=&quot;1&quot; tooltips=&quot;1&quot; connect=&quot;1&quot; arrows=&quot;1&quot; fold=&quot;1&quot; page=&quot;1&quot; pageScale=&quot;1&quot; pageWidth=&quot;900&quot; pageHeight=&quot;500&quot; math=&quot;0&quot; shadow=&quot;0&quot;&gt;
+  &lt;root&gt;
+    &lt;mxCell id=&quot;0&quot;/&gt;
+    &lt;mxCell id=&quot;1&quot; parent=&quot;0&quot;/&gt;
+
+    &lt;mxCell id=&quot;je17&quot; value=&quot;JE-17 / Users scaffold&quot; style=&quot;rounded=1;fillColor=#1565C0;strokeColor=#0D47A1;fontColor=#ffffff;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;
+      &lt;mxGeometry x=&quot;40&quot; y=&quot;60&quot; width=&quot;150&quot; height=&quot;50&quot; as=&quot;geometry&quot;/&gt;
+    &lt;/mxCell&gt;
+    &lt;mxCell id=&quot;je18&quot; value=&quot;JE-18 / Orders scaffold&quot; style=&quot;rounded=1;fillColor=#1565C0;strokeColor=#0D47A1;fontColor=#ffffff;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;
+      &lt;mxGeometry x=&quot;210&quot; y=&quot;60&quot; width=&quot;150&quot; height=&quot;50&quot; as=&quot;geometry&quot;/&gt;
+    &lt;/mxCell&gt;
+    &lt;mxCell id=&quot;je19&quot; value=&quot;JE-19 / Tracking scaffold&quot; style=&quot;rounded=1;fillColor=#1565C0;strokeColor=#0D47A1;fontColor=#ffffff;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;
+      &lt;mxGeometry x=&quot;380&quot; y=&quot;60&quot; width=&quot;150&quot; height=&quot;50&quot; as=&quot;geometry&quot;/&gt;
+    &lt;/mxCell&gt;
+    &lt;mxCell id=&quot;je20&quot; value=&quot;JE-20 / events-pipeline scaffold&quot; style=&quot;rounded=1;fillColor=#1565C0;strokeColor=#0D47A1;fontColor=#ffffff;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;
+      &lt;mxGeometry x=&quot;550&quot; y=&quot;60&quot; width=&quot;160&quot; height=&quot;50&quot; as=&quot;geometry&quot;/&gt;
+    &lt;/mxCell&gt;
+    &lt;mxCell id=&quot;je21&quot; value=&quot;JE-21 / infra scaffold&quot; style=&quot;rounded=1;fillColor=#2E7D32;strokeColor=#1B5E20;fontColor=#ffffff;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;
+      &lt;mxGeometry x=&quot;730&quot; y=&quot;60&quot; width=&quot;150&quot; height=&quot;50&quot; as=&quot;geometry&quot;/&gt;
+    &lt;/mxCell&gt;
+
+    &lt;mxCell id=&quot;je22&quot; value=&quot;JE-22 / root docker-compose&quot; style=&quot;rounded=1;fillColor=#2E7D32;strokeColor=#1B5E20;fontColor=#ffffff;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;
+      &lt;mxGeometry x=&quot;300&quot; y=&quot;240&quot; width=&quot;170&quot; height=&quot;50&quot; as=&quot;geometry&quot;/&gt;
+    &lt;/mxCell&gt;
+
+    &lt;mxCell id=&quot;je23&quot; value=&quot;JE-23 / skill discovery&quot; style=&quot;rounded=1;fillColor=#616161;strokeColor=#212121;fontColor=#ffffff;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;
+      &lt;mxGeometry x=&quot;730&quot; y=&quot;240&quot; width=&quot;150&quot; height=&quot;50&quot; as=&quot;geometry&quot;/&gt;
+    &lt;/mxCell&gt;
+
+    &lt;mxCell id=&quot;e1&quot; style=&quot;edgeStyle=orthogonalEdgeStyle;strokeColor=#455A64;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je17&quot; target=&quot;je22&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;
+    &lt;mxCell id=&quot;e2&quot; style=&quot;edgeStyle=orthogonalEdgeStyle;strokeColor=#455A64;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je18&quot; target=&quot;je22&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;
+    &lt;mxCell id=&quot;e3&quot; style=&quot;edgeStyle=orthogonalEdgeStyle;strokeColor=#455A64;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je19&quot; target=&quot;je22&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;
+    &lt;mxCell id=&quot;e4&quot; style=&quot;edgeStyle=orthogonalEdgeStyle;strokeColor=#455A64;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je20&quot; target=&quot;je22&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;
+  &lt;/root&gt;
+&lt;/mxGraphModel&gt;">
+<defs><marker id="arr-455A64" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L10,4 L0,8 Z" fill="#455A64"/></marker></defs>
+<rect x="0" y="0" width="910" height="340" fill="#ffffff"/>
+<text x="15" y="20" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="bold" fill="#263238">Services &amp; Infra Scaffold — Dependencies</text>
+<path d="M190,85 L245,85 L245,265 L300,265" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
+<path d="M285,110 L285,175 L385,175 L385,240" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
+<path d="M455,110 L455,175 L385,175 L385,240" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
+<path d="M550,85 L510,85 L510,265 L470,265" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
+<rect x="40" y="60" width="150" height="50" rx="6" fill="#1565C0" stroke="#0D47A1" stroke-width="1"/>
+<text x="115" y="78" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">JE-17 / Users</text>
+<text x="115" y="92" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">scaffold</text>
+<rect x="210" y="60" width="150" height="50" rx="6" fill="#1565C0" stroke="#0D47A1" stroke-width="1"/>
+<text x="285" y="78" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">JE-18 / Orders</text>
+<text x="285" y="92" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">scaffold</text>
+<rect x="380" y="60" width="150" height="50" rx="6" fill="#1565C0" stroke="#0D47A1" stroke-width="1"/>
+<text x="455" y="78" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">JE-19 / Tracking</text>
+<text x="455" y="92" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">scaffold</text>
+<rect x="550" y="60" width="160" height="50" rx="6" fill="#1565C0" stroke="#0D47A1" stroke-width="1"/>
+<text x="630" y="71" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">JE-20 /</text>
+<text x="630" y="85" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">events-pipeline</text>
+<text x="630" y="99" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">scaffold</text>
+<rect x="730" y="60" width="150" height="50" rx="6" fill="#2E7D32" stroke="#1B5E20" stroke-width="1"/>
+<text x="805" y="78" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">JE-21 / infra</text>
+<text x="805" y="92" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">scaffold</text>
+<rect x="300" y="240" width="170" height="50" rx="6" fill="#2E7D32" stroke="#1B5E20" stroke-width="1"/>
+<text x="385" y="258" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">JE-22 / root</text>
+<text x="385" y="272" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">docker-compose</text>
+<rect x="730" y="240" width="150" height="50" rx="6" fill="#616161" stroke="#212121" stroke-width="1"/>
+<text x="805" y="258" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">JE-23 / skill</text>
+<text x="805" y="272" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">discovery</text>
+</svg>

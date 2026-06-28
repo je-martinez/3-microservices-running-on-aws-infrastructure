@@ -19,6 +19,7 @@ related:
   - "[[events-pipeline-design]]"
   - "[[2026-06-26-3mrai-docs-vault-design]]"
   - "[[2026-06-26-implementation-workflow-design]]"
+  - "[[2026-06-28-services-infra-scaffold-design]]"
   - "[[ADR-0015-drawio-diagrams]]"
 ---
 
@@ -142,6 +143,7 @@ Specs produced through the planning phase, normalized to vault conventions.
 
 - [[2026-06-26-3mrai-docs-vault-design]] — Design of this documentation vault (structure, conventions, seeded content).
 - [[2026-06-26-implementation-workflow-design]] — Implementation workflow and agent topology (two layers, Phase A–D flow).
+- [[2026-06-28-services-infra-scaffold-design]] — Services & infra scaffold + skill discovery: screaming-architecture skeletons, nested CLAUDE.md per service, Docker orchestrator, and suggested-skills catalog.
 
 ---
 
@@ -164,4 +166,5 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[events-pipeline-design]]
 - [[2026-06-26-3mrai-docs-vault-design]]
 - [[2026-06-26-implementation-workflow-design]]
+- [[2026-06-28-services-infra-scaffold-design]]
 - [[ADR-0015-drawio-diagrams]]
