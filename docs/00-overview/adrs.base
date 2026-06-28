@@ -1,13 +1,13 @@
 filters:
   and:
-    - 'type == "adr"'
+    - type == "adr"
 views:
   - type: table
-    name: "All ADRs"
+    name: All ADRs
     groupBy:
-      property: note.status
+      property: status
       direction: ASC
     order:
-      - note.title
-      - note.status
-      - note.id
+      - title
+      - status
+      - id

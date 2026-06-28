@@ -1,14 +1,14 @@
 filters:
   and:
-    - 'type == "runbook"'
+    - type == "runbook"
 views:
   - type: table
-    name: "All Runbooks"
+    name: All Runbooks
     groupBy:
-      property: note.area
+      property: area
       direction: ASC
     order:
-      - note.title
-      - note.area
-      - 'note.integration-status'
-      - 'note.verified-on'
+      - title
+      - area
+      - integration-status
+      - verified-on
