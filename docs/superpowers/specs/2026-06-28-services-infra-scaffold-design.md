@@ -197,7 +197,7 @@ Root `docker-compose.yml` orchestrator:
 ### Ministack — local AWS emulator
 
 > [!info] Ministack is the foundation of the local environment
-> `ministack` (`ministackorg/ministack:1.3.69`, port 4566) emulates the AWS services used by all four microservices locally: SQS, Lambda, ECS, RDS, S3, DocumentDB, and more. All local AWS resources are created against it. The four services must not start until Ministack is healthy.
+> `ministack` (`ministackorg/ministack:1.3.69-full`, port 4566) emulates the AWS services used by all four microservices locally: SQS, Lambda, ECS, RDS, S3, DocumentDB, and more. Use the `-full` variant — it bundles DB drivers (psycopg2/pymysql) for the real Aurora Postgres/MySQL containers Ministack runs. All local AWS resources are created against it. The four services must not start until Ministack is healthy.
 
 Key configuration details:
 
