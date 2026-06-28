@@ -65,6 +65,11 @@ mandates ("Route Linear↔GitHub work through the parent, which relays between t
 - Commit messages end with the repo's trailer:
   `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
 - PR bodies end with: `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
+- **Hyperlink every Linear issue ID in a PR body.** When a PR body names issues, format each ID
+  as a markdown link to Linear — `[JE-12](https://linear.app/je-martinez/issue/JE-12)` — never as
+  bare `JE-12` text, so a reviewer can click straight through. Applies in lists, tables, and prose.
+  (The `Refs:`/`Closes:` commit footers still carry the bare ID — the link convention is for the
+  PR body.) Workspace URL base: `https://linear.app/je-martinez/issue/<ID>`.
 
 ## Branch flow (Linear-driven)
 
