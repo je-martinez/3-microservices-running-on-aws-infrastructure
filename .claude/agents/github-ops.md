@@ -121,6 +121,16 @@ base — creating the next task branch, opening the next PR — check it out and
    `git fetch --prune` and `git branch -d <task-branch>` to clean up the local branch GitHub
    already removed remotely.
 
+**Merge multiple sibling PRs into the same base:**
+When several task branches were cut from the same base (feature branch) and now have open PRs targeting it, merging one moves the base forward and leaves the others **behind**. Merging a behind branch risks integrating stale work or hitting a conflict. So:
+1. Merge them **one at a time, sequentially** — never assume independence.
+2. **Before each merge**, check the PR's mergeability: `gh pr view <num> --json mergeable,mergeStateStatus`.
+   - `CLEAN`/`mergeable` → proceed.
+   - `BEHIND` (base advanced, no conflict) → update the PR branch from the base first: `gh pr update-branch <num>` (or merge the base into the task branch and push), then re-check.
+   - `DIRTY`/`CONFLICTING` → **stop and report** which PR conflicts; do not force it. The conflict is resolved on the task branch (propose the steps) before retrying.
+3. **After each merge**, fast-forward the local base before the next: `git checkout feature/<slug> && git pull` (then `git fetch --prune`). The next PR is then evaluated against the updated base.
+Repeat per PR. This is the standard path for the batch-review flow (see `docs/shared/conventions/phase-c-review-flow.md`).
+
 **Close a milestone:**
 1. Verify all task PRs merged (`gh pr list --base feature/<slug> --state open` is empty).
 2. Propose `gh pr create --base main --head feature/<slug> --title "<Milestone>" --body "<summary of issues>"`.

@@ -32,6 +32,24 @@ The following rules apply to every Phase C execution in this project:
 > [!important] Dependency correctness
 > A blocked issue must never be implemented on top of unmerged work. If issue B depends on issue A, the parent must wait for the user to merge A's PR before branching and implementing B. Violating this produces a PR chain that cannot be squash-merged cleanly.
 
+### Merging a batch of sibling PRs safely
+
+When several task branches are cut from the same feature branch and their PRs all target that feature branch, the PRs are **not independent at merge time**. Merging any one of them advances the feature branch HEAD, leaving the remaining branches **behind** it. Merging a behind branch risks integrating stale work or triggering a merge conflict, especially when two PRs touched the same file.
+
+Therefore, when the user approves a batch of sibling PRs:
+
+1. **Merge sequentially, one at a time** — never in parallel.
+2. **Before each merge**, check mergeability:
+   ```
+   gh pr view <n> --json mergeable,mergeStateStatus
+   ```
+   - `CLEAN` → proceed with the merge.
+   - `BEHIND` → update the PR branch from the base first (`gh pr update-branch <n>`), then re-check.
+   - `CONFLICTING` → stop, resolve the conflict on the task branch, push, and retry.
+3. **After each merge**, pull/fast-forward the local feature branch so the next PR is evaluated against the updated base.
+
+The operational git commands for these steps are carried out by the `github-ops` agent. This subsection records the *why* so the cadence is followed consistently across milestones.
+
 ## Rationale
 
 This convention reconciles two competing goals:
