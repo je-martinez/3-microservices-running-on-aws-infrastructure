@@ -1,54 +1,325 @@
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="870" height="650" viewBox="0 0 870 650" content="&lt;mxGraphModel dx=&quot;1000&quot; dy=&quot;700&quot; grid=&quot;0&quot; page=&quot;1&quot; pageWidth=&quot;900&quot; pageHeight=&quot;900&quot;&gt;&lt;root&gt;&lt;mxCell id=&quot;0&quot; /&gt;&lt;mxCell id=&quot;1&quot; parent=&quot;0&quot; /&gt;&lt;mxCell id=&quot;ph1&quot; value=&quot;Foundations&quot; style=&quot;rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#90A4AE;fontColor=#455A64;fontStyle=1;align=left;spacingLeft=8;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;40&quot; y=&quot;40&quot; width=&quot;200&quot; height=&quot;26&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;je5&quot; value=&quot;JE-5&amp;#10;Skeleton + validator&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#BBDEFB;strokeColor=#1565C0;fontColor=#0D2B57;fontStyle=1;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;60&quot; y=&quot;80&quot; width=&quot;170&quot; height=&quot;50&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;je6&quot; value=&quot;JE-6&amp;#10;Note templates&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#BBDEFB;strokeColor=#1565C0;fontColor=#0D2B57;fontStyle=1;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;60&quot; y=&quot;160&quot; width=&quot;170&quot; height=&quot;50&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;ph2&quot; value=&quot;Shared base&quot; style=&quot;rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#90A4AE;fontColor=#455A64;fontStyle=1;align=left;spacingLeft=8;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;300&quot; y=&quot;40&quot; width=&quot;200&quot; height=&quot;26&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;je7&quot; value=&quot;JE-7&amp;#10;Conventions / patterns&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#C8E6C9;strokeColor=#2E7D32;fontColor=#14431A;fontStyle=1;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;320&quot; y=&quot;160&quot; width=&quot;170&quot; height=&quot;50&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;je8&quot; value=&quot;JE-8&amp;#10;ADRs 0001-0014&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#C8E6C9;strokeColor=#2E7D32;fontColor=#14431A;fontStyle=1;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;320&quot; y=&quot;240&quot; width=&quot;170&quot; height=&quot;50&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;ph3&quot; value=&quot;Service specs&quot; style=&quot;rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#90A4AE;fontColor=#455A64;fontStyle=1;align=left;spacingLeft=8;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;560&quot; y=&quot;40&quot; width=&quot;280&quot; height=&quot;26&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;je9&quot; value=&quot;JE-9 — Users spec&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0B2;strokeColor=#E65100;fontColor=#5A2600;fontStyle=1;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;580&quot; y=&quot;80&quot; width=&quot;240&quot; height=&quot;40&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;je10&quot; value=&quot;JE-10 — Orders spec&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0B2;strokeColor=#E65100;fontColor=#5A2600;fontStyle=1;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;580&quot; y=&quot;130&quot; width=&quot;240&quot; height=&quot;40&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;je11&quot; value=&quot;JE-11 — Tracking spec&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0B2;strokeColor=#E65100;fontColor=#5A2600;fontStyle=1;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;580&quot; y=&quot;180&quot; width=&quot;240&quot; height=&quot;40&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;je12&quot; value=&quot;JE-12 — Events pipeline spec&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0B2;strokeColor=#E65100;fontColor=#5A2600;fontStyle=1;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;580&quot; y=&quot;230&quot; width=&quot;240&quot; height=&quot;40&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;je13&quot; value=&quot;JE-13 — Infra specs &amp;amp; runbooks&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0B2;strokeColor=#E65100;fontColor=#5A2600;fontStyle=1;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;580&quot; y=&quot;280&quot; width=&quot;240&quot; height=&quot;40&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;ph4&quot; value=&quot;Overview&quot; style=&quot;rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#90A4AE;fontColor=#455A64;fontStyle=1;align=left;spacingLeft=8;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;300&quot; y=&quot;380&quot; width=&quot;200&quot; height=&quot;26&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;je14&quot; value=&quot;JE-14&amp;#10;Overview MOC + diagrams&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#F8BBD0;strokeColor=#C2185B;fontColor=#4A0E2E;fontStyle=1;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;320&quot; y=&quot;420&quot; width=&quot;200&quot; height=&quot;50&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;ph5&quot; value=&quot;Bases&quot; style=&quot;rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#90A4AE;fontColor=#455A64;fontStyle=1;align=left;spacingLeft=8;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;300&quot; y=&quot;510&quot; width=&quot;200&quot; height=&quot;26&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;je15&quot; value=&quot;JE-15&amp;#10;Obsidian Bases&quot; style=&quot;rounded=1;whiteSpace=wrap;html=1;fillColor=#E1BEE7;strokeColor=#6A1B9A;fontColor=#311047;fontStyle=1;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;320&quot; y=&quot;550&quot; width=&quot;200&quot; height=&quot;50&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;d1&quot; style=&quot;strokeColor=#455A64;strokeWidth=2;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je5&quot; target=&quot;je6&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;d2&quot; style=&quot;strokeColor=#455A64;strokeWidth=2;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je6&quot; target=&quot;je7&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;d3&quot; style=&quot;strokeColor=#455A64;strokeWidth=2;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je7&quot; target=&quot;je8&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;d4&quot; style=&quot;strokeColor=#E65100;strokeWidth=2;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je6&quot; target=&quot;je9&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;d5&quot; style=&quot;strokeColor=#E65100;strokeWidth=2;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je6&quot; target=&quot;je10&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;d6&quot; style=&quot;strokeColor=#E65100;strokeWidth=2;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je6&quot; target=&quot;je11&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;d7&quot; style=&quot;strokeColor=#E65100;strokeWidth=2;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je6&quot; target=&quot;je12&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;d8&quot; style=&quot;strokeColor=#E65100;strokeWidth=2;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je6&quot; target=&quot;je13&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;d9&quot; style=&quot;strokeColor=#C2185B;strokeWidth=2;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je9&quot; target=&quot;je14&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;d10&quot; style=&quot;strokeColor=#C2185B;strokeWidth=2;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je10&quot; target=&quot;je14&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;d11&quot; style=&quot;strokeColor=#C2185B;strokeWidth=2;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je11&quot; target=&quot;je14&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;d12&quot; style=&quot;strokeColor=#C2185B;strokeWidth=2;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je12&quot; target=&quot;je14&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;d13&quot; style=&quot;strokeColor=#C2185B;strokeWidth=2;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je13&quot; target=&quot;je14&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;d14&quot; style=&quot;strokeColor=#6A1B9A;strokeWidth=2;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je14&quot; target=&quot;je15&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot; /&gt;&lt;/mxCell&gt;&lt;/root&gt;&lt;/mxGraphModel&gt;">
-<defs><marker id="arr-455A64" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L10,4 L0,8 Z" fill="#455A64"/></marker><marker id="arr-E65100" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L10,4 L0,8 Z" fill="#E65100"/></marker><marker id="arr-C2185B" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L10,4 L0,8 Z" fill="#C2185B"/></marker><marker id="arr-6A1B9A" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L10,4 L0,8 Z" fill="#6A1B9A"/></marker></defs>
-<rect x="0" y="0" width="870" height="650" fill="#ffffff"/>
-<text x="15" y="20" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="bold" fill="#263238">Documentation Vault — Task Dependencies</text>
-<path d="M145,130 L145,145 L145,145 L145,160" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
-<path d="M230,185 L275,185 L275,185 L320,185" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
-<path d="M405,210 L405,225 L405,225 L405,240" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
-<path d="M230,185 L405,185 L405,100 L580,100" fill="none" stroke="#E65100" stroke-width="2" marker-end="url(#arr-E65100)"/>
-<path d="M230,185 L405,185 L405,150 L580,150" fill="none" stroke="#E65100" stroke-width="2" marker-end="url(#arr-E65100)"/>
-<path d="M230,185 L405,185 L405,200 L580,200" fill="none" stroke="#E65100" stroke-width="2" marker-end="url(#arr-E65100)"/>
-<path d="M230,185 L405,185 L405,250 L580,250" fill="none" stroke="#E65100" stroke-width="2" marker-end="url(#arr-E65100)"/>
-<path d="M230,185 L405,185 L405,300 L580,300" fill="none" stroke="#E65100" stroke-width="2" marker-end="url(#arr-E65100)"/>
-<path d="M700,120 L700,270 L420,270 L420,420" fill="none" stroke="#C2185B" stroke-width="2" marker-end="url(#arr-C2185B)"/>
-<path d="M700,170 L700,295 L420,295 L420,420" fill="none" stroke="#C2185B" stroke-width="2" marker-end="url(#arr-C2185B)"/>
-<path d="M580,200 L550,200 L550,445 L520,445" fill="none" stroke="#C2185B" stroke-width="2" marker-end="url(#arr-C2185B)"/>
-<path d="M580,250 L550,250 L550,445 L520,445" fill="none" stroke="#C2185B" stroke-width="2" marker-end="url(#arr-C2185B)"/>
-<path d="M580,300 L550,300 L550,445 L520,445" fill="none" stroke="#C2185B" stroke-width="2" marker-end="url(#arr-C2185B)"/>
-<path d="M420,470 L420,510 L420,510 L420,550" fill="none" stroke="#6A1B9A" stroke-width="2" marker-end="url(#arr-6A1B9A)"/>
-<rect x="40" y="40" width="200" height="26" rx="0" fill="none" stroke="#90A4AE" stroke-width="1"/>
-<text x="50" y="58" font-family="Helvetica,Arial,sans-serif" font-size="12" font-weight="bold" fill="#455A64">Foundations</text>
-<rect x="60" y="80" width="170" height="50" rx="6" fill="#BBDEFB" stroke="#1565C0" stroke-width="1"/>
-<text x="145" y="98" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#0D2B57" font-weight="bold">JE-5 Skeleton +</text>
-<text x="145" y="112" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#0D2B57" font-weight="bold">validator</text>
-<rect x="60" y="160" width="170" height="50" rx="6" fill="#BBDEFB" stroke="#1565C0" stroke-width="1"/>
-<text x="145" y="185" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#0D2B57" font-weight="bold">JE-6 Note templates</text>
-<rect x="300" y="40" width="200" height="26" rx="0" fill="none" stroke="#90A4AE" stroke-width="1"/>
-<text x="310" y="58" font-family="Helvetica,Arial,sans-serif" font-size="12" font-weight="bold" fill="#455A64">Shared base</text>
-<rect x="320" y="160" width="170" height="50" rx="6" fill="#C8E6C9" stroke="#2E7D32" stroke-width="1"/>
-<text x="405" y="178" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#14431A" font-weight="bold">JE-7 Conventions /</text>
-<text x="405" y="192" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#14431A" font-weight="bold">patterns</text>
-<rect x="320" y="240" width="170" height="50" rx="6" fill="#C8E6C9" stroke="#2E7D32" stroke-width="1"/>
-<text x="405" y="265" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#14431A" font-weight="bold">JE-8 ADRs 0001-0014</text>
-<rect x="560" y="40" width="280" height="26" rx="0" fill="none" stroke="#90A4AE" stroke-width="1"/>
-<text x="570" y="58" font-family="Helvetica,Arial,sans-serif" font-size="12" font-weight="bold" fill="#455A64">Service specs</text>
-<rect x="580" y="80" width="240" height="40" rx="6" fill="#FFE0B2" stroke="#E65100" stroke-width="1"/>
-<text x="700" y="100" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#5A2600" font-weight="bold">JE-9 — Users spec</text>
-<rect x="580" y="130" width="240" height="40" rx="6" fill="#FFE0B2" stroke="#E65100" stroke-width="1"/>
-<text x="700" y="150" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#5A2600" font-weight="bold">JE-10 — Orders spec</text>
-<rect x="580" y="180" width="240" height="40" rx="6" fill="#FFE0B2" stroke="#E65100" stroke-width="1"/>
-<text x="700" y="200" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#5A2600" font-weight="bold">JE-11 — Tracking spec</text>
-<rect x="580" y="230" width="240" height="40" rx="6" fill="#FFE0B2" stroke="#E65100" stroke-width="1"/>
-<text x="700" y="250" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#5A2600" font-weight="bold">JE-12 — Events pipeline spec</text>
-<rect x="580" y="280" width="240" height="40" rx="6" fill="#FFE0B2" stroke="#E65100" stroke-width="1"/>
-<text x="700" y="300" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#5A2600" font-weight="bold">JE-13 — Infra specs &amp; runbooks</text>
-<rect x="300" y="380" width="200" height="26" rx="0" fill="none" stroke="#90A4AE" stroke-width="1"/>
-<text x="310" y="398" font-family="Helvetica,Arial,sans-serif" font-size="12" font-weight="bold" fill="#455A64">Overview</text>
-<rect x="320" y="420" width="200" height="50" rx="6" fill="#F8BBD0" stroke="#C2185B" stroke-width="1"/>
-<text x="420" y="438" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#4A0E2E" font-weight="bold">JE-14 Overview MOC +</text>
-<text x="420" y="452" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#4A0E2E" font-weight="bold">diagrams</text>
-<rect x="300" y="510" width="200" height="26" rx="0" fill="none" stroke="#90A4AE" stroke-width="1"/>
-<text x="310" y="528" font-family="Helvetica,Arial,sans-serif" font-size="12" font-weight="bold" fill="#455A64">Bases</text>
-<rect x="320" y="550" width="200" height="50" rx="6" fill="#E1BEE7" stroke="#6A1B9A" stroke-width="1"/>
-<text x="420" y="575" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#311047" font-weight="bold">JE-15 Obsidian Bases</text>
+<svg host="65bd71144e" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="1151px" height="429px" viewBox="-0.5 -0.5 1151 429" content="&lt;mxfile&gt;&lt;diagram id=&quot;kUeKcRhQ0UUONhJSVcMp&quot; name=&quot;Page-1&quot;&gt;5Zpbc6M2GIZ/DZc7owPHS4Px7na6zUzdTq+JUQwNRoyQ7aS/vlIQNlhK7GwxeOrMOAOvBPj9Hn06YQtHm5evLKmyHzQlhYVA+mLhuYWQ59rivxReleB7jbBmedpI4Cgs839II8JW3eYpqZXWSJzSgudVX1zRsiQr3tMSxui+X+2JFmlPqJI10YTlKil09a885VmjBgAc9W8kX2f8pGCTtHWVUGdJSvcdCccWjhilvDnavESkkKHrh2XxTunhezFS8ksuqDJ1yS4ptsrcgm7LNOE5LWv1Jflra5zJMiIvBhYO91nOybJKVrJ0L0gLLeObQpxBcfiUF0VEC8rEeUlLUSmsOaPPpBUthAMws2exrExL3tFtx5mJVtLoS/UF5E2TIl+X4rggT1zeUDw9L9e/vp3NfaHoIWgtEsbJS0dSIflK6IZw9iqqqFJb0Xntn+6PqFFLNOtgRq5qYap1rQ83PhIQBwqCGcjfxNGA/BJ/EaK4OYYy6stnUhBOS0uyDZuquQAmQvc+Lvg5XOJZYTiPF6GJGXRcJwI6MzBHoeMZmA2AxO0j8XUk0DMgccAQSFwTEreD5DfKieyDyKYqEk4+ypv/GQjojkrCM5HwOiQiWu6EuabzAvLO0i/nhH3Ym32eSuTHbhSYqKDYm2OkU4G2jeHsOlQw6GNBgTMmFt+Exe9gmc1/lzzEH/wiPvYdocDeiCiqDGsoloTt8pXsn+qKrO51THfc84O6f7VBPTAlSCB7qBhZ4rGByAjwZ01YrTANmiCLRQxCZEIVuw4EhhHEmYmOHlwnQRz/7Fh+oNMlYQ/SVbVLiD4KqfZYPLD0LmFAPC4NffkhacATGn+wZPUsuoQ75DFydiAjD3TCI5ZzLJkdVV6RIi/J/YFBIyeKPq5LMPgEzPfyiSXHkV482k021VsEANuWj5Q+DzsNvnFIY2ZPldkao4ednHyR/Z1OugLv/KTrejspUOchc8burEuOfMCPh8hqd1TSPFmzZDNwqvhiJQ9M7CLRzTuhgd0MxCi+TqoEwflZmAnNMKsUfZMrTOoP903uKU0Oy8OR8sS45Qi7e44Pj3UukkLuOZ4D9fnEiGEYx56JljuDYTDTaWEIgX2lDa7TxDi8dBgjM1KoRVYLyqGpNiXtCwj0kf2abtmKtMAVb56wNeGtqJoSSXuvPvQwMVIkPN/134T8J89oDM+uybM3mWc8hmfP5NmfzLO+6/f+pHFYzsFknp3JPLfd1gSm3elMw8lMe9OZRpOZ9qczjSczHZw3fZjR/7TpwGjansx0251c13X7lNuxfcGEbADb8NZsXzAnG8A2ujXbF0zLBrCNb832BTOzw1Ls523bRtvOVLarTDW/7rvSTLhIhfYoVrlaUO5jNwL5auxpN+1sFacr7EaI0+OP3d7KOj8YxPG/&lt;/diagram&gt;&lt;/mxfile&gt;">
+    <defs/>
+    <g>
+        <rect x="0" y="0" width="200" height="26" fill="none" stroke="#90a4ae" pointer-events="all"/>
+        <g transform="translate(-0.5 -0.5)">
+            <switch>
+                <foreignObject pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility" style="overflow: visible; text-align: left;">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe flex-start; width: 190px; height: 1px; padding-top: 13px; margin-left: 10px;">
+                        <div data-drawio-colors="color: #455A64; " style="box-sizing: border-box; font-size: 0px; text-align: left;">
+                            <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(69, 90, 100); line-height: 1.2; pointer-events: all; font-weight: bold; white-space: normal; overflow-wrap: normal;">
+                                Foundations
+                            </div>
+                        </div>
+                    </div>
+                </foreignObject>
+                <text x="10" y="17" fill="#455A64" font-family="Helvetica" font-size="12px" font-weight="bold">
+                    Foundations
+                </text>
+            </switch>
+        </g>
+        <rect x="20" y="40" width="170" height="50" rx="7.5" ry="7.5" fill="#bbdefb" stroke="#1565c0" pointer-events="all"/>
+        <g transform="translate(-0.5 -0.5)">
+            <switch>
+                <foreignObject pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility" style="overflow: visible; text-align: left;">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 168px; height: 1px; padding-top: 65px; margin-left: 21px;">
+                        <div data-drawio-colors="color: #0D2B57; " style="box-sizing: border-box; font-size: 0px; text-align: center;">
+                            <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(13, 43, 87); line-height: 1.2; pointer-events: all; font-weight: bold; white-space: normal; overflow-wrap: normal;">
+                                JE-5
+                                <br/>
+                                Skeleton + validator
+                            </div>
+                        </div>
+                    </div>
+                </foreignObject>
+                <text x="105" y="69" fill="#0D2B57" font-family="Helvetica" font-size="12px" text-anchor="middle" font-weight="bold">
+                    JE-5...
+                </text>
+            </switch>
+        </g>
+        <rect x="20" y="120" width="170" height="50" rx="7.5" ry="7.5" fill="#bbdefb" stroke="#1565c0" pointer-events="all"/>
+        <g transform="translate(-0.5 -0.5)">
+            <switch>
+                <foreignObject pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility" style="overflow: visible; text-align: left;">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 168px; height: 1px; padding-top: 145px; margin-left: 21px;">
+                        <div data-drawio-colors="color: #0D2B57; " style="box-sizing: border-box; font-size: 0px; text-align: center;">
+                            <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(13, 43, 87); line-height: 1.2; pointer-events: all; font-weight: bold; white-space: normal; overflow-wrap: normal;">
+                                JE-6
+                                <br/>
+                                Note templates
+                            </div>
+                        </div>
+                    </div>
+                </foreignObject>
+                <text x="105" y="149" fill="#0D2B57" font-family="Helvetica" font-size="12px" text-anchor="middle" font-weight="bold">
+                    JE-6...
+                </text>
+            </switch>
+        </g>
+        <rect x="260" y="255" width="170" height="50" rx="7.5" ry="7.5" fill="#c8e6c9" stroke="#2e7d32" pointer-events="all"/>
+        <g transform="translate(-0.5 -0.5)">
+            <switch>
+                <foreignObject pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility" style="overflow: visible; text-align: left;">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 168px; height: 1px; padding-top: 280px; margin-left: 261px;">
+                        <div data-drawio-colors="color: #14431A; " style="box-sizing: border-box; font-size: 0px; text-align: center;">
+                            <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(20, 67, 26); line-height: 1.2; pointer-events: all; font-weight: bold; white-space: normal; overflow-wrap: normal;">
+                                JE-7
+                                <br/>
+                                Conventions / patterns
+                            </div>
+                        </div>
+                    </div>
+                </foreignObject>
+                <text x="345" y="284" fill="#14431A" font-family="Helvetica" font-size="12px" text-anchor="middle" font-weight="bold">
+                    JE-7...
+                </text>
+            </switch>
+        </g>
+        <rect x="260" y="335" width="170" height="50" rx="7.5" ry="7.5" fill="#c8e6c9" stroke="#2e7d32" pointer-events="all"/>
+        <g transform="translate(-0.5 -0.5)">
+            <switch>
+                <foreignObject pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility" style="overflow: visible; text-align: left;">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 168px; height: 1px; padding-top: 360px; margin-left: 261px;">
+                        <div data-drawio-colors="color: #14431A; " style="box-sizing: border-box; font-size: 0px; text-align: center;">
+                            <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(20, 67, 26); line-height: 1.2; pointer-events: all; font-weight: bold; white-space: normal; overflow-wrap: normal;">
+                                JE-8
+                                <br/>
+                                ADRs 0001-0014
+                            </div>
+                        </div>
+                    </div>
+                </foreignObject>
+                <text x="345" y="364" fill="#14431A" font-family="Helvetica" font-size="12px" text-anchor="middle" font-weight="bold">
+                    JE-8...
+                </text>
+            </switch>
+        </g>
+        <rect x="520" y="0" width="280" height="26" fill="none" stroke="#90a4ae" pointer-events="all"/>
+        <g transform="translate(-0.5 -0.5)">
+            <switch>
+                <foreignObject pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility" style="overflow: visible; text-align: left;">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe flex-start; width: 270px; height: 1px; padding-top: 13px; margin-left: 530px;">
+                        <div data-drawio-colors="color: #455A64; " style="box-sizing: border-box; font-size: 0px; text-align: left;">
+                            <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(69, 90, 100); line-height: 1.2; pointer-events: all; font-weight: bold; white-space: normal; overflow-wrap: normal;">
+                                Service specs
+                            </div>
+                        </div>
+                    </div>
+                </foreignObject>
+                <text x="530" y="17" fill="#455A64" font-family="Helvetica" font-size="12px" font-weight="bold">
+                    Service specs
+                </text>
+            </switch>
+        </g>
+        <rect x="540" y="40" width="240" height="40" rx="6" ry="6" fill="#ffe0b2" stroke="#e65100" pointer-events="all"/>
+        <g transform="translate(-0.5 -0.5)">
+            <switch>
+                <foreignObject pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility" style="overflow: visible; text-align: left;">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 238px; height: 1px; padding-top: 60px; margin-left: 541px;">
+                        <div data-drawio-colors="color: #5A2600; " style="box-sizing: border-box; font-size: 0px; text-align: center;">
+                            <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(90, 38, 0); line-height: 1.2; pointer-events: all; font-weight: bold; white-space: normal; overflow-wrap: normal;">
+                                JE-9 — Users spec
+                            </div>
+                        </div>
+                    </div>
+                </foreignObject>
+                <text x="660" y="64" fill="#5A2600" font-family="Helvetica" font-size="12px" text-anchor="middle" font-weight="bold">
+                    JE-9 — Users spec
+                </text>
+            </switch>
+        </g>
+        <rect x="540" y="90" width="240" height="40" rx="6" ry="6" fill="#ffe0b2" stroke="#e65100" pointer-events="all"/>
+        <g transform="translate(-0.5 -0.5)">
+            <switch>
+                <foreignObject pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility" style="overflow: visible; text-align: left;">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 238px; height: 1px; padding-top: 110px; margin-left: 541px;">
+                        <div data-drawio-colors="color: #5A2600; " style="box-sizing: border-box; font-size: 0px; text-align: center;">
+                            <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(90, 38, 0); line-height: 1.2; pointer-events: all; font-weight: bold; white-space: normal; overflow-wrap: normal;">
+                                JE-10 — Orders spec
+                            </div>
+                        </div>
+                    </div>
+                </foreignObject>
+                <text x="660" y="114" fill="#5A2600" font-family="Helvetica" font-size="12px" text-anchor="middle" font-weight="bold">
+                    JE-10 — Orders spec
+                </text>
+            </switch>
+        </g>
+        <rect x="540" y="140" width="240" height="40" rx="6" ry="6" fill="#ffe0b2" stroke="#e65100" pointer-events="all"/>
+        <g transform="translate(-0.5 -0.5)">
+            <switch>
+                <foreignObject pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility" style="overflow: visible; text-align: left;">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 238px; height: 1px; padding-top: 160px; margin-left: 541px;">
+                        <div data-drawio-colors="color: #5A2600; " style="box-sizing: border-box; font-size: 0px; text-align: center;">
+                            <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(90, 38, 0); line-height: 1.2; pointer-events: all; font-weight: bold; white-space: normal; overflow-wrap: normal;">
+                                JE-11 — Tracking spec
+                            </div>
+                        </div>
+                    </div>
+                </foreignObject>
+                <text x="660" y="164" fill="#5A2600" font-family="Helvetica" font-size="12px" text-anchor="middle" font-weight="bold">
+                    JE-11 — Tracking spec
+                </text>
+            </switch>
+        </g>
+        <rect x="540" y="190" width="240" height="40" rx="6" ry="6" fill="#ffe0b2" stroke="#e65100" pointer-events="all"/>
+        <g transform="translate(-0.5 -0.5)">
+            <switch>
+                <foreignObject pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility" style="overflow: visible; text-align: left;">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 238px; height: 1px; padding-top: 210px; margin-left: 541px;">
+                        <div data-drawio-colors="color: #5A2600; " style="box-sizing: border-box; font-size: 0px; text-align: center;">
+                            <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(90, 38, 0); line-height: 1.2; pointer-events: all; font-weight: bold; white-space: normal; overflow-wrap: normal;">
+                                JE-12 — Events pipeline spec
+                            </div>
+                        </div>
+                    </div>
+                </foreignObject>
+                <text x="660" y="214" fill="#5A2600" font-family="Helvetica" font-size="12px" text-anchor="middle" font-weight="bold">
+                    JE-12 — Events pipeline spec
+                </text>
+            </switch>
+        </g>
+        <rect x="540" y="240" width="240" height="40" rx="6" ry="6" fill="#ffe0b2" stroke="#e65100" pointer-events="all"/>
+        <g transform="translate(-0.5 -0.5)">
+            <switch>
+                <foreignObject pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility" style="overflow: visible; text-align: left;">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 238px; height: 1px; padding-top: 260px; margin-left: 541px;">
+                        <div data-drawio-colors="color: #5A2600; " style="box-sizing: border-box; font-size: 0px; text-align: center;">
+                            <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(90, 38, 0); line-height: 1.2; pointer-events: all; font-weight: bold; white-space: normal; overflow-wrap: normal;">
+                                JE-13 — Infra specs &amp; runbooks
+                            </div>
+                        </div>
+                    </div>
+                </foreignObject>
+                <text x="660" y="264" fill="#5A2600" font-family="Helvetica" font-size="12px" text-anchor="middle" font-weight="bold">
+                    JE-13 — Infra specs &amp; runbooks
+                </text>
+            </switch>
+        </g>
+        <rect x="930" y="0" width="200" height="26" fill="none" stroke="#90a4ae" pointer-events="all"/>
+        <g transform="translate(-0.5 -0.5)">
+            <switch>
+                <foreignObject pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility" style="overflow: visible; text-align: left;">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe flex-start; width: 190px; height: 1px; padding-top: 13px; margin-left: 940px;">
+                        <div data-drawio-colors="color: #455A64; " style="box-sizing: border-box; font-size: 0px; text-align: left;">
+                            <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(69, 90, 100); line-height: 1.2; pointer-events: all; font-weight: bold; white-space: normal; overflow-wrap: normal;">
+                                Overview
+                            </div>
+                        </div>
+                    </div>
+                </foreignObject>
+                <text x="940" y="17" fill="#455A64" font-family="Helvetica" font-size="12px" font-weight="bold">
+                    Overview
+                </text>
+            </switch>
+        </g>
+        <rect x="950" y="40" width="200" height="50" rx="7.5" ry="7.5" fill="#f8bbd0" stroke="#c2185b" pointer-events="all"/>
+        <g transform="translate(-0.5 -0.5)">
+            <switch>
+                <foreignObject pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility" style="overflow: visible; text-align: left;">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 198px; height: 1px; padding-top: 65px; margin-left: 951px;">
+                        <div data-drawio-colors="color: #4A0E2E; " style="box-sizing: border-box; font-size: 0px; text-align: center;">
+                            <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(74, 14, 46); line-height: 1.2; pointer-events: all; font-weight: bold; white-space: normal; overflow-wrap: normal;">
+                                JE-14
+                                <br/>
+                                Overview MOC + diagrams
+                            </div>
+                        </div>
+                    </div>
+                </foreignObject>
+                <text x="1050" y="69" fill="#4A0E2E" font-family="Helvetica" font-size="12px" text-anchor="middle" font-weight="bold">
+                    JE-14...
+                </text>
+            </switch>
+        </g>
+        <rect x="930" y="130" width="200" height="26" fill="none" stroke="#90a4ae" pointer-events="all"/>
+        <g transform="translate(-0.5 -0.5)">
+            <switch>
+                <foreignObject pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility" style="overflow: visible; text-align: left;">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe flex-start; width: 190px; height: 1px; padding-top: 143px; margin-left: 940px;">
+                        <div data-drawio-colors="color: #455A64; " style="box-sizing: border-box; font-size: 0px; text-align: left;">
+                            <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(69, 90, 100); line-height: 1.2; pointer-events: all; font-weight: bold; white-space: normal; overflow-wrap: normal;">
+                                Bases
+                            </div>
+                        </div>
+                    </div>
+                </foreignObject>
+                <text x="940" y="147" fill="#455A64" font-family="Helvetica" font-size="12px" font-weight="bold">
+                    Bases
+                </text>
+            </switch>
+        </g>
+        <rect x="950" y="170" width="200" height="50" rx="7.5" ry="7.5" fill="#e1bee7" stroke="#6a1b9a" pointer-events="all"/>
+        <g transform="translate(-0.5 -0.5)">
+            <switch>
+                <foreignObject pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility" style="overflow: visible; text-align: left;">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 198px; height: 1px; padding-top: 195px; margin-left: 951px;">
+                        <div data-drawio-colors="color: #311047; " style="box-sizing: border-box; font-size: 0px; text-align: center;">
+                            <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(49, 16, 71); line-height: 1.2; pointer-events: all; font-weight: bold; white-space: normal; overflow-wrap: normal;">
+                                JE-15
+                                <br/>
+                                Obsidian Bases
+                            </div>
+                        </div>
+                    </div>
+                </foreignObject>
+                <text x="1050" y="199" fill="#311047" font-family="Helvetica" font-size="12px" text-anchor="middle" font-weight="bold">
+                    JE-15...
+                </text>
+            </switch>
+        </g>
+        <path d="M 105 90 L 105 111.76" fill="none" stroke="#455a64" stroke-width="2" stroke-miterlimit="10" pointer-events="stroke"/>
+        <path d="M 105 117.76 L 101 109.76 L 105 111.76 L 109 109.76 Z" fill="#455a64" stroke="#455a64" stroke-width="2" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 149.44 170 L 293.38 250.96" fill="none" stroke="#455a64" stroke-width="2" stroke-miterlimit="10" pointer-events="stroke"/>
+        <path d="M 298.61 253.9 L 289.67 253.47 L 293.38 250.96 L 293.6 246.5 Z" fill="#455a64" stroke="#455a64" stroke-width="2" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 345 305 L 345 326.76" fill="none" stroke="#455a64" stroke-width="2" stroke-miterlimit="10" pointer-events="stroke"/>
+        <path d="M 345 332.76 L 341 324.76 L 345 326.76 L 349 324.76 Z" fill="#455a64" stroke="#455a64" stroke-width="2" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 190 131.98 L 531.86 79.63" fill="none" stroke="#e65100" stroke-width="2" stroke-miterlimit="10" pointer-events="stroke"/>
+        <path d="M 537.79 78.72 L 530.49 83.88 L 531.86 79.63 L 529.28 75.97 Z" fill="#e65100" stroke="#e65100" stroke-width="2" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 190 139.64 L 531.78 118.09" fill="none" stroke="#e65100" stroke-width="2" stroke-miterlimit="10" pointer-events="stroke"/>
+        <path d="M 537.77 117.71 L 530.04 122.2 L 531.78 118.09 L 529.53 114.22 Z" fill="#e65100" stroke="#e65100" stroke-width="2" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 190 147.3 L 531.77 156.53" fill="none" stroke="#e65100" stroke-width="2" stroke-miterlimit="10" pointer-events="stroke"/>
+        <path d="M 537.76 156.7 L 529.66 160.48 L 531.77 156.53 L 529.88 152.48 Z" fill="#e65100" stroke="#e65100" stroke-width="2" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 190 154.95 L 531.82 194.99" fill="none" stroke="#e65100" stroke-width="2" stroke-miterlimit="10" pointer-events="stroke"/>
+        <path d="M 537.78 195.69 L 529.37 198.73 L 531.82 194.99 L 530.3 190.78 Z" fill="#e65100" stroke="#e65100" stroke-width="2" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 190 162.61 L 555.41 238.33" fill="none" stroke="#e65100" stroke-width="2" stroke-miterlimit="10" pointer-events="stroke"/>
+        <path d="M 561.29 239.55 L 552.64 241.84 L 555.41 238.33 L 554.27 234.01 Z" fill="#e65100" stroke="#e65100" stroke-width="2" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 780 61.54 L 941.76 63.61" fill="none" stroke="#c2185b" stroke-width="2" stroke-miterlimit="10" pointer-events="stroke"/>
+        <path d="M 947.76 63.69 L 939.71 67.59 L 941.76 63.61 L 939.82 59.59 Z" fill="#c2185b" stroke="#c2185b" stroke-width="2" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 780 96.15 L 941.82 77.48" fill="none" stroke="#c2185b" stroke-width="2" stroke-miterlimit="10" pointer-events="stroke"/>
+        <path d="M 947.78 76.79 L 940.29 81.69 L 941.82 77.48 L 939.37 73.74 Z" fill="#c2185b" stroke="#c2185b" stroke-width="2" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 742.11 140 L 942 91.31" fill="none" stroke="#c2185b" stroke-width="2" stroke-miterlimit="10" pointer-events="stroke"/>
+        <path d="M 947.83 89.89 L 941 95.67 L 942 91.31 L 939.11 87.9 Z" fill="#c2185b" stroke="#c2185b" stroke-width="2" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 713.79 190 L 975.04 92.87" fill="none" stroke="#c2185b" stroke-width="2" stroke-miterlimit="10" pointer-events="stroke"/>
+        <path d="M 980.66 90.78 L 974.56 97.32 L 975.04 92.87 L 971.77 89.82 Z" fill="#c2185b" stroke="#c2185b" stroke-width="2" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 700 240 L 992.63 93.68" fill="none" stroke="#c2185b" stroke-width="2" stroke-miterlimit="10" pointer-events="stroke"/>
+        <path d="M 998 91 L 992.63 98.16 L 992.63 93.68 L 989.06 91 Z" fill="#c2185b" stroke="#c2185b" stroke-width="2" stroke-miterlimit="10" pointer-events="all"/>
+        <path d="M 1050 90 L 1050 161.76" fill="none" stroke="#6a1b9a" stroke-width="2" stroke-miterlimit="10" pointer-events="stroke"/>
+        <path d="M 1050 167.76 L 1046 159.76 L 1050 161.76 L 1054 159.76 Z" fill="#6a1b9a" stroke="#6a1b9a" stroke-width="2" stroke-miterlimit="10" pointer-events="all"/>
+        <rect x="249" y="402" width="200" height="26" fill="none" stroke="#90a4ae" pointer-events="all"/>
+        <g transform="translate(-0.5 -0.5)">
+            <switch>
+                <foreignObject pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility" style="overflow: visible; text-align: left;">
+                    <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe flex-start; width: 190px; height: 1px; padding-top: 415px; margin-left: 259px;">
+                        <div data-drawio-colors="color: #455A64; " style="box-sizing: border-box; font-size: 0px; text-align: left;">
+                            <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(69, 90, 100); line-height: 1.2; pointer-events: all; font-weight: bold; white-space: normal; overflow-wrap: normal;">
+                                Shared base
+                            </div>
+                        </div>
+                    </div>
+                </foreignObject>
+                <text x="259" y="419" fill="#455A64" font-family="Helvetica" font-size="12px" font-weight="bold">
+                    Shared base
+                </text>
+            </switch>
+        </g>
+    </g>
+    <switch>
+        <g requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility"/>
+        <a transform="translate(0,-5)" xlink:href="https://www.diagrams.net/doc/faq/svg-export-text-problems" target="_blank">
+            <text text-anchor="middle" font-size="10px" x="50%" y="100%">
+                Text is not SVG - cannot display
+            </text>
+        </a>
+    </switch>
 </svg>
