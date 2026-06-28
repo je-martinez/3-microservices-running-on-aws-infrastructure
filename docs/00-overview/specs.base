@@ -1,14 +1,13 @@
 filters:
   and:
     - 'type == "spec"'
-
 views:
   - type: table
     name: "All Specs"
     groupBy:
-      property: area
+      property: note.area
       direction: ASC
     order:
-      - title
-      - area
-      - status
+      - note.title
+      - note.area
+      - note.status
