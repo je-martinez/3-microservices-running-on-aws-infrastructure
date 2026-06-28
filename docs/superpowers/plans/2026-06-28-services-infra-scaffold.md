@@ -581,18 +581,24 @@ Proposed commit: `feat(infra): scaffold Terraform module + environment skeleton 
 
 **Files:**
 - Create: `docker-compose.yml` (repo root)
+- Add: `/data/` to `.gitignore` (Ministack persists state and S3 data here)
 
 **Interfaces:**
 - Consumes: the four service `Dockerfile`s from Tasks 1–4 (so all `build:` contexts exist) and spec section "Docker (local dev)".
-- Produces: a root compose file that brings the four services up on one network with docker-watch. Runs LAST so every `build:` context resolves.
+- Produces: a root compose file that brings Ministack (local AWS substrate) and the four services up on one network with docker-watch. Runs LAST so every `build:` context resolves.
+
+**Ministack** (`ministackorg/ministack:latest`, port 4566) is the local AWS emulator. It emulates SQS, Lambda, ECS, RDS, S3, and DocumentDB so all four services can reach AWS APIs locally. The four services must not start until Ministack passes its health-check.
 
 - [ ] **Step 1: Write `docker-compose.yml` (repo root)**
 
 ```yaml
 # 3MRAI local development orchestrator.
-# Brings the four services up on one network with docker-watch (live reload).
-# Skeleton: build contexts point to per-service skeleton Dockerfiles; real
-# service config (ports, env, depends_on, healthchecks) is filled in per
+# Ministack emulates AWS locally (SQS, Lambda, ECS, RDS, S3, DocumentDB, …) —
+# it is where the project's AWS resources are created for local dev. The four
+# services run on one network with docker-watch (live reload) and point their
+# AWS SDKs at Ministack via AWS_ENDPOINT_URL.
+# Skeleton: service build contexts use per-service skeleton Dockerfiles; real
+# per-service config (ports, depends-on details, healthchecks) is filled in per
 # service milestone.
 name: 3mrai
 
@@ -601,9 +607,43 @@ networks:
     driver: bridge
 
 services:
+  # Local AWS emulator. Lambda/ECS run as real Docker containers, so it needs
+  # the docker socket. State and S3 data persist under ./data (git-ignored).
+  # LAMBDA_DOCKER_NETWORK must be the real compose network name so Lambda
+  # containers join the same network: "<project>_<network>" = 3mrai_3mrai-network.
+  ministack:
+    image: ministackorg/ministack:latest
+    ports:
+      - "4566:4566"
+    environment:
+      - PERSIST_STATE=1
+      - S3_PERSIST=1
+      - RDS_PERSIST=1
+      - LOG_LEVEL=INFO
+      - LAMBDA_EXECUTOR=docker
+      - LAMBDA_DOCKER_NETWORK=3mrai_3mrai-network
+    volumes:
+      - ./data/state:/tmp/ministack-state
+      - ./data/s3:/tmp/ministack-data/s3
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [3mrai-network]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4566/_ministack/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
   users:
     build: ./services/users
     networks: [3mrai-network]
+    depends_on:
+      ministack:
+        condition: service_healthy
+    environment:
+      - AWS_ENDPOINT_URL=http://ministack:4566
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
     develop:
       watch:
         - action: sync
@@ -613,6 +653,14 @@ services:
   orders:
     build: ./services/orders
     networks: [3mrai-network]
+    depends_on:
+      ministack:
+        condition: service_healthy
+    environment:
+      - AWS_ENDPOINT_URL=http://ministack:4566
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
     develop:
       watch:
         - action: sync
@@ -622,6 +670,14 @@ services:
   tracking:
     build: ./services/tracking
     networks: [3mrai-network]
+    depends_on:
+      ministack:
+        condition: service_healthy
+    environment:
+      - AWS_ENDPOINT_URL=http://ministack:4566
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
     develop:
       watch:
         - action: sync
@@ -631,6 +687,14 @@ services:
   events-pipeline:
     build: ./services/events-pipeline
     networks: [3mrai-network]
+    depends_on:
+      ministack:
+        condition: service_healthy
+    environment:
+      - AWS_ENDPOINT_URL=http://ministack:4566
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
     develop:
       watch:
         - action: sync
@@ -646,7 +710,7 @@ Expected: exit 0, no output (valid). If Docker is unavailable in the environment
 - [ ] **Step 3: Report**
 
 Report: file created, the validation output, and a proposed commit message:
-`feat(infra): add root docker-compose orchestrator with docker-watch`
+`feat(infra): add root docker-compose orchestrator with Ministack and docker-watch`
 
 ---
 
