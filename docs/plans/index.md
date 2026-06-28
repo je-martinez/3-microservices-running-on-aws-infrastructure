@@ -4,9 +4,9 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-06-26
+updated: 2026-06-27
 tags: [type/spec, area/shared, status/active]
-related: ["[[2026-06-26-implementation-workflow]]", "[[2026-06-26-3mrai-docs-vault]]"]
+related: ["[[2026-06-26-implementation-workflow]]", "[[2026-06-26-3mrai-docs-vault]]", "[[documentation-vault-milestone]]"]
 ---
 
 # 3MRAI Plans — Index
@@ -17,8 +17,10 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 
 - [[2026-06-26-implementation-workflow]] — stand up the implementation-time agent topology (`solutions-architect` planner + five code-only implementers) and document the two-layer flow in the root `CLAUDE.md`.
 - [[2026-06-26-3mrai-docs-vault]] — build the Obsidian documentation vault under `docs/` (folder skeleton, templates, cross-cutting notes, ADRs, service specs, infrastructure docs, Bases).
+- [[documentation-vault-milestone]] — logical execution plan for the Documentation Vault milestone: task sequence, phases, and blocking dependency graph for JE-5 through JE-15.
 
 ## Related
 
 - [[2026-06-26-implementation-workflow]]
 - [[2026-06-26-3mrai-docs-vault]]
+- [[documentation-vault-milestone]]
