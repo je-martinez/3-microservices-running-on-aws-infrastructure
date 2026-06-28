@@ -1,0 +1,47 @@
+# 3MRAI local development orchestrator.
+# Brings the four services up on one network with docker-watch (live reload).
+# Skeleton: build contexts point to per-service skeleton Dockerfiles; real
+# service config (ports, env, depends_on, healthchecks) is filled in per
+# service milestone.
+name: 3mrai
+
+networks:
+  3mrai-network:
+    driver: bridge
+
+services:
+  users:
+    build: ./services/users
+    networks: [3mrai-network]
+    develop:
+      watch:
+        - action: sync
+          path: ./services/users/src
+          target: /app/src
+
+  orders:
+    build: ./services/orders
+    networks: [3mrai-network]
+    develop:
+      watch:
+        - action: sync
+          path: ./services/orders/src
+          target: /app/src
+
+  tracking:
+    build: ./services/tracking
+    networks: [3mrai-network]
+    develop:
+      watch:
+        - action: sync
+          path: ./services/tracking/src
+          target: /app/src
+
+  events-pipeline:
+    build: ./services/events-pipeline
+    networks: [3mrai-network]
+    develop:
+      watch:
+        - action: sync
+          path: ./services/events-pipeline/src
+          target: /app/src
