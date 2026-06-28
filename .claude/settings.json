@@ -1,11 +1,13 @@
 {
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
   "enabledPlugins": {
     "linear@claude-plugins-official": true,
     "github@claude-plugins-official": true,
     "superpowers@claude-plugins-official": true,
-    "obsidian@obsidian-skills": true
-  },
-  "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+    "obsidian@obsidian-skills": true,
+    "mongodb@claude-plugins-official": true,
+    "aws-dev-toolkit@sample-claude-code-plugins-for-startups": true
   }
 }

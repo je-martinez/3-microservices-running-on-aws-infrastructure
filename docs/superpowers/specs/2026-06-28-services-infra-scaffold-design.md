@@ -194,10 +194,29 @@ infra/
 
 Root `docker-compose.yml` orchestrator:
 
-- All 4 services on the same network `3mrai-network`.
+### Ministack — local AWS emulator
+
+> [!info] Ministack is the foundation of the local environment
+> `ministack` (`ministackorg/ministack:1.3.69-full`, port 4566) emulates the AWS services used by all four microservices locally: SQS, Lambda, ECS, RDS, S3, DocumentDB, and more. Use the `-full` variant — it bundles DB drivers (psycopg2/pymysql) for the real Aurora Postgres/MySQL containers Ministack runs. All local AWS resources are created against it. The four services must not start until Ministack is healthy.
+
+Key configuration details:
+
+- **Port:** `4566` (standard LocalStack-compatible endpoint).
+- **Docker socket mount:** Ministack runs Lambda/ECS as real Docker containers, so it mounts `/var/run/docker.sock` from the host.
+- **Network alignment:** `LAMBDA_DOCKER_NETWORK=3mrai_3mrai-network` — the real Compose network name is `<project>_<network>` (i.e. `3mrai_3mrai-network`), so Lambda/ECS containers spawned by Ministack join the same network as the services.
+- **State persistence:** Ministack persists state and S3 objects under `./data` (git-ignored).
+
+### Services
+
+- All 4 services share the same network `3mrai-network`.
+- Each service declares `depends_on: ministack: condition: service_healthy` so they wait for Ministack's health-check before starting.
+- Each service sets `AWS_ENDPOINT_URL=http://ministack:4566` in its environment so the AWS SDK routes all calls to the local emulator (in-network hostname).
 - `develop: watch:` block sketched per service (docker-watch for live reload).
 - `build:` pointing to each `services/<svc>/Dockerfile`.
 - events-pipeline runs as a worker service locally (Lambda in production).
+
+### Dockerfiles
+
 - Skeleton `Dockerfile` per service: minimal, commented, no real build steps.
 
 ---
@@ -344,6 +363,8 @@ SkillsMP is a massive aggregator (~1.8 M entries) with many low-signal and perso
 
 One issue per unit. Each implementer writes **only code/config** and leaves work in the working tree for `github-ops`. The root `docker-compose.yml` is cross-cutting and goes to the parent or `infra-impl`.
 
+> **Note:** The original design had a single Task 7 "Skill discovery & install". During execution this was split into two Linear issues (JE-23 and JE-24) for tracking clarity: discovery/catalog first, then install/preload after user confirmation.
+
 | # | Issue | Agent |
 |---|---|---|
 | 1 | Scaffold + CLAUDE.md — Users | `users-impl` |
@@ -352,7 +373,8 @@ One issue per unit. Each implementer writes **only code/config** and leaves work
 | 4 | Scaffold + CLAUDE.md — events-pipeline | `events-pipeline-impl` |
 | 5 | Scaffold + CLAUDE.md — infra | `infra-impl` |
 | 6 | Root `docker-compose.yml` orchestrator | parent or `infra-impl` — last, once all Dockerfiles exist |
-| 7 | Skill discovery & install | validate catalog (license / maintenance / security), propose installs — user confirmation required |
+| 7 | Skill discovery & catalog (JE-23) | validate candidate-skills catalog, flag anomalies, propose installs — user confirmation required |
+| 8 | Skill install & preload (JE-24) | install Tier-2 skills via npx + plugins, preload domain skills into each implementer agent, record skills-catalog.md |
 
 ---
 
@@ -363,7 +385,7 @@ One issue per unit. Each implementer writes **only code/config** and leaves work
 | Agent location | Keep implementers global in root `.claude/agents/`; do not relocate (user directive). |
 | Nested `.claude/` per service | Created empty as a future extension point; not populated now. |
 | Scaffold depth | Structure + complete `CLAUDE.md` + screaming skeleton; `.gitkeep` leaves; no real code. |
-| Docker | Root orchestrator compose on one network + per-service Dockerfile skeleton. |
+| Docker | Root orchestrator compose on one network + Ministack (local AWS emulator, port 4566) + per-service Dockerfile skeleton. Services depend on Ministack health and point their AWS SDKs at `http://ministack:4566`. |
 | Skills | Catalog now; install gated to a separate confirmation-required issue. |
 
 ---

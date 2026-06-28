@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-06-27
+updated: 2026-06-28
 tags:
   - type/spec
   - area/shared
@@ -118,6 +118,9 @@ Coding and data conventions defined once in `shared/` and referenced project-wid
 - [[db-naming]] — Database collection and field naming rules.
 - [[versioning]] — API and package versioning conventions.
 - [[linear-references]] — How the vault references Linear issues (tags + links, no mirroring).
+- [[milestone-plan]] — Structure and required sections for every milestone plan note in `docs/plans/`.
+- [[phase-c-review-flow]] — Phase C execution cadence: chain issues, batch PRs, stop at dependency gates, user merges every PR.
+- [[skills-catalog]] — Claude Code skills evaluated and approved for the 3MRAI agents (deliverable of [JE-23](https://linear.app/je-martinez/issue/JE-23)).
 
 ---
 
