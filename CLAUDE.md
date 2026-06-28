@@ -63,6 +63,13 @@ Anything brainstorming/writing-plans produces is a first-class vault note:
 - **Task integration:** PR task branch → feature branch; on approval, **squash-merge + delete branch**.
 - **Milestone completion:** when all task PRs are merged, **propose** a PR feature → `main` and stop — the user merges it after review (no auto-merge).
 
+### Phase C review flow (batch review + dependency gates)
+How Phase C issues are chained and reviewed (full convention: `docs/shared/conventions/phase-c-review-flow.md`):
+- **Chain issues without per-merge prompts.** Work issues one after another (issue → In Progress → task branch → implement → PR task→feature). Do **not** ask for merge confirmation between each issue, and do **not** self-merge the task→feature PRs during the chain — leave them open.
+- **Batch PRs for review.** At each stop point, present the user **one list** of open PRs to review/merge — never one-by-one.
+- **Dependency gates are stop points.** If issue B is blocked by A, B must build on A's **merged** work: implement everything independent first, open those PRs, then **stop** at the first blocked issue and hand the user the batch so far. After the user merges that batch, continue with the previously-blocked issues. A milestone may have several stop points.
+- **Never auto-merge.** The user merges (or explicitly authorizes the merge of) every PR; one approval authorizes only that PR/batch, never standing auto-merge.
+
 ## Project decisions & memory
 
 Project decisions and memory live in the **vault** (versioned, navigable) — **not** in any external `~/.claude/` memory file. There is no separate memory store; this repo is the source of truth. At session start, consult:
