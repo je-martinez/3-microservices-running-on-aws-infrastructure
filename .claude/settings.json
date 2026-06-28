@@ -7,7 +7,6 @@
     "github@claude-plugins-official": true,
     "superpowers@claude-plugins-official": true,
     "obsidian@obsidian-skills": true,
-    "terraform-skill@antonbabenko": true,
     "mongodb@claude-plugins-official": true,
     "aws-dev-toolkit@sample-claude-code-plugins-for-startups": true
   }
