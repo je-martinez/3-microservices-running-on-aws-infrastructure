@@ -10,7 +10,8 @@ deciders: [Jose E. Martinez]
 supersedes: null
 superseded-by: null
 tags: [type/adr, area/shared, status/accepted]
-related: []
+related:
+  - "[[ADR-0016-local-apigw-nginx-ecs]]"
 ---
 
 # ADR-0009: API Gateway → ALB → ECS Fargate in Production
@@ -32,3 +33,4 @@ Authentication and throttling are enforced at the edge for all external calls wi
 - [[ADR-0001-terraform-cloudposse-naming]]
 - [[ADR-0010-cognito-auth]]
 - [[ADR-0012-ministack-local]]
+- [[ADR-0016-local-apigw-nginx-ecs]] — local override: Ministack's ALB emulator does not support ECS `ip`/`instance` target types, so the local environment replaces ALB with an Nginx ECS reverse proxy. This ADR governs production only.
