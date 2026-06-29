@@ -1,3 +1,34 @@
+---
+title: Users Service Implementation Plan
+type: plan
+area: users
+status: active
+created: 2026-06-28
+updated: 2026-06-28
+tags:
+  - type/plan
+  - area/users
+  - status/active
+  - milestone/users-service
+  - issue/JE-25
+  - issue/JE-26
+  - issue/JE-27
+  - issue/JE-28
+  - issue/JE-29
+  - issue/JE-30
+  - issue/JE-31
+  - issue/JE-32
+  - issue/JE-33
+  - issue/JE-34
+  - issue/JE-35
+  - issue/JE-36
+  - issue/JE-37
+related:
+  - "[[2026-06-28-users-service-design]]"
+  - "[[users-service-design]]"
+  - "[[users-service-milestone]]"
+---
+
 # Users Service Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

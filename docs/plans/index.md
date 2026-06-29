@@ -4,9 +4,16 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-06-27
+updated: 2026-06-28
 tags: [type/spec, area/shared, status/active]
-related: ["[[2026-06-26-implementation-workflow]]", "[[2026-06-26-3mrai-docs-vault]]", "[[documentation-vault-milestone]]", "[[2026-06-28-services-infra-scaffold]]", "[[services-infra-scaffold-milestone]]"]
+related:
+  - "[[2026-06-26-implementation-workflow]]"
+  - "[[2026-06-26-3mrai-docs-vault]]"
+  - "[[documentation-vault-milestone]]"
+  - "[[2026-06-28-services-infra-scaffold]]"
+  - "[[services-infra-scaffold-milestone]]"
+  - "[[2026-06-28-users-service]]"
+  - "[[users-service-milestone]]"
 ---
 
 # 3MRAI Plans — Index
@@ -20,6 +27,8 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[documentation-vault-milestone]] — logical execution plan for the Documentation Vault milestone: task sequence, phases, and blocking dependency graph for JE-5 through JE-15.
 - [[2026-06-28-services-infra-scaffold]] — scaffold the four microservices (Users, Orders, Tracking, events-pipeline) and Terraform/AWS infrastructure: folder skeletons, nested `CLAUDE.md` files, per-service `Dockerfile`, root `docker-compose.yml`, and skill discovery.
 - [[services-infra-scaffold-milestone]] — logical execution plan for the Services & Infra Scaffold milestone: task sequence, phases, and blocking dependency graph for JE-17 through JE-23.
+- [[2026-06-28-users-service]] — implementation plan for the Users Service milestone: pnpm tooling, Prisma schema, Fastify API, Terraform modules, and Playwright E2E suite.
+- [[users-service-milestone]] — logical execution plan for the Users Service milestone: task sequence, phases, and blocking dependency graph for JE-25 through JE-37.
 
 ## Related
 
@@ -28,3 +37,5 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[documentation-vault-milestone]]
 - [[2026-06-28-services-infra-scaffold]]
 - [[services-infra-scaffold-milestone]]
+- [[2026-06-28-users-service]]
+- [[users-service-milestone]]

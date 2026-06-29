@@ -20,6 +20,7 @@ related:
   - "[[2026-06-26-3mrai-docs-vault-design]]"
   - "[[2026-06-26-implementation-workflow-design]]"
   - "[[2026-06-28-services-infra-scaffold-design]]"
+  - "[[2026-06-28-users-service-design]]"
   - "[[ADR-0015-drawio-diagrams]]"
 ---
 
@@ -147,6 +148,7 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-06-26-3mrai-docs-vault-design]] — Design of this documentation vault (structure, conventions, seeded content).
 - [[2026-06-26-implementation-workflow-design]] — Implementation workflow and agent topology (two layers, Phase A–D flow).
 - [[2026-06-28-services-infra-scaffold-design]] — Services & infra scaffold + skill discovery: screaming-architecture skeletons, nested CLAUDE.md per service, Docker orchestrator, and suggested-skills catalog.
+- [[2026-06-28-users-service-design]] — Users Service implementation design: pnpm workspace, Prisma schema with `tags` column, Fastify API, Cognito JWT authorizer, Terraform modules, and Playwright E2E suite on Ministack.
 
 ---
 
@@ -170,4 +172,5 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[2026-06-26-3mrai-docs-vault-design]]
 - [[2026-06-26-implementation-workflow-design]]
 - [[2026-06-28-services-infra-scaffold-design]]
+- [[2026-06-28-users-service-design]]
 - [[ADR-0015-drawio-diagrams]]
