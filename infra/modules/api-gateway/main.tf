@@ -40,6 +40,24 @@ resource "aws_apigatewayv2_authorizer" "jwt" {
 # bootstrap patches it with the nginx ECS task's actual private IP.
 # See variable `nginx_integration_uri` for the bootstrap procedure.
 # payload_format_version = "1.0" matches the spike.
+#
+# request_parameters — claim injection (ADR-0010 / ADR-0016):
+#   Auth lives at the EDGE. The Cognito JWT authorizer validates the token;
+#   the backend receives the caller's identity as a plain header — it must NOT
+#   decode JWTs itself.
+#
+#   We inject the `email` claim (not `sub`) because:
+#     - Our users table uses a nano-id (usr_*) as the primary key, not the
+#       Cognito sub UUID, so `sub` cannot be used to look up a user directly.
+#     - `email` exists in BOTH the Cognito IdToken and our users table, making
+#       it the only JWT claim that maps 1-to-1 to a stored user without an
+#       extra Cognito lookup.
+#     - Ministack 1.3.69-full populates $context.authorizer.claims for HTTP_PROXY
+#       integrations and forwards `append:header.*` request_parameters correctly
+#       (verified in JE-37; logged in ministack-auth-chain-spike-findings).
+#
+#   Production parity: real AWS API GW v2 HTTP APIs support
+#   $context.authorizer.claims.* identically. No production-only workaround needed.
 resource "aws_apigatewayv2_integration" "nginx" {
   api_id             = aws_apigatewayv2_api.this.id
   integration_type   = "HTTP_PROXY"
@@ -47,6 +65,12 @@ resource "aws_apigatewayv2_integration" "nginx" {
   integration_uri    = var.nginx_integration_uri
 
   payload_format_version = "1.0"
+
+  # Inject the authenticated user's email as a backend header so the service
+  # can identify the caller without decoding the JWT itself.
+  request_parameters = {
+    "append:header.x-user-id" = "$context.authorizer.claims.email"
+  }
 }
 
 # ─── Public routes (no authorizer) ───────────────────────────────────────────

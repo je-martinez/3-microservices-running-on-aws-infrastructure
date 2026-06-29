@@ -6,8 +6,8 @@ function fakeDeps(e2eEnabled: boolean) {
     env: { E2E_TESTING_ENABLED: e2eEnabled },
     registerUser: vi.fn(async (_d: any, input: any) => ({ id: "usr_1", tags: input.e2eSource ? ["E2E Source"] : [] })),
     loginUser: vi.fn(),
-    getMe: vi.fn(),
-    updateProfile: vi.fn(),
+    getMe: vi.fn(async () => ({ id: "usr_1", email: "a@b.c" })),
+    updateProfile: vi.fn(async () => ({ id: "usr_1" })),
     softDeleteE2EUsers: vi.fn(async () => ({ count: 3 })),
   } as any;
 }
@@ -39,6 +39,58 @@ describe("routes", () => {
       payload: { email: "a@b.c", password: "P!1", fullName: "A" },
     });
     expect(res.json().tags).toEqual([]);
+  });
+
+  it("GET /v1/users/me reads identity from x-user-id header (email injected by API Gateway)", async () => {
+    const deps = fakeDeps(false);
+    const app = buildApp(deps);
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/users/me",
+      headers: { "x-user-id": "a@b.c" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(deps.getMe).toHaveBeenCalledWith(expect.anything(), "a@b.c");
+  });
+
+  it("GET /v1/users/me returns 401 when x-user-id header is absent", async () => {
+    const app = buildApp(fakeDeps(false));
+    const res = await app.inject({ method: "GET", url: "/v1/users/me" });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("GET /v1/users/me returns 401 when x-user-id header is empty", async () => {
+    const app = buildApp(fakeDeps(false));
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/users/me",
+      headers: { "x-user-id": "   " },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("PATCH /v1/users/me reads identity from x-user-id header and passes email to updateProfile", async () => {
+    const deps = fakeDeps(false);
+    const app = buildApp(deps);
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/v1/users/me",
+      headers: { "x-user-id": "a@b.c", "content-type": "application/json" },
+      payload: { fullName: "New Name" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(deps.updateProfile).toHaveBeenCalledWith(expect.anything(), "a@b.c", expect.objectContaining({ fullName: "New Name" }));
+  });
+
+  it("PATCH /v1/users/me returns 401 when x-user-id header is absent", async () => {
+    const app = buildApp(fakeDeps(false));
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/v1/users/me",
+      headers: { "content-type": "application/json" },
+      payload: { fullName: "New Name" },
+    });
+    expect(res.statusCode).toBe(401);
   });
 
   it("e2e-cleanup returns 404 when flag disabled", async () => {

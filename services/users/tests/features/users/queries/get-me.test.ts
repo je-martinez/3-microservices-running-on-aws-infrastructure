@@ -2,10 +2,17 @@ import { describe, it, expect, vi } from "vitest";
 import { getMe } from "../../../../src/features/users/queries/get-me.js";
 
 describe("getMe", () => {
-  it("queries reader filtering out soft-deleted rows", async () => {
+  it("queries by email (x-user-id carries the user email from API Gateway)", async () => {
     const findFirst = vi.fn(async () => null);
     const reader = { user: { findFirst } } as any;
-    await getMe({ reader }, "usr_1");
-    expect(findFirst).toHaveBeenCalledWith({ where: { id: "usr_1", deletedAt: null } });
+    await getMe({ reader }, "a@b.c");
+    expect(findFirst).toHaveBeenCalledWith({ where: { email: "a@b.c", deletedAt: null } });
+  });
+
+  it("returns null when user is not found", async () => {
+    const findFirst = vi.fn(async () => null);
+    const reader = { user: { findFirst } } as any;
+    const result = await getMe({ reader }, "notfound@example.com");
+    expect(result).toBeNull();
   });
 });

@@ -4,8 +4,8 @@ export interface AppDeps {
   env: { E2E_TESTING_ENABLED: boolean };
   registerUser: (deps: unknown, input: unknown) => Promise<{ id: string; tags: string[] }>;
   loginUser: (deps: unknown, input: { email: string; password: string }) => Promise<unknown>;
-  getMe: (deps: unknown, userId: string) => Promise<unknown>;
-  updateProfile: (deps: unknown, userId: string, input: unknown) => Promise<unknown>;
+  getMe: (deps: unknown, userEmail: string) => Promise<unknown>;
+  updateProfile: (deps: unknown, userEmail: string, input: unknown) => Promise<unknown>;
   softDeleteE2EUsers: (deps: unknown) => Promise<{ count: number }>;
 }
 
@@ -27,16 +27,24 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     return reply.send(tokens);
   });
 
-  // Identity comes from the API Gateway authorizer (claims forwarded as headers).
+  // Identity comes exclusively from the x-user-id header injected by the API Gateway authorizer.
+  // The gateway has already validated the JWT and injects the user's email as x-user-id.
+  // If the header is absent the request is unauthenticated (gateway misconfiguration or direct call).
   app.get("/v1/users/me", async (req, reply) => {
-    const userId = req.headers["x-user-id"] as string;
-    const me = await deps.getMe(deps, userId);
+    const userEmail = req.headers["x-user-id"];
+    if (!userEmail || typeof userEmail !== "string" || !userEmail.trim()) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    const me = await deps.getMe(deps, userEmail.trim());
     return me ? reply.send(me) : reply.code(404).send({ error: "not_found" });
   });
 
   app.patch("/v1/users/me", async (req, reply) => {
-    const userId = req.headers["x-user-id"] as string;
-    const updated = await deps.updateProfile(deps, userId, req.body);
+    const userEmail = req.headers["x-user-id"];
+    if (!userEmail || typeof userEmail !== "string" || !userEmail.trim()) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+    const updated = await deps.updateProfile(deps, userEmail.trim(), req.body);
     return reply.send(updated);
   });
 
