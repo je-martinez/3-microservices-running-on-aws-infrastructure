@@ -42,6 +42,16 @@ services:
       timeout: 3s
       retries: 3
 
+  # Temporary spike backend for JE-25 auth-chain spike.
+  # Simulates the "users" service before it is implemented.
+  # Runs hashicorp/http-echo returning "spike-ok-via-nginx" on port 8080.
+  # Nginx (ECS task in Ministack) proxies to this service by name via Docker DNS.
+  # Remove this service once the real users service is in place.
+  spike-backend:
+    image: hashicorp/http-echo:latest
+    command: ["-listen=:8080", "-text=spike-ok-via-nginx"]
+    networks: [3mrai-network]
+
   users:
     build: ./services/users
     networks: [3mrai-network]
