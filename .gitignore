@@ -10,3 +10,7 @@
 
 # Ministack local state & data (created at runtime by docker-compose)
 /data/
+
+# Node / pnpm
+node_modules/
+.pnpm-store/

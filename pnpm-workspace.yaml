@@ -1,0 +1,3 @@
+packages:
+  - "services/users"
+  - "e2e"
