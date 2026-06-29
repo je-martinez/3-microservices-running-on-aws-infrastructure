@@ -76,10 +76,21 @@ services:
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
       - PORT=3000
-      # Aurora writer/reader endpoints — Ministack emulates RDS on the same host.
-      # Replace these with real terraform outputs once JE-36 bootstrap runs.
-      - DATABASE_WRITER_URL=postgres://test:test@ministack:4566/users
-      - DATABASE_READER_URL=postgres://test:test@ministack:4566/users
+      # Aurora writer/reader endpoints from `terraform output` (infra/environments/local).
+      # Real values come from `terraform output` exported to the shell or a .env file
+      # before running `docker compose up`. The IP fallbacks below are Ministack-run-specific
+      # (assigned at apply time) and exist only so compose starts without a pre-exported env.
+      # Re-run bootstrap.sh if Ministack state is reset and the IPs change.
+      # Format: postgresql://<user>:<password>@<host>:<port>/<db>  (explicit auth — required for scram-sha-256).
+      #
+      # READER FALLBACK NOTE: Ministack has no writer→reader replication; both URLs must
+      # point at the same Postgres instance (the writer, 192.168.155.5) so reads and writes
+      # see the same data. The terraform output `database_reader_url` is already patched to
+      # use the writer endpoint. This fallback mirrors that decision for offline/no-env starts.
+      # In production the real DATABASE_READER_URL (injected at runtime) uses the Aurora
+      # reader endpoint per ADR-0006.
+      - DATABASE_WRITER_URL=${DATABASE_WRITER_URL:-postgresql://postgres:localtest123@192.168.155.5:5432/users}
+      - DATABASE_READER_URL=${DATABASE_READER_URL:-postgresql://postgres:localtest123@192.168.155.5:5432/users}
       # Cognito pool/client IDs come from `terraform output` (JE-36 bootstrap).
       - COGNITO_USER_POOL_ID=${COGNITO_USER_POOL_ID}
       - COGNITO_CLIENT_ID=${COGNITO_CLIENT_ID}

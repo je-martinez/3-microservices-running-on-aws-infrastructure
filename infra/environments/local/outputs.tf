@@ -38,8 +38,21 @@ output "database_writer_url" {
 }
 
 output "database_reader_url" {
-  description = "PostgreSQL connection URL for the Aurora reader endpoint. Used by the users service READ queries."
-  value       = "postgresql://${module.rds_aurora.reader_endpoint}/users?user=postgres&password=${var.db_master_password}"
+  # LOCAL OVERRIDE: Ministack provisions writer and reader as two independent
+  # Postgres containers with NO replication between them. Reads on the reader
+  # instance see a separate, empty dataset — writes land only on the writer.
+  # To avoid silent 404s (e.g. GET /me reads from an empty reader right after
+  # POST /register writes to the writer), we point the reader URL at the
+  # writer endpoint here, at the environment-composition layer only.
+  #
+  # In production Aurora replicates automatically, so the reader endpoint
+  # carries all writes within replica lag. The rds-aurora MODULE is unchanged
+  # and still creates a separate reader instance for prod parity — this
+  # override affects only the local URL that services consume.
+  #
+  # See: ADR-0006 (read/write replicas), ADR-0012 (Ministack local).
+  description = "PostgreSQL connection URL for READ queries. LOCAL: resolves to the writer endpoint (no Ministack replication). PROD: reader endpoint per ADR-0006."
+  value       = "postgresql://${module.rds_aurora.writer_endpoint}/users?user=postgres&password=${var.db_master_password}"
   sensitive   = true
 }
 
