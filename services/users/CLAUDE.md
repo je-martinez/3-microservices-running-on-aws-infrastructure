@@ -12,12 +12,12 @@ every time. Cross-cutting rules are **referenced**, never duplicated.
 - Env validation: Zod.
 
 ## 2. Commands
-- Install: `nvm use && npm ci`
-- Build: `npm run build`
-- Test: `npm test`
-- Lint: `npm run lint`
+- Install: `nvm use && corepack enable && pnpm install --frozen-lockfile`
+- Build: `pnpm build`
+- Test: `pnpm test`
+- Lint: `pnpm lint`
 - Run local (docker-watch): `docker compose up users --watch` (from repo root)
-- Migrate: `npx prisma migrate dev`
+- Migrate: `pnpm prisma migrate dev`
 
 > These commands are the intended contract; the scripts themselves are created
 > in the Users implementation milestone.

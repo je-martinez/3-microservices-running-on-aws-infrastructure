@@ -46,14 +46,26 @@ services:
   # Simulates the "users" service before it is implemented.
   # Runs hashicorp/http-echo returning "spike-ok-via-nginx" on port 8080.
   # Nginx (ECS task in Ministack) proxies to this service by name via Docker DNS.
-  # Remove this service once the real users service is in place.
+  # TODO(JE-25): remove once the real `users` service fully replaces it and
+  # the Nginx ECS task is pointed at `users:3000`.
   spike-backend:
     image: hashicorp/http-echo:latest
     command: ["-listen=:8080", "-text=spike-ok-via-nginx"]
     networks: [3mrai-network]
 
+  # Real Users service (Fastify + Prisma).
+  # Build context is the REPO ROOT so pnpm-lock.yaml and pnpm-workspace.yaml
+  # are available to the multi-stage Dockerfile.
+  # The container is reachable as `users` on 3mrai-network so the Nginx ECS
+  # task can proxy_pass to http://users:3000 via Docker embedded DNS.
+  #
+  # DATABASE_WRITER_URL / DATABASE_READER_URL / COGNITO_USER_POOL_ID /
+  # COGNITO_CLIENT_ID are provided by JE-36's bootstrap/.env after
+  # `terraform apply` in infra/environments/local outputs those values.
   users:
-    build: ./services/users
+    build:
+      context: .
+      dockerfile: services/users/Dockerfile
     networks: [3mrai-network]
     depends_on:
       ministack:
@@ -63,11 +75,20 @@ services:
       - AWS_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
+      - PORT=3000
+      # Aurora writer/reader endpoints — Ministack emulates RDS on the same host.
+      # Replace these with real terraform outputs once JE-36 bootstrap runs.
+      - DATABASE_WRITER_URL=postgres://test:test@ministack:4566/users
+      - DATABASE_READER_URL=postgres://test:test@ministack:4566/users
+      # Cognito pool/client IDs come from `terraform output` (JE-36 bootstrap).
+      - COGNITO_USER_POOL_ID=${COGNITO_USER_POOL_ID}
+      - COGNITO_CLIENT_ID=${COGNITO_CLIENT_ID}
+      - E2E_TESTING_ENABLED=true
     develop:
       watch:
         - action: sync
           path: ./services/users/src
-          target: /app/src
+          target: /app/services/users/src
 
   orders:
     build: ./services/orders
