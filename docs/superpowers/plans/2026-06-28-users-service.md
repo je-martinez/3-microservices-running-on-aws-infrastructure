@@ -33,9 +33,9 @@ related:
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Take the Users service from empty scaffold to a working end-to-end slice on Ministack — provisioned AWS resources (Aurora Postgres, Cognito, networking, ECS Fargate, API Gateway + ALB), pnpm tooling, a Prisma schema with a new `tags` column, a Fastify API, and two layers of tests (Vitest unit + Playwright E2E).
+**Goal:** Take the Users service from empty scaffold to a working end-to-end slice on Ministack — provisioned AWS resources (Aurora Postgres, Cognito, networking, ECS task running Nginx reverse proxy, API Gateway), pnpm tooling, a Prisma schema with a new `tags` column, a Fastify API, and two layers of tests (Vitest unit + Playwright E2E).
 
-**Architecture:** Production-shaped request chain emulated locally: API Gateway (Cognito JWT authorizer) → ALB → Fargate (`users` container) → Aurora Postgres (writer/reader). Auth lives at the edge (the gateway); the service trusts gateway-passed claims. The `USER_CREATED` SQS event is a no-op emission point this milestone. E2E-created users are marked with a `tags` value of `E2E Source`, gated by a `X-E2E-Source` header + `E2E_TESTING_ENABLED` flag.
+**Architecture (local — proven by JE-25 spike):** API Gateway v2 (Cognito JWT authorizer) → ECS task running Nginx reverse proxy → `users` docker-compose `develop:watch` container → Aurora Postgres (writer/reader). The ECS task runs Nginx only; the service code runs in the hot-reload compose container, reached by Docker DNS (`proxy_pass http://users:3000`, resolver `127.0.0.11`). **No ALB in local** — Ministack's ALB emulator is unsupported for ip/instance targets; ALB is deferred to production. Auth lives at the edge (the gateway); the service trusts gateway-passed claims. The `USER_CREATED` SQS event is a no-op emission point this milestone. E2E-created users are marked with a `tags` value of `E2E Source`, gated by a `X-E2E-Source` header + `E2E_TESTING_ENABLED` flag.
 
 **Tech Stack:** Terraform (cloudposse/label/null) on Ministack, Node 24.18.0, pnpm workspace, Fastify, Prisma (Aurora Postgres), Zod, Vitest, Playwright, chancejs.
 
@@ -50,7 +50,7 @@ related:
 - **API:** all routes under `/v1`. gRPC contracts versioned too.
 - **Replicas:** writer endpoint for INSERT/UPDATE; reader endpoint for SELECT (ADR-0006).
 - **Secrets:** DB credentials from Secret Manager, injected at container start — never plaintext task-def env (ADR-0007). Local may use test values.
-- **Scope discipline:** SQS not provisioned; `production` env not instantiated; only `e2e/` + `services/users` join the pnpm workspace. YAGNI.
+- **Scope discipline:** SQS not provisioned; `production` env not instantiated (de-prioritized); **no ALB in local** (ALB emulation unsupported on Ministack — deferred to production); only `e2e/` + `services/users` join the pnpm workspace. YAGNI.
 
 **Spec:** `docs/superpowers/specs/2026-06-28-users-service-design.md`
 
@@ -97,9 +97,14 @@ related:
 
 ---
 
-## Task 1: Ministack spike — validate API GW + Cognito authorizer + ALB→Fargate
+## Task 1: Ministack spike — validate API GW + Cognito authorizer + Nginx ECS reverse proxy
 
-**This is a hard dependency gate.** If the spike fails, STOP and escalate to the user before any further task. Do not change topology silently.
+**COMPLETED — GATE PASS (JE-25).** The spike validated the full local auth chain.
+Outcome: ALB is unusable on Ministack (ip/instance target_type unsupported); ALB replaced
+by an ECS task running Nginx as a compose-network-aware reverse proxy. Docker embedded DNS
+(`127.0.0.11`) resolves compose service names natively. The JWT authorizer config
+(issuer AWS-format, audience = client id, `ADMIN_USER_PASSWORD_AUTH`) is proven and feeds
+Tasks 12–13. The spike stack has been destroyed. Proceed directly to Task 2.
 
 **Files:**
 - Create: `infra/environments/local/spike/main.tf`
@@ -1446,7 +1451,7 @@ module "this" {
 
 - [ ] **Step 4: cognito module**
 
-`infra/modules/cognito/main.tf` — reuse the exact authorizer-compatible config validated in Task 1's spike (issuer/audience/auth flows). Provision `aws_cognito_user_pool` + `aws_cognito_user_pool_client` (`ADMIN_USER_PASSWORD_AUTH`, `USER_PASSWORD_AUTH`, no secret). `outputs.tf` exposes `user_pool_id`, `client_id`, `issuer = "http://localhost:4566/${aws_cognito_user_pool.this.id}"`.
+`infra/modules/cognito/main.tf` — reuse the exact authorizer-compatible config validated in Task 1's spike (issuer/audience/auth flows). Provision `aws_cognito_user_pool` + `aws_cognito_user_pool_client` (`ADMIN_USER_PASSWORD_AUTH`, `USER_PASSWORD_AUTH`, no secret). `outputs.tf` exposes `user_pool_id`, `client_id`, `issuer = "https://cognito-idp.us-east-1.amazonaws.com/${aws_cognito_user_pool.this.id}"` (AWS-format issuer — **not** localhost, proven by spike).
 
 - [ ] **Step 5: Validate**
 
@@ -1462,7 +1467,7 @@ git commit -m "feat(infra): add label, networking, rds-aurora, cognito modules"
 
 ---
 
-## Task 13: Terraform modules — compute (ECS Fargate) + api-gateway (+ ALB + authorizer)
+## Task 13: Terraform modules — compute (ECS Nginx proxy) + api-gateway (JWT authorizer, no ALB)
 
 **Files:**
 - Create: `infra/modules/compute/{main,variables,outputs}.tf`
@@ -1470,15 +1475,47 @@ git commit -m "feat(infra): add label, networking, rds-aurora, cognito modules"
 
 **Interfaces:**
 - Consumes: networking outputs (Task 12), cognito outputs (Task 12).
-- Produces: `compute` outputs `cluster_arn`, `service_name`, `target_group_arn`, `alb_dns_name`. `api-gateway` outputs `invoke_url`. The api-gateway module wires the JWT authorizer using the cognito `issuer`/`audience` proven in Task 1.
+- Produces: `compute` outputs `cluster_arn`, `service_name`, `task_container_ip` (the
+  Nginx container's IP on `3mrai-network`, discovered at apply time for bootstrap).
+  `api-gateway` outputs `invoke_url`. The api-gateway module wires the JWT authorizer
+  using the cognito `issuer`/`audience` proven in Task 1. **No ALB** in local — removed
+  per spike outcome.
 
-- [ ] **Step 1: compute module**
+> **Production note (deferred):** in production the `compute` module would run the service
+> code directly in the Fargate task, and the `api-gateway` module would integrate via an
+> ALB listener ARN. Those paths are not implemented here.
 
-`infra/modules/compute/main.tf` provisions an ECS Fargate cluster, a task definition for the `users` container (CPU/memory minimal; secrets injected from Secret Manager via `secrets` block referencing `var.db_secret_arn`; health check `GET /v1/health`), an ECS service, an ALB + listener + target group pointing at the service. `outputs.tf` exposes `cluster_arn`, `service_name`, `target_group_arn`, `alb_dns_name`.
+- [ ] **Step 1: compute module (Nginx reverse proxy)**
 
-- [ ] **Step 2: api-gateway module**
+`infra/modules/compute/main.tf` provisions an ECS Fargate cluster, a task definition
+running **`nginx:alpine`** (not the service code). The Nginx configuration is injected via
+the container `command` override:
+```
+nginx -g "daemon off;" with an inline nginx.conf that sets:
+  resolver 127.0.0.11 valid=5s;
+  set $backend http://users:3000;
+  proxy_pass $backend;
+```
+This resolves the `users` compose service by Docker's embedded DNS at `127.0.0.11`.
+CPU/memory: minimal (256/512). The ECS service attaches to the `3mrai_3mrai-network` Docker
+network so Nginx and the compose `users` container share the same network. Health check:
+`GET /v1/health`. **No ALB, no target group.** `outputs.tf` exposes `cluster_arn`,
+`service_name`, `task_family`.
 
-`infra/modules/api-gateway/main.tf` provisions `aws_apigatewayv2_api` (HTTP), `aws_apigatewayv2_authorizer` (JWT, issuer/audience from `var.cognito_issuer`/`var.cognito_audience`), an integration to the ALB (`var.alb_listener_arn`/`var.target_group_arn`), and routes: public `POST /v1/users/register`, `POST /v1/users/login`, `GET /v1/health`; protected (authorizer) `GET /v1/users/me`, `PATCH /v1/users/me`. `outputs.tf` exposes `invoke_url`.
+- [ ] **Step 2: api-gateway module (HTTP_PROXY to Nginx, no ALB)**
+
+`infra/modules/api-gateway/main.tf` provisions:
+- `aws_apigatewayv2_api` (HTTP protocol)
+- `aws_apigatewayv2_authorizer` (JWT, issuer/audience from `var.cognito_issuer` /
+  `var.cognito_audience` — AWS-format issuer proven in Task 1 spike)
+- `aws_apigatewayv2_integration` (type `HTTP_PROXY`, integration URI
+  `http://${var.nginx_container_ip}:80/{proxy}` — the Nginx container IP is provided as a
+  variable, patched by the local bootstrap step after task launch)
+- Routes: public `POST /v1/users/register`, `POST /v1/users/login`, `GET /v1/health`;
+  protected (authorizer attached) `GET /v1/users/me`, `PATCH /v1/users/me`.
+
+`outputs.tf` exposes `invoke_url`. Accept `var.nginx_container_ip` (string) so the local
+bootstrap can patch it post-launch.
 
 - [ ] **Step 3: Validate formatting**
 
@@ -1489,42 +1526,85 @@ Expected: files formatted, no errors.
 
 ```bash
 git add infra/modules/compute infra/modules/api-gateway
-git commit -m "feat(infra): add compute (ECS Fargate) and api-gateway (+ALB +JWT authorizer) modules"
+git commit -m "feat(infra): add compute (ECS Nginx proxy) and api-gateway (JWT authorizer, no ALB) modules"
 ```
 
 ---
 
-## Task 14: environments/local composition + apply against Ministack
+## Task 14: environments/local composition + apply against Ministack + bootstrap
 
 **Files:**
 - Create: `infra/environments/local/{providers,terraform,variables,main,outputs}.tf`
+- Create: `infra/environments/local/bootstrap.sh` — local-only bootstrap script
 
 **Interfaces:**
 - Consumes: all six modules (Tasks 12–13).
-- Produces: a single `terraform apply` that stands up the full Users chain on Ministack and outputs `api_invoke_url`, `database_writer_url`, `database_reader_url`, `cognito_user_pool_id`, `cognito_client_id`.
+- Produces: a `terraform apply` + bootstrap that stands up the full Users chain on
+  Ministack and outputs `api_invoke_url`, `database_writer_url`, `database_reader_url`,
+  `cognito_user_pool_id`, `cognito_client_id`. The bootstrap patches the API GW
+  integration URI with the Nginx container IP after task launch.
 
 - [ ] **Step 1: Provider + backend config**
 
-`infra/environments/local/providers.tf` — same Ministack endpoint block as the spike (Task 1, Step 1) plus `rds`, `secretsmanager` endpoints. `terraform.tf` pins `required_version >= 1.7` and the AWS provider.
+`infra/environments/local/providers.tf` — same Ministack endpoint block as the spike
+(Task 1, Step 1) plus `rds`, `secretsmanager` endpoints. `terraform.tf` pins
+`required_version >= 1.7` and the AWS provider.
 
 - [ ] **Step 2: Compose the modules**
 
-`infra/environments/local/main.tf` instantiates `label`, `networking`, `rds-aurora`, `cognito`, then `compute` (passing networking + db secret), then `api-gateway` (passing cognito issuer/audience + compute ALB/target group). Pass `context = module.label` to every module.
+`infra/environments/local/main.tf` instantiates `label`, `networking`, `rds-aurora`,
+`cognito`, then `compute` (passing networking), then `api-gateway` (passing cognito
+issuer/audience + `nginx_container_ip = ""` as placeholder — bootstrapped in Step 5).
+**No ALB or target-group wiring** — the integration target is the Nginx container IP
+directly. Pass `context = module.label` to every module.
 
 - [ ] **Step 3: Outputs**
 
-`infra/environments/local/outputs.tf` exposes `api_invoke_url`, `database_writer_url`, `database_reader_url`, `cognito_user_pool_id`, `cognito_client_id` (sourced from module outputs; build the DB URLs from the rds endpoints + secret).
+`infra/environments/local/outputs.tf` exposes `api_invoke_url`, `database_writer_url`,
+`database_reader_url`, `cognito_user_pool_id`, `cognito_client_id` (sourced from module
+outputs; build the DB URLs from the rds endpoints + secret).
 
-- [ ] **Step 4: Init, validate, apply**
+- [ ] **Step 4: Init, validate, apply (first pass)**
 
 Run:
 ```bash
 docker compose up -d ministack
 cd infra/environments/local && terraform init && terraform validate && terraform apply -auto-approve
 ```
-Expected: apply succeeds; `terraform output` prints all five values.
+Expected: apply succeeds; the Nginx ECS task is launched; `terraform output` prints all
+five values.
 
-- [ ] **Step 5: Run the DB migration against the provisioned Aurora**
+- [ ] **Step 5: Local bootstrap — discover Nginx IP + patch API GW integration**
+
+`infra/environments/local/bootstrap.sh`:
+```bash
+#!/usr/bin/env bash
+# Local-only bootstrap: discovers the Nginx ECS container IP on 3mrai-network
+# and patches the API Gateway HTTP_PROXY integration URI.
+set -euo pipefail
+
+CONTAINER_NAME=$(docker ps --filter "name=nginx" --format "{{.Names}}" | head -1)
+NGINX_IP=$(docker inspect "$CONTAINER_NAME" \
+  --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
+
+echo "Nginx container: $CONTAINER_NAME  IP: $NGINX_IP"
+
+# Re-apply Terraform with the discovered IP so the integration URI is patched.
+terraform -chdir="$(dirname "$0")" apply -auto-approve \
+  -var "nginx_container_ip=$NGINX_IP"
+
+echo "Bootstrap complete. Integration URI → http://$NGINX_IP:80/{proxy}"
+```
+
+Run: `bash infra/environments/local/bootstrap.sh`
+Expected: Nginx IP discovered; `terraform apply` patches the API GW integration URI;
+`curl <api_invoke_url>/v1/health` returns 200 via the Nginx proxy.
+
+> **Design note:** this bootstrap step is local-only. In production the API GW integration
+> target is a stable ALB DNS name; no IP patching is needed. This step is required for
+> JE-30/JE-36 implementation.
+
+- [ ] **Step 6: Run the DB migration against the provisioned Aurora**
 
 Run (from repo root, with the output URLs exported):
 ```bash
@@ -1533,11 +1613,11 @@ nvm use && pnpm --filter @3mrai/users prisma migrate deploy
 ```
 Expected: the `users` table (incl. `tags`) is created.
 
-- [ ] **Step 6: Commit (propose to user)**
+- [ ] **Step 7: Commit (propose to user)**
 
 ```bash
 git add infra/environments/local
-git commit -m "feat(infra): compose local environment + apply Users chain on Ministack"
+git commit -m "feat(infra): compose local environment + Nginx bootstrap + apply Users chain on Ministack"
 ```
 
 ---
@@ -1791,22 +1871,23 @@ git commit -m "docs(users): document tags column + E2E Source marking in service
 
 **Spec coverage:**
 - Infra modules (label/networking/rds-aurora/cognito/compute/api-gateway) → Tasks 12–13. ✅
-- environments/local + apply + migration → Task 14. ✅
-- API GW → ALB → Fargate → Aurora chain → Tasks 13–14; validated by spike Task 1. ✅
-- Ministack spike + hard gate → Task 1. ✅
+- environments/local + apply + Nginx bootstrap + migration → Task 14. ✅
+- API GW → Nginx ECS proxy → watch container → Aurora chain (local, proven) → Tasks 13–14; validated by spike Task 1. ✅
+- ALB removed from local (production-only / deferred) → Tasks 13–14; Global Constraints. ✅
+- Ministack spike DONE/GATE PASS → Task 1 (completed). ✅
 - pnpm workspace (root + Users) + corepack → Tasks 2, 3, 11. ✅
 - Schema with `tags text[]` + writer/reader → Task 4. ✅
 - Soft-delete only / no DELETE → Task 12 (module note), Tasks 8–9 (query filters + soft-delete cleanup). ✅
 - nano-id, audit, no-op EventPublisher → Task 5. ✅
-- Cognito auth (signUp/login) → Task 6; authorizer at the edge → Tasks 1, 13, 16. ✅
+- Cognito auth (signUp/login, `ADMIN_USER_PASSWORD_AUTH`) → Task 6; authorizer at the edge → Tasks 1, 13, 16. ✅
 - API endpoints register/login/me/health + e2e-cleanup → Tasks 8–9. ✅
 - E2E header + flag marking → Tasks 8 (use-case), 9 (route), tested 8/9 + E2E 16. ✅
 - Vitest unit → Tasks 4–10. ✅
 - Playwright E2E + chancejs + cleanup-by-tag → Tasks 15–16. ✅
 - Vault sync of `tags` → Task 17. ✅
-- SQS not provisioned / production not instantiated / only e2e+users in workspace → respected throughout (Global Constraints). ✅
+- SQS not provisioned / production not instantiated / no ALB in local / only e2e+users in workspace → respected throughout (Global Constraints). ✅
 
-**Placeholder scan:** Terraform module bodies in Tasks 12–13 describe resources in prose where the exact HCL is environment-specific (RDS instance classes, subnet CIDRs) — these are deliberately parameterized, not TODO placeholders; the key authorizer config is pinned to the spike's proven values. No "TBD"/"implement later" in code steps. ✅
+**Placeholder scan:** Terraform module bodies in Tasks 12–13 describe resources in prose where the exact HCL is environment-specific (RDS instance classes, subnet CIDRs) — these are deliberately parameterized, not TODO placeholders; the key authorizer config and Nginx DNS resolver config are pinned to the spike's proven values. No "TBD"/"implement later" in code steps. ✅
 
 **Type consistency:** `registerUser`/`loginUser`/`getMe`/`updateProfile`/`softDeleteE2EUsers`/`getUserById` signatures match between definition (Task 8/9) and consumption (DI container Task 9, routes Task 9). `AuthProvider`/`AuthTokens`, `EventPublisher`, `User`/`toDomain` consistent across tasks. `e2eSource` boolean threaded register use-case → route. ✅
 
