@@ -14,3 +14,6 @@
 # Node / pnpm
 node_modules/
 .pnpm-store/
+# Env files (local secrets — never version)
+.env
+.env.*
