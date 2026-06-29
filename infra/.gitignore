@@ -1,0 +1,9 @@
+# Terraform artifacts
+**/.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+*.tfplan
+
+# Spike: zipped lambda/build artifacts
+*.zip
