@@ -4,7 +4,7 @@ type: spec
 area: users
 status: active
 created: 2026-06-26
-updated: 2026-06-27
+updated: 2026-06-28
 tags: [type/spec, area/users, status/active]
 related:
   - "[[soft-delete]]"
@@ -14,6 +14,7 @@ related:
   - "[[cqrs]]"
   - "[[versioning]]"
   - "[[ADR-0010-cognito-auth]]"
+  - "[[2026-06-28-users-service-design]]"
 ---
 
 # Users Service Design
@@ -65,6 +66,7 @@ Table: `users` (all columns in `snake_case`; mapped to `PascalCase` in applicati
 | `full_name` | `varchar` | Maps to `fullName` |
 | `address` | `jsonb` | Structured address object |
 | `phone_number` | `varchar` | |
+| `tags` | `text[]` | Array of labels; default `[]`. `E2E Source` marks records created by the Playwright E2E suite (see [[2026-06-28-users-service-design]]). |
 | `created_by` | `varchar` | |
 | `created_at` | `timestamptz` | |
 | `updated_by` | `varchar` | |
@@ -73,6 +75,9 @@ Table: `users` (all columns in `snake_case`; mapped to `PascalCase` in applicati
 | `deleted_at` | `timestamptz` | Null = active; set = soft-deleted |
 
 `isDeleted` is a computed property based on `deleted_at` (see [[audit-fields]] and [[soft-delete]]).
+
+> [!note] E2E Source Tag — Server-Injected Only
+> The tag value `E2E Source` is added by the server, never by the client. The `POST /users/register` handler appends it to `tags` **only** when the incoming request carries the header `X-E2E-Source: true` **and** the environment variable `E2E_TESTING_ENABLED=true` is set. This flag is disabled in production. Clients cannot write to `tags` directly — the field is absent from every public request schema. See [[2026-06-28-users-service-design]] for the implementation design.
 
 > [!note] No Hard Deletes
 > The DB user is forbidden from running `DELETE`. All removals go through soft delete only.
@@ -109,3 +114,4 @@ The event payload carries the new user ID and email. A Lambda subscriber receive
 - [[ADR-0003-grpc-inter-service]]
 - [[ADR-0006-read-write-replicas]]
 - [[ADR-0009-apigw-alb-fargate]]
+- [[2026-06-28-users-service-design]]
