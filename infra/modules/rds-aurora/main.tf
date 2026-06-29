@@ -1,6 +1,20 @@
+# RDS requires cluster_identifier and subnet group names to start with a letter.
+# If the label id begins with a digit (e.g. "3mrai-local-users"), prefix with
+# "rds-" so that all RDS identifiers are always valid.  This prefix is stable
+# across applies and does not affect other resources.
+locals {
+  letter_start = can(regex("^[a-zA-Z]", var.context.id))
+  rds_prefix   = local.letter_start ? "" : "rds-"
+
+  subnet_group_name = "${local.rds_prefix}${var.context.id}-aurora-subnet-group"
+  cluster_id        = "${local.rds_prefix}${var.context.id}-aurora"
+  writer_id         = "${local.rds_prefix}${var.context.id}-aurora-writer"
+  reader_id         = "${local.rds_prefix}${var.context.id}-aurora-reader"
+}
+
 # ─── DB Subnet Group ──────────────────────────────────────────────────────────
 resource "aws_db_subnet_group" "this" {
-  name        = "${var.context.id}-aurora-subnet-group"
+  name        = local.subnet_group_name
   description = "Subnet group for Aurora cluster ${var.context.id}"
   subnet_ids  = var.subnet_ids
 
@@ -9,7 +23,7 @@ resource "aws_db_subnet_group" "this" {
 
 # ─── Aurora Cluster ───────────────────────────────────────────────────────────
 resource "aws_rds_cluster" "this" {
-  cluster_identifier = "${var.context.id}-aurora"
+  cluster_identifier = local.cluster_id
 
   engine         = "aurora-postgresql"
   engine_version = var.engine_version
@@ -29,7 +43,7 @@ resource "aws_rds_cluster" "this" {
 
 # ─── Writer Instance ──────────────────────────────────────────────────────────
 resource "aws_rds_cluster_instance" "writer" {
-  identifier         = "${var.context.id}-aurora-writer"
+  identifier         = local.writer_id
   cluster_identifier = aws_rds_cluster.this.id
   instance_class     = var.instance_class
   engine             = aws_rds_cluster.this.engine
@@ -41,7 +55,7 @@ resource "aws_rds_cluster_instance" "writer" {
 # ─── Reader Instance ──────────────────────────────────────────────────────────
 # ADR-0006: all SELECT queries must use the reader endpoint.
 resource "aws_rds_cluster_instance" "reader" {
-  identifier         = "${var.context.id}-aurora-reader"
+  identifier         = local.reader_id
   cluster_identifier = aws_rds_cluster.this.id
   instance_class     = var.instance_class
   engine             = aws_rds_cluster.this.engine
