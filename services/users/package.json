@@ -12,6 +12,7 @@
     "prisma": "prisma"
   },
   "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.1075.0",
     "@prisma/client": "^6.0.0",
     "fastify": "^5.0.0",
     "nanoid": "^5.1.16",
