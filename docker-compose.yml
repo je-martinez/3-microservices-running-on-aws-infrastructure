@@ -86,9 +86,12 @@ services:
       - E2E_TESTING_ENABLED=true
     develop:
       watch:
-        - action: sync
-          path: ./services/users/src
-          target: /app/services/users/src
+        # The container runs compiled dist/ (tsc output), so source edits must
+        # trigger a full image rebuild (tsc recompile) rather than a plain sync.
+        # action: rebuild re-runs `docker compose build users` on any change
+        # under services/users (src, prisma, tsconfig, Dockerfile, package.json).
+        - action: rebuild
+          path: ./services/users
 
   orders:
     build: ./services/orders
