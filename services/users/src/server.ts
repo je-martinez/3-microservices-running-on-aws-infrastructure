@@ -1,0 +1,9 @@
+import { env } from "./shared/config/env.js";
+import { buildContainer } from "./shared/di/container.js";
+import { buildApp } from "./features/users/http/routes.js";
+
+const app = buildApp(buildContainer());
+app.listen({ port: env.PORT, host: "0.0.0.0" }).catch((err) => {
+  app.log.error(err);
+  process.exit(1);
+});
