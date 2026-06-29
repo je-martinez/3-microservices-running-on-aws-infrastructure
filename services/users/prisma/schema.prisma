@@ -1,0 +1,26 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_WRITER_URL")
+}
+
+model User {
+  id          String    @id
+  email       String    @unique
+  fullName    String    @map("full_name")
+  address     Json?
+  phoneNumber String?   @map("phone_number")
+  tags        String[]  @default([])
+  createdBy   String?   @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedBy   String?   @map("updated_by")
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedBy   String?   @map("deleted_by")
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("users")
+  @@index([deletedAt])
+}

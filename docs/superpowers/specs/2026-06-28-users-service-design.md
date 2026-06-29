@@ -51,12 +51,13 @@ related:
 
 This milestone takes the Users service from an empty scaffold to a working end-to-end
 slice on the local AWS substrate (Ministack). It provisions the AWS resources the service
-needs (Aurora PostgreSQL, Cognito, networking, ECS Fargate, API Gateway + ALB) via the
-custom Terraform modules; migrates the repo's JS tooling to **pnpm** (root workspace +
-Users service); implements the Prisma schema (including a new `tags text[]` column);
-builds the Fastify API (`register`, `login`, `me`, `health`); and establishes two layers
-of testing — **Vitest** unit tests inside the service and a root-level **Playwright** E2E
-suite that drives the stack through the API Gateway using **Chance** for mock data.
+needs (Aurora PostgreSQL, Cognito, networking, ECS task running an Nginx reverse proxy,
+API Gateway) via the custom Terraform modules; migrates the repo's JS tooling to **pnpm**
+(root workspace + Users service); implements the Prisma schema (including a new
+`tags text[]` column); builds the Fastify API (`register`, `login`, `me`, `health`); and
+establishes two layers of testing — **Vitest** unit tests inside the service and a
+root-level **Playwright** E2E suite that drives the stack through the API Gateway using
+**Chance** for mock data.
 
 It realizes the contract already described in the canonical service spec
 [[users-service-design]] and the infra specs [[aws-resources]] / [[terraform-modules]] /
@@ -70,11 +71,12 @@ testing strategy).
 
 ### In scope
 - **Infra (Terraform, local/Ministack):** implement and instantiate the `label`,
-  `networking`, `rds-aurora`, `cognito`, `compute` (ECS service), and `api-gateway` (+ ALB)
-  modules under `environments/local`.
-- **Request chain:** API Gateway (Cognito JWT authorizer) → ALB → Fargate (`users`
-  container) → Aurora PostgreSQL. This is the full, production-shaped chain emulated
-  locally.
+  `networking`, `rds-aurora`, `cognito`, `compute` (ECS task running Nginx reverse proxy),
+  and `api-gateway` modules under `environments/local`.
+- **Request chain (local):** API Gateway (Cognito JWT authorizer) → ECS task running
+  Nginx reverse proxy → `users` docker-compose `develop:watch` container → Aurora
+  PostgreSQL. The ECS task does **not** run the service code; it runs Nginx and forwards
+  to the hot-reload container by Docker DNS service name. **No ALB in local.**
 - **pnpm migration:** root `pnpm-workspace.yaml` (members: `e2e/`, `services/users`),
   corepack-pinned `packageManager`, and the Users service (`package.json`, lockfile,
   Dockerfile, nested `CLAUDE.md`).
@@ -90,7 +92,12 @@ testing strategy).
 - **SQS `USER_CREATED`:** the emission *point* exists in code as a **no-op**
   `EventPublisher`; the SQS resource is **not** provisioned this milestone.
 - **`production` environment:** modules are written to be reusable, but only
-  `environments/local` is instantiated.
+  `environments/local` is instantiated. Production is de-prioritized; focus is a working
+  local that resembles prod in shape (API GW + Cognito authorizer + ECS + real DB).
+- **ALB in local:** Ministack's ALB emulator supports only `target_type = lambda`
+  (ip/instance targets are unsupported). The ALB is therefore a **production-only**
+  concern; it is not provisioned locally. The production shape (ALB → Fargate running the
+  service code) is deferred alongside the production environment.
 - **Other Node services** (orders, events-pipeline) joining the pnpm workspace — done in
   their own milestones (YAGNI).
 - Real CloudWatch/SigNoz wiring.
@@ -103,32 +110,70 @@ testing strategy).
 Playwright (root e2e/)
       │ HTTP (API Gateway URL)
       ▼
-API Gateway ──(Cognito JWT authorizer)──► ALB ──► Fargate (users container) ──► Aurora Postgres
-                                                          │                         (writer / reader)
-                                                          └─ register ─► EventPublisher.publishUserCreated()  ← NO-OP
+API Gateway v2 ──(Cognito JWT authorizer)──► ECS task: Nginx reverse proxy
+  [Ministack]                                  [Ministack — real Docker container,
+                                                3mrai_3mrai-network]
+                                                    │ proxy_pass http://users:3000
+                                                    │ (Docker embedded DNS 127.0.0.11)
+                                                    ▼
+                                             users (docker-compose develop:watch container)
+                                                    │                      OUTSIDE Ministack,
+                                                    │                      same compose network
+                                                    ▼
+                                             Aurora Postgres (Ministack)
+                                             (writer / reader)
+                                                    │
+                                                    └─ register ─► EventPublisher.publishUserCreated()  ← NO-OP
 ```
 
+> **Local topology — key facts:**
+> - "Local" means the docker-compose services running with `develop: watch` (hot-reload),
+>   **not** ephemeral Ministack-launched containers.
+> - The ECS task runs **Nginx** (`nginx:alpine`), not the service code. Nginx forwards
+>   requests to the `users` compose service by Docker DNS name (`proxy_pass http://users:3000`).
+>   DNS is resolved natively via Docker's embedded resolver at `127.0.0.11`
+>   (`resolver 127.0.0.11 valid=5s` in nginx.conf; `set $backend http://users:3000` for
+>   request-time resolution). No `/etc/hosts` entries and no Route 53 needed.
+> - **No ALB in local.** Ministack's ALB emulator only supports `target_type = lambda`;
+>   ip/instance targets are unsupported. The ALB is dropped from the local path entirely.
+> - **Integration URI bootstrap (local-only wrinkle):** the API Gateway HTTP_PROXY
+>   integration URI must point at the Nginx ECS task's container IP, which is not known
+>   until task launch. A local bootstrap step (handled by JE-30/JE-36) runs
+>   `docker inspect` to discover the IP and patches the integration URI. In production the
+>   target is a stable DNS name; this bootstrap step is local-only.
+> - In production (deferred): the chain is API Gateway → ALB → Fargate running the service
+>   code. The ALB and the service-code Fargate task are production-only concerns.
+
 - **Auth lives at the edge.** The Cognito JWT authorizer is configured on the **API
-  Gateway** (see [[ADR-0009-apigw-alb-fargate]], [[ADR-0010-cognito-auth]]). The service
-  does **not** re-validate JWTs for protected routes; it trusts the identity/claims passed
-  through by the gateway.
+  Gateway** (see [[ADR-0010-cognito-auth]]). Issuer:
+  `https://cognito-idp.us-east-1.amazonaws.com/<pool-id>` (AWS-format, **not** localhost).
+  Audience = app client id. Identity source: `$request.header.Authorization`. Auth flow:
+  `ADMIN_USER_PASSWORD_AUTH`. The service does **not** re-validate JWTs for protected
+  routes; it trusts the identity/claims passed through by the gateway.
 - `POST /users/register` and `POST /users/login` talk to **Cognito directly** (create
-  user, authenticate via `USER_PASSWORD_AUTH`, return tokens). `GET/PATCH /users/me` sit
-  behind the authorizer.
-- **Local = production in shape.** The same chain runs locally against Ministack
-  ([[ADR-0012-ministack-local]]).
+  user, authenticate via `ADMIN_USER_PASSWORD_AUTH`, return tokens). `GET/PATCH /users/me`
+  sit behind the authorizer.
+- **Local resembles prod in shape.** The same API GW + Cognito authorizer + ECS + real
+  Aurora DB runs locally against Ministack ([[ADR-0012-ministack-local]]).
 
-### Ministack risk + mitigation
-The Cognito JWT authorizer on API Gateway and the ALB→Fargate hop are the most fragile
-emulated pieces. Ministack is documented to support Cognito (incl. `USER_PASSWORD_AUTH` /
-`ADMIN_USER_PASSWORD_AUTH`), API Gateway v1/v2 HTTP forwarding, JWT/JWKS, and real
-Postgres RDS — but the *authorizer end-to-end* is unverified.
+### Ministack risk + mitigation (spike outcome — GATE PASS)
 
-**Mitigation — Ministack spike first.** The milestone's first work item is a minimal
-Terraform stack (API GW + Cognito authorizer + ALB → a trivial "hello" Fargate container)
-plus a smoke test proving a Cognito-issued JWT traverses the full chain. **If the spike
-fails, stop and escalate to the user** — do not silently fall back to a different
-topology.
+The JE-25 spike has been completed and passed. The findings are recorded below; no
+further spike is needed.
+
+**Spike outcome (validated by JE-25):**
+- Ministack supports API Gateway v2 (HTTP API) + Cognito JWT authorizer end-to-end.
+  A Cognito-issued JWT traverses the full auth chain correctly.
+- **ALB is unusable on Ministack.** Ministack's ALB emulator only supports
+  `target_type = lambda`; ip/instance targets fail. The ALB is removed from the local
+  topology entirely (dropped, not worked around).
+- **Route 53 does not help DNS.** Docker compose service names are not resolvable via
+  Route 53 on Ministack. DNS resolution works natively through Docker's embedded resolver
+  (`127.0.0.11`) when Nginx uses `resolver 127.0.0.11 valid=5s` with a `set $backend`
+  variable for request-time resolution.
+- **Adopted topology:** API Gateway v2 (Cognito JWT authorizer) → ECS task running
+  Nginx reverse proxy → `users` docker-compose `develop:watch` container → Aurora
+  Postgres (Ministack). This is the proven, gate-passing local chain.
 
 ---
 
@@ -143,11 +188,11 @@ naming via `cloudposse/label/null` (`module.label.id`, e.g. `3mrai-local-users`)
 | Module | Provisions (local) | Notes |
 |---|---|---|
 | `modules/label` | `cloudposse/label/null` context | Naming/tagging root |
-| `modules/networking` | VPC, subnets, security groups | Network for ALB/Fargate; see [[networking]] |
+| `modules/networking` | VPC, subnets, security groups | Network for ECS/Nginx; see [[networking]] |
 | `modules/rds-aurora` | Aurora Postgres cluster: **writer + reader** endpoints | [[ADR-0006-read-write-replicas]]; DB user has **no `DELETE`** privilege ([[soft-delete]]) |
-| `modules/cognito` | User Pool + App Client (`USER_PASSWORD_AUTH`) | [[ADR-0010-cognito-auth]]; issues the JWT the authorizer validates |
-| `modules/compute` (ecs-service) | Fargate cluster + service + task def for `users` | Health check target `GET /v1/health` |
-| `modules/api-gateway` | API Gateway + **Cognito JWT authorizer** + integration → ALB → target group → Fargate | [[ADR-0009-apigw-alb-fargate]]; the authorizer is what the spike validates |
+| `modules/cognito` | User Pool + App Client (`ADMIN_USER_PASSWORD_AUTH`) | [[ADR-0010-cognito-auth]]; issues the JWT the authorizer validates |
+| `modules/compute` (ecs-service) | ECS cluster + task def running **`nginx:alpine`** reverse proxy | **Local:** Nginx only — not the service code. Config injected via container `command` (`resolver 127.0.0.11 valid=5s`, `proxy_pass http://users:3000`). Health check `GET /v1/health`. **Production (deferred):** task runs the service code directly. |
+| `modules/api-gateway` | API Gateway v2 + **Cognito JWT authorizer** + HTTP_PROXY integration → Nginx ECS task | [[ADR-0010-cognito-auth]]; **no ALB in local** (ALB is production-only / deferred). Integration URI points at the Nginx container IP discovered by a local bootstrap step (see architecture note). |
 
 - Every module exposes `name` / `arn` / `tags`; sensitive outputs marked `sensitive`.
 - DB credentials live in **Secret Manager** ([[ADR-0007-secrets-parameter-store]]),
@@ -222,7 +267,7 @@ Endpoints (all under `/v1`, see [[versioning]]):
 | `POST` | `/users/login` | public | Cognito `USER_PASSWORD_AUTH`; returns tokens |
 | `GET` | `/users/me` | gateway authorizer | reads claims from the gateway-passed JWT |
 | `PATCH` | `/users/me` | gateway authorizer | updates profile |
-| `GET` | `/health` | public | `{ "status": "ok" }` for ALB/Fargate health check |
+| `GET` | `/health` | public | `{ "status": "ok" }` for ECS/Nginx health check |
 | `DELETE` | `/users/e2e-cleanup` | flag-gated | **only exists/responds when `E2E_TESTING_ENABLED=true`**; soft-deletes all users tagged `"E2E Source"` (see component 5) |
 
 gRPC: `GetUserById({ id }) → User` for inter-service lookups.
@@ -272,8 +317,8 @@ authorizer and reads claims. `login`/`register` call Cognito directly.
 Per [[phase-c-review-flow]], work is chained without per-merge prompts and stops at
 dependency gates for batch review.
 
-1. **Ministack spike** (infra) — validate API GW + Cognito authorizer + ALB→Fargate.
-   **Hard gate / stop point:** if it fails, escalate to the user before continuing.
+1. **Ministack spike** (infra) — **DONE (JE-25, GATE PASS).** Validated API GW + Cognito
+   authorizer + Nginx ECS reverse proxy topology. ALB dropped. Proceed from Task 2.
 2. **pnpm migration** (root + Users) — independent of the API; can proceed in parallel
    with infra once the spike passes.
 3. **Infra modules** (rds-aurora, cognito, networking, compute, api-gateway) instantiated
@@ -293,7 +338,7 @@ dependency gates for batch review.
 | cloudposse/label naming | [[ADR-0001-terraform-cloudposse-naming]] |
 | Read/write replicas | [[ADR-0006-read-write-replicas]] |
 | Secrets vs Parameter Store | [[ADR-0007-secrets-parameter-store]] |
-| API GW → ALB → Fargate | [[ADR-0009-apigw-alb-fargate]] |
+| API GW → Nginx ECS → watch container (local) | [[ADR-0009-apigw-alb-fargate]] (ALB deferred to production) |
 | Cognito auth | [[ADR-0010-cognito-auth]] |
 | Ministack local substrate | [[ADR-0012-ministack-local]] |
 | Soft delete only | [[soft-delete]] |
@@ -306,8 +351,12 @@ dependency gates for batch review.
 
 ## Open questions / risks
 
-- **Ministack authorizer fidelity** — primary risk; gated by the spike.
-- **ALB→Fargate emulation** — validated together with the authorizer in the spike.
+- **Ministack authorizer fidelity** — resolved by JE-25 spike (GATE PASS). No open risk.
+- **ALB in local** — resolved by JE-25 spike: ALB is unusable on Ministack; removed from
+  local topology. ALB stays as a production-only concern (deferred).
+- **Integration URI bootstrap** — local-only: the API GW HTTP_PROXY integration URI must
+  be patched after Nginx ECS task launch (container IP not known at apply time). A local
+  bootstrap script handles this in JE-30/JE-36. Not a production concern.
 - **pnpm + docker-compose `--watch`** — confirm the multi-stage pnpm Dockerfile plays well
   with sync-based live reload.
 
