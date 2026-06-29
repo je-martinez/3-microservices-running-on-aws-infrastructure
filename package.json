@@ -1,0 +1,11 @@
+{
+  "name": "3mrai",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "engines": { "node": "24.18.0" },
+  "scripts": {
+    "users:dev": "pnpm --filter @3mrai/users dev",
+    "users:test": "pnpm --filter @3mrai/users test",
+    "e2e": "pnpm --filter @3mrai/e2e test"
+  }
+}
