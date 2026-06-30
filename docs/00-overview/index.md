@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-06-28
+updated: 2026-06-29
 tags:
   - type/spec
   - area/shared
@@ -22,6 +22,8 @@ related:
   - "[[2026-06-28-services-infra-scaffold-design]]"
   - "[[2026-06-28-users-service-design]]"
   - "[[ADR-0015-drawio-diagrams]]"
+  - "[[ministack-auth-chain-spike-findings]]"
+  - "[[floci-vs-ministack-spike-findings]]"
 ---
 
 # 3MRAI — Index
@@ -152,6 +154,15 @@ Specs produced through the planning phase, normalized to vault conventions.
 
 ---
 
+## Lessons
+
+Durable empirical findings from spikes, incidents, and experiments.
+
+- [[ministack-auth-chain-spike-findings]] — Empirical findings from the JE-25 Ministack spike: proven local auth chain topology, DNS quirks, provider pins, and ECS workarounds.
+- [[floci-vs-ministack-spike-findings]] — A/B comparison of Floci vs Ministack on the same auth chain: gate results, comparison table, and key findings. No migration decision — ADR-0012 unchanged.
+
+---
+
 ## Source Material
 
 Origin materials the project grew from — kept for reference only, not the source of truth.
@@ -174,3 +185,5 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[2026-06-28-services-infra-scaffold-design]]
 - [[2026-06-28-users-service-design]]
 - [[ADR-0015-drawio-diagrams]]
+- [[ministack-auth-chain-spike-findings]]
+- [[floci-vs-ministack-spike-findings]]
