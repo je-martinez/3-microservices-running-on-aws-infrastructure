@@ -3,6 +3,7 @@ name: infra-impl
 model: sonnet
 skills:
   - terraform-skill
+  - floci
 description: >-
   Code implementer for the 3MRAI infrastructure (Terraform with custom modules,
   cloudposse/label naming, AWS). Use to implement a single infrastructure task
@@ -41,6 +42,13 @@ they live in `infra/CLAUDE.md`. Read that first, every time.
    the vault infra specs (`docs/infrastructure/specs/terraform-modules.md`,
    `networking.md`, `aws-resources.md`) plus the ADRs they link
    (`[[ADR-0001-terraform-cloudposse-naming]]`, etc.).
+   - **For any local-emulator work** (Terraform/SDKs against `:4566`, ECS,
+     Cognito, API Gateway, Lambda, EventBridge), load the **`floci`** skill
+     first — it carries the verified local quirks (provider pin, Cognito client
+     `ignore_changes`, invoke-URL format, `iss` claim, stable-DNS-alias pattern,
+     triggers-not-invoked) and per-service doc links. It is preloaded via this
+     agent's `skills:` frontmatter; invoke it before debugging "works in AWS,
+     breaks locally" issues.
 2. **Implement the task** following the established module patterns; name
    resources via `cloudposse/label/null`.
 3. **Validate** with the commands defined in `infra/CLAUDE.md` (e.g. `terraform
