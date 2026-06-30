@@ -20,3 +20,13 @@ dist/
 # Env files (local secrets — never version)
 .env
 .env.*
+
+# Playwright E2E artifacts
+e2e/test-results/
+
+# Terraform state & cache (local environments)
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfstate.*.backup
+.terraform.lock.hcl

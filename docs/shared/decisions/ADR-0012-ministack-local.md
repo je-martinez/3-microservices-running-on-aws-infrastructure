@@ -2,18 +2,22 @@
 title: "ADR-0012: Ministack for Local AWS Emulation"
 type: adr
 area: shared
-status: accepted
+status: superseded
 id: ADR-0012
 created: 2026-06-26
-updated: 2026-06-26
+updated: 2026-06-29
 deciders: [Jose E. Martinez]
 supersedes: null
-superseded-by: null
-tags: [type/adr, area/shared, status/accepted]
-related: []
+superseded-by: ADR-0017
+tags: [type/adr, area/shared, status/superseded]
+related:
+  - "[[ADR-0017-floci-local]]"
 ---
 
 # ADR-0012: Ministack for Local AWS Emulation
+
+> [!warning] Superseded
+> This ADR is superseded by [[ADR-0017-floci-local]] — Floci was adopted as the local AWS emulator after a successful spike. The Ministack service config is kept commented in `docker-compose.yml` as a fallback.
 
 ## Context
 
@@ -31,3 +35,4 @@ Developers can work fully offline for most workflows. The local/cloud parity is 
 
 - [[ADR-0007-secrets-parameter-store]]
 - [[ADR-0009-apigw-alb-fargate]]
+- [[ADR-0017-floci-local]]
