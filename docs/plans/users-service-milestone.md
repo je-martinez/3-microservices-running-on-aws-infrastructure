@@ -4,7 +4,7 @@ type: plan
 area: users
 status: active
 created: 2026-06-28
-updated: 2026-06-28
+updated: 2026-07-02
 tags:
   - type/plan
   - area/users
@@ -23,11 +23,13 @@ tags:
   - issue/JE-35
   - issue/JE-36
   - issue/JE-37
+  - issue/JE-38
 related:
   - "[[milestone-plan]]"
   - "[[linear-references]]"
   - "[[2026-06-28-users-service-design]]"
   - "[[2026-06-28-users-service]]"
+  - "[[2026-06-29-users-cognito-webhook-design]]"
   - "[[ADR-0015-drawio-diagrams]]"
 ---
 
@@ -70,6 +72,7 @@ This plan follows the [[milestone-plan]] convention. Detailed task content lives
 | 11 | [JE-32](https://linear.app/je-martinez/issue/JE-32) | Playwright harness | `e2e/` package + chancejs factory + setup/teardown | [[2026-06-28-users-service-design]] |
 | 12 | [JE-37](https://linear.app/je-martinez/issue/JE-37) | E2E specs | `e2e/tests/users.spec.ts` | [[2026-06-28-users-service-design]] |
 | 13 | [JE-34](https://linear.app/je-martinez/issue/JE-34) | Vault tags sync | `docs/domains/users/specs/users-service-design.md` | [[2026-06-28-users-service-design]] |
+| 14 | [JE-38](https://linear.app/je-martinez/issue/JE-38) | Cognito identity webhook + identity tables | `POST /v1/webhooks/cognito` + `users_cognito_data` / `users_cognito_events` tables (Prisma migration) | [[2026-06-29-users-cognito-webhook-design]] |
 
 ## Dependencies
 
@@ -88,14 +91,17 @@ This plan follows the [[milestone-plan]] convention. Detailed task content lives
 | JE-30 | JE-28 |
 | JE-36 | JE-35, JE-30, JE-29 |
 | JE-32 | JE-26 |
-| JE-37 | JE-36, JE-32 |
+| JE-37 | JE-36, JE-32, JE-38 |
 | JE-34 | JE-29 |
+| JE-38 | JE-29 |
 
 ### Dependency diagram
 
 ![[users-service-deps.drawio.svg]]
 
-JE-25 (Ministack spike) is the hard escalation gate for the infra chain: JE-28 cannot start until the spike passes. The pnpm toolchain (JE-26 → JE-27) and the spike run in parallel. The domain logic chain (JE-27 → JE-29 → JE-31 → JE-33 → JE-35) feeds into JE-36 (apply), which also requires the infra modules chain (JE-28 → JE-30) and JE-29 (for the DB migration URL). The Playwright harness (JE-32) can start right after JE-26 is done and joins JE-37 only after JE-36 applies the full stack. JE-34 (vault tags sync) is an independent docs task that only needs JE-29 for the schema definition.
+*Diagram not yet updated for JE-38 — will be out of sync until regenerated.*
+
+JE-25 (Ministack spike) is the hard escalation gate for the infra chain: JE-28 cannot start until the spike passes. The pnpm toolchain (JE-26 → JE-27) and the spike run in parallel. The domain logic chain (JE-27 → JE-29 → JE-31 → JE-33 → JE-35) feeds into JE-36 (apply), which also requires the infra modules chain (JE-28 → JE-30) and JE-29 (for the DB migration URL). The Playwright harness (JE-32) can start right after JE-26 is done and joins JE-37 only after JE-36 applies the full stack. JE-34 (vault tags sync) is an independent docs task that only needs JE-29 for the schema definition. JE-38 (Cognito identity webhook) was inserted after the original milestone design: it depends on JE-29 (Prisma schema) and now blocks JE-37, since the E2E suite is being reworked to verify webhook persistence instead of merging the original PR.
 
 ## Related
 
@@ -103,4 +109,5 @@ JE-25 (Ministack spike) is the hard escalation gate for the infra chain: JE-28 c
 - [[linear-references]] — Linear reference convention.
 - [[2026-06-28-users-service-design]] — the design spec specifying each deliverable.
 - [[2026-06-28-users-service]] — the implementation plan with detailed task steps.
+- [[2026-06-29-users-cognito-webhook-design]] — design spec for JE-38 (Cognito identity webhook + identity tables).
 - [[ADR-0015-drawio-diagrams]] — governs the `.drawio.svg` diagram format.
