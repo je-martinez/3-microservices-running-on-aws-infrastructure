@@ -1,9 +1,9 @@
-import type { Db } from "../../../shared/db/prisma.js";
-import type { AuthProvider } from "../../../shared/auth/auth-provider.js";
-import type { EventPublisher } from "../../../shared/messaging/event-publisher.js";
-import { MODEL_ID_PREFIXES, generateId } from "../../../shared/id/nano-id.js";
-import { runAsActor } from "../../../shared/audit/actor-context.js";
-import { toDomain, type User } from "../domain/user.js";
+import type { Db } from "#shared/db/prisma";
+import type { AuthProvider } from "#shared/auth/auth-provider";
+import type { EventPublisher } from "#shared/messaging/event-publisher";
+import { MODEL_ID_PREFIXES, generateId } from "#shared/id/nano-id";
+import { runAsActor } from "#shared/audit/actor-context";
+import { toDomain, type User } from "../domain/user.ts";
 
 export interface RegisterInput {
   email: string;

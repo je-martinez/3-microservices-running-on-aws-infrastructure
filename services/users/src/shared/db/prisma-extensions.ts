@@ -1,6 +1,6 @@
-import { Prisma } from "../../generated/prisma/client.js";
-import { MODEL_ID_PREFIXES, generateId } from "../id/nano-id.js";
-import { getActor } from "../audit/actor-context.js";
+import { Prisma } from "../../generated/prisma/client.ts";
+import { MODEL_ID_PREFIXES, generateId } from "../id/nano-id.ts";
+import { getActor } from "../audit/actor-context.ts";
 
 // Minimal surface of the base client needed by the soft-delete rewrite
 // (`delete`/`deleteMany` call back into `update`/`updateMany` on the same

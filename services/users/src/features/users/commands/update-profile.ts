@@ -1,5 +1,5 @@
-import type { Db } from "../../../shared/db/prisma.js";
-import { toDomain, type User } from "../domain/user.js";
+import type { Db } from "#shared/db/prisma";
+import { toDomain, type User } from "../domain/user.ts";
 
 export interface UpdateProfileInput {
   fullName?: string;

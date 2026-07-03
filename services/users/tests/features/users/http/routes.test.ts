@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { createContainer, asValue } from "awilix";
-import { buildApp } from "../../../../src/features/users/http/routes.js";
+import { buildApp } from "#features/users/http/routes";
 
 function testContainer(e2eEnabled: boolean) {
   const container = createContainer({ injectionMode: "PROXY" });

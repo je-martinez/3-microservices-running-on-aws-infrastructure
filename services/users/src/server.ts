@@ -1,5 +1,5 @@
-import { env } from "./shared/config/env.js";
-import { buildApp } from "./features/users/http/routes.js";
+import { env } from "#shared/config/env";
+import { buildApp } from "#features/users/http/routes";
 
 const app = buildApp();
 app.listen({ port: env.PORT, host: "0.0.0.0" }).catch((err) => {

@@ -1,4 +1,4 @@
-import type { AuthProvider, AuthTokens } from "../../../shared/auth/auth-provider.js";
+import type { AuthProvider, AuthTokens } from "#shared/auth/auth-provider";
 
 export interface LoginInput {
   email: string;

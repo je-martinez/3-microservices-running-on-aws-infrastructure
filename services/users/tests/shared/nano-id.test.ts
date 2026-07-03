@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { MODEL_ID_PREFIXES, generateId } from "../../src/shared/id/nano-id.js";
+import { MODEL_ID_PREFIXES, generateId } from "#shared/id/nano-id";
 
 describe("MODEL_ID_PREFIXES", () => {
   it("registers the User model prefix", () => {

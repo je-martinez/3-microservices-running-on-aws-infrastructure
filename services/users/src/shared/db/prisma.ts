@@ -1,8 +1,8 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { readReplicas } from "@prisma/extension-read-replicas";
-import { PrismaClient } from "../../generated/prisma/client.js";
-import { env } from "../config/env.js";
-import { crossCuttingExtension } from "./prisma-extensions.js";
+import { PrismaClient } from "../../generated/prisma/client.ts";
+import { env } from "../config/env.ts";
+import { crossCuttingExtension } from "./prisma-extensions.ts";
 
 // Single Prisma Client, replacing the two split writer/reader clients from
 // milestone 1. Composition order matters (extensions apply onion-style, each

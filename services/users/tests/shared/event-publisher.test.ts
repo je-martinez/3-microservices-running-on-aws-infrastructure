@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { NoopEventPublisher } from "../../src/shared/messaging/event-publisher.js";
+import { NoopEventPublisher } from "#shared/messaging/event-publisher";
 
 describe("NoopEventPublisher", () => {
   it("resolves without throwing", async () => {

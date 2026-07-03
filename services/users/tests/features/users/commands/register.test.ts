@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { RegisterUserCommand } from "../../../../src/features/users/commands/register.js";
+import { RegisterUserCommand } from "#features/users/commands/register";
 
 function deps(overrides = {}) {
   const created: any = {};

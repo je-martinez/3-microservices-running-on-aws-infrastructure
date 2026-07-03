@@ -1,5 +1,5 @@
-import type { User } from "../domain/user.js";
-import type { UserQueryService } from "../queries/get-me.js";
+import type { User } from "../domain/user.ts";
+import type { UserQueryService } from "../queries/get-me.ts";
 
 export interface GrpcDeps {
   userQueryService: Pick<UserQueryService, "getUserById">;

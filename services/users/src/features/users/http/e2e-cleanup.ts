@@ -1,5 +1,5 @@
-import type { Db } from "../../../shared/db/prisma.js";
-import { runAsActor } from "../../../shared/audit/actor-context.js";
+import type { Db } from "#shared/db/prisma";
+import { runAsActor } from "#shared/audit/actor-context";
 
 // Constructor-injected from the Awilix cradle (PROXY injection mode).
 // Soft-deletes (never hard-deletes) every user tagged "E2E Source".

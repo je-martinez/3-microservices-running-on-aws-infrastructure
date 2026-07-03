@@ -1,5 +1,5 @@
-import type { Db } from "../../../shared/db/prisma.js";
-import { toDomain, type User } from "../domain/user.js";
+import type { Db } from "#shared/db/prisma";
+import { toDomain, type User } from "../domain/user.ts";
 
 // Constructor-injected from the Awilix cradle (PROXY injection mode).
 // Groups the read-only user lookups (getMe, getUserById) since both share the

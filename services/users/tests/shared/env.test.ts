@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseEnv } from "../../src/shared/config/env.js";
+import { parseEnv } from "#shared/config/env";
 
 describe("parseEnv", () => {
   it("coerces E2E_TESTING_ENABLED and PORT", () => {

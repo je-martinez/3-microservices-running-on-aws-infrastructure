@@ -3,8 +3,8 @@ import {
   buildCrossCuttingQueries,
   computeIsDeleted,
   type CrossCuttingBaseClient,
-} from "../../../src/shared/db/prisma-extensions.js";
-import { runAsActor } from "../../../src/shared/audit/actor-context.js";
+} from "#shared/db/prisma-extensions";
+import { runAsActor } from "#shared/audit/actor-context";
 
 // Unit-tests the `$allModels` query handlers built by `buildCrossCuttingQueries`
 // directly — the same function `crossCuttingExtension` wires into a real

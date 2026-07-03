@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { getUserByIdHandler } from "../../../../src/features/users/grpc/get-user-by-id.js";
+import { getUserByIdHandler } from "#features/users/grpc/get-user-by-id";
 
 describe("getUserByIdHandler", () => {
   it("delegates to the query service with the request id", async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { UserQueryService } from "../../../../src/features/users/queries/get-me.js";
+import { UserQueryService } from "#features/users/queries/get-me";
 
 describe("UserQueryService", () => {
   describe("getMe", () => {

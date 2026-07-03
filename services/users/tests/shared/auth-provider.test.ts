@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { CognitoAuthProvider } from "../../src/shared/auth/cognito-auth-provider.js";
+import { CognitoAuthProvider } from "#shared/auth/cognito-auth-provider";
 
 describe("CognitoAuthProvider", () => {
   it("login maps Cognito tokens to the AuthProvider shape", async () => {

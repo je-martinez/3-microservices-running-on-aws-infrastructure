@@ -3,9 +3,21 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": { "node": "24.18.0" },
+  "imports": {
+    "#shared/*": {
+      "development": "./src/shared/*.ts",
+      "default": "./dist/shared/*.js"
+    },
+    "#features/*": {
+      "development": "./src/features/*.ts",
+      "default": "./dist/features/*.js"
+    }
+  },
   "scripts": {
-    "dev": "node --watch --experimental-strip-types src/server.ts",
+    "dev": "node --watch --experimental-strip-types --conditions=development src/server.ts",
     "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",

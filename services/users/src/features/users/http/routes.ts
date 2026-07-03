@@ -1,9 +1,9 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import { fastifyAwilixPlugin, type Cradle } from "@fastify/awilix";
 import { asValue, type AwilixContainer } from "awilix";
-import { diContainer, registerSingletons, registerServices } from "../../../shared/di/awilix-container.js";
-import { actorContext } from "../../../shared/audit/actor-context.js";
-import type { UpdateProfileInput } from "../commands/update-profile.js";
+import { diContainer, registerSingletons, registerServices } from "#shared/di/awilix-container";
+import { actorContext } from "#shared/audit/actor-context";
+import type { UpdateProfileInput } from "../commands/update-profile.ts";
 
 // Builds the Fastify app wired to an Awilix container. Commands/queries are resolved
 // per-request from `request.diScope` instead of a hand-rolled deps bag (see

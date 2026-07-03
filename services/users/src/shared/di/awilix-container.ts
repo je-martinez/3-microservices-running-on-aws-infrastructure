@@ -1,16 +1,16 @@
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
 import { diContainer } from "@fastify/awilix";
 import { asValue, asFunction, asClass, Lifetime } from "awilix";
-import { env, type Env } from "../config/env.js";
-import { db, type Db } from "../db/prisma.js";
-import { NoopEventPublisher, type EventPublisher } from "../messaging/event-publisher.js";
-import { CognitoAuthProvider } from "../auth/cognito-auth-provider.js";
-import type { AuthProvider } from "../auth/auth-provider.js";
-import { RegisterUserCommand } from "../../features/users/commands/register.js";
-import { LoginUserCommand } from "../../features/users/commands/login.js";
-import { UpdateProfileCommand } from "../../features/users/commands/update-profile.js";
-import { UserQueryService } from "../../features/users/queries/get-me.js";
-import { E2eCleanupCommand } from "../../features/users/http/e2e-cleanup.js";
+import { env, type Env } from "../config/env.ts";
+import { db, type Db } from "../db/prisma.ts";
+import { NoopEventPublisher, type EventPublisher } from "../messaging/event-publisher.ts";
+import { CognitoAuthProvider } from "../auth/cognito-auth-provider.ts";
+import type { AuthProvider } from "../auth/auth-provider.ts";
+import { RegisterUserCommand } from "#features/users/commands/register";
+import { LoginUserCommand } from "#features/users/commands/login";
+import { UpdateProfileCommand } from "#features/users/commands/update-profile";
+import { UserQueryService } from "#features/users/queries/get-me";
+import { E2eCleanupCommand } from "#features/users/http/e2e-cleanup";
 
 // Type-safe resolution for `app.diContainer.cradle.<x>` / `request.diScope.resolve('<x>')`.
 // `Cradle` holds app-scoped singletons (db clients, auth, events, env, service classes).

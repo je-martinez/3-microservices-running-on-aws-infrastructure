@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { toDomain } from "../../../../src/features/users/domain/user.js";
+import { toDomain } from "#features/users/domain/user";
 
 describe("toDomain", () => {
   it("maps a db row to a domain user with derived isDeleted", () => {
