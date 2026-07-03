@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { fastifyAwilixPlugin, type Cradle } from "@fastify/awilix";
 import { asValue, type AwilixContainer } from "awilix";
 import { diContainer, registerSingletons, registerServices } from "../../../shared/di/awilix-container.js";
+import { actorContext } from "../../../shared/audit/actor-context.js";
 import type { UpdateProfileInput } from "../commands/update-profile.js";
 
 // Builds the Fastify app wired to an Awilix container. Commands/queries are resolved
@@ -25,13 +26,19 @@ export function buildApp(container: AwilixContainer<Cradle> = diContainer): Fast
   });
 
   // Identity comes from the API Gateway authorizer (claims forwarded as headers).
-  // Registered per-request so `currentActor` is available in `request.diScope` for
-  // any use-case that needs the acting user for audit stamping (see [[audit-fields]]).
+  // Registered per-request in `request.diScope` for handlers that need it directly
+  // (e.g. `/users/me`), AND run through `actorContext.run(...)` so the Prisma audit
+  // extension can read the same actor from AsyncLocalStorage for its whole async call
+  // chain (see [[audit-fields]] and `shared/audit/actor-context.ts`). `done()` is called
+  // from *inside* the `als.run` callback — that's what makes the rest of the request's
+  // hook/handler chain (which Fastify continues asynchronously off of this `done()` call)
+  // inherit the store.
   app.addHook("onRequest", (req, _reply, done) => {
+    const actor = req.headers["x-user-id"] as string | undefined;
     req.diScope.register({
-      currentActor: asValue(req.headers["x-user-id"] as string | undefined),
+      currentActor: asValue(actor),
     });
-    done();
+    actorContext.run({ actor }, done);
   });
 
   app.get("/v1/health", async () => ({ status: "ok" }));

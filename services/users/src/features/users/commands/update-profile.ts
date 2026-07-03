@@ -1,4 +1,4 @@
-import type { PrismaClient } from "../../../generated/prisma/client.js";
+import type { Db } from "../../../shared/db/prisma.js";
 import { toDomain, type User } from "../domain/user.js";
 
 export interface UpdateProfileInput {
@@ -9,20 +9,21 @@ export interface UpdateProfileInput {
 
 // Constructor-injected from the Awilix cradle (PROXY injection mode).
 export class UpdateProfileCommand {
-  private readonly writer: PrismaClient;
+  private readonly db: Db;
 
-  constructor({ writer }: { writer: PrismaClient }) {
-    this.writer = writer;
+  constructor({ db }: { db: Db }) {
+    this.db = db;
   }
 
   async execute(userId: string, input: UpdateProfileInput): Promise<User> {
-    const row = await this.writer.user.update({
+    // `updatedBy` is stamped by the audit query extension from the
+    // AsyncLocalStorage actor populated per-request (see `routes.ts`).
+    const row = await this.db.user.update({
       where: { id: userId },
       data: {
         ...(input.fullName !== undefined ? { fullName: input.fullName } : {}),
         ...(input.address !== undefined ? { address: input.address as any } : {}),
         ...(input.phoneNumber !== undefined ? { phoneNumber: input.phoneNumber } : {}),
-        updatedBy: userId,
       },
     });
     return toDomain(row as any);

@@ -1,13 +1,19 @@
 import { describe, it, expect } from "vitest";
-import { newUserId } from "../../src/shared/id/nano-id.js";
+import { MODEL_ID_PREFIXES, generateId } from "../../src/shared/id/nano-id.js";
 
-describe("newUserId", () => {
-  it("returns a usr_-prefixed id", () => {
-    const id = newUserId();
+describe("MODEL_ID_PREFIXES", () => {
+  it("registers the User model prefix", () => {
+    expect(MODEL_ID_PREFIXES.User).toBe("usr_");
+  });
+});
+
+describe("generateId", () => {
+  it("returns an id prefixed with the given prefix", () => {
+    const id = generateId(MODEL_ID_PREFIXES.User);
     expect(id.startsWith("usr_")).toBe(true);
     expect(id.length).toBeGreaterThan(10);
   });
   it("returns unique ids", () => {
-    expect(newUserId()).not.toBe(newUserId());
+    expect(generateId("usr_")).not.toBe(generateId("usr_"));
   });
 });

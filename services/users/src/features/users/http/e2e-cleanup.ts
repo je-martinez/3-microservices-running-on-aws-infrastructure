@@ -1,21 +1,23 @@
-import type { PrismaClient } from "../../../generated/prisma/client.js";
-import { stampSoftDelete } from "../../../shared/audit/audit.js";
+import type { Db } from "../../../shared/db/prisma.js";
+import { runAsActor } from "../../../shared/audit/actor-context.js";
 
 // Constructor-injected from the Awilix cradle (PROXY injection mode).
 // Soft-deletes (never hard-deletes) every user tagged "E2E Source".
 export class E2eCleanupCommand {
-  private readonly writer: PrismaClient;
+  private readonly db: Db;
 
-  constructor({ writer }: { writer: PrismaClient }) {
-    this.writer = writer;
+  constructor({ db }: { db: Db }) {
+    this.db = db;
   }
 
   async execute(): Promise<{ count: number }> {
-    const stamp = stampSoftDelete("e2e-cleanup");
-    const res = await this.writer.user.updateMany({
-      where: { tags: { has: "E2E Source" }, deletedAt: null },
-      data: { deletedAt: stamp.deletedAt, deletedBy: stamp.deletedBy },
-    });
+    // `deleteMany` is redirected to a soft-delete update by the Prisma
+    // extension (see [[soft-delete]]); `runAsActor` sets a fixed actor for
+    // this call instead of relying on the request's `x-user-id` (this
+    // maintenance endpoint isn't tied to an authenticated user).
+    const res = (await runAsActor("e2e-cleanup", () =>
+      this.db.user.deleteMany({ where: { tags: { has: "E2E Source" } } }),
+    )) as { count: number };
     return { count: res.count };
   }
 }

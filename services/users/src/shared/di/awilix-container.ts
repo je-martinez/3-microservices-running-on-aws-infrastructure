@@ -1,9 +1,8 @@
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
 import { diContainer } from "@fastify/awilix";
 import { asValue, asFunction, asClass, Lifetime } from "awilix";
-import type { PrismaClient } from "../../generated/prisma/client.js";
 import { env, type Env } from "../config/env.js";
-import { writer, reader } from "../db/prisma.js";
+import { db, type Db } from "../db/prisma.js";
 import { NoopEventPublisher, type EventPublisher } from "../messaging/event-publisher.js";
 import { CognitoAuthProvider } from "../auth/cognito-auth-provider.js";
 import type { AuthProvider } from "../auth/auth-provider.js";
@@ -18,8 +17,7 @@ import { E2eCleanupCommand } from "../../features/users/http/e2e-cleanup.js";
 declare module "@fastify/awilix" {
   interface Cradle {
     env: Env;
-    writer: PrismaClient;
-    reader: PrismaClient;
+    db: Db;
     cognitoClient: CognitoIdentityProviderClient;
     auth: AuthProvider;
     events: EventPublisher;
@@ -32,11 +30,12 @@ declare module "@fastify/awilix" {
 
   // `RequestCradle` holds per-request registrations (see `registerRequestScope` in
   // routes.ts, registered via `request.diScope.register(...)` in an `onRequest` hook).
-  // `currentActor` is the identity used for audit stamping (see [[audit-fields]]); it
-  // comes from the API Gateway authorizer's `x-user-id` header. Full adoption as the
-  // single audit-actor source lands with the Prisma extension work (block 2) — for now
-  // it is available in the cradle but `register` still stamps with the new row's own id
-  // (see commands/register.ts).
+  // `currentActor` is the identity from the API Gateway authorizer's `x-user-id` header.
+  // It's kept here for handlers that need it directly (e.g. resolving "me"), but audit
+  // stamping itself reads the actor from AsyncLocalStorage (see
+  // `shared/audit/actor-context.ts`) since the Prisma client is a singleton and its
+  // query extension can't reach into a per-request Awilix scope. `routes.ts` populates
+  // both from the same header in the same `onRequest` hook.
   interface RequestCradle {
     currentActor: string | undefined;
   }
@@ -48,8 +47,7 @@ declare module "@fastify/awilix" {
 export function registerSingletons(): void {
   diContainer.register({
     env: asValue(env),
-    writer: asValue(writer),
-    reader: asValue(reader),
+    db: asValue(db),
     cognitoClient: asFunction(
       ({ env: cradleEnv }: { env: Env }) =>
         new CognitoIdentityProviderClient({
