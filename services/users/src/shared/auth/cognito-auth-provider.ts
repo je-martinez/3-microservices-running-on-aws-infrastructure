@@ -4,7 +4,7 @@ import {
   AdminInitiateAuthCommand,
   type CognitoIdentityProviderClient,
 } from "@aws-sdk/client-cognito-identity-provider";
-import type { AuthProvider, AuthTokens } from "./auth-provider.js";
+import type { AuthProvider, AuthTokens } from "./auth-provider.ts";
 
 export class CognitoAuthProvider implements AuthProvider {
   constructor(

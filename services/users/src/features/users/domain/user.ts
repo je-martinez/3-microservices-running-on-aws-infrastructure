@@ -1,5 +1,3 @@
-import { isDeleted as deriveIsDeleted } from "../../../shared/audit/audit.js";
-
 export interface UserRow {
   id: string;
   email: string;
@@ -19,6 +17,11 @@ export interface User extends UserRow {
   isDeleted: boolean;
 }
 
+// `isDeleted` is computed by the Prisma client extension's `result` block
+// (see [[soft-delete]] and `shared/db/prisma-extensions.ts`) directly on rows
+// returned by the db client. `toDomain` derives it the same way (`deletedAt
+// !== null`) so it stays correct for any `UserRow` regardless of whether it
+// already carries a computed `isDeleted` (e.g. rows built by hand in tests).
 export function toDomain(row: UserRow): User {
-  return { ...row, isDeleted: deriveIsDeleted(row) };
+  return { ...row, isDeleted: row.deletedAt !== null };
 }
