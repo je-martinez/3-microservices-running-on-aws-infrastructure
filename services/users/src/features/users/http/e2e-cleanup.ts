@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "../../../generated/prisma/client.js";
 import { stampSoftDelete } from "../../../shared/audit/audit.js";
 
 // Constructor-injected from the Awilix cradle (PROXY injection mode).

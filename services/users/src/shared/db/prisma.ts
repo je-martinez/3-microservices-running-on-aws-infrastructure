@@ -1,10 +1,14 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { PrismaClient } from "../../generated/prisma/client.js";
 import { env } from "../config/env.js";
 
+// Two separate clients (writer/reader), each backed by its own driver adapter
+// connection. Kept split for now — unifying them behind
+// @prisma/extension-read-replicas is milestone 2 (block 2).
 export const writer = new PrismaClient({
-  datasources: { db: { url: env.DATABASE_WRITER_URL } },
+  adapter: new PrismaPg({ connectionString: env.DATABASE_WRITER_URL }),
 });
 
 export const reader = new PrismaClient({
-  datasources: { db: { url: env.DATABASE_READER_URL } },
+  adapter: new PrismaPg({ connectionString: env.DATABASE_READER_URL }),
 });

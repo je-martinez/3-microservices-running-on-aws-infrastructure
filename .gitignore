@@ -17,6 +17,8 @@ node_modules/
 # TypeScript build artifacts
 dist/
 **/dist/
+# Prisma v7 generated client (prisma-client generator output, see schema.prisma)
+services/*/src/generated/
 # Env files (local secrets — never version)
 .env
 .env.*

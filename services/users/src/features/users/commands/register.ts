@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "../../../generated/prisma/client.js";
 import type { AuthProvider } from "../../../shared/auth/auth-provider.js";
 import type { EventPublisher } from "../../../shared/messaging/event-publisher.js";
 import { newUserId } from "../../../shared/id/nano-id.js";

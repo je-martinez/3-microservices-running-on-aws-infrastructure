@@ -1,7 +1,7 @@
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
 import { diContainer } from "@fastify/awilix";
 import { asValue, asFunction, asClass, Lifetime } from "awilix";
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "../../generated/prisma/client.js";
 import { env, type Env } from "../config/env.js";
 import { writer, reader } from "../db/prisma.js";
 import { NoopEventPublisher, type EventPublisher } from "../messaging/event-publisher.js";
