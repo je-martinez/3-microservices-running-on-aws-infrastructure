@@ -30,3 +30,6 @@ e2e/test-results/
 *.tfstate.backup
 *.tfstate.*.backup
 .terraform.lock.hcl
+
+# Agent-skills CLI local mirror (canonical copies live in .claude/skills/)
+.agents/
