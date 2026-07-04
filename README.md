@@ -19,6 +19,14 @@ The vault uses a hybrid **domain + type** layout: code organized by service (dom
 - `docs/lessons/`, `docs/retros/`, `docs/ideas/`, `docs/plans/` — root note types (`plans/archive/` for finished plans)
 - `docs/superpowers/` — design specs (`specs/`) & implementation plans (`plans/`) for this project
 
+## Local development
+
+Run `make help` for the local dev commands. In short: `make up` starts the stack
+(Floci + services), `make bootstrap` also applies the local Terraform against Floci,
+and each service ships a `.http` file (e.g. `services/users/users.http`) you can run
+with the VS Code REST Client extension. Full convention:
+`docs/shared/conventions/local-dev.md`.
+
 ## Conventions
 - Every note carries YAML frontmatter (`title`, `type`, `area`, `status`, `created`, `updated`, `tags`, and `related` where applicable) and ends with a `## Related` section of outgoing wikilinks.
 - Tags are folder-style: `area/<x>`, `type/<x>`, `status/<x>`.
