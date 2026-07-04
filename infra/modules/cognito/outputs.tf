@@ -10,13 +10,18 @@ output "client_id" {
 
 output "issuer" {
   description = <<-EOT
-    Issuer URL for the JWT authorizer.
+    Issuer URL for the JWT authorizer. Style is selected via var.issuer_style:
 
-    Uses the AWS-format URL (https://cognito-idp.<region>.amazonaws.com/<pool-id>)
-    even for local Ministack stacks.  Ministack's JWT authorizer validates tokens
-    against this URL — using http://localhost:4566/<pool-id> causes 401 errors.
-    This was validated in the spike (infra/environments/local/spike/terraform.tfstate,
-    jwt_configuration.issuer field).
+    - "aws" (default): the AWS-format URL
+      (https://cognito-idp.<region>.amazonaws.com/<pool-id>). Used for real AWS
+      and for Ministack local stacks — Ministack's JWT authorizer validates
+      tokens against this URL; http://localhost:4566/<pool-id> causes 401
+      errors there. This was validated in the spike
+      (infra/environments/local/spike/terraform.tfstate, jwt_configuration.issuer
+      field).
+    - "floci": http://localhost:4566/<pool-id> — Floci issues tokens with this
+      as the `iss` claim, so the authorizer issuer must match it exactly
+      (floci skill, quirk #5).
   EOT
-  value       = "https://cognito-idp.${var.region}.amazonaws.com/${aws_cognito_user_pool.this.id}"
+  value       = var.issuer_style == "floci" ? "http://localhost:4566/${aws_cognito_user_pool.this.id}" : "https://cognito-idp.${var.region}.amazonaws.com/${aws_cognito_user_pool.this.id}"
 }

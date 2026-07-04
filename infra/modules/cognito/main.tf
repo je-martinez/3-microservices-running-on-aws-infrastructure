@@ -17,9 +17,10 @@ resource "aws_cognito_user_pool" "this" {
 
 # ─── Cognito App Client ───────────────────────────────────────────────────────
 # Auth flows proven in the spike (infra/environments/local/spike/terraform.tfstate).
-# The API Gateway JWT authorizer validates tokens issued by this pool/client;
-# the issuer must use the AWS-format URL — NOT http://localhost:4566/<pool-id>.
-# Ministack accepts the AWS-format issuer even for local stacks.
+# The API Gateway JWT authorizer validates tokens issued by this pool/client. The
+# issuer URL is emulator-specific (see the `issuer` output and var.issuer_style):
+# Ministack/real-AWS want the AWS-format URL; Floci wants http://localhost:4566/<pool-id>
+# (floci skill quirk #5). The correct style per environment is selected via issuer_style.
 resource "aws_cognito_user_pool_client" "this" {
   name         = "${var.context.id}-client"
   user_pool_id = aws_cognito_user_pool.this.id
@@ -37,4 +38,11 @@ resource "aws_cognito_user_pool_client" "this" {
   ]
 
   allowed_oauth_flows_user_pool_client = false
+
+  # Floci returns AnalyticsConfiguration: {} (and RefreshTokenRotation: {}),
+  # which the provider misreads as a changed block and aborts apply. The
+  # client is created and functional regardless (floci skill, quirk #2).
+  lifecycle {
+    ignore_changes = [analytics_configuration]
+  }
 }

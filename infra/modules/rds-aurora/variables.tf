@@ -34,6 +34,24 @@ variable "master_password" {
   sensitive   = true
 }
 
+variable "create_subnet_group" {
+  description = "Create a managed DB subnet group. Default true for real AWS. Set false for Floci local (Floci's ListTagsForResource fails for subnet-group ARNs), and pass subnet_group_name instead."
+  type        = bool
+  default     = true
+}
+
+variable "subnet_group_name" {
+  description = "Name of a pre-existing DB subnet group to use when create_subnet_group = false (e.g. Floci's 'default')."
+  type        = string
+  default     = null
+}
+
+variable "engine" {
+  description = "DB engine. Default aurora-postgresql for real AWS; local Floci passes 'postgres' (Floci runs real postgres/mysql/mariadb containers, not Aurora)."
+  type        = string
+  default     = "aurora-postgresql"
+}
+
 variable "engine_version" {
   description = "Aurora PostgreSQL engine version."
   type        = string
@@ -50,4 +68,16 @@ variable "skip_final_snapshot" {
   description = "Whether to skip the final DB snapshot when the cluster is deleted."
   type        = bool
   default     = true
+}
+
+variable "manage_app_user" {
+  description = "Create a least-privilege application DB user (SELECT/INSERT/UPDATE, no DELETE) with credentials in Secrets Manager. Default off; envs opt in."
+  type        = bool
+  default     = false
+}
+
+variable "app_username" {
+  description = "Name of the least-privilege application DB user."
+  type        = string
+  default     = "users_app"
 }
