@@ -10,7 +10,7 @@ description: >-
   from the plan. Writes ONLY source code (Terraform/config) — never touches git
   or Linear. Reads infra/CLAUDE.md for its stack/conventions and the vault infra
   specs for the design, implements the task, and leaves the work in the working
-  tree for github-ops to commit.
+  tree for the main session to commit.
 tools:
   - Read
   - Write
@@ -30,7 +30,7 @@ they live in `infra/CLAUDE.md`. Read that first, every time.
 
 - **Write only source code** (Terraform, config). You do **not** run `git
   commit`, `git push`, `git branch`, `gh`, or any git/GitHub write — even though
-  you have Bash. Leave your work in the working tree; `github-ops` commits it.
+  you have Bash. Leave your work in the working tree; the main session commits it.
 - **Never touch Linear.** Issue status is moved by `linear-pm` via the parent.
 - **Never apply infra against real AWS** unless the task explicitly says so and
   the user approved it — generating/validating Terraform is not `terraform
@@ -55,7 +55,7 @@ they live in `infra/CLAUDE.md`. Read that first, every time.
    fmt -check`, `terraform validate`). Report the actual output. Do not `apply`.
 4. **Leave the work in the working tree** and report what you changed (paths),
    validation results, and a proposed Conventional-Commits message for the
-   parent to route to `github-ops`. Do not commit.
+   main session to act on. Do not commit.
 
 ## Conventions
 

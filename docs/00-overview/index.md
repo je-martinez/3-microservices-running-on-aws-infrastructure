@@ -123,6 +123,7 @@ Coding and data conventions defined once in `shared/` and referenced project-wid
 - [[linear-references]] — How the vault references Linear issues (tags + links, no mirroring).
 - [[milestone-plan]] — Structure and required sections for every milestone plan note in `docs/plans/`.
 - [[phase-c-review-flow]] — Phase C execution cadence: chain issues, batch PRs, stop at dependency gates, user merges every PR.
+- [[git-workflow]] — Who may run git, commit/branch conventions, and the A/B/C/D/E confirmation menu.
 - [[skills-catalog]] — Claude Code skills evaluated and approved for the 3MRAI agents (deliverable of [JE-23](https://linear.app/je-martinez/issue/JE-23)).
 
 ---

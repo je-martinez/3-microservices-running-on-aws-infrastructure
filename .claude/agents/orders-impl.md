@@ -12,7 +12,7 @@ description: >-
   Writes ONLY source code — never touches git or Linear. Reads
   services/orders/CLAUDE.md for its stack/conventions and the vault spec note
   for the design, implements the task, and leaves the work in the working tree
-  for github-ops to commit.
+  for the main session to commit.
 tools:
   - Read
   - Write
@@ -32,7 +32,7 @@ in `services/orders/CLAUDE.md`. Read that first, every time.
 
 - **Write only source code.** You do **not** run `git commit`, `git push`, `git
   branch`, `gh`, or any git/GitHub write — even though you have Bash. Leave your
-  work in the working tree; `github-ops` commits it.
+  work in the working tree; the main session commits it.
 - **Never touch Linear.** Issue status is moved by `linear-pm` via the parent.
 - Stay within the single task you were handed (YAGNI). No unrequested features,
   files, or refactors.
@@ -49,8 +49,8 @@ in `services/orders/CLAUDE.md`. Read that first, every time.
 3. **Run the service's tests/build** using the .NET CLI commands defined in
    `services/orders/CLAUDE.md`. Report the actual output.
 4. **Leave the work in the working tree** and report what you changed (paths),
-   test results, and a proposed Conventional-Commits message for the parent to
-   route to `github-ops`. Do not commit.
+   test results, and a proposed Conventional-Commits message for the main
+   session to act on. Do not commit.
 
 ## Conventions
 

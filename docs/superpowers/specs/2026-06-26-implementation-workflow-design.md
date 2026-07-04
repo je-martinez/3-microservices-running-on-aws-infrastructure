@@ -30,7 +30,7 @@ The agent fleet splits into two orthogonal layers. The **tool layer** is horizon
 |---|---|---|
 | `obsidian-vault` | `docs/` (the Obsidian vault) | Creates/edits notes, normalizes superpowers output, enforces frontmatter/tags/wikilinks. |
 | `linear-pm` | Linear | Milestones, issues, labels, comments, status transitions, reporting. |
-| `github-ops` | git / GitHub | Branches, commits, PRs, merges, branch cleanup. |
+| `github-ops` | git / GitHub (optional) | Optional helper for complex git batches — branches, commits, PRs, merges, cleanup. The main session may also run git directly (see [[git-workflow]]). |
 
 ### Domain layer (vertical, new)
 
@@ -43,7 +43,7 @@ The agent fleet splits into two orthogonal layers. The **tool layer** is horizon
 | `events-pipeline-impl` | source code only | Implements the SQS→Lambda events pipeline. |
 | `infra-impl` | source code only | Implements the Terraform/AWS infrastructure. |
 
-The five implementers write **only source code** — they never touch git or Linear. When their work is done they leave it in the working tree for `github-ops` to commit. The architect writes nothing at all; it only reasons and returns a plan.
+The five implementers write **only source code** — they never touch git or Linear. When their work is done they leave it in the working tree for the **main session** to commit (optionally delegating a complex git batch to `github-ops`). The architect writes nothing at all; it only reasons and returns a plan.
 
 ```mermaid
 graph TD
@@ -55,10 +55,10 @@ graph TD
         E[events-pipeline-impl]
         I[infra-impl]
     end
-    subgraph Tool["Tool layer (horizontal — one writer per tool)"]
+    subgraph Tool["Tool layer (horizontal — docs/ + Linear single-writer; git optional via github-ops)"]
         OV[obsidian-vault → docs/]
         LP[linear-pm → Linear]
-        GO[github-ops → git/GitHub]
+        GO[github-ops → git/GitHub (optional)]
     end
     P((parent / main session))
     P --> SA
@@ -97,14 +97,14 @@ These are raw superpowers outputs; they are not yet normalized to vault conventi
 For each issue, in order:
 
 1. **parent → `linear-pm`** — move the issue to **In Progress**.
-2. **parent → `github-ops`** — create the task branch off the milestone's feature branch.
+2. **main session (or, optionally, `github-ops`)** — create the task branch off the milestone's feature branch, confirming via the A/B/C/D/E menu (see [[git-workflow]]).
 3. **parent → `<svc>-impl`** — implement: the agent reads `services/<svc>/CLAUDE.md` for stack/conventions, reads the vault spec note for the design, and **writes only source code**.
-4. **parent → `github-ops`** — commit and open a PR (task → feature).
+4. **main session (or, optionally, `github-ops`)** — commit and open a PR (task → feature), confirming via the A/B/C/D/E menu.
 5. **parent → `linear-pm`** — after the PR merges, move the issue to **Done**.
 
 ### Phase D — Milestone close
 
-When all task PRs for the milestone are merged, **`github-ops` proposes a PR feature → `main`**. The **user reviews and merges** it — no auto-merge.
+When all task PRs for the milestone are merged, the **main session (or, optionally, `github-ops`) proposes a PR feature → `main`**. The **user reviews and merges** it — no auto-merge.
 
 ## The solutions-architect agent
 
@@ -202,4 +202,5 @@ The `services/<svc>/CLAUDE.md` files only make sense **once each service folder 
 - [[2026-06-26-3mrai-docs-vault-design]] — the sibling spec: design of the documentation vault.
 - [[index]] — root Map of Content for the vault.
 - [[linear-references]] — how the vault references Linear work (tags + links, never mirrors).
+- [[git-workflow]] — git conventions and the confirmation menu; git is optional via `github-ops`, the main session may run it directly.
 - `first-prompt-en.md` — source requirements file for the 3MRAI implementation (plain file, not a vault note).

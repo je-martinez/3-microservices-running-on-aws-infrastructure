@@ -5,10 +5,13 @@ These rules take precedence over default agent/skill behavior.
 
 ## Working rules
 
-### Git — never commit on your own initiative
-- Do **not** run `git commit`, `git push`, `git merge`, or open PRs on your own judgment.
-- When you think a commit is warranted, **propose the commit message and wait for explicit confirmation** before running it.
-- Leave finished work in the working tree and tell the user it's ready to commit.
+### Git — confirm every write, but the main session may run git
+- The **main session may execute git directly** (commit, push, PR) — git is **not** routed exclusively through `github-ops`. `github-ops` remains an **optional** helper for complex git batches.
+- **Never commit/push/merge/open a PR without explicit user confirmation.** When a git write is warranted, present the **A/B/C/D/E confirmation menu** (full convention: `docs/shared/conventions/git-workflow.md` → [[git-workflow]]). **ALWAYS render it with the `AskUserQuestion` tool as an arrow-navigable option list — never as a plain-text list of letters in a normal message.** First summarize (in the surrounding text) what is staged and the proposed Conventional-Commits message, then present the menu:
+  - **A.** Commit + push + create PR — only when the feature/issue is complete (PR base by branch type; opened, never merged).
+  - **B.** Commit + push.  **C.** Commit only.  **D.** Continue without committing (leave the work in the working tree and carry on).  **E.** Write manually.
+- Choosing an option IS the confirmation for that write, and authorizes **only** that action (never auto-merge, never standing approval).
+- Leave finished work in the working tree until the user picks an option.
 - This overrides any skill (brainstorming, writing-plans, etc.) that commits automatically.
 
 ### Node.js
@@ -23,28 +26,28 @@ These rules take precedence over default agent/skill behavior.
 - Stay within what was asked. No unrequested features, files, or refactors (YAGNI).
 
 ### Subagents
-Three custom subagents own their domains. The external-write agents (`linear-pm`, `github-ops`) **read freely but propose every write and wait for explicit confirmation**.
+Custom subagents own their write domains. `linear-pm` (Linear) and `obsidian-vault` (`docs/`) are **single writers** of their tools. `github-ops` is an **optional** git helper (the main session may run git directly — see [[git-workflow]]). The external-write agents **read freely but propose every write and wait for explicit confirmation**.
 
 - **`linear-pm`** (`.claude/agents/linear-pm.md`) — project manager for Linear: milestones, issues, projects, labels, comments, status updates, reporting. Uses the **plugin** Linear MCP server (`mcp__plugin_linear_linear__*`).
-- **`github-ops`** (`.claude/agents/github-ops.md`) — git & GitHub operator: commits, branches, pushes, PRs, merges. Uses `git` + `gh`.
+- **`github-ops`** (`.claude/agents/github-ops.md`) — **optional** git & GitHub helper for complex batches: commits, branches, pushes, PRs, merges. Uses `git` + `gh`. The main session may also run git directly; conventions live in [[git-workflow]].
 - **`obsidian-vault`** (`.claude/agents/obsidian-vault.md`) — **sole writer of the `docs/` vault.** All note creation/edits go through it so structure, frontmatter, tags, and wikilinks stay consistent. Has the Obsidian skills preloaded. **No other agent (including the main session) writes to `docs/` — route vault writes here.**
 
-`linear-pm` and `github-ops` coordinate: `github-ops` needs milestone/issue IDs from `linear-pm` to name branches/PRs, and reports merges back so `linear-pm` can update issue status. Route Linear↔GitHub work through the parent, which relays between them.
+When `github-ops` is used, it coordinates with `linear-pm`: it needs milestone/issue IDs to name branches/PRs and reports merges back so `linear-pm` can update issue status. Route Linear↔GitHub work through the parent, which relays between them. (The main session, running git directly, does the same coordination inline.)
 
 ### Implementation agents & flow
 
 Two layers of agents (see `docs/superpowers/specs/2026-06-26-implementation-workflow-design.md`):
 
-- **Tool layer (one writer per tool):** `obsidian-vault` (docs/), `linear-pm` (Linear), `github-ops` (git/GitHub).
+- **Tool layer:** `obsidian-vault` (docs/) and `linear-pm` (Linear) are single writers. `github-ops` (git/GitHub) is **optional** — the main session may run git directly (see [[git-workflow]]).
 - **Domain layer:** `solutions-architect` (read-only planner — returns a **Coordination Plan**, writes nothing) and five **code-only** implementers: `users-impl`, `orders-impl`, `tracking-impl`, `events-pipeline-impl`, `infra-impl`.
 
-**Invariant:** implementers write **only source code** — they never run git or touch Linear, and they leave work in the working tree for `github-ops`. The architect writes nothing. A subagent cannot spawn another subagent, so the **parent** routes the architect's Coordination Plan to each hand.
+**Invariant:** implementers write **only source code** — they never run git or touch Linear, and they leave work in the working tree for the **main session** to commit (which may optionally delegate a complex git batch to `github-ops`). The architect writes nothing. A subagent cannot spawn another subagent, so the **parent** routes the architect's Coordination Plan to each hand.
 
 **Flow per milestone:**
 - **A — Design:** `brainstorming` → spec; `writing-plans` → plan (both under `docs/superpowers/`).
 - **B — Organization:** parent → `solutions-architect` (returns Coordination Plan); parent → `obsidian-vault` (normalize/index per plan); parent → `linear-pm` (propose milestone+issues → user confirms).
-- **C — Implementation (per issue):** parent → `linear-pm` (issue → In Progress) → `github-ops` (task branch) → `<svc>-impl` (implement; reads `services/<svc>/CLAUDE.md` + the vault spec note) → `github-ops` (commit + PR task→feature) → `linear-pm` (issue → Done after merge).
-- **D — Milestone close:** `github-ops` proposes PR feature→`main`; the user reviews and merges (no auto-merge).
+- **C — Implementation (per issue):** parent → `linear-pm` (issue → In Progress) → main session creates the task branch → `<svc>-impl` (implement; reads `services/<svc>/CLAUDE.md` + the vault spec note) → main session commits + opens PR task→feature via the A/B/C/D/E menu (or delegates to `github-ops`) → `linear-pm` (issue → Done after merge).
+- **D — Milestone close:** the main session (or `github-ops`) proposes PR feature→`main`; the user reviews and merges (no auto-merge).
 
 Each service's stack/conventions live in its nested `services/<svc>/CLAUDE.md` (or `infra/CLAUDE.md`), created at the start of that service's milestone — the implementer agents are thin and defer to it.
 
@@ -55,13 +58,10 @@ Anything brainstorming/writing-plans produces is a first-class vault note:
 - User instructions (this file) take precedence over a skill's default paths/behavior.
 
 ### Commit messages
-- All commits and PR titles follow **Conventional Commits v1.0.0** (https://www.conventionalcommits.org/en/v1.0.0/): `<type>(<scope>): <description>`, types `feat|fix|build|chore|ci|docs|style|refactor|perf|test`, scope = vault area (`users`, `orders`, `tracking`, `events-pipeline`, `infra`, `vault`, `agents`). Breaking changes use `!` and/or a `BREAKING CHANGE:` footer. Link Linear issues via `Refs:`/`Closes:` footers. Enforced by `github-ops`.
+- All commits and PR titles follow **Conventional Commits v1.0.0** (https://www.conventionalcommits.org/en/v1.0.0/): `<type>(<scope>): <description>`, types `feat|fix|build|chore|ci|docs|style|refactor|perf|test`, scope = vault area (`users`, `orders`, `tracking`, `events-pipeline`, `infra`, `vault`, `agents`). Breaking changes use `!` and/or a `BREAKING CHANGE:` footer. Link Linear issues via `Refs:`/`Closes:` footers (optional — many commits have no issue). **Before proposing a commit/PR, do a best-effort lookup of context references** — Linear issue (if any), vault plan, superpowers plan/spec, and other useful refs — and attach them as commit footers (`Refs:`, `Plan:`, `Spec:`, `Design:`) and a `## References` section in the PR body. This is enrichment, **never a blocker**. Full convention (confirmation menu + reference lookup): [[git-workflow]].
 
 ### Branch flow (Linear-driven)
-- **Linear milestone → feature branch** `feature/<milestone-slug>` (off `main`).
-- **Linear issue/task → task branch** `<type>/<ISSUE-ID>-<slug>` (off its feature branch).
-- **Task integration:** PR task branch → feature branch; on approval, **squash-merge + delete branch**.
-- **Milestone completion:** when all task PRs are merged, **propose** a PR feature → `main` and stop — the user merges it after review (no auto-merge).
+Full convention: `docs/shared/conventions/git-workflow.md` → [[git-workflow]]. In short: milestone → `feature/<milestone-slug>` (off `main`); issue/task → `<type>/<ISSUE-ID>-<slug>` (off its feature branch); task PR → feature (squash-merge; the repo auto-deletes merged branches); on milestone completion, **propose** a PR feature → `main` and stop — the user merges after review (no auto-merge).
 
 ### Phase C review flow (batch review + dependency gates)
 How Phase C issues are chained and reviewed (full convention: `docs/shared/conventions/phase-c-review-flow.md`):
