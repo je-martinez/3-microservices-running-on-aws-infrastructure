@@ -102,6 +102,8 @@ services:
       context: .
       dockerfile: services/users/Dockerfile
     networks: [3mrai-network]
+    ports:
+      - "3000:3000"
     # depends_on ministack disabled for the Floci spike (2026-06-29).
     # depends_on:
     #   ministack:
