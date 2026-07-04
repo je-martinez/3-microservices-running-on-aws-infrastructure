@@ -23,3 +23,8 @@ output "port" {
   description = "Port the Aurora cluster listens on."
   value       = aws_rds_cluster.this.port
 }
+
+output "app_secret_arn" {
+  description = "ARN of the least-privilege app-user credentials secret (null if not managed)."
+  value       = var.manage_app_user ? aws_secretsmanager_secret.app_credentials[0].arn : null
+}

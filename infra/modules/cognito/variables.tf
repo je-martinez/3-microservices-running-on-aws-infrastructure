@@ -17,3 +17,13 @@ variable "password_minimum_length" {
   type        = number
   default     = 8
 }
+
+variable "issuer_style" {
+  description = "JWT issuer URL style. 'aws' → https://cognito-idp.<region>.amazonaws.com/<pool-id> (real AWS/Ministack). 'floci' → http://localhost:4566/<pool-id> (Floci local, per floci skill quirk #5)."
+  type        = string
+  default     = "aws"
+  validation {
+    condition     = contains(["aws", "floci"], var.issuer_style)
+    error_message = "issuer_style must be 'aws' or 'floci'."
+  }
+}

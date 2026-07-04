@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-06-29
+updated: 2026-07-04
 tags:
   - type/spec
   - area/shared
@@ -24,6 +24,7 @@ related:
   - "[[ADR-0015-drawio-diagrams]]"
   - "[[ministack-auth-chain-spike-findings]]"
   - "[[floci-vs-ministack-spike-findings]]"
+  - "[[floci-rds-apigw-limits]]"
 ---
 
 # 3MRAI — Index
@@ -162,6 +163,7 @@ Durable empirical findings from spikes, incidents, and experiments.
 
 - [[ministack-auth-chain-spike-findings]] — Empirical findings from the JE-25 Ministack spike: proven local auth chain topology, DNS quirks, provider pins, and ECS workarounds.
 - [[floci-vs-ministack-spike-findings]] — A/B comparison of Floci vs Ministack on the same auth chain: gate results, comparison table, and key findings. No migration decision — ADR-0012 unchanged.
+- [[floci-rds-apigw-limits]] — Empirical limits of Floci discovered during JE-36 (RDS/Aurora + API Gateway chain): tag-update bugs on RDS/API GW resources, and API Gateway v2 HTTP_PROXY path-forwarding not working.
 
 ---
 
@@ -189,3 +191,4 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[ADR-0015-drawio-diagrams]]
 - [[ministack-auth-chain-spike-findings]]
 - [[floci-vs-ministack-spike-findings]]
+- [[floci-rds-apigw-limits]]
