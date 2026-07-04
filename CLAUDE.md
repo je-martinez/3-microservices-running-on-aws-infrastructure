@@ -107,3 +107,4 @@ The Obsidian vault lives in [`docs/`](docs/). Design and plan for it:
 
 ### Validation
 - `node scripts/validate-vault.mjs` checks frontmatter and broken wikilinks (run after editing vault notes).
+- The validator does **not** check **intra-note anchor links** (`[text](#heading)`). Verify these by hand: GitHub-style slugs lowercase, strip punctuation, hyphenate spaces, and an em-dash yields a double hyphen — e.g. `## Commit messages — Conventional Commits v1.0.0` → `#commit-messages--conventional-commits-v100`, **not** `#commit-messages`.
