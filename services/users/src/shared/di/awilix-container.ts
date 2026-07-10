@@ -11,6 +11,7 @@ import { LoginUserCommand } from "#features/users/commands/login";
 import { UpdateProfileCommand } from "#features/users/commands/update-profile";
 import { UserQueryService } from "#features/users/queries/get-me";
 import { E2eCleanupCommand } from "#features/users/http/e2e-cleanup";
+import { CaptureCognitoIdentityCommand } from "#features/users/webhooks/capture-cognito-identity";
 
 // Type-safe resolution for `app.diContainer.cradle.<x>` / `request.diScope.resolve('<x>')`.
 // `Cradle` holds app-scoped singletons (db clients, auth, events, env, service classes).
@@ -26,6 +27,7 @@ declare module "@fastify/awilix" {
     updateProfileCommand: UpdateProfileCommand;
     userQueryService: UserQueryService;
     e2eCleanupCommand: E2eCleanupCommand;
+    captureCognitoIdentityCommand: CaptureCognitoIdentityCommand;
   }
 
   // `RequestCradle` holds per-request registrations (see `registerRequestScope` in
@@ -75,6 +77,7 @@ export function registerServices(): void {
     updateProfileCommand: asClass(UpdateProfileCommand, { lifetime: Lifetime.SCOPED }),
     userQueryService: asClass(UserQueryService, { lifetime: Lifetime.SCOPED }),
     e2eCleanupCommand: asClass(E2eCleanupCommand, { lifetime: Lifetime.SCOPED }),
+    captureCognitoIdentityCommand: asClass(CaptureCognitoIdentityCommand, { lifetime: Lifetime.SCOPED }),
   });
 }
 

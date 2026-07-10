@@ -42,15 +42,42 @@ PROD:   Cognito --PostConfirmation--> Lambda shim --POST /v1/webhooks/cognito-->
                                                                                 ^
 LOCAL:  register() --auth.signUp()--> {sub, email, ...} --in-process call-------|
         (when NODE_ENV !== "production")                                        |
-                                              +---------------------------------+
-                                              v                                 v
-                                    users_cognito_data                users_cognito_events
-                                    (1:1 upsert by cognito_sub)    (insert, ON CONFLICT DO NOTHING)
+                                                                                  v
+                                                        find users row by email
+                                                                                  |
+                                                             usersCognitoData.upsert
+                                                             (events nested: create)
+                                                                                  |
+                                              +-------------------+--------------+
+                                              v                   v
+                                    users_cognito_data     users_cognito_events
+                                    (1:1 by cognito_sub)   (child, same transaction)
 ```
 
 The prod-side Lambda shim (the box that turns a real Cognito PostConfirmation trigger into an
 HTTP POST) is drawn above for context only — see [Out of scope](#in-scope--out-of-scope); it is
 not part of this issue.
+
+### Persistence: a single nested write
+
+The command looks up the `users` row by email first. If none matches, it does not persist
+anything (see [Error handling](#error-handling)). Otherwise it persists with **one Prisma nested
+write**: `usersCognitoData.upsert`, with the event nested via `events: { create: [...] }` inside
+**both** the `create` and `update` branches. Prisma runs a nested write as a single transaction —
+per the official docs, "Nested writes provide transactional guarantees ... If any part fails,
+Prisma Client rolls back all changes" — so the parent snapshot is inserted before the child event,
+and the foreign key from `users_cognito_events.cognito_sub` to `users_cognito_data.cognito_sub`
+(NOT NULL) is satisfied by construction. There is no separate "write the event first" step; the
+event is always a child of the snapshot in the same transaction.
+
+This was verified live against the Floci Postgres instance, both paths:
+- **First delivery** (no snapshot yet): the upsert's `create` branch runs `events: { create:
+  [event] }` — snapshot and event are inserted together, the FK is satisfied, and the child event
+  is returned.
+- **Retry** (snapshot already present): the upsert's `update` branch runs `events: { create:
+  [event] }` with the same `message_id` — Prisma throws `P2002` on the unique `message_id` index,
+  and the event count stays at 1. [D4](#d4--idempotency-key-is-derived-not-transmitted)'s
+  idempotency guarantee holds through the nested write.
 
 ## Verified facts
 
@@ -266,14 +293,18 @@ including future custom attributes. The `triggerSource` enum is the gate that en
 Columns are `snake_case` per [[db-naming]]; ids are prefixed nano-ids per [[nano-id]].
 
 - **`users_cognito_data`** — 1:1 snapshot per user.
-  `id` (`ucd_`), `user_id` FK → `users.id` (**unique**), `cognito_sub` (**unique**), `email`,
-  `client_id`, `last_event_type`, `raw_payload` (jsonb), audit fields (`updated_at` = last sync).
+  `id` (`ucd_`), `user_id` FK → `users.id` (**unique**, **NOT NULL**), `cognito_sub` (**unique**),
+  `email`, `client_id`, `last_event_type`, `raw_payload` (jsonb), audit fields (`updated_at` = last
+  sync).
 - **`users_cognito_events`** — event log.
-  `id` (`cge_`), `cognito_sub` FK → `users_cognito_data.cognito_sub`, `event_type`, `message_id`
-  (**unique**, [D4](#d4--idempotency-key-is-derived-not-transmitted)'s derived key), `raw_payload`
-  (jsonb), audit fields (`created_at` = received).
+  `id` (`cge_`), `cognito_sub` FK → `users_cognito_data.cognito_sub` (**NOT NULL**), `event_type`,
+  `message_id` (**unique**, [D4](#d4--idempotency-key-is-derived-not-transmitted)'s derived key),
+  `raw_payload` (jsonb), audit fields (`created_at` = received).
 
-Chain: `users` —(`user_id`)→ `users_cognito_data` —(`cognito_sub`)→ `users_cognito_events`.
+Chain: `users` —(`user_id`)→ `users_cognito_data` —(`cognito_sub`)→ `users_cognito_events`. Both FKs
+are `NOT NULL`, which is why the event can never be persisted ahead of its snapshot, and the
+snapshot can never be persisted ahead of its user — see [Persistence: a single nested
+write](#persistence-a-single-nested-write).
 
 Add `UsersCognitoData: "ucd_"` and `UsersCognitoEvents: "cge_"` to `MODEL_ID_PREFIXES`.
 
@@ -285,7 +316,7 @@ Add `UsersCognitoData: "ucd_"` and `UsersCognitoEvents: "cge_"` to `MODEL_ID_PRE
 | Payload fails Zod | `422` with the Zod error |
 | Unsupported `triggerSource` | `422` (rejected by the enum) |
 | Event already seen (same `message_id`) | `200` — idempotent, not an error |
-| No `users` row for that `sub` | `202` accepted; event logged, snapshot deferred |
+| No `users` row for that email | The command does not persist anything (no snapshot, no event — see [Persistence: a single nested write](#persistence-a-single-nested-write)). The route maps it to an error (see the plan for the exact status). In prod, Cognito retries the trigger, so a transient race self-heals on retry. |
 | In-process command call fails inside `register` | Does not propagate — `log.error`, `register` still returns `201` ([D3](#d3--webhook-failure-is-best-effort-non-blocking)) |
 
 ## Testing strategy

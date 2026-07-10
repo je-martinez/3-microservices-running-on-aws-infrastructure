@@ -474,6 +474,19 @@ Expected: PASS, 5 tests.
 
 ### Task 5: The shared CaptureCognitoIdentityCommand
 
+> [!danger] Redesigned after code review — read before implementing
+> The original design had this command write the `users_cognito_events` row **before** looking up
+> the user, on the theory that a `pending_user` outcome should still leave an audit trail. A code
+> review found that cannot work: `users_cognito_events.cognito_sub` is a **NOT NULL** foreign key
+> to `users_cognito_data.cognito_sub`. Verified live against Floci Postgres — inserting an event
+> whose snapshot doesn't exist yet throws a foreign-key violation (constraint
+> `users_cognito_events_cognito_sub_fkey`), not the `P2002` the original code expected. The
+> event-first ordering and the `pending_user` outcome were both dead against the real schema. See
+> the design spec's [Persistence: a single nested
+> write](../specs/2026-07-09-users-cognito-webhook-design.md#persistence-a-single-nested-write)
+> for the fix, verified live on both paths (first delivery and retry). This task below reflects
+> that fix — implement it as written, not as an older reading of the spec might suggest.
+
 **Files:**
 - Create: `services/users/src/features/users/webhooks/capture-cognito-identity.ts`
 - Modify: `services/users/src/shared/di/awilix-container.ts`
@@ -482,13 +495,21 @@ Expected: PASS, 5 tests.
 **Interfaces:**
 - Consumes: `deriveMessageId` (Task 4), `CognitoWebhookPayload` (Task 3), the Prisma models (Task 2).
 - Produces: `class CaptureCognitoIdentityCommand` with
-  `execute(payload: CognitoWebhookPayload): Promise<{ status: "captured" | "duplicate" | "pending_user" }>`,
-  registered in the Awilix cradle as `captureCognitoIdentityCommand`.
+  `execute(payload: CognitoWebhookPayload): Promise<{ status: "captured" | "duplicate" }>`
+  (no `pending_user` — see below), plus a thrown `NoMatchingUserError` when no `users` row matches.
+  Registered in the Awilix cradle as `captureCognitoIdentityCommand`.
 
 **Semantics (from the spec's error table):**
-- `duplicate` — the derived `message_id` already exists. Not an error.
-- `pending_user` — no `users` row matches that `sub`'s email yet; the event is logged, the snapshot is deferred.
-- `captured` — event logged and snapshot upserted.
+- `captured` — a single `usersCognitoData.upsert` ran, with the event nested via
+  `events: { create: [...] }` in both the `create` and `update` branches. Snapshot and event are
+  written in one transaction (Prisma's nested-write guarantee), so the event is always a child of
+  its snapshot — no FK ordering problem.
+- `duplicate` — the nested `events.create` collided on the unique `message_id` index (`P2002`).
+  Idempotent, not an error (spec D4).
+- No matching `users` row for the payload email — **not** a result status. The command throws
+  before writing anything. Both real flows (local `register.ts`, prod's PostConfirmation Lambda)
+  guarantee the `users` row already exists before capture runs, so this is an unexpected
+  condition, not a routine outcome to model as a success variant. `pending_user` is **removed**.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -496,7 +517,7 @@ Create `services/users/tests/features/users/webhooks/capture-cognito-identity.te
 
 ```ts
 import { describe, it, expect, vi } from "vitest";
-import { CaptureCognitoIdentityCommand } from "#features/users/webhooks/capture-cognito-identity";
+import { CaptureCognitoIdentityCommand, NoMatchingUserError } from "#features/users/webhooks/capture-cognito-identity";
 import { deriveMessageId } from "#features/users/webhooks/message-id";
 
 const payload = {
@@ -518,48 +539,59 @@ const payload = {
 function dbMock(over: Record<string, unknown> = {}) {
   return {
     user: { findFirst: vi.fn(async () => ({ id: "usr_1" })) },
-    usersCognitoEvent: { create: vi.fn(async () => ({ id: "cge_1" })) },
     usersCognitoData: { upsert: vi.fn(async () => ({ id: "ucd_1" })) },
     ...over,
   } as any;
 }
 
 describe("CaptureCognitoIdentityCommand", () => {
-  it("captures: logs the event and upserts the snapshot", async () => {
+  it("captures: a single upsert nests the event", async () => {
     const db = dbMock();
     const res = await new CaptureCognitoIdentityCommand({ db }).execute(payload);
     expect(res.status).toBe("captured");
-    expect(db.usersCognitoEvent.create).toHaveBeenCalledOnce();
     expect(db.usersCognitoData.upsert).toHaveBeenCalledOnce();
-  });
-
-  it("stores the derived message_id, not a random one", async () => {
-    const db = dbMock();
-    await new CaptureCognitoIdentityCommand({ db }).execute(payload);
-    const args = db.usersCognitoEvent.create.mock.calls[0][0];
-    expect(args.data.messageId).toBe(
+    const args = db.usersCognitoData.upsert.mock.calls[0][0];
+    expect(args.create.events.create[0].messageId).toBe(
+      deriveMessageId(payload.request.userAttributes.sub, payload.triggerSource),
+    );
+    expect(args.update.events.create[0].messageId).toBe(
       deriveMessageId(payload.request.userAttributes.sub, payload.triggerSource),
     );
   });
 
-  it("returns duplicate on a unique-constraint violation, without upserting", async () => {
+  it("returns duplicate when the nested event write collides on message_id (P2002)", async () => {
     const db = dbMock({
-      usersCognitoEvent: {
-        create: vi.fn(async () => {
-          throw Object.assign(new Error("unique"), { code: "P2002" });
+      usersCognitoData: {
+        upsert: vi.fn(async () => {
+          throw Object.assign(new Error("unique"), {
+            code: "P2002",
+            meta: { target: ["message_id"] },
+          });
         }),
       },
     });
     const res = await new CaptureCognitoIdentityCommand({ db }).execute(payload);
     expect(res.status).toBe("duplicate");
-    expect(db.usersCognitoData.upsert).not.toHaveBeenCalled();
   });
 
-  it("returns pending_user when no users row matches, still logging the event", async () => {
+  it("re-throws a P2002 that does NOT target message_id (narrow-catch guard)", async () => {
+    const db = dbMock({
+      usersCognitoData: {
+        upsert: vi.fn(async () => {
+          throw Object.assign(new Error("unique"), {
+            code: "P2002",
+            meta: { target: ["users_cognito_data_pkey"] },
+          });
+        }),
+      },
+    });
+    await expect(new CaptureCognitoIdentityCommand({ db }).execute(payload)).rejects.toThrow();
+  });
+
+  it("throws NoMatchingUserError and does not upsert when no users row matches", async () => {
     const db = dbMock({ user: { findFirst: vi.fn(async () => null) } });
-    const res = await new CaptureCognitoIdentityCommand({ db }).execute(payload);
-    expect(res.status).toBe("pending_user");
-    expect(db.usersCognitoEvent.create).toHaveBeenCalledOnce();
+    await expect(new CaptureCognitoIdentityCommand({ db }).execute(payload))
+      .rejects.toBeInstanceOf(NoMatchingUserError);
     expect(db.usersCognitoData.upsert).not.toHaveBeenCalled();
   });
 });
@@ -577,10 +609,25 @@ Create `services/users/src/features/users/webhooks/capture-cognito-identity.ts`:
 ```ts
 import type { Db } from "#shared/db/prisma";
 import { runAsActor } from "#shared/audit/actor-context";
+import { MODEL_ID_PREFIXES, generateId } from "#shared/id/nano-id";
 import { deriveMessageId } from "./message-id.ts";
 import type { CognitoWebhookPayload } from "./cognito-payload.ts";
 
-export type CaptureResult = { status: "captured" | "duplicate" | "pending_user" };
+export type CaptureResult = { status: "captured" | "duplicate" };
+
+// Thrown when no `users` row matches the payload's email. Both real flows
+// guarantee the user already exists before capture runs (local: register.ts
+// creates the user before calling this command; prod: Cognito's
+// PostConfirmation trigger fires only after the users service already
+// persisted the user during registration). This is therefore an unexpected
+// condition, not a routine outcome — the route maps it to an error response,
+// and in prod Cognito retries the trigger, so a transient race self-heals.
+export class NoMatchingUserError extends Error {
+  constructor(email: string) {
+    super(`No users row found for email ${email}`);
+    this.name = "NoMatchingUserError";
+  }
+}
 
 // The single persistence path for Cognito identity capture (spec D2). Reached
 // two ways: over HTTP from the prod Lambda shim, and in-process from register()
@@ -598,59 +645,97 @@ export class CaptureCognitoIdentityCommand {
     const { sub, email } = payload.request.userAttributes;
     const messageId = deriveMessageId(sub, payload.triggerSource);
 
-    // Ids and audit fields are stamped by the Prisma extension; never set them
-    // here. `runAsActor` names the actor for this non-request-bound write.
+    // Reserve both ids up front. The generated Prisma create-input types
+    // require `id` — these models have no `@default`, matching
+    // register.ts:38 — so the extension's auto-stamp does NOT cover a
+    // literal object-literal create like this one; omitting `id` here does
+    // not compile (TS2322).
+    const snapshotId = generateId(MODEL_ID_PREFIXES.UsersCognitoData);
+    const eventId = generateId(MODEL_ID_PREFIXES.UsersCognitoEvent);
+
+    // Audit fields (createdBy/updatedBy) are still stamped by the Prisma
+    // extension; never set those here. `runAsActor` names the actor for this
+    // non-request-bound write.
     return runAsActor("cognito-webhook", async () => {
+      // No `users` row for this email is not a routine outcome (see
+      // NoMatchingUserError) — fail before writing anything, rather than
+      // persisting a partial snapshot or event.
+      const user = await this.db.user.findFirst({ where: { email } });
+      if (!user) throw new NoMatchingUserError(email);
+
+      // One nested write: usersCognitoData.upsert with the event nested via
+      // events: { create: [...] } in BOTH branches. Prisma runs this as a
+      // single transaction (nested writes have transactional guarantees —
+      // rollback on any failure), inserting the parent snapshot before the
+      // child event, so the NOT NULL FK on
+      // users_cognito_events.cognito_sub is satisfied by construction.
+      // Verified live against Floci Postgres on both the first-delivery
+      // (create) and retry (update) paths — spec "Persistence: a single
+      // nested write".
       try {
-        await this.db.usersCognitoEvent.create({
-          data: {
+        await this.db.usersCognitoData.upsert({
+          where: { cognitoSub: sub },
+          create: {
+            id: snapshotId,
+            userId: user.id,
             cognitoSub: sub,
-            eventType: payload.triggerSource,
-            messageId,
+            email,
+            clientId: payload.callerContext.clientId,
+            lastEventType: payload.triggerSource,
             rawPayload: payload as unknown as object,
+            events: {
+              create: [
+                {
+                  id: eventId,
+                  eventType: payload.triggerSource,
+                  messageId,
+                  rawPayload: payload as unknown as object,
+                },
+              ],
+            },
+          },
+          update: {
+            email,
+            clientId: payload.callerContext.clientId,
+            lastEventType: payload.triggerSource,
+            rawPayload: payload as unknown as object,
+            events: {
+              create: [
+                {
+                  id: eventId,
+                  eventType: payload.triggerSource,
+                  messageId,
+                  rawPayload: payload as unknown as object,
+                },
+              ],
+            },
           },
         });
+        return { status: "captured" };
       } catch (err) {
-        // P2002 = unique constraint violation on message_id: this exact event
-        // was already recorded. Idempotent, not an error (spec D4).
-        if ((err as { code?: string }).code === "P2002") return { status: "duplicate" };
+        // P2002 on the message_id unique index = this exact event was
+        // already recorded (spec D4). Idempotent, not an error. Narrow
+        // catch: confirm it is the message_id constraint, not some other
+        // unique (e.g. the snapshot's own pkey or its cognito_sub unique
+        // index), before treating it as a duplicate — otherwise re-throw.
+        const isP2002 = (err as { code?: string }).code === "P2002";
+        const target = (err as { meta?: { target?: string[] | string } }).meta?.target;
+        const targetsMessageId = Array.isArray(target)
+          ? target.includes("message_id")
+          : typeof target === "string" && target.includes("message_id");
+        if (isP2002 && targetsMessageId) return { status: "duplicate" };
         throw err;
       }
-
-      const user = await this.db.user.findFirst({ where: { email } });
-      if (!user) return { status: "pending_user" };
-
-      await this.db.usersCognitoData.upsert({
-        where: { cognitoSub: sub },
-        create: {
-          userId: user.id,
-          cognitoSub: sub,
-          email,
-          clientId: payload.callerContext.clientId,
-          lastEventType: payload.triggerSource,
-          rawPayload: payload as unknown as object,
-        },
-        update: {
-          email,
-          clientId: payload.callerContext.clientId,
-          lastEventType: payload.triggerSource,
-          rawPayload: payload as unknown as object,
-        },
-      });
-
-      return { status: "captured" };
     });
   }
 }
 ```
 
-Note the ordering: the event row is written **before** the user lookup, so a
-`pending_user` outcome still leaves an audit trail of the event.
-
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `cd services/users && pnpm vitest run tests/features/users/webhooks/capture-cognito-identity.test.ts`
-Expected: PASS, 4 tests.
+Expected: PASS, 4 tests. If the actual count differs once written, record the real number here —
+do not guess; run the suite and use what it reports.
 
 - [ ] **Step 5: Register it in the DI container**
 
@@ -680,6 +765,15 @@ Expected: exit 0.
 
 ### Task 6: The thin HTTP route
 
+> [!danger] Redesigned after code review — read before implementing
+> Task 5's `pending_user` outcome is gone (see that task's callout). This route no longer maps
+> `pending_user` to `202`. Instead, `CaptureCognitoIdentityCommand.execute` throws
+> `NoMatchingUserError` when no `users` row matches, and this route maps that to **`500`**: a
+> confirmed Cognito identity with no matching `users` row is a server-side inconsistency, not a
+> client error, given both real flows guarantee the user exists before capture runs (see Task 5).
+> `404`/`409` are defensible alternatives (see below) but `500` was chosen; do not silently
+> substitute one of the others without updating this note and the route tests.
+
 **Files:**
 - Create: `services/users/src/features/users/webhooks/verify-secret.ts`
 - Modify: `services/users/src/features/users/http/routes.ts`
@@ -689,6 +783,20 @@ Expected: exit 0.
 **Interfaces:**
 - Consumes: `captureCognitoIdentityCommand` (Task 5), `cognitoWebhookPayloadSchema` (Task 3), `env.WEBHOOK_SECRET` (Task 1).
 - Produces: `POST /v1/webhooks/cognito`; `verifyWebhookSecret(provided: string | undefined, expected: string): boolean`.
+
+**Response mapping:**
+- `401` — missing/incorrect `x-webhook-secret` (unchanged).
+- `422` — payload fails Zod, including an unsupported `triggerSource` (unchanged).
+- `200 { status: "captured" }` / `200 { status: "duplicate" }` — from the command (unchanged
+  status codes, `pending_user` removed from the union).
+- `500` — the command threw `NoMatchingUserError`. **Why 500, not 404/409:** the caller of this
+  route is either the prod Cognito Lambda shim or the local in-process call from `register()` —
+  never an end user submitting a resource identifier, so `404` ("resource not found") and `409`
+  ("conflict with current state") both stretch their usual REST meaning here. A confirmed Cognito
+  identity with no matching `users` row means something upstream is inconsistent (the two systems
+  disagreed about whether the user exists), which is what `500` conventionally signals. Cognito
+  retries the trigger in prod on a non-2xx, so a transient race self-heals without operator
+  intervention.
 
 - [ ] **Step 1: Write the failing test for the secret comparison**
 
@@ -835,16 +943,26 @@ describe("POST /v1/webhooks/cognito", () => {
     expect(res.json()).toEqual({ status: "duplicate" });
   });
 
-  it("202s when the user row does not exist yet", async () => {
-    const { container } = webhookContainer(vi.fn(async () => ({ status: "pending_user" as const })));
+  it("500s when the command reports no matching users row (NoMatchingUserError)", async () => {
+    const { container } = webhookContainer(
+      vi.fn(async () => {
+        throw new NoMatchingUserError("a@b.com");
+      }),
+    );
     const app = buildApp(container);
     const res = await app.inject({
       method: "POST", url: "/v1/webhooks/cognito",
       headers: { "x-webhook-secret": "s3cret" }, payload: validEvent,
     });
-    expect(res.statusCode).toBe(202);
+    expect(res.statusCode).toBe(500);
   });
 });
+```
+
+`webhookContainer`'s import list at the top of the file needs `NoMatchingUserError` added:
+
+```ts
+import { NoMatchingUserError } from "#features/users/webhooks/capture-cognito-identity";
 ```
 
 - [ ] **Step 6: Run them to verify they fail**
@@ -884,15 +1002,36 @@ And register the route after `PATCH /v1/users/me`:
       return reply.code(422).send({ error: "invalid_payload", details: parsed.error.issues });
     }
 
-    const { status } = await captureCognitoIdentityCommand.execute(parsed.data);
-    return reply.code(status === "pending_user" ? 202 : 200).send({ status });
+    try {
+      const { status } = await captureCognitoIdentityCommand.execute(parsed.data);
+      return reply.code(200).send({ status });
+    } catch (err) {
+      if (err instanceof NoMatchingUserError) {
+        // A confirmed Cognito identity with no matching users row is a
+        // server-side inconsistency, not a client error (see this task's
+        // header note for the 404/409 alternatives considered). Cognito
+        // retries the trigger in prod on a non-2xx, so a transient race
+        // self-heals.
+        req.log.error({ err }, "cognito webhook: no matching users row");
+        return reply.code(500).send({ error: "no_matching_user" });
+      }
+      throw err;
+    }
   });
+```
+
+Add the import for `NoMatchingUserError` alongside the other two:
+
+```ts
+import { NoMatchingUserError } from "../webhooks/capture-cognito-identity.ts";
 ```
 
 - [ ] **Step 8: Run the route tests**
 
 Run: `cd services/users && pnpm vitest run tests/features/users/http/routes.test.ts`
-Expected: PASS — the six new tests plus the existing ones.
+Expected: PASS — the six new tests (401 × 2, 422, 200 captured, 200 duplicate, 500 no-matching-user)
+plus the existing ones. If the actual new-test count differs once written, record the real number
+— do not guess.
 
 ---
 
