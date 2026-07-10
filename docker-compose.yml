@@ -44,7 +44,7 @@ services:
 
   # ── Observability (opt-in): `docker compose --profile observability up` ──
   # OTel collector: fluentd from the compose services + CloudWatch (ECS/RDS) on
-  # Floci, exported to self-hosted SigNoz. Pinned image; do not use :latest.
+  # Floci, exported to self-hosted OpenObserve. Pinned image; do not use :latest.
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.156.0
     profiles: [observability]
@@ -56,13 +56,30 @@ services:
       - AWS_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
-      - SIGNOZ_OTLP_ENDPOINT=signoz-otel-collector:4317
+      # base64("admin@3mrai.local:Complexpass#123") — the OpenObserve Basic auth
+      # header value. Local dev only; prod injects this from Secrets Manager.
+      - O2_BASIC_AUTH=YWRtaW5AM21yYWkubG9jYWw6Q29tcGxleHBhc3MjMTIz
     volumes:
       - ./observability/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
     networks: [3mrai-network]
     depends_on:
       floci:
         condition: service_healthy
+
+  # OpenObserve: single-binary logs backend (ADR-0018). Behind the observability
+  # profile like the collector. Pinned image; do not use :latest. Local dev creds
+  # only — prod reads them from Secrets Manager (ADR-0007).
+  openobserve:
+    image: public.ecr.aws/zinclabs/openobserve:v0.91.1
+    profiles: [observability]
+    environment:
+      - ZO_ROOT_USER_EMAIL=admin@3mrai.local
+      - ZO_ROOT_USER_PASSWORD=Complexpass#123
+    ports:
+      - "5080:5080"   # UI + OTLP HTTP ingest
+    volumes:
+      - ./data/openobserve:/data
+    networks: [3mrai-network]
 
   # Real Users service (Fastify + Prisma).
   # Build context is the REPO ROOT so pnpm-lock.yaml and pnpm-workspace.yaml

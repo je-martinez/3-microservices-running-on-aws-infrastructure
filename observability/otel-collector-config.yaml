@@ -1,5 +1,5 @@
 # OpenTelemetry Collector config for 3MRAI log observability.
-# Two receivers feed one logs pipeline exported to self-hosted SigNoz.
+# Two receivers feed one logs pipeline exported to self-hosted OpenObserve.
 #   - fluent_forward: the compose services' stdout, via Docker's fluentd driver.
 #   - aws_cloudwatch: ECS/RDS logs Floci runs (e.g. the nginx ECS task).
 # Env-parameterized so the same file serves local (Floci) and, later, prod.
@@ -22,11 +22,13 @@ processors:
   batch: {}
 
 exporters:
-  # SigNoz's own OTel collector ingests OTLP (wired in Task 3). insecure: local only.
-  otlp:
-    endpoint: ${env:SIGNOZ_OTLP_ENDPOINT}
-    tls:
-      insecure: true
+  # OpenObserve OTLP-HTTP ingest (ADR-0018). Use otlp_http — the otlphttp alias
+  # is deprecated. Basic auth + stream-name are what OpenObserve requires.
+  otlp_http/openobserve:
+    endpoint: http://openobserve:5080/api/default
+    headers:
+      Authorization: "Basic ${env:O2_BASIC_AUTH}"
+      stream-name: logs
 
 service:
   telemetry:
@@ -36,4 +38,4 @@ service:
     logs:
       receivers: [fluent_forward, aws_cloudwatch]
       processors: [batch]
-      exporters: [otlp]
+      exporters: [otlp_http/openobserve]
