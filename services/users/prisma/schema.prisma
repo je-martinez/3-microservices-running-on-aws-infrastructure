@@ -10,6 +10,7 @@ datasource db {
 model User {
   id          String    @id
   email       String    @unique
+  cognitoSub  String?   @unique @map("cognito_sub")
   fullName    String    @map("full_name")
   address     Json?
   phoneNumber String?   @map("phone_number")

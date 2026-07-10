@@ -13,12 +13,14 @@ export class E2eIdentityQuery {
     this.db = db;
   }
 
-  async execute(email: string): Promise<{ data: number; events: number }> {
+  async execute(email: string): Promise<{ data: number; events: number; cognitoSub: string | null }> {
     const snapshot = await this.db.usersCognitoData.findFirst({ where: { email } });
-    if (!snapshot) return { data: 0, events: 0 };
+    if (!snapshot) return { data: 0, events: 0, cognitoSub: null };
     const events = await this.db.usersCognitoEvent.count({
       where: { cognitoSub: snapshot.cognitoSub },
     });
-    return { data: 1, events };
+    // Exposing the sub is safe ONLY because this endpoint is gated by
+    // E2E_TESTING_ENABLED and never exists in production.
+    return { data: 1, events, cognitoSub: snapshot.cognitoSub };
   }
 }

@@ -46,6 +46,13 @@ describe("RegisterUserCommand", () => {
     expect(user.id).toMatch(/^usr_/);
     expect(d._created.id).toBe(user.id);
   });
+
+  it("stamps cognitoSub from the Cognito signUp response on the created user (JE-38)", async () => {
+    const d = deps();
+    const command = new RegisterUserCommand(d);
+    await command.execute({ email: "a@b.c", password: "P!1", fullName: "A", e2eSource: false });
+    expect(d._created.cognitoSub).toBe("7904d681-f590-4b4d-bbce-15348a898873");
+  });
 });
 
 function identityDeps(nodeEnv: "development" | "production", capture = vi.fn(async () => ({ status: "captured" as const }))) {

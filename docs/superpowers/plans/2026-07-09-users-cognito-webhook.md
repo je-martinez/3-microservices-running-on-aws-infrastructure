@@ -145,7 +145,14 @@ Expected: exit 0. Leave the change in the working tree; the main session commits
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: Prisma models `UsersCognitoData` and `UsersCognitoEvent`; `MODEL_ID_PREFIXES.UsersCognitoData = "ucd_"`, `MODEL_ID_PREFIXES.UsersCognitoEvent = "cge_"`.
+- Produces: Prisma models `UsersCognitoData` and `UsersCognitoEvent`; `MODEL_ID_PREFIXES.UsersCognitoData = "ucd_"`, `MODEL_ID_PREFIXES.UsersCognitoEvent = "cge_"`; `User.cognitoSub String? @unique` (denormalized convenience, see spec [Data model](../specs/2026-07-09-users-cognito-webhook-design.md#data-model)).
+
+**Note (additive change to `User`):** this task's migration now also ALTERs the existing `users`
+table — adding the nullable, unique `cognito_sub` column plus its unique index — in addition to
+CREATEing the two new tables. Nullable because the migration runs over a table that may already
+hold rows; see the spec's [Data model](../specs/2026-07-09-users-cognito-webhook-design.md#data-model)
+for the full rationale (including why `User.cognitoSub` and `UsersCognitoData.cognitoSub` cannot
+diverge). This does not touch the existing `users_cognito_data`/`users_cognito_events` chain.
 
 - [ ] **Step 1: Add the id prefixes**
 
@@ -210,9 +217,13 @@ model UsersCognitoEvent {
 }
 ```
 
-Add the back-relation to the existing `User` model (Prisma requires both sides):
+Add the back-relation to the existing `User` model (Prisma requires both sides), plus the new
+`cognitoSub` column (additive — see the spec's [Data
+model](../specs/2026-07-09-users-cognito-webhook-design.md#data-model) for the nullable/unique
+rationale and why it cannot diverge from `UsersCognitoData.cognitoSub`):
 
 ```prisma
+  cognitoSub  String?           @unique @map("cognito_sub")
   cognitoData UsersCognitoData?
 ```
 
@@ -233,7 +244,10 @@ docker run --rm --network 3mrai_3mrai-network \
 `--create-only` writes the SQL without applying it. Read the generated
 `services/users/prisma/migrations/*_cognito_identity/migration.sql` and confirm it
 creates both tables with `TIMESTAMPTZ(6)` columns and the two unique indexes
-(`users_cognito_data_cognito_sub_key`, `users_cognito_events_message_id_key`).
+(`users_cognito_data_cognito_sub_key`, `users_cognito_events_message_id_key`) — and this time also
+confirm it ALTERs the existing `users` table: `ADD COLUMN "cognito_sub" TEXT` (nullable — no
+`NOT NULL`) plus its own unique index (`users_cognito_sub_key`). If the `users` ALTER is missing,
+the `User.cognitoSub` field from Step 2 wasn't picked up — re-check the schema before applying.
 
 - [ ] **Step 4: Apply it**
 
@@ -510,6 +524,9 @@ Expected: PASS, 5 tests.
   before writing anything. Both real flows (local `register.ts`, prod's PostConfirmation Lambda)
   guarantee the `users` row already exists before capture runs, so this is an unexpected
   condition, not a routine outcome to model as a success variant. `pending_user` is **removed**.
+
+Note: the lookup below is by email; now that `User.cognitoSub` exists it could look up by sub
+instead, but that's a future refactor, out of scope here — the email lookup stays as-is.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1092,6 +1109,13 @@ describe("RegisterUserCommand", () => {
     expect(evt.request.userAttributes.sub).toBe("7904d681-f590-4b4d-bbce-15348a898873");
   });
 
+  it("stamps the created user's cognitoSub from signUp.sub (additive, spec Data model)", async () => {
+    const d = deps("development");
+    await new RegisterUserCommand(d).execute(input);
+    const createArgs = (d.db.user.create as any).mock.calls[0][0];
+    expect(createArgs.data.cognitoSub).toBe("7904d681-f590-4b4d-bbce-15348a898873");
+  });
+
   it("does NOT capture in production — the Lambda shim does", async () => {
     const d = deps("production");
     await new RegisterUserCommand(d).execute(input);
@@ -1177,6 +1201,14 @@ and before `publishUserCreated`, add the capture:
     const signUp = await this.auth.signUp(input.email, input.password);
 ```
 
+**Additive:** in that same `runAsActor(...)` block, the existing `user.create({ data: {...} })`
+call already has `signUp.sub` in scope at this point (Task 7 widened `signUp` to include it) — add
+`cognitoSub: signUp.sub` to its `data` object. No new dependency: `signUp` is already awaited
+above the create call. See the spec's [Data
+model](../specs/2026-07-09-users-cognito-webhook-design.md#data-model) for why this can't diverge
+from `UsersCognitoData.cognitoSub` (same `signUp.sub`, same request). The capture call below still
+runs after the create, unchanged.
+
 ```ts
     // Spec D2 + D7. Cognito never invokes its Lambda triggers on the local
     // emulator (ADR-0017), so outside production we synthesize the same event
@@ -1212,7 +1244,7 @@ and before `publishUserCreated`, add the capture:
 - [ ] **Step 6: Run the tests**
 
 Run: `cd services/users && pnpm vitest run tests/features/users/commands/register.test.ts`
-Expected: PASS, 3 tests.
+Expected: PASS, 4 tests.
 
 - [ ] **Step 7: Full suite, lint, build**
 
@@ -1233,7 +1265,7 @@ if they break, the DI mock there needs `env` and `captureCognitoIdentityCommand`
 **Interfaces:**
 - Consumes: the Prisma models from Task 2; `env.E2E_TESTING_ENABLED`.
 - Produces: `class E2eIdentityQuery` with
-  `execute(email: string): Promise<{ data: number; events: number }>`,
+  `execute(email: string): Promise<{ data: number; events: number; cognitoSub: string | null }>`,
   registered in the Awilix cradle as `e2eIdentityQuery`;
   route `GET /v1/users/e2e-identity?email=<email>`, registered ONLY when
   `E2E_TESTING_ENABLED`.
@@ -1243,16 +1275,23 @@ a Playwright spec should not shell out to `psql`. This mirrors the existing
 `DELETE /v1/users/e2e-cleanup` pattern — a read-only counterpart, gated by the
 same flag, so it cannot exist in production where `E2E_TESTING_ENABLED` is false.
 
+**Why `cognitoSub` is exposed here (review fix):** Task 9's D4 idempotency test needs the
+user's Cognito `sub` to replay the exact webhook event that produced it — nothing else
+E2E-reachable carries it. Handing back the sub is acceptable ONLY because this endpoint
+never exists in production: it is registered exclusively inside the
+`if (env.E2E_TESTING_ENABLED)` block, which is false in prod, so the sub is never exposed
+outside the local/E2E stack.
+
 - [ ] **Step 1: Write the failing test**
 
 Extend `services/users/tests/features/users/http/routes.test.ts` with a
 `describe("GET /v1/users/e2e-identity")` block asserting:
   - it returns 404 when `E2E_TESTING_ENABLED` is false (route not registered)
-  - it returns `{ data: 1, events: 1 }` when the query resolves those counts, with `E2E_TESTING_ENABLED` true
+  - it returns `{ data: 1, events: 1, cognitoSub: expect.any(String) }` when the query resolves a snapshot, with `E2E_TESTING_ENABLED` true
   - it returns 400 when the `email` query param is missing
 
 Use the file's existing `createContainer` / `asValue` / `buildApp(container)` /
-`app.inject()` pattern. Register `e2eIdentityQuery: asValue({ execute: vi.fn(async () => ({ data: 1, events: 1 })) } as any)`.
+`app.inject()` pattern. Register `e2eIdentityQuery: asValue({ execute: vi.fn(async () => ({ data: 1, events: 1, cognitoSub: "7904d681-f590-4b4d-bbce-15348a898873" })) } as any)`.
 
 - [ ] **Step 2: Run it, expect FAIL (route 404s / module not found)**
 
@@ -1276,13 +1315,13 @@ export class E2eIdentityQuery {
     this.db = db;
   }
 
-  async execute(email: string): Promise<{ data: number; events: number }> {
+  async execute(email: string): Promise<{ data: number; events: number; cognitoSub: string | null }> {
     const snapshot = await this.db.usersCognitoData.findFirst({ where: { email } });
-    if (!snapshot) return { data: 0, events: 0 };
+    if (!snapshot) return { data: 0, events: 0, cognitoSub: null };
     const events = await this.db.usersCognitoEvent.count({
       where: { cognitoSub: snapshot.cognitoSub },
     });
-    return { data: 1, events };
+    return { data: 1, events, cognitoSub: snapshot.cognitoSub };
   }
 }
 ```
@@ -1290,6 +1329,12 @@ export class E2eIdentityQuery {
 Note for the implementer: `findFirst` and `count` are intercepted by the Prisma
 extension, which injects `deletedAt: null` — soft-deleted rows are excluded
 automatically. Do not add that filter by hand.
+
+**Optional, not mandatory:** `cognitoSub` above is read from the snapshot (`UsersCognitoData`),
+which still works and is what's implemented here. Now that `User.cognitoSub` also exists (see the
+spec's [Data model](../specs/2026-07-09-users-cognito-webhook-design.md#data-model)), this query
+could instead read it directly off `User`. Leave the snapshot-based source as written unless the
+implementer finds the `User`-based read clearly cleaner — this is not a required change.
 
 - [ ] **Step 4: Register in DI (`services/users/src/shared/di/awilix-container.ts`)**
 
@@ -1312,6 +1357,10 @@ inside `registerServices()`.
     });
 ```
 
+**Note on the response shape:** the JSON body is `{ data, events, cognitoSub }`. `cognitoSub`
+is included so the E2E suite can replay the exact webhook event for the D4 idempotency test
+(Task 9) — see this task's "Why `cognitoSub` is exposed here" note above.
+
 - [ ] **Step 6: Run the tests, expect PASS**
 
 Run: `cd services/users && pnpm vitest run tests/features/users/http/routes.test.ts`
@@ -1328,7 +1377,8 @@ Run: `cd services/users && pnpm build && pnpm lint` — both exit 0.
 - Modify: `e2e/tests/users.spec.ts`
 
 **Interfaces:**
-- Consumes: everything above.
+- Consumes: everything above, including `E2eIdentityQuery`'s response shape
+  `{ data: number; events: number; cognitoSub: string | null }` (Task 8).
 - Produces: nothing.
 
 **Why not through the API Gateway:** Floci's API Gateway v2 HTTP_PROXY integration
@@ -1362,31 +1412,54 @@ test("register captures Cognito identity into both tables", async () => {
   // when E2E_TESTING_ENABLED (see Task 8), mirroring e2e-cleanup.
   const identity = await api.get(`/v1/users/e2e-identity?email=${encodeURIComponent(user.email)}`);
   expect(identity.status()).toBe(200);
-  expect(await identity.json()).toEqual({ data: 1, events: 1 });
+  expect(await identity.json()).toMatchObject({ data: 1, events: 1 });
 });
 ```
 
-Also add a second test immediately after it, proving idempotency through the
-suite rather than only by the manual psql step:
+Also add a second test immediately after it. **Review fix:** an earlier draft of this test
+read the event count twice with no mutation between the reads — it would pass even if D4's
+idempotency guard were deleted, giving D4 zero automated regression coverage. This version
+performs a REAL replay through the webhook route, using the `cognitoSub` Task 8 now exposes:
 
 ```ts
-test("replaying the same Cognito event does not add a second event row", async () => {
+test("replaying the same Cognito event does not add a second event row (D4)", async () => {
   const api = await apiClient();
   const user = makeUser();
   await api.post("/v1/users/register", { data: user });
 
-  const before = await (await api.get(`/v1/users/e2e-identity?email=${encodeURIComponent(user.email)}`)).json();
-  expect(before.events).toBe(1);
+  // The sub is the idempotency input; fetch it via the E2E-only endpoint.
+  const identity = await (await api.get(`/v1/users/e2e-identity?email=${encodeURIComponent(user.email)}`)).json();
+  expect(identity).toMatchObject({ data: 1, events: 1 });
+  const sub: string = identity.cognitoSub;
 
-  // register() already captured this exact (sub, triggerSource) pair, so the
-  // derived message_id collides and ON CONFLICT DO NOTHING swallows the insert
-  // (spec D4). A second register for the same email would fail in Cognito, so we
-  // assert on the count staying put rather than re-POSTing the webhook here —
-  // the raw-replay check lives in Step 5 below.
+  // Replay the exact PostConfirmation event through the real webhook route.
+  // Same sub + triggerSource → same derived message_id → ON CONFLICT DO NOTHING.
+  const replay = await api.post("/v1/webhooks/cognito", {
+    headers: { "x-webhook-secret": process.env.WEBHOOK_SECRET ?? "local-dev-secret" },
+    data: {
+      version: "1",
+      triggerSource: "PostConfirmation_ConfirmSignUp",
+      region: "us-east-1",
+      userPoolId: "local",
+      userName: user.email,
+      callerContext: { awsSdkVersion: "local", clientId: "local" },
+      request: { userAttributes: { sub, email: user.email, email_verified: "true" } },
+    },
+  });
+  expect(replay.status()).toBe(200);
+  expect(await replay.json()).toEqual({ status: "duplicate" });
+
+  // The event count must still be 1 — the replay was swallowed (spec D4).
   const after = await (await api.get(`/v1/users/e2e-identity?email=${encodeURIComponent(user.email)}`)).json();
   expect(after.events).toBe(1);
 });
 ```
+
+`WEBHOOK_SECRET` must be available to the e2e runner — the compose value is
+`local-dev-secret` (Task 1, Step 5); the test falls back to it if the env var isn't set. This
+test now WOULD fail if the `isMessageIdConflict` guard or the `ON CONFLICT` behavior broke
+(the replay would either 500 or grow the count) — it is a real regression check for D4, not
+just the manual curl in Step 4 below.
 
 - [ ] **Step 3: Run it**
 

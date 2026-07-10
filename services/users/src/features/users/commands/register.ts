@@ -60,6 +60,7 @@ export class RegisterUserCommand {
         data: {
           id,
           email: input.email,
+          cognitoSub: signUp.sub,
           fullName: input.fullName,
           address: (input.address as any) ?? null,
           phoneNumber: input.phoneNumber ?? null,

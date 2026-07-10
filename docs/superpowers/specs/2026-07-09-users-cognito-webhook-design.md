@@ -58,6 +58,12 @@ The prod-side Lambda shim (the box that turns a real Cognito PostConfirmation tr
 HTTP POST) is drawn above for context only — see [Out of scope](#in-scope--out-of-scope); it is
 not part of this issue.
 
+`register()` also stamps `User.cognitoSub` from the same `signUp.sub` value at the moment it
+creates the `User` row — see [Data model](#data-model) for the column and its rationale. This
+means a direct `users` → `users_cognito_events` path (joined on `cognito_sub`) now exists
+ALONGSIDE the existing `users` → `users_cognito_data` → `users_cognito_events` chain shown above;
+it does not replace it.
+
 ### Persistence: a single nested write
 
 The command looks up the `users` row by email first. If none matches, it does not persist
@@ -292,6 +298,21 @@ including future custom attributes. The `triggerSource` enum is the gate that en
 
 Columns are `snake_case` per [[db-naming]]; ids are prefixed nano-ids per [[nano-id]].
 
+- **`users`** — gains `cognito_sub` (**nullable**, **unique**). This is **additive**: it does not
+  remove or alter the existing chain below, which is preserved unchanged.
+
+  **Why nullable.** The column is added by a migration over a `users` table that may already hold
+  rows; `NOT NULL @unique` would fail on those existing rows. `String? @unique` is the safe
+  additive shape. Cognito always returns a `sub` after `signUp`, so every new row gets one; the
+  nullability exists only to cover pre-existing/legacy rows.
+
+  **Why this creates no divergence risk.** Both `User.cognitoSub` and
+  `UsersCognitoData.cognitoSub` are written from the SAME `signUp.sub` value in the same request
+  (see [Architecture](#architecture)), so they cannot diverge. `UsersCognitoData` remains the
+  snapshot's source of truth; `User.cognitoSub` is a denormalized convenience for joins/lookups —
+  it enables a direct `User` → `UsersCognitoEvent` join and a lookup by sub, populated for free
+  because `register()` already has `signUp.sub` at the moment it creates the `User` row.
+
 - **`users_cognito_data`** — 1:1 snapshot per user.
   `id` (`ucd_`), `user_id` FK → `users.id` (**unique**, **NOT NULL**), `cognito_sub` (**unique**),
   `email`, `client_id`, `last_event_type`, `raw_payload` (jsonb), audit fields (`updated_at` = last
@@ -304,7 +325,9 @@ Columns are `snake_case` per [[db-naming]]; ids are prefixed nano-ids per [[nano
 Chain: `users` —(`user_id`)→ `users_cognito_data` —(`cognito_sub`)→ `users_cognito_events`. Both FKs
 are `NOT NULL`, which is why the event can never be persisted ahead of its snapshot, and the
 snapshot can never be persisted ahead of its user — see [Persistence: a single nested
-write](#persistence-a-single-nested-write).
+write](#persistence-a-single-nested-write). This chain is **unchanged** by `users.cognito_sub`
+above: that column is additive and does not replace or alter any leg of it. A direct `users` →
+`users_cognito_events` path (by `cognito_sub`) now exists ALONGSIDE this chain, not instead of it.
 
 Add `UsersCognitoData: "ucd_"` and `UsersCognitoEvents: "cge_"` to `MODEL_ID_PREFIXES`.
 

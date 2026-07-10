@@ -76,3 +76,49 @@ test("GET /v1/users/me without x-user-id returns 404 (authorizer coverage unavai
   const res = await api.get("/v1/users/me");
   expect(res.status()).toBe(404);
 });
+
+test("register captures Cognito identity into both tables", async () => {
+  const api = await apiClient();
+  const user = makeUser();
+  const res = await api.post("/v1/users/register", { data: user });
+  expect(res.status()).toBe(201);
+
+  // The identity snapshot is written in-process by register() (spec D2), so it
+  // is visible immediately — no polling. The e2e-identity endpoint exists only
+  // when E2E_TESTING_ENABLED (see Task 8), mirroring e2e-cleanup.
+  const identity = await api.get(`/v1/users/e2e-identity?email=${encodeURIComponent(user.email)}`);
+  expect(identity.status()).toBe(200);
+  expect(await identity.json()).toMatchObject({ data: 1, events: 1 });
+});
+
+test("replaying the same Cognito event does not add a second event row (D4)", async () => {
+  const api = await apiClient();
+  const user = makeUser();
+  await api.post("/v1/users/register", { data: user });
+
+  // The sub is the idempotency input; fetch it via the E2E-only endpoint.
+  const identity = await (await api.get(`/v1/users/e2e-identity?email=${encodeURIComponent(user.email)}`)).json();
+  expect(identity).toMatchObject({ data: 1, events: 1 });
+  const sub: string = identity.cognitoSub;
+
+  // Replay the exact PostConfirmation event through the real webhook route.
+  // Same sub + triggerSource → same derived message_id → ON CONFLICT DO NOTHING.
+  const replay = await api.post("/v1/webhooks/cognito", {
+    headers: { "x-webhook-secret": process.env.WEBHOOK_SECRET ?? "local-dev-secret" },
+    data: {
+      version: "1",
+      triggerSource: "PostConfirmation_ConfirmSignUp",
+      region: "us-east-1",
+      userPoolId: "local",
+      userName: user.email,
+      callerContext: { awsSdkVersion: "local", clientId: "local" },
+      request: { userAttributes: { sub, email: user.email, email_verified: "true" } },
+    },
+  });
+  expect(replay.status()).toBe(200);
+  expect(await replay.json()).toEqual({ status: "duplicate" });
+
+  // The event count must still be 1 — the replay was swallowed (spec D4).
+  const after = await (await api.get(`/v1/users/e2e-identity?email=${encodeURIComponent(user.email)}`)).json();
+  expect(after.events).toBe(1);
+});

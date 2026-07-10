@@ -68,15 +68,28 @@ describe("routes", () => {
       expect(res.statusCode).toBe(404);
     });
 
-    it("returns { data: 1, events: 1 } when the query resolves those counts with E2E_TESTING_ENABLED true", async () => {
+    it("returns { data: 1, events: 1, cognitoSub } when the query resolves those counts with E2E_TESTING_ENABLED true", async () => {
       const container = testContainer(true);
       container.register({
-        e2eIdentityQuery: asValue({ execute: vi.fn(async () => ({ data: 1, events: 1 })) } as any),
+        e2eIdentityQuery: asValue({
+          execute: vi.fn(async () => ({ data: 1, events: 1, cognitoSub: "00000000-0000-0000-0000-000000000000" })),
+        } as any),
       });
       const app = buildApp(container);
       const res = await app.inject({ method: "GET", url: "/v1/users/e2e-identity?email=test@example.com" });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ data: 1, events: 1 });
+      expect(res.json()).toEqual({ data: 1, events: 1, cognitoSub: expect.any(String) });
+    });
+
+    it("returns { data: 0, events: 0, cognitoSub: null } when no snapshot exists", async () => {
+      const container = testContainer(true);
+      container.register({
+        e2eIdentityQuery: asValue({ execute: vi.fn(async () => ({ data: 0, events: 0, cognitoSub: null })) } as any),
+      });
+      const app = buildApp(container);
+      const res = await app.inject({ method: "GET", url: "/v1/users/e2e-identity?email=missing@example.com" });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ data: 0, events: 0, cognitoSub: null });
     });
 
     it("returns 400 when the email query param is missing", async () => {
