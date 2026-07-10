@@ -116,6 +116,14 @@ export function buildApp(container: AwilixContainer<Cradle> = diContainer): Fast
       const { count } = await e2eCleanupCommand.execute();
       return reply.send({ deleted: count });
     });
+
+    // Read-only: lets the E2E suite assert that identity capture wrote its rows.
+    app.get("/v1/users/e2e-identity", async (req, reply) => {
+      const { e2eIdentityQuery } = req.diScope.cradle;
+      const email = (req.query as { email?: string }).email;
+      if (!email) return reply.code(400).send({ error: "email_required" });
+      return reply.send(await e2eIdentityQuery.execute(email));
+    });
   }
 
   return app;

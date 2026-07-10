@@ -61,6 +61,36 @@ describe("routes", () => {
     expect(res.json()).toEqual({ deleted: 3 });
   });
 
+  describe("GET /v1/users/e2e-identity", () => {
+    it("returns 404 when E2E_TESTING_ENABLED is false", async () => {
+      const app = buildApp(testContainer(false));
+      const res = await app.inject({ method: "GET", url: "/v1/users/e2e-identity?email=test@example.com" });
+      expect(res.statusCode).toBe(404);
+    });
+
+    it("returns { data: 1, events: 1 } when the query resolves those counts with E2E_TESTING_ENABLED true", async () => {
+      const container = testContainer(true);
+      container.register({
+        e2eIdentityQuery: asValue({ execute: vi.fn(async () => ({ data: 1, events: 1 })) } as any),
+      });
+      const app = buildApp(container);
+      const res = await app.inject({ method: "GET", url: "/v1/users/e2e-identity?email=test@example.com" });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ data: 1, events: 1 });
+    });
+
+    it("returns 400 when the email query param is missing", async () => {
+      const container = testContainer(true);
+      container.register({
+        e2eIdentityQuery: asValue({ execute: vi.fn() } as any),
+      });
+      const app = buildApp(container);
+      const res = await app.inject({ method: "GET", url: "/v1/users/e2e-identity" });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({ error: "email_required" });
+    });
+  });
+
   // JE-40 item 2: the `onRequest` hook in routes.ts reads `x-user-id`, registers
   // it as `currentActor` in `request.diScope` (for handlers, e.g. GET /v1/users/me
   // below), AND runs the rest of the request through `actorContext.run(...)` so
