@@ -128,4 +128,4 @@ observability-up: ## Start OpenObserve + the OTel collector (opt-in; ~512MB-1.5G
 	@echo "Login: admin@3mrai.local / Complexpass#123"
 
 observability-down: ## Stop the observability stack (leaves the rest running)
-	$(COMPOSE) --profile observability stop
+	$(COMPOSE) stop openobserve otel-collector
