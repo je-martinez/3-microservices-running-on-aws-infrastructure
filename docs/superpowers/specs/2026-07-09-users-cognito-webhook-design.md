@@ -24,24 +24,28 @@ confirmed empirically in the Floci spike (see [[ADR-0017-floci-local]] and
 [[floci-vs-ministack-spike-findings]]). Identity capture therefore cannot depend on a
 PostConfirmation Lambda when running locally on Floci.
 
-The strategy adopted: **one Fastify HTTP handler**, `POST /v1/webhooks/cognito`, shared by local
-and prod. Only the *trigger* that calls it differs — a Lambda shim in prod, a self-POST from
-`register()` locally. The handler code path is identical either way, so it is exercised for real
-in local/E2E testing rather than only in prod.
+The strategy adopted: **one shared persistence path**, the `CaptureCognitoIdentityCommand` use
+case, reached two ways. In prod a Lambda shim turns a real Cognito PostConfirmation trigger into
+an HTTP POST to `POST /v1/webhooks/cognito`, a thin route that verifies the shared secret, parses
+with Zod, and delegates to the command. Locally, `register()` invokes the same command class
+in-process through Awilix, with no HTTP hop — see
+[D2](#d2--local-trigger-shared-use-case-class-invoked-in-process).
 
 ## Architecture
 
 ```
-PROD:   Cognito --PostConfirmation--> Lambda shim --POST--> /v1/webhooks/cognito
-                                      (separate issue)          |
-LOCAL:  register() --auth.signUp()--> {sub} --self-POST-------->|
-                                                                 v
-                                          verify shared secret + Zod
-                                                                 |
-                                    +----------------------------+----------------------------+
-                                    v                                                         v
-                           users_cognito_data                                     users_cognito_events
-                           (1:1 upsert by cognito_sub)                    (insert, ON CONFLICT DO NOTHING)
+PROD:   Cognito --PostConfirmation--> Lambda shim --POST /v1/webhooks/cognito-->|
+                                      (separate issue)                          |
+                                                          verify secret + Zod   |
+                                                                                v
+                                                        CaptureCognitoIdentityCommand
+                                                                                ^
+LOCAL:  register() --auth.signUp()--> {sub, email, ...} --in-process call-------|
+        (when NODE_ENV !== "production")                                        |
+                                              +---------------------------------+
+                                              v                                 v
+                                    users_cognito_data                users_cognito_events
+                                    (1:1 upsert by cognito_sub)    (insert, ON CONFLICT DO NOTHING)
 ```
 
 The prod-side Lambda shim (the box that turns a real Cognito PostConfirmation trigger into an
@@ -62,7 +66,8 @@ recorded here as established, not re-derived.
    the idempotency approach in [D4](#d4--idempotency-key-is-derived-not-transmitted).
 3. `AuthProvider.signUp()` already returns `{ sub }`
    (`services/users/src/shared/auth/cognito-auth-provider.ts:36`), but `register.ts:31` currently
-   discards it (`await this.auth.signUp(...)`). Capturing it is part of this work.
+   discards it (`await this.auth.signUp(...)`). Capturing it is part of this work — see fact 9 for
+   why the return type must widen beyond `{ sub }`.
 4. The service has exactly one Prisma model today (`User`), and `MODEL_ID_PREFIXES`
    (`shared/id/nano-id.ts`) contains only `User: "usr_"`.
 5. A Prisma client extension stamps ids, audit fields, and enforces soft-delete
@@ -76,6 +81,25 @@ recorded here as established, not re-derived.
 8. An `EventPublisher` seam already exists (`shared/messaging/event-publisher.ts`), currently
    `NoopEventPublisher`. It is **not** used by this design — the issue rules out SQS/events-pipeline
    for this flow. Noted here so it isn't mistaken for an oversight.
+9. **The full webhook payload is constructible at the point `register()` calls `auth.signUp()`.**
+   Verified against a live Floci Cognito pool: `AdminCreateUser` returns `User.Attributes`
+   containing `sub`, `email`, and `email_verified`. `CognitoAuthProvider` already holds
+   `userPoolId` and `clientId` as constructor fields
+   (`services/users/src/shared/auth/cognito-auth-provider.ts:10-14`). Field sources for the
+   synthetic local event:
+   - `version` → constant `"1"`
+   - `triggerSource` → constant `"PostConfirmation_ConfirmSignUp"`
+   - `region` → `env.AWS_REGION`
+   - `userPoolId` → `CognitoAuthProvider.userPoolId`
+   - `userName` → the email
+   - `callerContext.clientId` → `CognitoAuthProvider.clientId`
+   - `request.userAttributes.{sub, email, email_verified}` → from `AdminCreateUser`'s response
+
+   **Blocker to note:** `signUp()` today returns only `{ sub }` (`cognito-auth-provider.ts:37`)
+   and discards the rest of `created.User`. It also has a silent fallback — if no `sub` attribute
+   is found it returns the *email* in its place (`:36`). Widening its return type is part of this
+   work, and that fallback should be revisited: a missing `sub` should probably fail loudly rather
+   than masquerade as one.
 
 ## Decisions
 
@@ -88,17 +112,34 @@ Rejected: HMAC body signing (more code, and a body-canonicalization footgun) and
 does not validate SigV4, which would break the one-handler premise and make the local path
 untestable). Trade-off accepted: a leaked secret allows replay; rotation is manual.
 
-### D2 — Local trigger: self-POST over HTTP
+### D2 — Local trigger: shared use-case class, invoked in-process
 
-`register()` captures the `sub` and POSTs to its own `/v1/webhooks/cognito`, env-gated. Chosen
-over calling the use-case class in-process because it exercises the *real* HTTP handler locally —
-the same code path prod runs. Trade-off: the service calls itself.
+The HTTP route `POST /v1/webhooks/cognito` is a **thin layer**: verify the shared secret → parse
+with Zod → delegate to `CaptureCognitoIdentityCommand.execute(event)`. `register()` calls that
+**same command class directly through Awilix**, with no HTTP hop, when `env.NODE_ENV !==
+"production"` ([env gate](#env-gate)). One persistence path, reached two ways: in prod the
+Cognito Lambda shim enters via HTTP; locally `register()` enters via the class.
+
+`app.inject()` was considered — it would exercise the full route without a socket — but it
+requires the command to hold a reference to the Fastify `app` that contains it. `buildApp()`
+creates the app, and the app creates the DI container, so injecting `app` back into a command
+inside that container is a circular dependency, resolvable only by a late `asValue` registration
+or a lazy getter. Coupling a domain command to the HTTP server was judged not worth it. A real
+self-POST (the service calling its own `/v1/webhooks/cognito` over HTTP) was rejected because the
+service calling itself over the network adds timeout/port/DNS failure modes for no gain once the
+persistence path is shared.
+
+> [!warning] Trade-off — the local happy path skips the secret check and Zod validation
+> With the in-process call, the local `register()` flow does **not** exercise the shared-secret
+> check or the Zod parsing — those two layers are covered only by unit and integration tests,
+> never by the local happy path. This is the cost of avoiding the self-call, and it is accepted
+> deliberately, not an oversight.
 
 ### D3 — Webhook failure is best-effort, non-blocking
 
-If the self-POST fails (network, bad secret, DB down), `register` logs the error and still
-returns `201`. Identity capture is a secondary snapshot, not a registration precondition; in prod
-Cognito retries the trigger anyway.
+If the in-process command call fails (DB down, unexpected error), `register` logs the error and
+still returns `201`. Identity capture is a secondary snapshot, not a registration precondition; in
+prod Cognito retries the trigger anyway.
 
 Rejected: failing the registration, which would leave an orphaned Cognito user and couple two
 writes that don't need to be coupled.
@@ -133,6 +174,40 @@ genuine 1:N log at this scope.
 Deferred to a new `area/infra` issue. Floci never invokes Cognito triggers, so that code cannot
 be verified locally and would merge without evidence. JE-38 delivers only what is verifiable
 against Floci.
+
+### D7 — Env gate: `NODE_ENV !== "production"` {#env-gate}
+
+Not a dedicated `LOCAL_COGNITO_WEBHOOK` variable. The gate for the in-process call in
+[D2](#d2--local-trigger-shared-use-case-class-invoked-in-process) is `env.NODE_ENV !==
+"production"`, which covers local, test, and CI uniformly. Add to `shared/config/env.ts`:
+
+```ts
+NODE_ENV: z.enum(["development", "test", "production"]).default("development")
+```
+
+Verified: `NODE_ENV` currently exists in **none** of `services/users/src/shared/config/env.ts`,
+`docker-compose.yml`, or `services/users/Dockerfile` — it must be added to the Zod schema;
+`docker-compose.yml` can rely on the default.
+
+Defaulting to `development` is deliberately safe: if a production deploy forgets
+`NODE_ENV=production`, both the Lambda and `register()` capture the identity — but they derive
+the **same** `message_id` ([D4](#d4--idempotency-key-is-derived-not-transmitted)), so `ON
+CONFLICT DO NOTHING` swallows the duplicate. The failure mode of the default is benign and
+self-healing, not data loss.
+
+### D8 — `WEBHOOK_SECRET` is required in every environment
+
+`WEBHOOK_SECRET: z.string().min(1)` — no `.optional()`, in local/test/CI as much as prod.
+`docker-compose.yml` supplies a development value for the `users` service. This is fail-fast: the
+service refuses to boot without it, so the endpoint can never be deployed unprotected by
+omission. In prod the value comes from Secrets Manager
+([[ADR-0007-secrets-parameter-store]]) — that wiring belongs to the separate infra issue
+([D6](#d6--the-prod-postconfirmation-lambda-shim-is-out-of-scope)).
+
+Worth stating plainly: with the in-process local call from
+[D2](#d2--local-trigger-shared-use-case-class-invoked-in-process), nothing in the local happy
+path actually sends the secret; it guards only the HTTP endpoint, which locally is exercised only
+by tests.
 
 ## Zod contract
 
@@ -188,7 +263,7 @@ Add `UsersCognitoData: "ucd_"` and `UsersCognitoEvents: "cge_"` to `MODEL_ID_PRE
 | Unsupported `triggerSource` | `422` (rejected by the enum) |
 | Event already seen (same `message_id`) | `200` — idempotent, not an error |
 | No `users` row for that `sub` | `202` accepted; event logged, snapshot deferred |
-| Self-POST fails inside `register` | Does not propagate — `log.error`, `register` still returns `201` ([D3](#d3--webhook-failure-is-best-effort-non-blocking)) |
+| In-process command call fails inside `register` | Does not propagate — `log.error`, `register` still returns `201` ([D3](#d3--webhook-failure-is-best-effort-non-blocking)) |
 
 ## Testing strategy
 
@@ -198,7 +273,9 @@ Add `UsersCognitoData: "ucd_"` and `UsersCognitoEvents: "cge_"` to `MODEL_ID_PRE
   payload; and the case that matters most — POST the same event twice, assert exactly one row in
   `users_cognito_events`.
 - **E2E (Playwright against Floci):** `register` → assert `users_cognito_data` and
-  `users_cognito_events` rows exist for that `sub`. This exercises the real self-POST.
+  `users_cognito_events` rows exist for that `sub`. This exercises the real in-process
+  `CaptureCognitoIdentityCommand` call, **not** the HTTP route or its secret/Zod layers — those
+  are covered only by the integration tests above ([D2](#d2--local-trigger-shared-use-case-class-invoked-in-process)).
 
 The JWT authorizer is not involved (fact 7). Per [[floci-vs-ministack-spike-findings]] the API
 Gateway invoke URL has known limits on Floci, so E2E drives the service directly, consistent with
@@ -207,19 +284,13 @@ the approach JE-37 established.
 ## In scope / Out of scope
 
 **In scope:** the webhook endpoint, the Zod contract, the two new tables plus their Prisma
-migration, the `MODEL_ID_PREFIXES` entries, `WEBHOOK_SECRET` added to `shared/config/env.ts`
-(Zod-validated), capturing `sub` in `register.ts`, the env-gated self-POST, and the tests above.
+migration, the `MODEL_ID_PREFIXES` entries, the shared `CaptureCognitoIdentityCommand`, the thin
+HTTP route that delegates to it, the `NODE_ENV` gate in `register()`, widening
+`AuthProvider.signUp()`'s return type, adding `NODE_ENV` and `WEBHOOK_SECRET` to the Zod env
+schema, and the tests above.
 
 **Out of scope:** the prod PostConfirmation Lambda shim and its Terraform — deferred to a new
 `area/infra` issue ([D6](#d6--the-prod-postconfirmation-lambda-shim-is-out-of-scope)).
-
-## Open questions for implementation
-
-- The env-gate variable name for the self-POST: reuse `E2E_TESTING_ENABLED` or introduce
-  `LOCAL_COGNITO_WEBHOOK`? The issue mentions both; pick at implementation time.
-- Where `WEBHOOK_SECRET` comes from in prod: Secrets Manager per [[ADR-0007-secrets-parameter-store]]
-  — confirm the exact wiring when the infra issue ([D6](#d6--the-prod-postconfirmation-lambda-shim-is-out-of-scope))
-  is written.
 
 ## Related
 
