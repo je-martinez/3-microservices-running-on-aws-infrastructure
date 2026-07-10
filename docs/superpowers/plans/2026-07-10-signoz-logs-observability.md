@@ -125,15 +125,15 @@ The SigNoz target doesn't exist yet (Task 3), so the otlp EXPORTER will error on
 Run:
 ```bash
 docker compose --profile observability up -d otel-collector
-sleep 20
+sleep 95
 docker compose logs otel-collector | grep -iE "Everything is ready|fluent_forward|aws_cloudwatch|Starting"
 docker compose logs floci --since 25s | grep -iE "DescribeLogGroups|FilterLogEvents"
 ```
-Expected: the collector logs `Everything is ready`, and Floci logs `DescribeLogGroups` + `FilterLogEvents` (proving the aws_cloudwatch receiver reached Floci). The collector will also log otlp export errors (no SigNoz yet) — that is expected at this task.
+Expected: the collector logs `Everything is ready`, and Floci logs `DescribeLogGroups` + `FilterLogEvents` (proving the aws_cloudwatch receiver reached Floci). The collector will also log otlp export errors (no SigNoz yet) — that is expected at this task. The first aws_cloudwatch poll fires after roughly one poll_interval (1m), so the DescribeLogGroups/FilterLogEvents calls appear at ~90s, not immediately — do not conclude the receiver is broken before then. (Verified: the receiver reaches Floci and emits real /ecs/ nginx LogRecords; the earlier delay is just the poll cadence.) At info level the received records aren't printed (only the otlp export retries are), so "no visible log bodies" here does NOT mean the receiver failed — the Floci-side DescribeLogGroups/FilterLogEvents calls are the proof it works. The full log body path is proven end-to-end in Task 4 once SigNoz exists.
 
 - [ ] **Step 4: Tear the collector back down**
 
-Run: `docker compose --profile observability down`
+Run: `docker compose --profile observability stop otel-collector`
 Expected: clean stop. Leave the work in the working tree for the main session to commit.
 
 ---
@@ -251,7 +251,7 @@ observability-up: ## Start SigNoz + the OTel collector (heavy: needs ~4GB RAM)
 	@echo "SigNoz UI will be on http://localhost:3301 once ClickHouse is healthy (~60s)."
 
 observability-down: ## Stop the observability stack (leaves the rest running)
-	$(COMPOSE) --profile observability down
+	$(COMPOSE) --profile observability stop
 ```
 Add `observability-up observability-down` to the `.PHONY` line.
 

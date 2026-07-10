@@ -42,6 +42,28 @@ services:
       timeout: 3s
       retries: 5
 
+  # ── Observability (opt-in): `docker compose --profile observability up` ──
+  # OTel collector: fluentd from the compose services + CloudWatch (ECS/RDS) on
+  # Floci, exported to self-hosted SigNoz. Pinned image; do not use :latest.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.156.0
+    profiles: [observability]
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    ports:
+      - "24224:24224"   # fluent_forward — published so the Docker daemon (host) can reach it
+    environment:
+      - AWS_ENDPOINT_URL=http://floci:4566
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - SIGNOZ_OTLP_ENDPOINT=signoz-otel-collector:4317
+    volumes:
+      - ./observability/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    networks: [3mrai-network]
+    depends_on:
+      floci:
+        condition: service_healthy
+
   # Real Users service (Fastify + Prisma).
   # Build context is the REPO ROOT so pnpm-lock.yaml and pnpm-workspace.yaml
   # are available to the multi-stage Dockerfile.
