@@ -16,7 +16,7 @@ related:
   - "[[cqrs]]"
   - "[[screaming-architecture]]"
   - "[[ADR-0012-ministack-local]]"
-  - "[[signoz-cloudwatch]]"
+  - "[[openobserve-cloudwatch]]"
   - "[[ADR-0002-cqrs]]"
   - "[[ADR-0004-soft-delete-only]]"
   - "[[ADR-0005-nano-id-prefixed]]"
@@ -149,11 +149,11 @@ See [[screaming-architecture]] and [[ADR-0008-screaming-arch-di]].
 
 ---
 
-### SigNoz
+### OpenObserve
 
-An open-source observability platform used in 3MRAI as the unified dashboard and alerting layer. SigNoz ingests logs, traces, and metrics from **Amazon CloudWatch** (via a log subscription and metrics stream) and provides OpenTelemetry-compatible visualisation.
+A single-binary, open-source observability platform used in 3MRAI as the log-querying backend. OpenObserve ingests logs via OTLP from an OpenTelemetry collector, which in turn sources them from **Amazon CloudWatch** and, locally, Docker's fluentd driver. It supersedes SigNoz (see [[signoz-selfhost-migrator-blocker]] for why).
 
-See [[signoz-cloudwatch]] and [[ADR-0011-observability-signoz]].
+See [[openobserve-cloudwatch]] and [[ADR-0018-observability-openobserve]].
 
 ---
 
@@ -175,7 +175,7 @@ See [[soft-delete]] for the full convention and [[ADR-0004-soft-delete-only]] fo
 - [[cqrs]]
 - [[screaming-architecture]]
 - [[dependency-injection]]
-- [[signoz-cloudwatch]]
+- [[openobserve-cloudwatch]]
 - [[local-dev-ministack]]
 - [[ADR-0002-cqrs]]
 - [[ADR-0004-soft-delete-only]]

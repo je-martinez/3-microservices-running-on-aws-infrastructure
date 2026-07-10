@@ -357,7 +357,7 @@ git commit -m "docs: add shared conventions, patterns and observability notes"
 - Create: `docs/shared/decisions/ADR-0001-terraform-cloudposse-naming.md` through `ADR-0014-env-validation-zod.md` (14 files)
 
 **Interfaces:**
-- Consumes: `[[soft-delete]]`, `[[nano-id]]`, `[[cqrs]]`, `[[screaming-architecture]]`, `[[dependency-injection]]`, `[[signoz-cloudwatch]]`, `[[audit-fields]]` (from Task 3).
+- Consumes: `[[soft-delete]]`, `[[nano-id]]`, `[[cqrs]]`, `[[screaming-architecture]]`, `[[dependency-injection]]`, `[[openobserve-cloudwatch]]` (originally `signoz-cloudwatch`, superseded per [[ADR-0018-observability-openobserve]]), `[[audit-fields]]` (from Task 3).
 - Produces: ADR note basenames referenced by service specs and overview.
 
 - [ ] **Step 1: Write ADR-0001 … ADR-0007**
@@ -376,7 +376,7 @@ Use `adr-template.md`. Each: set `id`, `title`, fill Context / Decision / Conseq
 8. `ADR-0008-screaming-arch-di.md` — screaming architecture + DI. Links `[[screaming-architecture]]`, `[[dependency-injection]]`.
 9. `ADR-0009-apigw-alb-fargate.md` — API Gateway → ALB → ECS Fargate (prod); Docker Watch locally.
 10. `ADR-0010-cognito-auth.md` — AWS Cognito for authN/authZ.
-11. `ADR-0011-observability-signoz.md` — CloudWatch → SigNoz. Links `[[signoz-cloudwatch]]`.
+11. `ADR-0011-observability-signoz.md` — CloudWatch → SigNoz. Links `[[openobserve-cloudwatch]]` (originally `signoz-cloudwatch`; ADR-0011 later superseded by [[ADR-0018-observability-openobserve]]).
 12. `ADR-0012-ministack-local.md` — Ministack for local AWS emulation (https://ministack.org/docs/).
 13. `ADR-0013-api-versioning.md` — versioning across all services. Links `[[versioning]]`.
 14. `ADR-0014-env-validation-zod.md` — env var validation with a Zod-style schema per service.

@@ -105,7 +105,8 @@ All ADRs use continuous global numbering and live in `docs/shared/decisions/`.
 
 ### Observability
 
-- [[ADR-0011-observability-signoz]] — SigNoz (via CloudWatch) as the observability backend.
+- [[ADR-0011-observability-signoz]] — SigNoz (via CloudWatch) as the observability backend. Superseded by [[ADR-0018-observability-openobserve]].
+- [[ADR-0018-observability-openobserve]] — OpenObserve (via CloudWatch) as the observability backend, superseding SigNoz.
 
 ### Documentation & Diagrams
 
@@ -143,7 +144,7 @@ Architectural patterns documented once and linked from service specs.
 
 ## Observability
 
-- [[signoz-cloudwatch]] — SigNoz setup, CloudWatch integration, and dashboard conventions.
+- [[openobserve-cloudwatch]] — OpenObserve setup, CloudWatch integration, and log-querying conventions.
 
 ---
 
@@ -155,7 +156,8 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-06-26-implementation-workflow-design]] — Implementation workflow and agent topology (two layers, Phase A–D flow).
 - [[2026-06-28-services-infra-scaffold-design]] — Services & infra scaffold + skill discovery: screaming-architecture skeletons, nested CLAUDE.md per service, Docker orchestrator, and suggested-skills catalog.
 - [[2026-06-28-users-service-design]] — Users Service implementation design: pnpm workspace, Prisma schema with `tags` column, Fastify API, Cognito JWT authorizer, Terraform modules, and Playwright E2E suite on Ministack.
-- [[2026-07-10-signoz-logs-observability-design]] — Logs-only implementation of [[ADR-0011-observability-signoz]]: otel-collector-contrib bridging Docker `fluentd` log-driver output and Floci CloudWatch into a self-hosted SigNoz, with zero service source-code changes.
+- [[2026-07-10-signoz-logs-observability-design]] — Logs-only implementation of [[ADR-0011-observability-signoz]]: otel-collector-contrib bridging Docker `fluentd` log-driver output and Floci CloudWatch into a self-hosted SigNoz, with zero service source-code changes. Backend superseded by [[2026-07-10-openobserve-migration-design]].
+- [[2026-07-10-openobserve-migration-design]] — Migration of the observability backend from SigNoz to OpenObserve: the collector exporter change, OpenObserve compose service, and verified facts, per [[ADR-0018-observability-openobserve]].
 
 ---
 

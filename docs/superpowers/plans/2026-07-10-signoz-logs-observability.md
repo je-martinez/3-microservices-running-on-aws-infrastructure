@@ -6,7 +6,7 @@ status: draft
 created: 2026-07-10
 updated: 2026-07-10
 tags: [type/plan, area/shared, status/draft]
-related: ["[[2026-07-10-signoz-logs-observability-design]]", "[[ADR-0011-observability-signoz]]", "[[signoz-cloudwatch]]", "[[ADR-0017-floci-local]]", "[[local-dev]]"]
+related: ["[[2026-07-10-signoz-logs-observability-design]]", "[[ADR-0011-observability-signoz]]", "[[openobserve-cloudwatch]]", "[[ADR-0017-floci-local]]", "[[local-dev]]", "[[2026-07-10-openobserve-migration-design]]"]
 ---
 
 # SigNoz Log Observability Implementation Plan
@@ -15,7 +15,9 @@ related: ["[[2026-07-10-signoz-logs-observability-design]]", "[[ADR-0011-observa
 > Task 1 (collector) and Task 2 (fluentd routing on the four services) are implemented and
 > committed. Task 3 (self-hosted SigNoz) is **blocked** on a schema-migrator hang — diagnosis
 > and resume options in [[signoz-selfhost-migrator-blocker]]. Task 4 (end-to-end UI
-> verification) depends on Task 3 and is also unimplemented until it unblocks.
+> verification) depends on Task 3 and is also unimplemented until it unblocks. The backend was
+> superseded by OpenObserve — see [[2026-07-10-openobserve-migration-design]] and
+> [[ADR-0018-observability-openobserve]].
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -321,6 +323,7 @@ Expected: `{"status":"ok"}` — with observability DOWN, users still starts and 
 
 - [[2026-07-10-signoz-logs-observability-design]]
 - [[ADR-0011-observability-signoz]]
-- [[signoz-cloudwatch]]
+- [[openobserve-cloudwatch]]
 - [[ADR-0017-floci-local]]
 - [[local-dev]]
+- [[2026-07-10-openobserve-migration-design]]

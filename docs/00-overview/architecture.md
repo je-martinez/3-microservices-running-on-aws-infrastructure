@@ -17,6 +17,7 @@ related:
   - "[[ADR-0002-cqrs]]"
   - "[[ADR-0006-read-write-replicas]]"
   - "[[ADR-0011-observability-signoz]]"
+  - "[[ADR-0018-observability-openobserve]]"
   - "[[ADR-0012-ministack-local]]"
   - "[[ADR-0015-drawio-diagrams]]"
 ---
@@ -125,10 +126,10 @@ Relevant decisions: [[ADR-0007-secrets-parameter-store]], [[ADR-0014-env-validat
 
 ## Observability
 
-All services emit structured logs and metrics to **CloudWatch**. A **SigNoz** instance aggregates those signals into dashboards and alerting.
+All services emit structured logs to **CloudWatch** (prod) and via Docker's fluentd driver (local), collected by an OpenTelemetry collector and forwarded via OTLP to a self-hosted **OpenObserve** instance for querying.
 
-Relevant decision: [[ADR-0011-observability-signoz]].
-Reference: [[signoz-cloudwatch]].
+Relevant decision: [[ADR-0018-observability-openobserve]] (supersedes [[ADR-0011-observability-signoz]]).
+Reference: [[openobserve-cloudwatch]].
 
 ---
 
@@ -148,6 +149,7 @@ The full stack can be reproduced locally using **Ministack** (Docker Compose). S
 - [[ADR-0002-cqrs]]
 - [[ADR-0006-read-write-replicas]]
 - [[ADR-0011-observability-signoz]]
+- [[ADR-0018-observability-openobserve]]
 - [[ADR-0008-screaming-arch-di]]
 - [[ADR-0007-secrets-parameter-store]]
 - [[ADR-0014-env-validation-zod]]
@@ -159,6 +161,6 @@ The full stack can be reproduced locally using **Ministack** (Docker Compose). S
 - [[dependency-injection]]
 - [[nano-id]]
 - [[soft-delete]]
-- [[signoz-cloudwatch]]
+- [[openobserve-cloudwatch]]
 - [[local-dev-ministack]]
 - [[ADR-0015-drawio-diagrams]]

@@ -10,7 +10,8 @@ related:
   - "[[2026-07-10-signoz-logs-observability-design]]"
   - "[[2026-07-10-signoz-logs-observability]]"
   - "[[ADR-0011-observability-signoz]]"
-  - "[[signoz-cloudwatch]]"
+  - "[[ADR-0018-observability-openobserve]]"
+  - "[[openobserve-cloudwatch]]"
 ---
 
 # SigNoz self-hosted stack blocked on schema-migrator hang
@@ -87,4 +88,5 @@ Task 4 are unimplemented.
 - [[2026-07-10-signoz-logs-observability-design]]
 - [[2026-07-10-signoz-logs-observability]]
 - [[ADR-0011-observability-signoz]]
-- [[signoz-cloudwatch]]
+- [[ADR-0018-observability-openobserve]]
+- [[openobserve-cloudwatch]]

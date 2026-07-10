@@ -6,7 +6,7 @@ status: draft
 created: 2026-07-10
 updated: 2026-07-10
 tags: [type/spec, area/shared, status/draft]
-related: ["[[ADR-0011-observability-signoz]]", "[[signoz-cloudwatch]]", "[[ADR-0017-floci-local]]", "[[local-dev]]", "[[floci-rds-apigw-limits]]"]
+related: ["[[ADR-0011-observability-signoz]]", "[[openobserve-cloudwatch]]", "[[ADR-0017-floci-local]]", "[[local-dev]]", "[[floci-rds-apigw-limits]]", "[[2026-07-10-openobserve-migration-design]]"]
 ---
 
 # SigNoz log observability via CloudWatch + fluentd — Design
@@ -14,10 +14,17 @@ related: ["[[ADR-0011-observability-signoz]]", "[[signoz-cloudwatch]]", "[[ADR-0
 ## Problem / scope
 
 [[ADR-0011-observability-signoz]] decided "logs and traces via CloudWatch → SigNoz" and
-[[signoz-cloudwatch]] records the convention, but both are high-level — neither specifies a
-concrete mechanism. This spec designs the **logs-only** implementation. Traces/metrics via direct
-OTel instrumentation are a later phase: three of the four services (`orders`, `tracking`,
-`events-pipeline`) are still empty scaffolds, so there is little to instrument yet.
+[[openobserve-cloudwatch]] (then `signoz-cloudwatch`) records the convention, but both are
+high-level — neither specifies a concrete mechanism. This spec designs the **logs-only**
+implementation. Traces/metrics via direct OTel instrumentation are a later phase: three of the
+four services (`orders`, `tracking`, `events-pipeline`) are still empty scaffolds, so there is
+little to instrument yet.
+
+> [!warning] SigNoz backend superseded by OpenObserve
+> The SigNoz backend designed below (Components → "SigNoz self-hosted") turned out to be blocked
+> (see [[signoz-selfhost-migrator-blocker]]) and was superseded by OpenObserve — see
+> [[2026-07-10-openobserve-migration-design]] and [[ADR-0018-observability-openobserve]]. The
+> log-capture design here (receivers, fluentd routing) is unaffected and remains accurate.
 
 **Scope:** capture logs from all local services and forward them to a self-hosted SigNoz, with
 **zero changes to service source code** — infra and docker-compose only.
@@ -199,7 +206,8 @@ strategy](#testing-strategy).
 ## Related
 
 - [[ADR-0011-observability-signoz]]
-- [[signoz-cloudwatch]]
+- [[openobserve-cloudwatch]]
 - [[ADR-0017-floci-local]]
 - [[local-dev]]
 - [[floci-rds-apigw-limits]]
+- [[2026-07-10-openobserve-migration-design]]
