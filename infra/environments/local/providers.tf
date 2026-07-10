@@ -32,22 +32,14 @@ provider "aws" {
   }
 }
 
-# postgresql provider: manages the least-privilege app DB user (rds-aurora
-# module, manage_app_user = true). Floci does not expose a direct Postgres
-# wire-protocol port for the Aurora cluster the way real AWS does; a local
-# proxy port is required. Port 4566 below is a PLACEHOLDER — R4 discovers the
-# real Floci-proxied Postgres port and reconciles this block accordingly.
-# `init`/`validate` only; do NOT apply against this placeholder.
-# Points at the Floci RDS proxy endpoint discovered after the cluster is created
-# (aws rds describe-db-clusters → Endpoint/Port; Floci proxy range 7000-7099).
-# Overridable via TF_VAR_pg_host / TF_VAR_pg_port since Floci may assign a
-# different proxy IP/port on recreation.
-provider "postgresql" {
-  host      = var.pg_host
-  port      = var.pg_port
-  username  = var.db_username
-  password  = var.db_password
-  database  = var.db_name
-  sslmode   = "disable"
-  superuser = false
-}
+# No `provider "postgresql"` block here (LOCAL ONLY — see main.tf's
+# `manage_app_user = false` comment on module.rds_aurora): Terraform configures
+# every declared provider BEFORE creating the resources a plan touches, but the
+# Floci-proxied Postgres endpoint for this cluster does not exist until AFTER
+# `aws_rds_cluster.this` is created — a chicken-and-egg no default value can
+# ever resolve on a clean apply (the endpoint/proxy port is assigned per-run).
+# The least-privilege app DB user is created post-apply by bootstrap.sh instead
+# (connects directly to the Floci-proxied endpoint once it exists). Production
+# has no such problem (stable, pre-existing Aurora DNS endpoint), so the
+# module's `postgresql_*` resources and its own `postgresql` provider
+# requirement are untouched — see environments/production/providers.tf.

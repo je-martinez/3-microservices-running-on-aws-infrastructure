@@ -72,17 +72,34 @@ module "rds_aurora" {
   engine              = "postgres"
   instance_class      = "db.t3.micro"
   skip_final_snapshot = true
-  manage_app_user     = true
+  # false LOCAL ONLY: the module's postgresql_* resources require the
+  # `postgresql` provider to be configured with the cluster's endpoint, but
+  # Terraform configures providers BEFORE creating the resources in the plan —
+  # the Floci-proxied Postgres endpoint doesn't exist yet on a clean apply, so
+  # no host/port default can ever be correct (chicken-and-egg). The
+  # least-privilege app DB user is created post-apply instead by
+  # bootstrap.sh, which connects to the endpoint once it actually exists.
+  # Production keeps manage_app_user = true (stable, pre-existing Aurora DNS
+  # endpoint — no chicken-and-egg there).
+  manage_app_user     = false
   create_subnet_group = false
   subnet_group_name   = "default"
 }
 
 # ─── Cognito ────────────────────────────────────────────────────────────────────
+# manage_client_via_provider = false (LOCAL ONLY): the native
+# aws_cognito_user_pool_client resource cannot apply cleanly against Floci —
+# see modules/cognito/variables.tf's manage_client_via_provider description
+# and the floci skill (quirk #2). The client is created instead via an awscli
+# local-exec fallback in that module, pointed at the same endpoint as the aws
+# provider above. Prod/Ministack keep the default (true).
 module "cognito" {
-  source       = "../../modules/cognito"
-  context      = { id = module.label_cognito.id, tags = module.label_cognito.tags }
-  region       = local.region
-  issuer_style = "floci"
+  source                     = "../../modules/cognito"
+  context                    = { id = module.label_cognito.id, tags = module.label_cognito.tags }
+  region                     = local.region
+  issuer_style               = "floci"
+  manage_client_via_provider = false
+  aws_cli_endpoint_url       = "http://localhost:4566"
 }
 
 # ─── Compute (ECS cluster + nginx reverse proxy) ────────────────────────────────

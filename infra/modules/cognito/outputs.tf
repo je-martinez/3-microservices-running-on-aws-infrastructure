@@ -5,7 +5,11 @@ output "user_pool_id" {
 
 output "client_id" {
   description = "ID of the Cognito App Client."
-  value       = aws_cognito_user_pool_client.this.id
+  value = var.manage_client_via_provider ? (
+    aws_cognito_user_pool_client.this[0].id
+    ) : (
+    jsondecode(data.local_file.client_via_cli[0].content).ClientId
+  )
 }
 
 output "issuer" {

@@ -33,5 +33,11 @@ e2e/test-results/
 *.tfstate.*.backup
 .terraform.lock.hcl
 
+# Local-only Cognito client descriptor (modules/cognito manage_client_via_provider
+# = false fallback, Floci only — see modules/cognito/main.tf) and bootstrap.sh's
+# generated app DB user password (local Floci only — never a real secret store).
+**/.terraform-cognito/
+infra/environments/local/.app-db-secret
+
 # Agent-skills CLI local mirror (canonical copies live in .claude/skills/)
 .agents/

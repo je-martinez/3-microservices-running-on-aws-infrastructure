@@ -39,19 +39,3 @@ variable "db_password" {
   default     = "test"
   sensitive   = true
 }
-
-# Floci RDS proxy endpoint for the postgresql provider (create the app user/grants).
-# Discovered post-apply via `aws rds describe-db-clusters`. Defaults are the values
-# Floci assigned on first apply; override with TF_VAR_pg_host / TF_VAR_pg_port if
-# Floci reassigns them on recreation.
-variable "pg_host" {
-  description = "Host of the running Postgres (Floci RDS proxy) for the postgresql provider."
-  type        = string
-  default     = "192.168.155.5"
-}
-
-variable "pg_port" {
-  description = "Port of the running Postgres (Floci RDS proxy) for the postgresql provider."
-  type        = number
-  default     = 7001
-}
