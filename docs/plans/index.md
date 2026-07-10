@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-06-28
+updated: 2026-07-10
 tags: [type/spec, area/shared, status/active]
 related:
   - "[[2026-06-26-implementation-workflow]]"
@@ -16,6 +16,7 @@ related:
   - "[[users-service-milestone]]"
   - "[[2026-07-09-users-cognito-webhook]]"
   - "[[2026-07-10-signoz-logs-observability]]"
+  - "[[2026-07-10-openobserve-migration]]"
 ---
 
 # 3MRAI Plans — Index
@@ -33,6 +34,7 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[users-service-milestone]] — logical execution plan for the Users Service milestone: task sequence, phases, and blocking dependency graph for JE-25 through JE-37.
 - [[2026-07-09-users-cognito-webhook]] — implementation plan for JE-38: Cognito identity webhook + identity tables (`UsersCognitoData`, `UsersCognitoEvent`), reachable via `POST /v1/webhooks/cognito` and in-process from `register()`.
 - [[2026-07-10-signoz-logs-observability]] — implementation plan for SigNoz log observability: an OTel collector fed by Docker's fluentd driver (compose services) and the aws_cloudwatch receiver (ECS/RDS on Floci), exported to a self-hosted SigNoz, opt-in via the `observability` compose profile.
+- [[2026-07-10-openobserve-migration]] — implementation plan to replace the blocked SigNoz backend with a self-hosted OpenObserve: one new compose service and a repointed OTel collector exporter (`otlp_http`/OpenObserve), log-capture pipeline unchanged.
 
 ## Related
 
@@ -45,3 +47,4 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[users-service-milestone]]
 - [[2026-07-09-users-cognito-webhook]]
 - [[2026-07-10-signoz-logs-observability]]
+- [[2026-07-10-openobserve-migration]]
