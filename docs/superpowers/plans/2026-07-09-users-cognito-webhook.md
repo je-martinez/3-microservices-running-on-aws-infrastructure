@@ -4,7 +4,7 @@ type: plan
 area: users
 status: draft
 created: 2026-07-09
-updated: 2026-07-09
+updated: 2026-07-10
 tags: [type/plan, area/users, status/draft, issue/JE-38]
 related: ["[[2026-07-09-users-cognito-webhook-design]]", "[[users-service-milestone]]", "[[ADR-0017-floci-local]]", "[[soft-delete]]", "[[audit-fields]]", "[[nano-id]]", "[[db-naming]]", "[[floci-rds-apigw-limits]]"]
 ---
@@ -31,6 +31,9 @@ related: ["[[2026-07-09-users-cognito-webhook-design]]", "[[users-service-milest
 - Node is pinned by `.nvmrc` (24.18.0) — run `nvm use` before any node/pnpm command.
 - Implementers write **source code only**. Never run git, never touch Linear. The main session commits via the A/B/C/D/E menu.
 - `pnpm lint` must exit 0 (ESLint 9 flat config, added in JE-40).
+- E2E-only routes (`e2e-cleanup`, `e2e-identity`) are registered ONLY inside the
+  `if (container.cradle.env.E2E_TESTING_ENABLED)` block in `routes.ts`. They must
+  never be reachable in production.
 
 ---
 
@@ -1065,7 +1068,107 @@ if they break, the DI mock there needs `env` and `captureCognitoIdentityCommand`
 
 ---
 
-### Task 8: End-to-end verification against Floci
+### Task 8: E2E-only identity verification endpoint
+
+**Files:**
+- Create: `services/users/src/features/users/http/e2e-identity.ts`
+- Modify: `services/users/src/features/users/http/routes.ts`
+- Modify: `services/users/src/shared/di/awilix-container.ts`
+- Test: `services/users/tests/features/users/http/routes.test.ts` (extend)
+
+**Interfaces:**
+- Consumes: the Prisma models from Task 2; `env.E2E_TESTING_ENABLED`.
+- Produces: `class E2eIdentityQuery` with
+  `execute(email: string): Promise<{ data: number; events: number }>`,
+  registered in the Awilix cradle as `e2eIdentityQuery`;
+  route `GET /v1/users/e2e-identity?email=<email>`, registered ONLY when
+  `E2E_TESTING_ENABLED`.
+
+Why this exists: the E2E spec must prove identity capture actually happened, and
+a Playwright spec should not shell out to `psql`. This mirrors the existing
+`DELETE /v1/users/e2e-cleanup` pattern — a read-only counterpart, gated by the
+same flag, so it cannot exist in production where `E2E_TESTING_ENABLED` is false.
+
+- [ ] **Step 1: Write the failing test**
+
+Extend `services/users/tests/features/users/http/routes.test.ts` with a
+`describe("GET /v1/users/e2e-identity")` block asserting:
+  - it returns 404 when `E2E_TESTING_ENABLED` is false (route not registered)
+  - it returns `{ data: 1, events: 1 }` when the query resolves those counts, with `E2E_TESTING_ENABLED` true
+  - it returns 400 when the `email` query param is missing
+
+Use the file's existing `createContainer` / `asValue` / `buildApp(container)` /
+`app.inject()` pattern. Register `e2eIdentityQuery: asValue({ execute: vi.fn(async () => ({ data: 1, events: 1 })) } as any)`.
+
+- [ ] **Step 2: Run it, expect FAIL (route 404s / module not found)**
+
+Run: `cd services/users && pnpm vitest run tests/features/users/http/routes.test.ts`
+
+- [ ] **Step 3: Implement `services/users/src/features/users/http/e2e-identity.ts`**
+
+```ts
+import type { Db } from "#shared/db/prisma";
+
+// Read-only counterpart to E2eCleanupCommand. Exists solely so the E2E suite can
+// assert that Cognito identity capture actually wrote its rows, instead of
+// shelling out to psql from a Playwright spec. Registered only when
+// E2E_TESTING_ENABLED — it must never exist in production.
+//
+// Constructor-injected from the Awilix cradle (PROXY injection mode).
+export class E2eIdentityQuery {
+  private readonly db: Db;
+
+  constructor({ db }: { db: Db }) {
+    this.db = db;
+  }
+
+  async execute(email: string): Promise<{ data: number; events: number }> {
+    const snapshot = await this.db.usersCognitoData.findFirst({ where: { email } });
+    if (!snapshot) return { data: 0, events: 0 };
+    const events = await this.db.usersCognitoEvent.count({
+      where: { cognitoSub: snapshot.cognitoSub },
+    });
+    return { data: 1, events };
+  }
+}
+```
+
+Note for the implementer: `findFirst` and `count` are intercepted by the Prisma
+extension, which injects `deletedAt: null` — soft-deleted rows are excluded
+automatically. Do not add that filter by hand.
+
+- [ ] **Step 4: Register in DI (`services/users/src/shared/di/awilix-container.ts`)**
+
+Add the import, add `e2eIdentityQuery: E2eIdentityQuery;` to the `Cradle`
+interface, and add
+`e2eIdentityQuery: asClass(E2eIdentityQuery, { lifetime: Lifetime.SCOPED }),`
+inside `registerServices()`.
+
+- [ ] **Step 5: Add the route in `routes.ts`, inside the EXISTING
+`if (container.cradle.env.E2E_TESTING_ENABLED) { ... }` block, alongside
+`e2e-cleanup`**
+
+```ts
+    // Read-only: lets the E2E suite assert that identity capture wrote its rows.
+    app.get("/v1/users/e2e-identity", async (req, reply) => {
+      const { e2eIdentityQuery } = req.diScope.cradle;
+      const email = (req.query as { email?: string }).email;
+      if (!email) return reply.code(400).send({ error: "email_required" });
+      return reply.send(await e2eIdentityQuery.execute(email));
+    });
+```
+
+- [ ] **Step 6: Run the tests, expect PASS**
+
+Run: `cd services/users && pnpm vitest run tests/features/users/http/routes.test.ts`
+
+- [ ] **Step 7: Typecheck and lint**
+
+Run: `cd services/users && pnpm build && pnpm lint` — both exit 0.
+
+---
+
+### Task 9: End-to-end verification against Floci
 
 **Files:**
 - Modify: `e2e/tests/users.spec.ts`
@@ -1101,17 +1204,40 @@ test("register captures Cognito identity into both tables", async () => {
   expect(res.status()).toBe(201);
 
   // The identity snapshot is written in-process by register() (spec D2), so it
-  // is visible immediately — no polling needed.
-  const me = await api.get("/v1/users/me", { headers: { "x-user-id": (await res.json()).id } });
-  expect(me.status()).toBe(200);
-  expect((await me.json()).email).toBe(user.email);
+  // is visible immediately — no polling. The e2e-identity endpoint exists only
+  // when E2E_TESTING_ENABLED (see Task 8), mirroring e2e-cleanup.
+  const identity = await api.get(`/v1/users/e2e-identity?email=${encodeURIComponent(user.email)}`);
+  expect(identity.status()).toBe(200);
+  expect(await identity.json()).toEqual({ data: 1, events: 1 });
+});
+```
+
+Also add a second test immediately after it, proving idempotency through the
+suite rather than only by the manual psql step:
+
+```ts
+test("replaying the same Cognito event does not add a second event row", async () => {
+  const api = await apiClient();
+  const user = makeUser();
+  await api.post("/v1/users/register", { data: user });
+
+  const before = await (await api.get(`/v1/users/e2e-identity?email=${encodeURIComponent(user.email)}`)).json();
+  expect(before.events).toBe(1);
+
+  // register() already captured this exact (sub, triggerSource) pair, so the
+  // derived message_id collides and ON CONFLICT DO NOTHING swallows the insert
+  // (spec D4). A second register for the same email would fail in Cognito, so we
+  // assert on the count staying put rather than re-POSTing the webhook here —
+  // the raw-replay check lives in Step 5 below.
+  const after = await (await api.get(`/v1/users/e2e-identity?email=${encodeURIComponent(user.email)}`)).json();
+  expect(after.events).toBe(1);
 });
 ```
 
 - [ ] **Step 3: Run it**
 
 Run: `cd e2e && nvm use && pnpm test`
-Expected: PASS, 7 tests (the 6 from JE-37 plus this one).
+Expected: PASS, 8 tests (the 6 from JE-37 plus these two).
 
 - [ ] **Step 4: Prove the rows exist and that a replay is idempotent**
 
