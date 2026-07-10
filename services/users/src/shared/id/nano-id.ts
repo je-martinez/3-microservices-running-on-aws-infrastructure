@@ -10,6 +10,8 @@ import { nanoid } from "nanoid";
 // needs to change.
 export const MODEL_ID_PREFIXES: Record<string, string> = {
   User: "usr_",
+  UsersCognitoData: "ucd_",
+  UsersCognitoEvent: "cge_",
 };
 
 export function generateId(prefix: string): string {

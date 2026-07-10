@@ -21,6 +21,52 @@ model User {
   deletedBy   String?   @map("deleted_by")
   deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
 
+  cognitoData UsersCognitoData?
+
   @@map("users")
+  @@index([deletedAt])
+}
+
+// 1:1 identity snapshot per user. Upserted on every accepted webhook event.
+model UsersCognitoData {
+  id            String    @id
+  userId        String    @unique @map("user_id")
+  cognitoSub    String    @unique @map("cognito_sub")
+  email         String
+  clientId      String    @map("client_id")
+  lastEventType String    @map("last_event_type")
+  rawPayload    Json      @map("raw_payload")
+  createdBy     String?   @map("created_by")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedBy     String?   @map("updated_by")
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedBy     String?   @map("deleted_by")
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  user   User                 @relation(fields: [userId], references: [id])
+  events UsersCognitoEvent[]
+
+  @@map("users_cognito_data")
+  @@index([deletedAt])
+}
+
+// Event log. `messageId` is derived (spec D4): sha256(sub + ":" + triggerSource).
+// At PostConfirmation-only scope this yields one row per (user, trigger type).
+model UsersCognitoEvent {
+  id         String    @id
+  cognitoSub String    @map("cognito_sub")
+  eventType  String    @map("event_type")
+  messageId  String    @unique @map("message_id")
+  rawPayload Json      @map("raw_payload")
+  createdBy  String?   @map("created_by")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedBy  String?   @map("updated_by")
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedBy  String?   @map("deleted_by")
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  data UsersCognitoData @relation(fields: [cognitoSub], references: [cognitoSub])
+
+  @@map("users_cognito_events")
   @@index([deletedAt])
 }
