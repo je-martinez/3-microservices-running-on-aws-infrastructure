@@ -4,7 +4,15 @@ export interface AuthTokens {
   refreshToken: string;
 }
 
+export interface CognitoSignUpResult {
+  sub: string;
+  email: string;
+  emailVerified?: string;
+  userPoolId: string;
+  clientId: string;
+}
+
 export interface AuthProvider {
-  signUp(email: string, password: string): Promise<{ sub: string }>;
+  signUp(email: string, password: string): Promise<CognitoSignUpResult>;
   login(email: string, password: string): Promise<AuthTokens>;
 }

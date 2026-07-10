@@ -4,7 +4,7 @@ import {
   AdminInitiateAuthCommand,
   type CognitoIdentityProviderClient,
 } from "@aws-sdk/client-cognito-identity-provider";
-import type { AuthProvider, AuthTokens } from "./auth-provider.ts";
+import type { AuthProvider, AuthTokens, CognitoSignUpResult } from "./auth-provider.ts";
 
 export class CognitoAuthProvider implements AuthProvider {
   constructor(
@@ -13,7 +13,7 @@ export class CognitoAuthProvider implements AuthProvider {
     private readonly clientId: string,
   ) {}
 
-  async signUp(email: string, password: string): Promise<{ sub: string }> {
+  async signUp(email: string, password: string): Promise<CognitoSignUpResult> {
     const created = await this.client.send(
       new AdminCreateUserCommand({
         UserPoolId: this.userPoolId,
@@ -33,8 +33,13 @@ export class CognitoAuthProvider implements AuthProvider {
         Permanent: true,
       }),
     );
-    const sub = created.User?.Attributes?.find((a) => a.Name === "sub")?.Value ?? email;
-    return { sub };
+    // A missing `sub` used to fall back to the email. That is a silent
+    // corruption: the email would be hashed into the idempotency key as if it
+    // were a sub. Fail loudly instead.
+    const sub = created.User?.Attributes?.find((a) => a.Name === "sub")?.Value;
+    if (!sub) throw new Error(`Cognito AdminCreateUser returned no sub for ${email}`);
+    const emailVerified = created.User?.Attributes?.find((a) => a.Name === "email_verified")?.Value;
+    return { sub, email, emailVerified, userPoolId: this.userPoolId, clientId: this.clientId };
   }
 
   async login(email: string, password: string): Promise<AuthTokens> {
