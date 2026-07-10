@@ -13,55 +13,22 @@ networks:
     driver: bridge
 
 services:
-  # ── Ministack DISABLED for the Floci spike (2026-06-29) ──────────────────────
-  # Superseded locally by the `floci` service below (`floci` on :4566). Kept
-  # commented (not deleted) so we can revert if the Floci spike does not pass.
-  # See docs/superpowers/specs/2026-06-29-floci-local-emulator-spike-design.md
-  #
-  # Local AWS emulator. Lambda/ECS run as real Docker containers, so it needs
-  # the docker socket. State and S3 data persist under ./data (git-ignored).
-  # LAMBDA_DOCKER_NETWORK must be the real compose network name so Lambda
-  # containers join the same network: "<project>_<network>" = 3mrai_3mrai-network.
-  # ministack:
-  #   # Pinned to a specific version for reproducibility (not :latest).
-  #   # -full (Debian) bundles DuckDB/psycopg2/pymysql for the real Aurora
-  #   # Postgres/MySQL containers Ministack runs to emulate RDS.
-  #   image: ministackorg/ministack:1.3.69-full
-  #   ports:
-  #     - "4566:4566"
-  #   environment:
-  #     - PERSIST_STATE=1
-  #     - S3_PERSIST=1
-  #     - RDS_PERSIST=1
-  #     - LOG_LEVEL=INFO
-  #     - LAMBDA_EXECUTOR=docker
-  #     - LAMBDA_DOCKER_NETWORK=3mrai_3mrai-network
-  #   volumes:
-  #     - ./data/state:/tmp/ministack-state
-  #     - ./data/s3:/tmp/ministack-data/s3
-  #     - /var/run/docker.sock:/var/run/docker.sock
-  #   networks: [3mrai-network]
-  #   healthcheck:
-  #     test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4566/_ministack/health')"]
-  #     interval: 10s
-  #     timeout: 3s
-  #     retries: 3
-
-  # Local AWS emulator (Floci spike, 2026-06-29) — replaces Ministack on :4566.
+  # Local AWS emulator (ADR-0017) — replaced Ministack on :4566.
   # MIT, single-port emulator. Launches ECS tasks as real Docker containers and
   # joins them to the compose network via FLOCI_SERVICES_ECS_DOCKER_NETWORK, so the
-  # Nginx ECS task resolves `spike-backend` by container_name through Docker DNS.
-  # Start the spike with:
-  #   docker compose up -d floci spike-backend
+  # Nginx ECS task resolves `users` by service name through Docker DNS.
   floci:
     image: floci/floci:latest
     ports:
       - "4566:4566"
     environment:
       # ECS tasks launched by Floci join the compose network and can resolve
-      # other compose containers (spike-backend) by container_name via Docker DNS.
+      # other compose containers (users) by service name via Docker DNS.
       - FLOCI_SERVICES_ECS_DOCKER_NETWORK=3mrai_3mrai-network
       # Persist state across restarts under ./data/floci (git-ignored).
+      # `persistent` flushes on every write; `hybrid` batches on a 5s async timer
+      # and loses writes on an unclean stop — do not "optimize" this to hybrid.
+      # See docs/lessons/floci-storage-modes-and-tmp-corruption.md
       - FLOCI_STORAGE_MODE=persistent
       - FLOCI_STORAGE_PERSISTENT_PATH=/app/data
     volumes:
@@ -74,19 +41,6 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
-
-  # Temporary spike backend for JE-25 auth-chain spike.
-  # Simulates the "users" service before it is implemented.
-  # Runs hashicorp/http-echo returning "spike-ok-via-floci" on port 8080.
-  # Nginx (ECS task in Floci) proxies to this service by name via Docker DNS.
-  # container_name fixes the Docker DNS name the Nginx ECS task proxies to.
-  # TODO(JE-25): remove once the real `users` service fully replaces it and
-  # the Nginx ECS task is pointed at `users:3000`.
-  spike-backend:
-    image: hashicorp/http-echo:latest
-    container_name: spike-backend
-    command: ["-listen=:8080", "-text=spike-ok-via-floci"]
-    networks: [3mrai-network]
 
   # Real Users service (Fastify + Prisma).
   # Build context is the REPO ROOT so pnpm-lock.yaml and pnpm-workspace.yaml
