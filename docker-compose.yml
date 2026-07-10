@@ -1,8 +1,8 @@
 # 3MRAI local development orchestrator.
-# Ministack emulates AWS locally (SQS, Lambda, ECS, RDS, S3, DocumentDB, …) —
-# it is where the project's AWS resources are created for local dev. The four
-# services run on one network with docker-watch (live reload) and point their
-# AWS SDKs at Ministack via AWS_ENDPOINT_URL.
+# Floci emulates AWS locally (SQS, Lambda, ECS, RDS, S3, DocumentDB, …) on a
+# single port :4566 — it is where the project's AWS resources are created for
+# local dev. The four services run on one network with docker-watch (live
+# reload) and point their AWS SDKs at Floci via AWS_ENDPOINT_URL.
 # Skeleton: service build contexts use per-service skeleton Dockerfiles; real
 # per-service config (ports, depends-on details, healthchecks) is filled in per
 # service milestone.
@@ -94,9 +94,9 @@ services:
   # The container is reachable as `users` on 3mrai-network so the Nginx ECS
   # task can proxy_pass to http://users:3000 via Docker embedded DNS.
   #
-  # DATABASE_WRITER_URL / DATABASE_READER_URL / COGNITO_USER_POOL_ID /
-  # COGNITO_CLIENT_ID are provided by JE-36's bootstrap/.env after
-  # `terraform apply` in infra/environments/local outputs those values.
+  # COGNITO_USER_POOL_ID / COGNITO_CLIENT_ID come from ./.env, which
+  # `make infra-up` regenerates from `terraform output` after every apply —
+  # Floci mints new IDs on each apply, so they must never be hardcoded here.
   users:
     build:
       context: .
@@ -104,21 +104,29 @@ services:
     networks: [3mrai-network]
     ports:
       - "3000:3000"
-    # depends_on ministack disabled for the Floci spike (2026-06-29).
-    # depends_on:
-    #   ministack:
-    #     condition: service_healthy
+    depends_on:
+      floci:
+        condition: service_healthy
     environment:
-      - AWS_ENDPOINT_URL=http://ministack:4566
+      - AWS_ENDPOINT_URL=http://floci:4566
       - AWS_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
       - PORT=3000
-      # Aurora writer/reader endpoints — Ministack emulates RDS on the same host.
-      # Replace these with real terraform outputs once JE-36 bootstrap runs.
-      - DATABASE_WRITER_URL=postgres://test:test@ministack:4566/users
-      - DATABASE_READER_URL=postgres://test:test@ministack:4566/users
-      # Cognito pool/client IDs come from `terraform output` (JE-36 bootstrap).
+      # Floci fronts the real Postgres container it launches for the Aurora
+      # cluster on its own proxy port 7001. Reach it by the compose service name
+      # `floci` — the container's IP is reassigned on every recreation, and the
+      # RDS `Endpoint` reported by describe-db-clusters is one of those IPs.
+      #
+      # Writer and reader are the SAME endpoint locally: Floci does not emulate
+      # an Aurora read replica. ADR-0006 splits reads/writes in production; the
+      # split is preserved in code (two URLs) so the app path stays identical.
+      #
+      # Credentials are the cluster superuser (test/test). The least-privilege
+      # `users_app` role that bootstrap.sh creates has a generated password kept
+      # in the git-ignored .app-db-secret, which compose cannot read.
+      - DATABASE_WRITER_URL=postgres://test:test@floci:7001/users
+      - DATABASE_READER_URL=postgres://test:test@floci:7001/users
       - COGNITO_USER_POOL_ID=${COGNITO_USER_POOL_ID}
       - COGNITO_CLIENT_ID=${COGNITO_CLIENT_ID}
       - E2E_TESTING_ENABLED=true
@@ -131,12 +139,11 @@ services:
   orders:
     build: ./services/orders
     networks: [3mrai-network]
-    # depends_on ministack disabled for the Floci spike (2026-06-29).
-    # depends_on:
-    #   ministack:
-    #     condition: service_healthy
+    depends_on:
+      floci:
+        condition: service_healthy
     environment:
-      - AWS_ENDPOINT_URL=http://ministack:4566
+      - AWS_ENDPOINT_URL=http://floci:4566
       - AWS_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
@@ -149,12 +156,11 @@ services:
   tracking:
     build: ./services/tracking
     networks: [3mrai-network]
-    # depends_on ministack disabled for the Floci spike (2026-06-29).
-    # depends_on:
-    #   ministack:
-    #     condition: service_healthy
+    depends_on:
+      floci:
+        condition: service_healthy
     environment:
-      - AWS_ENDPOINT_URL=http://ministack:4566
+      - AWS_ENDPOINT_URL=http://floci:4566
       - AWS_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
@@ -167,12 +173,11 @@ services:
   events-pipeline:
     build: ./services/events-pipeline
     networks: [3mrai-network]
-    # depends_on ministack disabled for the Floci spike (2026-06-29).
-    # depends_on:
-    #   ministack:
-    #     condition: service_healthy
+    depends_on:
+      floci:
+        condition: service_healthy
     environment:
-      - AWS_ENDPOINT_URL=http://ministack:4566
+      - AWS_ENDPOINT_URL=http://floci:4566
       - AWS_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
