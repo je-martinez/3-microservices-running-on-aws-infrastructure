@@ -4,7 +4,7 @@ type: lesson
 area: infra
 status: active
 created: 2026-06-29
-updated: 2026-06-29
+updated: 2026-07-09
 tags:
   - type/lesson
   - area/infra
@@ -14,6 +14,7 @@ related:
   - "[[ministack-auth-chain-spike-findings]]"
   - "[[ADR-0012-ministack-local]]"
   - "[[2026-06-29-floci-local-emulator-spike-design]]"
+  - "[[floci-storage-modes-and-tmp-corruption]]"
 ---
 
 # Floci vs Ministack spike findings
@@ -201,10 +202,21 @@ confirmation. Verified by two independent observations:
 This matches the known Ministack note ("Lambda triggers are stored but never invoked") and is
 now confirmed to be identical behavior on Floci.
 
-> [!note] Extra Floci observation
-> Floci also logged a serialization error when persisting Cognito verification codes:
-> `No serializer found for class ... VerificationCode`. This is a minor fidelity bug in Floci
-> and is not blocking — sign-up and confirm flows complete despite the error.
+> [!note] Extra Floci observation — fixed in `floci/floci:latest`
+> During the original spike (2026-06-29), Floci logged a serialization error when persisting
+> Cognito verification codes: `No serializer found for class ... VerificationCode`. It was a
+> minor fidelity bug and was not blocking at the time — sign-up and confirm flows completed
+> despite the error.
+>
+> **Re-verified 2026-07-09 on `floci/floci:latest`: this is fixed.** Reproducing the same flow
+> (create-user-pool → create-user-pool-client → sign-up) against a clean `latest` container with
+> `FLOCI_STORAGE_MODE=persistent`: sign-up succeeded (`UserConfirmed: false`, valid `UserSub`),
+> and `docker logs` showed no serializer error (grepped for `serial|VerificationCode` — no
+> match). `cognito-verification-codes.json` was never even created — nothing failed while
+> writing it. The empty `{ }` `data/floci/cognito-verification-codes.json` present in the repo
+> is a stale artifact from an older Floci version, not evidence of a live bug. See
+> [[floci-storage-modes-and-tmp-corruption]] for the storage-mode testing this was verified
+> alongside.
 
 ### What DOES work (the alternative)
 
@@ -259,3 +271,4 @@ uncommitted.
 - [[ADR-0012-ministack-local]]
 - [[2026-06-29-floci-local-emulator-spike-design]]
 - [[ADR-0011-observability-signoz]]
+- [[floci-storage-modes-and-tmp-corruption]]

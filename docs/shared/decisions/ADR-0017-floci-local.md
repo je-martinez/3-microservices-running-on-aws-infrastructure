@@ -5,7 +5,7 @@ area: shared
 status: accepted
 id: ADR-0017
 created: 2026-06-29
-updated: 2026-06-29
+updated: 2026-07-09
 deciders: [Jose E. Martinez]
 supersedes: ADR-0012
 superseded-by: null
@@ -16,6 +16,7 @@ related:
   - "[[2026-06-29-floci-local-emulator-spike-design]]"
   - "[[ADR-0016-local-apigw-nginx-ecs]]"
   - "[[ADR-0010-cognito-auth]]"
+  - "[[floci-storage-modes-and-tmp-corruption]]"
 ---
 
 # ADR-0017: Floci for Local AWS Emulation
@@ -67,3 +68,4 @@ This decision does **not** itself migrate `infra/environments/local/` — that i
 - [[2026-06-29-floci-local-emulator-spike-design]]
 - [[ADR-0016-local-apigw-nginx-ecs]]
 - [[ADR-0010-cognito-auth]]
+- [[floci-storage-modes-and-tmp-corruption]]

@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-03
-updated: 2026-07-03
+updated: 2026-07-09
 tags:
   - type/convention
   - area/shared
@@ -13,6 +13,7 @@ related:
   - "[[ADR-0017-floci-local]]"
   - "[[local-dev-ministack]]"
   - "[[git-workflow]]"
+  - "[[floci-storage-modes-and-tmp-corruption]]"
 ---
 
 # Local Development
@@ -59,3 +60,4 @@ a new service needs local testing.
 - [[ADR-0017-floci-local]]
 - [[local-dev-ministack]]
 - [[git-workflow]]
+- [[floci-storage-modes-and-tmp-corruption]]

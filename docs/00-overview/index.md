@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-07-04
+updated: 2026-07-09
 tags:
   - type/spec
   - area/shared
@@ -164,6 +164,7 @@ Durable empirical findings from spikes, incidents, and experiments.
 - [[ministack-auth-chain-spike-findings]] — Empirical findings from the JE-25 Ministack spike: proven local auth chain topology, DNS quirks, provider pins, and ECS workarounds.
 - [[floci-vs-ministack-spike-findings]] — A/B comparison of Floci vs Ministack on the same auth chain: gate results, comparison table, and key findings. No migration decision — ADR-0012 unchanged.
 - [[floci-rds-apigw-limits]] — Empirical limits of Floci discovered during JE-36 (RDS/Aurora + API Gateway chain): tag-update bugs on RDS/API GW resources, and API Gateway v2 HTTP_PROXY path-forwarding not working.
+- [[floci-storage-modes-and-tmp-corruption]] — Floci storage-mode durability testing (README's `hybrid` recommendation is wrong for 3MRAI; `persistent` is correct and already in use) and a truncated-`.tmp` state-file corruption pattern (rare, not mode-specific, root cause unproven).
 
 ---
 
@@ -192,3 +193,4 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[ministack-auth-chain-spike-findings]]
 - [[floci-vs-ministack-spike-findings]]
 - [[floci-rds-apigw-limits]]
+- [[floci-storage-modes-and-tmp-corruption]]
