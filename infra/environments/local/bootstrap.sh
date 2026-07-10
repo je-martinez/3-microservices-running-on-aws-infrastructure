@@ -33,10 +33,9 @@
 #   (Docker embedded DNS at 127.0.0.11 resolves it, including from Floci's API GW
 #   container).
 #
-# Unlike the spike (which proxied to a spike-backend echo returning
-# "spike-ok-via-floci"), environments/local proxies to the REAL `users` service,
-# whose health endpoint returns {"status":"ok"} at /v1/health. The verification
-# step below checks that instead.
+# The API GW integration proxies to the REAL `users` service, whose health
+# endpoint returns {"status":"ok"} at /v1/health. The verification step below
+# checks that.
 #
 # Both steps are idempotent: safe to run repeatedly. Run the whole script once
 # after each `terraform apply`.
@@ -49,7 +48,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 NETWORK="3mrai_3mrai-network"
 ALIAS="${NGINX_STABLE_ALIAS:-nginx-stable}"
-FIXED_IP="${NGINX_STABLE_IP:-192.168.155.20}"   # empty → alias only, keep auto IP
+# Empty by default → attach the alias only and let Docker assign the IP.
+# The API GW integration targets http://nginx-stable/ , so a stable NAME is all
+# that is required; pinning an IP only adds a failure mode. Floci recreates its
+# network with a different subnet across runs (observed 192.168.155.0/24 →
+# 192.168.148.0/24), so any hardcoded address eventually falls outside it and
+# `docker network connect --ip` fails with "no configured subnet contains ...".
+# Set NGINX_STABLE_IP=<addr> to opt back in.
+FIXED_IP="${NGINX_STABLE_IP:-}"
 
 # App DB user (step 1). PG_HOST defaults to the stable compose service
 # hostname (survives container recreation, per JE-36/verified route) rather
