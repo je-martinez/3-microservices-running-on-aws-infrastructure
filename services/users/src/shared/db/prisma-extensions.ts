@@ -87,6 +87,20 @@ export function buildCrossCuttingQueries(client: CrossCuttingBaseClient) {
     // --- find* (see [[soft-delete]]) ---
     // Excludes soft-deleted rows by default by injecting `deletedAt: null`
     // into `where`, unless the caller already filtered on `deletedAt`.
+    //
+    // `findUnique`/`findUniqueOrThrow` are safe here: `excludeSoftDeleted`
+    // only ever ADDS `deletedAt` alongside whatever unique field the caller
+    // supplied (`id`/`email`), it never removes/replaces it. Prisma's
+    // `prisma-client` generator (v7, driver-adapter engine) accepts extra
+    // non-unique `where` fields next to a unique one — it only rejects a
+    // `where` with NO unique field at all (`PrismaClientValidationError`).
+    // Verified against the live DB: a `findUnique({ where: { id } })` call
+    // with `deletedAt: null` injected returns the row when not soft-deleted
+    // and `null` when it is — see
+    // `tests/shared/db/prisma-extensions.test.ts` ("findUnique / find
+    // safety"). This was flagged as a latent break under an assumption from
+    // the classic (non-driver-adapter) Prisma engine, which does not hold
+    // for this stack's actual Prisma version — see JE-40.
     async findMany({ args, query }: AllModelsCbArgs) {
       excludeSoftDeleted(args);
       return query(args);
@@ -176,7 +190,7 @@ function stampCreateData(model: string, data: Record<string, unknown> | undefine
     if (prefix) {
       data.id = generateId(prefix);
     } else if (process.env.NODE_ENV !== "production") {
-      // eslint-disable-next-line no-console -- dev-only guard, every model is expected to have a prefix
+      // dev-only guard, every model is expected to have a prefix
       console.warn(`[cross-cutting-rules] model "${model}" has no entry in MODEL_ID_PREFIXES; id was not stamped.`);
     }
   }

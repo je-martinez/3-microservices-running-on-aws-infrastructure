@@ -1,14 +1,25 @@
 # Users service — Fastify + Node 24 (pinned via repo .nvmrc), pnpm via corepack.
 # Build context: REPO ROOT (pnpm-lock.yaml and pnpm-workspace.yaml live there).
-# Multi-stage: deps stage installs the users package closure; builder stage
-# generates the Prisma client and compiles TypeScript (tsc) to dist/; runtime
-# stage copies only the compiled output + node_modules and runs plain `node`
-# against dist/ (production — no --experimental-strip-types, no dev conditions).
+# Multi-stage: deps stage installs the users package closure (full, including
+# devDependencies — reused as-is by `make migrate`, see below); builder stage
+# generates the Prisma client and compiles TypeScript (tsc) to dist/; prod-deps
+# stage prunes devDependencies out of a copy of deps' node_modules; runtime
+# stage copies only the compiled output + the PRUNED node_modules and runs
+# plain `node` against dist/ (production — no --experimental-strip-types, no
+# dev conditions).
 #
 # Flow: prisma generate (deps stage, src/generated/prisma/*.ts) → tsc build
-# (builder stage, src -> dist, including dist/generated/prisma/*.js) → run
-# dist/server.js (runtime stage). generate MUST run before build: the
-# generated Prisma client under src/generated is tsc's input.
+# (builder stage, src -> dist, including dist/generated/prisma/*.js) → prune
+# devDependencies (prod-deps stage) → run dist/server.js (runtime stage).
+# generate MUST run before build: the generated Prisma client under
+# src/generated is tsc's input.
+#
+# IMPORTANT: `make migrate` rebuilds and reuses the `deps` stage directly (via
+# `docker build --target deps`) to run `prisma migrate deploy` inside the
+# compose network — it needs the prisma CLI + prisma/ + prisma.config.ts, all
+# only present in `deps`'s full (unpruned) node_modules. Do not prune `deps`
+# itself; prune only happens in the separate `prod-deps` stage below, which
+# `runtime` copies from instead.
 
 FROM node:24-alpine AS base
 ENV PNPM_HOME="/pnpm"
@@ -46,14 +57,31 @@ COPY services/users/src ./src
 COPY services/users/tsconfig.json ./
 RUN node_modules/.bin/tsc -p tsconfig.json
 
+# ── prod-deps stage: prune devDependencies (prisma CLI, typescript, @types/*, tsx, vitest, eslint) ──
+FROM deps AS prod-deps
+# `pnpm deploy` (not `pnpm prune`: in this pnpm version, `prune` on a
+# filter-installed workspace subset prompts to reinstall the modules
+# directory "from scratch" and — with no TTY to confirm — silently no-ops,
+# leaving devDependencies in place). `deploy` instead assembles a
+# self-contained, production-only copy of @3mrai/users into a target
+# directory by cloning packages straight from the local pnpm content-store
+# (already populated by `deps`'s install above — no network needed), which
+# reliably excludes devDependencies while keeping @prisma/client's runtime
+# deps. Runs from a copy of `deps` (this stage is `FROM deps`), so `deps`
+# itself stays full/unpruned for `make migrate` (see the header comment above).
+RUN pnpm --filter @3mrai/users deploy --prod --config.ignore-scripts=false /tmp/deploy
+
 # ── runtime stage: assemble the final image, run the compiled build ──────────
 FROM base AS runtime
 # Compiled output only (no src/, no TypeScript toolchain needed at runtime)
 COPY --from=builder /app/services/users/dist ./services/users/dist
 COPY --from=builder /app/services/users/package.json ./services/users/package.json
-# node_modules as installed in deps stage (includes @prisma/client runtime deps)
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/services/users/node_modules ./services/users/node_modules
+# Pruned node_modules (prod-deps stage, via `pnpm deploy`) — devDependencies
+# (prisma CLI, typescript, tsx, vitest, eslint, @types/*) excluded;
+# @prisma/client's runtime deps kept. `pnpm deploy` produces a flat,
+# self-contained node_modules (no separate root + subpackage split), so this
+# is the only node_modules copy runtime needs.
+COPY --from=prod-deps /tmp/deploy/node_modules ./node_modules
 WORKDIR /app/services/users
 EXPOSE 3000
 # Plain `node` against the compiled build — no --experimental-strip-types, no
