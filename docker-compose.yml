@@ -110,6 +110,16 @@ services:
       # exposed outside the compose network. Prod reads this from Secrets
       # Manager (ADR-0007) — see the separate infra issue.
       - WEBHOOK_SECRET=local-dev-secret
+    # stdout → the observability collector's fluent_forward receiver.
+    # localhost:24224 because the Docker daemon resolves fluentd-address from the
+    # HOST, not this network. fluentd-async so the service still starts when the
+    # observability profile (and thus the collector) is not running.
+    logging:
+      driver: fluentd
+      options:
+        fluentd-address: "localhost:24224"
+        fluentd-async: "true"
+        tag: "users"
     develop:
       watch:
         - action: sync
@@ -127,6 +137,16 @@ services:
       - AWS_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
+    # stdout → the observability collector's fluent_forward receiver.
+    # localhost:24224 because the Docker daemon resolves fluentd-address from the
+    # HOST, not this network. fluentd-async so the service still starts when the
+    # observability profile (and thus the collector) is not running.
+    logging:
+      driver: fluentd
+      options:
+        fluentd-address: "localhost:24224"
+        fluentd-async: "true"
+        tag: "orders"
     develop:
       watch:
         - action: sync
@@ -144,6 +164,16 @@ services:
       - AWS_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
+    # stdout → the observability collector's fluent_forward receiver.
+    # localhost:24224 because the Docker daemon resolves fluentd-address from the
+    # HOST, not this network. fluentd-async so the service still starts when the
+    # observability profile (and thus the collector) is not running.
+    logging:
+      driver: fluentd
+      options:
+        fluentd-address: "localhost:24224"
+        fluentd-async: "true"
+        tag: "tracking"
     develop:
       watch:
         - action: sync
@@ -161,6 +191,16 @@ services:
       - AWS_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
+    # stdout → the observability collector's fluent_forward receiver.
+    # localhost:24224 because the Docker daemon resolves fluentd-address from the
+    # HOST, not this network. fluentd-async so the service still starts when the
+    # observability profile (and thus the collector) is not running.
+    logging:
+      driver: fluentd
+      options:
+        fluentd-address: "localhost:24224"
+        fluentd-async: "true"
+        tag: "events-pipeline"
     develop:
       watch:
         - action: sync
