@@ -145,6 +145,7 @@ Architectural patterns documented once and linked from service specs.
 ## Observability
 
 - [[openobserve-cloudwatch]] — OpenObserve setup, CloudWatch integration, and log-querying conventions.
+- [[openobserve-runbook]] — Local runbook: start/stop the OpenObserve stack, query logs, verified gotchas.
 
 ---
 
