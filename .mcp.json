@@ -3,6 +3,17 @@
     "drawio": {
       "command": "npx",
       "args": ["-y", "@drawio/mcp"]
+    },
+    "apidog": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "apidog-mcp-server@latest",
+        "--project-id=${APIDOG_PROJECT_ID:-}"
+      ],
+      "env": {
+        "APIDOG_ACCESS_TOKEN": "${APIDOG_ACCESS_TOKEN:-}"
+      }
     }
   }
 }
