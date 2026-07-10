@@ -167,6 +167,7 @@ Durable empirical findings from spikes, incidents, and experiments.
 - [[floci-vs-ministack-spike-findings]] — A/B comparison of Floci vs Ministack on the same auth chain: gate results, comparison table, and key findings. No migration decision — ADR-0012 unchanged.
 - [[floci-rds-apigw-limits]] — Empirical limits of Floci discovered during JE-36 (RDS/Aurora + API Gateway chain): tag-update bugs on RDS/API GW resources, and API Gateway v2 HTTP_PROXY path-forwarding not working.
 - [[floci-storage-modes-and-tmp-corruption]] — Floci storage-mode durability testing (README's `hybrid` recommendation is wrong for 3MRAI; `persistent` is correct and already in use) and a truncated-`.tmp` state-file corruption pattern (rare, not mode-specific, root cause unproven).
+- [[signoz-selfhost-migrator-blocker]] — Task 3 of the SigNoz logs plan is blocked: the self-hosted SigNoz schema-migrator hangs and never creates the `signoz_*` ClickHouse database. Diagnosis and resume options recorded for the next session.
 
 ---
 

@@ -11,13 +11,19 @@ related: ["[[2026-07-10-signoz-logs-observability-design]]", "[[ADR-0011-observa
 
 # SigNoz Log Observability Implementation Plan
 
+> [!warning] Tasks 1-2 done and committed; Task 3 is BLOCKED
+> Task 1 (collector) and Task 2 (fluentd routing on the four services) are implemented and
+> committed. Task 3 (self-hosted SigNoz) is **blocked** on a schema-migrator hang — diagnosis
+> and resume options in [[signoz-selfhost-migrator-blocker]]. Task 4 (end-to-end UI
+> verification) depends on Task 3 and is also unimplemented until it unblocks.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Capture logs from all local services into a self-hosted SigNoz, via an OpenTelemetry collector fed by two sources — Docker's fluentd driver (compose services) and the aws_cloudwatch receiver (ECS/RDS on Floci) — with zero service-code changes.
 
 **Architecture:** A pinned `otel/opentelemetry-collector-contrib` runs two receivers (`fluent_forward` :24224, `aws_cloudwatch` polling Floci) into one logs pipeline that OTLP-exports to a self-hosted SigNoz (ClickHouse + query-service + UI). The collector and SigNoz live behind a compose `profile: [observability]` so the heavy stack is opt-in; the four services carry a `fluentd` log-driver block always, made safe by `fluentd-async` so they start whether or not the collector is up.
 
-**Tech Stack:** docker-compose, otel-collector-contrib 0.156.0, SigNoz self-hosted (ClickHouse 25.12.5, v0.131.x), Floci (local CloudWatch), Makefile.
+**Tech Stack:** docker-compose, otel-collector-contrib 0.156.0, SigNoz self-hosted (vendored compose pinned at `v0.90.1`, ClickHouse `24.1.2-alpine`), Floci (local CloudWatch), Makefile.
 
 ## Global Constraints
 
@@ -195,20 +201,31 @@ Note a consequence: with the fluentd driver, `docker compose logs users` no long
 
 **Interfaces:**
 - Consumes: OTLP from `otel-collector` (Task 1) at `signoz-otel-collector:4317`.
-- Produces: the SigNoz UI on a host port (e.g. `3301`), backed by ClickHouse + query-service.
+- Produces: the SigNoz UI on a host port (exact port confirmed from the vendored compose — see Step 1), backed by ClickHouse + query-service.
 
 - [ ] **Step 1: Vendor the SigNoz self-hosted compose**
 
-SigNoz's canonical self-hosted compose lives at `deploy/docker/clickhouse-setup/` in the SigNoz repo (note: SigNoz marks these "legacy" in favor of their Foundry CLI, but the compose is what we vendor into an existing stack). Pin to the SigNoz release whose ClickHouse is 25.12.5 (v0.131.x line). Fetch that release's compose and its `otel-collector-config.yaml`/`clickhouse` config into `observability/signoz/`.
+SigNoz's self-hosted compose that we vendor is `deploy/docker/docker-compose.yaml` in the SigNoz
+repo, pinned at tag **`v0.90.1`**. Later SigNoz tags dropped the self-host compose path entirely in
+favor of their "Foundry" CLI — `deploy/docker/clickhouse-setup/` no longer exists on any tag, and
+`v0.131.0` has no compose under `deploy/docker/` at all. `v0.90.1` is the last tag confirmed to ship
+a usable `deploy/docker/docker-compose.yaml` (196 lines) — that is our pinned self-host reference.
+Fetch that tag's compose and its accompanying config (otel-collector config, ClickHouse config)
+into `observability/signoz/`.
 
-Run (to obtain the exact files — the implementer pins the tag):
+Run (to obtain the exact files):
 ```bash
-# Identify the pinned release tag (v0.131.x) and download its self-host compose.
-# Place the compose + config under observability/signoz/. Do NOT use `develop`.
+# Pinned tag: v0.90.1 (last tag with deploy/docker/docker-compose.yaml).
+# Place the compose + config under observability/signoz/. Do NOT use `develop`
+# or a later tag — they dropped the self-host compose for the Foundry CLI.
 ```
-Bring the SigNoz services under the `observability` profile — every SigNoz service gets `profiles: [observability]` so it starts only with `--profile observability`, and joins `3mrai-network` so our `otel-collector` can reach `signoz-otel-collector:4317`.
+Bring the SigNoz services under the `observability` profile — every SigNoz service gets `profiles: [observability]` so it starts only with `--profile observability`, and joins `3mrai-network` so our `otel-collector` can reach `signoz-otel-collector:4317`. The real service list to bring under the profile, per the v0.90.1 compose: `clickhouse`, `zookeeper`, `signoz` (unified UI + query-service), `signoz-otel-collector`, and the two schema-migrator services (`signoz-schema-migrator-sync` / `signoz-schema-migrator-async`, or however the vendored compose names the sync/async pair).
 
-CRITICAL: SigNoz ships its OWN otel-collector (named `signoz-otel-collector`). Do NOT confuse it with OUR `otel-collector` (Task 1). Ours RECEIVES app/CloudWatch logs and forwards OTLP to SigNoz's collector, which writes to ClickHouse. Our `SIGNOZ_OTLP_ENDPOINT=signoz-otel-collector:4317` must match SigNoz's collector service name on the network.
+Note the pinned image versions the v0.90.1 compose actually ships (vendor these, don't substitute newer ones without re-verifying): `clickhouse/clickhouse-server:24.1.2-alpine`, `bitnami/zookeeper:3.7.1`, `signoz/signoz:v0.90.1`, `signoz/signoz-otel-collector:v0.128.2`, `signoz/signoz-schema-migrator:v0.128.2`.
+
+The UI service `signoz` in the v0.90.1 compose publishes port 8080 (verified); the Makefile note and the verification step below use http://localhost:8080.
+
+CRITICAL: SigNoz ships its OWN otel-collector (named `signoz-otel-collector`, image `signoz/signoz-otel-collector:v0.128.2` per the v0.90.1 compose). Do NOT confuse it with OUR `otel-collector` (Task 1). Ours RECEIVES app/CloudWatch logs and forwards OTLP to SigNoz's collector, which writes to ClickHouse. Our `SIGNOZ_OTLP_ENDPOINT=signoz-otel-collector:4317` must match SigNoz's collector service name on the network — confirmed by the v0.90.1 compose, which names that service `signoz-otel-collector`.
 
 - [ ] **Step 2: Bring up the full observability stack**
 
@@ -248,7 +265,7 @@ In `Makefile`, after the existing compose targets, add:
 ```makefile
 observability-up: ## Start SigNoz + the OTel collector (heavy: needs ~4GB RAM)
 	$(COMPOSE) --profile observability up -d
-	@echo "SigNoz UI will be on http://localhost:3301 once ClickHouse is healthy (~60s)."
+	@echo "SigNoz UI will be on http://localhost:8080 once ClickHouse is healthy (~60s)."
 
 observability-down: ## Stop the observability stack (leaves the rest running)
 	$(COMPOSE) --profile observability stop
@@ -269,7 +286,7 @@ sleep 5
 # for the users container tag arriving.
 docker compose logs otel-collector --since 20s | grep -iE "users|fluent" | head -5
 ```
-Expected: evidence of the `users`-tagged log passing through the collector. Then open the SigNoz UI (`http://localhost:3301`) → Logs, filter by the `users` tag/container, and confirm the `/v1/health` line is queryable. Paste what you see.
+Expected: evidence of the `users`-tagged log passing through the collector. Then open the SigNoz UI (`http://localhost:8080`) → Logs, filter by the `users` tag/container, and confirm the `/v1/health` line is queryable. Paste what you see.
 
 - [ ] **Step 3: Prove the aws_cloudwatch path still surfaces ECS logs**
 
