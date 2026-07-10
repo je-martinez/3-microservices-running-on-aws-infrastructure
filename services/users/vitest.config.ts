@@ -20,6 +20,8 @@ export default defineConfig({
       COGNITO_CLIENT_ID: "dummy_client",
       AWS_ENDPOINT_URL: "http://localhost:4566",
       AWS_REGION: "us-east-1",
+      NODE_ENV: "test",
+      WEBHOOK_SECRET: "test-webhook-secret",
     },
   },
 });

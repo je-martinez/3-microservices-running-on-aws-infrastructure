@@ -84,6 +84,10 @@ services:
       - COGNITO_USER_POOL_ID=${COGNITO_USER_POOL_ID}
       - COGNITO_CLIENT_ID=${COGNITO_CLIENT_ID}
       - E2E_TESTING_ENABLED=true
+      # Guards POST /v1/webhooks/cognito. Local-only value: the endpoint is not
+      # exposed outside the compose network. Prod reads this from Secrets
+      # Manager (ADR-0007) — see the separate infra issue.
+      - WEBHOOK_SECRET=local-dev-secret
     develop:
       watch:
         - action: sync
