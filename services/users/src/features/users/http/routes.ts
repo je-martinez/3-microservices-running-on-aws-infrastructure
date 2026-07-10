@@ -4,6 +4,9 @@ import { asValue, type AwilixContainer } from "awilix";
 import { diContainer, registerSingletons, registerServices } from "#shared/di/awilix-container";
 import { actorContext } from "#shared/audit/actor-context";
 import type { UpdateProfileInput } from "../commands/update-profile.ts";
+import { cognitoWebhookPayloadSchema } from "../webhooks/cognito-payload.ts";
+import { verifyWebhookSecret } from "../webhooks/verify-secret.ts";
+import { NoMatchingUserError } from "../webhooks/capture-cognito-identity.ts";
 
 // Builds the Fastify app wired to an Awilix container. Commands/queries are resolved
 // per-request from `request.diScope` instead of a hand-rolled deps bag (see
@@ -68,6 +71,43 @@ export function buildApp(container: AwilixContainer<Cradle> = diContainer): Fast
     const { updateProfileCommand, currentActor } = req.diScope.cradle;
     const updated = await updateProfileCommand.execute(currentActor as string, req.body as UpdateProfileInput);
     return reply.send(updated);
+  });
+
+  // Thin layer (spec D2): verify the shared secret, validate, delegate. The
+  // command is the single persistence path — register() calls the same class
+  // in-process when NODE_ENV !== "production", because Floci never invokes
+  // Cognito Lambda triggers (ADR-0017).
+  //
+  // This is a PUBLIC route at the API Gateway (no JWT authorizer): its callers
+  // are the Cognito Lambda shim and the service itself, never a user with a JWT.
+  // The shared secret is its only guard.
+  app.post("/v1/webhooks/cognito", async (req, reply) => {
+    const { env: e, captureCognitoIdentityCommand } = req.diScope.cradle;
+
+    if (!verifyWebhookSecret(req.headers["x-webhook-secret"], e.WEBHOOK_SECRET)) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+
+    const parsed = cognitoWebhookPayloadSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(422).send({ error: "invalid_payload", details: parsed.error.issues });
+    }
+
+    try {
+      const { status } = await captureCognitoIdentityCommand.execute(parsed.data);
+      return reply.code(200).send({ status });
+    } catch (err) {
+      if (err instanceof NoMatchingUserError) {
+        // A confirmed Cognito identity with no matching users row is a
+        // server-side inconsistency, not a client error (see this task's
+        // header note for the 404/409 alternatives considered). Cognito
+        // retries the trigger in prod on a non-2xx, so a transient race
+        // self-heals.
+        req.log.error({ err }, "cognito webhook: no matching users row");
+        return reply.code(500).send({ error: "no_matching_user" });
+      }
+      throw err;
+    }
   });
 
   if (container.cradle.env.E2E_TESTING_ENABLED) {

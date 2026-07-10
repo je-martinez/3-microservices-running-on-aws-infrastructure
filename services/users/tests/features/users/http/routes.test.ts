@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { createContainer, asValue } from "awilix";
 import { buildApp } from "#features/users/http/routes";
 import { getActor } from "#shared/audit/actor-context";
+import { NoMatchingUserError } from "#features/users/webhooks/capture-cognito-identity";
 
 function testContainer(e2eEnabled: boolean) {
   const container = createContainer({ injectionMode: "PROXY" });
@@ -118,5 +119,103 @@ describe("routes", () => {
       expect(res.statusCode).toBe(200);
       expect(observedActor).toBe("usr_actor_2");
     });
+  });
+});
+
+function webhookContainer(capture = vi.fn(async () => ({ status: "captured" as const }))) {
+  const container = createContainer({ injectionMode: "PROXY" });
+  container.register({
+    env: asValue({ E2E_TESTING_ENABLED: false, WEBHOOK_SECRET: "s3cret" } as any),
+    registerUserCommand: asValue({ execute: vi.fn() } as any),
+    loginUserCommand: asValue({ execute: vi.fn() } as any),
+    userQueryService: asValue({ getMe: vi.fn(), getUserById: vi.fn() } as any),
+    updateProfileCommand: asValue({ execute: vi.fn() } as any),
+    e2eCleanupCommand: asValue({ execute: vi.fn() } as any),
+    captureCognitoIdentityCommand: asValue({ execute: capture } as any),
+  });
+  return { container, capture };
+}
+
+const validEvent = {
+  version: "1",
+  triggerSource: "PostConfirmation_ConfirmSignUp",
+  region: "us-east-1",
+  userPoolId: "pool",
+  userName: "a@b.com",
+  callerContext: { awsSdkVersion: "v3", clientId: "cli_1" },
+  request: {
+    userAttributes: {
+      sub: "7904d681-f590-4b4d-bbce-15348a898873",
+      email: "a@b.com",
+      email_verified: "true",
+    },
+  },
+};
+
+describe("POST /v1/webhooks/cognito", () => {
+  it("401s without the secret, and does not call the command", async () => {
+    const { container, capture } = webhookContainer();
+    const app = buildApp(container);
+    const res = await app.inject({ method: "POST", url: "/v1/webhooks/cognito", payload: validEvent });
+    expect(res.statusCode).toBe(401);
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  it("401s with a wrong secret", async () => {
+    const { container } = webhookContainer();
+    const app = buildApp(container);
+    const res = await app.inject({
+      method: "POST", url: "/v1/webhooks/cognito",
+      headers: { "x-webhook-secret": "wrong" }, payload: validEvent,
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("422s on an unsupported trigger", async () => {
+    const { container, capture } = webhookContainer();
+    const app = buildApp(container);
+    const res = await app.inject({
+      method: "POST", url: "/v1/webhooks/cognito",
+      headers: { "x-webhook-secret": "s3cret" },
+      payload: { ...validEvent, triggerSource: "PostAuthentication_Authentication" },
+    });
+    expect(res.statusCode).toBe(422);
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  it("200s on capture", async () => {
+    const { container } = webhookContainer();
+    const app = buildApp(container);
+    const res = await app.inject({
+      method: "POST", url: "/v1/webhooks/cognito",
+      headers: { "x-webhook-secret": "s3cret" }, payload: validEvent,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ status: "captured" });
+  });
+
+  it("200s on a duplicate — idempotent, not an error", async () => {
+    const { container } = webhookContainer(vi.fn(async () => ({ status: "duplicate" as const })));
+    const app = buildApp(container);
+    const res = await app.inject({
+      method: "POST", url: "/v1/webhooks/cognito",
+      headers: { "x-webhook-secret": "s3cret" }, payload: validEvent,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ status: "duplicate" });
+  });
+
+  it("500s when the command reports no matching users row (NoMatchingUserError)", async () => {
+    const { container } = webhookContainer(
+      vi.fn(async () => {
+        throw new NoMatchingUserError("a@b.com");
+      }),
+    );
+    const app = buildApp(container);
+    const res = await app.inject({
+      method: "POST", url: "/v1/webhooks/cognito",
+      headers: { "x-webhook-secret": "s3cret" }, payload: validEvent,
+    });
+    expect(res.statusCode).toBe(500);
   });
 });
