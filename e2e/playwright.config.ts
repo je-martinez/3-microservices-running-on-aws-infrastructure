@@ -4,6 +4,6 @@ export default defineConfig({
   testDir: "./tests",
   globalSetup: "./support/global-setup.ts",
   globalTeardown: "./support/global-teardown.ts",
-  use: { baseURL: process.env.API_INVOKE_URL },
+  use: { baseURL: process.env.USERS_BASE_URL ?? "http://localhost:3000" },
   reporter: "list",
 });
