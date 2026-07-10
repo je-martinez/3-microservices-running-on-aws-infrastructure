@@ -21,6 +21,7 @@ related:
   - "[[2026-06-26-implementation-workflow-design]]"
   - "[[2026-06-28-services-infra-scaffold-design]]"
   - "[[2026-06-28-users-service-design]]"
+  - "[[2026-07-10-signoz-logs-observability-design]]"
   - "[[ADR-0015-drawio-diagrams]]"
   - "[[ministack-auth-chain-spike-findings]]"
   - "[[floci-vs-ministack-spike-findings]]"
@@ -154,6 +155,7 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-06-26-implementation-workflow-design]] — Implementation workflow and agent topology (two layers, Phase A–D flow).
 - [[2026-06-28-services-infra-scaffold-design]] — Services & infra scaffold + skill discovery: screaming-architecture skeletons, nested CLAUDE.md per service, Docker orchestrator, and suggested-skills catalog.
 - [[2026-06-28-users-service-design]] — Users Service implementation design: pnpm workspace, Prisma schema with `tags` column, Fastify API, Cognito JWT authorizer, Terraform modules, and Playwright E2E suite on Ministack.
+- [[2026-07-10-signoz-logs-observability-design]] — Logs-only implementation of [[ADR-0011-observability-signoz]]: otel-collector-contrib bridging Docker `fluentd` log-driver output and Floci CloudWatch into a self-hosted SigNoz, with zero service source-code changes.
 
 ---
 
@@ -189,6 +191,7 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[2026-06-26-implementation-workflow-design]]
 - [[2026-06-28-services-infra-scaffold-design]]
 - [[2026-06-28-users-service-design]]
+- [[2026-07-10-signoz-logs-observability-design]]
 - [[ADR-0015-drawio-diagrams]]
 - [[ministack-auth-chain-spike-findings]]
 - [[floci-vs-ministack-spike-findings]]
