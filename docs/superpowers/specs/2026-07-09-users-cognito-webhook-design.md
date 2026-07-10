@@ -4,7 +4,7 @@ type: spec
 area: users
 status: draft
 created: 2026-07-09
-updated: 2026-07-09
+updated: 2026-07-10
 tags: [type/spec, area/users, status/draft, issue/JE-38]
 related: ["[[users-service-milestone]]", "[[ADR-0010-cognito-auth]]", "[[ADR-0017-floci-local]]", "[[floci-vs-ministack-spike-findings]]", "[[soft-delete]]", "[[audit-fields]]", "[[nano-id]]", "[[db-naming]]", "[[versioning]]", "[[ADR-0007-secrets-parameter-store]]"]
 ---
@@ -146,7 +146,9 @@ writes that don't need to be coupled.
 
 ### D4 — Idempotency key is derived, not transmitted
 
-`message_id = sha256(sub + ":" + triggerSource)`.
+```
+message_id = sha256(`${sub.length}:${sub}:${triggerSource.length}:${triggerSource}`)
+```
 
 Because the event carries no timestamp (fact 2), this deliberately collapses to **one row per
 `(user, trigger type)`**. A Cognito retry hashes identically and is swallowed by `ON CONFLICT DO
@@ -154,6 +156,27 @@ NOTHING` — which is exactly the duplicate this is meant to prevent.
 
 Rejected: a caller-generated UUID (a retry creates a new id, so it protects nothing) and the
 Lambda `awsRequestId` (same flaw, plus it doesn't exist locally).
+
+**Why length-prefixed, not a naive `sha256(sub + ":" + triggerSource)` join.** A plain `:` join is
+not injective: `deriveMessageId("a:b", "c")` and `deriveMessageId("a", "b:c")` both hash the
+identical string `"a:b:c"`, producing the identical digest. Two different events colliding on the
+same `message_id` would mean one is silently swallowed by `ON CONFLICT DO NOTHING` — data loss
+that would be very hard to trace, and it would defeat the exact guarantee this decision exists to
+provide. This collision is **not reachable through the current caller**: the Zod contract
+constrains `sub` to a UUID and `triggerSource` to the closed two-value enum in
+[D5](#d5--scope-limited-to-postconfirmation), and neither can contain `:`. But `deriveMessageId`
+is a standalone exported function, and its correctness must not depend entirely on its caller —
+length-prefixing each component makes the encoding unambiguous (and therefore injective)
+regardless of what strings are passed in.
+
+> [!warning] The production Lambda shim MUST use this exact encoding
+> The prod PostConfirmation Lambda shim (deferred to the `area/infra` issue per
+> [D6](#d6--the-prod-postconfirmation-lambda-shim-is-out-of-scope)) **must derive `message_id`
+> with this identical length-prefixed encoding** — not a re-implementation, not the naive `:`
+> join. If prod and local diverge on this formula, they derive **different** keys for the
+> **same** event, and idempotency silently fails across environments: a retry that should be
+> deduped by `ON CONFLICT DO NOTHING` would instead insert a second row. This is the single
+> most important consequence of this decision.
 
 ### D5 — Scope limited to PostConfirmation
 

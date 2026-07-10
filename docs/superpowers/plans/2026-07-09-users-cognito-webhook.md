@@ -15,13 +15,13 @@ related: ["[[2026-07-09-users-cognito-webhook-design]]", "[[users-service-milest
 
 **Goal:** Capture Cognito identity data into two Users-service tables through one shared use-case class, reachable from an HTTP webhook (prod) and from `register()` in-process (local).
 
-**Architecture:** A thin Fastify route `POST /v1/webhooks/cognito` verifies a shared secret, parses the payload with Zod, and delegates to `CaptureCognitoIdentityCommand`. `register()` calls that same command directly through Awilix when `NODE_ENV !== "production"`, because Floci never invokes Cognito Lambda triggers. Idempotency comes from a derived `message_id = sha256(sub + ":" + triggerSource)`.
+**Architecture:** A thin Fastify route `POST /v1/webhooks/cognito` verifies a shared secret, parses the payload with Zod, and delegates to `CaptureCognitoIdentityCommand`. `register()` calls that same command directly through Awilix when `NODE_ENV !== "production"`, because Floci never invokes Cognito Lambda triggers. Idempotency comes from a derived, length-prefixed `message_id = sha256(`${sub.length}:${sub}:${triggerSource.length}:${triggerSource}`)`.
 
 **Tech Stack:** Fastify, Zod, Prisma v7 (driver adapters), Awilix DI, Vitest, Playwright, Postgres on Floci.
 
 ## Global Constraints
 
-- Spec: `docs/superpowers/specs/2026-07-09-users-cognito-webhook-design.md` (decisions D1–D8).
+- Spec: `docs/superpowers/specs/2026-07-09-users-cognito-webhook-design.md` (decisions D1–D8). Idempotency key: `message_id = sha256(`${sub.length}:${sub}:${triggerSource.length}:${triggerSource}`)` — length-prefixed so it stays injective regardless of caller (see D4).
 - Scope is **PostConfirmation only**: `PostConfirmation_ConfirmSignUp`, `PostConfirmation_ConfirmForgotPassword`. Do NOT add recurring triggers — D4's key would silently drop them (see the spec's D5 warning).
 - The Prisma client extension stamps `id` (from `MODEL_ID_PREFIXES`), audit fields, and enforces soft-delete. It intercepts `create`, `createMany`, `update`, `updateMany`, `upsert`, `delete`, `deleteMany`, `find*`, `count`. Never hand-generate ids or audit fields.
 - DB role `users_app` has SELECT/INSERT/UPDATE and **no DELETE** (ADR-0004). New tables inherit this via `ALTER DEFAULT PRIVILEGES` in `infra/environments/local/bootstrap.sh` — no infra change needed.
@@ -187,8 +187,9 @@ model UsersCognitoData {
   @@index([deletedAt])
 }
 
-// Event log. `messageId` is derived (spec D4): sha256(sub + ":" + triggerSource).
-// At PostConfirmation-only scope this yields one row per (user, trigger type).
+// Event log. `messageId` is derived (spec D4): a length-prefixed sha256 of
+// (sub, triggerSource) — see message-id.ts. At PostConfirmation-only scope
+// this yields one row per (user, trigger type).
 model UsersCognitoEvent {
   id         String    @id
   cognitoSub String    @map("cognito_sub")
@@ -423,6 +424,10 @@ describe("deriveMessageId", () => {
   it("returns a 64-char lowercase hex sha256", () => {
     expect(deriveMessageId("sub-1", "PostConfirmation_ConfirmSignUp")).toMatch(/^[0-9a-f]{64}$/);
   });
+
+  it("is injective across the delimiter — ('a:b','c') and ('a','b:c') must differ", () => {
+    expect(deriveMessageId("a:b", "c")).not.toBe(deriveMessageId("a", "b:c"));
+  });
 });
 ```
 
@@ -443,17 +448,27 @@ import { createHash } from "node:crypto";
 // produces the same hash and is swallowed by ON CONFLICT DO NOTHING — exactly
 // the duplicate we mean to prevent.
 //
+// Length-prefixed, NOT a naive `${sub}:${triggerSource}` join — do not
+// "simplify" this back. A plain `:` join is not injective:
+// deriveMessageId("a:b", "c") and deriveMessageId("a", "b:c") both hash the
+// identical string "a:b:c", producing the identical digest. That collision is
+// unreachable through the current Zod-validated caller (sub is a uuid,
+// triggerSource is a closed enum, neither can contain ":"), but this function
+// must not depend on its caller for correctness.
+//
 // Consequence (spec D5 warning): at PostConfirmation-only scope this stores one
 // row per (user, trigger type). A recurring trigger would collide with itself.
 export function deriveMessageId(sub: string, triggerSource: string): string {
-  return createHash("sha256").update(`${sub}:${triggerSource}`).digest("hex");
+  return createHash("sha256")
+    .update(`${sub.length}:${sub}:${triggerSource.length}:${triggerSource}`)
+    .digest("hex");
 }
 ```
 
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `cd services/users && pnpm vitest run tests/features/users/webhooks/message-id.test.ts`
-Expected: PASS, 4 tests.
+Expected: PASS, 5 tests.
 
 ---
 
