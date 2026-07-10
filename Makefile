@@ -17,7 +17,7 @@ export AWS_SECRET_ACCESS_KEY ?= test
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps infra-init infra-plan infra-up infra-down infra-output env-file bootstrap clean
+.PHONY: help up down logs build ps infra-init infra-plan infra-up infra-down infra-output env-file migrate bootstrap clean
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -68,13 +68,41 @@ env-file: ## Regenerate ./.env from terraform outputs (Cognito IDs)
 		"$$($(TF) output -raw cognito_client_id)" > $(ENV_FILE)
 	@echo "wrote $(ENV_FILE) from terraform outputs"
 
+## --- Database migrations ---
+
+migrate: ## Apply Prisma migrations (users) against Floci's Postgres (idempotent)
+	@# `prisma migrate deploy` (never `migrate dev`: that one is interactive and
+	@# can reset data — unsuitable for bootstrap). It must run as the cluster
+	@# SUPERUSER (test/test), because migrations run DDL and users_app
+	@# deliberately has none (ADR-0004: soft-delete enforced at grant level).
+	@# It must ALSO be the same role bootstrap.sh's ALTER DEFAULT PRIVILEGES ran
+	@# as, so users_app correctly inherits SELECT/INSERT/UPDATE on the tables
+	@# this step creates — do not change to a different DB user.
+	@#
+	@# Runs inside the compose network via the `deps` build stage (the users
+	@# Dockerfile already assembles it: workspace deps + prisma CLI + prisma/
+	@# for @3mrai/users). We reuse that stage instead of publishing Floci's
+	@# Postgres proxy port (7001) to the host — the port is Floci-internal and,
+	@# per Floci's RDS proxy range (7000-7099), not guaranteed to stay 7001;
+	@# staying in-network avoids depending on it as a host contract.
+	@# The users runtime image is production-only and has no prisma CLI/prisma/
+	@# dir, so it cannot run this itself (see services/users/Dockerfile).
+	docker build --target deps -t 3mrai-users:deps -f services/users/Dockerfile .
+	docker run --rm --network 3mrai_3mrai-network \
+		-e DATABASE_WRITER_URL="postgres://test:test@floci:7001/users" \
+		-w /app/services/users \
+		3mrai-users:deps \
+		node node_modules/prisma/build/index.js migrate deploy --schema=./prisma/schema.prisma
+	@echo "Prisma migrations applied."
+
 ## --- Orchestration ---
 
 bootstrap: ## Bring the whole local chain up from scratch, in dependency order
 	@# Order matters. The services cannot start before the infra exists: `users`
 	@# validates COGNITO_* with Zod at boot, and those IDs only exist after apply.
-	@# So: Floci first, then terraform, then .env, then bootstrap.sh (app DB user
-	@# + nginx alias), and only then the services.
+	@# So: Floci first, then terraform, then .env, then migrations (DB needs
+	@# tables before it's usable), then bootstrap.sh (app DB user + nginx
+	@# alias), and only then the services.
 	$(COMPOSE) up -d floci
 	@echo "Waiting for Floci at $(FLOCI_URL) ..."
 	@for i in $$(seq 1 30); do \
@@ -84,6 +112,7 @@ bootstrap: ## Bring the whole local chain up from scratch, in dependency order
 	done
 	$(MAKE) infra-init
 	$(MAKE) infra-up
+	$(MAKE) migrate
 	$(COMPOSE) up -d --build users
 	bash $(TF_LOCAL_DIR)/bootstrap.sh
 

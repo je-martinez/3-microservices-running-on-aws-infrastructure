@@ -25,8 +25,13 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY services/users/package.json ./services/users/
 # Allow Prisma engine build scripts (needed for prisma generate below)
 RUN pnpm install --frozen-lockfile --filter @3mrai/users... --config.ignore-scripts=false
-# Prisma schema + migrations are needed to generate the client
+# Prisma schema + migrations are needed to generate the client. prisma.config.ts
+# is needed too: it supplies datasource.url (DATABASE_WRITER_URL) required by
+# `prisma migrate deploy`, which this stage is also reused for (see `make migrate`)
+# — `generate` doesn't need it, but copying it here costs nothing and keeps this
+# stage usable for both.
 COPY services/users/prisma ./services/users/prisma
+COPY services/users/prisma.config.ts ./services/users/
 WORKDIR /app/services/users
 # Generate Prisma client into src/generated/prisma (tsc input in the builder stage).
 # Invoke the prisma JS entry directly (the pnpm .bin shim contains host-absolute
