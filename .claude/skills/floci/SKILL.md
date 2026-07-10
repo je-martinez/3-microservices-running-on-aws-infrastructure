@@ -39,8 +39,10 @@ export AWS_SECRET_ACCESS_KEY=test
 
 - Image: `floci/floci:latest` (Quarkus app; ships `curl`). `latest-compat` pre-wires
   AWS CLI/boto3 creds + endpoint for init-hook scripts.
-- In 3MRAI it runs as the `floci` service in the root `docker-compose.yml` (below the
-  commented-out `ministack` block). Start: `docker compose up -d floci spike-backend`.
+- In 3MRAI it runs as the `floci` service in the root `docker-compose.yml`. Bring the
+  whole local chain up with `make bootstrap` (floci → terraform apply → regenerate
+  `.env` → start `users` → `bootstrap.sh`); `docker compose up -d floci` starts the
+  emulator alone.
 
 ### Config env vars worth knowing
 
@@ -84,8 +86,22 @@ Source of truth with full evidence: [[floci-vs-ministack-spike-findings]]
 8. **ECS task is recreated on every `terraform apply`** (new container name + IP). Don't
    pin the integration to a discovered IP. Use a **stable Docker-DNS alias** (e.g.
    `nginx-stable`) attached after apply; the API GW integration stays fixed at
-   `http://nginx-stable/` — no `docker inspect`, no patch. See the spike's `bootstrap.sh`
-   (`infra/environments/local/spike-floci/`).
+   `http://nginx-stable/` — no `docker inspect`, no patch. See `bootstrap.sh`
+   (`infra/environments/local/`).
+9. **A second `terraform apply` FAILS.** Floci's `UpdateTags` breaks for API GW v2 stages
+   (`NotFoundException: Invalid API id`) and RDS clusters (`DBInstanceNotFound`). Only a
+   from-scratch apply works. To re-apply: `docker compose down && rm -rf data/floci &&
+   rm -f infra/environments/local/terraform.tfstate* && make bootstrap`. See
+   [[floci-rds-apigw-limits]].
+10. **`FLOCI_STORAGE_MODE=persistent`, never `hybrid`.** Floci's README recommends `hybrid`
+    for local dev, but its 5s async flush loses writes on an unclean stop (measured:
+    write → SIGKILL@0.5s → restart; `persistent` and `wal` survive, `hybrid` does not).
+    Floci can also leave a **truncated `.tmp`** state file, which it then silently ignores
+    at boot — the symptom is "state vanished" with no log line. Check `ls data/floci/*.tmp`.
+    See [[floci-storage-modes-and-tmp-corruption]].
+11. **Postgres is reached at `floci:7001`** (Floci's RDS proxy), not at `:4566` and never by
+    container IP — Floci reassigns those on every recreation. Writer and reader endpoints
+    are identical locally: no read-replica emulation.
 
 ## Per-service knowledge
 
@@ -99,4 +115,4 @@ page has them.
 - Configuration / env vars: https://floci.io/floci/configuration/environment-variables/
 - Services index: https://floci.io/floci/services/
 - Init hooks: https://floci.io/floci/configuration/initialization-hooks/
-- The 3MRAI spike (working reference impl): `infra/environments/local/spike-floci/`
+- The 3MRAI local environment (working reference impl): `infra/environments/local/`
