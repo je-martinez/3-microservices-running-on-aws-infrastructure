@@ -15,6 +15,7 @@ related:
   - "[[2026-06-28-users-service]]"
   - "[[users-service-milestone]]"
   - "[[2026-07-09-users-cognito-webhook]]"
+  - "[[2026-07-10-signoz-logs-observability]]"
 ---
 
 # 3MRAI Plans — Index
@@ -31,6 +32,7 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-06-28-users-service]] — implementation plan for the Users Service milestone: pnpm tooling, Prisma schema, Fastify API, Terraform modules, and Playwright E2E suite.
 - [[users-service-milestone]] — logical execution plan for the Users Service milestone: task sequence, phases, and blocking dependency graph for JE-25 through JE-37.
 - [[2026-07-09-users-cognito-webhook]] — implementation plan for JE-38: Cognito identity webhook + identity tables (`UsersCognitoData`, `UsersCognitoEvent`), reachable via `POST /v1/webhooks/cognito` and in-process from `register()`.
+- [[2026-07-10-signoz-logs-observability]] — implementation plan for SigNoz log observability: an OTel collector fed by Docker's fluentd driver (compose services) and the aws_cloudwatch receiver (ECS/RDS on Floci), exported to a self-hosted SigNoz, opt-in via the `observability` compose profile.
 
 ## Related
 
@@ -42,3 +44,4 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-06-28-users-service]]
 - [[users-service-milestone]]
 - [[2026-07-09-users-cognito-webhook]]
+- [[2026-07-10-signoz-logs-observability]]
