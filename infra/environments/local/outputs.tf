@@ -3,6 +3,11 @@ output "api_invoke_url" {
   value       = module.api_gateway.invoke_url
 }
 
+output "api_id" {
+  description = "HTTP API Gateway id. Used by `make env-file` to build the reachable local invoke URL."
+  value       = module.api_gateway.api_id
+}
+
 output "cognito_user_pool_id" {
   description = "Cognito User Pool ID."
   value       = module.cognito.user_pool_id

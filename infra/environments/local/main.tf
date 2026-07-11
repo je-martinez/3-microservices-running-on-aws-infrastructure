@@ -117,14 +117,17 @@ module "compute" {
 }
 
 # ─── API Gateway ────────────────────────────────────────────────────────────────
-# nginx_integration_uri uses the stable Docker-DNS alias (proven in the spike)
-# instead of the module's own IP-patch-oriented default/description — the ECS
-# task is recreated on every apply, so pinning to a discovered IP would break.
+# local_gateway = true: Floci drops the request path on HTTP_PROXY integrations,
+# so the module creates one integration per route with the path baked into the
+# URI. nginx_base_uri uses the stable Docker-DNS alias (proven in the spike) —
+# the ECS task is recreated on every apply, so pinning to a discovered IP would
+# break. Prod keeps local_gateway = false (single shared integration).
 module "api_gateway" {
   source                   = "../../modules/api-gateway"
   context                  = { id = module.label_api.id, tags = module.label_api.tags }
   cognito_issuer           = module.cognito.issuer
   cognito_audience         = module.cognito.client_id
-  nginx_integration_uri    = "http://nginx-stable/"
+  local_gateway            = true
+  nginx_base_uri           = "http://nginx-stable"
   enable_e2e_cleanup_route = true
 }
