@@ -64,3 +64,15 @@ variable "enable_e2e_cleanup_route" {
   type        = bool
   default     = true
 }
+
+variable "local_gateway" {
+  type        = bool
+  default     = false
+  description = "Local-only: Floci drops the request path in HTTP_PROXY integrations, so create one integration per route with the path baked into the URI. Prod (real AWS) preserves the path with a single shared integration."
+}
+
+variable "nginx_base_uri" {
+  type        = string
+  default     = "http://nginx-stable"
+  description = "Local per-route mode base URI: scheme + host, NO trailing slash and NO path. The module appends each route's path (Floci won't forward it). Ignored when local_gateway = false."
+}

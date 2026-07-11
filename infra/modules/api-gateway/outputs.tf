@@ -13,17 +13,3 @@ output "invoke_url" {
   EOT
   value       = aws_apigatewayv2_stage.default.invoke_url
 }
-
-output "integration_id" {
-  description = <<-EOT
-    ID of the nginx HTTP_PROXY integration.
-    The JE-36 bootstrap uses this to patch the integration URI with the nginx
-    ECS task's actual private IP after task launch:
-
-      aws apigatewayv2 update-integration \
-        --api-id <api_id> \
-        --integration-id <integration_id> \
-        --integration-uri "http://<nginx-task-private-ip>:80/"
-  EOT
-  value       = aws_apigatewayv2_integration.nginx.id
-}

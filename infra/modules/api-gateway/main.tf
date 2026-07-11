@@ -34,68 +34,63 @@ resource "aws_apigatewayv2_authorizer" "jwt" {
   }
 }
 
-# ─── nginx HTTP_PROXY Integration ────────────────────────────────────────────
+# ─── Route table (single source of truth) ────────────────────────────────────
 #
-# integration_uri is a placeholder (http://0.0.0.0:80/) until the JE-36
-# bootstrap patches it with the nginx ECS task's actual private IP.
-# See variable `nginx_integration_uri` for the bootstrap procedure.
-# payload_format_version = "1.0" matches the spike.
-resource "aws_apigatewayv2_integration" "nginx" {
-  api_id             = aws_apigatewayv2_api.this.id
-  integration_type   = "HTTP_PROXY"
-  integration_method = "ANY"
-  integration_uri    = var.nginx_integration_uri
+# Floci drops the request path in HTTP_PROXY integrations (verified: it parses
+# IntegrationUri as a literal URL and ignores $request.path / {proxy}). So in
+# local mode we create ONE integration per route with the path baked into the
+# URI. Real AWS preserves the path, so prod keeps a single shared integration.
+locals {
+  routes = merge(
+    {
+      register = { key = "POST /v1/users/register", path = "/v1/users/register", auth = false }
+      login    = { key = "POST /v1/users/login", path = "/v1/users/login", auth = false }
+      health   = { key = "GET /v1/health", path = "/v1/health", auth = false }
+      get_me   = { key = "GET /v1/users/me", path = "/v1/users/me", auth = true }
+      patch_me = { key = "PATCH /v1/users/me", path = "/v1/users/me", auth = true }
+    },
+    var.enable_e2e_cleanup_route ? {
+      e2e_cleanup = { key = "DELETE /v1/users/e2e-cleanup", path = "/v1/users/e2e-cleanup", auth = false }
+    } : {}
+  )
+}
 
+# ─── Integrations ─────────────────────────────────────────────────────────────
+
+# LOCAL: one HTTP_PROXY integration per route, path baked into the URI.
+resource "aws_apigatewayv2_integration" "per_route" {
+  for_each = var.local_gateway ? local.routes : {}
+
+  api_id                 = aws_apigatewayv2_api.this.id
+  integration_type       = "HTTP_PROXY"
+  integration_method     = "ANY"
+  integration_uri        = "${var.nginx_base_uri}${each.value.path}"
   payload_format_version = "1.0"
 }
 
-# ─── Public routes (no authorizer) ───────────────────────────────────────────
+# PROD: single shared HTTP_PROXY integration (real AWS preserves the path).
+resource "aws_apigatewayv2_integration" "shared" {
+  count = var.local_gateway ? 0 : 1
 
-resource "aws_apigatewayv2_route" "register" {
-  api_id    = aws_apigatewayv2_api.this.id
-  route_key = "POST /v1/users/register"
-  target    = "integrations/${aws_apigatewayv2_integration.nginx.id}"
+  api_id                 = aws_apigatewayv2_api.this.id
+  integration_type       = "HTTP_PROXY"
+  integration_method     = "ANY"
+  integration_uri        = var.nginx_integration_uri
+  payload_format_version = "1.0"
 }
 
-resource "aws_apigatewayv2_route" "login" {
-  api_id    = aws_apigatewayv2_api.this.id
-  route_key = "POST /v1/users/login"
-  target    = "integrations/${aws_apigatewayv2_integration.nginx.id}"
-}
-
-resource "aws_apigatewayv2_route" "health" {
-  api_id    = aws_apigatewayv2_api.this.id
-  route_key = "GET /v1/health"
-  target    = "integrations/${aws_apigatewayv2_integration.nginx.id}"
-}
-
-# ─── Protected routes (JWT authorizer required) ───────────────────────────────
-
-resource "aws_apigatewayv2_route" "get_me" {
-  api_id             = aws_apigatewayv2_api.this.id
-  route_key          = "GET /v1/users/me"
-  authorization_type = "JWT"
-  authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
-  target             = "integrations/${aws_apigatewayv2_integration.nginx.id}"
-}
-
-resource "aws_apigatewayv2_route" "patch_me" {
-  api_id             = aws_apigatewayv2_api.this.id
-  route_key          = "PATCH /v1/users/me"
-  authorization_type = "JWT"
-  authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
-  target             = "integrations/${aws_apigatewayv2_integration.nginx.id}"
-}
-
-# ─── E2E cleanup route ────────────────────────────────────────────────────────
-#
-# No authorizer: the service endpoint itself returns 404 when
-# E2E_TESTING_ENABLED=false, so the route is safe at the infra level.
-# Gated by var.enable_e2e_cleanup_route (default true) for flexibility.
-resource "aws_apigatewayv2_route" "e2e_cleanup" {
-  count = var.enable_e2e_cleanup_route ? 1 : 0
+# ─── Routes ───────────────────────────────────────────────────────────────────
+resource "aws_apigatewayv2_route" "this" {
+  for_each = local.routes
 
   api_id    = aws_apigatewayv2_api.this.id
-  route_key = "DELETE /v1/users/e2e-cleanup"
-  target    = "integrations/${aws_apigatewayv2_integration.nginx.id}"
+  route_key = each.value.key
+  target = var.local_gateway ? (
+    "integrations/${aws_apigatewayv2_integration.per_route[each.key].id}"
+    ) : (
+    "integrations/${aws_apigatewayv2_integration.shared[0].id}"
+  )
+
+  authorization_type = each.value.auth ? "JWT" : "NONE"
+  authorizer_id      = each.value.auth ? aws_apigatewayv2_authorizer.jwt.id : null
 }
