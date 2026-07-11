@@ -16,6 +16,32 @@ import {
   type ZodTypeProvider,
 } from "fastify-type-provider-zod";
 import { z } from "zod/v4";
+
+// `fastify-type-provider-zod` emits BOTH an output variant (`User`) and an
+// input variant (`UserInput`) for every schema in `z.globalRegistry`, by design
+// — the suffix is not configurable. Our registered schemas (User/AuthTokens/
+// Error) are response-only, so their `*Input` twins are orphans that no `$ref`
+// points at; they just bloat the spec (confusing when imported into Apidog).
+// Wrap the provider's transformObject and drop any component with zero inbound
+// `$ref` in the finished document. Operating on the OpenAPI object here (before
+// @fastify/swagger serializes it) is robust to YAML formatting — no textual
+// stripping. A future `*Input` that IS referenced keeps a `$ref` and survives.
+function pruneOrphanComponents(openapiObject: ReturnType<typeof jsonSchemaTransformObject>) {
+  const schemas = (openapiObject as { components?: { schemas?: Record<string, unknown> } })
+    .components?.schemas;
+  if (!schemas) return openapiObject;
+  const doc = JSON.stringify(openapiObject);
+  for (const name of Object.keys(schemas)) {
+    const ref = `"#/components/schemas/${name}"`;
+    // Each component stamps its own `$id` with this string once; a real
+    // reference (`$ref`) is any additional occurrence. `<= 1` ⇒ orphan.
+    if (doc.split(ref).length - 1 <= 1) delete schemas[name];
+  }
+  return openapiObject;
+}
+
+const transformObjectPruned: typeof jsonSchemaTransformObject = (input) =>
+  pruneOrphanComponents(jsonSchemaTransformObject(input));
 // Side-effect import: `schemas.ts` registers `UserSchema`/`AuthTokensSchema`/
 // `ErrorSchema` in `z.globalRegistry` at module-eval time (see that file's
 // bottom `z.globalRegistry.add(...)` calls), which is how they surface under
@@ -76,7 +102,7 @@ export function buildApp(container: AwilixContainer<Cradle> = diContainer): Fast
       ],
     },
     transform: jsonSchemaTransform,
-    transformObject: jsonSchemaTransformObject,
+    transformObject: transformObjectPruned,
   });
 
   const r = app.withTypeProvider<ZodTypeProvider>();

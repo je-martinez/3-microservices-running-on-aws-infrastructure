@@ -32,49 +32,17 @@ async function main() {
 
   const app = buildApp(container as any);
   await app.ready();
-  // Object form (not { yaml: true }) so we can prune before serializing.
-  const spec = app.swagger() as {
-    components?: { schemas?: Record<string, unknown> };
-  };
+  // Orphan `*Input` components are pruned inside buildApp's swagger
+  // `transformObject` (see routes.ts `pruneOrphanComponents`), so the YAML is
+  // already clean here — no post-processing needed.
   const yamlSpec = app.swagger({ yaml: true });
   await app.close();
-
-  // fastify-type-provider-zod emits BOTH an output variant (`User`) and an
-  // input variant (`UserInput`) for every schema in `z.globalRegistry`, by
-  // design — the suffix is not configurable. Our registered schemas
-  // (User/AuthTokens/Error) are only ever used in responses, so their `*Input`
-  // twins are orphans: nothing `$ref`s them. They bloat the spec that gets
-  // imported into Apidog with confusingly-named duplicate models, so drop any
-  // `*Input` component that has zero `$ref` anywhere else in the document.
-  const schemas = spec.components?.schemas ?? {};
-  const orphanInputs = Object.keys(schemas).filter((name) => {
-    if (!name.endsWith("Input")) return false;
-    const ref = `#/components/schemas/${name}`;
-    // The provider stamps each component's own definition with `$id:
-    // "#/components/schemas/Name"`, so the string appears once for the
-    // definition itself. It is a real orphan only if there is NO OTHER
-    // occurrence (i.e. no `$ref:` pointing at it) — so require count <= 1.
-    const occurrences = yamlSpec.split(ref).length - 1;
-    return occurrences <= 1;
-  });
-
-  // Rebuild the YAML from the pruned object. @fastify/swagger's yaml output is
-  // produced by its bundled serializer; to avoid pulling a new YAML dependency,
-  // strip each orphan block textually from the already-serialized YAML (the
-  // blocks are 4-space-indented under `components.schemas`).
-  let pruned = yamlSpec;
-  for (const name of orphanInputs) {
-    // Matches the `    Name:` header line through to (but not including) the
-    // next 4-space-indented sibling key or a dedent.
-    const block = new RegExp(`\\n {4}${name}:\\n(?: {5,}.*\\n| *\\n)*`, "g");
-    pruned = pruned.replace(block, "\n");
-  }
 
   // services/users/http/ -> services/users/  (../../../.. from http dir to service root)
   const here = dirname(fileURLToPath(import.meta.url));
   const out = resolve(here, "../../../../openapi.yaml");
-  writeFileSync(out, pruned);
-  console.log(`Wrote ${out}${orphanInputs.length ? ` (pruned ${orphanInputs.length} orphan *Input schemas)` : ""}`);
+  writeFileSync(out, yamlSpec);
+  console.log(`Wrote ${out}`);
 }
 
 main().catch((err) => {
