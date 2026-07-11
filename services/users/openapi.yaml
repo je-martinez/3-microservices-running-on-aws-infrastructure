@@ -1,0 +1,365 @@
+openapi: 3.1.0
+info:
+  title: Users Service API
+  version: 1.0.0
+  description: HTTP API for the 3MRAI Users microservice (Fastify + Aurora
+    Postgres). Identity is enforced at the API Gateway authorizer, which
+    forwards the Cognito subject as the x-user-id header.
+components:
+  schemas:
+    User:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: "#/components/schemas/User"
+      type: object
+      properties:
+        id:
+          description: Prefixed nano id, e.g. usr_V1StGXR8Z5
+          type: string
+        email:
+          type: string
+          format: email
+          pattern: ^(?!\.)(?!.*\.\.)([A-Za-z0-9_'+\-\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$
+        fullName:
+          type: string
+        address:
+          anyOf:
+            - {}
+            - type: "null"
+        phoneNumber:
+          anyOf:
+            - type: string
+            - type: "null"
+        tags:
+          type: array
+          items:
+            type: string
+        createdBy:
+          anyOf:
+            - type: string
+            - type: "null"
+        createdAt:
+          type: string
+        updatedBy:
+          anyOf:
+            - type: string
+            - type: "null"
+        updatedAt:
+          type: string
+        deletedBy:
+          anyOf:
+            - type: string
+            - type: "null"
+        deletedAt:
+          anyOf:
+            - type: string
+            - type: "null"
+        isDeleted:
+          type: boolean
+      required:
+        - id
+        - email
+        - fullName
+        - address
+        - phoneNumber
+        - tags
+        - createdBy
+        - createdAt
+        - updatedBy
+        - updatedAt
+        - deletedBy
+        - deletedAt
+        - isDeleted
+      additionalProperties: false
+    AuthTokens:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: "#/components/schemas/AuthTokens"
+      type: object
+      properties:
+        idToken:
+          type: string
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+      required:
+        - idToken
+        - accessToken
+        - refreshToken
+      additionalProperties: false
+    Error:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: "#/components/schemas/Error"
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+      additionalProperties: false
+paths:
+  /v1/health:
+    get:
+      operationId: getHealth
+      summary: Liveness probe
+      tags:
+        - health
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - ok
+                required:
+                  - status
+                additionalProperties: false
+  /v1/users/register:
+    post:
+      operationId: registerUser
+      summary: Register a new user
+      tags:
+        - users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  description: New user's email
+                  type: string
+                  format: email
+                  pattern: ^(?!\.)(?!.*\.\.)([A-Za-z0-9_'+\-\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$
+                password:
+                  description: Plaintext password (sent to the auth provider)
+                  type: string
+                fullName:
+                  description: Display name
+                  type: string
+                address:
+                  description: Free-form structured address (stored as JSON)
+                phoneNumber:
+                  type: string
+              required:
+                - email
+                - password
+                - fullName
+      responses:
+        "201":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+  /v1/users/login:
+    post:
+      operationId: loginUser
+      summary: Log in and obtain tokens
+      tags:
+        - users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                  pattern: ^(?!\.)(?!.*\.\.)([A-Za-z0-9_'+\-\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$
+                password:
+                  type: string
+              required:
+                - email
+                - password
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthTokens"
+  /v1/users/me:
+    get:
+      operationId: getMe
+      summary: Get the current user's profile
+      tags:
+        - users
+      parameters:
+        - schema:
+            type: string
+          in: header
+          name: x-user-id
+          required: false
+          description: Cognito subject forwarded by the API Gateway authorizer. Required
+            in practice — a request without it resolves no current user and is
+            answered 404 (not a 400).
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      operationId: updateMe
+      summary: Update the current user's profile
+      tags:
+        - users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fullName:
+                  type: string
+                address: {}
+                phoneNumber:
+                  type: string
+      parameters:
+        - schema:
+            type: string
+          in: header
+          name: x-user-id
+          required: false
+          description: Cognito subject forwarded by the API Gateway authorizer. Required
+            in practice — a request without it resolves no current user and is
+            answered 404 (not a 400).
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+  /v1/webhooks/cognito:
+    post:
+      operationId: cognitoWebhook
+      summary: Cognito PostConfirmation trigger webhook
+      tags:
+        - webhooks
+      parameters:
+        - schema:
+            type: string
+          in: header
+          name: x-webhook-secret
+          required: false
+          description: Shared secret guarding the Cognito webhook. Required in practice —
+            a missing or wrong value is rejected 401 by the handler (not
+            schema-validated to a 400).
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                required:
+                  - status
+                additionalProperties: false
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    enum:
+                      - invalid_payload
+                  details:
+                    type: array
+                    items: {}
+                required:
+                  - error
+                  - details
+                additionalProperties: false
+        "500":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /v1/users/e2e-cleanup:
+    delete:
+      operationId: e2eCleanup
+      summary: "[E2E] Delete E2E-sourced users"
+      tags:
+        - e2e
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: number
+                required:
+                  - deleted
+                additionalProperties: false
+  /v1/users/e2e-identity:
+    get:
+      operationId: e2eIdentity
+      summary: "[E2E] Read captured identity by email"
+      tags:
+        - e2e
+      parameters:
+        - schema:
+            type: string
+          in: query
+          name: email
+          required: false
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {}
+                additionalProperties: {}
+        "400":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+servers:
+  - url: http://localhost:3000
+    description: Local (docker compose / Floci)
+tags:
+  - name: health
+    description: Liveness
+  - name: users
+    description: Registration, auth and profile
+  - name: webhooks
+    description: Inbound Cognito trigger (shared-secret guarded)
+  - name: e2e
+    description: Test-only routes (E2E_TESTING_ENABLED)
