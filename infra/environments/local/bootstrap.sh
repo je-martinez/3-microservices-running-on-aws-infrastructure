@@ -24,9 +24,11 @@
 #   change on every `terraform apply` (the task is recreated). Instead of patching
 #   the API Gateway integration URI with a volatile IP each run, we attach a
 #   CONSTANT network alias (`nginx-stable`) to whatever nginx container is running.
-#   The API GW integration in main.tf already points at http://nginx-stable/ , a
-#   name that never changes. So the integration URI is correct at apply time,
-#   Terraform state never drifts, and re-running just re-points the same alias.
+#   The API GW's per-route integrations in main.tf point at
+#   http://nginx-stable/<route-path> (the path is baked in because Floci drops
+#   the request path), and `nginx-stable` never changes. So the integration URIs
+#   are correct at apply time, Terraform state never drifts, and re-running just
+#   re-points the same alias.
 #
 #   Floci's Route53 is management-plane only (no resolution) and ECS tasks aren't
 #   registered in Cloud Map, so a Docker-native alias is the working approach
@@ -49,8 +51,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NETWORK="3mrai_3mrai-network"
 ALIAS="${NGINX_STABLE_ALIAS:-nginx-stable}"
 # Empty by default → attach the alias only and let Docker assign the IP.
-# The API GW integration targets http://nginx-stable/ , so a stable NAME is all
-# that is required; pinning an IP only adds a failure mode. Floci recreates its
+# The API GW per-route integrations target http://nginx-stable/<path> , so a
+# stable NAME is all that is required; pinning an IP only adds a failure mode. Floci recreates its
 # network with a different subnet across runs (observed 192.168.155.0/24 →
 # 192.168.148.0/24), so any hardcoded address eventually falls outside it and
 # `docker network connect --ip` fails with "no configured subnet contains ...".
@@ -172,7 +174,7 @@ BODY=$(docker exec "$NGINX" sh -c "wget -qO- --timeout=5 http://${ALIAS}/v1/heal
 if echo "$BODY" | grep -q '"status":"ok"'; then
   ok "alias '$ALIAS' resolves and proxies → users /v1/health {\"status\":\"ok\"}"
   echo ""
-  echo "  API GW integration already targets http://${ALIAS}/ — no patch needed."
+  echo "  API GW per-route integrations already target http://${ALIAS}/<path> — no patch needed."
 else
   no "alias attached but /v1/health did not return the expected body (got: '${BODY:0:80}')"
   inf "the users container may not be ready yet; re-run after it is up."
