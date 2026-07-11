@@ -45,6 +45,7 @@ locals {
     {
       register = { key = "POST /v1/users/register", path = "/v1/users/register", auth = false }
       login    = { key = "POST /v1/users/login", path = "/v1/users/login", auth = false }
+      refresh  = { key = "POST /v1/users/refresh", path = "/v1/users/refresh", auth = false }
       health   = { key = "GET /v1/health", path = "/v1/health", auth = false }
       get_me   = { key = "GET /v1/users/me", path = "/v1/users/me", auth = true }
       patch_me = { key = "PATCH /v1/users/me", path = "/v1/users/me", auth = true }
