@@ -198,6 +198,46 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /v1/users/refresh:
+    post:
+      operationId: refreshToken
+      summary: Exchange a refresh token for new id/access tokens
+      tags:
+        - users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken:
+                  type: string
+                  minLength: 1
+              required:
+                - refreshToken
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  idToken:
+                    type: string
+                  accessToken:
+                    type: string
+                required:
+                  - idToken
+                  - accessToken
+                additionalProperties: false
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /v1/users/me:
     get:
       operationId: getMe

@@ -249,6 +249,30 @@ describe("routes", () => {
     expect(res.statusCode).toBe(404);
     expect(res.json()).toEqual({ error: "not_found" });
   });
+
+  it("POST /v1/users/refresh returns 200 with new tokens", async () => {
+    const c = testContainer(false);
+    c.register({ refreshTokenCommand: asValue({ execute: vi.fn(async () => ({ idToken: "id2", accessToken: "acc2" })) } as any) });
+    const app = buildApp(c);
+    const res = await app.inject({ method: "POST", url: "/v1/users/refresh", payload: { refreshToken: "rt" } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ idToken: "id2", accessToken: "acc2" });
+  });
+
+  it("POST /v1/users/refresh returns 401 on invalid refresh token", async () => {
+    const c = testContainer(false);
+    c.register({ refreshTokenCommand: asValue({ execute: vi.fn(async () => { throw new InvalidCredentialsError(); }) } as any) });
+    const app = buildApp(c);
+    const res = await app.inject({ method: "POST", url: "/v1/users/refresh", payload: { refreshToken: "bad" } });
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toEqual({ error: "invalid_credentials" });
+  });
+
+  it("POST /v1/users/refresh returns 400 when refreshToken is missing", async () => {
+    const app = buildApp(testContainer(false));
+    const res = await app.inject({ method: "POST", url: "/v1/users/refresh", payload: {} });
+    expect(res.statusCode).toBe(400);
+  });
 });
 
 function webhookContainer(capture = vi.fn(async () => ({ status: "captured" as const }))) {

@@ -50,6 +50,7 @@ const transformObjectPruned: typeof jsonSchemaTransformObject = (input) =>
 import "./schemas.ts";
 import {
   RegisterInputSchema, LoginInputSchema, UpdateProfileInputSchema,
+  RefreshInputSchema, RefreshedTokensSchema,
   UserSchema, AuthTokensSchema, ErrorSchema,
   HealthResponseSchema, E2ECleanupResponseSchema,
   UserIdHeader, WebhookSecretHeader,
@@ -188,6 +189,19 @@ export function buildApp(container: AwilixContainer<Cradle> = diContainer): Fast
     }, async (req, reply) => {
       const { loginUserCommand } = req.diScope.cradle;
       const tokens = await loginUserCommand.execute(req.body);
+      return reply.send(tokens);
+    });
+
+    r.post("/v1/users/refresh", {
+      schema: {
+        tags: ["users"], operationId: "refreshToken",
+        summary: "Exchange a refresh token for new id/access tokens",
+        body: RefreshInputSchema,
+        response: { 200: RefreshedTokensSchema, 401: ErrorSchema },
+      },
+    }, async (req, reply) => {
+      const { refreshTokenCommand } = req.diScope.cradle;
+      const tokens = await refreshTokenCommand.execute(req.body);
       return reply.send(tokens);
     });
 

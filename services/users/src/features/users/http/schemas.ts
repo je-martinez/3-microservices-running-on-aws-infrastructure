@@ -21,6 +21,10 @@ export const LoginInputSchema = z.object({
   password: z.string(),
 });
 
+export const RefreshInputSchema = z.object({
+  refreshToken: z.string().min(1),
+});
+
 export const UpdateProfileInputSchema = z.object({
   fullName: z.string().optional(),
   address: z.unknown().optional(),
@@ -50,6 +54,11 @@ export const AuthTokensSchema = z.object({
   idToken: z.string(),
   accessToken: z.string(),
   refreshToken: z.string(),
+});
+
+export const RefreshedTokensSchema = z.object({
+  idToken: z.string(),
+  accessToken: z.string(),
 });
 
 export const ErrorSchema = z.object({
