@@ -5,6 +5,7 @@ import {
   type CognitoIdentityProviderClient,
 } from "@aws-sdk/client-cognito-identity-provider";
 import type { AuthProvider, AuthTokens, CognitoSignUpResult } from "./auth-provider.ts";
+import { InvalidCredentialsError, EmailAlreadyExistsError } from "./auth-errors.ts";
 
 export class CognitoAuthProvider implements AuthProvider {
   constructor(
@@ -14,17 +15,23 @@ export class CognitoAuthProvider implements AuthProvider {
   ) {}
 
   async signUp(email: string, password: string): Promise<CognitoSignUpResult> {
-    const created = await this.client.send(
-      new AdminCreateUserCommand({
-        UserPoolId: this.userPoolId,
-        Username: email,
-        MessageAction: "SUPPRESS",
-        UserAttributes: [
-          { Name: "email", Value: email },
-          { Name: "email_verified", Value: "true" },
-        ],
-      }),
-    );
+    let created;
+    try {
+      created = await this.client.send(
+        new AdminCreateUserCommand({
+          UserPoolId: this.userPoolId,
+          Username: email,
+          MessageAction: "SUPPRESS",
+          UserAttributes: [
+            { Name: "email", Value: email },
+            { Name: "email_verified", Value: "true" },
+          ],
+        }),
+      );
+    } catch (e: any) {
+      if (e?.name === "UsernameExistsException") throw new EmailAlreadyExistsError();
+      throw e;
+    }
     await this.client.send(
       new AdminSetUserPasswordCommand({
         UserPoolId: this.userPoolId,
@@ -43,14 +50,22 @@ export class CognitoAuthProvider implements AuthProvider {
   }
 
   async login(email: string, password: string): Promise<AuthTokens> {
-    const res = await this.client.send(
-      new AdminInitiateAuthCommand({
-        UserPoolId: this.userPoolId,
-        ClientId: this.clientId,
-        AuthFlow: "ADMIN_USER_PASSWORD_AUTH",
-        AuthParameters: { USERNAME: email, PASSWORD: password },
-      }),
-    );
+    let res;
+    try {
+      res = await this.client.send(
+        new AdminInitiateAuthCommand({
+          UserPoolId: this.userPoolId,
+          ClientId: this.clientId,
+          AuthFlow: "ADMIN_USER_PASSWORD_AUTH",
+          AuthParameters: { USERNAME: email, PASSWORD: password },
+        }),
+      );
+    } catch (e: any) {
+      if (e?.name === "UserNotFoundException" || e?.name === "NotAuthorizedException") {
+        throw new InvalidCredentialsError();
+      }
+      throw e;
+    }
     const r = res.AuthenticationResult;
     return {
       idToken: r?.IdToken ?? "",
