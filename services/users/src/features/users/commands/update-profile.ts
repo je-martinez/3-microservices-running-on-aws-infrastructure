@@ -1,6 +1,5 @@
 import type { Db } from "#shared/db/prisma";
 import { toDomain, type User } from "../domain/user.ts";
-import { byIdOrCognitoSub } from "../queries/get-me.ts";
 
 export interface UpdateProfileInput {
   fullName?: string;
@@ -18,11 +17,9 @@ export class UpdateProfileCommand {
 
   async execute(userId: string, input: UpdateProfileInput): Promise<User | null> {
     // Prisma's `update` requires a unique `where` (no `OR`), so resolve the
-    // target id via id∨cognitoSub first, then update by that unique id.
-    const target = await this.db.user.findFirst({
-      where: byIdOrCognitoSub(userId),
-      select: { id: true },
-    });
+    // target via the id-or-cognitoSub model method first, then update by its
+    // resolved id.
+    const target = await this.db.user.findByIdOrCognitoSub(userId);
     if (!target) return null;
 
     // `updatedBy` is stamped by the audit query extension from the

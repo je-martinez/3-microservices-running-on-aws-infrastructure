@@ -164,6 +164,19 @@ export const crossCuttingExtension = Prisma.defineExtension((client) =>
         },
       },
     },
+    model: {
+      user: {
+        // Resolve a user by their prefixed usr_ id OR their Cognito sub. Returns
+        // the raw row (or null); callers map via toDomain. findFirst so the
+        // cross-cutting soft-delete/read-replica behavior still applies.
+        async findByIdOrCognitoSub(idOrSub: string) {
+          const ctx = Prisma.getExtensionContext(this);
+          return (ctx as any).findFirst({
+            where: { OR: [{ id: idOrSub }, { cognitoSub: idOrSub }] },
+          });
+        },
+      },
+    },
   }),
 );
 

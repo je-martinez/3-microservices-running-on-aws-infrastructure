@@ -5,6 +5,8 @@ import {
   type CrossCuttingBaseClient,
 } from "#shared/db/prisma-extensions";
 import { runAsActor } from "#shared/audit/actor-context";
+import { PrismaClient, Prisma } from "../../../src/generated/prisma/client.ts";
+import { PrismaPg } from "@prisma/adapter-pg";
 
 // Unit-tests the `$allModels` query handlers built by `buildCrossCuttingQueries`
 // directly — the same function `crossCuttingExtension` wires into a real
@@ -183,6 +185,41 @@ describe("cross-cutting Prisma extension", () => {
 
       const calledWith = query.mock.calls[0]![0] as { where: Record<string, unknown> };
       expect(calledWith.where).toEqual({ id: "usr_1", deletedAt: { not: null } });
+    });
+  });
+
+  describe("user.findByIdOrCognitoSub (model extension)", () => {
+    // Unlike `buildCrossCuttingQueries` (a plain function unit-tested against
+    // a mock client), the model method relies on `Prisma.getExtensionContext`,
+    // which only resolves against a client produced by a real `$extends`
+    // call. So this builds a minimal `$extends`-wrapped client (unconnected —
+    // no query ever reaches the DB) and stubs the extended `findFirst`, the
+    // same shape `crossCuttingExtension` produces in `shared/db/prisma-extensions.ts`.
+    it("calls findFirst with an OR over id and cognitoSub and returns its result", async () => {
+      const adapter = new PrismaPg({ connectionString: "postgresql://user:pass@localhost:5432/db" });
+      const base = new PrismaClient({ adapter });
+
+      const ext = base.$extends({
+        name: "probe",
+        model: {
+          user: {
+            async findByIdOrCognitoSub(idOrSub: string) {
+              const ctx = Prisma.getExtensionContext(this);
+              return (ctx as any).findFirst({
+                where: { OR: [{ id: idOrSub }, { cognitoSub: idOrSub }] },
+              });
+            },
+          },
+        },
+      });
+
+      const findFirst = vi.fn(async () => ({ id: "usr_1" }));
+      (ext.user as any).findFirst = findFirst;
+
+      const result = await ext.user.findByIdOrCognitoSub("x");
+
+      expect(findFirst).toHaveBeenCalledWith({ where: { OR: [{ id: "x" }, { cognitoSub: "x" }] } });
+      expect(result).toEqual({ id: "usr_1" });
     });
   });
 
