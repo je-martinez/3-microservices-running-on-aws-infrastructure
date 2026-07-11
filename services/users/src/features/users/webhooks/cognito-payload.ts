@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "zod/v4";
 
 // Mirrors the real Cognito PostConfirmation event (verified against the AWS docs
 // and a live Floci pool). The event carries NO timestamp and no per-delivery

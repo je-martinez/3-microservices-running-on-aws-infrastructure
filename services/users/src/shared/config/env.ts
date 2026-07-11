@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "zod/v4";
 
 const schema = z.object({
   DATABASE_WRITER_URL: z.string().url(),
