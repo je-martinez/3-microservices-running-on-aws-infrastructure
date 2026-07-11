@@ -214,6 +214,19 @@ describe("routes", () => {
       expect(observedActor).toBe("usr_actor_2");
     });
   });
+
+  it("PATCH /v1/users/me returns 404 when the user is not found", async () => {
+    const container = testContainer(false);
+    container.register({ updateProfileCommand: asValue({ execute: vi.fn(async () => null) } as any) });
+    const app = buildApp(container);
+    const res = await app.inject({
+      method: "PATCH", url: "/v1/users/me",
+      headers: { "x-user-id": "nope" },
+      payload: { fullName: "X" },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual({ error: "not_found" });
+  });
 });
 
 function webhookContainer(capture = vi.fn(async () => ({ status: "captured" as const }))) {

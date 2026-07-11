@@ -195,12 +195,14 @@ export function buildApp(container: AwilixContainer<Cradle> = diContainer): Fast
         tags: ["users"], operationId: "updateMe", summary: "Update the current user's profile",
         headers: UserIdHeader,
         body: UpdateProfileInputSchema,
-        response: { 200: UserSchema },
+        response: { 200: UserSchema, 404: ErrorSchema },
       },
     }, async (req, reply) => {
       const { updateProfileCommand, currentActor } = req.diScope.cradle;
       const updated = await updateProfileCommand.execute(currentActor as string, req.body);
-      return reply.send(serializeUser(updated));
+      return updated
+        ? reply.send(serializeUser(updated))
+        : reply.code(404).send({ error: "not_found" });
     });
 
     // Thin layer (spec D2): verify the shared secret, validate, delegate. The
