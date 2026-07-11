@@ -11,7 +11,8 @@
 ## Global Constraints
 
 - **Node:** run `nvm use` before ANY node/pnpm command (repo pins 24.18.0 via `.nvmrc`).
-- **Zod stays v3** (installed 3.25.76). Import `from "zod"` — NEVER `from "zod/v4"`.
+- **Zod: same installed package (3.25.76), but import from the `zod/v4` subpath.** `fastify-type-provider-zod` v5 is written against Zod 4's internal API and crashes on classic-v3 schemas (`Cannot read properties of undefined (reading 'parent')`). Zod 3.25.76 ships the v4 API at the `zod/v4` subpath, so **all Users-service Zod imports migrate to `import { z } from "zod/v4"`** (verified: `env.ts` and `cognito-payload.ts` patterns — `.url()`, `.enum().default().transform()`, `.coerce`, `.uuid()`, `.union()`, `.passthrough()` — parse identically under v4). Do NOT add a new zod dependency; this is the same version's alternate entrypoint. This SUPERSEDES the earlier "never zod/v4" note.
+- **Component `$ref` registration uses `z.globalRegistry`** (exists on `zod/v4`, not on classic `zod`). Register `UserSchema`/`AuthTokensSchema`/`ErrorSchema` via `z.globalRegistry.add(schema, { id })` and pass `transformObject: jsonSchemaTransformObject`.
 - **`fastify-type-provider-zod` pinned to `^5.0.2`** — v6/v7 require `zod >=4.1.5` and MUST NOT be installed while the repo is on Zod 3.
 - **`@fastify/swagger` `^9.5.1`** (peer floor of the provider).
 - **OpenAPI version `3.1.0`** in the generated file (match the prior hand-written file).
@@ -63,11 +64,15 @@ git commit -m "build(users): add @fastify/swagger + fastify-type-provider-zod (Z
 
 ---
 
-### Task 2: Define reusable Zod schemas
+### Task 2: Migrate Zod imports to `zod/v4` + define reusable schemas
 
 **Files:**
+- Modify: `services/users/src/shared/config/env.ts` (line 1: `from "zod"` → `from "zod/v4"`)
+- Modify: `services/users/src/features/users/webhooks/cognito-payload.ts` (line 1: `from "zod"` → `from "zod/v4"`)
 - Create: `services/users/src/features/users/http/schemas.ts`
 - Test: `services/users/tests/features/users/http/schemas.test.ts`
+
+**Pre-step: migrate the two existing files' imports.** Change `import { z } from "zod";` to `import { z } from "zod/v4";` in `env.ts` and `cognito-payload.ts` (nothing else changes — verified that `.url()`, `.enum().default().transform()`, `.coerce.number()`, `.string().min()`, `.uuid()`, `.union()`, `.passthrough()` all parse identically under v4). After changing them, run `nvm use && pnpm test -- env.test cognito` (or the full suite) to confirm no regression BEFORE writing the new schemas file. This keeps a single Zod API (`zod/v4`) across the service, so re-exporting `cognitoWebhookPayloadSchema` from `schemas.ts` (also `zod/v4`) does not mix incompatible schema types.
 
 **Interfaces:**
 - Produces (all exported from `schemas.ts`):
@@ -89,13 +94,13 @@ import {
 
 describe("http schemas", () => {
   it("RegisterInputSchema requires email/password/fullName, allows optional address/phoneNumber", () => {
-    expect(RegisterInputSchema.safeParse({ email: "a@b.c", password: "P!1", fullName: "A" }).success).toBe(true);
-    expect(RegisterInputSchema.safeParse({ email: "a@b.c" }).success).toBe(false);
+    expect(RegisterInputSchema.safeParse({ email: "a@b.co", password: "P!1", fullName: "A" }).success).toBe(true);
+    expect(RegisterInputSchema.safeParse({ email: "a@b.co" }).success).toBe(false);
   });
 
   it("LoginInputSchema requires email + password", () => {
-    expect(LoginInputSchema.safeParse({ email: "a@b.c", password: "x" }).success).toBe(true);
-    expect(LoginInputSchema.safeParse({ email: "a@b.c" }).success).toBe(false);
+    expect(LoginInputSchema.safeParse({ email: "a@b.co", password: "x" }).success).toBe(true);
+    expect(LoginInputSchema.safeParse({ email: "a@b.co" }).success).toBe(false);
   });
 
   it("UpdateProfileInputSchema accepts an empty object (all optional)", () => {
@@ -109,7 +114,7 @@ describe("http schemas", () => {
 
   it("UserSchema parses a full user row shape", () => {
     const u = {
-      id: "usr_x", email: "a@b.c", fullName: "A", address: null, phoneNumber: null,
+      id: "usr_x", email: "a@b.co", fullName: "A", address: null, phoneNumber: null,
       tags: [], createdBy: null, createdAt: "2026-07-10T00:00:00.000Z",
       updatedBy: null, updatedAt: "2026-07-10T00:00:00.000Z",
       deletedBy: null, deletedAt: null, isDeleted: false,
@@ -133,7 +138,7 @@ Expected: FAIL — cannot resolve `#features/users/http/schemas`.
 
 Create `services/users/src/features/users/http/schemas.ts`:
 ```ts
-import { z } from "zod";
+import { z } from "zod/v4";
 import { cognitoWebhookPayloadSchema } from "../webhooks/cognito-payload.ts";
 
 // Re-export so the route file imports webhook + all http schemas from one place.
@@ -346,7 +351,7 @@ it("register rejects a body missing required fields with 400", async () => {
   const app = buildApp(testContainer(false));
   const res = await app.inject({
     method: "POST", url: "/v1/users/register",
-    payload: { email: "a@b.c" }, // missing password + fullName
+    payload: { email: "a@b.co" }, // missing password + fullName
   });
   expect(res.statusCode).toBe(400);
 });
@@ -451,7 +456,9 @@ r.post("/v1/webhooks/cognito", {
   // ...unchanged body: verifyWebhookSecret -> 401, safeParse -> 422, execute -> 200/500
 });
 ```
-Add `import { z } from "zod";` at the top of `routes.ts` if not already present (it is needed for the inline webhook response schemas).
+Add `import { z } from "zod/v4";` at the top of `routes.ts` if not already present (it is needed for the inline webhook response schemas).
+
+**Fix existing test fixtures for v4 `.email()`.** The current `routes.test.ts` register tests use `email: "a@b.c"` (lines ~35, ~46). Under `zod/v4`, `.email()` REJECTS `a@b.c` (single-char TLD), so once `RegisterInputSchema` validates the body these would flip 201→400. Update those two payloads to `email: "a@b.co"`. Do NOT weaken the schema to accept `a@b.c`; fix the fixtures. (The `getMe` mock at lines ~115/~128 returns `a@b.c` in a RESPONSE — that is serialized, not validated by `.email()` at the boundary the same way; only change it if a response-schema strip/validation causes a failure when the suite runs.)
 
 e2e routes (inside the `if (container.cradle.env.E2E_TESTING_ENABLED)` block):
 ```ts
