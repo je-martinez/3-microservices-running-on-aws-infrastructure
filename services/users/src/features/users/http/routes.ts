@@ -3,6 +3,7 @@ import { fastifyAwilixPlugin, type Cradle } from "@fastify/awilix";
 import { asValue, type AwilixContainer } from "awilix";
 import { diContainer, registerSingletons, registerServices } from "#shared/di/awilix-container";
 import { actorContext } from "#shared/audit/actor-context";
+import { AuthError } from "#shared/auth/auth-errors";
 import { cognitoWebhookPayloadSchema } from "../webhooks/cognito-payload.ts";
 import { verifyWebhookSecret } from "../webhooks/verify-secret.ts";
 import { NoMatchingUserError } from "../webhooks/capture-cognito-identity.ts";
@@ -82,6 +83,18 @@ export function buildApp(container: AwilixContainer<Cradle> = diContainer): Fast
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
+  // Maps domain `AuthError`s (InvalidCredentialsError/EmailAlreadyExistsError,
+  // see shared/auth/auth-errors.ts) thrown by login/register commands to their
+  // HTTP status. Everything else (Zod validation 400s, unexpected 500s) keeps
+  // Fastify's default handling — re-throw so the framework's default error
+  // handler produces the exact same body as before this change.
+  app.setErrorHandler((error, _req, reply) => {
+    if (error instanceof AuthError) {
+      return reply.code(error.statusCode).send({ error: error.code });
+    }
+    throw error;
+  });
+
   app.register(fastifySwagger, {
     openapi: {
       openapi: "3.1.0",
@@ -155,7 +168,7 @@ export function buildApp(container: AwilixContainer<Cradle> = diContainer): Fast
       schema: {
         tags: ["users"], operationId: "registerUser", summary: "Register a new user",
         body: RegisterInputSchema,
-        response: { 201: UserSchema },
+        response: { 201: UserSchema, 409: ErrorSchema },
       },
     }, async (req, reply) => {
       const body = req.body; // typed from RegisterInputSchema
@@ -170,7 +183,7 @@ export function buildApp(container: AwilixContainer<Cradle> = diContainer): Fast
       schema: {
         tags: ["users"], operationId: "loginUser", summary: "Log in and obtain tokens",
         body: LoginInputSchema,
-        response: { 200: AuthTokensSchema },
+        response: { 200: AuthTokensSchema, 401: ErrorSchema },
       },
     }, async (req, reply) => {
       const { loginUserCommand } = req.diScope.cradle;

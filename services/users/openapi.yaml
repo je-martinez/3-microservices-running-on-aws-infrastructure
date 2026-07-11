@@ -157,6 +157,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/User"
+        "409":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /v1/users/login:
     post:
       operationId: loginUser
@@ -186,6 +192,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthTokens"
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /v1/users/me:
     get:
       operationId: getMe

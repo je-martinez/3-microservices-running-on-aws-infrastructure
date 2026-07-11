@@ -3,6 +3,7 @@ import { createContainer, asValue } from "awilix";
 import { buildApp } from "#features/users/http/routes";
 import { getActor } from "#shared/audit/actor-context";
 import { NoMatchingUserError } from "#features/users/webhooks/capture-cognito-identity";
+import { InvalidCredentialsError, EmailAlreadyExistsError } from "#shared/auth/auth-errors";
 
 // Full-shaped fixture matching the domain `User` type (see domain/user.ts):
 // once routes carry a response schema, Fastify's Zod serializer strict-
@@ -213,6 +214,27 @@ describe("routes", () => {
       expect(res.statusCode).toBe(200);
       expect(observedActor).toBe("usr_actor_2");
     });
+  });
+
+  it("POST /v1/users/login returns 401 on invalid credentials", async () => {
+    const c = testContainer(false);
+    c.register({ loginUserCommand: asValue({ execute: vi.fn(async () => { throw new InvalidCredentialsError(); }) } as any) });
+    const app = buildApp(c);
+    const res = await app.inject({ method: "POST", url: "/v1/users/login", payload: { email: "a@b.co", password: "x" } });
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toEqual({ error: "invalid_credentials" });
+  });
+
+  it("POST /v1/users/register returns 409 on duplicate email", async () => {
+    const c = testContainer(false);
+    c.register({ registerUserCommand: asValue({ execute: vi.fn(async () => { throw new EmailAlreadyExistsError(); }) } as any) });
+    const app = buildApp(c);
+    const res = await app.inject({
+      method: "POST", url: "/v1/users/register",
+      payload: { email: "dup@b.co", password: "P@ss", fullName: "D" },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ error: "email_exists" });
   });
 
   it("PATCH /v1/users/me returns 404 when the user is not found", async () => {
