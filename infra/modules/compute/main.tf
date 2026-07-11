@@ -1,3 +1,7 @@
+locals {
+  nginx_dir = var.nginx_config_host_path != "" ? var.nginx_config_host_path : abspath("${path.module}/nginx")
+}
+
 # ─── ECS Cluster ─────────────────────────────────────────────────────────────
 resource "aws_ecs_cluster" "this" {
   name = "${var.context.id}-cluster"
@@ -36,10 +40,11 @@ resource "aws_iam_role_policy_attachment" "ecs_execution_policy" {
 
 # ─── ECS Task Definition (nginx:alpine reverse proxy) ────────────────────────
 #
-# Ministack ECS cannot mount host volumes, so the nginx.conf is injected via a
-# shell `command` that writes the config then execs nginx.  This approach was
-# proven in the spike (infra/environments/local/spike/terraform.tfstate,
-# aws_ecs_task_definition.spike_nginx).
+# The nginx config (auth.js + nginx.conf, checked into infra/modules/compute/nginx/)
+# is bind-mounted from local.nginx_dir into the container at /etc/nginx/mounted/.
+# ADR-0016 assumed Ministack ECS could not mount host volumes; Floci does
+# support them, so nginx now starts directly against the mounted config instead
+# of writing conf.d/default.conf via a printf/shell command.
 #
 # nginx uses Docker's embedded DNS resolver (127.0.0.11) and a variable
 # `$backend` so that the service name is resolved at request time — not at
@@ -60,23 +65,14 @@ resource "aws_ecs_task_definition" "nginx" {
       image     = "nginx:alpine"
       essential = true
 
-      # Write nginx.conf at container start, then exec nginx.
-      # The `set $backend` variable indirection forces Docker DNS lookup on
-      # every proxied request (resolver 127.0.0.11 is Docker's embedded DNS).
-      command = [
-        "sh", "-c",
-        join("", [
-          "printf 'server {\\n",
-          "  listen 80;\\n",
-          "  location / {\\n",
-          "    resolver 127.0.0.11 valid=5s;\\n",
-          "    set $backend ${var.backend_service_name};\\n",
-          "    proxy_pass http://$backend:${var.backend_port};\\n",
-          "    proxy_set_header Host $host;\\n",
-          "    proxy_set_header X-Real-IP $remote_addr;\\n",
-          "  }\\n",
-          "}\\n' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
-        ])
+      command = ["nginx", "-c", "/etc/nginx/mounted/nginx.conf", "-g", "daemon off;"]
+
+      mountPoints = [
+        {
+          sourceVolume  = "nginx-config"
+          containerPath = "/etc/nginx/mounted"
+          readOnly      = true
+        }
       ]
 
       portMappings = [
@@ -97,6 +93,11 @@ resource "aws_ecs_task_definition" "nginx" {
       }
     }
   ])
+
+  volume {
+    name      = "nginx-config"
+    host_path = local.nginx_dir
+  }
 
   tags = var.context.tags
 }

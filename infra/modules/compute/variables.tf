@@ -53,6 +53,12 @@ variable "memory" {
   default     = 512
 }
 
+variable "nginx_config_host_path" {
+  description = "Absolute host path to the dir with auth.js + nginx.conf, bind-mounted into the nginx task (Floci host volume). Empty → module uses abspath(path.module)/nginx. Local-only."
+  type        = string
+  default     = ""
+}
+
 # ─── CloudWatch ───────────────────────────────────────────────────────────────
 variable "log_retention_days" {
   description = "CloudWatch log group retention in days. Use 1 for local/ephemeral environments."
