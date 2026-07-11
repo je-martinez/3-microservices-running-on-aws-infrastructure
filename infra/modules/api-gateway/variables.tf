@@ -29,26 +29,21 @@ variable "cognito_audience" {
 
 # ─── nginx integration target ─────────────────────────────────────────────────
 #
-# Bootstrap requirement (JE-36):
-#   The nginx ECS task's private IP is not known until after the task launches.
-#   Terraform therefore creates the integration with a placeholder URI and the
-#   JE-36 bootstrap script patches it via:
+# Local mode: Terraform creates one per-route integration with the path baked into
+# the URI using the stable Docker-DNS alias (nginx-stable). The alias is attached
+# to the nginx ECS container by bootstrap.sh, so the integration URI stays constant
+# across terraform apply runs. The nginx_base_uri variable provides the base URI
+# (scheme + host, no path).
 #
-#     aws apigatewayv2 update-integration \
-#       --api-id <api_id> \
-#       --integration-id <integration_id> \
-#       --integration-uri "http://<nginx-task-ip>:80/"
-#
-#   The integration_id output from this module is passed to the bootstrap.
-#   This matches the pattern proven in the spike
-#   (infra/environments/local/spike/terraform.tfstate, nginx_integration_id
-#   output).
+# Prod mode (local_gateway = false): uses this variable as a single shared
+# integration URI. The default is prod-only and should not be used locally.
 variable "nginx_integration_uri" {
   description = <<-EOT
-    HTTP URI for the API Gateway → nginx integration.
-    Defaults to a placeholder (http://0.0.0.0:80/) that the JE-36 bootstrap
-    replaces with the actual nginx ECS task private IP after task launch.
-    Format: "http://<nginx-task-private-ip>:80/"
+    HTTP URI for the API Gateway → nginx integration (prod only).
+    Prod uses a single shared integration with the path preserved by real AWS.
+    Local mode ignores this and instead uses per-route integrations with paths
+    baked into the URIs via nginx_base_uri (which includes the stable nginx-stable alias).
+    Format (prod): "http://<backend-alb-url>/"
   EOT
   type        = string
   default     = "http://0.0.0.0:80/"
