@@ -60,4 +60,33 @@ describe("CognitoAuthProvider", () => {
     const p = new CognitoAuthProvider(client as any, "pool", "client");
     await expect(p.signUp("dup@x.co", "P@ss")).rejects.toBeInstanceOf(EmailAlreadyExistsError);
   });
+
+  it("refresh returns new id + access tokens", async () => {
+    const client = { send: vi.fn(async () => ({ AuthenticationResult: { IdToken: "id2", AccessToken: "acc2" } })) };
+    const p = new CognitoAuthProvider(client as any, "pool", "client");
+    await expect(p.refresh("rt")).resolves.toEqual({ idToken: "id2", accessToken: "acc2" });
+  });
+
+  it("refresh maps NotAuthorizedException to InvalidCredentialsError (401)", async () => {
+    const client = {
+      send: vi.fn(async () => {
+        const e: any = new Error("Invalid Refresh Token");
+        e.name = "NotAuthorizedException";
+        throw e;
+      }),
+    };
+    const p = new CognitoAuthProvider(client as any, "pool", "client");
+    await expect(p.refresh("bad")).rejects.toBeInstanceOf(InvalidCredentialsError);
+  });
+
+  it("refresh rethrows unexpected errors", async () => {
+    const boom = new Error("kaboom");
+    const client = {
+      send: vi.fn(async () => {
+        throw boom;
+      }),
+    };
+    const p = new CognitoAuthProvider(client as any, "pool", "client");
+    await expect(p.refresh("rt")).rejects.toBe(boom);
+  });
 });

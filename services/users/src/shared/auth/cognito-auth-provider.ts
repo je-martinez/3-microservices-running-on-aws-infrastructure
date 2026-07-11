@@ -4,7 +4,7 @@ import {
   AdminInitiateAuthCommand,
   type CognitoIdentityProviderClient,
 } from "@aws-sdk/client-cognito-identity-provider";
-import type { AuthProvider, AuthTokens, CognitoSignUpResult } from "./auth-provider.ts";
+import type { AuthProvider, AuthTokens, CognitoSignUpResult, RefreshedTokens } from "./auth-provider.ts";
 import { InvalidCredentialsError, EmailAlreadyExistsError } from "./auth-errors.ts";
 
 export class CognitoAuthProvider implements AuthProvider {
@@ -72,5 +72,26 @@ export class CognitoAuthProvider implements AuthProvider {
       accessToken: r?.AccessToken ?? "",
       refreshToken: r?.RefreshToken ?? "",
     };
+  }
+
+  async refresh(refreshToken: string): Promise<RefreshedTokens> {
+    let res;
+    try {
+      res = await this.client.send(
+        new AdminInitiateAuthCommand({
+          UserPoolId: this.userPoolId,
+          ClientId: this.clientId,
+          AuthFlow: "REFRESH_TOKEN_AUTH",
+          AuthParameters: { REFRESH_TOKEN: refreshToken },
+        }),
+      );
+    } catch (e: any) {
+      if (e?.name === "NotAuthorizedException" || e?.name === "UserNotFoundException") {
+        throw new InvalidCredentialsError();
+      }
+      throw e;
+    }
+    const r = res.AuthenticationResult;
+    return { idToken: r?.IdToken ?? "", accessToken: r?.AccessToken ?? "" };
   }
 }
