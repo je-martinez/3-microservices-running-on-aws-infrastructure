@@ -4,12 +4,54 @@ import { buildApp } from "#features/users/http/routes";
 import { getActor } from "#shared/audit/actor-context";
 import { NoMatchingUserError } from "#features/users/webhooks/capture-cognito-identity";
 
+// Full-shaped fixture matching the domain `User` type (see domain/user.ts):
+// once routes carry a response schema, Fastify's Zod serializer strict-
+// validates the handler's return value, so mocks must return every declared
+// field, not just the ones a given test asserts on. `createdAt`/`updatedAt`
+// are real `Date` objects here (as the domain type + real commands/queries
+// return) — `routes.ts`'s `serializeUser` converts them to ISO strings at
+// the HTTP boundary, matching `UserSchema`'s `z.string()` wire contract.
+const FIXED_DATE = new Date("2026-01-01T00:00:00.000Z");
+
+function fakeUser(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "usr_1",
+    email: "a@b.co",
+    fullName: "A",
+    address: null,
+    phoneNumber: null,
+    tags: [] as string[],
+    createdBy: "usr_1",
+    createdAt: FIXED_DATE,
+    updatedBy: "usr_1",
+    updatedAt: FIXED_DATE,
+    deletedBy: null,
+    deletedAt: null,
+    isDeleted: false,
+    ...overrides,
+  };
+}
+
+// The JSON shape a `fakeUser(...)` serializes to over the wire (dates as ISO
+// strings) — what `res.json()` should equal for a 200/201 response.
+function fakeUserJson(overrides: Record<string, unknown> = {}) {
+  const user = fakeUser(overrides);
+  return {
+    ...user,
+    createdAt: (user.createdAt as Date).toISOString(),
+    updatedAt: (user.updatedAt as Date).toISOString(),
+    deletedAt: user.deletedAt ? (user.deletedAt as Date).toISOString() : null,
+  };
+}
+
 function testContainer(e2eEnabled: boolean) {
   const container = createContainer({ injectionMode: "PROXY" });
   container.register({
     env: asValue({ E2E_TESTING_ENABLED: e2eEnabled } as any),
     registerUserCommand: asValue({
-      execute: vi.fn(async (input: any) => ({ id: "usr_1", tags: input.e2eSource ? ["E2E Source"] : [] })),
+      execute: vi.fn(async (input: any) =>
+        fakeUser({ id: "usr_1", tags: input.e2eSource ? ["E2E Source"] : [] }),
+      ),
     } as any),
     loginUserCommand: asValue({ execute: vi.fn() } as any),
     userQueryService: asValue({ getMe: vi.fn(), getUserById: vi.fn() } as any),
@@ -32,7 +74,7 @@ describe("routes", () => {
     const res = await app.inject({
       method: "POST", url: "/v1/users/register",
       headers: { "x-e2e-source": "true" },
-      payload: { email: "a@b.c", password: "P!1", fullName: "A" },
+      payload: { email: "a@b.co", password: "P!1", fullName: "A" },
     });
     expect(res.statusCode).toBe(201);
     expect(res.json().tags).toContain("E2E Source");
@@ -43,9 +85,18 @@ describe("routes", () => {
     const res = await app.inject({
       method: "POST", url: "/v1/users/register",
       headers: { "x-e2e-source": "true" },
-      payload: { email: "a@b.c", password: "P!1", fullName: "A" },
+      payload: { email: "a@b.co", password: "P!1", fullName: "A" },
     });
     expect(res.json().tags).toEqual([]);
+  });
+
+  it("register rejects a body missing required fields with 400", async () => {
+    const app = buildApp(testContainer(false));
+    const res = await app.inject({
+      method: "POST", url: "/v1/users/register",
+      payload: { email: "a@b.co" }, // missing password + fullName
+    });
+    expect(res.statusCode).toBe(400);
   });
 
   it("e2e-cleanup returns 404 when flag disabled", async () => {
@@ -112,7 +163,7 @@ describe("routes", () => {
   // documented `buildApp(container)` seam with an isolated Awilix container.
   describe("currentActor from the x-user-id header", () => {
     it("registers currentActor in the DI scope and GET /v1/users/me resolves it via getMe", async () => {
-      const getMe = vi.fn(async (userId: string) => ({ id: userId, email: "a@b.c" }));
+      const getMe = vi.fn(async (userId: string) => fakeUser({ id: userId, email: "a@b.co" }));
       const container = testContainer(false);
       container.register({ userQueryService: asValue({ getMe, getUserById: vi.fn() } as any) });
       const app = buildApp(container);
@@ -125,7 +176,7 @@ describe("routes", () => {
 
       expect(res.statusCode).toBe(200);
       expect(getMe).toHaveBeenCalledWith("usr_actor_1");
-      expect(res.json()).toEqual({ id: "usr_actor_1", email: "a@b.c" });
+      expect(res.json()).toEqual(fakeUserJson({ id: "usr_actor_1", email: "a@b.co" }));
     });
 
     it("returns 404 from GET /v1/users/me when x-user-id is absent (currentActor is undefined)", async () => {
@@ -147,7 +198,7 @@ describe("routes", () => {
         // the handler runs in, the same way the Prisma audit extension does
         // when it stamps createdBy/updatedBy (see prisma-extensions.ts).
         observedActor = getActor();
-        return { id: userId };
+        return fakeUser({ id: userId });
       });
       const container = testContainer(false);
       container.register({ userQueryService: asValue({ getMe, getUserById: vi.fn() } as any) });

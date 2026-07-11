@@ -60,11 +60,28 @@ export const HealthResponseSchema = z.object({ status: z.literal("ok") });
 export const E2ECleanupResponseSchema = z.object({ deleted: z.number() });
 
 // ---- Headers ----
+// Both headers are documented as `.optional()` even though the handlers treat
+// them as effectively required: the *enforcement* (401 for a missing/invalid
+// webhook secret, 404 for a missing actor on /me) happens inside the handler,
+// not via schema validation — making the field non-optional here would make
+// Fastify reject a missing header with its generic 400, breaking that contract.
 export const UserIdHeader = z.object({
-  "x-user-id": z.string().describe("Cognito subject forwarded by the API Gateway authorizer"),
+  "x-user-id": z
+    .string()
+    .optional()
+    .describe(
+      "Cognito subject forwarded by the API Gateway authorizer. Required in practice — " +
+        "a request without it resolves no current user and is answered 404 (not a 400).",
+    ),
 });
 export const WebhookSecretHeader = z.object({
-  "x-webhook-secret": z.string().describe("Shared secret guarding the Cognito webhook"),
+  "x-webhook-secret": z
+    .string()
+    .optional()
+    .describe(
+      "Shared secret guarding the Cognito webhook. Required in practice — a missing or " +
+        "wrong value is rejected 401 by the handler (not schema-validated to a 400).",
+    ),
 });
 
 // Register reusable component ids so they appear under components/schemas

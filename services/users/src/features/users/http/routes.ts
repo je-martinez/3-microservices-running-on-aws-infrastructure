@@ -3,10 +3,10 @@ import { fastifyAwilixPlugin, type Cradle } from "@fastify/awilix";
 import { asValue, type AwilixContainer } from "awilix";
 import { diContainer, registerSingletons, registerServices } from "#shared/di/awilix-container";
 import { actorContext } from "#shared/audit/actor-context";
-import type { UpdateProfileInput } from "../commands/update-profile.ts";
 import { cognitoWebhookPayloadSchema } from "../webhooks/cognito-payload.ts";
 import { verifyWebhookSecret } from "../webhooks/verify-secret.ts";
 import { NoMatchingUserError } from "../webhooks/capture-cognito-identity.ts";
+import type { User } from "../domain/user.ts";
 import fastifySwagger from "@fastify/swagger";
 import {
   serializerCompiler,
@@ -15,25 +15,31 @@ import {
   jsonSchemaTransformObject,
   type ZodTypeProvider,
 } from "fastify-type-provider-zod";
+import { z } from "zod/v4";
 // Side-effect import: `schemas.ts` registers `UserSchema`/`AuthTokensSchema`/
 // `ErrorSchema` in `z.globalRegistry` at module-eval time (see that file's
 // bottom `z.globalRegistry.add(...)` calls), which is how they surface under
-// `components/schemas` in the generated OpenAPI doc. Kept as an explicit
-// bare import (not folded into the named import below) because esbuild's
-// isolated-modules transpile elides an *entirely unused* named-import
-// statement — dropping this side effect — until Task 4 attaches these
-// schemas to routes via `r.<verb>(..., { schema })`.
+// `components/schemas` in the generated OpenAPI doc.
 import "./schemas.ts";
-// Imported here (unused for now) so Task 4 can attach them to routes via
-// `r.<verb>(..., { schema })` without touching the import block again.
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import {
   RegisterInputSchema, LoginInputSchema, UpdateProfileInputSchema,
   UserSchema, AuthTokensSchema, ErrorSchema,
   HealthResponseSchema, E2ECleanupResponseSchema,
   UserIdHeader, WebhookSecretHeader,
 } from "./schemas.ts";
-/* eslint-enable @typescript-eslint/no-unused-vars */
+
+// `User` (the domain shape returned by commands/queries) carries real `Date`
+// fields; `UserSchema` documents the wire shape as ISO strings (see
+// schemas.ts). Convert at the HTTP boundary — Zod's serializer strictly
+// rejects a `Date` against `z.string()`, it does not coerce.
+function serializeUser(user: User) {
+  return {
+    ...user,
+    createdAt: user.createdAt.toISOString(),
+    updatedAt: user.updatedAt.toISOString(),
+    deletedAt: user.deletedAt ? user.deletedAt.toISOString() : null,
+  };
+}
 
 // Builds the Fastify app wired to an Awilix container. Commands/queries are resolved
 // per-request from `request.diScope` instead of a hand-rolled deps bag (see
@@ -73,9 +79,6 @@ export function buildApp(container: AwilixContainer<Cradle> = diContainer): Fast
     transformObject: jsonSchemaTransformObject,
   });
 
-  // Unused until Task 4 rewires the route declarations below from `app.<verb>`
-  // to `r.<verb>(..., { schema })` so they get Zod validation/serialization.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const r = app.withTypeProvider<ZodTypeProvider>();
 
   // Registers `app.diContainer` (resolves the singletons/services above) and
@@ -115,33 +118,63 @@ export function buildApp(container: AwilixContainer<Cradle> = diContainer): Fast
   // NOT create a child encapsulation context. Moving either below this block
   // would silently drop `currentActor`/`diScope` from every route.
   app.after(() => {
-    app.get("/v1/health", async () => ({ status: "ok" }));
+    r.get("/v1/health", {
+      schema: {
+        tags: ["health"], operationId: "getHealth", summary: "Liveness probe",
+        response: { 200: HealthResponseSchema },
+      },
+    }, async () => ({ status: "ok" as const }));
 
-    app.post("/v1/users/register", async (req, reply) => {
-      const body = req.body as { email: string; password: string; fullName: string; address?: unknown; phoneNumber?: string };
+    r.post("/v1/users/register", {
+      schema: {
+        tags: ["users"], operationId: "registerUser", summary: "Register a new user",
+        body: RegisterInputSchema,
+        response: { 201: UserSchema },
+      },
+    }, async (req, reply) => {
+      const body = req.body; // typed from RegisterInputSchema
       const headerFlag = req.headers["x-e2e-source"] === "true";
       const { env, registerUserCommand } = req.diScope.cradle;
       const e2eSource = headerFlag && env.E2E_TESTING_ENABLED;
       const user = await registerUserCommand.execute({ ...body, e2eSource });
-      return reply.code(201).send(user);
+      return reply.code(201).send(serializeUser(user));
     });
 
-    app.post("/v1/users/login", async (req, reply) => {
+    r.post("/v1/users/login", {
+      schema: {
+        tags: ["users"], operationId: "loginUser", summary: "Log in and obtain tokens",
+        body: LoginInputSchema,
+        response: { 200: AuthTokensSchema },
+      },
+    }, async (req, reply) => {
       const { loginUserCommand } = req.diScope.cradle;
-      const tokens = await loginUserCommand.execute(req.body as { email: string; password: string });
+      const tokens = await loginUserCommand.execute(req.body);
       return reply.send(tokens);
     });
 
-    app.get("/v1/users/me", async (req, reply) => {
+    r.get("/v1/users/me", {
+      schema: {
+        tags: ["users"], operationId: "getMe", summary: "Get the current user's profile",
+        headers: UserIdHeader,
+        response: { 200: UserSchema, 404: ErrorSchema },
+      },
+    }, async (req, reply) => {
       const { userQueryService, currentActor } = req.diScope.cradle;
       const me = currentActor ? await userQueryService.getMe(currentActor) : null;
-      return me ? reply.send(me) : reply.code(404).send({ error: "not_found" });
+      return me ? reply.send(serializeUser(me)) : reply.code(404).send({ error: "not_found" });
     });
 
-    app.patch("/v1/users/me", async (req, reply) => {
+    r.patch("/v1/users/me", {
+      schema: {
+        tags: ["users"], operationId: "updateMe", summary: "Update the current user's profile",
+        headers: UserIdHeader,
+        body: UpdateProfileInputSchema,
+        response: { 200: UserSchema },
+      },
+    }, async (req, reply) => {
       const { updateProfileCommand, currentActor } = req.diScope.cradle;
-      const updated = await updateProfileCommand.execute(currentActor as string, req.body as UpdateProfileInput);
-      return reply.send(updated);
+      const updated = await updateProfileCommand.execute(currentActor as string, req.body);
+      return reply.send(serializeUser(updated));
     });
 
     // Thin layer (spec D2): verify the shared secret, validate, delegate. The
@@ -152,7 +185,23 @@ export function buildApp(container: AwilixContainer<Cradle> = diContainer): Fast
     // This is a PUBLIC route at the API Gateway (no JWT authorizer): its callers
     // are the Cognito Lambda shim and the service itself, never a user with a JWT.
     // The shared secret is its only guard.
-    app.post("/v1/webhooks/cognito", async (req, reply) => {
+    //
+    // NOTE: the payload is deliberately NOT declared in `schema.body` — it is
+    // validated manually below via `cognitoWebhookPayloadSchema.safeParse` so
+    // an invalid payload returns 422 (not Fastify's schema-validation 400).
+    r.post("/v1/webhooks/cognito", {
+      schema: {
+        tags: ["webhooks"], operationId: "cognitoWebhook",
+        summary: "Cognito PostConfirmation trigger webhook",
+        headers: WebhookSecretHeader,
+        response: {
+          200: z.object({ status: z.string() }),
+          401: ErrorSchema,
+          422: z.object({ error: z.literal("invalid_payload"), details: z.array(z.unknown()) }),
+          500: ErrorSchema,
+        },
+      },
+    }, async (req, reply) => {
       const { env: e, captureCognitoIdentityCommand } = req.diScope.cradle;
 
       if (!verifyWebhookSecret(req.headers["x-webhook-secret"], e.WEBHOOK_SECRET)) {
@@ -182,16 +231,27 @@ export function buildApp(container: AwilixContainer<Cradle> = diContainer): Fast
     });
 
     if (container.cradle.env.E2E_TESTING_ENABLED) {
-      app.delete("/v1/users/e2e-cleanup", async (req, reply) => {
+      r.delete("/v1/users/e2e-cleanup", {
+        schema: {
+          tags: ["e2e"], operationId: "e2eCleanup", summary: "[E2E] Delete E2E-sourced users",
+          response: { 200: E2ECleanupResponseSchema },
+        },
+      }, async (req, reply) => {
         const { e2eCleanupCommand } = req.diScope.cradle;
         const { count } = await e2eCleanupCommand.execute();
         return reply.send({ deleted: count });
       });
 
       // Read-only: lets the E2E suite assert that identity capture wrote its rows.
-      app.get("/v1/users/e2e-identity", async (req, reply) => {
+      r.get("/v1/users/e2e-identity", {
+        schema: {
+          tags: ["e2e"], operationId: "e2eIdentity", summary: "[E2E] Read captured identity by email",
+          querystring: z.object({ email: z.string().optional() }),
+          response: { 200: z.object({}).passthrough(), 400: ErrorSchema },
+        },
+      }, async (req, reply) => {
         const { e2eIdentityQuery } = req.diScope.cradle;
-        const email = (req.query as { email?: string }).email;
+        const email = req.query.email;
         if (!email) return reply.code(400).send({ error: "email_required" });
         return reply.send(await e2eIdentityQuery.execute(email));
       });
