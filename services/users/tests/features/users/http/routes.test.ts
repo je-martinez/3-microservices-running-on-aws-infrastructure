@@ -262,3 +262,23 @@ describe("POST /v1/webhooks/cognito", () => {
     expect(res.statusCode).toBe(500);
   });
 });
+
+describe("openapi spec generation", () => {
+  it("app.swagger() exposes all routes and the User component", async () => {
+    const { buildApp } = await import("#features/users/http/routes");
+    const { createContainer, asValue } = await import("awilix");
+    const c = createContainer({ injectionMode: "PROXY" });
+    c.register({ env: asValue({ E2E_TESTING_ENABLED: true } as any) });
+    const app = buildApp(c as any);
+    await app.ready();
+    const spec = app.swagger() as any;
+    const paths = Object.keys(spec.paths);
+    expect(paths).toEqual(expect.arrayContaining([
+      "/v1/health", "/v1/users/register", "/v1/users/login",
+      "/v1/users/me", "/v1/webhooks/cognito",
+      "/v1/users/e2e-cleanup", "/v1/users/e2e-identity",
+    ]));
+    expect(spec.components.schemas.User).toBeDefined();
+    await app.close();
+  });
+});
