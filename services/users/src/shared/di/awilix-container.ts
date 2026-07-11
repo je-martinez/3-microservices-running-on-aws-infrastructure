@@ -8,6 +8,7 @@ import { CognitoAuthProvider } from "../auth/cognito-auth-provider.ts";
 import type { AuthProvider } from "../auth/auth-provider.ts";
 import { RegisterUserCommand } from "#features/users/commands/register";
 import { LoginUserCommand } from "#features/users/commands/login";
+import { RefreshTokenCommand } from "#features/users/commands/refresh";
 import { UpdateProfileCommand } from "#features/users/commands/update-profile";
 import { UserQueryService } from "#features/users/queries/get-me";
 import { E2eCleanupCommand } from "#features/users/http/e2e-cleanup";
@@ -25,6 +26,7 @@ declare module "@fastify/awilix" {
     events: EventPublisher;
     registerUserCommand: RegisterUserCommand;
     loginUserCommand: LoginUserCommand;
+    refreshTokenCommand: RefreshTokenCommand;
     updateProfileCommand: UpdateProfileCommand;
     userQueryService: UserQueryService;
     e2eCleanupCommand: E2eCleanupCommand;
@@ -76,6 +78,7 @@ export function registerServices(): void {
   diContainer.register({
     registerUserCommand: asClass(RegisterUserCommand, { lifetime: Lifetime.SCOPED }),
     loginUserCommand: asClass(LoginUserCommand, { lifetime: Lifetime.SCOPED }),
+    refreshTokenCommand: asClass(RefreshTokenCommand, { lifetime: Lifetime.SCOPED }),
     updateProfileCommand: asClass(UpdateProfileCommand, { lifetime: Lifetime.SCOPED }),
     userQueryService: asClass(UserQueryService, { lifetime: Lifetime.SCOPED }),
     e2eCleanupCommand: asClass(E2eCleanupCommand, { lifetime: Lifetime.SCOPED }),
