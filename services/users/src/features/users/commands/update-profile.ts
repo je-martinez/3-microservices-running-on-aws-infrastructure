@@ -1,4 +1,6 @@
 import type { Db } from "#shared/db/prisma";
+import { runAsActor } from "#shared/audit/actor-context";
+import { AuditActor } from "#shared/audit/audit-actor";
 import { toDomain, type User } from "../domain/user.ts";
 
 export interface UpdateProfileInput {
@@ -22,16 +24,22 @@ export class UpdateProfileCommand {
     const target = await this.db.user.findByIdOrCognitoSub(userId);
     if (!target) return null;
 
-    // `updatedBy` is stamped by the audit query extension from the
-    // AsyncLocalStorage actor populated per-request (see `routes.ts`).
-    const row = await this.db.user.update({
-      where: { id: target.id },
-      data: {
-        ...(input.fullName !== undefined ? { fullName: input.fullName } : {}),
-        ...(input.address !== undefined ? { address: input.address as any } : {}),
-        ...(input.phoneNumber !== undefined ? { phoneNumber: input.phoneNumber } : {}),
-      },
-    });
+    // `updatedBy` is stamped by the audit query extension from the ALS actor.
+    // The per-request `onRequest` hook (see `routes.ts`) sets that actor to the
+    // caller's `x-user-id` for identity RESOLUTION, but this self-service write
+    // overrides it locally to the semantic `users_api:update_profile` value —
+    // the audit columns record the action, not the acting user's id (which is
+    // known from the request / the row itself). See [[audit-fields]].
+    const row = await runAsActor(AuditActor.UpdateProfile, () =>
+      this.db.user.update({
+        where: { id: target.id },
+        data: {
+          ...(input.fullName !== undefined ? { fullName: input.fullName } : {}),
+          ...(input.address !== undefined ? { address: input.address as any } : {}),
+          ...(input.phoneNumber !== undefined ? { phoneNumber: input.phoneNumber } : {}),
+        },
+      }),
+    );
     return toDomain(row as any);
   }
 }

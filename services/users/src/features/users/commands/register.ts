@@ -4,6 +4,7 @@ import type { EventPublisher } from "#shared/messaging/event-publisher";
 import type { Env } from "#shared/config/env";
 import { MODEL_ID_PREFIXES, generateId } from "#shared/id/nano-id";
 import { runAsActor } from "#shared/audit/actor-context";
+import { AuditActor } from "#shared/audit/audit-actor";
 import { toDomain, type User } from "../domain/user.ts";
 import type { CaptureCognitoIdentityCommand } from "../webhooks/capture-cognito-identity.ts";
 
@@ -47,17 +48,17 @@ export class RegisterUserCommand {
 
   async execute(input: RegisterInput): Promise<User> {
     // Self-registration: the new row is its own audit actor. The id is
-    // reserved up front (instead of letting the nano-id extension generate
-    // it) so it can be used both as the row's `id` and, via `runAsActor`, as
-    // the actor the audit extension reads from AsyncLocalStorage for this
-    // `create` call — stamping `createdBy`/`updatedBy` as the new user's own id
-    // (see [[audit-fields]] and `shared/audit/actor-context.ts`). It is also
-    // passed to `signUp` as `appUserId` so it lands in Cognito's
-    // `custom:app_user_id` attribute before the row even exists.
+    // reserved up front (instead of letting the nano-id extension generate it)
+    // so it can be used as both the row's `id` and the `appUserId` passed to
+    // `signUp` (landing in Cognito's `custom:app_user_id` before the row
+    // exists). The audit actor is NOT this id: the `create` runs inside
+    // `runAsActor(AuditActor.Register, ...)`, so the extension stamps
+    // `createdBy`/`updatedBy` with the semantic `users_api:register` value
+    // rather than the user's own id (see [[audit-fields]], `AuditActor`).
     const id = generateId(MODEL_ID_PREFIXES.User);
     const signUp = await this.auth.signUp(input.email, input.password, id);
     const tags = input.e2eSource ? ["E2E Source"] : [];
-    const row = await runAsActor(id, () =>
+    const row = await runAsActor(AuditActor.Register, () =>
       this.db.user.create({
         data: {
           id,

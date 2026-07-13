@@ -17,12 +17,14 @@ export function getActor(): string | undefined {
 }
 
 // Runs `fn` with `actor` as the audit actor for its whole async call chain.
-// Used by self-registration (see `commands/register.ts`): the new user row's
-// `createdBy`/`updatedBy` must be its own freshly generated id, but that id
-// isn't known until the nano-id extension stamps it — so `register` reserves
-// the id up front, then runs the `create` call inside `runAsActor(id, ...)`.
-// Nests correctly on top of the per-request store populated in `routes.ts`
-// (AsyncLocalStorage.run creates a new, isolated store for its callback).
+// Write paths pass a semantic `AuditActor` value (see `shared/audit/audit-actor.ts`)
+// so the audit columns record WHAT produced the row (e.g. `users_api:register`)
+// rather than a bare id — e.g. `register` wraps its `create` in
+// `runAsActor(AuditActor.Register, ...)`, `updateProfile` its `update` in
+// `runAsActor(AuditActor.UpdateProfile, ...)`. Nests correctly on top of the
+// per-request store populated in `routes.ts` (AsyncLocalStorage.run creates a
+// new, isolated store for its callback), so these local overrides take
+// precedence over the request's `x-user-id` actor for the wrapped write.
 export function runAsActor<T>(actor: string, fn: () => Promise<T>): Promise<T> {
   return actorContext.run({ actor }, fn);
 }

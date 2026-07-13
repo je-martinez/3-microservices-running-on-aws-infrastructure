@@ -1,10 +1,14 @@
 import { describe, it, expect, vi } from "vitest";
 import { RegisterUserCommand } from "#features/users/commands/register";
+import { AuditActor } from "#shared/audit/audit-actor";
+import { getActor } from "#shared/audit/actor-context";
 
 function deps(overrides: Record<string, unknown> = {}) {
   const created: any = {};
   return {
-    db: { user: { create: vi.fn(async ({ data }: any) => { Object.assign(created, data); return data; }) } },
+    // Capture the audit actor the extension would read (getActor) at the moment
+    // of the create call — register wraps it in runAsActor(AuditActor.Register).
+    db: { user: { create: vi.fn(async ({ data }: any) => { Object.assign(created, data); created._actor = getActor(); return data; }) } },
     auth: {
       signUp: vi.fn(async () => ({
         sub: "7904d681-f590-4b4d-bbce-15348a898873",
@@ -39,12 +43,19 @@ describe("RegisterUserCommand", () => {
     expect(user.tags).toEqual([]);
   });
 
-  it("generates a usr_-prefixed id and passes it explicitly in create data (self-actor semantics)", async () => {
+  it("generates a usr_-prefixed id and passes it explicitly as the create data id", async () => {
     const d = deps();
     const command = new RegisterUserCommand(d);
     const user = await command.execute({ email: "a@b.c", password: "P!1", fullName: "A", e2eSource: false });
     expect(user.id).toMatch(/^usr_/);
     expect(d._created.id).toBe(user.id);
+  });
+
+  it("stamps the audit actor as AuditActor.Register (not the user's id)", async () => {
+    const d = deps();
+    const command = new RegisterUserCommand(d);
+    await command.execute({ email: "a@b.c", password: "P!1", fullName: "A", e2eSource: false });
+    expect(d._created._actor).toBe(AuditActor.Register);
   });
 
   it("stamps cognitoSub from the Cognito signUp response on the created user (JE-38)", async () => {

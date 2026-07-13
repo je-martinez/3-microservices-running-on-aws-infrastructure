@@ -1,5 +1,6 @@
 import type { Db } from "#shared/db/prisma";
 import { runAsActor } from "#shared/audit/actor-context";
+import { AuditActor } from "#shared/audit/audit-actor";
 import { MODEL_ID_PREFIXES, generateId } from "#shared/id/nano-id";
 import { deriveMessageId } from "./message-id.ts";
 import type { CognitoWebhookPayload } from "./cognito-payload.ts";
@@ -89,7 +90,7 @@ export class CaptureCognitoIdentityCommand {
     // Audit fields (createdBy/updatedBy) are still stamped by the Prisma
     // extension; never set those here. `runAsActor` names the actor for this
     // non-request-bound write.
-    return runAsActor("cognito-webhook", async () => {
+    return runAsActor(AuditActor.IdentityCapture, async () => {
       // No `users` row for this email is not a routine outcome (see
       // NoMatchingUserError) — fail before writing anything, rather than
       // persisting a partial snapshot or event.
