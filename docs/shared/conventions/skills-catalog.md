@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-06-28
-updated: 2026-06-28
+updated: 2026-07-12
 tags:
   - type/convention
   - area/shared
@@ -42,30 +42,52 @@ Installed via `/plugin install`. Registration is written into `.claude/settings.
 
 ## Installed — npx Agent Skills
 
-These skills are installed in `.claude/skills/` and pinned in `skills-lock.json`.
+These skills are installed as real directories in `.claude/skills/` (20 total) and pinned in `skills-lock.json`.
 
 | Skill | Source repo | Used by |
 |---|---|---|
 | `fastify-best-practices` | mcollina/skills | Users service |
 | `prisma-postgres` | prisma/skills (official) | Users service |
 | `prisma-postgres-setup` | prisma/skills (official) | Users service |
+| `prisma-cli` | prisma/skills (official) | Users service |
+| `prisma-client-api` | prisma/skills (official) | Users service |
+| `prisma-upgrade-v7` | prisma/skills (official) | Users service |
+| `typescript-pro` | community | Users service |
+| `typescript-advanced-types` | community | Users service |
 | `efcore-patterns` | Aaronontheweb/dotnet-skills | Orders service |
 | `database-performance` | Aaronontheweb/dotnet-skills | Orders service |
 | `fastapi-expert` | Jeffallan/claude-skills | Tracking service |
 | `mysql` | planetscale/database-skills | Orders + Tracking |
 | `database-designer` | alirezarezvani/claude-skills | Cross-cutting DB design |
 | `terraform-skill` | antonbabenko/terraform-skill | Infrastructure (converted from plugin evaluation → npx) |
+| `floci` | project-authored | Infrastructure — local AWS emulator knowledge layer |
+| `obsidian-markdown` | obsidian community | Vault authoring — wikilinks, callouts, properties, embeds |
+| `obsidian-bases` | obsidian community | Vault authoring — `.base` files |
+| `obsidian-cli` | obsidian community | Vault authoring — CLI read/search/manage |
+| `json-canvas` | obsidian community | Vault authoring — `.canvas` files |
+| `defuddle` | obsidian community | Clean markdown extraction from web pages |
+
+> [!note] obsidian-\* skills are installed, not built-in
+> The five `obsidian-*` skills above (`obsidian-markdown`, `obsidian-bases`, `obsidian-cli`,
+> `json-canvas`, `defuddle`) are installed as real directories in `.claude/skills/`, the same as any
+> other npx Agent Skill — they are **not** a harness built-in. The `obsidian@obsidian-skills` plugin
+> entry in `.claude/settings.json` is a separate registration (see the plugins table below); the two
+> mechanisms coexist for this skill family.
 
 ---
 
 ## Installed — Claude Code plugins
 
-These skills are registered in `.claude/settings.json` via `/plugin install`. They bundle MCP servers or embedded sub-agents that npx cannot carry.
+These are registered in `.claude/settings.json` via `enabledPlugins` (six total). They bundle MCP servers or embedded sub-agents that npx cannot carry, or are plugin-distributed skill/agent bundles.
 
-| Skill | Source | Why plugin (not npx) |
+| Plugin | Source | Why plugin (not npx) |
 |---|---|---|
+| `linear` | claude-plugins-official | Live Linear MCP server (`mcp__plugin_linear_linear__*`), used by the `linear-pm` agent |
+| `github` | claude-plugins-official | GitHub operations skill/agent bundle, used by the `github-ops` agent |
+| `superpowers` | claude-plugins-official | Brainstorming/writing-plans/TDD/etc. skill bundle plus workflow conventions |
+| `obsidian@obsidian-skills` | obsidian-skills | Registers the obsidian skill family at the plugin level (see note above; the skills themselves also exist as npx dirs) |
 | `mongodb` | claude-plugins-official | Bundles an MCP server that provides live database access; `npx` would install `SKILL.md` only — no runtime |
-| `aws-dev-toolkit` | aws-samples marketplace | 40+ skills plus sub-agents embedded in the plugin; not exposed as standalone `SKILL.md` files |
+| `aws-dev-toolkit` | sample-claude-code-plugins-for-startups | 40+ skills plus sub-agents embedded in the plugin; not exposed as standalone `SKILL.md` files |
 
 > [!warning] DocumentDB scope for the MongoDB plugin
 > For Amazon DocumentDB, use **only** the MongoDB plugin's **Schema Design** and **Query Optimizer** skills. Atlas-specific skills (Stream Processing, Atlas Search, Atlas Vector Search) do NOT apply to Amazon DocumentDB and must not be used in the events-pipeline service.
@@ -74,18 +96,14 @@ These skills are registered in `.claude/settings.json` via `/plugin install`. Th
 
 ## Already available (no install needed)
 
-The following skills ship with the Claude Code harness or are already registered in this repo and are available to all agents without any additional install step:
+The following ship with the Claude Code harness itself and require no install step:
 
 - **context7** — live documentation for every stack in this project: Fastify, Prisma, EF Core, SQLAlchemy, Terraform.
-- **superpowers** — brainstorming, writing-plans, executing-plans, subagent-driven-development, systematic-debugging, test-driven-development, code-review, verification-before-completion, and companion skills.
-- **obsidian-\*** — obsidian-markdown, obsidian-bases, obsidian-cli, json-canvas, defuddle (vault authoring).
 - **code-review** — inline PR review and fix application.
 - **simplify** — reuse, simplification, and efficiency cleanup.
 - **skill-creator** — author new skills.
 - **commit-commands** — commit, push, and PR automation.
 - **claude-md-management** — CLAUDE.md revision and improvement.
-- **linear** — Linear PM agent skill (via `linear-pm`).
-- **github** — GitHub operations skill (via `github-ops`).
 - **codex** — Codex CLI runtime, rescue, and setup.
 
 ---

@@ -5,7 +5,7 @@ area: shared
 status: superseded
 id: ADR-0012
 created: 2026-06-26
-updated: 2026-06-29
+updated: 2026-07-12
 deciders: [Jose E. Martinez]
 supersedes: null
 superseded-by: ADR-0017
@@ -17,7 +17,7 @@ related:
 # ADR-0012: Ministack for Local AWS Emulation
 
 > [!warning] Superseded
-> This ADR is superseded by [[ADR-0017-floci-local]] — Floci was adopted as the local AWS emulator after a successful spike. The Ministack service config is kept commented in `docker-compose.yml` as a fallback.
+> This ADR is superseded by [[ADR-0017-floci-local]] — Floci was adopted as the local AWS emulator after a successful spike. Ministack has since been **removed entirely** from `docker-compose.yml` — there is no commented-out fallback config; the only remaining trace is a historical comment noting Floci "replaced Ministack" on the `:4566` port.
 
 ## Context
 

@@ -4,7 +4,7 @@ type: plan
 area: users
 status: active
 created: 2026-06-28
-updated: 2026-06-28
+updated: 2026-07-12
 tags:
   - type/plan
   - area/users
@@ -23,35 +23,60 @@ tags:
   - issue/JE-35
   - issue/JE-36
   - issue/JE-37
+  - issue/JE-38
+  - issue/JE-39
+  - issue/JE-40
 related:
   - "[[milestone-plan]]"
   - "[[linear-references]]"
   - "[[2026-06-28-users-service-design]]"
   - "[[2026-06-28-users-service]]"
   - "[[ADR-0015-drawio-diagrams]]"
+  - "[[2026-07-09-users-cognito-webhook-design]]"
+  - "[[2026-07-10-users-openapi-autogen-design]]"
+  - "[[2026-07-11-refresh-token-endpoint-design]]"
+  - "[[2026-07-11-auth-error-mapping-design]]"
+  - "[[2026-07-11-authenticated-identity-resolution-design]]"
+  - "[[2026-07-11-gap1-nginx-njs-xuserid-design]]"
+  - "[[2026-07-12-app-user-id-token-claim-design]]"
+  - "[[2026-07-12-audit-actor-enum-design]]"
+  - "[[ADR-0016-local-apigw-nginx-ecs]]"
+  - "[[cognito-pre-token-lambda]]"
 ---
 
 # Users Service — Milestone Plan
 
-This plan documents the logical execution order and blocking relationships for the **Users Service** milestone: taking the Users service from an empty scaffold to a working end-to-end slice on Ministack. The milestone covers pnpm workspace tooling, a Prisma schema with a new `tags` column, a Fastify API (`register`, `login`, `me`, `health`) behind a Cognito JWT authorizer on API Gateway, Terraform modules for the full AWS resource chain (Aurora Postgres, Cognito, networking, ECS Fargate, API Gateway + ALB), and two layers of testing — Vitest unit tests inside the service and a root-level Playwright E2E suite that drives the stack through API Gateway using Chance for mock data. Live issue state is the source of truth in Linear — see the [3MRAI project](https://linear.app/je-martinez/project/3mrai-company-da39253a1d6f) for current milestone status. Individual issues are linked in the task sequence below. This note documents only structural design knowledge: task order and blocking relationships.
+This plan documents the logical execution order and blocking relationships for the **Users Service** milestone: taking the Users service from an empty scaffold to a working end-to-end slice, originally on Ministack and now on Floci (see [[ADR-0017-floci-local]]). The milestone covers pnpm workspace tooling, a Prisma schema with a new `tags` column, a Fastify API (`register`, `login`, `me`, `health`) behind a Cognito JWT authorizer on API Gateway, Terraform modules for the full AWS resource chain (Aurora Postgres, Cognito, networking, ECS Fargate, API Gateway + ALB/Nginx), and two layers of testing — Vitest unit tests inside the service and a root-level Playwright E2E suite that drives the stack through API Gateway using Chance for mock data. Live issue state is the source of truth in Linear — see the [3MRAI project](https://linear.app/je-martinez/project/3mrai-company-da39253a1d6f) for current milestone status. Individual issues are linked in the task sequence below. This note documents only structural design knowledge: task order and blocking relationships.
 
 > [!warning] Hard dependency gate
-> JE-25 (Ministack spike) must pass before any infra module work (JE-28 onward) begins. If the spike fails, stop and escalate to the user — do not silently change topology.
+> JE-25 (local emulator auth-chain spike) must pass before any infra module work (JE-28 onward) begins. If the spike fails, stop and escalate to the user — do not silently change topology.
 
 This plan follows the [[milestone-plan]] convention. Detailed task content lives in the implementation plan [[2026-06-28-users-service]] and the design spec [[2026-06-28-users-service-design]].
+
+> [!info] 2026-07-12 sync — scope grew past JE-25…JE-37
+> This note originally tracked only JE-25 through JE-37 (frozen at 2026-06-28). The branch has since
+> delivered three more Linear issues (JE-38, JE-39, JE-40) and a sizeable body of **post-JE-40 work
+> that has no Linear issue at all** — typed auth errors, the refresh endpoint, OpenAPI autogen,
+> identity resolution, the `app_user_id` claim, and the `AuditActor` enum. See
+> "Phase — post-JE-37 (JE-38…JE-40)" and "Phase — post-JE-40 (no Linear issue)" below for what
+> actually shipped.
 
 ## Logical phases
 
 | Phase | Issues | Description |
 |---|---|---|
-| Spike | JE-25 | Ministack auth-chain validation (API GW + Cognito authorizer + ALB→Fargate). Hard gate. |
+| Spike | JE-25 | Local emulator auth-chain validation (API GW + Cognito authorizer + ALB→Fargate; originally Ministack, later re-verified on Floci). Hard gate. |
 | pnpm tooling | JE-26, JE-27 | pnpm workspace root + Users pnpm package (`@3mrai/users`) with TypeScript + Vitest config |
 | Domain logic | JE-29, JE-31, JE-33 | Prisma schema + Zod env + primitives; auth + domain entity + commands/queries; Fastify routes + DI + gRPC |
 | Infra modules | JE-28, JE-30 | Terraform modules: label/networking/rds-aurora/cognito; compute (ECS Fargate) + api-gateway |
 | Service packaging | JE-35 | pnpm Dockerfile + docker-compose wiring + `services/users/CLAUDE.md` update |
-| Apply | JE-36 | `environments/local` composition + `terraform apply` against Ministack + DB migration |
+| Apply | JE-36 | `environments/local` composition + `terraform apply` (migrated Ministack → Floci mid-milestone, see [[ADR-0017-floci-local]]) + DB migration |
 | Testing | JE-32, JE-37 | Playwright E2E harness (chancejs factory, setup/teardown); E2E specs (users flows through API Gateway) |
 | Docs | JE-34 | Vault tags sync: add `tags` column to canonical users-service-design spec |
+| Cognito identity webhook | JE-38 | Identity tables + `POST /v1/webhooks/cognito` + `CaptureCognitoIdentityCommand`; `cognitoSub` added to `User`. See [[2026-07-09-users-cognito-webhook-design]]. |
+| Code-quality refactor | JE-39 | DI via Awilix, Prisma v7 client-extension pattern, TS module boundaries. Single branch, one PR (see [[2026-06-28-users-service-design]]). |
+| JE-39 follow-up debt | JE-40 | Cleanup items identified during the JE-39 refactor review. |
+| Post-JE-40 (no Linear issue) | — | `POST /v1/users/refresh`; typed auth errors + `setErrorHandler` (401/409); OpenAPI autogen from Zod route schemas; `byIdOrCognitoSub` identity resolution; nginx+njs `x-user-id` injection (Gap 1); `custom:app_user_id` claim + Pre-Token-Generation V2 Lambda; `AuditActor` enum + lazy-PrismaPromise/ALS fix. See the design specs listed in the phase detail below. |
 
 ## Task sequence
 

@@ -2,10 +2,10 @@
 title: Events Pipeline Design
 type: spec
 area: events-pipeline
-status: active
+status: draft
 created: 2026-06-26
-updated: 2026-06-26
-tags: [type/spec, area/events-pipeline, status/active]
+updated: 2026-07-12
+tags: [type/spec, area/events-pipeline, status/draft]
 related:
   - "[[cqrs]]"
   - "[[ADR-0002-cqrs]]"
@@ -17,6 +17,19 @@ related:
 ---
 
 # Events Pipeline Design
+
+> [!warning] Not implemented yet
+> The events-pipeline service is **design-only** — no source code exists. `services/events-pipeline/src/`
+> contains only `.gitkeep` placeholders (no `package.json`, no tests), and
+> `services/events-pipeline/Dockerfile` has every build line commented out. Only a stub
+> [`services/events-pipeline/CLAUDE.md`](../../../../services/events-pipeline/CLAUDE.md) and a
+> placeholder `events-pipeline` service in the root `docker-compose.yml` (build + network wiring
+> only — no ports, no database, no healthcheck) exist so far. Everything below describes the
+> **intended** design, not running behavior.
+>
+> The supporting infrastructure this design assumes is also not built yet: there is no
+> SQS/messaging Terraform module (`infra/modules/messaging/` is an empty `.gitkeep`) and no
+> DocumentDB module (`infra/modules/database/` is empty — only `rds-aurora` exists).
 
 ## Summary
 

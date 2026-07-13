@@ -2,10 +2,10 @@
 title: Orders Service Design
 type: spec
 area: orders
-status: active
+status: draft
 created: 2026-06-26
-updated: 2026-06-27
-tags: [type/spec, area/orders, status/active]
+updated: 2026-07-12
+tags: [type/spec, area/orders, status/draft]
 related:
   - soft-delete
   - nano-id
@@ -18,6 +18,19 @@ related:
 ---
 
 # Orders Service Design
+
+> [!warning] Not implemented yet
+> The Orders service is **design-only** — no source code exists. `services/orders/src/` contains
+> only `.gitkeep` placeholders (no `.csproj`, no tests), and `services/orders/Dockerfile` has every
+> build line commented out. Only a stub [`services/orders/CLAUDE.md`](../../../../services/orders/CLAUDE.md)
+> and a placeholder `orders` service in the root `docker-compose.yml` (build + network wiring only —
+> no ports, no database, no healthcheck) exist so far. Everything below describes the **intended**
+> design, not running behavior.
+>
+> The supporting infrastructure this design assumes is also not built yet: there is no SQS/messaging
+> Terraform module (`infra/modules/messaging/` is an empty `.gitkeep`), no DocumentDB module
+> (`infra/modules/database/` is empty — only `rds-aurora` exists), no Aurora MySQL cluster, and no
+> gRPC surface anywhere in the repo (no `.proto` files exist yet).
 
 ## Summary
 
@@ -47,7 +60,7 @@ All routes are versioned under the `/v1` prefix. See [[versioning]] for the vers
 | `POST` | `/v1/orders` | Create a new order. Publishes `ORDER_CREATED` to SQS. |
 | `GET` | `/v1/orders/my-orders` | List all orders belonging to the authenticated user. |
 | `GET` | `/v1/orders/{order_id}` | Fetch a single order. Returns `403` if the order does not belong to the requesting user. |
-| `GET` | `/health` | Liveness/readiness probe. Returns `200 { "status": "ok" }` when healthy. No auth required. Used by ALB/Fargate as health check target. |
+| `GET` | `/v1/health` | Liveness/readiness probe. Returns `200 { "status": "ok" }` when healthy. No auth required. Used by ALB/Fargate as health check target. |
 
 > [!note] Authorization check
 > `GET /orders/{order_id}` must compare the `user_id` stored on the order against the caller's identity (from the Cognito JWT). Return `403 Forbidden` — never `404` — to avoid leaking existence of other users' orders.
