@@ -95,6 +95,23 @@ This plan follows the [[milestone-plan]] convention. Detailed task content lives
 | 11 | [JE-32](https://linear.app/je-martinez/issue/JE-32) | Playwright harness | `e2e/` package + chancejs factory + setup/teardown | [[2026-06-28-users-service-design]] |
 | 12 | [JE-37](https://linear.app/je-martinez/issue/JE-37) | E2E specs | `e2e/tests/users.spec.ts` | [[2026-06-28-users-service-design]] |
 | 13 | [JE-34](https://linear.app/je-martinez/issue/JE-34) | Vault tags sync | `docs/domains/users/specs/users-service-design.md` | [[2026-06-28-users-service-design]] |
+| 14 | [JE-38](https://linear.app/je-martinez/issue/JE-38) | Cognito identity webhook + identity tables | Identity models + migration, `POST /v1/webhooks/cognito`, `CaptureCognitoIdentityCommand`, `cognitoSub` on `User`, E2E identity-verification endpoint | [[2026-07-09-users-cognito-webhook-design]] |
+| 15 | [JE-39](https://linear.app/je-martinez/issue/JE-39) | Code quality refactor | DI via Awilix, Prisma v7 client-extension pattern, TS module boundaries (single branch, one PR) | [[2026-06-28-users-service-design]] |
+| 16 | [JE-40](https://linear.app/je-martinez/issue/JE-40) | JE-39 follow-up debt | Cleanup items from the JE-39 refactor review | [[2026-06-28-users-service-design]] |
+
+### Post-JE-40 work (no Linear issue)
+
+The following shipped after JE-40 without a tracked Linear issue. Each has its own normalized design spec and implementation plan under `docs/superpowers/`.
+
+| # | Task | Deliverable | Spec note |
+|---|---|---|---|
+| 17 | `POST /v1/users/refresh` endpoint | `AuthProvider.refresh` (Cognito `REFRESH_TOKEN_AUTH`), `RefreshTokenCommand` + DI registration, public route + schemas, API Gateway route | [[2026-07-11-refresh-token-endpoint-design]] |
+| 18 | Typed auth errors + error handler | `AuthError`/`InvalidCredentials`/`EmailExists` domain errors, `CognitoAuthProvider` SDK-exception translation, global `setErrorHandler` mapping to `401`/`409` | [[2026-07-11-auth-error-mapping-design]] |
+| 19 | OpenAPI autogen from Zod | `@fastify/swagger` + `fastify-type-provider-zod`, Zod v4 subpath migration, named request-body schemas, `generate:openapi` → `openapi.yaml` | [[2026-07-10-users-openapi-autogen-design]] |
+| 20 | `byIdOrCognitoSub` identity resolution | Prisma model method `findByIdOrCognitoSub`; `getMe`/`getUserById`/`updateProfile` resolve by either id or `cognitoSub`; `404` on no match | [[2026-07-11-authenticated-identity-resolution-design]] |
+| 21 | nginx+njs `x-user-id` injection (Gap 1) | `auth.js` + `nginx.conf` checked in and bind-mounted via host volume; decodes the JWT and injects `x-user-id` (Floci claim→header gap workaround) | [[2026-07-11-gap1-nginx-njs-xuserid-design]], [[ADR-0016-local-apigw-nginx-ecs]] |
+| 22 | `custom:app_user_id` claim + Pre-Token-Generation V2 Lambda | Cognito user pool `custom:app_user_id` attribute; `register` generates the `usr_` id before `signUp` and sets the attribute; Pre-Token-Generation V2 Lambda + trigger (repo's first Lambda) surfaces `app_user_id` on the token | [[2026-07-12-app-user-id-token-claim-design]], [[cognito-pre-token-lambda]] |
+| 23 | `AuditActor` enum | Semantic `AuditActor` enum stamped on `createdBy`/`updatedBy`; fix for the audit actor not surviving Prisma's lazy `PrismaPromise` inside `runAsActor`'s AsyncLocalStorage context | [[2026-07-12-audit-actor-enum-design]] |
 
 ## Dependencies
 
@@ -115,12 +132,22 @@ This plan follows the [[milestone-plan]] convention. Detailed task content lives
 | JE-32 | JE-26 |
 | JE-37 | JE-36, JE-32 |
 | JE-34 | JE-29 |
+| JE-38 | JE-37 |
+| JE-39 | JE-38 |
+| JE-40 | JE-39 |
+| Post-JE-40 tasks (17–23) | JE-40 |
 
 ### Dependency diagram
 
 ![[users-service-deps.drawio.svg]]
 
-JE-25 (Ministack spike) is the hard escalation gate for the infra chain: JE-28 cannot start until the spike passes. The pnpm toolchain (JE-26 → JE-27) and the spike run in parallel. The domain logic chain (JE-27 → JE-29 → JE-31 → JE-33 → JE-35) feeds into JE-36 (apply), which also requires the infra modules chain (JE-28 → JE-30) and JE-29 (for the DB migration URL). The Playwright harness (JE-32) can start right after JE-26 is done and joins JE-37 only after JE-36 applies the full stack. JE-34 (vault tags sync) is an independent docs task that only needs JE-29 for the schema definition.
+JE-25 (originally the Ministack spike, later re-verified on Floci) is the hard escalation gate for the infra chain: JE-28 cannot start until the spike passes. The pnpm toolchain (JE-26 → JE-27) and the spike run in parallel. The domain logic chain (JE-27 → JE-29 → JE-31 → JE-33 → JE-35) feeds into JE-36 (apply), which also requires the infra modules chain (JE-28 → JE-30) and JE-29 (for the DB migration URL). The Playwright harness (JE-32) can start right after JE-26 is done and joins JE-37 only after JE-36 applies the full stack. JE-34 (vault tags sync) is an independent docs task that only needs JE-29 for the schema definition.
+
+> [!info] Diagram not updated for JE-38 onward
+> The `users-service-deps.drawio.svg` diagram above still reflects only JE-25…JE-37 (its original
+> scope). JE-38, JE-39, JE-40, and the 7 post-JE-40 tasks were delivered **sequentially, one after
+> another, on the same branch** — each depends on the previous one completing — so the dependency
+> table above is sufficient to describe them; the diagram was not regenerated for this sync pass.
 
 ## Related
 
@@ -129,3 +156,14 @@ JE-25 (Ministack spike) is the hard escalation gate for the infra chain: JE-28 c
 - [[2026-06-28-users-service-design]] — the design spec specifying each deliverable.
 - [[2026-06-28-users-service]] — the implementation plan with detailed task steps.
 - [[ADR-0015-drawio-diagrams]] — governs the `.drawio.svg` diagram format.
+- [[2026-07-09-users-cognito-webhook-design]] — JE-38 design spec.
+- [[2026-07-10-users-openapi-autogen-design]] — OpenAPI autogen design spec (post-JE-40).
+- [[2026-07-11-refresh-token-endpoint-design]] — refresh endpoint design spec (post-JE-40).
+- [[2026-07-11-auth-error-mapping-design]] — typed auth errors design spec (post-JE-40).
+- [[2026-07-11-authenticated-identity-resolution-design]] — `byIdOrCognitoSub` design spec (post-JE-40).
+- [[2026-07-11-gap1-nginx-njs-xuserid-design]] — nginx+njs `x-user-id` design spec (post-JE-40).
+- [[2026-07-12-app-user-id-token-claim-design]] — `app_user_id` claim design spec (post-JE-40).
+- [[2026-07-12-audit-actor-enum-design]] — `AuditActor` enum design spec (post-JE-40).
+- [[ADR-0016-local-apigw-nginx-ecs]] — Nginx reverse proxy ADR referenced by Gap 1.
+- [[ADR-0017-floci-local]] — local emulator migration referenced by JE-36/JE-25.
+- [[cognito-pre-token-lambda]] — Pre-Token-Generation V2 Lambda design referenced by task 22.
