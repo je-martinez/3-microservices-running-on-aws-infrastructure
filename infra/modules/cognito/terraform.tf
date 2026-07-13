@@ -10,5 +10,10 @@ terraform {
     local = {
       source = "hashicorp/local"
     }
+    # Zips the Pre-Token-Generation Lambda source (pre-token-lambda/) into the
+    # deployment package consumed by aws_lambda_function.pre_token.
+    archive = {
+      source = "hashicorp/archive"
+    }
   }
 }

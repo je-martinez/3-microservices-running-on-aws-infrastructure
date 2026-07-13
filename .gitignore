@@ -39,5 +39,8 @@ e2e/test-results/
 **/.terraform-cognito/
 infra/environments/local/.app-db-secret
 
+# archive_file build artifact (modules/cognito/main.tf data.archive_file.pre_token)
+infra/modules/cognito/pre-token-lambda.zip
+
 # Agent-skills CLI local mirror (canonical copies live in .claude/skills/)
 .agents/
