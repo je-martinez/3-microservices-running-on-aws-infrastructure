@@ -12,6 +12,22 @@ resource "aws_cognito_user_pool" "this" {
     require_uppercase = false
   }
 
+  # Stores the app's Prisma user id (usr_…) on the Cognito user. register sets
+  # custom:app_user_id at sign-up; a Pre-Token-Generation V2 Lambda copies it
+  # into an `app_user_id` token claim. Read/write attributes default to ALL, so
+  # no client change is needed. Custom attributes are immutable at the schema
+  # level — name/type is a one-way decision (fine locally; Floci re-mints the
+  # pool each apply).
+  schema {
+    name                = "app_user_id"
+    attribute_data_type = "String"
+    mutable             = true
+    string_attribute_constraints {
+      min_length = 1
+      max_length = 64
+    }
+  }
+
   tags = var.context.tags
 }
 
