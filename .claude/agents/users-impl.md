@@ -45,7 +45,14 @@ in `services/users/CLAUDE.md`. Read that first, every time.
    rules it links (`[[soft-delete]]`, `[[nano-id]]`, `[[audit-fields]]`, etc.).
 2. **Implement the task** following the service's established patterns and the
    plan's TDD steps where the plan defines them.
-3. **Run the service's tests/build** as defined in `services/users/CLAUDE.md`
+3. **Keep `services/users/openapi.yaml` in sync (GOLDEN RULE).** Whenever your
+   change touches an HTTP route — a new/removed route, or a change to any
+   route's `schema` (`body`, `querystring`, `params`, `headers`, or `response`)
+   — you MUST run `nvm use && pnpm generate:openapi` and include the regenerated
+   `openapi.yaml` in your changed files. The spec is generated from the Zod
+   route schemas, so it only stays correct if you regenerate after touching
+   them. See `services/users/CLAUDE.md` for details.
+4. **Run the service's tests/build** as defined in `services/users/CLAUDE.md`
    (run `nvm use` first if it is a Node service). Report the actual output.
 4. **Leave the work in the working tree** and report what you changed (paths),
    test results, and a proposed Conventional-Commits message for the main

@@ -18,9 +18,35 @@ every time. Cross-cutting rules are **referenced**, never duplicated.
 - Lint: `pnpm lint`
 - Run local (docker-watch): `docker compose up users --watch` (from repo root)
 - Migrate: `pnpm prisma migrate dev`
+- **Generate the OpenAPI spec: `pnpm generate:openapi`** (writes `openapi.yaml`).
 
 > These commands are the intended contract; the scripts themselves are created
 > in the Users implementation milestone.
+
+## 2a. GOLDEN RULE — keep `openapi.yaml` in sync
+
+`services/users/openapi.yaml` is **generated from the Fastify route Zod schemas**
+(`@fastify/swagger` + `fastify-type-provider-zod`), and it is the artifact
+imported into Apidog. It only stays correct if it is regenerated after the
+schemas change.
+
+**Whenever you add/remove an HTTP route, or change any route's `schema` — its
+`body`, `querystring`, `params`, `headers`, or `response` — you MUST run
+`nvm use && pnpm generate:openapi` and commit the regenerated `openapi.yaml`
+together with the code change.** A route change without a matching
+`openapi.yaml` update is an incomplete change.
+
+- Request/response models should be **named components**, not inline anonymous
+  schemas, so Apidog shows them as proper models. Register each reusable schema
+  with `z.globalRegistry.add(schema, { id })` in `http/schemas.ts`. For a
+  request body, the provider suffixes the request variant with `Input`, so id
+  `Register` → component `RegisterInput` (see the registrations at the bottom of
+  `http/schemas.ts`).
+- The generator prunes component schemas that nothing `$ref`s (orphans), so only
+  referenced models appear — keep that behavior (do not register a schema no
+  route uses).
+- Verify after regenerating: every route's body/params/response resolves to a
+  named `$ref` (not inline), and `pnpm build && pnpm lint && pnpm test` pass.
 
 ## 3. Folder structure (screaming architecture)
 ```

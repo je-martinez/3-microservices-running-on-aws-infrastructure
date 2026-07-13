@@ -7,6 +7,64 @@ info:
     forwards the Cognito subject as the x-user-id header.
 components:
   schemas:
+    RegisterInput:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: "#/components/schemas/RegisterInput"
+      type: object
+      properties:
+        email:
+          description: New user's email
+          type: string
+          format: email
+          pattern: ^(?!\.)(?!.*\.\.)([A-Za-z0-9_'+\-\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$
+        password:
+          description: Plaintext password (sent to the auth provider)
+          type: string
+        fullName:
+          description: Display name
+          type: string
+        address:
+          description: Free-form structured address (stored as JSON)
+        phoneNumber:
+          type: string
+      required:
+        - email
+        - password
+        - fullName
+    LoginInput:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: "#/components/schemas/LoginInput"
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          pattern: ^(?!\.)(?!.*\.\.)([A-Za-z0-9_'+\-\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$
+        password:
+          type: string
+      required:
+        - email
+        - password
+    RefreshInput:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: "#/components/schemas/RefreshInput"
+      type: object
+      properties:
+        refreshToken:
+          type: string
+          minLength: 1
+      required:
+        - refreshToken
+    UpdateProfileInput:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: "#/components/schemas/UpdateProfileInput"
+      type: object
+      properties:
+        fullName:
+          type: string
+        address: {}
+        phoneNumber:
+          type: string
     User:
       $schema: https://json-schema.org/draft/2020-12/schema
       $id: "#/components/schemas/User"
@@ -129,27 +187,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                email:
-                  description: New user's email
-                  type: string
-                  format: email
-                  pattern: ^(?!\.)(?!.*\.\.)([A-Za-z0-9_'+\-\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$
-                password:
-                  description: Plaintext password (sent to the auth provider)
-                  type: string
-                fullName:
-                  description: Display name
-                  type: string
-                address:
-                  description: Free-form structured address (stored as JSON)
-                phoneNumber:
-                  type: string
-              required:
-                - email
-                - password
-                - fullName
+              $ref: "#/components/schemas/RegisterInput"
       responses:
         "201":
           description: Default Response
@@ -174,17 +212,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                email:
-                  type: string
-                  format: email
-                  pattern: ^(?!\.)(?!.*\.\.)([A-Za-z0-9_'+\-\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$
-                password:
-                  type: string
-              required:
-                - email
-                - password
+              $ref: "#/components/schemas/LoginInput"
       responses:
         "200":
           description: Default Response
@@ -209,13 +237,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                refreshToken:
-                  type: string
-                  minLength: 1
-              required:
-                - refreshToken
+              $ref: "#/components/schemas/RefreshInput"
       responses:
         "200":
           description: Default Response
@@ -276,13 +298,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                fullName:
-                  type: string
-                address: {}
-                phoneNumber:
-                  type: string
+              $ref: "#/components/schemas/UpdateProfileInput"
       parameters:
         - schema:
             type: string

@@ -95,6 +95,16 @@ export const WebhookSecretHeader = z.object({
 
 // Register reusable component ids so they appear under components/schemas
 // (via jsonSchemaTransformObject) and are referenced by $ref in the spec.
+// Response schemas: the id IS the component name.
 z.globalRegistry.add(UserSchema, { id: "User" });
 z.globalRegistry.add(AuthTokensSchema, { id: "AuthTokens" });
 z.globalRegistry.add(ErrorSchema, { id: "Error" });
+
+// Request-body schemas: the provider suffixes the request variant with "Input",
+// so registering with id "Register" yields a "RegisterInput" component. Naming
+// the bodies (instead of leaving them inline/anonymous) makes them show as
+// proper, named models when the spec is imported into Apidog.
+z.globalRegistry.add(RegisterInputSchema, { id: "Register" });
+z.globalRegistry.add(LoginInputSchema, { id: "Login" });
+z.globalRegistry.add(RefreshInputSchema, { id: "Refresh" });
+z.globalRegistry.add(UpdateProfileInputSchema, { id: "UpdateProfile" });
