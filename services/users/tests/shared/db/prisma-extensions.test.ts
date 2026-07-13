@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   buildCrossCuttingQueries,
   computeIsDeleted,
+  RESULT_EXTENSIONS,
   type CrossCuttingBaseClient,
 } from "#shared/db/prisma-extensions";
 import { runAsActor } from "#shared/audit/actor-context";
@@ -230,6 +232,32 @@ describe("cross-cutting Prisma extension", () => {
 
     it("returns true when deletedAt is set", () => {
       expect(computeIsDeleted({ deletedAt: new Date() })).toBe(true);
+    });
+
+    // Testing `computeIsDeleted` alone cannot catch a model that was never
+    // REGISTERED for it — which is exactly how UsersCognitoData and
+    // UsersCognitoEvent ended up with a `deletedAt` column but no computed
+    // `isDeleted`. This asserts the registration itself: every soft-deletable
+    // model in the schema must appear in the extension's `result` block.
+    it("registers isDeleted for every model that has deletedAt", () => {
+      const schema = readFileSync(
+        new URL("../../../prisma/schema.prisma", import.meta.url),
+        "utf8",
+      );
+      // Models declaring a deletedAt column are, by definition, soft-deletable.
+      const softDeletable = [...schema.matchAll(/model\s+(\w+)\s*\{([^}]*)\}/g)]
+        .filter(([, , body]) => /\bdeletedAt\b/.test(body))
+        .map(([, name]) => name.charAt(0).toLowerCase() + name.slice(1));
+
+      expect(softDeletable.length).toBeGreaterThan(1);
+
+      const registered = Object.keys(RESULT_EXTENSIONS);
+      for (const model of softDeletable) {
+        expect(registered, `${model} has deletedAt but no computed isDeleted`).toContain(model);
+        expect(RESULT_EXTENSIONS[model as keyof typeof RESULT_EXTENSIONS].isDeleted.compute).toBe(
+          computeIsDeleted,
+        );
+      }
     });
   });
 });

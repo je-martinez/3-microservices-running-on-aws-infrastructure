@@ -140,6 +140,25 @@ export function computeIsDeleted(data: { deletedAt: Date | null }): boolean {
   return data.deletedAt !== null;
 }
 
+// One entry per soft-deletable model — i.e. every model carrying `deletedAt`
+// (see [[soft-delete]]). Kept as a named export, not inlined into the
+// `result:` block below, so a test can assert the schema and this map agree:
+// `UsersCognitoData`/`UsersCognitoEvent` were added with a `deletedAt` column
+// but no `isDeleted` for a while precisely because nothing checked that.
+// Add a model here when it gains `deletedAt`.
+const isDeletedField = {
+  isDeleted: {
+    needs: { deletedAt: true },
+    compute: computeIsDeleted,
+  },
+} as const;
+
+export const RESULT_EXTENSIONS = {
+  user: isDeletedField,
+  usersCognitoData: isDeletedField,
+  usersCognitoEvent: isDeletedField,
+} as const;
+
 // Single Prisma Client extension that encapsulates the cross-cutting rules
 // (see [[nano-id]], [[audit-fields]], [[soft-delete]]) as query extensions
 // (nano-id + audit + soft-delete rewrite) plus a result extension (computed
@@ -156,14 +175,7 @@ export const crossCuttingExtension = Prisma.defineExtension((client) =>
     query: {
       $allModels: buildCrossCuttingQueries(client as unknown as CrossCuttingBaseClient),
     },
-    result: {
-      user: {
-        isDeleted: {
-          needs: { deletedAt: true },
-          compute: computeIsDeleted,
-        },
-      },
-    },
+    result: RESULT_EXTENSIONS,
     model: {
       user: {
         // Resolve a user by their prefixed usr_ id OR their Cognito sub. Returns
