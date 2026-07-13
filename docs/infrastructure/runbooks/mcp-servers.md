@@ -4,13 +4,13 @@ type: runbook
 area: infra
 status: active
 created: 2026-07-10
-updated: 2026-07-10
+updated: 2026-07-12
 integration-status: n/a
 verified-on: null
 verified-by: null
 tags: [type/runbook, area/infra, status/active]
 related:
-  - local-dev-ministack
+  - local-dev-floci
   - local-dev
   - git-workflow
 ---
@@ -25,7 +25,7 @@ service's API) into Apidog. It documents why the `apidog` server loads the repo 
 itself instead of relying on `${VAR}` substitution, and how to use the integration day
 to day.
 
-See [[local-dev-ministack]] and [[local-dev]] for the rest of the local-dev stack this
+See [[local-dev-floci]] and [[local-dev]] for the rest of the local-dev stack this
 tooling sits alongside.
 
 ## Context
@@ -140,6 +140,6 @@ Repeat the same pattern for other services once they gain a hand-maintained
 
 ## Related
 
-- [[local-dev-ministack]]
+- [[local-dev-floci]]
 - [[local-dev]]
 - [[git-workflow]]

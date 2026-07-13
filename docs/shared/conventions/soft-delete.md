@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-07-02
+updated: 2026-07-12
 tags: [type/convention, area/shared, status/active, issue/JE-39]
 related: ["[[audit-fields]]", "[[nano-id]]"]
 ---
@@ -30,7 +30,11 @@ The Users service enforces this via the same **single Prisma client extension** 
 - `delete`/`deleteMany` are transparently rewritten into `update`/`updateMany` that set `deletedAt`/`deletedBy` — following the pattern from the official `prisma-client-extensions` repo. No real SQL `DELETE` is ever issued.
 - `find*`/`count` exclude soft-deleted rows by default by injecting `deletedAt: null` into `where`, unless the caller has already filtered on `deletedAt` itself.
 - `isDeleted` moved from a standalone helper function (`isDeleted(row)`, now removed) to a Prisma **computed result field** (`row.isDeleted`), registered in the same extension's `result` block.
-  - Technical note: it's registered per-model (`result: { user: { isDeleted: {...} } }`) rather than with `$allModels`, because `$allModels`'s generic `needs` type collapses to `never` and can't resolve a concrete field shape (like `{ deletedAt: true }`) across every model at once. This is the same extensibility trade-off as `MODEL_ID_PREFIXES` in [[nano-id]] — new models register their own `isDeleted` entry as they're added.
+  - Technical note: it's registered per-model (`result: { user: { isDeleted: {...} } }`) rather than with `$allModels`, because `$allModels`'s generic `needs` type collapses to `never` and can't resolve a concrete field shape (like `{ deletedAt: true }`) across every model at once. This is the same extensibility trade-off as `MODEL_ID_PREFIXES` in [[nano-id]] — new models are meant to register their own `isDeleted` entry as they're added.
+- The same extension's `model` block also carries `findByIdOrCognitoSub` (used by `GET`/`PATCH /v1/users/me`), sitting alongside the `query` and `result` components above — it resolves a user by either their `usr_` id or their Cognito `sub`, going through `findFirst` so the soft-delete/read-replica behavior still applies.
+
+> [!warning] Known gap — the per-model `isDeleted` invariant does not hold today
+> The `result` block above registers `isDeleted` for **only the `user` model**. `UsersCognitoData` and `UsersCognitoEvent` (`services/users/prisma/schema.prisma`) already have a `deletedAt` column (with `@@index([deletedAt])`, mapped to `deleted_at`) but **no** computed `isDeleted` field registered for them — the "new models register their own entry" pattern described above has not actually been followed for these two models yet. `deletedAt` itself is still enforced (no hard deletes; the `find*`/`delete` query rewrites in `buildCrossCuttingQueries` apply via `$allModels`, so they cover every model including these two), but code reading `row.isDeleted` on a `UsersCognitoData`/`UsersCognitoEvent` row will not get a computed value the way it does for `user`. This is a documentation-of-reality note, not a decision to change the code.
 
 ## Related
 

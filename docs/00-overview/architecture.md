@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-06-27
+updated: 2026-07-12
 tags:
   - type/spec
   - area/shared
@@ -18,7 +18,8 @@ related:
   - "[[ADR-0006-read-write-replicas]]"
   - "[[ADR-0011-observability-signoz]]"
   - "[[ADR-0018-observability-openobserve]]"
-  - "[[ADR-0012-ministack-local]]"
+  - "[[ADR-0017-floci-local]]"
+  - "[[local-dev-floci]]"
   - "[[ADR-0015-drawio-diagrams]]"
 ---
 
@@ -135,7 +136,9 @@ Reference: [[openobserve-cloudwatch]].
 
 ## Local Development
 
-The full stack can be reproduced locally using **Ministack** (Docker Compose). See [[ADR-0012-ministack-local]] and the runbook [[local-dev-ministack]].
+The full stack can be reproduced locally using **Floci** (local AWS emulator) plus Docker
+Compose and Terraform. See [[ADR-0017-floci-local]] (which supersedes the earlier
+[[ADR-0012-ministack-local]] decision) and the runbook [[local-dev-floci]].
 
 ---
 
@@ -155,12 +158,12 @@ The full stack can be reproduced locally using **Ministack** (Docker Compose). S
 - [[ADR-0014-env-validation-zod]]
 - [[ADR-0004-soft-delete-only]]
 - [[ADR-0005-nano-id-prefixed]]
-- [[ADR-0012-ministack-local]]
+- [[ADR-0017-floci-local]]
 - [[cqrs]]
 - [[screaming-architecture]]
 - [[dependency-injection]]
 - [[nano-id]]
 - [[soft-delete]]
 - [[openobserve-cloudwatch]]
-- [[local-dev-ministack]]
+- [[local-dev-floci]]
 - [[ADR-0015-drawio-diagrams]]

@@ -4,21 +4,22 @@ type: convention
 area: shared
 status: active
 created: 2026-07-03
-updated: 2026-07-09
+updated: 2026-07-12
 tags:
   - type/convention
   - area/shared
   - status/active
 related:
   - "[[ADR-0017-floci-local]]"
-  - "[[local-dev-ministack]]"
+  - "[[local-dev-floci]]"
   - "[[git-workflow]]"
   - "[[floci-storage-modes-and-tmp-corruption]]"
 ---
 
 # Local Development
 
-How to run the stack locally and exercise service endpoints.
+How to run the stack locally and exercise service endpoints. Full step-by-step bootstrap
+flow: [[local-dev-floci]].
 
 ## Makefile
 
@@ -30,10 +31,16 @@ list. Key targets:
   `make build` / `make ps`.
 - **Infra (Terraform against Floci):** `make infra-init` / `make infra-plan` /
   `make infra-up` / `make infra-down` / `make infra-output`. These target
-  `infra/environments/local/spike-floci` — the current Floci spike (see
-  [[ADR-0017-floci-local]]); repoint when a consolidated `local` environment exists.
-- **Orchestration:** `make bootstrap` (compose up → wait for Floci → apply infra) and
-  `make clean` (tear down, prompts before removing `./data`).
+  **`infra/environments/local`** (the `Makefile`'s `TF_LOCAL_DIR`) — the consolidated local
+  environment composing the real Terraform modules (see [[ADR-0017-floci-local]]); the earlier
+  `spike-floci` stack has been deleted.
+- **Database:** `make migrate` — applies Prisma migrations (`migrate deploy`) against Floci's
+  Postgres.
+- **Orchestration:** `make bootstrap` (compose up floci → wait for Floci → apply infra →
+  regenerate `.env` → migrate → build/start `users` → `bootstrap.sh`) and `make clean` (tear
+  down, prompts before removing `./data`).
+- **Observability:** `make observability-up` / `make observability-down` — opt-in OpenObserve
+  + OTel collector stack.
 
 ## Testing endpoints with `.http` files
 
@@ -58,6 +65,6 @@ a new service needs local testing.
 ## Related
 
 - [[ADR-0017-floci-local]]
-- [[local-dev-ministack]]
+- [[local-dev-floci]]
 - [[git-workflow]]
 - [[floci-storage-modes-and-tmp-corruption]]
