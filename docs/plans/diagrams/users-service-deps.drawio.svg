@@ -4,7 +4,7 @@
     &lt;mxCell id=&quot;1&quot; parent=&quot;0&quot;/&gt;
 
     &lt;!-- Row 1: independent starters --&gt;
-    &lt;mxCell id=&quot;je25&quot; value=&quot;JE-25 / Ministack spike&amp;#10;(HARD GATE)&quot; style=&quot;rounded=1;fillColor=#B71C1C;strokeColor=#7F0000;fontColor=#ffffff;fontStyle=1;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;
+    &lt;mxCell id=&quot;je25&quot; value=&quot;JE-25 / local emulator spike&amp;#10;(HARD GATE)&quot; style=&quot;rounded=1;fillColor=#B71C1C;strokeColor=#7F0000;fontColor=#ffffff;fontStyle=1;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;
       &lt;mxGeometry x=&quot;40&quot; y=&quot;60&quot; width=&quot;160&quot; height=&quot;50&quot; as=&quot;geometry&quot;/&gt;
     &lt;/mxCell&gt;
     &lt;mxCell id=&quot;je26&quot; value=&quot;JE-26 / pnpm root&quot; style=&quot;rounded=1;fillColor=#1565C0;strokeColor=#0D47A1;fontColor=#ffffff;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;
@@ -91,7 +91,6 @@
 &lt;/mxGraphModel&gt;">
 <defs><marker id="arr-455A64" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L10,4 L0,8 Z" fill="#455A64"/></marker></defs>
 <rect x="0" y="0" width="610" height="880" fill="#ffffff"/>
-<text x="15" y="20" font-family="Helvetica,Arial,sans-serif" font-size="15" font-weight="bold" fill="#263238">Users Service — Dependencies</text>
 <path d="M120,110 L120,145 L120,145 L120,180" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
 <path d="M315,110 L315,145 L315,145 L315,180" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
 <path d="M390,85 L410,85 L410,205 L430,205" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
@@ -107,7 +106,7 @@
 <path d="M400,805 L415,805 L415,805 L430,805" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
 <path d="M505,230 L505,505 L505,505 L505,780" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
 <rect x="40" y="60" width="160" height="50" rx="6" fill="#B71C1C" stroke="#7F0000" stroke-width="1"/>
-<text x="120" y="78" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" font-weight="bold">JE-25 / Ministack</text>
+<text x="120" y="78" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" font-weight="bold">JE-25 / local emulator</text>
 <text x="120" y="92" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" font-weight="bold">spike (HARD GATE)</text>
 <rect x="240" y="60" width="150" height="50" rx="6" fill="#1565C0" stroke="#0D47A1" stroke-width="1"/>
 <text x="315" y="85" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">JE-26 / pnpm root</text>
