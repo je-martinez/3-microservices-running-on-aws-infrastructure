@@ -4,12 +4,13 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-06-28
+updated: 2026-07-12
 tags:
   - type/spec
   - area/shared
   - status/active
 related:
+  - "[[local-dev-floci]]"
   - "[[architecture]]"
   - "[[system-context]]"
   - "[[glossary]]"
@@ -20,7 +21,31 @@ related:
   - "[[2026-06-26-3mrai-docs-vault-design]]"
   - "[[2026-06-26-implementation-workflow-design]]"
   - "[[2026-06-28-services-infra-scaffold-design]]"
+  - "[[2026-06-28-users-service-design]]"
+  - "[[2026-07-10-signoz-logs-observability-design]]"
+  - "[[2026-07-10-openobserve-migration-design]]"
+  - "[[2026-06-27-milestone-plan-convention-design]]"
+  - "[[2026-06-29-floci-local-emulator-spike-design]]"
+  - "[[2026-07-03-git-workflow-decentralization-design]]"
+  - "[[2026-07-03-local-dev-tooling-design]]"
+  - "[[2026-07-04-je36-local-env-compose-design]]"
+  - "[[2026-07-09-users-cognito-webhook-design]]"
+  - "[[2026-07-10-users-openapi-autogen-design]]"
+  - "[[2026-07-11-auth-error-mapping-design]]"
+  - "[[2026-07-11-authenticated-identity-resolution-design]]"
+  - "[[2026-07-11-gap1-nginx-njs-xuserid-design]]"
+  - "[[2026-07-11-local-gateway-per-route-integration-design]]"
+  - "[[2026-07-11-refresh-token-endpoint-design]]"
+  - "[[2026-07-12-app-user-id-token-claim-design]]"
+  - "[[2026-07-12-audit-actor-enum-design]]"
   - "[[ADR-0015-drawio-diagrams]]"
+  - "[[ministack-auth-chain-spike-findings]]"
+  - "[[floci-vs-ministack-spike-findings]]"
+  - "[[floci-rds-apigw-limits]]"
+  - "[[2026-07-12-prisma-lazy-promise-als]]"
+  - "[[drawio-diagram-legibility]]"
+  - "[[cognito-pre-token-lambda]]"
+  - "[[awscli-fallback-for-floci]]"
 ---
 
 # 3MRAI — Index
@@ -58,10 +83,12 @@ Root Map of Content for the **3 Microservices Running on AWS Infrastructure (3MR
 - [[terraform-modules]] — Terraform module layout using CloudPosse naming convention.
 - [[networking]] — VPC, subnets, security groups, ALB configuration.
 - [[aws-resources]] — ECS Fargate clusters, DocumentDB clusters, SQS queues, Parameter Store.
+- [[cognito-pre-token-lambda]] — Cognito `custom:app_user_id` attribute + the repo's first Lambda (Pre-Token-Generation V2) copying it into an `app_user_id` token claim.
 
 ### Runbooks
 
-- [[local-dev-ministack]] — Running the full stack locally with Ministack (Docker Compose).
+- [[local-dev-floci]] — Running the full stack locally with Floci (Docker Compose + Terraform), from `make bootstrap` through verification.
+- [[local-dev-ministack]] — Superseded by [[local-dev-floci]]; kept for historical reference.
 - [[secret-rotation]] — Rotating secrets in AWS Parameter Store without downtime.
 
 ---
@@ -100,7 +127,8 @@ All ADRs use continuous global numbering and live in `docs/shared/decisions/`.
 
 ### Observability
 
-- [[ADR-0011-observability-signoz]] — SigNoz (via CloudWatch) as the observability backend.
+- [[ADR-0011-observability-signoz]] — SigNoz (via CloudWatch) as the observability backend. Superseded by [[ADR-0018-observability-openobserve]].
+- [[ADR-0018-observability-openobserve]] — OpenObserve (via CloudWatch) as the observability backend, superseding SigNoz.
 
 ### Documentation & Diagrams
 
@@ -120,6 +148,8 @@ Coding and data conventions defined once in `shared/` and referenced project-wid
 - [[linear-references]] — How the vault references Linear issues (tags + links, no mirroring).
 - [[milestone-plan]] — Structure and required sections for every milestone plan note in `docs/plans/`.
 - [[phase-c-review-flow]] — Phase C execution cadence: chain issues, batch PRs, stop at dependency gates, user merges every PR.
+- [[git-workflow]] — Who may run git, commit/branch conventions, and the A/B/C/D/E confirmation menu.
+- [[local-dev]] — Running the stack locally (Makefile) and testing endpoints with `.http` files.
 - [[skills-catalog]] — Claude Code skills evaluated and approved for the 3MRAI agents (deliverable of [JE-23](https://linear.app/je-martinez/issue/JE-23)).
 
 ---
@@ -131,12 +161,14 @@ Architectural patterns documented once and linked from service specs.
 - [[cqrs]] — CQRS pattern: command/query segregation, handler structure.
 - [[screaming-architecture]] — Screaming architecture: folder structure by feature/domain.
 - [[dependency-injection]] — DI container setup and usage across services.
+- [[awscli-fallback-for-floci]] — `terraform_data` + idempotent awscli script fallback for native Terraform resources/provider blocks that cannot apply against Floci.
 
 ---
 
 ## Observability
 
-- [[signoz-cloudwatch]] — SigNoz setup, CloudWatch integration, and dashboard conventions.
+- [[openobserve-cloudwatch]] — OpenObserve setup, CloudWatch integration, and log-querying conventions.
+- [[openobserve-runbook]] — Local runbook: start/stop the OpenObserve stack, query logs, verified gotchas.
 
 ---
 
@@ -147,6 +179,37 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-06-26-3mrai-docs-vault-design]] — Design of this documentation vault (structure, conventions, seeded content).
 - [[2026-06-26-implementation-workflow-design]] — Implementation workflow and agent topology (two layers, Phase A–D flow).
 - [[2026-06-28-services-infra-scaffold-design]] — Services & infra scaffold + skill discovery: screaming-architecture skeletons, nested CLAUDE.md per service, Docker orchestrator, and suggested-skills catalog.
+- [[2026-06-28-users-service-design]] — Users Service implementation design: pnpm workspace, Prisma schema with `tags` column, Fastify API, Cognito JWT authorizer, Terraform modules, and Playwright E2E suite on Ministack.
+- [[2026-07-10-signoz-logs-observability-design]] — Logs-only implementation of [[ADR-0011-observability-signoz]]: otel-collector-contrib bridging Docker `fluentd` log-driver output and Floci CloudWatch into a self-hosted SigNoz, with zero service source-code changes. Backend superseded by [[2026-07-10-openobserve-migration-design]].
+- [[2026-07-10-openobserve-migration-design]] — Migration of the observability backend from SigNoz to OpenObserve: the collector exporter change, OpenObserve compose service, and verified facts, per [[ADR-0018-observability-openobserve]].
+- [[2026-06-27-milestone-plan-convention-design]] — Design of the reusable [[milestone-plan]] vault convention: task sequence, phases, and dependency graph as a first-class artifact distinct from live Linear issue state.
+- [[2026-06-29-floci-local-emulator-spike-design]] — Design of the Floci local-emulator spike (A/B against Ministack on the real local auth chain) and the `infra-impl` skill; empirical basis for [[ADR-0017-floci-local]].
+- [[2026-07-03-git-workflow-decentralization-design]] — Design for letting the main session run git directly (not exclusively through `github-ops`), with the A/B/C/D/E confirmation menu; see [[git-workflow]].
+- [[2026-07-03-local-dev-tooling-design]] — Design of the root `Makefile` (local dev lifecycle across compose + Terraform) and `.http` files for exercising endpoints; see [[local-dev]].
+- [[2026-07-04-je36-local-env-compose-design]] — Design for compose `environments/local` and applying the Users chain on Floci, including Revision 2's Floci emulation gaps and a least-privilege application DB user.
+- [[2026-07-09-users-cognito-webhook-design]] — Design of the Cognito identity webhook + identity tables (`UsersCognitoData`, `UsersCognitoEvent`), reachable via `POST /v1/webhooks/cognito` and in-process from `register()`.
+- [[2026-07-10-users-openapi-autogen-design]] — Design for generating `services/users/openapi.yaml` from live Fastify routes via `@fastify/swagger` + Zod, replacing hand-maintained OpenAPI.
+- [[2026-07-11-auth-error-mapping-design]] — Design mapping Cognito auth exceptions (bad credentials, duplicate email) to 401/409 HTTP responses instead of 500s, via typed domain errors and a global error handler.
+- [[2026-07-11-authenticated-identity-resolution-design]] — Design of `byIdOrCognitoSub`, resolving users by either their `usr_` id or Cognito `sub` across `getMe`, gRPC `getUserById`, and `updateProfile`.
+- [[2026-07-11-gap1-nginx-njs-xuserid-design]] — Design for the local nginx+njs reverse proxy decoding the JWT and injecting `x-user-id` before proxying to the users service.
+- [[2026-07-11-local-gateway-per-route-integration-design]] — Design fixing local API Gateway path forwarding on Floci via per-route `HTTP_PROXY` integrations, keeping prod on a single shared integration.
+- [[2026-07-11-refresh-token-endpoint-design]] — Design of `POST /v1/users/refresh`, exchanging a Cognito refresh token for new id + access tokens via `REFRESH_TOKEN_AUTH`.
+- [[2026-07-12-app-user-id-token-claim-design]] — Design adding an `app_user_id` token claim sourced from a new `custom:app_user_id` Cognito attribute, copied in by the repo's first Lambda (Pre-Token-Generation V2 trigger).
+- [[2026-07-12-audit-actor-enum-design]] — Design of the semantic `AuditActor` enum used to stamp `createdBy`/`updatedBy` on system-originated writes (e.g. self-registration); see [[audit-fields]].
+
+---
+
+## Lessons
+
+Durable empirical findings from spikes, incidents, and experiments.
+
+- [[ministack-auth-chain-spike-findings]] — Empirical findings from the JE-25 Ministack spike: proven local auth chain topology, DNS quirks, provider pins, and ECS workarounds.
+- [[floci-vs-ministack-spike-findings]] — A/B comparison of Floci vs Ministack on the same auth chain: gate results, comparison table, and key findings. No migration decision — ADR-0012 unchanged.
+- [[floci-rds-apigw-limits]] — Empirical limits of Floci discovered during JE-36 (RDS/Aurora + API Gateway chain): tag-update bugs on RDS/API GW resources, and API Gateway v2 HTTP_PROXY path-forwarding not working.
+- [[floci-storage-modes-and-tmp-corruption]] — Floci storage-mode durability testing (README's `hybrid` recommendation is wrong for 3MRAI; `persistent` is correct and already in use) and a truncated-`.tmp` state-file corruption pattern (rare, not mode-specific, root cause unproven).
+- [[signoz-selfhost-migrator-blocker]] — Task 3 of the SigNoz logs plan is blocked: the self-hosted SigNoz schema-migrator hangs and never creates the `signoz_*` ClickHouse database. Diagnosis and resume options recorded for the next session.
+- [[2026-07-12-prisma-lazy-promise-als]] — Prisma's lazy `PrismaPromise` silently broke `AsyncLocalStorage`-scoped audit actors: a non-awaited wrapper exited the ALS scope before the query (and its actor read) ran, stamping the wrong `createdBy`/`updatedBy`. Mocked tests could not catch it.
+- [[drawio-diagram-legibility]] — draw.io diagrams must use verified text/fill contrast and a canvas-fitting layout, checked by rendering to PNG — XML validity alone does not guarantee a legible diagram.
 
 ---
 
@@ -160,6 +223,7 @@ Origin materials the project grew from — kept for reference only, not the sour
 
 ## Related
 
+- [[local-dev-floci]]
 - [[architecture]]
 - [[system-context]]
 - [[glossary]]
@@ -170,4 +234,29 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[2026-06-26-3mrai-docs-vault-design]]
 - [[2026-06-26-implementation-workflow-design]]
 - [[2026-06-28-services-infra-scaffold-design]]
+- [[2026-06-28-users-service-design]]
+- [[2026-07-10-signoz-logs-observability-design]]
+- [[2026-07-10-openobserve-migration-design]]
+- [[2026-06-27-milestone-plan-convention-design]]
+- [[2026-06-29-floci-local-emulator-spike-design]]
+- [[2026-07-03-git-workflow-decentralization-design]]
+- [[2026-07-03-local-dev-tooling-design]]
+- [[2026-07-04-je36-local-env-compose-design]]
+- [[2026-07-09-users-cognito-webhook-design]]
+- [[2026-07-10-users-openapi-autogen-design]]
+- [[2026-07-11-auth-error-mapping-design]]
+- [[2026-07-11-authenticated-identity-resolution-design]]
+- [[2026-07-11-gap1-nginx-njs-xuserid-design]]
+- [[2026-07-11-local-gateway-per-route-integration-design]]
+- [[2026-07-11-refresh-token-endpoint-design]]
+- [[2026-07-12-app-user-id-token-claim-design]]
+- [[2026-07-12-audit-actor-enum-design]]
 - [[ADR-0015-drawio-diagrams]]
+- [[ministack-auth-chain-spike-findings]]
+- [[floci-vs-ministack-spike-findings]]
+- [[floci-rds-apigw-limits]]
+- [[floci-storage-modes-and-tmp-corruption]]
+- [[2026-07-12-prisma-lazy-promise-als]]
+- [[drawio-diagram-legibility]]
+- [[cognito-pre-token-lambda]]
+- [[awscli-fallback-for-floci]]

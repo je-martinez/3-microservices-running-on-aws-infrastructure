@@ -9,8 +9,9 @@ updated: 2026-06-26
 deciders: [Jose E. Martinez]
 supersedes: null
 superseded-by: null
+updated: 2026-07-12
 tags: [type/adr, area/shared, status/accepted]
-related: ["[[versioning]]"]
+related: ["[[versioning]]", "[[ADR-0003-grpc-inter-service]]"]
 ---
 
 # ADR-0013: API Versioning Across All Services
@@ -26,6 +27,13 @@ All REST endpoints are prefixed with a version segment (e.g. `/v1/users`). All g
 ## Consequences
 
 Old and new API versions can coexist during migration windows, enabling consumers to upgrade independently. The codebase carries the overhead of maintaining multiple versions until old ones are retired. The team must agree on a deprecation timeline before removing a version.
+
+> [!warning] Current state (2026-07-12) — gRPC versioning is not yet applicable
+> Verified: **no `.proto` file exists anywhere in the repo** — there is no gRPC surface built yet
+> (only an unwired gRPC handler stub exists in the Users service; see
+> [[ADR-0003-grpc-inter-service]]). The gRPC-versioning half of this decision is therefore
+> **intended, not yet in force**. The HTTP half is real and correctly implemented today: all Users
+> service routes are versioned under `/v1/...`.
 
 ## Related
 

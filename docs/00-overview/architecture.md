@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-06-27
+updated: 2026-07-12
 tags:
   - type/spec
   - area/shared
@@ -17,7 +17,9 @@ related:
   - "[[ADR-0002-cqrs]]"
   - "[[ADR-0006-read-write-replicas]]"
   - "[[ADR-0011-observability-signoz]]"
-  - "[[ADR-0012-ministack-local]]"
+  - "[[ADR-0018-observability-openobserve]]"
+  - "[[ADR-0017-floci-local]]"
+  - "[[local-dev-floci]]"
   - "[[ADR-0015-drawio-diagrams]]"
 ---
 
@@ -125,16 +127,18 @@ Relevant decisions: [[ADR-0007-secrets-parameter-store]], [[ADR-0014-env-validat
 
 ## Observability
 
-All services emit structured logs and metrics to **CloudWatch**. A **SigNoz** instance aggregates those signals into dashboards and alerting.
+All services emit structured logs to **CloudWatch** (prod) and via Docker's fluentd driver (local), collected by an OpenTelemetry collector and forwarded via OTLP to a self-hosted **OpenObserve** instance for querying.
 
-Relevant decision: [[ADR-0011-observability-signoz]].
-Reference: [[signoz-cloudwatch]].
+Relevant decision: [[ADR-0018-observability-openobserve]] (supersedes [[ADR-0011-observability-signoz]]).
+Reference: [[openobserve-cloudwatch]].
 
 ---
 
 ## Local Development
 
-The full stack can be reproduced locally using **Ministack** (Docker Compose). See [[ADR-0012-ministack-local]] and the runbook [[local-dev-ministack]].
+The full stack can be reproduced locally using **Floci** (local AWS emulator) plus Docker
+Compose and Terraform. See [[ADR-0017-floci-local]] (which supersedes the earlier
+[[ADR-0012-ministack-local]] decision) and the runbook [[local-dev-floci]].
 
 ---
 
@@ -148,17 +152,18 @@ The full stack can be reproduced locally using **Ministack** (Docker Compose). S
 - [[ADR-0002-cqrs]]
 - [[ADR-0006-read-write-replicas]]
 - [[ADR-0011-observability-signoz]]
+- [[ADR-0018-observability-openobserve]]
 - [[ADR-0008-screaming-arch-di]]
 - [[ADR-0007-secrets-parameter-store]]
 - [[ADR-0014-env-validation-zod]]
 - [[ADR-0004-soft-delete-only]]
 - [[ADR-0005-nano-id-prefixed]]
-- [[ADR-0012-ministack-local]]
+- [[ADR-0017-floci-local]]
 - [[cqrs]]
 - [[screaming-architecture]]
 - [[dependency-injection]]
 - [[nano-id]]
 - [[soft-delete]]
-- [[signoz-cloudwatch]]
-- [[local-dev-ministack]]
+- [[openobserve-cloudwatch]]
+- [[local-dev-floci]]
 - [[ADR-0015-drawio-diagrams]]

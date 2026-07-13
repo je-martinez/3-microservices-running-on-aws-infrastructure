@@ -2,18 +2,22 @@
 title: "ADR-0011: Observability via CloudWatch and SigNoz"
 type: adr
 area: shared
-status: accepted
+status: superseded
 id: ADR-0011
 created: 2026-06-26
-updated: 2026-06-26
+updated: 2026-07-10
 deciders: [Jose E. Martinez]
 supersedes: null
-superseded-by: null
-tags: [type/adr, area/shared, status/accepted]
-related: ["[[signoz-cloudwatch]]"]
+superseded-by: ADR-0018
+tags: [type/adr, area/shared, status/superseded]
+related: ["[[openobserve-cloudwatch]]"]
 ---
 
 # ADR-0011: Observability via CloudWatch and SigNoz
+
+> [!warning] Superseded
+> Superseded by [[ADR-0018-observability-openobserve]] because the self-hosted SigNoz stack could
+> not be brought up (see [[signoz-selfhost-migrator-blocker]]).
 
 ## Context
 
@@ -29,4 +33,6 @@ The team gets distributed tracing across all services without instrumenting a se
 
 ## Related
 
-- [[signoz-cloudwatch]]
+- [[openobserve-cloudwatch]]
+- [[ADR-0018-observability-openobserve]]
+- [[signoz-selfhost-migrator-blocker]]

@@ -10,3 +10,37 @@
 
 # Ministack local state & data (created at runtime by docker-compose)
 /data/
+
+# Node / pnpm
+node_modules/
+.pnpm-store/
+# TypeScript build artifacts
+dist/
+**/dist/
+# Prisma v7 generated client (prisma-client generator output, see schema.prisma)
+services/*/src/generated/
+# Env files (local secrets — never version)
+.env
+.env.*
+
+# Playwright E2E artifacts
+e2e/test-results/
+
+# Terraform state & cache (local environments)
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfstate.*.backup
+.terraform.lock.hcl
+
+# Local-only Cognito client descriptor (modules/cognito manage_client_via_provider
+# = false fallback, Floci only — see modules/cognito/main.tf) and bootstrap.sh's
+# generated app DB user password (local Floci only — never a real secret store).
+**/.terraform-cognito/
+infra/environments/local/.app-db-secret
+
+# archive_file build artifact (modules/cognito/main.tf data.archive_file.pre_token)
+infra/modules/cognito/pre-token-lambda.zip
+
+# Agent-skills CLI local mirror (canonical copies live in .claude/skills/)
+.agents/

@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-06-27
+updated: 2026-07-12
 tags:
   - type/spec
   - area/shared
@@ -17,6 +17,7 @@ related:
   - "[[events-pipeline-design]]"
   - "[[ADR-0009-apigw-alb-fargate]]"
   - "[[ADR-0010-cognito-auth]]"
+  - "[[ADR-0018-observability-openobserve]]"
   - "[[ADR-0015-drawio-diagrams]]"
 ---
 
@@ -35,7 +36,7 @@ The system context diagram shows **3MRAI** as a black box and identifies its use
 ![[system-context-l1.drawio.svg]]
 
 > [!note] External Systems
-> Amazon Cognito, Aurora, DocumentDB, SQS, Parameter Store, and CloudWatch are managed AWS services — they are **external** to the 3MRAI application code but **internal** to the AWS account boundary. Aurora (PostgreSQL/MySQL) is the operational database for each microservice; DocumentDB is the event store for the events pipeline only. SigNoz may run as a container within the VPC or as a managed external service depending on deployment configuration.
+> Amazon Cognito, Aurora, DocumentDB, SQS, Parameter Store, and CloudWatch are managed AWS services — they are **external** to the 3MRAI application code but **internal** to the AWS account boundary. Aurora (PostgreSQL/MySQL) is the operational database for each microservice; DocumentDB is the event store for the events pipeline only. OpenObserve may run as a container within the VPC or as a managed external service depending on deployment configuration.
 
 ---
 
@@ -74,7 +75,7 @@ The container diagram zooms into the 3MRAI system and shows the independently de
 | Inter-service calls | gRPC — [[ADR-0003-grpc-inter-service]] |
 | Write path | CQRS via SQS + Lambda — [[ADR-0002-cqrs]] |
 | Persistence topology | Read/write replicas — [[ADR-0006-read-write-replicas]] |
-| Observability | SigNoz via CloudWatch — [[ADR-0011-observability-signoz]] |
+| Observability | OpenObserve via CloudWatch — [[ADR-0018-observability-openobserve]] (supersedes [[ADR-0011-observability-signoz]]) |
 
 ---
 
@@ -92,4 +93,5 @@ The container diagram zooms into the 3MRAI system and shows the independently de
 - [[ADR-0002-cqrs]]
 - [[ADR-0006-read-write-replicas]]
 - [[ADR-0011-observability-signoz]]
+- [[ADR-0018-observability-openobserve]]
 - [[ADR-0015-drawio-diagrams]]

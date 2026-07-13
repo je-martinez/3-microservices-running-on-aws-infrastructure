@@ -3,6 +3,13 @@
     "drawio": {
       "command": "npx",
       "args": ["-y", "@drawio/mcp"]
+    },
+    "apidog": {
+      "command": "sh",
+      "args": [
+        "-c",
+        "set -a && [ -f .env ] && . ./.env; set +a; exec npx -y apidog-mcp-server@latest --project-id=\"$APIDOG_PROJECT_ID\""
+      ]
     }
   }
 }

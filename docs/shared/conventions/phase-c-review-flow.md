@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-06-28
-updated: 2026-06-28
+updated: 2026-07-12
 tags:
   - type/convention
   - area/shared
@@ -13,6 +13,7 @@ related:
   - "[[2026-06-26-implementation-workflow-design]]"
   - "[[milestone-plan]]"
   - "[[linear-references]]"
+  - "[[git-workflow]]"
 ---
 
 # Phase C Review Flow Convention
@@ -23,7 +24,7 @@ This convention refines how Phase C (Implementation) from the [[2026-06-26-imple
 
 The following rules apply to every Phase C execution in this project:
 
-1. **Chain issues without per-merge prompts.** The parent works issues one after another — `linear-pm` → In Progress; `github-ops` → task branch; `<svc>-impl` → implement; `github-ops` → commit + PR task→feature. The parent does NOT ask for merge confirmation between each issue, and does NOT merge the task→feature PRs itself during the chain — they remain open.
+1. **Chain issues without per-merge prompts.** The parent works issues one after another — `linear-pm` → In Progress; the main session creates the task branch; `<svc>-impl` → implement; the main session → commit + PR task→feature (optionally delegating a complex git batch to `github-ops`). The parent does NOT ask for merge confirmation between each issue, and does NOT merge the task→feature PRs itself during the chain — they remain open.
 2. **Batch PRs for review.** At each stop point, the parent presents the user ONE consolidated list of open PRs to review and merge — never one-by-one prompts per PR.
 3. **Dependency gates are stop points.** If issue B is blocked by issue A, B must build on A's merged work. The parent therefore implements all independent issues first, opens those PRs, then STOPS at the first blocked issue and presents the accumulated batch for the user to review and merge. After the user merges that batch, the parent continues with the previously-blocked issues. A milestone may have several stop points — one per dependency gate.
 4. **The user merges (or explicitly authorizes the merge of) every PR.** The parent never auto-merges. One merge approval authorizes only that PR or batch — it does not establish standing auto-merge permission for subsequent PRs.
@@ -48,7 +49,7 @@ Therefore, when the user approves a batch of sibling PRs:
    - `CONFLICTING` → stop, resolve the conflict on the task branch, push, and retry.
 3. **After each merge**, pull/fast-forward the local feature branch so the next PR is evaluated against the updated base.
 
-The operational git commands for these steps are carried out by the `github-ops` agent. This subsection records the *why* so the cadence is followed consistently across milestones.
+The operational git commands for these steps are carried out by the **main session** (git is run directly, not routed exclusively through an agent); `github-ops` remains an optional helper for complex batches. See [[git-workflow]]. This subsection records the *why* so the cadence is followed consistently across milestones.
 
 ## Rationale
 
@@ -66,3 +67,4 @@ The [[milestone-plan]] convention defines the task-order and dependency graph th
 - [[2026-06-26-implementation-workflow-design]] — the Phases A–D flow this convention refines.
 - [[milestone-plan]] — milestone plan convention (task order + dependency graph that defines the gates).
 - [[linear-references]] — Linear reference rules for tagging and linking issues.
+- [[git-workflow]] — git confirmation menu and the decentralized git policy (main session runs git directly; `github-ops` is optional).

@@ -2,8 +2,10 @@
 name: github-ops
 model: sonnet
 description: >-
-  Git & GitHub operator for the 3MRAI repo. Use for commits, branches, pushes,
-  pull requests, and merges. Implements the Linear-driven branch flow (milestone =
+  OPTIONAL git & GitHub helper for the 3MRAI repo — the main session may run git
+  directly (see docs/shared/conventions/git-workflow.md); delegate here for complex
+  git batches (e.g. sequentially merging sibling PRs). Handles commits, branches,
+  pushes, pull requests, and merges per the Linear-driven branch flow (milestone =
   feature branch, issue = task branch → PR into feature branch). ALWAYS asks for
   explicit confirmation before any write (commit, push, branch create/delete,
   PR open/merge). Coordinates with the linear-pm agent for milestone/issue context.

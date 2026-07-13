@@ -4,12 +4,14 @@ type: spec
 area: infra
 status: active
 created: 2026-06-26
-updated: 2026-06-27
+updated: 2026-07-12
 tags: [type/spec, area/infra, status/active]
 related:
   - ADR-0006-read-write-replicas
   - ADR-0007-secrets-parameter-store
   - ADR-0010-cognito-auth
+  - "[[ADR-0018-observability-openobserve]]"
+  - "[[cognito-pre-token-lambda]]"
 ---
 
 # AWS Resources
@@ -30,7 +32,7 @@ and authentication ([[ADR-0010-cognito-auth]]).
 | ECS Fargate cluster | One cluster per environment; one service per microservice |
 | ECR repository | One repo per service (`3mrai-{env}-{service}`); image scanning enabled |
 | Task definitions | CPU/memory set per service; secrets injected from Secret Manager |
-| ALB target groups | One per service; health check path `GET /health` — see [[networking]] |
+| ALB target groups | One per service; health check path `GET /v1/health` — see [[networking]] |
 
 ### Relational Databases (RDS Aurora)
 
@@ -64,10 +66,14 @@ Both clusters follow the read/write replica pattern from [[ADR-0006-read-write-r
 
 | Resource | Detail |
 |---|---|
-| Cognito User Pool | Single pool for all services; custom attributes per tenant |
+| Cognito User Pool | Single pool for all services; carries a `custom:app_user_id` custom attribute (the Prisma `usr_` id) set by `register` at sign-up |
 | Cognito App Client | One app client per environment; issues JWTs validated at API Gateway |
+| Pre-Token-Generation V2 Lambda | The repo's first Lambda — copies `custom:app_user_id` into an `app_user_id` claim on issued id/access tokens; see [[cognito-pre-token-lambda]] |
 
-See [[ADR-0010-cognito-auth]] for the full authentication decision.
+See [[ADR-0010-cognito-auth]] for the full authentication decision and [[cognito-pre-token-lambda]]
+for the custom attribute + Lambda design. Locally, both the App Client and the Pre-Token trigger
+are wired around Floci/provider gaps via the awscli-fallback pattern — see
+[[awscli-fallback-for-floci]] and [[ADR-0017-floci-local]].
 
 ### Secrets & Config
 
@@ -86,7 +92,8 @@ the rotation runbook.
   see [[soft-delete]] and [[ADR-0004-soft-delete-only]].
 - Secrets are never embedded in task definition environment variables; they are fetched at
   container start via the ECS secrets injection mechanism.
-- Observability (CloudWatch → SigNoz) applies to all resources; see [[ADR-0011-observability-signoz]].
+- Observability (CloudWatch → OpenObserve) applies to all resources; see
+  [[ADR-0018-observability-openobserve]] (supersedes [[ADR-0011-observability-signoz]]).
 
 ## Related
 
@@ -95,6 +102,10 @@ the rotation runbook.
 - [[ADR-0010-cognito-auth]]
 - [[ADR-0004-soft-delete-only]]
 - [[ADR-0011-observability-signoz]]
+- [[ADR-0018-observability-openobserve]]
+- [[cognito-pre-token-lambda]]
+- [[awscli-fallback-for-floci]]
+- [[ADR-0017-floci-local]]
 - [[terraform-modules]]
 - [[networking]]
 - [[soft-delete]]

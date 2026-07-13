@@ -42,7 +42,8 @@ services/orders/
 ## 5. Agent rules
 - Converse with the user in **Spanish**; write code and comments in **English**.
 - `orders-impl` writes **only source code** — never runs git or touches Linear.
-- Leave finished work in the working tree for `github-ops` to commit.
+- Leave finished work in the working tree for the **main session** to commit
+  (`github-ops` is an optional helper for complex git batches — see [[git-workflow]]).
 - Stay within the single task handed to you (YAGNI).
 
 ## 6. Design reference

@@ -4,7 +4,7 @@ type: runbook
 area: infra
 status: active
 created: 2026-06-26
-updated: 2026-06-26
+updated: 2026-07-12
 integration-status: n/a
 verified-on: null
 verified-by: null
@@ -12,6 +12,7 @@ tags: [type/runbook, area/infra, status/active]
 related:
   - ADR-0007-secrets-parameter-store
   - soft-delete
+  - local-dev-floci
 ---
 
 # Secret Rotation
@@ -144,7 +145,7 @@ aws secretsmanager delete-secret \
 - `aws secretsmanager describe-secret --secret-id "3mrai/<env>/<service>/db-writer"` returns
   the new secret without error.
 - ECS service shows `runningCount` matching `desiredCount` in `aws ecs describe-services`.
-- Service health check responds HTTP 200 (see [[local-dev-ministack]] for local verification).
+- Service health check responds HTTP 200 (see [[local-dev-floci]] for local verification).
 - No `DELETE` privilege exists on any 3MRAI DB user:
   ```sql
   -- PostgreSQL
@@ -160,4 +161,4 @@ aws secretsmanager delete-secret \
 - [[soft-delete]]
 - [[aws-resources]]
 - [[terraform-modules]]
-- [[local-dev-ministack]]
+- [[local-dev-floci]]

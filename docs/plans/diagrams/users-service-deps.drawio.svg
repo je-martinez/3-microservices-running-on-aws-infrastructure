@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="610" height="880" viewBox="0 0 610 880" content="&lt;mxGraphModel dx=&quot;800&quot; dy=&quot;600&quot; grid=&quot;0&quot; gridSize=&quot;10&quot; guides=&quot;1&quot; tooltips=&quot;1&quot; connect=&quot;1&quot; arrows=&quot;1&quot; fold=&quot;1&quot; page=&quot;1&quot; pageScale=&quot;1&quot; pageWidth=&quot;1100&quot; pageHeight=&quot;700&quot; math=&quot;0&quot; shadow=&quot;0&quot;&gt;
+  &lt;root&gt;
+    &lt;mxCell id=&quot;0&quot;/&gt;
+    &lt;mxCell id=&quot;1&quot; parent=&quot;0&quot;/&gt;
+
+    &lt;!-- Row 1: independent starters --&gt;
+    &lt;mxCell id=&quot;je25&quot; value=&quot;JE-25 / local emulator spike&amp;#10;(HARD GATE)&quot; style=&quot;rounded=1;fillColor=#B71C1C;strokeColor=#7F0000;fontColor=#ffffff;fontStyle=1;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;
+      &lt;mxGeometry x=&quot;40&quot; y=&quot;60&quot; width=&quot;160&quot; height=&quot;50&quot; as=&quot;geometry&quot;/&gt;
+    &lt;/mxCell&gt;
+    &lt;mxCell id=&quot;je26&quot; value=&quot;JE-26 / pnpm root&quot; style=&quot;rounded=1;fillColor=#1565C0;strokeColor=#0D47A1;fontColor=#ffffff;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;
+      &lt;mxGeometry x=&quot;240&quot; y=&quot;60&quot; width=&quot;150&quot; height=&quot;50&quot; as=&quot;geometry&quot;/&gt;
+    &lt;/mxCell&gt;
+
+    &lt;!-- Row 2 --&gt;
+    &lt;mxCell id=&quot;je28&quot; value=&quot;JE-28 / modules label/&amp;#10;net/rds/cognito&quot; style=&quot;rounded=1;fillColor=#2E7D32;strokeColor=#1B5E20;fontColor=#ffffff;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;
+      &lt;mxGeometry x=&quot;40&quot; y=&quot;180&quot; width=&quot;160&quot; height=&quot;50&quot; as=&quot;geometry&quot;/&gt;
+    &lt;/mxCell&gt;
+    &lt;mxCell id=&quot;je27&quot; value=&quot;JE-27 / users pkg&quot; style=&quot;rounded=1;fillColor=#1565C0;strokeColor=#0D47A1;fontColor=#ffffff;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;
+      &lt;mxGeometry x=&quot;240&quot; y=&quot;180&quot; width=&quot;150&quot; height=&quot;50&quot; as=&quot;geometry&quot;/&gt;
+    &lt;/mxCell&gt;
+    &lt;mxCell id=&quot;je32&quot; value=&quot;JE-32 / e2e harness&quot; style=&quot;rounded=1;fillColor=#616161;strokeColor=#212121;fontColor=#ffffff;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;
+      &lt;mxGeometry x=&quot;430&quot; y=&quot;180&quot; width=&quot;150&quot; height=&quot;50&quot; as=&quot;geometry&quot;/&gt;
+    &lt;/mxCell&gt;
+
+    &lt;!-- Row 3 --&gt;
+    &lt;mxCell id=&quot;je30&quot; value=&quot;JE-30 / modules&amp;#10;compute/api-gw&quot; style=&quot;rounded=1;fillColor=#2E7D32;strokeColor=#1B5E20;fontColor=#ffffff;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;
+      &lt;mxGeometry x=&quot;40&quot; y=&quot;300&quot; width=&quot;160&quot; height=&quot;50&quot; as=&quot;geometry&quot;/&gt;
+    &lt;/mxCell&gt;
+    &lt;mxCell id=&quot;je29&quot; value=&quot;JE-29 / schema +&amp;#10;primitives&quot; style=&quot;rounded=1;fillColor=#1565C0;strokeColor=#0D47A1;fontColor=#ffffff;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;
+      &lt;mxGeometry x=&quot;240&quot; y=&quot;300&quot; width=&quot;150&quot; height=&quot;50&quot; as=&quot;geometry&quot;/&gt;
+    &lt;/mxCell&gt;
+
+    &lt;!-- Row 4 --&gt;
+    &lt;mxCell id=&quot;je34&quot; value=&quot;JE-34 / vault&amp;#10;tags sync&quot; style=&quot;rounded=1;fillColor=#616161;strokeColor=#212121;fontColor=#ffffff;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;
+      &lt;mxGeometry x=&quot;430&quot; y=&quot;300&quot; width=&quot;150&quot; height=&quot;50&quot; as=&quot;geometry&quot;/&gt;
+    &lt;/mxCell&gt;
+    &lt;mxCell id=&quot;je31&quot; value=&quot;JE-31 / auth + domain +&amp;#10;commands/queries&quot; style=&quot;rounded=1;fillColor=#1565C0;strokeColor=#0D47A1;fontColor=#ffffff;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;
+      &lt;mxGeometry x=&quot;240&quot; y=&quot;420&quot; width=&quot;160&quot; height=&quot;50&quot; as=&quot;geometry&quot;/&gt;
+    &lt;/mxCell&gt;
+
+    &lt;!-- Row 5 --&gt;
+    &lt;mxCell id=&quot;je33&quot; value=&quot;JE-33 / http + gRPC&quot; style=&quot;rounded=1;fillColor=#1565C0;strokeColor=#0D47A1;fontColor=#ffffff;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;
+      &lt;mxGeometry x=&quot;240&quot; y=&quot;540&quot; width=&quot;150&quot; height=&quot;50&quot; as=&quot;geometry&quot;/&gt;
+    &lt;/mxCell&gt;
+
+    &lt;!-- Row 6 --&gt;
+    &lt;mxCell id=&quot;je35&quot; value=&quot;JE-35 / Dockerfile +&amp;#10;compose&quot; style=&quot;rounded=1;fillColor=#1565C0;strokeColor=#0D47A1;fontColor=#ffffff;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;
+      &lt;mxGeometry x=&quot;240&quot; y=&quot;660&quot; width=&quot;150&quot; height=&quot;50&quot; as=&quot;geometry&quot;/&gt;
+    &lt;/mxCell&gt;
+
+    &lt;!-- Row 7: apply + e2e specs --&gt;
+    &lt;mxCell id=&quot;je36&quot; value=&quot;JE-36 / env/local +&amp;#10;apply + migrate&quot; style=&quot;rounded=1;fillColor=#E65100;strokeColor=#BF360C;fontColor=#ffffff;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;
+      &lt;mxGeometry x=&quot;240&quot; y=&quot;780&quot; width=&quot;160&quot; height=&quot;50&quot; as=&quot;geometry&quot;/&gt;
+    &lt;/mxCell&gt;
+
+    &lt;!-- Row 8 --&gt;
+    &lt;mxCell id=&quot;je37&quot; value=&quot;JE-37 / e2e specs&quot; style=&quot;rounded=1;fillColor=#616161;strokeColor=#212121;fontColor=#ffffff;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;
+      &lt;mxGeometry x=&quot;430&quot; y=&quot;780&quot; width=&quot;150&quot; height=&quot;50&quot; as=&quot;geometry&quot;/&gt;
+    &lt;/mxCell&gt;
+
+    &lt;!-- Edges: blocker -&gt; blocked --&gt;
+    &lt;!-- JE-25 -&gt; JE-28 --&gt;
+    &lt;mxCell id=&quot;e1&quot; style=&quot;edgeStyle=orthogonalEdgeStyle;strokeColor=#455A64;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je25&quot; target=&quot;je28&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;
+    &lt;!-- JE-26 -&gt; JE-27 --&gt;
+    &lt;mxCell id=&quot;e2&quot; style=&quot;edgeStyle=orthogonalEdgeStyle;strokeColor=#455A64;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je26&quot; target=&quot;je27&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;
+    &lt;!-- JE-26 -&gt; JE-32 --&gt;
+    &lt;mxCell id=&quot;e3&quot; style=&quot;edgeStyle=orthogonalEdgeStyle;strokeColor=#455A64;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je26&quot; target=&quot;je32&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;
+    &lt;!-- JE-28 -&gt; JE-30 --&gt;
+    &lt;mxCell id=&quot;e4&quot; style=&quot;edgeStyle=orthogonalEdgeStyle;strokeColor=#455A64;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je28&quot; target=&quot;je30&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;
+    &lt;!-- JE-27 -&gt; JE-29 --&gt;
+    &lt;mxCell id=&quot;e5&quot; style=&quot;edgeStyle=orthogonalEdgeStyle;strokeColor=#455A64;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je27&quot; target=&quot;je29&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;
+    &lt;!-- JE-29 -&gt; JE-34 --&gt;
+    &lt;mxCell id=&quot;e6&quot; style=&quot;edgeStyle=orthogonalEdgeStyle;strokeColor=#455A64;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je29&quot; target=&quot;je34&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;
+    &lt;!-- JE-29 -&gt; JE-31 --&gt;
+    &lt;mxCell id=&quot;e7&quot; style=&quot;edgeStyle=orthogonalEdgeStyle;strokeColor=#455A64;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je29&quot; target=&quot;je31&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;
+    &lt;!-- JE-31 -&gt; JE-33 --&gt;
+    &lt;mxCell id=&quot;e8&quot; style=&quot;edgeStyle=orthogonalEdgeStyle;strokeColor=#455A64;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je31&quot; target=&quot;je33&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;
+    &lt;!-- JE-33 -&gt; JE-35 --&gt;
+    &lt;mxCell id=&quot;e9&quot; style=&quot;edgeStyle=orthogonalEdgeStyle;strokeColor=#455A64;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je33&quot; target=&quot;je35&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;
+    &lt;!-- JE-35 -&gt; JE-36 --&gt;
+    &lt;mxCell id=&quot;e10&quot; style=&quot;edgeStyle=orthogonalEdgeStyle;strokeColor=#455A64;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je35&quot; target=&quot;je36&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;
+    &lt;!-- JE-30 -&gt; JE-36 --&gt;
+    &lt;mxCell id=&quot;e11&quot; style=&quot;edgeStyle=orthogonalEdgeStyle;strokeColor=#455A64;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je30&quot; target=&quot;je36&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;
+    &lt;!-- JE-29 -&gt; JE-36 --&gt;
+    &lt;mxCell id=&quot;e12&quot; style=&quot;edgeStyle=orthogonalEdgeStyle;strokeColor=#455A64;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je29&quot; target=&quot;je36&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;
+    &lt;!-- JE-36 -&gt; JE-37 --&gt;
+    &lt;mxCell id=&quot;e13&quot; style=&quot;edgeStyle=orthogonalEdgeStyle;strokeColor=#455A64;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je36&quot; target=&quot;je37&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;
+    &lt;!-- JE-32 -&gt; JE-37 --&gt;
+    &lt;mxCell id=&quot;e14&quot; style=&quot;edgeStyle=orthogonalEdgeStyle;strokeColor=#455A64;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;je32&quot; target=&quot;je37&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;
+  &lt;/root&gt;
+&lt;/mxGraphModel&gt;">
+<defs><marker id="arr-455A64" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L10,4 L0,8 Z" fill="#455A64"/></marker></defs>
+<rect x="0" y="0" width="610" height="880" fill="#ffffff"/>
+<path d="M120,110 L120,145 L120,145 L120,180" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
+<path d="M315,110 L315,145 L315,145 L315,180" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
+<path d="M390,85 L410,85 L410,205 L430,205" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
+<path d="M120,230 L120,265 L120,265 L120,300" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
+<path d="M315,230 L315,265 L315,265 L315,300" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
+<path d="M390,325 L410,325 L410,325 L430,325" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
+<path d="M315,350 L315,385 L320,385 L320,420" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
+<path d="M320,470 L320,505 L315,505 L315,540" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
+<path d="M315,590 L315,625 L315,625 L315,660" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
+<path d="M315,710 L315,745 L320,745 L320,780" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
+<path d="M120,350 L120,565 L320,565 L320,780" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
+<path d="M315,350 L315,565 L320,565 L320,780" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
+<path d="M400,805 L415,805 L415,805 L430,805" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
+<path d="M505,230 L505,505 L505,505 L505,780" fill="none" stroke="#455A64" stroke-width="2" marker-end="url(#arr-455A64)"/>
+<rect x="40" y="60" width="160" height="50" rx="6" fill="#B71C1C" stroke="#7F0000" stroke-width="1"/>
+<text x="120" y="78" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" font-weight="bold">JE-25 / local emulator</text>
+<text x="120" y="92" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff" font-weight="bold">spike (HARD GATE)</text>
+<rect x="240" y="60" width="150" height="50" rx="6" fill="#1565C0" stroke="#0D47A1" stroke-width="1"/>
+<text x="315" y="85" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">JE-26 / pnpm root</text>
+<rect x="40" y="180" width="160" height="50" rx="6" fill="#2E7D32" stroke="#1B5E20" stroke-width="1"/>
+<text x="120" y="198" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">JE-28 / modules label/</text>
+<text x="120" y="212" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">net/rds/cognito</text>
+<rect x="240" y="180" width="150" height="50" rx="6" fill="#1565C0" stroke="#0D47A1" stroke-width="1"/>
+<text x="315" y="205" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">JE-27 / users pkg</text>
+<rect x="430" y="180" width="150" height="50" rx="6" fill="#616161" stroke="#212121" stroke-width="1"/>
+<text x="505" y="205" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">JE-32 / e2e harness</text>
+<rect x="40" y="300" width="160" height="50" rx="6" fill="#2E7D32" stroke="#1B5E20" stroke-width="1"/>
+<text x="120" y="318" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">JE-30 / modules</text>
+<text x="120" y="332" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">compute/api-gw</text>
+<rect x="240" y="300" width="150" height="50" rx="6" fill="#1565C0" stroke="#0D47A1" stroke-width="1"/>
+<text x="315" y="318" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">JE-29 / schema +</text>
+<text x="315" y="332" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">primitives</text>
+<rect x="430" y="300" width="150" height="50" rx="6" fill="#616161" stroke="#212121" stroke-width="1"/>
+<text x="505" y="318" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">JE-34 / vault tags</text>
+<text x="505" y="332" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">sync</text>
+<rect x="240" y="420" width="160" height="50" rx="6" fill="#1565C0" stroke="#0D47A1" stroke-width="1"/>
+<text x="320" y="438" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">JE-31 / auth + domain</text>
+<text x="320" y="452" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">+ commands/queries</text>
+<rect x="240" y="540" width="150" height="50" rx="6" fill="#1565C0" stroke="#0D47A1" stroke-width="1"/>
+<text x="315" y="565" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">JE-33 / http + gRPC</text>
+<rect x="240" y="660" width="150" height="50" rx="6" fill="#1565C0" stroke="#0D47A1" stroke-width="1"/>
+<text x="315" y="678" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">JE-35 / Dockerfile +</text>
+<text x="315" y="692" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">compose</text>
+<rect x="240" y="780" width="160" height="50" rx="6" fill="#E65100" stroke="#BF360C" stroke-width="1"/>
+<text x="320" y="798" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">JE-36 / env/local +</text>
+<text x="320" y="812" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">apply + migrate</text>
+<rect x="430" y="780" width="150" height="50" rx="6" fill="#616161" stroke="#212121" stroke-width="1"/>
+<text x="505" y="805" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">JE-37 / e2e specs</text>
+</svg>

@@ -4,9 +4,10 @@ type: convention
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-06-26
+updated: 2026-07-12
 tags: [type/convention, area/shared, status/active]
-related: []
+related:
+  - "[[ADR-0003-grpc-inter-service]]"
 ---
 
 # API and contract versioning
@@ -21,6 +22,13 @@ related: []
 
 Explicit versioning lets each service evolve its public surface without breaking existing consumers. Versioning both the HTTP APIs and the gRPC contracts means every integration point — external and internal — has a stable, negotiable contract.
 
+> [!warning] Current state (2026-07-12) — gRPC versioning not yet applicable
+> Verified: no `.proto` file exists in the repo yet, so there is no gRPC surface to version today
+> (see [[ADR-0003-grpc-inter-service]]). The gRPC-versioning rule above is the intended contract for
+> when that surface is built. HTTP versioning is real and correctly implemented: all Users service
+> routes are under `/v1/...`.
+
 ## Related
 
 - [[cqrs]] — versioned APIs front the command/query handlers behind each service.
+- [[ADR-0003-grpc-inter-service]] — the gRPC decision this convention's gRPC half applies to.

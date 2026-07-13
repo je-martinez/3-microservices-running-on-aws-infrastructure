@@ -2,18 +2,26 @@
 title: Local Dev — Ministack
 type: runbook
 area: infra
-status: active
+status: superseded
+superseded-by: "[[local-dev-floci]]"
 created: 2026-06-26
-updated: 2026-06-26
+updated: 2026-07-12
 integration-status: n/a
 verified-on: null
 verified-by: null
-tags: [type/runbook, area/infra, status/active]
+tags: [type/runbook, area/infra, status/superseded]
 related:
   - ADR-0012-ministack-local
+  - "[[local-dev-floci]]"
 ---
 
 # Local Dev — Ministack
+
+> [!warning] Superseded
+> This runbook is **superseded by [[local-dev-floci]]**. The project migrated its local AWS
+> emulator from Ministack to Floci (see [[ADR-0017-floci-local]]); the flow below (`ministack
+> up/down`, seed files, ports 3001-3004) does not reflect the current setup. Kept for
+> historical reference only — do not follow these steps.
 
 ## When to run this
 
@@ -113,6 +121,7 @@ ministack down
 
 ## Related
 
+- [[local-dev-floci]] — the current runbook this note is superseded by.
 - [[ADR-0012-ministack-local]]
 - [[networking]]
 - [[aws-resources]]

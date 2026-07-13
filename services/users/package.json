@@ -1,0 +1,55 @@
+{
+  "name": "@3mrai/users",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.18.0"
+  },
+  "imports": {
+    "#shared/*": {
+      "development": "./src/shared/*.ts",
+      "default": "./dist/shared/*.js"
+    },
+    "#features/*": {
+      "development": "./src/features/*.ts",
+      "default": "./dist/features/*.js"
+    }
+  },
+  "scripts": {
+    "dev": "tsx watch --conditions=development src/server.ts",
+    "generate:openapi": "tsx --conditions=development src/features/users/http/generate-openapi.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "prisma": "prisma"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.1075.0",
+    "@fastify/awilix": "^8.2.0",
+    "@fastify/swagger": "^9.5.1",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "@prisma/extension-read-replicas": "0.5.0",
+    "awilix": "^13.0.5",
+    "dotenv": "^17.4.2",
+    "fastify": "^5.0.0",
+    "fastify-type-provider-zod": "^5.0.2",
+    "nanoid": "^5.1.16",
+    "pg": "^8.22.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.0.1",
+    "@types/pg": "^8.11.6",
+    "eslint": "^10.6.0",
+    "prisma": "^7.8.0",
+    "tsx": "^4.23.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.63.0",
+    "vitest": "^2.0.0"
+  }
+}

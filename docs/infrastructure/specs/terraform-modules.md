@@ -4,10 +4,14 @@ type: spec
 area: infra
 status: active
 created: 2026-06-26
-updated: 2026-06-26
+updated: 2026-07-12
 tags: [type/spec, area/infra, status/active]
 related:
   - ADR-0001-terraform-cloudposse-naming
+  - "[[ADR-0017-floci-local]]"
+  - "[[local-dev-floci]]"
+  - "[[cognito-pre-token-lambda]]"
+  - "[[awscli-fallback-for-floci]]"
 ---
 
 # Terraform Modules
@@ -21,23 +25,38 @@ globally via [[ADR-0001-terraform-cloudposse-naming]].
 ## Stack & Data Store
 
 - **IaC tool:** Terraform (>= 1.7).
-- **State backend:** S3 + DynamoDB lock table per environment (`dev`, `staging`, `prod`).
+- **State backend:** **local** (`terraform.tfstate` on disk under each environment directory) —
+  there is no S3/DynamoDB remote-state backend configured today. `infra/environments/local/`
+  keeps `terraform.tfstate` in-tree.
 - **Module registry:** private, co-located under `infra/modules/`.
 - **Naming root:** `cloudposse/label/null` — every resource receives a deterministic name
   derived from `namespace`, `environment`, `stage`, `name`, and optional `attributes`.
+- **Environments:** `infra/environments/{local,production}` — not `dev`/`staging`/`prod`. The
+  `local` environment targets Floci ([[ADR-0017-floci-local]]; bootstrap flow: [[local-dev-floci]]).
 
 ## Module Inventory
 
+The real module inventory under `infra/modules/`:
+
 | Module path | Responsibility |
 |---|---|
-| `infra/modules/networking` | VPC, subnets, security groups, Route 53 zones |
-| `infra/modules/ecs-service` | ECS Fargate cluster + service + task definition |
-| `infra/modules/rds-aurora` | Aurora cluster (Postgres / MySQL) with read/write replicas |
-| `infra/modules/sqs-lambda` | SQS queue wired to a Lambda function (CQRS handler) |
-| `infra/modules/documentdb` | DocumentDB cluster for event-sourcing store |
-| `infra/modules/cognito` | Cognito User Pool + App Client |
-| `infra/modules/secrets` | Secret Manager secrets + Parameter Store parameters |
-| `infra/modules/ecr` | ECR repositories per service |
+| `infra/modules/label` | `cloudposse/label` wrapper providing the naming context |
+| `infra/modules/networking` | VPC, subnets, security group |
+| `infra/modules/compute` | nginx on ECS — the local reverse proxy that injects `x-user-id` via njs (see [[ADR-0016-local-apigw-nginx-ecs]]) |
+| `infra/modules/api-gateway` | API Gateway v2, per-route `HTTP_PROXY` integrations, JWT authorizer |
+| `infra/modules/cognito` | Cognito User Pool (+ `custom:app_user_id` attribute), App Client, and the repo's first Lambda (Pre-Token-Generation V2 — see [[cognito-pre-token-lambda]]) |
+| `infra/modules/rds-aurora` | Aurora cluster (writer + reader endpoints) |
+| `infra/modules/database` | empty placeholder (`.gitkeep` only) — not yet implemented |
+| `infra/modules/messaging` | empty placeholder (`.gitkeep` only) — not yet implemented |
+
+There is no `ecs-service`, `sqs-lambda`, `documentdb`, `secrets`, or `ecr` module — those are
+not part of the current inventory.
+
+Two Cognito resources are wired against Floci via the **awscli-fallback pattern**
+(`terraform_data` + `local-exec` + an idempotent script, outside Terraform's normal resource
+lifecycle) because the native Terraform resource cannot apply against Floci at the pinned
+provider version: the Cognito App Client and the Pre-Token-Generation V2 trigger. See
+[[awscli-fallback-for-floci]] for the pattern and why each case needed it.
 
 ## Naming Convention
 
@@ -70,5 +89,9 @@ Resource names are derived via `module.label.id` (e.g. `3mrai-prod-users`). Tags
 ## Related
 
 - [[ADR-0001-terraform-cloudposse-naming]]
+- [[ADR-0017-floci-local]]
+- [[local-dev-floci]]
+- [[cognito-pre-token-lambda]]
+- [[awscli-fallback-for-floci]]
 - [[networking]]
 - [[aws-resources]]

@@ -2,10 +2,10 @@
 title: Tracking Service Design
 type: spec
 area: tracking
-status: active
+status: draft
 created: 2026-06-26
-updated: 2026-06-27
-tags: [type/spec, area/tracking, status/active]
+updated: 2026-07-12
+tags: [type/spec, area/tracking, status/draft]
 related:
   - "[[soft-delete]]"
   - "[[nano-id]]"
@@ -17,6 +17,20 @@ related:
 ---
 
 # Tracking Service Design
+
+> [!warning] Not implemented yet
+> The Tracking service is **design-only** — no source code exists. `services/tracking/src/`
+> contains only `.gitkeep` placeholders (no `requirements.txt`, no tests), and
+> `services/tracking/Dockerfile` has every build line commented out. Only a stub
+> [`services/tracking/CLAUDE.md`](../../../../services/tracking/CLAUDE.md) and a placeholder
+> `tracking` service in the root `docker-compose.yml` (build + network wiring only — no ports, no
+> database, no healthcheck) exist so far. Everything below describes the **intended** design, not
+> running behavior.
+>
+> The supporting infrastructure this design assumes is also not built yet: there is no
+> SQS/messaging Terraform module (`infra/modules/messaging/` is an empty `.gitkeep`), no DocumentDB
+> module (`infra/modules/database/` is empty — only `rds-aurora` exists), no Aurora MySQL cluster,
+> and no gRPC surface anywhere in the repo (no `.proto` files exist yet).
 
 ## Summary
 
@@ -39,12 +53,12 @@ All endpoints are versioned under `/v1`. See [[versioning]].
 
 | Method | Path                              | Description                          |
 |--------|-----------------------------------|--------------------------------------|
-| GET    | `/health`                         | Liveness/readiness probe. Returns `200 { "status": "ok" }` when healthy. No auth required. Used by ALB/Fargate as health check target. |
+| GET    | `/v1/health`                      | Liveness/readiness probe. Returns `200 { "status": "ok" }` when healthy. No auth required. Used by ALB/Fargate as health check target. |
 | POST   | `/trackings`                      | Create a new tracking record         |
 | PUT    | `/trackings/{order_id}/status`    | Update the status of a tracking entry. `status` must be one of the four enum values defined in [Tracking statuses](#tracking-statuses). |
 
 > [!note] Auth
-> All endpoints require a valid Cognito JWT, **except `/health`** which is unauthenticated. The API Gateway validates the token before routing to the service.
+> All endpoints require a valid Cognito JWT, **except `/v1/health`** which is unauthenticated. The API Gateway validates the token before routing to the service.
 
 ## gRPC Methods
 

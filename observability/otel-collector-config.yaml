@@ -1,0 +1,41 @@
+# OpenTelemetry Collector config for 3MRAI log observability.
+# Two receivers feed one logs pipeline exported to self-hosted OpenObserve.
+#   - fluent_forward: the compose services' stdout, via Docker's fluentd driver.
+#   - aws_cloudwatch: ECS/RDS logs Floci runs (e.g. the nginx ECS task).
+# Env-parameterized so the same file serves local (Floci) and, later, prod.
+receivers:
+  # Docker fluentd driver → here. The services set fluentd-address=localhost:24224
+  # (the daemon resolves it from the host, hence the published port).
+  fluent_forward:
+    endpoint: 0.0.0.0:24224
+  # Polls CloudWatch. AWS_ENDPOINT_URL redirects it to Floci locally.
+  aws_cloudwatch:
+    region: ${env:AWS_REGION}
+    logs:
+      poll_interval: 1m
+      groups:
+        autodiscover:
+          limit: 50
+          prefix: /ecs/
+
+processors:
+  batch: {}
+
+exporters:
+  # OpenObserve OTLP-HTTP ingest (ADR-0018). Use otlp_http — the otlphttp alias
+  # is deprecated. Basic auth + stream-name are what OpenObserve requires.
+  otlp_http/openobserve:
+    endpoint: http://openobserve:5080/api/default
+    headers:
+      Authorization: "Basic ${env:O2_BASIC_AUTH}"
+      stream-name: logs
+
+service:
+  telemetry:
+    logs:
+      level: info
+  pipelines:
+    logs:
+      receivers: [fluent_forward, aws_cloudwatch]
+      processors: [batch]
+      exporters: [otlp_http/openobserve]

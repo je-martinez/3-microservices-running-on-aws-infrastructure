@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-06-27
+updated: 2026-07-12
 tags:
   - type/spec
   - area/shared
@@ -16,7 +16,8 @@ related:
   - "[[cqrs]]"
   - "[[screaming-architecture]]"
   - "[[ADR-0012-ministack-local]]"
-  - "[[signoz-cloudwatch]]"
+  - "[[ADR-0017-floci-local]]"
+  - "[[openobserve-cloudwatch]]"
   - "[[ADR-0002-cqrs]]"
   - "[[ADR-0004-soft-delete-only]]"
   - "[[ADR-0005-nano-id-prefixed]]"
@@ -93,13 +94,30 @@ Part of the [[soft-delete]] convention. See also [[ADR-0004-soft-delete-only]].
 
 ---
 
+## F
+
+### Floci
+
+The **current** local AWS emulator for 3MRAI, superseding Ministack. An MIT-licensed emulator
+exposing ~65 AWS services behind a single port (`:4566`, the same `AWS_ENDPOINT_URL` interface
+as LocalStack). Terraform (`infra/environments/local`) and the services' AWS SDK clients target
+it directly; ECS tasks and Lambdas run as real Docker containers on the compose network.
+
+See [[ADR-0017-floci-local]] and the runbook [[local-dev-floci]].
+
+---
+
 ## M
 
 ### Ministack
 
-The local development environment for 3MRAI. A Docker Compose configuration that runs all three microservices, their DocumentDB-compatible (MongoDB) databases, SQS-compatible queues (ElasticMQ), and SigNoz locally — without requiring an active AWS account.
+> [!warning] Superseded
+> Superseded by **Floci** — see [[#Floci|the Floci entry above]] and [[ADR-0017-floci-local]].
 
-See [[ADR-0012-ministack-local]] and the runbook [[local-dev-ministack]].
+The **former** local development environment for 3MRAI. A Docker Compose configuration that ran
+all three microservices and local AWS emulators without requiring an active AWS account.
+
+See [[ADR-0012-ministack-local]] and the (superseded) runbook [[local-dev-ministack]].
 
 ---
 
@@ -149,11 +167,11 @@ See [[screaming-architecture]] and [[ADR-0008-screaming-arch-di]].
 
 ---
 
-### SigNoz
+### OpenObserve
 
-An open-source observability platform used in 3MRAI as the unified dashboard and alerting layer. SigNoz ingests logs, traces, and metrics from **Amazon CloudWatch** (via a log subscription and metrics stream) and provides OpenTelemetry-compatible visualisation.
+A single-binary, open-source observability platform used in 3MRAI as the log-querying backend. OpenObserve ingests logs via OTLP from an OpenTelemetry collector, which in turn sources them from **Amazon CloudWatch** and, locally, Docker's fluentd driver. It supersedes SigNoz (see [[signoz-selfhost-migrator-blocker]] for why).
 
-See [[signoz-cloudwatch]] and [[ADR-0011-observability-signoz]].
+See [[openobserve-cloudwatch]] and [[ADR-0018-observability-openobserve]].
 
 ---
 
@@ -175,7 +193,8 @@ See [[soft-delete]] for the full convention and [[ADR-0004-soft-delete-only]] fo
 - [[cqrs]]
 - [[screaming-architecture]]
 - [[dependency-injection]]
-- [[signoz-cloudwatch]]
+- [[openobserve-cloudwatch]]
+- [[local-dev-floci]]
 - [[local-dev-ministack]]
 - [[ADR-0002-cqrs]]
 - [[ADR-0004-soft-delete-only]]
@@ -184,3 +203,4 @@ See [[soft-delete]] for the full convention and [[ADR-0004-soft-delete-only]] fo
 - [[ADR-0008-screaming-arch-di]]
 - [[ADR-0011-observability-signoz]]
 - [[ADR-0012-ministack-local]]
+- [[ADR-0017-floci-local]]
