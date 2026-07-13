@@ -60,9 +60,12 @@ infra-output: ## Show terraform outputs (Cognito IDs, etc.)
 	$(TF) output
 
 env-file: ## Refresh Cognito IDs + API_GATEWAY_URL in ./.env from terraform outputs (preserves other vars)
-	@# Floci mints a new user-pool/client ID (and api_id) on every apply, so these
-	@# must be rewritten from the live outputs — never hand-edited. docker-compose
-	@# reads COGNITO_USER_POOL_ID / COGNITO_CLIENT_ID / API_GATEWAY_URL from here.
+	@# Floci mints a new user-pool/client ID (and api_id, and DB proxy IP) on every
+	@# apply, so these must be rewritten from the live outputs — never hand-edited.
+	@# docker-compose reads COGNITO_USER_POOL_ID / COGNITO_CLIENT_ID / API_GATEWAY_URL
+	@# from here. USERS_DATABASE_URL is a HOST-reachable Postgres URL (Floci's DB
+	@# proxy IP:7001, routable from macOS/OrbStack) for inspecting the DB with a SQL
+	@# client — distinct from the in-container DATABASE_WRITER_URL (floci:7001).
 	@# The auto-generated lines are wrapped in a labeled box so it's clear
 	@# what env-file owns. Only that box is regenerated; every line outside it
 	@# (e.g. a manually-added APIDOG_ACCESS_TOKEN) is preserved. Box markers are
@@ -70,6 +73,7 @@ env-file: ## Refresh Cognito IDs + API_GATEWAY_URL in ./.env from terraform outp
 	@pool="$$($(TF) output -raw cognito_user_pool_id)"; \
 	client="$$($(TF) output -raw cognito_client_id)"; \
 	apiid="$$($(TF) output -raw api_id)"; \
+	dbhost="$$($(TF) output -raw db_writer_endpoint)"; \
 	touch $(ENV_FILE); \
 	rest=$$(mktemp); \
 	awk '/^# >>> AUTO-GENERATED/{skip=1;next} skip&&/^# <<< END AUTO-GENERATED/{skip=0;next} skip{next} {print}' $(ENV_FILE) \
@@ -81,6 +85,7 @@ env-file: ## Refresh Cognito IDs + API_GATEWAY_URL in ./.env from terraform outp
 		printf 'COGNITO_USER_POOL_ID=%s\n' "$$pool"; \
 		printf 'COGNITO_CLIENT_ID=%s\n' "$$client"; \
 		printf 'API_GATEWAY_URL=http://localhost:4566/restapis/%s/$$default/_user_request_\n' "$$apiid"; \
+		printf 'USERS_DATABASE_URL=postgres://test:test@%s:7001/users\n' "$$dbhost"; \
 		printf '# <<< END AUTO-GENERATED ───────────────────────────────────────────────────\n'; \
 		[ -s $$rest ] && printf '\n' && cat $$rest; \
 	} > $$out; \
