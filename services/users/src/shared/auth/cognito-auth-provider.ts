@@ -14,7 +14,7 @@ export class CognitoAuthProvider implements AuthProvider {
     private readonly clientId: string,
   ) {}
 
-  async signUp(email: string, password: string): Promise<CognitoSignUpResult> {
+  async signUp(email: string, password: string, appUserId: string): Promise<CognitoSignUpResult> {
     let created;
     try {
       created = await this.client.send(
@@ -25,6 +25,7 @@ export class CognitoAuthProvider implements AuthProvider {
           UserAttributes: [
             { Name: "email", Value: email },
             { Name: "email_verified", Value: "true" },
+            { Name: "custom:app_user_id", Value: appUserId },
           ],
         }),
       );

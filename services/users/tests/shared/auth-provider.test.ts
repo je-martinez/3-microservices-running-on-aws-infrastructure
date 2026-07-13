@@ -58,7 +58,16 @@ describe("CognitoAuthProvider", () => {
       }),
     };
     const p = new CognitoAuthProvider(client as any, "pool", "client");
-    await expect(p.signUp("dup@x.co", "P@ss")).rejects.toBeInstanceOf(EmailAlreadyExistsError);
+    await expect(p.signUp("dup@x.co", "P@ss", "usr_X")).rejects.toBeInstanceOf(EmailAlreadyExistsError);
+  });
+
+  it("signUp sets custom:app_user_id from the app user id", async () => {
+    const send = vi.fn(async () => ({ User: { Attributes: [{ Name: "sub", Value: "sub-1" }] } }));
+    const p = new CognitoAuthProvider({ send } as any, "pool", "client");
+    await p.signUp("a@b.co", "P@ss", "usr_ABC");
+    const createCall = send.mock.calls[0][0]; // AdminCreateUserCommand
+    const attrs = createCall.input.UserAttributes;
+    expect(attrs).toEqual(expect.arrayContaining([{ Name: "custom:app_user_id", Value: "usr_ABC" }]));
   });
 
   it("refresh returns new id + access tokens", async () => {

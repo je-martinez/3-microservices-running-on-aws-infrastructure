@@ -18,7 +18,7 @@ export interface RefreshedTokens {
 }
 
 export interface AuthProvider {
-  signUp(email: string, password: string): Promise<CognitoSignUpResult>;
+  signUp(email: string, password: string, appUserId: string): Promise<CognitoSignUpResult>;
   login(email: string, password: string): Promise<AuthTokens>;
   refresh(refreshToken: string): Promise<RefreshedTokens>;
 }
