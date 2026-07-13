@@ -46,14 +46,16 @@ export class RegisterUserCommand {
   }
 
   async execute(input: RegisterInput): Promise<User> {
-    const signUp = await this.auth.signUp(input.email, input.password);
     // Self-registration: the new row is its own audit actor. The id is
     // reserved up front (instead of letting the nano-id extension generate
     // it) so it can be used both as the row's `id` and, via `runAsActor`, as
     // the actor the audit extension reads from AsyncLocalStorage for this
     // `create` call — stamping `createdBy`/`updatedBy` as the new user's own id
-    // (see [[audit-fields]] and `shared/audit/actor-context.ts`).
+    // (see [[audit-fields]] and `shared/audit/actor-context.ts`). It is also
+    // passed to `signUp` as `appUserId` so it lands in Cognito's
+    // `custom:app_user_id` attribute before the row even exists.
     const id = generateId(MODEL_ID_PREFIXES.User);
+    const signUp = await this.auth.signUp(input.email, input.password, id);
     const tags = input.e2eSource ? ["E2E Source"] : [];
     const row = await runAsActor(id, () =>
       this.db.user.create({

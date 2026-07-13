@@ -53,6 +53,15 @@ describe("RegisterUserCommand", () => {
     await command.execute({ email: "a@b.c", password: "P!1", fullName: "A", e2eSource: false });
     expect(d._created.cognitoSub).toBe("7904d681-f590-4b4d-bbce-15348a898873");
   });
+
+  it("passes the generated usr_ id to signUp (so it lands in custom:app_user_id)", async () => {
+    const d = deps();
+    const command = new RegisterUserCommand(d);
+    const created = await command.execute({ email: "a@b.c", password: "P!1", fullName: "A", e2eSource: false });
+    const appUserIdArg = d.auth.signUp.mock.calls[0][2];
+    expect(appUserIdArg).toMatch(/^usr_/);
+    expect(created.id).toBe(appUserIdArg);
+  });
 });
 
 function identityDeps(nodeEnv: "development" | "production", capture = vi.fn(async () => ({ status: "captured" as const }))) {
