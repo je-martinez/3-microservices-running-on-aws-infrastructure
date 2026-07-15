@@ -34,12 +34,13 @@ Floci mounts the docker socket and joins them to the same compose network
 `./data/floci` (git-ignored) with `FLOCI_STORAGE_MODE=persistent`.
 
 **`make bootstrap` is the single supported entry point.** It runs, in order:
-`floci` → `infra-init` → `infra-up` (apply + regenerate `./.env` from outputs via
-`env-file`) → **`migrate`** (Prisma `migrate deploy`) → build/start `users` →
-`bootstrap.sh` (least-privilege DB user + `nginx-stable` alias). The order
-matters: `users` validates `COGNITO_*` with Zod at boot, and those IDs only exist
-after apply — and Floci mints new ones on every apply, so `.env` is generated,
-never hand-edited.
+`floci` → `infra-init` → `infra-up` (phase-1 apply + regenerate `./.env` from
+outputs via `env-file`) → **`migrate`** (Prisma `migrate deploy`) → build/start
+`users` → `bootstrap.sh` (`nginx-stable` alias) → **`infra-up-post`** (phase 2:
+least-privilege DB app-users in Terraform — see the two-phase section below) →
+services. The order matters: `users` validates `COGNITO_*` with Zod at boot, and
+those IDs only exist after apply — and Floci mints new ones on every apply, so
+`.env` is generated, never hand-edited.
 
 Other targets: `make infra-up|infra-down|infra-output`, `make env-file` (rewrites
 only the AUTO-GENERATED block in `./.env`, preserving manual vars), `make migrate`,
@@ -48,9 +49,12 @@ only the AUTO-GENERATED block in `./.env`, preserving manual vars), `make migrat
 There are now **two RDS clusters** locally — Users **Postgres** and Orders
 **MySQL 8.0** — both from the same engine-agnostic `rds-aurora` module (second
 instantiation with `engine = "mysql"`, letter-led `mysql-${label}` id). Both run
-`manage_app_user = false`, so `bootstrap.sh` creates **both** least-privilege app
-users post-apply: `users_app` (Postgres) and `orders_app` (MySQL) — each
-SELECT/INSERT/UPDATE, no DELETE (ADR-0004).
+`manage_app_user = false`; the least-privilege app users (`users_app` Postgres,
+`orders_app` MySQL — each SELECT/INSERT/UPDATE, no DELETE per ADR-0004) are
+created post-apply by the **phase-2** `environments/local/post/` root (see the
+two-phase apply section below), not inside the phase-1 module. Locally only
+`users_app` is created — Floci hangs the mysql provider, so `orders_app` is
+prod-only.
 
 Postgres is reached at `floci:7001` (Floci's RDS proxy port), never by container
 IP — Floci reassigns those on every recreation. The Orders MySQL cluster gets a
@@ -61,6 +65,33 @@ locally: Floci does not emulate an Aurora read replica.
 Known limitation: a **second** `terraform apply` fails (Floci's `UpdateTags` for
 API GW v2 / RDS). Re-apply by tearing down and rebuilding, not by re-running
 apply. See [../docs/lessons/floci-rds-apigw-limits.md](../docs/lessons/floci-rds-apigw-limits.md).
+
+### Two-phase apply — phase 2 (`environments/local/post/`)
+`make bootstrap` runs a second Terraform apply (**phase 2**, `infra-up-post`)
+**after** phase 1 (cluster + endpoints exist) and after `bootstrap.sh` — see the
+`make bootstrap` order below. Phase 2 lives in `environments/local/post/` with
+its **own** (gitignored) state, so it never re-touches phase 1's resources
+(which would trip the second-apply `UpdateTags` limit above).
+
+Phase 2 creates the least-privilege **DB app-users in Terraform** via the
+engine-parameterized `modules/db-app-user` — replacing the old bash
+`bootstrap_app_db_user` step. It reads phase 1's outputs (`db_writer_endpoint`,
+`orders_db_writer_endpoint`, `secret_arn`) via `terraform_remote_state`, and the
+master credentials **by ARN** via `aws_secretsmanager_secret_version`
+(secret-only: no password ever lives in a variable/tfvars/output/`.env`). Each
+app-user gets a `random_password` written to its own Secrets Manager secret.
+A `terraform_data` + `local-exec` **wait-for-db gate** (`gate.tf` +
+`scripts/wait-for-db.sh`, probing over `3mrai_3mrai-network`) blocks app-user
+creation until the DB accepts connections.
+
+**Per-engine gating** (`enabled_app_users`): local enables **postgres only**
+(`users_app`) — Floci **hangs** the mysql provider; **prod** enables both
+(`users_app` + `orders_app`). Grants stay SELECT/INSERT/UPDATE, **no DELETE**
+(ADR-0004). See [environments/local/post/README.md](environments/local/post/README.md).
+
+Updated `make bootstrap` order: `floci` → `infra-init` → `infra-up` (phase 1
+apply + `env-file`) → `migrate` → build/start `users` → `bootstrap.sh`
+(nginx-stable alias) → **`infra-up-post`** (phase 2: DB app-users) → services.
 
 ## 3. Folder structure
 ```
