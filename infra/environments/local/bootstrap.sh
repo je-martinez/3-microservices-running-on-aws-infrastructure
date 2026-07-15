@@ -125,10 +125,61 @@ SQL
   fi
 }
 
+# ─── Step 1b: least-privilege Orders app DB user (MySQL) ────────────────────
+# MySQL analog of bootstrap_app_db_user. Same rationale: module.rds_mysql's
+# app-user resources are disabled locally (manage_app_user = false, chicken-and
+# -egg), so create orders_app directly against the running MySQL cluster.
+# SELECT/INSERT/UPDATE only — NO DELETE (ADR-0004). Unlike Postgres, MySQL's
+# `GRANT ... ON orders.*` already covers future tables, so there is no
+# ALTER DEFAULT PRIVILEGES equivalent to run.
+ORDERS_DB_HOST="${ORDERS_DB_HOST:-floci}"
+ORDERS_DB_PORT="${ORDERS_DB_PORT:-7002}"
+ORDERS_DB_SUPERUSER="${ORDERS_DB_SUPERUSER:-test}"
+ORDERS_DB_SUPERUSER_PASSWORD="${ORDERS_DB_SUPERUSER_PASSWORD:-test}"
+ORDERS_DB_DATABASE="${ORDERS_DB_DATABASE:-orders}"
+ORDERS_APP_DB_USER="${ORDERS_APP_DB_USER:-orders_app}"
+ORDERS_APP_DB_SECRET_FILE="${ORDERS_APP_DB_SECRET_FILE:-${SCRIPT_DIR}/.orders-app-db-secret}"
+
+bootstrap_orders_app_db_user() {
+  echo "== bootstrap: least-privilege Orders app DB user (${ORDERS_APP_DB_USER}) =="
+
+  if [ -f "$ORDERS_APP_DB_SECRET_FILE" ]; then
+    ORDERS_APP_DB_PASSWORD="$(cat "$ORDERS_APP_DB_SECRET_FILE")"
+    inf "reusing existing local password from ${ORDERS_APP_DB_SECRET_FILE}"
+  else
+    ORDERS_APP_DB_PASSWORD="$(docker run --rm mysql:8 sh -c 'head -c 18 /dev/urandom | base64' | tr -d '=+/\n' | cut -c1-24)"
+    printf '%s' "$ORDERS_APP_DB_PASSWORD" >"$ORDERS_APP_DB_SECRET_FILE"
+    chmod 600 "$ORDERS_APP_DB_SECRET_FILE"
+    inf "generated a new local-only password (${ORDERS_APP_DB_SECRET_FILE}, not git-tracked)"
+  fi
+
+  # CREATE USER IF NOT EXISTS is natively idempotent in MySQL 8. ALTER USER keeps
+  # the password in sync on re-runs. Grants are idempotent by nature.
+  SQL=$(
+    cat <<SQL
+CREATE USER IF NOT EXISTS '${ORDERS_APP_DB_USER}'@'%' IDENTIFIED BY '${ORDERS_APP_DB_PASSWORD}';
+ALTER USER '${ORDERS_APP_DB_USER}'@'%' IDENTIFIED BY '${ORDERS_APP_DB_PASSWORD}';
+GRANT SELECT, INSERT, UPDATE ON ${ORDERS_DB_DATABASE}.* TO '${ORDERS_APP_DB_USER}'@'%';
+FLUSH PRIVILEGES;
+SQL
+  )
+
+  if docker run --rm --network "$NETWORK" mysql:8 \
+    mysql -h "$ORDERS_DB_HOST" -P "$ORDERS_DB_PORT" -u "$ORDERS_DB_SUPERUSER" -p"$ORDERS_DB_SUPERUSER_PASSWORD" \
+    "$ORDERS_DB_DATABASE" -e "$SQL" >/tmp/bootstrap_mysql.log 2>&1; then
+    ok "user '${ORDERS_APP_DB_USER}' ready: SELECT/INSERT/UPDATE (no DELETE) on ${ORDERS_DB_DATABASE}.*"
+  else
+    no "failed to create/grant Orders app DB user (see /tmp/bootstrap_mysql.log)"
+    cat /tmp/bootstrap_mysql.log
+    return 1
+  fi
+}
+
 # Run step 1 independently of step 2: a step-1 failure is reported but does
 # not abort step 2 (and vice versa — each is independently useful/runnable).
 STEP1_STATUS=0
 bootstrap_app_db_user || STEP1_STATUS=$?
+bootstrap_orders_app_db_user || STEP1_STATUS=$?
 echo ""
 
 echo "== bootstrap: stable DNS alias for the nginx ECS container =="
