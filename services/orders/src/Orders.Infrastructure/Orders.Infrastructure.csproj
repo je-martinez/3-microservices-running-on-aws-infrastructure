@@ -6,6 +6,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Google.Protobuf" Version="3.35.1" />
+    <PackageReference Include="Grpc.Net.Client" Version="2.80.0" />
+    <PackageReference Include="Grpc.Tools" Version="2.82.0">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.0">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -13,6 +19,14 @@
     </PackageReference>
     <PackageReference Include="Nanoid" Version="3.1.0" />
     <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" Version="9.0.0" />
+  </ItemGroup>
+
+  <!-- Generate the Users gRPC stubs from the shared repo-root proto. Namespace
+       derives from `package users.v1` → C# `Users.V1`. Runtime only uses the
+       client; "Both" also emits UsersBase so tests can host an in-process
+       server stub to verify the client attaches x-api-key correctly. -->
+  <ItemGroup>
+    <Protobuf Include="..\..\..\..\proto\users.proto" GrpcServices="Both" Link="Protos\users.proto" />
   </ItemGroup>
 
   <PropertyGroup>
