@@ -9,6 +9,8 @@ public static class OrderEndpoints
     {
         var group = app.MapGroup("/v1/orders");
 
+        group.MapPost("", CreateOrderEndpoint.Handle);
+
         group.MapGet("/my-orders", async (HttpContext ctx, OrderReadService reads) =>
         {
             var sub = CallerIdentity.CognitoSub(ctx);
