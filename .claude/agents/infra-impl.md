@@ -1,6 +1,6 @@
 ---
 name: infra-impl
-model: sonnet
+model: opus
 skills:
   - terraform-skill
   - floci

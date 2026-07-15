@@ -1,6 +1,6 @@
 ---
 name: orders-impl
-model: sonnet
+model: opus
 skills:
   - efcore-patterns
   - database-performance

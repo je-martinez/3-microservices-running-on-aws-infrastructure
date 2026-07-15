@@ -1,6 +1,6 @@
 ---
 name: events-pipeline-impl
-model: sonnet
+model: opus
 skills:
   - mongodb-schema-design
   - mongodb-query-optimizer
