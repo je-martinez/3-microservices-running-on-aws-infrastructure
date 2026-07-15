@@ -140,7 +140,19 @@ ORDERS_DB_DATABASE="${ORDERS_DB_DATABASE:-orders}"
 ORDERS_APP_DB_USER="${ORDERS_APP_DB_USER:-orders_app}"
 ORDERS_APP_DB_SECRET_FILE="${ORDERS_APP_DB_SECRET_FILE:-${SCRIPT_DIR}/.orders-app-db-secret}"
 
+# KNOWN LIMIT (verified 2026-07-15): Floci's emulated MySQL does NOT support user
+# management — the only exposed user `test` lacks the global CREATE USER privilege
+# (ERROR 1227), the mysql Terraform provider hangs on mysql_user, and Floci has no
+# TLS while caching_sha2_password demands it. So orders_app CANNOT be created on
+# Floci local (Postgres/users_app works; MySQL does not). Locally Orders connects
+# as test/test; the least-privilege orders_app (no DELETE, ADR-0004) is a PROD-only
+# concern handled by the RDS module / the post-effects apply. This function is kept
+# for real AWS and is skipped on Floci unless FORCE_ORDERS_APP=1.
 bootstrap_orders_app_db_user() {
+  if [ "${FORCE_ORDERS_APP:-0}" != "1" ]; then
+    inf "skipping orders_app: Floci MySQL has no user management (set FORCE_ORDERS_APP=1 to attempt against real AWS)"
+    return 0
+  fi
   echo "== bootstrap: least-privilege Orders app DB user (${ORDERS_APP_DB_USER}) =="
 
   if [ -f "$ORDERS_APP_DB_SECRET_FILE" ]; then
@@ -164,8 +176,10 @@ FLUSH PRIVILEGES;
 SQL
   )
 
+  # --ssl-mode=DISABLED: Floci's emulated MySQL proxy does not terminate TLS, so
+  # the client's default SSL handshake fails with "unexpected eof while reading".
   if docker run --rm --network "$NETWORK" mysql:8 \
-    mysql -h "$ORDERS_DB_HOST" -P "$ORDERS_DB_PORT" -u "$ORDERS_DB_SUPERUSER" -p"$ORDERS_DB_SUPERUSER_PASSWORD" \
+    mysql --ssl-mode=DISABLED -h "$ORDERS_DB_HOST" -P "$ORDERS_DB_PORT" -u "$ORDERS_DB_SUPERUSER" -p"$ORDERS_DB_SUPERUSER_PASSWORD" \
     "$ORDERS_DB_DATABASE" -e "$SQL" >/tmp/bootstrap_mysql.log 2>&1; then
     ok "user '${ORDERS_APP_DB_USER}' ready: SELECT/INSERT/UPDATE (no DELETE) on ${ORDERS_DB_DATABASE}.*"
   else
