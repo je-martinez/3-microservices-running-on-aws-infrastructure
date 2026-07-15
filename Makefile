@@ -74,6 +74,7 @@ env-file: ## Refresh Cognito IDs + API_GATEWAY_URL in ./.env from terraform outp
 	client="$$($(TF) output -raw cognito_client_id)"; \
 	apiid="$$($(TF) output -raw api_id)"; \
 	dbhost="$$($(TF) output -raw db_writer_endpoint)"; \
+	ordersdbhost="$$($(TF) output -raw orders_db_writer_endpoint)"; \
 	touch $(ENV_FILE); \
 	rest=$$(mktemp); \
 	awk '/^# >>> AUTO-GENERATED/{skip=1;next} skip&&/^# <<< END AUTO-GENERATED/{skip=0;next} skip{next} {print}' $(ENV_FILE) \
@@ -86,6 +87,7 @@ env-file: ## Refresh Cognito IDs + API_GATEWAY_URL in ./.env from terraform outp
 		printf 'COGNITO_CLIENT_ID=%s\n' "$$client"; \
 		printf 'API_GATEWAY_URL=http://localhost:4566/restapis/%s/$$default/_user_request_\n' "$$apiid"; \
 		printf 'USERS_DATABASE_URL=postgres://test:test@%s:7001/users\n' "$$dbhost"; \
+		printf 'ORDERS_DATABASE_URL=mysql://test:test@%s:7002/orders\n' "$$ordersdbhost"; \
 		printf '# <<< END AUTO-GENERATED ───────────────────────────────────────────────────\n'; \
 		[ -s $$rest ] && printf '\n' && cat $$rest; \
 	} > $$out; \
