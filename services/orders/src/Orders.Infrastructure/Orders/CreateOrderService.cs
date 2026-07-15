@@ -25,20 +25,23 @@ public class CreateOrderService
     private readonly OrdersWriteDbContext _db;
     private readonly IUserDirectory _users;
     private readonly IEventPublisher _events;
-    private readonly decimal _taxRate;
+    private readonly IConfigurationReader _config;
 
-    public CreateOrderService(OrdersWriteDbContext db, IUserDirectory users, IEventPublisher events, decimal taxRate)
+    public CreateOrderService(OrdersWriteDbContext db, IUserDirectory users, IEventPublisher events, IConfigurationReader config)
     {
         _db = db;
         _users = users;
         _events = events;
-        _taxRate = taxRate;
+        _config = config;
     }
 
     public async Task<string> CreateAsync(CreateOrderCommand command, string cognitoSub, CancellationToken ct = default)
     {
         var userId = await _users.ResolveInternalUserIdAsync(cognitoSub, ct)
             ?? throw new UnknownUserException(cognitoSub);
+
+        // Tax rate is read per-request from the configuration table (not an env var).
+        var taxRate = await _config.GetTaxRateAsync(ct);
 
         await using var tx = await _db.Database.BeginTransactionAsync(ct);
 
@@ -68,7 +71,7 @@ public class CreateOrderService
             if (product.UnitsInStock < line.Quantity)
                 throw new InsufficientStockException(line.ProductId);
 
-            var (lineSub, lineTax, lineTotal) = OrderPricing.PriceLine(product.UnitPriceCents, line.Quantity, _taxRate);
+            var (lineSub, lineTax, lineTotal) = OrderPricing.PriceLine(product.UnitPriceCents, line.Quantity, taxRate);
             subtotal += lineSub;
             tax += lineTax;
             total += lineTotal;

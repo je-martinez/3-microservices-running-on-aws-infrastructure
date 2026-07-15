@@ -34,6 +34,13 @@ public class CreateOrderServiceTests : IAsyncLifetime
         public Task<string?> ResolveInternalUserIdAsync(string sub, CancellationToken ct = default) => Task.FromResult(_id);
     }
 
+    private sealed class FixedConfig : IConfigurationReader
+    {
+        private readonly decimal _taxRate;
+        public FixedConfig(decimal taxRate) => _taxRate = taxRate;
+        public Task<decimal> GetTaxRateAsync(CancellationToken ct = default) => Task.FromResult(_taxRate);
+    }
+
     private async Task<string> SeedProduct(uint stock, long priceCents)
     {
         await using var db = Ctx();
@@ -49,7 +56,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
     {
         var productId = await SeedProduct(stock: 10, priceCents: 1000);
         await using var db = Ctx();
-        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), taxRate: 0.10m);
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m));
 
         var orderId = await svc.CreateAsync(
             new CreateOrderCommand(new[] { new CreateOrderLine(productId, 3) }), "sub-a");
@@ -73,7 +80,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
     {
         var productId = await SeedProduct(stock: 2, priceCents: 1000);
         await using var db = Ctx();
-        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), taxRate: 0.10m);
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m));
 
         await Assert.ThrowsAsync<InsufficientStockException>(() =>
             svc.CreateAsync(new CreateOrderCommand(new[] { new CreateOrderLine(productId, 5) }), "sub-a"));
@@ -88,7 +95,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
     {
         var productId = await SeedProduct(stock: 10, priceCents: 1000);
         await using var db = Ctx();
-        var svc = new CreateOrderService(db, new FixedDirectory(null), new NoopEventPublisher(), taxRate: 0.10m);
+        var svc = new CreateOrderService(db, new FixedDirectory(null), new NoopEventPublisher(), new FixedConfig(0.10m));
 
         await Assert.ThrowsAsync<UnknownUserException>(() =>
             svc.CreateAsync(new CreateOrderCommand(new[] { new CreateOrderLine(productId, 1) }), "sub-x"));

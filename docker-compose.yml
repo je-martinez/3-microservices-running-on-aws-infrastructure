@@ -194,8 +194,9 @@ services:
       # them constant-time; a mismatch yields UNAUTHENTICATED. Local-only value;
       # prod reads it from Secrets Manager (ADR-0007).
       - GRPC_API_KEY=local-dev-grpc-key
-      - ORDERS_TAX_RATE=0.08
-      # Apply migrations + seed the Product catalog on startup (local bootstrap).
+      # Apply migrations + seed the Product catalog + baseline config (tax_rate)
+      # on startup (local bootstrap). The tax rate now lives in the `configuration`
+      # table (was ORDERS_TAX_RATE), read per-request.
       - SEED_ON_STARTUP=true
       - E2E_TESTING_ENABLED=true
     # stdout → the observability collector's fluent_forward receiver.

@@ -43,6 +43,10 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
             UpdatedAt = DateTime.UtcNow,
         });
         await db.SaveChangesAsync();
+
+        // Tax rate now lives in the configuration table (was ORDERS_TAX_RATE);
+        // CreateOrderService reads it per-request, so it must exist for the DB.
+        await ConfigurationSeed.ApplyAsync(db);
     }
 
     public new async Task DisposeAsync()
@@ -62,7 +66,6 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
         builder.UseSetting("DATABASE_WRITER_URL", cs);
         builder.UseSetting("USERS_GRPC_URL", "http://localhost:50051");
         builder.UseSetting("GRPC_API_KEY", "test-key");
-        builder.UseSetting("ORDERS_TAX_RATE", "0.10");
 
         builder.ConfigureTestServices(services =>
         {

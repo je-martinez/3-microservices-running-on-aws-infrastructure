@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Orders.Api.Endpoints;
 using Orders.Application.Abstractions;
 using Orders.Application.Identity;
+using Orders.Infrastructure.Config;
 using Orders.Infrastructure.Grpc;
 using Orders.Infrastructure.Messaging;
 using Orders.Infrastructure.Orders;
@@ -32,17 +33,19 @@ builder.Services.AddScoped<IUserDirectory>(sp =>
 // ORDER_CREATED emission seam (SQS deferred).
 builder.Services.AddScoped<IEventPublisher, NoopEventPublisher>();
 
-var taxRate = decimal.Parse(builder.Configuration["ORDERS_TAX_RATE"] ?? "0.08",
-    System.Globalization.CultureInfo.InvariantCulture);
+// Tax rate now lives in the `configuration` table, read per-request via the read
+// DbContext instead of the removed ORDERS_TAX_RATE env var.
+builder.Services.AddScoped<IConfigurationReader, ConfigurationReader>();
 builder.Services.AddScoped(sp => new CreateOrderService(
     sp.GetRequiredService<OrdersWriteDbContext>(),
     sp.GetRequiredService<IUserDirectory>(),
     sp.GetRequiredService<IEventPublisher>(),
-    taxRate));
+    sp.GetRequiredService<IConfigurationReader>()));
 
 var app = builder.Build();
 
-// Local bootstrap: apply migrations + seed the Product catalog on startup when
+// Local bootstrap: apply migrations + seed the Product catalog and baseline
+// configuration (tax_rate) on startup when
 // SEED_ON_STARTUP is set (compose sets it locally). Chosen over a Makefile
 // migrate step because no Aurora-MySQL cluster is provisioned in infra yet — the
 // service owns its schema locally. Never enabled in prod (migrations run via a
@@ -53,6 +56,7 @@ if (app.Configuration.GetValue<bool>("SEED_ON_STARTUP"))
     var db = scope.ServiceProvider.GetRequiredService<OrdersWriteDbContext>();
     await db.Database.MigrateAsync();
     await ProductSeed.ApplyAsync(db);
+    await ConfigurationSeed.ApplyAsync(db);
 }
 
 app.MapOrderEndpoints();
