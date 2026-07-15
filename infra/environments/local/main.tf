@@ -86,6 +86,46 @@ module "rds_aurora" {
   subnet_group_name   = "default"
 }
 
+# ─── Orders MySQL label ─────────────────────────────────────────────────────────
+module "label_orders_db" {
+  source      = "../../modules/label"
+  namespace   = "3mrai"
+  environment = var.environment
+  name        = "orders-db"
+}
+
+# ─── Orders MySQL ───────────────────────────────────────────────────────────────
+# Second instantiation of the engine-agnostic rds-aurora module, this time with
+# engine = "mysql" for the Orders service. Floci runs a real mysql container off
+# the cluster alone (no Aurora cluster-instance concept), so the module's
+# writer/reader cluster_instances auto-skip via their startswith(engine,"aurora")
+# gate — same as the local Postgres above.
+#
+# Same letter-led-id trick as rds_aurora: module.label_orders_db.id is
+# "3mrai-local-orders-db" (digit-leading), and rds-aurora interpolates
+# context.id into cluster_identifier which AWS rejects unless it starts with a
+# letter — so prefix with "mysql-".
+#
+# manage_app_user = false LOCAL ONLY: the mysql provider would need the cluster
+# endpoint before the cluster exists (chicken-and-egg, same as Postgres). The
+# least-privilege orders_app user is created post-apply by bootstrap.sh instead.
+module "rds_mysql" {
+  source              = "../../modules/rds-aurora"
+  context             = { id = "mysql-${module.label_orders_db.id}", tags = module.label_orders_db.tags }
+  subnet_ids          = module.networking.subnet_ids
+  security_group_ids  = module.networking.security_group_ids
+  database_name       = "orders"
+  master_username     = var.db_username
+  master_password     = var.db_password
+  engine              = "mysql"
+  engine_version      = "8.0"
+  instance_class      = "db.t3.micro"
+  skip_final_snapshot = true
+  manage_app_user     = false
+  create_subnet_group = false
+  subnet_group_name   = "default"
+}
+
 # ─── Cognito ────────────────────────────────────────────────────────────────────
 # manage_client_via_provider = false (LOCAL ONLY): the native
 # aws_cognito_user_pool_client resource cannot apply cleanly against Floci —
