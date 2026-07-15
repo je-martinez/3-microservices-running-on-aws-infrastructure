@@ -75,10 +75,15 @@ Generation is build-time — there is no separate generate script.
 - Verify after regenerating: all five routes are present with their real statuses,
   the document is OpenAPI 3.1, and `dotnet build && dotnet test` pass.
 
-Locally the service **migrates + seeds itself on startup** when
-`SEED_ON_STARTUP=true` (set in compose): `Program.cs` runs `MigrateAsync` then
-`ProductSeed.ApplyAsync` before serving. This is the local bootstrap path — there
-is no Aurora-MySQL cluster in infra yet, so no standalone `make migrate` step.
+Locally Orders now runs against a **provisioned Floci MySQL cluster** (the second
+`rds-aurora` instantiation in `infra/environments/local`), reached at Floci's RDS
+proxy port — not the old `7002` placeholder (the port is discovered from
+`terraform output`, never hardcoded). Migrations run via **`make migrate-orders`**
+as the cluster superuser (`test/test`), mirroring Users' `make migrate` — NOT via
+`SEED_ON_STARTUP` at boot. A least-privilege **`orders_app`** user
+(SELECT/INSERT/UPDATE, **no DELETE** — [[soft-delete]]/[[ADR-0004-soft-delete-only]])
+is created post-apply by `infra/environments/local/bootstrap.sh`. See
+[[ADR-0017-floci-local]] and [[floci-rds-apigw-limits]].
 
 ## 3. Solution layout (Clean Architecture)
 Five projects; dependencies point inward (Domain ← Application ← Infrastructure/Api,

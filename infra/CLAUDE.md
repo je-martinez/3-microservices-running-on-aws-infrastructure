@@ -45,9 +45,18 @@ Other targets: `make infra-up|infra-down|infra-output`, `make env-file` (rewrite
 only the AUTO-GENERATED block in `./.env`, preserving manual vars), `make migrate`,
 `make clean` (teardown), `make observability-up|observability-down`.
 
+There are now **two RDS clusters** locally — Users **Postgres** and Orders
+**MySQL 8.0** — both from the same engine-agnostic `rds-aurora` module (second
+instantiation with `engine = "mysql"`, letter-led `mysql-${label}` id). Both run
+`manage_app_user = false`, so `bootstrap.sh` creates **both** least-privilege app
+users post-apply: `users_app` (Postgres) and `orders_app` (MySQL) — each
+SELECT/INSERT/UPDATE, no DELETE (ADR-0004).
+
 Postgres is reached at `floci:7001` (Floci's RDS proxy port), never by container
-IP — Floci reassigns those on every recreation. Writer and reader endpoints are
-the same locally: Floci does not emulate an Aurora read replica.
+IP — Floci reassigns those on every recreation. The Orders MySQL cluster gets a
+separate proxy port in 7000–7099, assigned at apply time and discovered from
+`terraform output` (never hardcoded). Writer and reader endpoints are the same
+locally: Floci does not emulate an Aurora read replica.
 
 Known limitation: a **second** `terraform apply` fails (Floci's `UpdateTags` for
 API GW v2 / RDS). Re-apply by tearing down and rebuilding, not by re-running
