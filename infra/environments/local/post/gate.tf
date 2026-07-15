@@ -13,8 +13,11 @@ resource "terraform_data" "wait_for_db" {
     engine = each.key
   }
 
+  # abspath so the script resolves regardless of the local-exec working dir;
+  # bash invoked explicitly on the absolute path (path.module is "." at the root,
+  # which does not reliably resolve from the provisioner's cwd).
   provisioner "local-exec" {
-    command     = "${path.module}/scripts/wait-for-db.sh ${self.input.host} ${self.input.port} ${self.input.engine}"
-    interpreter = ["/usr/bin/env", "bash"]
+    command     = "bash ${abspath("${path.module}/scripts/wait-for-db.sh")} ${self.input.host} ${self.input.port} ${self.input.engine}"
+    interpreter = ["/usr/bin/env", "bash", "-c"]
   }
 }

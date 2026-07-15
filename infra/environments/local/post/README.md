@@ -44,6 +44,11 @@ cd infra/environments/local/post && terraform init && terraform apply -auto-appr
 ```
 
 `host = "localhost"` in the providers because phase 2 runs on the **host** and
-reaches Floci's published proxy ports (Postgres 7001, MySQL 7002). The gate uses
-`floci` because it runs a probe container **on** the compose network. Prod reads
-host/port from the master secret directly.
+reaches Floci's published proxy ports. Those ports are **discovered per-engine**,
+not fixed: Floci assigns them (7000-7099) by cluster creation order, which is not
+stable across applies, so Postgres/MySQL can flip between 7001/7002. `make
+infra-up-post` discovers the Postgres port (via `../scripts/discover-db-port.sh`,
+which reads `describe-db-clusters` per `Engine`) and passes it as `-var pg_port`;
+the `pg_port`/`mysql_port` variables keep 7001/7002 defaults only as a fallback.
+The gate uses `floci` because it runs a probe container **on** the compose
+network. Prod reads host/port from the master secret directly.

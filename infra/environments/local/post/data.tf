@@ -17,9 +17,12 @@ locals {
   pg_host    = data.terraform_remote_state.phase1.outputs.db_writer_endpoint
   mysql_host = data.terraform_remote_state.phase1.outputs.orders_db_writer_endpoint
 
-  # Floci proxy ports (7000-7099, assigned at apply time). Postgres = 7001,
-  # Orders MySQL = 7002 (verified). These are Floci-local; prod reads host/port
-  # from the secret itself (local.master.host / local.master.port).
+  # Floci proxy ports (7000-7099, assigned at apply time BY CREATION ORDER —
+  # NOT stable, so Postgres/MySQL can flip between 7001/7002). These come in via
+  # var.pg_port/var.mysql_port, which `make infra-up-post` DISCOVERS per-engine
+  # (scripts/discover-db-port.sh, reading describe-db-clusters) and passes as
+  # -var; the variable defaults (7001/7002) are only a fallback. These are
+  # Floci-local; prod reads host/port from the secret (local.master.host/.port).
   pg_port    = var.pg_port
   mysql_port = var.mysql_port
 }

@@ -48,6 +48,18 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Per-engine RDS-proxy-port discovery. Floci assigns those ports (7000-7099) by
+# cluster CREATION ORDER, which is NOT stable across applies, so Postgres/MySQL
+# can flip between 7001/7002. Never hardcode the port: discover it per engine
+# from describe-db-clusters (via the shared script the Makefile also uses), but
+# let an explicit env override win (PG_PORT / ORDERS_DB_PORT passed by a caller).
+# Failure to discover is non-fatal here — the callers below fall back to their
+# ${VAR:-default}, and the app-DB-user steps are not invoked by the default chain.
+discover_port() {
+  # discover_port <engine> ; echoes the port or nothing (on failure).
+  bash "${SCRIPT_DIR}/scripts/discover-db-port.sh" "$1" 2>/dev/null || true
+}
+
 NETWORK="3mrai_3mrai-network"
 ALIAS="${NGINX_STABLE_ALIAS:-nginx-stable}"
 # Empty by default → attach the alias only and let Docker assign the IP.
@@ -63,6 +75,9 @@ FIXED_IP="${NGINX_STABLE_IP:-}"
 # hostname (survives container recreation, per JE-36/verified route) rather
 # than a discovered container IP, which changes across recreations.
 PG_HOST="${PG_HOST:-floci}"
+# Explicit PG_PORT wins; otherwise discover the Postgres proxy port per-engine
+# (Floci flips 7001/7002 across applies), falling back to 7001 if discovery fails.
+PG_PORT="${PG_PORT:-$(discover_port postgres)}"
 PG_PORT="${PG_PORT:-7001}"
 PG_SUPERUSER="${PG_SUPERUSER:-test}"
 PG_SUPERUSER_PASSWORD="${PG_SUPERUSER_PASSWORD:-test}"
@@ -133,6 +148,11 @@ SQL
 # `GRANT ... ON orders.*` already covers future tables, so there is no
 # ALTER DEFAULT PRIVILEGES equivalent to run.
 ORDERS_DB_HOST="${ORDERS_DB_HOST:-floci}"
+# Explicit ORDERS_DB_PORT wins; otherwise discover the MySQL proxy port per-engine
+# (Floci flips 7001/7002 across applies), falling back to 7002 if discovery fails.
+# Only used by bootstrap_orders_app_db_user, which is skipped on Floci unless
+# FORCE_ORDERS_APP=1 (Floci MySQL has no user management).
+ORDERS_DB_PORT="${ORDERS_DB_PORT:-$(discover_port mysql)}"
 ORDERS_DB_PORT="${ORDERS_DB_PORT:-7002}"
 ORDERS_DB_SUPERUSER="${ORDERS_DB_SUPERUSER:-test}"
 ORDERS_DB_SUPERUSER_PASSWORD="${ORDERS_DB_SUPERUSER_PASSWORD:-test}"
@@ -189,11 +209,13 @@ SQL
   fi
 }
 
-# Run step 1 independently of step 2: a step-1 failure is reported but does
-# not abort step 2 (and vice versa — each is independently useful/runnable).
+# App DB users are now created by the PHASE-2 post-effects Terraform apply
+# (environments/local/post/, run via `make infra-up-post`), NOT here — cleaner,
+# secret-only, idempotent. The bootstrap_app_db_user / bootstrap_orders_app_db_user
+# functions above are kept for reference and manual/real-AWS use (call them with
+# `source bootstrap.sh; bootstrap_app_db_user`), but the bootstrap chain no longer
+# invokes them. This script now only manages the docker-native nginx-stable alias.
 STEP1_STATUS=0
-bootstrap_app_db_user || STEP1_STATUS=$?
-bootstrap_orders_app_db_user || STEP1_STATUS=$?
 echo ""
 
 echo "== bootstrap: stable DNS alias for the nginx ECS container =="

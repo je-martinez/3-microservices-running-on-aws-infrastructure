@@ -21,6 +21,16 @@ services:
     image: floci/floci:latest
     ports:
       - "4566:4566"
+      # RDS proxy ports (7000-7010): Floci assigns one per cluster at apply time
+      # in the 7000-7099 range, BY CREATION ORDER — which is NOT stable across
+      # applies, so Postgres/MySQL can flip between 7001/7002. The actual per-
+      # engine ports are DISCOVERED from describe-db-clusters (Engine per cluster)
+      # by scripts/discover-db-port.sh and written into .env as USERS_DB_PORT /
+      # ORDERS_DB_PORT — never hardcoded. Published to the host so host-side
+      # clients — the phase-2 post-effects Terraform postgresql/mysql providers,
+      # and any SQL client — can reach the DBs at localhost:<port>. In-network
+      # containers still use floci:<port>.
+      - "7000-7010:7000-7010"
     environment:
       # ECS tasks launched by Floci join the compose network and can resolve
       # other compose containers (users) by service name via Docker DNS.
@@ -114,19 +124,25 @@ services:
       # Orders service MUST use the same value. Prod reads it from Secrets Manager.
       - GRPC_API_KEY=local-dev-grpc-key
       # Floci fronts the real Postgres container it launches for the Aurora
-      # cluster on its own proxy port 7001. Reach it by the compose service name
+      # cluster on its own RDS proxy port. Reach it by the compose service name
       # `floci` — the container's IP is reassigned on every recreation, and the
       # RDS `Endpoint` reported by describe-db-clusters is one of those IPs.
+      #
+      # USERS_DB_PORT is DISCOVERED per-engine and written into .env by
+      # `make env-file` (Floci assigns proxy ports 7000-7099 by creation order,
+      # so postgres/mysql can flip across applies — never hardcode 7001). The
+      # ${USERS_DB_PORT:-7001} default only applies when .env has not been
+      # generated yet; after bootstrap the discovered value wins.
       #
       # Writer and reader are the SAME endpoint locally: Floci does not emulate
       # an Aurora read replica. ADR-0006 splits reads/writes in production; the
       # split is preserved in code (two URLs) so the app path stays identical.
       #
       # Credentials are the cluster superuser (test/test). The least-privilege
-      # `users_app` role that bootstrap.sh creates has a generated password kept
-      # in the git-ignored .app-db-secret, which compose cannot read.
-      - DATABASE_WRITER_URL=postgres://test:test@floci:7001/users
-      - DATABASE_READER_URL=postgres://test:test@floci:7001/users
+      # `users_app` role that phase-2 creates has a generated password kept
+      # in Secrets Manager, which compose cannot read.
+      - DATABASE_WRITER_URL=postgres://test:test@floci:${USERS_DB_PORT:-7001}/users
+      - DATABASE_READER_URL=postgres://test:test@floci:${USERS_DB_PORT:-7001}/users
       - COGNITO_USER_POOL_ID=${COGNITO_USER_POOL_ID}
       - COGNITO_CLIENT_ID=${COGNITO_CLIENT_ID}
       - E2E_TESTING_ENABLED=true
@@ -181,14 +197,14 @@ services:
       # (Floci does not emulate an Aurora read replica); the split is preserved
       # in code (two URLs) so the app path matches prod (ADR-0006).
       #
-      # PORT PLACEHOLDER — 7002: no Aurora-MySQL cluster is provisioned in infra
-      # yet (only the Users Postgres cluster exists, on :7001). Floci assigns
-      # proxy ports per-cluster at apply time within 7000-7099; the real MySQL
-      # port is only known once that cluster is created. When the Orders RDS
-      # module lands, confirm the assigned port (aws rds describe-db-instances)
-      # and update these two URLs. These are ADO.NET connection strings, not DSNs.
-      - DATABASE_WRITER_URL=Server=floci;Port=7002;Database=orders;User=test;Password=test;
-      - DATABASE_READER_URL=Server=floci;Port=7002;Database=orders;User=test;Password=test;
+      # ORDERS_DB_PORT is DISCOVERED per-engine and written into .env by
+      # `make env-file`: Floci assigns proxy ports by cluster creation order,
+      # which is NOT stable across applies, so postgres/mysql can flip between
+      # 7001/7002 — never hardcode. The ${ORDERS_DB_PORT:-7002} default only
+      # applies before .env is generated; after bootstrap the discovered value
+      # wins. These are ADO.NET connection strings, not DSNs.
+      - DATABASE_WRITER_URL=Server=floci;Port=${ORDERS_DB_PORT:-7002};Database=orders;User=test;Password=test;
+      - DATABASE_READER_URL=Server=floci;Port=${ORDERS_DB_PORT:-7002};Database=orders;User=test;Password=test;
       - USERS_GRPC_URL=http://users:50051
       # MUST equal the value on the `users` service — the interceptor compares
       # them constant-time; a mismatch yields UNAUTHENTICATED. Local-only value;

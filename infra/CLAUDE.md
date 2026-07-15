@@ -56,11 +56,18 @@ two-phase apply section below), not inside the phase-1 module. Locally only
 `users_app` is created — Floci hangs the mysql provider, so `orders_app` is
 prod-only.
 
-Postgres is reached at `floci:7001` (Floci's RDS proxy port), never by container
-IP — Floci reassigns those on every recreation. The Orders MySQL cluster gets a
-separate proxy port in 7000–7099, assigned at apply time and discovered from
-`terraform output` (never hardcoded). Writer and reader endpoints are the same
-locally: Floci does not emulate an Aurora read replica.
+Postgres is reached at `floci:<port>` (Floci's RDS proxy port), never by
+container IP — Floci reassigns those on every recreation. **Proxy ports are
+discovered per-engine, not hardcoded:** Floci assigns them (7000–7099) by cluster
+**creation order**, which is NOT stable across applies, so Postgres/MySQL can flip
+between 7001/7002 (verified). The single discovery mechanism is
+`environments/local/scripts/discover-db-port.sh <engine>`, which reads
+`aws rds describe-db-clusters --query "DBClusters[?Engine=='<engine>'].Port"`
+(the `Engine` field is stable); the Makefile (`env-file`, `migrate`,
+`infra-up-post`) and `bootstrap.sh` all call it, and `env-file` writes the results
+to `.env` as `USERS_DB_PORT`/`ORDERS_DB_PORT` for docker-compose to interpolate.
+Writer and reader endpoints are the same locally: Floci does not emulate an Aurora
+read replica.
 
 Known limitation: a **second** `terraform apply` fails (Floci's `UpdateTags` for
 API GW v2 / RDS). Re-apply by tearing down and rebuilding, not by re-running
