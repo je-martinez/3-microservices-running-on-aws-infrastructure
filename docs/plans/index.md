@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-07-12
+updated: 2026-07-15
 tags: [type/spec, area/shared, status/active]
 related:
   - "[[2026-06-26-implementation-workflow]]"
@@ -31,6 +31,7 @@ related:
   - "[[2026-07-14-orders-service-milestone]]"
   - "[[orders-service-milestone]]"
   - "[[2026-07-15-orders-rds-mysql]]"
+  - "[[2026-07-15-two-phase-post-effects]]"
 ---
 
 # 3MRAI Plans — Index
@@ -63,6 +64,7 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-07-14-orders-service-milestone]] — implementation plan for the Orders Service milestone: Users gRPC gate (shared .proto + @grpc/grpc-js server with x-api-key interceptor), then the Orders Clean Architecture .NET solution (EF Core/MySQL, money-in-cents, ownership-by-filter, transactional stock decrement) and its gRPC identity client.
 - [[orders-service-milestone]] — logical execution plan for the Orders Service milestone: task sequence, phases, and blocking dependency graph for Phase A (Users gRPC gate), Phase B (Orders service), and Phase C (gRPC client + transactional POST).
 - [[2026-07-15-orders-rds-mysql]] — implementation plan for the Orders MySQL database in the local Floci environment: a second engine-agnostic rds-aurora instantiation (engine=mysql), least-privilege orders_app user via bootstrap.sh (no DELETE), new outputs + ORDERS_DATABASE_URL in .env, and Orders booting against the real cluster.
+- [[2026-07-15-two-phase-post-effects]] — implementation plan for the two-phase post-effects Terraform apply: a new environments/local/post/ root that reads phase-1 state + the master secret by ARN, waits for the DB, and creates least-privilege app-users via a new engine-parameterized db-app-user module (postgres locally, mysql prod-only), migrating users_app off bootstrap.sh.
 
 > [!note] No plan note for the AuditActor enum
 > [[2026-07-12-audit-actor-enum-design]] was implemented directly from the spec — there is no separate `writing-plans` plan for it.
@@ -93,3 +95,4 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-07-14-orders-service-milestone]]
 - [[orders-service-milestone]]
 - [[2026-07-15-orders-rds-mysql]]
+- [[2026-07-15-two-phase-post-effects]]
