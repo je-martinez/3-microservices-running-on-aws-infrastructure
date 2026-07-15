@@ -30,6 +30,7 @@ related:
   - "[[2026-07-12-app-user-id-token-claim]]"
   - "[[2026-07-14-orders-service-milestone]]"
   - "[[orders-service-milestone]]"
+  - "[[2026-07-15-orders-rds-mysql]]"
 ---
 
 # 3MRAI Plans — Index
@@ -61,6 +62,7 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-07-12-app-user-id-token-claim]] — implementation plan adding the `custom:app_user_id` Cognito attribute, setting it at sign-up, and copying it into the `app_user_id` token claim via the repo's first Lambda (Pre-Token-Generation V2), without touching identity resolution.
 - [[2026-07-14-orders-service-milestone]] — implementation plan for the Orders Service milestone: Users gRPC gate (shared .proto + @grpc/grpc-js server with x-api-key interceptor), then the Orders Clean Architecture .NET solution (EF Core/MySQL, money-in-cents, ownership-by-filter, transactional stock decrement) and its gRPC identity client.
 - [[orders-service-milestone]] — logical execution plan for the Orders Service milestone: task sequence, phases, and blocking dependency graph for Phase A (Users gRPC gate), Phase B (Orders service), and Phase C (gRPC client + transactional POST).
+- [[2026-07-15-orders-rds-mysql]] — implementation plan for the Orders MySQL database in the local Floci environment: a second engine-agnostic rds-aurora instantiation (engine=mysql), least-privilege orders_app user via bootstrap.sh (no DELETE), new outputs + ORDERS_DATABASE_URL in .env, and Orders booting against the real cluster.
 
 > [!note] No plan note for the AuditActor enum
 > [[2026-07-12-audit-actor-enum-design]] was implemented directly from the spec — there is no separate `writing-plans` plan for it.
@@ -90,3 +92,4 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-07-12-app-user-id-token-claim]]
 - [[2026-07-14-orders-service-milestone]]
 - [[orders-service-milestone]]
+- [[2026-07-15-orders-rds-mysql]]
