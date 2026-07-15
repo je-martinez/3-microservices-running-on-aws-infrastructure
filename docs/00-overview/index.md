@@ -38,6 +38,7 @@ related:
   - "[[2026-07-11-refresh-token-endpoint-design]]"
   - "[[2026-07-12-app-user-id-token-claim-design]]"
   - "[[2026-07-12-audit-actor-enum-design]]"
+  - "[[2026-07-14-orders-service-milestone-design]]"
   - "[[ADR-0015-drawio-diagrams]]"
   - "[[ministack-auth-chain-spike-findings]]"
   - "[[floci-vs-ministack-spike-findings]]"
@@ -196,6 +197,7 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-07-11-refresh-token-endpoint-design]] — Design of `POST /v1/users/refresh`, exchanging a Cognito refresh token for new id + access tokens via `REFRESH_TOKEN_AUTH`.
 - [[2026-07-12-app-user-id-token-claim-design]] — Design adding an `app_user_id` token claim sourced from a new `custom:app_user_id` Cognito attribute, copied in by the repo's first Lambda (Pre-Token-Generation V2 trigger).
 - [[2026-07-12-audit-actor-enum-design]] — Design of the semantic `AuditActor` enum used to stamp `createdBy`/`updatedBy` on system-originated writes (e.g. self-registration); see [[audit-fields]].
+- [[2026-07-14-orders-service-milestone-design]] — Design of the Orders service first delivery milestone: .NET Core 10 Minimal APIs + EF Core on MySQL via Floci, Stripe-style cents money model, double-identity (`user_id` + `cognito_sub`), Clean Architecture with 5 Class Library projects, and the Users gRPC gate (Issue A) with `x-api-key` inter-service auth.
 
 ---
 
@@ -251,6 +253,7 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[2026-07-11-refresh-token-endpoint-design]]
 - [[2026-07-12-app-user-id-token-claim-design]]
 - [[2026-07-12-audit-actor-enum-design]]
+- [[2026-07-14-orders-service-milestone-design]]
 - [[ADR-0015-drawio-diagrams]]
 - [[ministack-auth-chain-spike-findings]]
 - [[floci-vs-ministack-spike-findings]]

@@ -28,6 +28,7 @@ related:
   - "[[2026-07-11-local-gateway-per-route-integration]]"
   - "[[2026-07-11-refresh-token-endpoint]]"
   - "[[2026-07-12-app-user-id-token-claim]]"
+  - "[[2026-07-14-orders-service-milestone]]"
 ---
 
 # 3MRAI Plans — Index
@@ -57,6 +58,7 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-07-11-local-gateway-per-route-integration]] — implementation plan making the local API Gateway module data-driven (`local.routes` + `for_each`) with per-route `HTTP_PROXY` integrations on Floci, prod unchanged.
 - [[2026-07-11-refresh-token-endpoint]] — implementation plan for `POST /v1/users/refresh`: `AuthProvider.refresh` → `RefreshTokenCommand` → public route, reusing the existing 401 error mapping.
 - [[2026-07-12-app-user-id-token-claim]] — implementation plan adding the `custom:app_user_id` Cognito attribute, setting it at sign-up, and copying it into the `app_user_id` token claim via the repo's first Lambda (Pre-Token-Generation V2), without touching identity resolution.
+- [[2026-07-14-orders-service-milestone]] — implementation plan for the Orders Service milestone: Users gRPC gate (shared .proto + @grpc/grpc-js server with x-api-key interceptor), then the Orders Clean Architecture .NET solution (EF Core/MySQL, money-in-cents, ownership-by-filter, transactional stock decrement) and its gRPC identity client.
 
 > [!note] No plan note for the AuditActor enum
 > [[2026-07-12-audit-actor-enum-design]] was implemented directly from the spec — there is no separate `writing-plans` plan for it.
@@ -84,3 +86,4 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-07-11-local-gateway-per-route-integration]]
 - [[2026-07-11-refresh-token-endpoint]]
 - [[2026-07-12-app-user-id-token-claim]]
+- [[2026-07-14-orders-service-milestone]]
