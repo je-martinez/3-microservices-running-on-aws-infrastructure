@@ -2,6 +2,11 @@ export interface UserRow {
   id: string;
   email: string;
   fullName: string;
+  // Nullable: a users row exists before its Cognito identity is captured (see
+  // the webhook capture path). Present on every raw row from
+  // `findByIdOrCognitoSub` (a select-less findFirst), so the gRPC surface can
+  // expose it as `cognito_sub`.
+  cognitoSub: string | null;
   address: unknown | null;
   phoneNumber: string | null;
   tags: string[];
