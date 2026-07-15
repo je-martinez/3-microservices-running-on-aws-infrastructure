@@ -43,68 +43,73 @@ public class CreateOrderService
         // Tax rate is read per-request from the configuration table (not an env var).
         var taxRate = await _config.GetTaxRateAsync(ct);
 
-        await using var tx = await _db.Database.BeginTransactionAsync(ct);
-
-        var now = DateTime.UtcNow;
-        var order = new Order
+        // Wrap the whole transactional write so the audit interceptor stamps
+        // CreatedBy/UpdatedBy with `orders_api:create_order` rather than the
+        // buyer's id. The buyer is still traced via UserId/CognitoSub on the row;
+        // CreatedBy now describes WHAT produced it (mirrors Users' runAsActor).
+        return await AmbientActor.RunAsync(AuditActor.CreateOrder, async () =>
         {
-            Id = NanoId.NewId(NanoId.OrderPrefix),
-            UserId = userId,
-            CognitoSub = cognitoSub,
-            CreatedBy = userId,
-            CreatedAt = now,
-            UpdatedAt = now,
-        };
+            await using var tx = await _db.Database.BeginTransactionAsync(ct);
 
-        long subtotal = 0, tax = 0, total = 0;
-
-        foreach (var line in command.Lines)
-        {
-            // Pessimistic lock so concurrent orders cannot oversell. FromSqlInterpolated
-            // parameterizes {line.ProductId} (no SQL injection). FOR UPDATE needs the
-            // open transaction above (InnoDB).
-            var product = await _db.Products
-                .FromSqlInterpolated($"SELECT * FROM product WHERE id = {line.ProductId} FOR UPDATE")
-                .FirstOrDefaultAsync(ct)
-                ?? throw new InsufficientStockException(line.ProductId);
-
-            if (product.UnitsInStock < line.Quantity)
-                throw new InsufficientStockException(line.ProductId);
-
-            var (lineSub, lineTax, lineTotal) = OrderPricing.PriceLine(product.UnitPriceCents, line.Quantity, taxRate);
-            subtotal += lineSub;
-            tax += lineTax;
-            total += lineTotal;
-
-            product.UnitsInStock -= line.Quantity;
-            product.UpdatedAt = now;
-
-            order.Details.Add(new OrderDetail
+            var now = DateTime.UtcNow;
+            var order = new Order
             {
-                Id = NanoId.NewId(NanoId.OrderDetailPrefix),
-                OrderId = order.Id,
-                ProductId = product.Id,
+                Id = NanoId.NewId(NanoId.OrderPrefix),
                 UserId = userId,
                 CognitoSub = cognitoSub,
-                Quantity = line.Quantity,
-                SubtotalCents = lineSub,
-                TaxCents = lineTax,
-                TotalCents = lineTotal,
-                CreatedBy = userId,
                 CreatedAt = now,
                 UpdatedAt = now,
-            });
-        }
+            };
 
-        order.SubtotalCents = subtotal;
-        order.TaxCents = tax;
-        order.TotalCents = total;
+            long subtotal = 0, tax = 0, total = 0;
 
-        _db.Orders.Add(order);
-        await _db.SaveChangesAsync(ct);
-        await _events.PublishOrderCreatedAsync(order.Id, userId, total, now, ct);
-        await tx.CommitAsync(ct);
+            foreach (var line in command.Lines)
+            {
+                // Pessimistic lock so concurrent orders cannot oversell. FromSqlInterpolated
+                // parameterizes {line.ProductId} (no SQL injection). FOR UPDATE needs the
+                // open transaction above (InnoDB).
+                var product = await _db.Products
+                    .FromSqlInterpolated($"SELECT * FROM product WHERE id = {line.ProductId} FOR UPDATE")
+                    .FirstOrDefaultAsync(ct)
+                    ?? throw new InsufficientStockException(line.ProductId);
 
-        return order.Id;
+                if (product.UnitsInStock < line.Quantity)
+                    throw new InsufficientStockException(line.ProductId);
+
+                var (lineSub, lineTax, lineTotal) = OrderPricing.PriceLine(product.UnitPriceCents, line.Quantity, taxRate);
+                subtotal += lineSub;
+                tax += lineTax;
+                total += lineTotal;
+
+                product.UnitsInStock -= line.Quantity;
+                product.UpdatedAt = now;
+
+                order.Details.Add(new OrderDetail
+                {
+                    Id = NanoId.NewId(NanoId.OrderDetailPrefix),
+                    OrderId = order.Id,
+                    ProductId = product.Id,
+                    UserId = userId,
+                    CognitoSub = cognitoSub,
+                    Quantity = line.Quantity,
+                    SubtotalCents = lineSub,
+                    TaxCents = lineTax,
+                    TotalCents = lineTotal,
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                });
+            }
+
+            order.SubtotalCents = subtotal;
+            order.TaxCents = tax;
+            order.TotalCents = total;
+
+            _db.Orders.Add(order);
+            await _db.SaveChangesAsync(ct);
+            await _events.PublishOrderCreatedAsync(order.Id, userId, total, now, ct);
+            await tx.CommitAsync(ct);
+
+            return order.Id;
+        });
     }
 }

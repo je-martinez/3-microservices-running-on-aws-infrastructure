@@ -70,9 +70,14 @@ public class CreateOrderServiceTests : IAsyncLifetime
         Assert.Equal(3000, order.SubtotalCents);         // 3 * 1000
         Assert.Equal(300, order.TaxCents);               // 10%
         Assert.Equal(3300, order.TotalCents);
+        // CreatedBy now records the semantic actor, not the buyer's id.
+        Assert.Equal(AuditActor.CreateOrder, order.CreatedBy);
+        Assert.Equal(AuditActor.CreateOrder, order.UpdatedBy);
+        Assert.NotEqual("usr_a", order.CreatedBy);
         var detail = Assert.Single(order.Details);
         Assert.Equal("usr_a", detail.UserId);            // both ids stamped on the line too
         Assert.Equal("sub-a", detail.CognitoSub);
+        Assert.Equal(AuditActor.CreateOrder, detail.CreatedBy);
     }
 
     [Fact]

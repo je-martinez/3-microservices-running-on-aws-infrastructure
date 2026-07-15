@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Orders.Application.Abstractions;
 using Orders.Infrastructure.Persistence;
 
 namespace Orders.Api.Endpoints;
@@ -14,10 +15,13 @@ public static class E2eEndpoints
             if (sub is null) return Results.Unauthorized();
             var now = DateTime.UtcNow;
             // Soft-delete this caller's orders (never physical DELETE).
+            // ExecuteUpdate issues a single SQL UPDATE and BYPASSES SaveChanges, so
+            // the AuditInterceptor never runs for it — DeletedBy is stamped
+            // explicitly here (mirrors the semantic actor the interceptor would set).
             await db.Orders.Where(o => o.CognitoSub == sub)
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(o => o.DeletedAt, now)
-                    .SetProperty(o => o.DeletedBy, "e2e"));
+                    .SetProperty(o => o.DeletedBy, AuditActor.E2eCleanup));
             return Results.NoContent();
         })
             .WithTags("Orders")

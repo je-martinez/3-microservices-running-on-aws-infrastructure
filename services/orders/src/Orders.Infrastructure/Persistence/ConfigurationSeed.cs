@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Orders.Application.Abstractions;
 using Orders.Domain.Entities;
 
 namespace Orders.Infrastructure.Persistence;
@@ -11,7 +12,12 @@ public static class ConfigurationSeed
     public const string TaxRateKey = "tax_rate";
     private const string DefaultTaxRate = "0.08";
 
-    public static async Task ApplyAsync(OrdersWriteDbContext db)
+    public static Task ApplyAsync(OrdersWriteDbContext db) =>
+        // Stamp CreatedBy/UpdatedBy = orders_api:config_seed via the audit
+        // interceptor (replaces the old bare "system" literal).
+        AmbientActor.RunAsync(AuditActor.ConfigSeed, () => RunAsync(db));
+
+    private static async Task RunAsync(OrdersWriteDbContext db)
     {
         if (await db.Configurations.AnyAsync(c => c.Key == TaxRateKey)) return;
 
@@ -20,7 +26,6 @@ public static class ConfigurationSeed
         {
             Key = TaxRateKey,
             Value = DefaultTaxRate,
-            CreatedBy = "system",
             CreatedAt = now,
             UpdatedAt = now,
         });

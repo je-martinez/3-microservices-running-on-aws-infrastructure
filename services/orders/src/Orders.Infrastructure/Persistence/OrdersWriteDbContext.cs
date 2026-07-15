@@ -13,6 +13,16 @@ public class OrdersWriteDbContext : DbContext
     public DbSet<OrderDetail> OrderDetails => Set<OrderDetail>();
     public DbSet<Configuration> Configurations => Set<Configuration>();
 
+    // Register the audit interceptor here (rather than only at the DI call site)
+    // so every construction path — the Program.cs DI, the design-time factory, and
+    // the test contexts that `new` this directly — stamps the audit columns
+    // consistently. AddInterceptors is idempotent for the same instance, so
+    // callers that also add it via options do not double-stamp.
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+    {
+        optionsBuilder.AddInterceptors(new AuditInterceptor());
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfiguration(new ProductConfiguration());
