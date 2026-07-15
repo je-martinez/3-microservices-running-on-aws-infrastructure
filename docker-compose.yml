@@ -97,6 +97,9 @@ services:
     networks: [3mrai-network]
     ports:
       - "3000:3000"
+      # gRPC surface (GetUserById). Reachable as `users:50051` on the network so
+      # the Orders service can resolve identity. Guarded by the x-api-key interceptor.
+      - "50051:50051"
     depends_on:
       floci:
         condition: service_healthy
@@ -106,6 +109,10 @@ services:
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
       - PORT=3000
+      - GRPC_PORT=50051
+      # Shared symmetric key for inter-service gRPC auth. Local-only value; the
+      # Orders service MUST use the same value. Prod reads it from Secrets Manager.
+      - GRPC_API_KEY=local-dev-grpc-key
       # Floci fronts the real Postgres container it launches for the Aurora
       # cluster on its own proxy port 7001. Reach it by the compose service name
       # `floci` — the container's IP is reassigned on every recreation, and the
