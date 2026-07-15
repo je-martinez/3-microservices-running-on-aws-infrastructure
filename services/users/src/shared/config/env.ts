@@ -22,6 +22,12 @@ const schema = z.object({
   // Prod sources it from Secrets Manager (ADR-0007); compose supplies a
   // development value.
   WEBHOOK_SECRET: z.string().min(1),
+  // gRPC server (spec: Users GetUserById surface). Port defaults to 50051;
+  // GRPC_API_KEY is the shared symmetric key validated by the x-api-key
+  // interceptor and is required in every environment so the surface can never
+  // be deployed unguarded by omission.
+  GRPC_PORT: z.coerce.number().int().positive().default(50051),
+  GRPC_API_KEY: z.string().min(1),
 });
 
 export type Env = z.infer<typeof schema>;
