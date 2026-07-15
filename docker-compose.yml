@@ -150,17 +150,54 @@ services:
           path: ./services/users/src
           target: /app/services/users/src
 
+  # Orders service (.NET Core 10 Minimal API, Clean Architecture + EF Core/MySQL).
+  # Build context is the REPO ROOT so the shared gRPC contract (proto/users.proto)
+  # is inside the build context — Grpc.Tools generates the Users client from it.
+  # Reachable as `orders` on 3mrai-network; resolves caller identity by calling
+  # the Users gRPC server at users:50051 (guarded by the shared x-api-key).
   orders:
-    build: ./services/orders
+    build:
+      context: .
+      dockerfile: services/orders/Dockerfile
     networks: [3mrai-network]
+    ports:
+      # Host 3001 → container 8080 (ASPNETCORE_URLS). Health: GET /v1/health.
+      - "3001:8080"
     depends_on:
       floci:
         condition: service_healthy
+      # The gRPC client is dialed lazily on POST /v1/orders, so "started" is
+      # enough — reads and health do not need Users up.
+      users:
+        condition: service_started
     environment:
       - AWS_ENDPOINT_URL=http://floci:4566
       - AWS_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
+      # Floci fronts the real MySQL container it launches for the Aurora-MySQL
+      # cluster on its RDS proxy port (range 7000-7099), reached by the compose
+      # service name `floci`. Writer and reader are the SAME endpoint locally
+      # (Floci does not emulate an Aurora read replica); the split is preserved
+      # in code (two URLs) so the app path matches prod (ADR-0006).
+      #
+      # PORT PLACEHOLDER — 7002: no Aurora-MySQL cluster is provisioned in infra
+      # yet (only the Users Postgres cluster exists, on :7001). Floci assigns
+      # proxy ports per-cluster at apply time within 7000-7099; the real MySQL
+      # port is only known once that cluster is created. When the Orders RDS
+      # module lands, confirm the assigned port (aws rds describe-db-instances)
+      # and update these two URLs. These are ADO.NET connection strings, not DSNs.
+      - DATABASE_WRITER_URL=Server=floci;Port=7002;Database=orders;User=test;Password=test;
+      - DATABASE_READER_URL=Server=floci;Port=7002;Database=orders;User=test;Password=test;
+      - USERS_GRPC_URL=http://users:50051
+      # MUST equal the value on the `users` service — the interceptor compares
+      # them constant-time; a mismatch yields UNAUTHENTICATED. Local-only value;
+      # prod reads it from Secrets Manager (ADR-0007).
+      - GRPC_API_KEY=local-dev-grpc-key
+      - ORDERS_TAX_RATE=0.08
+      # Apply migrations + seed the Product catalog on startup (local bootstrap).
+      - SEED_ON_STARTUP=true
+      - E2E_TESTING_ENABLED=true
     # stdout → the observability collector's fluent_forward receiver.
     # localhost:24224 because the Docker daemon resolves fluentd-address from the
     # HOST, not this network. fluentd-async so the service still starts when the

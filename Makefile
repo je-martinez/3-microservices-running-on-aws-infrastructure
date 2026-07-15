@@ -140,6 +140,14 @@ bootstrap: ## Bring the whole local chain up from scratch, in dependency order
 	$(MAKE) migrate
 	$(COMPOSE) up -d --build users
 	bash $(TF_LOCAL_DIR)/bootstrap.sh
+	@# Orders migrates + seeds ITSELF on startup (SEED_ON_STARTUP=true in
+	@# compose): the Api applies EF Core migrations then ProductSeed against
+	@# Floci's MySQL before serving. This differs from Users (Prisma via `make
+	@# migrate`) because no Aurora-MySQL cluster is provisioned in infra yet, so
+	@# there is no standalone migrate target to run — the service owns its schema
+	@# locally. Bring it up after users so the Users gRPC gate (users:50051) is
+	@# reachable for POST /v1/orders.
+	$(COMPOSE) up -d --build orders
 
 clean: ## Tear down infra + compose (prompts before removing ./data)
 	-$(TF) destroy -auto-approve
