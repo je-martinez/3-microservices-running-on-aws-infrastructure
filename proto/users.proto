@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package users.v1;
+
+// Shared contract for the Users gRPC surface. Source of truth for both the
+// Node server (services/users) and the .NET client (services/orders).
+service Users {
+  // Resolve a user by internal usr_ id OR Cognito sub (the handler accepts both).
+  rpc GetUserById(GetUserByIdRequest) returns (UserResponse);
+}
+
+message GetUserByIdRequest {
+  string id = 1;
+}
+
+message UserResponse {
+  string id = 1;
+  string email = 2;
+  string full_name = 3;
+  string cognito_sub = 4;
+}
