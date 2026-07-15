@@ -33,6 +33,21 @@ builder.Services.AddScoped<IUserDirectory>(sp =>
 // ORDER_CREATED emission seam (SQS deferred).
 builder.Services.AddScoped<IEventPublisher, NoopEventPublisher>();
 
+// OpenAPI 3.1 document (imported into Datadog). Document name "v1" so the
+// build-time generator (Microsoft.Extensions.ApiDescription.Server) emits a clean
+// `openapi.json`; the csproj then converts it to services/orders/openapi.yaml.
+// A document transformer stamps a stable title/version.
+builder.Services.AddOpenApi("v1", options =>
+{
+    options.OpenApiVersion = Microsoft.OpenApi.OpenApiSpecVersion.OpenApi3_1;
+    options.AddDocumentTransformer((document, _, _) =>
+    {
+        document.Info.Title = "Orders Service API";
+        document.Info.Version = "v1";
+        return Task.CompletedTask;
+    });
+});
+
 // Tax rate now lives in the `configuration` table, read per-request via the read
 // DbContext instead of the removed ORDERS_TAX_RATE env var.
 builder.Services.AddScoped<IConfigurationReader, ConfigurationReader>();
@@ -59,14 +74,29 @@ if (app.Configuration.GetValue<bool>("SEED_ON_STARTUP"))
     await ConfigurationSeed.ApplyAsync(db);
 }
 
+// Serve the OpenAPI document at runtime in Development only
+// (GET /openapi/openapi.yaml). The committed artifact is the build-time file.
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi("/openapi/{documentName}.yaml");
+}
+
 app.MapOrderEndpoints();
 
 // E2E cleanup surface — only when explicitly enabled (local/CI), never in prod.
-if (app.Configuration.GetValue<bool>("E2E_TESTING_ENABLED"))
+// Also mapped during build-time OpenAPI generation (entry assembly
+// GetDocument.Insider) so the committed openapi.yaml documents this route without
+// exposing it in a production runtime.
+if (app.Configuration.GetValue<bool>("E2E_TESTING_ENABLED") || IsOpenApiGeneration())
 {
     app.MapE2eEndpoints();
 }
 
 app.Run();
+
+// True when the host is started by Microsoft.Extensions.ApiDescription.Server's
+// build-time document generator rather than a real HTTP run.
+static bool IsOpenApiGeneration() =>
+    System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name == "GetDocument.Insider";
 
 public partial class Program { }  // for WebApplicationFactory in tests

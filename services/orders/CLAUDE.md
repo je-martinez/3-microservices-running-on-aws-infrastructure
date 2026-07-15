@@ -26,12 +26,54 @@ first, every time. Cross-cutting rules are **referenced**, never duplicated.
 
 ## 2. Commands
 - Restore: `dotnet restore`
-- Build: `dotnet build`
+- Build: `dotnet build` — **also (re)generates `services/orders/openapi.yaml`** at
+  build time (see §2a). There is no separate `generate:openapi` step; the plain
+  build is the regenerate command.
 - Test: `dotnet test` (unit + Testcontainers-MySQL integration; needs Docker)
 - Format: `dotnet format` (verify in CI: `dotnet format --verify-no-changes`)
 - Add a migration: `dotnet ef migrations add <Name> --project src/Orders.Infrastructure --startup-project src/Orders.Api --context OrdersWriteDbContext`
 - Apply migrations: `dotnet ef database update --project src/Orders.Infrastructure --startup-project src/Orders.Api --context OrdersWriteDbContext`
 - Run local (docker-watch): `docker compose up orders --watch` (from repo root)
+
+## 2a. GOLDEN RULE — keep `openapi.yaml` in sync
+
+`services/orders/openapi.yaml` is **generated from the Minimal-API endpoint
+metadata at build time** and is the artifact imported into **Datadog**. It only
+stays correct if it is regenerated after the routes change.
+
+The pipeline: `Microsoft.AspNetCore.OpenApi` builds an OpenAPI **3.1** document
+(configured in `Program.cs` via `AddOpenApi("v1", …)`, title `Orders Service API`);
+`Microsoft.Extensions.ApiDescription.Server` (a build-only `PackageReference`,
+`PrivateAssets=all`) emits it **at build time** into the service root as
+`openapi.json`; then the `ConvertOpenApiToYaml` MSBuild target in
+`Orders.Api.csproj` runs the file-based converter `tools/openapi-json-to-yaml.cs`
+to re-serialize it as `openapi.yaml` (3.1) and deletes the intermediate JSON. The
+`--file-name openapi` + document name `v1` combination is what produces a clean
+`openapi.json` (no `_v1` suffix).
+
+**Whenever you add/remove an HTTP route, or change any route's request/response
+shape (`.Accepts<T>`, `.Produces<T>(status)`, path/query params, or the DTOs it
+references), you MUST regenerate and commit `openapi.yaml` together with the code
+change.** A route change without a matching `openapi.yaml` update is an incomplete
+change.
+
+**Regenerate command:** `dotnet build` (of `Orders.Api`, or the whole solution).
+Generation is build-time — there is no separate generate script.
+
+- Each endpoint carries `.WithName(...)` (→ `operationId`), `.WithTags("Orders")`,
+  `.WithSummary(...)`, and `.Produces<T>(status)`/`.Produces(status)` for the
+  **actual** status codes it returns — keep these accurate to the handler, do not
+  document responses the code never returns.
+- The E2E cleanup route (`DELETE /v1/orders/e2e-cleanup`) is only mapped at runtime
+  under `E2E_TESTING_ENABLED`, but `Program.cs` also maps it during document
+  generation (entry assembly `GetDocument.Insider`) so the committed spec is
+  complete without exposing the route in a production runtime. Keep that guard if
+  you add other flag-gated endpoints you still want documented.
+- Response/request DTOs (`OrderDto`, `CreateOrderRequest`, …) surface as named
+  `#/components/schemas/*` — the generator prunes unreferenced component schemas,
+  so only DTOs a route actually uses appear.
+- Verify after regenerating: all five routes are present with their real statuses,
+  the document is OpenAPI 3.1, and `dotnet build && dotnet test` pass.
 
 Locally the service **migrates + seeds itself on startup** when
 `SEED_ON_STARTUP=true` (set in compose): `Program.cs` runs `MigrateAsync` then

@@ -1,0 +1,191 @@
+openapi: '3.1.1'
+info:
+  title: Orders Service API
+  version: v1
+paths:
+  /v1/orders:
+    post:
+      tags:
+        - Orders
+      summary: 'Create an order for the caller, decrementing product stock.'
+      operationId: CreateOrder
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+        required: true
+      responses:
+        '201':
+          description: Created
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not Found
+        '409':
+          description: Conflict
+  /v1/orders/my-orders:
+    get:
+      tags:
+        - Orders
+      summary: List the caller's orders (ownership by cognito_sub).
+      operationId: GetMyOrders
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrderDto'
+        '401':
+          description: Unauthorized
+  '/v1/orders/{orderId}':
+    get:
+      tags:
+        - Orders
+      summary: Get one of the caller's orders by id; another user's order returns 404.
+      operationId: GetOrderById
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDto'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not Found
+  /v1/health:
+    get:
+      tags:
+        - Orders
+      summary: Liveness probe.
+      operationId: Health
+      responses:
+        '200':
+          description: OK
+  /v1/orders/e2e-cleanup:
+    delete:
+      tags:
+        - Orders
+      summary: Soft-delete the caller's orders (only mapped when E2E_TESTING_ENABLED).
+      operationId: E2eCleanup
+      responses:
+        '204':
+          description: No Content
+        '401':
+          description: Unauthorized
+components:
+  schemas:
+    CreateOrderLine:
+      required:
+        - productId
+        - quantity
+      type: object
+      properties:
+        productId:
+          type: string
+        quantity:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: uint32
+    CreateOrderRequest:
+      required:
+        - lines
+      type: object
+      properties:
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreateOrderLine'
+    OrderDto:
+      required:
+        - id
+        - userId
+        - cognitoSub
+        - subtotalCents
+        - taxCents
+        - totalCents
+        - createdAt
+        - lines
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        cognitoSub:
+          type: string
+        subtotalCents:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: int64
+        taxCents:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: int64
+        totalCents:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: int64
+        createdAt:
+          type: string
+          format: date-time
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderLineDto'
+    OrderLineDto:
+      required:
+        - productId
+        - quantity
+        - subtotalCents
+        - taxCents
+        - totalCents
+      type: object
+      properties:
+        productId:
+          type: string
+        quantity:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: uint32
+        subtotalCents:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: int64
+        taxCents:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: int64
+        totalCents:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: int64
+tags:
+  - name: Orders

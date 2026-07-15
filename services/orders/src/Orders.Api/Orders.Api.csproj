@@ -8,6 +8,15 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />
     <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" Version="9.0.0" />
+    <!-- OpenAPI 3.1 document generation. AddOpenApi/MapOpenApi come from
+         Microsoft.AspNetCore.OpenApi (aligned to the ASP.NET Core 10 runtime).
+         Microsoft.Extensions.ApiDescription.Server emits the document at BUILD
+         time (PrivateAssets=all: build-only, never shipped as a runtime dep). -->
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Extensions.ApiDescription.Server" Version="10.0.9">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
   </ItemGroup>
 
   <PropertyGroup>
@@ -15,5 +24,33 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
+
+  <!-- Emit the OpenAPI document at BUILD time. The document is named "v1"
+       (see AddOpenApi in Program.cs), so with the openapi file-name option the
+       generator writes a clean `openapi.json` at the service root (two levels up from
+       src/Orders.Api). The build-time generator only produces JSON, so the
+       ConvertOpenApiToYaml target below re-serializes it to the committed
+       services/orders/openapi.yaml (OpenAPI 3.1 — the Datadog import artifact) and
+       removes the intermediate JSON. GOLDEN RULE: this file is generated —
+       regenerate + commit it whenever a route or its request/response shape
+       changes (see services/orders/CLAUDE.md §2a). -->
+  <PropertyGroup>
+    <OpenApiGenerateDocuments>true</OpenApiGenerateDocuments>
+    <OpenApiGenerateDocumentsOptions>--openapi-version OpenApi3_1 --file-name openapi</OpenApiGenerateDocumentsOptions>
+    <OpenApiDocumentsDirectory>$(MSBuildProjectDirectory)/../..</OpenApiDocumentsDirectory>
+    <_OpenApiJsonPath>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../../openapi.json'))</_OpenApiJsonPath>
+    <_OpenApiYamlPath>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../../openapi.yaml'))</_OpenApiYamlPath>
+    <_OpenApiConverter>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../../tools/openapi-json-to-yaml.cs'))</_OpenApiConverter>
+  </PropertyGroup>
+
+  <!-- Convert the generated openapi.json to openapi.yaml (3.1) via the file-based
+       converter app, then drop the intermediate JSON so only the YAML is committed. -->
+  <Target Name="ConvertOpenApiToYaml"
+          AfterTargets="GenerateOpenApiDocuments"
+          Condition=" '$(OpenApiGenerateDocuments)' == 'true' AND Exists('$(_OpenApiJsonPath)') ">
+    <Message Importance="high" Text="ConvertOpenApiToYaml: openapi.json -&gt; openapi.yaml (3.1)" />
+    <Exec Command="dotnet run --file &quot;$(_OpenApiConverter)&quot; -- &quot;$(_OpenApiJsonPath)&quot; &quot;$(_OpenApiYamlPath)&quot;" />
+    <Delete Files="$(_OpenApiJsonPath)" />
+  </Target>
 
 </Project>

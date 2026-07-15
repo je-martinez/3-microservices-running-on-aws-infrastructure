@@ -19,6 +19,11 @@ public static class E2eEndpoints
                     .SetProperty(o => o.DeletedAt, now)
                     .SetProperty(o => o.DeletedBy, "e2e"));
             return Results.NoContent();
-        });
+        })
+            .WithTags("Orders")
+            .WithName("E2eCleanup")
+            .WithSummary("Soft-delete the caller's orders (only mapped when E2E_TESTING_ENABLED).")
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status401Unauthorized);
     }
 }
