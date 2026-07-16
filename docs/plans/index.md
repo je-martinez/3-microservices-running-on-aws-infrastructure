@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-07-15
+updated: 2026-07-16
 tags: [type/spec, area/shared, status/active]
 related:
   - "[[2026-06-26-implementation-workflow]]"
@@ -33,6 +33,7 @@ related:
   - "[[2026-07-15-orders-rds-mysql]]"
   - "[[2026-07-15-two-phase-post-effects]]"
   - "[[2026-07-15-orders-gateway-integration]]"
+  - "[[2026-07-16-orders-for-update-interceptor]]"
 ---
 
 # 3MRAI Plans — Index
@@ -67,6 +68,7 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-07-15-orders-rds-mysql]] — implementation plan for the Orders MySQL database in the local Floci environment: a second engine-agnostic rds-aurora instantiation (engine=mysql), least-privilege orders_app user via bootstrap.sh (no DELETE), new outputs + ORDERS_DATABASE_URL in .env, and Orders booting against the real cluster.
 - [[2026-07-15-two-phase-post-effects]] — implementation plan for the two-phase post-effects Terraform apply: a new environments/local/post/ root that reads phase-1 state + the master secret by ARN, waits for the DB, and creates least-privilege app-users via a new engine-parameterized db-app-user module (postgres locally, mysql prod-only), migrating users_app off bootstrap.sh.
 - [[2026-07-15-orders-gateway-integration]] — implementation plan for routing the Orders service through the local API Gateway → nginx front door by path prefix (/v1/orders → orders:8080 with x-user-id injection), and resolving the /v1/health collision via per-service health (/v1/users/health, /v1/orders/health) with nginx rewrite.
+- [[2026-07-16-orders-for-update-interceptor]] — implementation plan replacing the raw `FromSqlInterpolated(... FOR UPDATE)` product lock in Orders with a pure LINQ query tagged for a `DbCommandInterceptor` that appends `FOR UPDATE`, so EF Core's global soft-delete query filter applies automatically (ADR-0004).
 
 > [!note] No plan note for the AuditActor enum
 > [[2026-07-12-audit-actor-enum-design]] was implemented directly from the spec — there is no separate `writing-plans` plan for it.
@@ -99,3 +101,4 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-07-15-orders-rds-mysql]]
 - [[2026-07-15-two-phase-post-effects]]
 - [[2026-07-15-orders-gateway-integration]]
+- [[2026-07-16-orders-for-update-interceptor]]

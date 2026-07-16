@@ -42,6 +42,7 @@ related:
   - "[[2026-07-15-orders-rds-mysql-design]]"
   - "[[2026-07-15-two-phase-post-effects-design]]"
   - "[[2026-07-15-orders-gateway-integration-design]]"
+  - "[[2026-07-16-orders-for-update-interceptor-design]]"
   - "[[ADR-0015-drawio-diagrams]]"
   - "[[ministack-auth-chain-spike-findings]]"
   - "[[floci-vs-ministack-spike-findings]]"
@@ -204,6 +205,7 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-07-15-orders-rds-mysql-design]] — Design for provisioning Orders' MySQL in the local (Floci) Terraform environment at parity with Users' Postgres: a second `rds-aurora` module instantiation (`engine = "mysql"`), a least-privilege `orders_app` user via `bootstrap.sh`, and `.env`/compose wiring off the current placeholder port.
 - [[2026-07-15-two-phase-post-effects-design]] — Design for a second Terraform apply phase (`environments/local/post/`, own state) that creates least-privilege DB app-users natively once phase-1 infra is live, replacing `bootstrap.sh`'s Postgres app-user bash step; MySQL app-user creation stays gated off locally (Floci's mysql provider hangs).
 - [[2026-07-15-orders-gateway-integration-design]] — Design integrating Orders into the local API Gateway → nginx chain via multi-backend path-prefix routing, resolving the `/v1/health` collision with Users via per-service health rewrites (`/v1/users/health`, `/v1/orders/health`) and extending the njs `x-user-id` injection to Orders.
+- [[2026-07-16-orders-for-update-interceptor-design]] — Design replacing Orders' raw `FromSqlInterpolated FOR UPDATE` pessimistic-lock query with pure LINQ + a `TagWith`-driven EF Core command interceptor, letting the global soft-delete query filter apply automatically per [[ADR-0004-soft-delete-only]].
 
 ---
 
@@ -263,6 +265,7 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[2026-07-15-orders-rds-mysql-design]]
 - [[2026-07-15-two-phase-post-effects-design]]
 - [[2026-07-15-orders-gateway-integration-design]]
+- [[2026-07-16-orders-for-update-interceptor-design]]
 - [[ADR-0015-drawio-diagrams]]
 - [[ministack-auth-chain-spike-findings]]
 - [[floci-vs-ministack-spike-findings]]
