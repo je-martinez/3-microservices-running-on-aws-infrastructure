@@ -35,7 +35,14 @@
        regenerate + commit it whenever a route or its request/response shape
        changes (see services/orders/CLAUDE.md §2a). -->
   <PropertyGroup>
-    <OpenApiGenerateDocuments>true</OpenApiGenerateDocuments>
+    <!-- Generate the OpenAPI doc only in local/dev builds (Debug), NOT during the
+         container's `dotnet publish` (Release). The .yaml is a committed artifact
+         regenerated on demand by developers (GOLDEN RULE) — running the JSON→YAML
+         converter (a file-based `dotnet run`) inside the production image build is
+         unnecessary and fails there (MSB3073). Override with -p:OpenApiGenerateDocuments=true
+         if you ever need to generate in a Release build. -->
+    <OpenApiGenerateDocuments Condition=" '$(Configuration)' == 'Debug' ">true</OpenApiGenerateDocuments>
+    <OpenApiGenerateDocuments Condition=" '$(OpenApiGenerateDocuments)' == '' ">false</OpenApiGenerateDocuments>
     <OpenApiGenerateDocumentsOptions>--openapi-version OpenApi3_1 --file-name openapi</OpenApiGenerateDocumentsOptions>
     <OpenApiDocumentsDirectory>$(MSBuildProjectDirectory)/../..</OpenApiDocumentsDirectory>
     <_OpenApiJsonPath>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../../openapi.json'))</_OpenApiJsonPath>
