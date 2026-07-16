@@ -68,8 +68,14 @@ public class CreateOrderService
                 // Pessimistic lock so concurrent orders cannot oversell. FromSqlInterpolated
                 // parameterizes {line.ProductId} (no SQL injection). FOR UPDATE needs the
                 // open transaction above (InnoDB).
+                //
+                // Raw SQL bypasses EF Core's global query filter, so the soft-delete
+                // predicate (deleted_at IS NULL) MUST be applied explicitly here (ADR-0004);
+                // otherwise a soft-deleted product could be locked, read, and sold. When the
+                // product is soft-deleted this returns null → treated as unorderable via the
+                // InsufficientStockException below (the product effectively no longer exists).
                 var product = await _db.Products
-                    .FromSqlInterpolated($"SELECT * FROM product WHERE id = {line.ProductId} FOR UPDATE")
+                    .FromSqlInterpolated($"SELECT * FROM product WHERE id = {line.ProductId} AND deleted_at IS NULL FOR UPDATE")
                     .FirstOrDefaultAsync(ct)
                     ?? throw new InsufficientStockException(line.ProductId);
 

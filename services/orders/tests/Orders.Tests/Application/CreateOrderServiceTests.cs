@@ -105,4 +105,42 @@ public class CreateOrderServiceTests : IAsyncLifetime
         await Assert.ThrowsAsync<UnknownUserException>(() =>
             svc.CreateAsync(new CreateOrderCommand(new[] { new CreateOrderLine(productId, 1) }), "sub-x"));
     }
+
+    // ADR-0004 read-side soft-delete leak: the `SELECT ... FOR UPDATE` product lock
+    // is raw SQL, so EF Core's global query filter does NOT apply. Without an explicit
+    // `deleted_at IS NULL` predicate a soft-deleted product could be locked, read and
+    // SOLD. This proves the lock no longer sees soft-deleted products: ordering one
+    // throws and its stock is never decremented (the transaction never touches it).
+    [Fact]
+    public async Task Rejects_soft_deleted_product()
+    {
+        var productId = await SeedProduct(stock: 10, priceCents: 1000);
+
+        // Soft-delete the product via the audit interceptor: a tracked .Remove() is
+        // rewritten to an UPDATE that stamps deleted_at/deleted_by (row survives).
+        await using (var seedDb = Ctx())
+        {
+            await AmbientActor.RunAsync(AuditActor.E2eCleanup, async () =>
+            {
+                var product = await seedDb.Products.SingleAsync(p => p.Id == productId);
+                seedDb.Products.Remove(product);
+                await seedDb.SaveChangesAsync();
+            });
+        }
+
+        await using var db = Ctx();
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m));
+
+        // The soft-deleted product is not orderable: the FOR UPDATE lock returns null,
+        // so the service raises InsufficientStockException (product effectively gone).
+        await Assert.ThrowsAsync<InsufficientStockException>(() =>
+            svc.CreateAsync(new CreateOrderCommand(new[] { new CreateOrderLine(productId, 3) }), "sub-a"));
+
+        // Stock was NOT decremented (transaction never locked/touched the row) and no
+        // order persisted. IgnoreQueryFilters is required to read past the soft-delete filter.
+        var product = await db.Products.IgnoreQueryFilters().FirstAsync(p => p.Id == productId);
+        Assert.NotNull(product.DeletedAt);
+        Assert.Equal(10u, product.UnitsInStock);         // unchanged
+        Assert.False(await db.Orders.AnyAsync());        // no order persisted
+    }
 }
