@@ -203,8 +203,11 @@ services:
       # 7001/7002 — never hardcode. The ${ORDERS_DB_PORT:-7002} default only
       # applies before .env is generated; after bootstrap the discovered value
       # wins. These are ADO.NET connection strings, not DSNs.
-      - DATABASE_WRITER_URL=Server=floci;Port=${ORDERS_DB_PORT:-7002};Database=orders;User=test;Password=test;
-      - DATABASE_READER_URL=Server=floci;Port=${ORDERS_DB_PORT:-7002};Database=orders;User=test;Password=test;
+      # SslMode=None: Floci's emulated MySQL does not terminate TLS, so the
+      # MySqlConnector default (Preferred → attempts TLS) fails at startup with
+      # "unexpected EOF from the transport stream". Prod uses TLS (drop this).
+      - DATABASE_WRITER_URL=Server=floci;Port=${ORDERS_DB_PORT:-7002};Database=orders;User=test;Password=test;SslMode=None;
+      - DATABASE_READER_URL=Server=floci;Port=${ORDERS_DB_PORT:-7002};Database=orders;User=test;Password=test;SslMode=None;
       - USERS_GRPC_URL=http://users:50051
       # MUST equal the value on the `users` service — the interceptor compares
       # them constant-time; a mismatch yields UNAUTHENTICATED. Local-only value;
