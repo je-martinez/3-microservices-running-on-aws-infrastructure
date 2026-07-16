@@ -22,6 +22,13 @@ namespace Orders.Infrastructure.Persistence;
 // ExecuteUpdate/ExecuteDelete bypass SaveChanges entirely, so they do NOT flow
 // through this interceptor; the E2E cleanup endpoint stamps DeletedBy explicitly
 // (see E2eEndpoints).
+//
+// Tracked `.Remove()`/`RemoveRange()` deletes (including cascade deletes) ARE
+// caught here and REWRITTEN to soft-deletes: an AuditableEntity in the Deleted
+// state is flipped to Modified and its DeletedAt/DeletedBy stamped, so EF issues
+// an UPDATE instead of a physical DELETE. This makes ADR-0004 (soft-delete only)
+// hold at the code layer, not merely by convention. The set-based ExecuteDelete
+// path still bypasses this interceptor and must never be used.
 public sealed class AuditInterceptor : SaveChangesInterceptor
 {
     public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
@@ -68,6 +75,22 @@ public sealed class AuditInterceptor : SaveChangesInterceptor
                     if (IsJustSoftDeleted(entry) && actor is not null)
                     {
                         entry.Entity.DeletedBy = actor;
+                    }
+                    break;
+
+                case EntityState.Deleted:
+                    // A tracked .Remove()/RemoveRange() (or cascade delete) would
+                    // emit a physical DELETE. Flip to Modified so EF issues an
+                    // UPDATE instead — this is the documented way to cancel a
+                    // delete — then stamp the soft-delete columns. ADR-0004 is thus
+                    // enforced in code, not just by never calling Remove().
+                    entry.State = EntityState.Modified;
+                    if (entry.Entity.DeletedAt is null) entry.Entity.DeletedAt = now;
+                    entry.Entity.UpdatedAt = now;
+                    if (actor is not null)
+                    {
+                        entry.Entity.DeletedBy = actor;
+                        entry.Entity.UpdatedBy = actor;
                     }
                     break;
             }
