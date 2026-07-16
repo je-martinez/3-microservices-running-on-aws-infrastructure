@@ -65,18 +65,14 @@ public class CreateOrderService
 
             foreach (var line in command.Lines)
             {
-                // Pessimistic lock so concurrent orders cannot oversell. FromSqlInterpolated
-                // parameterizes {line.ProductId} (no SQL injection). FOR UPDATE needs the
-                // open transaction above (InnoDB).
-                //
-                // Raw SQL bypasses EF Core's global query filter, so the soft-delete
-                // predicate (deleted_at IS NULL) MUST be applied explicitly here (ADR-0004);
-                // otherwise a soft-deleted product could be locked, read, and sold. When the
-                // product is soft-deleted this returns null → treated as unorderable via the
-                // InsufficientStockException below (the product effectively no longer exists).
+                // Pessimistic lock so concurrent orders cannot oversell. Pure LINQ
+                // tagged with ForUpdateInterceptor.Tag — the interceptor appends
+                // FOR UPDATE, and EF Core's global query filter applies deleted_at
+                // IS NULL automatically (ADR-0004), so a soft-deleted product is
+                // never locked/read/sold. Requires the open write transaction above.
                 var product = await _db.Products
-                    .FromSqlInterpolated($"SELECT * FROM product WHERE id = {line.ProductId} AND deleted_at IS NULL FOR UPDATE")
-                    .FirstOrDefaultAsync(ct)
+                    .TagWith(ForUpdateInterceptor.Tag)
+                    .FirstOrDefaultAsync(p => p.Id == line.ProductId, ct)
                     ?? throw new InsufficientStockException(line.ProductId);
 
                 if (product.UnitsInStock < line.Quantity)
