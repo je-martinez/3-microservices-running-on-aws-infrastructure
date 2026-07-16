@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import {
   buildCrossCuttingQueries,
   computeIsDeleted,
+  MODEL_RELATIONS,
   RESULT_EXTENSIONS,
   type CrossCuttingBaseClient,
 } from "#shared/db/prisma-extensions";
@@ -187,6 +188,186 @@ describe("cross-cutting Prisma extension", () => {
 
       const calledWith = query.mock.calls[0]![0] as { where: Record<string, unknown> };
       expect(calledWith.where).toEqual({ id: "usr_1", deletedAt: { not: null } });
+    });
+
+    // ADR-0004 hardening: the three read ops that previously had NO handler
+    // (so no `deletedAt: null` injection) now get the same shallow top-level
+    // injection as the other reads, closing a latent leak if code ever calls
+    // them.
+    it("injects deletedAt: null into where for findFirstOrThrow", async () => {
+      const queries = buildCrossCuttingQueries({});
+      const query = passthroughQuery();
+
+      await queries.findFirstOrThrow({
+        model: "User",
+        operation: "findFirstOrThrow",
+        args: { where: { email: "a@b.c" } },
+        query,
+      });
+
+      const calledWith = query.mock.calls[0]![0] as { where: Record<string, unknown> };
+      expect(calledWith.where).toEqual({ email: "a@b.c", deletedAt: null });
+    });
+
+    it("injects deletedAt: null into where for aggregate", async () => {
+      const queries = buildCrossCuttingQueries({});
+      const query = passthroughQuery();
+
+      await queries.aggregate({
+        model: "User",
+        operation: "aggregate",
+        args: { where: { tags: { has: "x" } }, _count: true } as never,
+        query,
+      });
+
+      const calledWith = query.mock.calls[0]![0] as { where: Record<string, unknown> };
+      expect(calledWith.where).toEqual({ tags: { has: "x" }, deletedAt: null });
+    });
+
+    it("injects deletedAt: null into where for groupBy", async () => {
+      const queries = buildCrossCuttingQueries({});
+      const query = passthroughQuery();
+
+      await queries.groupBy({
+        model: "User",
+        operation: "groupBy",
+        args: { by: ["email"] } as never,
+        query,
+      });
+
+      const calledWith = query.mock.calls[0]![0] as { where: Record<string, unknown> };
+      expect(calledWith.where).toEqual({ deletedAt: null });
+    });
+  });
+
+  describe("find* propagates deletedAt: null into nested relations", () => {
+    it("injects a where on an include of a relation (value: true)", async () => {
+      const queries = buildCrossCuttingQueries({});
+      const query = passthroughQuery();
+
+      await queries.findMany({
+        model: "User",
+        operation: "findMany",
+        args: { where: { email: "a@b.c" }, include: { cognitoData: true } },
+        query,
+      });
+
+      const calledWith = query.mock.calls[0]![0] as { include: Record<string, unknown> };
+      expect(calledWith.include).toEqual({ cognitoData: { where: { deletedAt: null } } });
+    });
+
+    it("adds deletedAt: null to an include relation's existing where and recurses two levels", async () => {
+      const queries = buildCrossCuttingQueries({});
+      const query = passthroughQuery();
+
+      await queries.findFirst({
+        model: "User",
+        operation: "findFirst",
+        args: {
+          include: {
+            cognitoData: {
+              where: { clientId: "abc" },
+              include: { events: true },
+            },
+          },
+        },
+        query,
+      });
+
+      const calledWith = query.mock.calls[0]![0] as { include: Record<string, unknown> };
+      expect(calledWith.include).toEqual({
+        cognitoData: {
+          where: { clientId: "abc", deletedAt: null },
+          include: { events: { where: { deletedAt: null } } },
+        },
+      });
+    });
+
+    it("does not override an explicit deletedAt on a nested relation where", async () => {
+      const queries = buildCrossCuttingQueries({});
+      const query = passthroughQuery();
+
+      await queries.findMany({
+        model: "User",
+        operation: "findMany",
+        args: { include: { cognitoData: { where: { deletedAt: { not: null } } } } },
+        query,
+      });
+
+      const calledWith = query.mock.calls[0]![0] as { include: Record<string, unknown> };
+      expect(calledWith.include).toEqual({ cognitoData: { where: { deletedAt: { not: null } } } });
+    });
+
+    it("injects into relation keys under select but leaves scalar selections untouched", async () => {
+      const queries = buildCrossCuttingQueries({});
+      const query = passthroughQuery();
+
+      await queries.findMany({
+        model: "User",
+        operation: "findMany",
+        args: { select: { id: true, email: true, cognitoData: true } },
+        query,
+      });
+
+      const calledWith = query.mock.calls[0]![0] as { select: Record<string, unknown> };
+      expect(calledWith.select).toEqual({
+        id: true,
+        email: true,
+        cognitoData: { where: { deletedAt: null } },
+      });
+    });
+
+    it("recurses through a nested select relation (UsersCognitoData -> events)", async () => {
+      const queries = buildCrossCuttingQueries({});
+      const query = passthroughQuery();
+
+      await queries.findMany({
+        model: "User",
+        operation: "findMany",
+        args: { select: { id: true, cognitoData: { select: { id: true, events: true } } } },
+        query,
+      });
+
+      const calledWith = query.mock.calls[0]![0] as { select: Record<string, unknown> };
+      expect(calledWith.select).toEqual({
+        id: true,
+        cognitoData: {
+          where: { deletedAt: null },
+          select: { id: true, events: { where: { deletedAt: null } } },
+        },
+      });
+    });
+  });
+
+  describe("MODEL_RELATIONS agrees with the schema", () => {
+    // Guards the hand-maintained relation map (used to distinguish relations
+    // from scalar selections under `select`): every `kind: "object"` relation
+    // field in the schema must be registered, or nested-select filtering for
+    // that relation would silently be skipped. Parses the schema's relation
+    // fields (those with a `@relation` or a model-typed field) directly.
+    it("registers every relation field declared in the schema", () => {
+      const schema = readFileSync(
+        new URL("../../../prisma/schema.prisma", import.meta.url),
+        "utf8",
+      );
+      const modelNames = [...schema.matchAll(/model\s+(\w+)\s*\{/g)].map(([, name]) => name);
+      const modelBlocks = [...schema.matchAll(/model\s+(\w+)\s*\{([^}]*)\}/g)];
+
+      for (const [, model, body] of modelBlocks) {
+        // A relation field is a field whose type is another model name
+        // (optionally with `?` or `[]`). Scalars (String, Json, DateTime, ...)
+        // are excluded because their type is not a model name.
+        const relationFields = [...body.matchAll(/^\s*(\w+)\s+(\w+)(\[\])?\??/gm)]
+          .filter(([, , type]) => modelNames.includes(type))
+          .map(([, field]) => field);
+
+        for (const field of relationFields) {
+          expect(
+            MODEL_RELATIONS[model!]?.[field],
+            `${model}.${field} is a schema relation but missing from MODEL_RELATIONS`,
+          ).toBeDefined();
+        }
+      }
     });
   });
 

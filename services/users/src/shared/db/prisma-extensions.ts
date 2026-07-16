@@ -101,23 +101,46 @@ export function buildCrossCuttingQueries(client: CrossCuttingBaseClient) {
     // safety"). This was flagged as a latent break under an assumption from
     // the classic (non-driver-adapter) Prisma engine, which does not hold
     // for this stack's actual Prisma version — see JE-40.
-    async findMany({ args, query }: AllModelsCbArgs) {
-      excludeSoftDeleted(args);
+    //
+    // The find* handlers use `excludeSoftDeletedDeep`, which injects
+    // `deletedAt: null` at the top-level `where` (as before) AND propagates it
+    // into any nested `include`/`select` relations so a relational read can't
+    // leak soft-deleted children (see [[soft-delete]], ADR-0004).
+    async findMany({ model, args, query }: AllModelsCbArgs) {
+      excludeSoftDeletedDeep(model, args);
       return query(args);
     },
-    async findFirst({ args, query }: AllModelsCbArgs) {
-      excludeSoftDeleted(args);
+    async findFirst({ model, args, query }: AllModelsCbArgs) {
+      excludeSoftDeletedDeep(model, args);
       return query(args);
     },
-    async findUnique({ args, query }: AllModelsCbArgs) {
-      excludeSoftDeleted(args);
+    // `findFirstOrThrow` gets the same treatment as `findFirst` — it's just
+    // findFirst with a throw-on-empty semantic, so the same top-level + nested
+    // injection applies.
+    async findFirstOrThrow({ model, args, query }: AllModelsCbArgs) {
+      excludeSoftDeletedDeep(model, args);
       return query(args);
     },
-    async findUniqueOrThrow({ args, query }: AllModelsCbArgs) {
-      excludeSoftDeleted(args);
+    async findUnique({ model, args, query }: AllModelsCbArgs) {
+      excludeSoftDeletedDeep(model, args);
       return query(args);
     },
+    async findUniqueOrThrow({ model, args, query }: AllModelsCbArgs) {
+      excludeSoftDeletedDeep(model, args);
+      return query(args);
+    },
+    // count/aggregate/groupBy accept a top-level `where` but no
+    // `include`/`select` relations, so shallow injection is sufficient and
+    // correct for them.
     async count({ args, query }: AllModelsCbArgs) {
+      excludeSoftDeleted(args);
+      return query(args);
+    },
+    async aggregate({ args, query }: AllModelsCbArgs) {
+      excludeSoftDeleted(args);
+      return query(args);
+    },
+    async groupBy({ args, query }: AllModelsCbArgs) {
       excludeSoftDeleted(args);
       return query(args);
     },
@@ -203,7 +226,20 @@ export const crossCuttingExtension = Prisma.defineExtension((client) =>
 interface AllModelsCbArgs {
   model: string;
   operation: string;
-  args: { data?: unknown; where?: Record<string, unknown> | null; create?: unknown; update?: unknown };
+  // `include`/`select` stay `unknown` (like `data`/`create`/`update`): Prisma's
+  // real per-op types make `select` a union (`true | AggregateInput` for
+  // count/aggregate, a field map for find*), so this structural shape must not
+  // narrow them or it stops satisfying Prisma's `$extends` callback types. The
+  // deep soft-delete helpers below narrow to `Record<string, unknown>` at the
+  // point of use.
+  args: {
+    data?: unknown;
+    where?: Record<string, unknown> | null;
+    create?: unknown;
+    update?: unknown;
+    include?: unknown;
+    select?: unknown;
+  };
   query: (args: AllModelsCbArgs["args"]) => Promise<unknown>;
 }
 
@@ -235,6 +271,105 @@ function excludeSoftDeleted(args: { where?: Record<string, unknown> | null }): v
   const where = args.where ?? {};
   if (where.deletedAt === undefined) {
     args.where = { ...where, deletedAt: null };
+  }
+}
+
+// Relation map: model name -> { relationField: relatedModelName } (see
+// [[soft-delete]], ADR-0004). Single source of truth for which fields under a
+// read's `include`/`select` are RELATIONS (as opposed to scalar selections),
+// so `excludeSoftDeletedDeep` knows where to propagate `deletedAt: null`.
+//
+// Why a hand-maintained map instead of the Prisma DMMF: this stack's Prisma v7
+// `prisma-client` generator does NOT expose a stable public DMMF/datamodel on
+// the client (`Prisma.dmmf` doesn't exist; the runtime datamodel only lives as
+// an inline JSON string inside the generated `internal/class.ts`, which is not
+// a supported import surface). Reaching into generated internals would be
+// fragile across regenerations, so we mirror the schema here explicitly — the
+// same trade-off already made by `MODEL_ID_PREFIXES` (shared/id/nano-id.ts) and
+// `RESULT_EXTENSIONS` above. A test asserts this map agrees with the schema's
+// relation fields, so a new/changed relation that isn't added here fails CI.
+//
+// Add an entry when a model gains a relation.
+export const MODEL_RELATIONS: Record<string, Record<string, string>> = {
+  User: { cognitoData: "UsersCognitoData" },
+  UsersCognitoData: { user: "User", events: "UsersCognitoEvent" },
+  UsersCognitoEvent: { data: "UsersCognitoData" },
+};
+
+// Recursively excludes soft-deleted rows from a read: injects `deletedAt: null`
+// at the top-level `where` (same opt-out behavior as `excludeSoftDeleted` — the
+// caller can filter on `deletedAt` themselves to bypass), THEN walks any nested
+// `include`/`select` relations and injects the same filter on each, recursing
+// to arbitrary depth (UsersCognitoData -> events is two levels deep).
+//
+// Relation-vs-scalar distinction: every key under `include` IS a relation, so
+// we recurse into all of them. Under `select`, keys can be scalar selections
+// (`{ id: true }`) OR relations — we consult `MODEL_RELATIONS` and only inject
+// a `where` on the relation keys, leaving scalar selections untouched.
+function excludeSoftDeletedDeep(model: string, args: AllModelsCbArgs["args"]): void {
+  excludeSoftDeleted(args);
+  applyNested(model, asRecord(args.include), "include");
+  applyNested(model, asRecord(args.select), "select");
+}
+
+// Narrows a loosely-typed node to a plain record iff it's a non-null object
+// (find* pass a field map here; count/aggregate never reach this path).
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : undefined;
+}
+
+// Walks a single `include`/`select` object and injects `deletedAt: null` into
+// each relation entry's own nested `where`, recursing into deeper
+// include/select. `mode` decides how to treat entries: under `include` every
+// key is a relation; under `select` only keys present in `MODEL_RELATIONS`
+// (for the current model) are relations — scalar selections are skipped.
+function applyNested(model: string, node: Record<string, unknown> | null | undefined, mode: "include" | "select"): void {
+  if (!node) return;
+  const relations = MODEL_RELATIONS[model];
+
+  for (const [field, value] of Object.entries(node)) {
+    const relatedModel = relations?.[field];
+    // Under `select`, a field with no relation entry is a scalar selection —
+    // leave it alone. Under `include`, all fields are relations, so we inject
+    // even when the related model is unknown to the map (we still filter this
+    // level; we just can't recurse deeper without knowing its relations).
+    if (mode === "select" && !relatedModel) continue;
+
+    injectRelationFilter(relatedModel, field, value, node);
+  }
+}
+
+// Injects `deletedAt: null` for one relation entry and recurses into its nested
+// include/select. `value` is the relation's argument node:
+//   - `true`           -> replace with `{ where: { deletedAt: null } }`
+//   - `{ ... }` object -> add `where: { deletedAt: null, ...existingWhere }`
+//     (respecting an existing `deletedAt`, matching the top-level opt-out) and
+//     recurse into its own `include`/`select`.
+function injectRelationFilter(
+  relatedModel: string | undefined,
+  field: string,
+  value: unknown,
+  parent: Record<string, unknown>,
+): void {
+  if (value === true) {
+    parent[field] = { where: { deletedAt: null } };
+    return;
+  }
+  if (typeof value !== "object" || value === null) return;
+
+  const relationArgs = value as {
+    where?: Record<string, unknown> | null;
+    include?: Record<string, unknown> | null;
+    select?: Record<string, unknown> | null;
+  };
+  excludeSoftDeleted(relationArgs);
+
+  // Recurse only when we know the related model (so nested `select` scalar/
+  // relation disambiguation stays correct). `include` at deeper levels still
+  // needs the related model to look up ITS relations.
+  if (relatedModel) {
+    applyNested(relatedModel, relationArgs.include, "include");
+    applyNested(relatedModel, relationArgs.select, "select");
   }
 }
 
