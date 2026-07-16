@@ -35,4 +35,10 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!-- Expose internals to the test project so the pure ForUpdateInterceptor.ApplyForUpdate
+       rewrite can be unit-tested without a real DbCommand. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Orders.Tests" />
+  </ItemGroup>
+
 </Project>
