@@ -20,7 +20,7 @@ public class OrdersWriteDbContext : DbContext
     // callers that also add it via options do not double-stamp.
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
-        optionsBuilder.AddInterceptors(new AuditInterceptor());
+        optionsBuilder.AddInterceptors(new AuditInterceptor(), new ForUpdateInterceptor());
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
