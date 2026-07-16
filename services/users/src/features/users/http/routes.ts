@@ -4,6 +4,7 @@ import { asValue, type AwilixContainer } from "awilix";
 import { diContainer, registerSingletons, registerServices } from "#shared/di/awilix-container";
 import { actorContext } from "#shared/audit/actor-context";
 import { AuthError } from "#shared/auth/auth-errors";
+import { RecordNotFoundError } from "#shared/db/db-errors";
 import { cognitoWebhookPayloadSchema } from "../webhooks/cognito-payload.ts";
 import { verifyWebhookSecret } from "../webhooks/verify-secret.ts";
 import { NoMatchingUserError } from "../webhooks/capture-cognito-identity.ts";
@@ -91,6 +92,13 @@ export function buildApp(container: AwilixContainer<Cradle> = diContainer): Fast
   // handler produces the exact same body as before this change.
   app.setErrorHandler((error, _req, reply) => {
     if (error instanceof AuthError) {
+      return reply.code(error.statusCode).send({ error: error.code });
+    }
+    // The cross-cutting `update` handler (see shared/db/prisma-extensions.ts)
+    // translates a soft-deleted/absent update target (Prisma P2025) into this
+    // typed error; map it to the same 404 `{ error: "not_found" }` contract the
+    // /users/me routes already return.
+    if (error instanceof RecordNotFoundError) {
       return reply.code(error.statusCode).send({ error: error.code });
     }
     throw error;

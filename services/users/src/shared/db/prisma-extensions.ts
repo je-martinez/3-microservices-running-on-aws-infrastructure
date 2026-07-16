@@ -1,6 +1,7 @@
 import { Prisma } from "../../generated/prisma/client.ts";
 import { MODEL_ID_PREFIXES, generateId } from "../id/nano-id.ts";
 import { getActor } from "../audit/actor-context.ts";
+import { RecordNotFoundError } from "./db-errors.ts";
 
 // Minimal surface of the base client needed by the soft-delete rewrite
 // (`delete`/`deleteMany` call back into `update`/`updateMany` on the same
@@ -41,13 +42,50 @@ export function buildCrossCuttingQueries(client: CrossCuttingBaseClient) {
       return query(args);
     },
 
-    // Stamps `updatedBy` on every update path.
+    // Stamps `updatedBy` AND injects `deletedAt: null` into `where` (via the
+    // same `excludeSoftDeleted` helper the reads use, respecting the caller's
+    // opt-out), so an update on a unique row ALSO requires that row to be
+    // non-deleted — the query-layer soft-delete guard (ADR-0004).
+    //
+    // The complication vs `updateMany`: `update` targets a single unique row,
+    // so when the injected `deletedAt: null` excludes a soft-deleted (or
+    // absent) target, Prisma raises `P2025` ("record not found") instead of
+    // silently affecting 0 rows. We catch that P2025 and translate it into a
+    // typed `RecordNotFoundError`, which the HTTP layer's `setErrorHandler`
+    // maps to the same 404 `{ error: "not_found" }` contract the /users/me
+    // routes already use — so a deleted-target update yields a coherent 404,
+    // never an unhandled 500. In practice update-profile (the only business
+    // `update` caller) pre-reads via `findByIdOrCognitoSub` and 404s a
+    // soft-deleted user BEFORE reaching here, so this only fires in a rare
+    // read-then-deleted race.
+    //
+    // The soft-delete rewrite's `update` path (delete -> update) is UNAFFECTED:
+    // it calls the BASE client's `update` directly (see below), bypassing this
+    // handler, so it never gets `deletedAt: null` injected and never surfaces
+    // this translated error.
     async update({ args, query }: AllModelsCbArgs) {
       stampUpdateData(args.data as Record<string, unknown>);
-      return query(args);
+      excludeSoftDeleted(args);
+      try {
+        return await query(args);
+      } catch (e) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2025") {
+          throw new RecordNotFoundError();
+        }
+        throw e;
+      }
     },
+    // Stamps `updatedBy` AND injects `deletedAt: null` into `where` (via the
+    // same `excludeSoftDeleted` helper the reads use), so a business bulk
+    // update skips soft-deleted rows at the query layer (ADR-0004) — turning
+    // the old call-site convention into an invariant. A caller can still opt
+    // out by filtering on `deletedAt` themselves. The soft-delete rewrite
+    // (`deleteMany`) is UNAFFECTED: it calls the BASE client's `updateMany`
+    // directly (see below), bypassing this handler, so it still re-stamps
+    // `deletedAt` even on already-deleted rows.
     async updateMany({ args, query }: AllModelsCbArgs) {
       stampUpdateData(args.data as Record<string, unknown>);
+      excludeSoftDeleted(args);
       return query(args);
     },
     async upsert({ model, args, query }: AllModelsCbArgs) {
