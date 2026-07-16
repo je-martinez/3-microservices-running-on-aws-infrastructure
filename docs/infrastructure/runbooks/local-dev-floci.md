@@ -4,9 +4,9 @@ type: runbook
 area: infra
 status: active
 created: 2026-07-12
-updated: 2026-07-12
+updated: 2026-07-15
 integration-status: verified
-verified-on: 2026-07-12
+verified-on: 2026-07-15
 verified-by: Jose E. Martinez
 tags: [type/runbook, area/infra, status/active]
 related:
@@ -17,6 +17,7 @@ related:
   - "[[cognito-pre-token-lambda]]"
   - "[[terraform-modules]]"
   - "[[local-dev-ministack]]"
+  - "[[2026-07-15-orders-gateway-integration-design]]"
 ---
 
 # Local Dev — Floci
@@ -133,9 +134,28 @@ address) on every `apply`.
 - Postgres: reached at **`floci:7001`** (Floci's RDS proxy port) — never by container IP,
   which Floci reassigns on every recreation. Writer and reader endpoints are the **same**
   locally; Floci does not emulate an Aurora read replica.
-- Users service: **`http://localhost:3000`**, health check at **`GET /v1/health`**.
+- Users service: direct at **`http://localhost:3000`**, health check at **`GET /v1/health`**.
+- Orders service: direct at **`http://localhost:3001`** (host `3001` → container `8080`),
+  health check at **`GET /v1/health`**.
 - Local emulator state persists under **`./data/floci`** (git-ignored,
   `FLOCI_STORAGE_MODE=persistent` — see [[floci-storage-modes-and-tmp-corruption]]).
+
+### Health through the API Gateway
+
+As of the Orders↔gateway integration (see
+[[2026-07-15-orders-gateway-integration-design]] and
+[[ADR-0016-local-apigw-nginx-ecs]]), the gateway no longer exposes a bare `/v1/health` —
+each service has its own per-service health path, which the nginx front door rewrites to
+that service's internal, unprefixed `/v1/health`:
+
+- `GET {API_GATEWAY_URL}/v1/users/health` → routed to `users:3000` → `{"status":"ok"}`
+- `GET {API_GATEWAY_URL}/v1/orders/health` → routed to `orders:8080` → `{"status":"ok"}`
+
+(`API_GATEWAY_URL` is the AUTO-GENERATED `.env` value described above.)
+
+nginx routes by path prefix — `/v1/orders/*` goes to `orders:8080`, everything else goes to
+`users:3000` — injecting the `x-user-id` header (the Cognito `sub`, decoded via njs) on every
+location. Orders is now reachable through the front door, not only on its direct `:3001` port.
 
 ## Known limitation — second `apply` fails
 
@@ -151,7 +171,10 @@ make bootstrap    # rebuild from scratch
 
 ## Verification
 
-- `curl http://localhost:3000/v1/health` returns HTTP 200.
+- `curl http://localhost:3000/v1/health` returns HTTP 200 (Users, direct).
+- `curl http://localhost:3001/v1/health` returns HTTP 200 (Orders, direct).
+- `curl "$API_GATEWAY_URL/v1/users/health"` and `curl "$API_GATEWAY_URL/v1/orders/health"`
+  both return `{"status":"ok"}` through the gateway → nginx front door.
 - `make ps` shows `floci` and `users` as `Up`.
 - `make infra-output` prints Cognito/API Gateway/DB outputs without error.
 - `docker compose logs -f users` shows no Zod env-validation errors at boot.
@@ -165,3 +188,5 @@ make bootstrap    # rebuild from scratch
 - [[cognito-pre-token-lambda]] — the Lambda deployed as part of this stack's Cognito module.
 - [[terraform-modules]] — the real module inventory composed by `infra/environments/local`.
 - [[local-dev-ministack]] — the superseded Ministack runbook this note replaces.
+- [[2026-07-15-orders-gateway-integration-design]] — the design behind routing Orders through
+  the local API Gateway → nginx front door and the per-service health endpoints above.
