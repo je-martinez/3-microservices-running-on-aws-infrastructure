@@ -46,9 +46,25 @@ locals {
       register = { key = "POST /v1/users/register", path = "/v1/users/register", auth = false }
       login    = { key = "POST /v1/users/login", path = "/v1/users/login", auth = false }
       refresh  = { key = "POST /v1/users/refresh", path = "/v1/users/refresh", auth = false }
-      health   = { key = "GET /v1/health", path = "/v1/health", auth = false }
       get_me   = { key = "GET /v1/users/me", path = "/v1/users/me", auth = true }
       patch_me = { key = "PATCH /v1/users/me", path = "/v1/users/me", auth = true }
+
+      # Per-service health (replaces the bare GET /v1/health, which used to hit
+      # Users only). nginx rewrites each to the service's unprefixed /v1/health.
+      users_health  = { key = "GET /v1/users/health", path = "/v1/users/health", auth = false }
+      orders_health = { key = "GET /v1/orders/health", path = "/v1/orders/health", auth = false }
+
+      # Orders functional routes. The route key drives APIGW matching; `path`
+      # is baked into the LOCAL per-route integration URI (Floci ignores it, but
+      # a literal must still be a valid URL — no unsubstituted {order_id}).
+      create_order = { key = "POST /v1/orders", path = "/v1/orders", auth = true }
+      my_orders    = { key = "GET /v1/orders/my-orders", path = "/v1/orders/my-orders", auth = true }
+      # {order_id} is an APIGW path param: keep it in the ROUTE key so APIGW
+      # matches, but point the integration URI at the /v1/orders prefix — a
+      # literal "{order_id}" in the URI won't substitute on Floci (which drops
+      # the path anyway), and nginx prefix-matches /v1/orders, forwarding the
+      # real request URI to orders:8080. Prod (path preserved) handles it too.
+      get_order = { key = "GET /v1/orders/{order_id}", path = "/v1/orders", auth = true }
     },
     var.enable_e2e_cleanup_route ? {
       e2e_cleanup = { key = "DELETE /v1/users/e2e-cleanup", path = "/v1/users/e2e-cleanup", auth = false }
