@@ -68,6 +68,22 @@ builder.Services.AddScoped(sp => new CreateOrderService(
 
 var app = builder.Build();
 
+// Automatic HTTP request logging in the shared snake_case schema. Placed early
+// in the pipeline (right after Build) so it wraps every request. The elapsed
+// time Serilog attaches internally (`Elapsed`) is renamed to `duration_ms` by
+// SchemaLogFormatter; the fields set here become top-level JSON keys.
+app.UseSerilogRequestLogging(options =>
+{
+    options.MessageTemplate = "request completed";
+    options.EnrichDiagnosticContext = (diag, http) =>
+    {
+        diag.Set("http_request_method", http.Request.Method);
+        diag.Set("http_route", http.GetEndpoint()?.DisplayName ?? http.Request.Path.Value);
+        diag.Set("http_response_status_code", http.Response.StatusCode);
+        diag.Set("trace_id", http.TraceIdentifier);
+    };
+});
+
 // Local bootstrap: apply migrations + seed the Product catalog and baseline
 // configuration (tax_rate) on startup when
 // SEED_ON_STARTUP is set (compose sets it locally). Chosen over a Makefile

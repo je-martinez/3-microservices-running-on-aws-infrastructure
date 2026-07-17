@@ -51,7 +51,13 @@ public sealed class SchemaLogFormatter : ITextFormatter
             // everything to a quoted string.
             foreach (var prop in logEvent.Properties)
             {
-                w.WritePropertyName(prop.Key);
+                // Serilog.AspNetCore's UseSerilogRequestLogging middleware attaches the
+                // request duration as a property named "Elapsed" (or, on some paths,
+                // "ElapsedMilliseconds") — a numeric value in milliseconds. Rename it to
+                // the shared schema's `duration_ms` so request logs match the
+                // cross-service convention, without touching its (numeric) value type.
+                var key = prop.Key is "Elapsed" or "ElapsedMilliseconds" ? "duration_ms" : prop.Key;
+                w.WritePropertyName(key);
                 WritePropertyValue(w, prop.Value);
             }
             w.WriteEndObject();
