@@ -50,7 +50,10 @@ public class RequestLogTests : IClassFixture<OrdersApiFactory>
             r.TryGetProperty("message", out var msg) && msg.GetString() == "request completed");
 
         Assert.Equal("GET", root.GetProperty("http_request_method").GetString());
-        Assert.False(string.IsNullOrEmpty(root.GetProperty("http_route").GetString()));
+        // Clean route template (from RouteEndpoint.RoutePattern.RawText), not Serilog's
+        // debug DisplayName (e.g. "HTTP: GET /v1/health") — keeps http_route consistent
+        // with the Users service's dashboards.
+        Assert.Equal("/v1/health", root.GetProperty("http_route").GetString());
 
         var statusProp = root.GetProperty("http_response_status_code");
         Assert.Equal(JsonValueKind.Number, statusProp.ValueKind);

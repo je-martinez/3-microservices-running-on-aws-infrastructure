@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Orders.Api.Endpoints;
 using Orders.Api.Logging;
@@ -78,7 +79,9 @@ app.UseSerilogRequestLogging(options =>
     options.EnrichDiagnosticContext = (diag, http) =>
     {
         diag.Set("http_request_method", http.Request.Method);
-        diag.Set("http_route", http.GetEndpoint()?.DisplayName ?? http.Request.Path.Value);
+        diag.Set(
+            "http_route",
+            (http.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText ?? http.Request.Path.Value);
         diag.Set("http_response_status_code", http.Response.StatusCode);
         diag.Set("trace_id", http.TraceIdentifier);
     };
