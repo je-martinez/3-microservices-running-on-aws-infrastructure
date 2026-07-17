@@ -66,6 +66,9 @@ public class CreateOrderEndpointTests : IClassFixture<OrdersApiFactory>
         var body = await resp.Content.ReadFromJsonAsync<ErrorBody>();
         Assert.NotNull(body);
         Assert.Equal("unknown_product", body!.Error);
+        // The detail must name WHICH product was unknown (parity with insufficient_stock).
+        Assert.NotNull(body.Detail);
+        Assert.Contains("prd_does_not_exist", body.Detail!);
     }
 
     [Fact]
@@ -84,5 +87,5 @@ public class CreateOrderEndpointTests : IClassFixture<OrdersApiFactory>
     }
 
     private sealed record CreatedOrder(string Id);
-    private sealed record ErrorBody(string Error);
+    private sealed record ErrorBody(string Error, string? Detail);
 }
