@@ -23,7 +23,7 @@ export AWS_SECRET_ACCESS_KEY ?= test
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps infra-init infra-plan infra-up infra-up-post infra-down infra-output env-file migrate bootstrap clean observability-up observability-down
+.PHONY: help up down logs build ps infra-init infra-plan infra-up infra-up-post infra-down infra-output env-file migrate bootstrap clean observability-up observability-down observability-dashboards
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -206,3 +206,6 @@ observability-up: ## Start OpenObserve + the OTel collector (opt-in; ~512MB-1.5G
 
 observability-down: ## Stop the observability stack (leaves the rest running)
 	$(COMPOSE) stop openobserve otel-collector
+
+observability-dashboards: ## Import/update OpenObserve dashboards from observability/dashboards/*.dashboard.json (idempotent)
+	node scripts/import-dashboards.mjs
