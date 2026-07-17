@@ -44,6 +44,17 @@ same imperative as the OpenAPI golden rule applies here. Run all E2E layers with
 `pnpm --filter @3mrai/e2e test`, which executes both the `internal` and `gateway` Playwright
 projects. This requires the local stack to be up via `make bootstrap` (see [[local-dev]]).
 
+**Commands.** `make test-e2e` (or its shorthand `pnpm e2e`) is exactly that
+`pnpm --filter @3mrai/e2e test` run — use whichever is convenient. On-demand commands for the
+three layers:
+
+- `make test-all` — all three layers for both services (unit + internal E2E + gateway E2E);
+  E2E requires the stack up (`make bootstrap`).
+- `make test-unit` — layer 1 only (orders `dotnet test`, users `vitest`); no stack needed.
+- `make test-e2e` — layers 2+3 (Playwright internal + gateway); requires the stack up.
+- Granular package.json scripts: `pnpm orders:test`, `pnpm users:test`, `pnpm e2e:internal`,
+  `pnpm e2e:gateway`, `pnpm e2e` (both projects).
+
 **Symmetry check:** when adding a service or endpoint, confirm both `e2e/tests/<svc>.spec.ts` and
 `e2e/tests/gateway/<svc>.spec.ts` exist and cover it — an easy asymmetry to miss (this is exactly
 what happened with orders: a gateway spec existed with no internal spec until it was caught in

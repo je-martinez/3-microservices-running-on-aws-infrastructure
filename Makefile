@@ -23,7 +23,7 @@ export AWS_SECRET_ACCESS_KEY ?= test
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps backend-up infra-init infra-plan infra-up infra-up-post infra-down infra-output env-file migrate bootstrap clean observability-up observability-down observability-dashboards
+.PHONY: help up down logs build ps test-unit test-e2e test-all backend-up infra-init infra-plan infra-up infra-up-post infra-down infra-output env-file migrate bootstrap clean observability-up observability-down observability-dashboards
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -46,6 +46,19 @@ build: ## Build service images
 
 ps: ## Show container status
 	$(COMPOSE) ps
+
+## --- Tests (the three-layer convention: docs/shared/conventions/testing.md) ---
+
+test-unit: ## Layer 1 — unit/integration for both services (orders dotnet, users vitest). No stack needed.
+	dotnet test services/orders/Orders.sln
+	pnpm --filter @3mrai/users test
+
+test-e2e: ## Layers 2+3 — Playwright internal + gateway for both services. REQUIRES `make bootstrap` up.
+	pnpm --filter @3mrai/e2e test
+
+test-all: ## All three layers for both services (unit + internal E2E + gateway E2E). E2E needs the stack up.
+	$(MAKE) test-unit
+	$(MAKE) test-e2e
 
 ## --- Terraform (against Floci) ---
 
