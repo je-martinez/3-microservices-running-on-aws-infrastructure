@@ -24,6 +24,10 @@ public static class CreateOrderEndpoint
         {
             return Results.NotFound(new { error = "unknown_user" });
         }
+        catch (UnknownProductException)
+        {
+            return Results.NotFound(new { error = "unknown_product" });
+        }
         catch (InsufficientStockException ex)
         {
             return Results.Conflict(new { error = "insufficient_stock", detail = ex.Message });

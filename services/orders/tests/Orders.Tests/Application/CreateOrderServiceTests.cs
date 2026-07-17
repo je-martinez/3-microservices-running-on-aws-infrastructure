@@ -131,9 +131,10 @@ public class CreateOrderServiceTests : IAsyncLifetime
         await using var db = Ctx();
         var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m));
 
-        // The soft-deleted product is not orderable: the FOR UPDATE lock returns null,
-        // so the service raises InsufficientStockException (product effectively gone).
-        await Assert.ThrowsAsync<InsufficientStockException>(() =>
+        // The soft-deleted product is not orderable: the FOR UPDATE lock returns null
+        // (query filter hides it), so the service raises UnknownProductException —
+        // same as a genuinely nonexistent product id (product effectively gone).
+        await Assert.ThrowsAsync<UnknownProductException>(() =>
             svc.CreateAsync(new CreateOrderCommand(new[] { new CreateOrderLine(productId, 3) }), "sub-a"));
 
         // Stock was NOT decremented (transaction never locked/touched the row) and no

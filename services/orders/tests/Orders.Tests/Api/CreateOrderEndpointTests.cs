@@ -51,6 +51,24 @@ public class CreateOrderEndpointTests : IClassFixture<OrdersApiFactory>
     }
 
     [Fact]
+    public async Task Post_with_unknown_product_is_404_not_409()
+    {
+        var client = _factory.CreateClient();
+        var req = new HttpRequestMessage(HttpMethod.Post, "/v1/orders")
+        {
+            Content = JsonContent.Create(new { lines = new[] { new { productId = "prd_does_not_exist", quantity = 1 } } }),
+        };
+        req.Headers.Add("x-user-id", OrdersApiFactory.KnownCognitoSub);
+
+        var resp = await client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+        var body = await resp.Content.ReadFromJsonAsync<ErrorBody>();
+        Assert.NotNull(body);
+        Assert.Equal("unknown_product", body!.Error);
+    }
+
+    [Fact]
     public async Task Post_with_unknown_user_is_404()
     {
         var client = _factory.CreateClient();
@@ -66,4 +84,5 @@ public class CreateOrderEndpointTests : IClassFixture<OrdersApiFactory>
     }
 
     private sealed record CreatedOrder(string Id);
+    private sealed record ErrorBody(string Error);
 }

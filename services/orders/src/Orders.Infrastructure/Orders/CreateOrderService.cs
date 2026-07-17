@@ -73,7 +73,7 @@ public class CreateOrderService
                 var product = await _db.Products
                     .TagWith(ForUpdateInterceptor.Tag)
                     .FirstOrDefaultAsync(p => p.Id == line.ProductId, ct)
-                    ?? throw new InsufficientStockException(line.ProductId);
+                    ?? throw new UnknownProductException(line.ProductId);
 
                 if (product.UnitsInStock < line.Quantity)
                     throw new InsufficientStockException(line.ProductId);
