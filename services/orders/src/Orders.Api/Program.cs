@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Orders.Api.Endpoints;
+using Orders.Api.Logging;
 using Orders.Application.Abstractions;
 using Orders.Application.Identity;
 using Orders.Infrastructure.Config;
@@ -7,8 +8,16 @@ using Orders.Infrastructure.Grpc;
 using Orders.Infrastructure.Messaging;
 using Orders.Infrastructure.Orders;
 using Orders.Infrastructure.Persistence;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Structured JSON logging (snake_case OTel-aligned schema). Replaces the
+// default plain-text console logger for all `orders` logs.
+var deploymentEnvironment = builder.Configuration["DEPLOYMENT_ENVIRONMENT"] ?? "local";
+builder.Host.UseSerilog((_, cfg) => cfg
+    .MinimumLevel.Information()
+    .WriteTo.Console(new SchemaLogFormatter("orders", deploymentEnvironment)));
 
 // Read side (read replica in prod; same MySQL locally). ADO connection string.
 var readerCs = builder.Configuration["DATABASE_READER_URL"]!;
