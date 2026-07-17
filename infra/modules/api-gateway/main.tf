@@ -65,6 +65,10 @@ locals {
       # the path anyway), and nginx prefix-matches /v1/orders, forwarding the
       # real request URI to orders:8080. Prod (path preserved) handles it too.
       get_order = { key = "GET /v1/orders/{order_id}", path = "/v1/orders", auth = true }
+
+      # Products catalog (read-only, authenticated). nginx prefix-matches
+      # /v1/products and forwards to orders:8080 (see nginx.conf).
+      list_products = { key = "GET /v1/products", path = "/v1/products", auth = true }
     },
     var.enable_e2e_cleanup_route ? {
       e2e_cleanup = { key = "DELETE /v1/users/e2e-cleanup", path = "/v1/users/e2e-cleanup", auth = false }
