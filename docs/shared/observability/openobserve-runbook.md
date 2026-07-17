@@ -4,7 +4,7 @@ type: runbook
 area: shared
 status: active
 created: 2026-07-10
-updated: 2026-07-10
+updated: 2026-07-16
 integration-status: verified
 verified-on: 2026-07-10
 verified-by: Jose E. Martinez
@@ -36,6 +36,10 @@ make observability-up
 ```
 
 Starts OpenObserve and the OTel collector. UI at http://localhost:5080 once healthy (~5s).
+
+If the containers previously exited with code 128 / `network ... not found`,
+`observability-up` now force-recreates them so they re-attach to the current network — see
+Gotchas below.
 
 Login (local dev creds only):
 
@@ -96,6 +100,35 @@ project, not just observability.
 > [!warning] Don't use `docker compose logs` for fluentd-driver containers
 > `docker compose logs <svc>` behavior for containers using the `fluentd` log driver varies by
 > Docker version. Use OpenObserve to view logs instead of `compose logs`.
+
+> [!warning] Observability containers can strand on a dead Docker network
+> Verified live on 2026-07-16: `3mrai-otel-collector-1` and `3mrai-openobserve-1` were found in
+> `Exited (128)` state. They had been created ~6 days earlier and stayed attached to a Docker
+> network ID that no longer existed — the rest of the compose stack (`users`, `orders`, `floci`,
+> DBs) had since been recreated, which recreated the network, but the observability containers
+> live outside the main up/down cycle (`observability-down` uses `docker compose stop`, not
+> `down`, so they're left stopped rather than removed) and never picked up the new network.
+> Restarting them failed with:
+> ```
+> failed to set up container networking: network <id> not found
+> ```
+>
+> A plain `make observability-up` did **not** fix this on its own — compose reused the stranded
+> container instead of recreating it, so it failed again with the same error. The
+> `observability-up` target now passes `--force-recreate`, scoped to just the two services, so
+> re-running it self-heals by forcing them to re-attach to the current network:
+> ```makefile
+> $(COMPOSE) --profile observability up -d --force-recreate openobserve otel-collector
+> ```
+> The scoping matters: an **unscoped** `--force-recreate` bounces the whole app stack (users,
+> orders, tracking, events-pipeline, floci all get recreated too) — verified live. Always name
+> the two services explicitly.
+>
+> Manual recovery, if ever needed outside the target:
+> ```bash
+> docker rm -f 3mrai-otel-collector-1 3mrai-openobserve-1
+> make observability-up   # now force-recreates them onto the current network
+> ```
 
 ## Prod
 
