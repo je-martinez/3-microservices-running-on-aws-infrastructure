@@ -18,6 +18,10 @@ paths:
       responses:
         '201':
           description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDto'
         '401':
           description: Unauthorized
         '404':

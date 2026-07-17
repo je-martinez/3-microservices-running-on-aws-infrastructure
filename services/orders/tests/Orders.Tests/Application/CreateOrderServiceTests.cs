@@ -58,13 +58,23 @@ public class CreateOrderServiceTests : IAsyncLifetime
         await using var db = Ctx();
         var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m));
 
-        var orderId = await svc.CreateAsync(
+        var dto = await svc.CreateAsync(
             new CreateOrderCommand(new[] { new CreateOrderLine(productId, 3) }), "sub-a");
 
-        Assert.StartsWith("ord_", orderId);
+        Assert.StartsWith("ord_", dto.Id);
+        // Returned DTO reflects the totals/lines without a re-query.
+        Assert.Equal("usr_a", dto.UserId);
+        Assert.Equal("sub-a", dto.CognitoSub);
+        Assert.Equal(3000, dto.SubtotalCents);           // 3 * 1000
+        Assert.Equal(300, dto.TaxCents);                 // 10%
+        Assert.Equal(3300, dto.TotalCents);
+        var dtoLine = Assert.Single(dto.Lines);
+        Assert.Equal(productId, dtoLine.ProductId);
+        Assert.Equal(3u, dtoLine.Quantity);
+
         var product = await db.Products.FirstAsync(p => p.Id == productId);
         Assert.Equal(7u, product.UnitsInStock);         // 10 - 3
-        var order = await db.Orders.Include(o => o.Details).FirstAsync(o => o.Id == orderId);
+        var order = await db.Orders.Include(o => o.Details).FirstAsync(o => o.Id == dto.Id);
         Assert.Equal("usr_a", order.UserId);
         Assert.Equal("sub-a", order.CognitoSub);
         Assert.Equal(3000, order.SubtotalCents);         // 3 * 1000
@@ -90,17 +100,25 @@ public class CreateOrderServiceTests : IAsyncLifetime
         // Two lines for the SAME product (qty 2 and 3) must consolidate into ONE
         // OrderDetail with Quantity 5, and stock must be decremented by 5 total —
         // not processed twice against the same already-loaded entity.
-        var orderId = await svc.CreateAsync(
+        var dto = await svc.CreateAsync(
             new CreateOrderCommand(new[]
             {
                 new CreateOrderLine(productId, 2),
                 new CreateOrderLine(productId, 3),
             }), "sub-a");
 
+        // The returned DTO itself must reflect the consolidated line.
+        var dtoLine = Assert.Single(dto.Lines);
+        Assert.Equal(productId, dtoLine.ProductId);
+        Assert.Equal(5u, dtoLine.Quantity);
+        Assert.Equal(5000, dto.SubtotalCents);           // 5 * 1000
+        Assert.Equal(500, dto.TaxCents);                 // 10%
+        Assert.Equal(5500, dto.TotalCents);
+
         var product = await db.Products.FirstAsync(p => p.Id == productId);
         Assert.Equal(5u, product.UnitsInStock);          // 10 - (2 + 3)
 
-        var order = await db.Orders.Include(o => o.Details).FirstAsync(o => o.Id == orderId);
+        var order = await db.Orders.Include(o => o.Details).FirstAsync(o => o.Id == dto.Id);
         var detail = Assert.Single(order.Details);       // exactly one consolidated line
         Assert.Equal(productId, detail.ProductId);
         Assert.Equal(5u, detail.Quantity);

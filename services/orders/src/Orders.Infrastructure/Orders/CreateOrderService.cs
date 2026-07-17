@@ -35,7 +35,7 @@ public class CreateOrderService
         _config = config;
     }
 
-    public async Task<string> CreateAsync(CreateOrderCommand command, string cognitoSub, CancellationToken ct = default)
+    public async Task<OrderDto> CreateAsync(CreateOrderCommand command, string cognitoSub, CancellationToken ct = default)
     {
         var userId = await _users.ResolveInternalUserIdAsync(cognitoSub, ct)
             ?? throw new UnknownUserException(cognitoSub);
@@ -121,7 +121,11 @@ public class CreateOrderService
             await _events.PublishOrderCreatedAsync(order.Id, userId, total, now, ct);
             await tx.CommitAsync(ct);
 
-            return order.Id;
+            // Map the in-memory order (order.Details already populated) instead of
+            // re-querying — mirrors OrderReadService.Map exactly; keep both in sync.
+            return new OrderDto(
+                order.Id, order.UserId, order.CognitoSub, order.SubtotalCents, order.TaxCents, order.TotalCents, order.CreatedAt,
+                order.Details.Select(d => new OrderLineDto(d.ProductId, d.Quantity, d.SubtotalCents, d.TaxCents, d.TotalCents)).ToList());
         });
     }
 }

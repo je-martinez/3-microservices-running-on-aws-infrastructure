@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using Orders.Application.Orders;
 
 namespace Orders.Tests.Api;
 
@@ -30,9 +31,44 @@ public class CreateOrderEndpointTests : IClassFixture<OrdersApiFactory>
         var resp = await client.SendAsync(req);
 
         Assert.Equal(HttpStatusCode.Created, resp.StatusCode);
-        var body = await resp.Content.ReadFromJsonAsync<CreatedOrder>();
+        var body = await resp.Content.ReadFromJsonAsync<OrderDto>();
         Assert.NotNull(body);
         Assert.StartsWith("ord_", body!.Id);
+        Assert.True(body.TotalCents > 0);
+        var line = Assert.Single(body.Lines);
+        Assert.Equal(_factory.SeededProductId, line.ProductId);
+        Assert.Equal(2u, line.Quantity);
+    }
+
+    [Fact]
+    public async Task Post_with_duplicate_product_lines_consolidates_in_response()
+    {
+        // Quantities kept small (1 + 1) because SeededProductId's stock (5 units) is
+        // shared across every test in this IClassFixture-scoped factory.
+        var client = _factory.CreateClient();
+        var req = new HttpRequestMessage(HttpMethod.Post, "/v1/orders")
+        {
+            Content = JsonContent.Create(new
+            {
+                lines = new[]
+                {
+                    new { productId = _factory.SeededProductId, quantity = 1 },
+                    new { productId = _factory.SeededProductId, quantity = 1 },
+                },
+            }),
+        };
+        req.Headers.Add("x-user-id", OrdersApiFactory.KnownCognitoSub);
+
+        var resp = await client.SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.Created, resp.StatusCode);
+        var body = await resp.Content.ReadFromJsonAsync<OrderDto>();
+        Assert.NotNull(body);
+        var line = Assert.Single(body!.Lines);
+        Assert.Equal(_factory.SeededProductId, line.ProductId);
+        Assert.Equal(2u, line.Quantity);
+        Assert.True(body.SubtotalCents > 0);
+        Assert.True(body.TotalCents > 0);
     }
 
     [Fact]
@@ -86,6 +122,5 @@ public class CreateOrderEndpointTests : IClassFixture<OrdersApiFactory>
         Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
     }
 
-    private sealed record CreatedOrder(string Id);
     private sealed record ErrorBody(string Error, string? Detail);
 }
