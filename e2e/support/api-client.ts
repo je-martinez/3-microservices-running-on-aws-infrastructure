@@ -11,3 +11,16 @@ export async function apiClient(): Promise<APIRequestContext> {
   const baseURL = process.env.USERS_BASE_URL ?? "http://localhost:3000";
   return request.newContext({ baseURL, extraHTTPHeaders: { "X-E2E-Source": "true" } });
 }
+
+// Same idea, pointed at the Orders service directly (port 3001). Orders trusts
+// `x-user-id` exactly like Users does (see CallerContextMiddleware /
+// PublicRoutes.IsPublic — only `GET /v1/health` is exempt), and resolves that
+// header as a Cognito sub via gRPC to Users for any endpoint that needs the
+// internal `usr_` id (order creation, ownership checks). Users' gRPC
+// `GetUserById` resolves by `usr_` id OR Cognito sub (`findByIdOrCognitoSub`),
+// so the `usr_` id returned by `POST /v1/users/register` works directly as
+// `x-user-id` here too — verified live against the running stack.
+export async function ordersClient(): Promise<APIRequestContext> {
+  const baseURL = process.env.ORDERS_BASE_URL ?? "http://localhost:3001";
+  return request.newContext({ baseURL, extraHTTPHeaders: { "X-E2E-Source": "true" } });
+}
