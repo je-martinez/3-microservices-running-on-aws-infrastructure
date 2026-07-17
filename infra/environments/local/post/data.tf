@@ -1,7 +1,22 @@
-# Phase-1 outputs (endpoints + master secret ARN). Local backend file.
+# Phase-1 outputs (endpoints + master secret ARN). Read from the S3 backend
+# (bucket + lock table provisioned once, out of band — see backend.hcl).
 data "terraform_remote_state" "phase1" {
-  backend = "local"
-  config  = { path = "../terraform.tfstate" }
+  backend = "s3"
+  config = {
+    bucket = "3mrai-local-tfstate-state"
+    key    = "local/phase1/terraform.tfstate"
+    region = "us-east-1"
+
+    # Force Terraform to communicate with Floci instead of real AWS
+    endpoint          = "http://localhost:4566"
+    dynamodb_endpoint = "http://localhost:4566"
+    sts_endpoint      = "http://localhost:4566"
+
+    skip_credentials_validation = true
+    skip_metadata_api_check     = true
+    skip_region_validation      = true
+    use_path_style              = true
+  }
 }
 
 # Master credentials, read BY ARN — never passed as a variable. jsondecoded in
