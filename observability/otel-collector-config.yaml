@@ -19,6 +19,15 @@ receivers:
           prefix: /ecs/
 
 processors:
+  # Parse the service's JSON stdout line (carried in body) into top-level
+  # attributes so OpenObserve exposes them as queryable columns. Services already
+  # emit snake_case, so this only flattens — no per-service renaming.
+  transform/parse_body:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - merge_maps(attributes, ParseJSON(body), "upsert") where IsMatch(body, "^\\s*\\{")
   batch: {}
 
 exporters:
@@ -37,5 +46,5 @@ service:
   pipelines:
     logs:
       receivers: [fluent_forward, aws_cloudwatch]
-      processors: [batch]
+      processors: [transform/parse_body, batch]
       exporters: [otlp_http/openobserve]
