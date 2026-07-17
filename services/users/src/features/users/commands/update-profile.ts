@@ -1,4 +1,5 @@
 import type { Db } from "#shared/db/prisma";
+import type { CurrentUser } from "#shared/auth/current-user";
 import { runAsActor } from "#shared/audit/actor-context";
 import { AuditActor } from "#shared/audit/audit-actor";
 import { toDomain, type User } from "../domain/user.ts";
@@ -17,11 +18,12 @@ export class UpdateProfileCommand {
     this.db = db;
   }
 
-  async execute(userId: string, input: UpdateProfileInput): Promise<User | null> {
+  async execute(currentUser: CurrentUser, input: UpdateProfileInput): Promise<User | null> {
     // Prisma's `update` requires a unique `where` (no `OR`), so resolve the
-    // target via the id-or-cognitoSub model method first, then update by its
-    // resolved id.
-    const target = await this.db.user.findByIdOrCognitoSub(userId);
+    // target via the request-scoped `CurrentUser` context first (it caches
+    // the id-or-cognitoSub lookup once per request — see
+    // `shared/auth/current-user.ts`), then update by its resolved id.
+    const target = await currentUser.resolve();
     if (!target) return null;
 
     // `updatedBy` is stamped by the audit query extension from the ALS actor.

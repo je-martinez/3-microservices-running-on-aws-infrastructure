@@ -48,6 +48,12 @@ function fakeUserJson(overrides: Record<string, unknown> = {}) {
 function testContainer(e2eEnabled: boolean) {
   const container = createContainer({ injectionMode: "PROXY" });
   container.register({
+    // `routes.ts`'s `onRequest` hook always registers `currentUser` (a
+    // `CurrentUser` built via `asFunction(({ db }) => ...)`), regardless of
+    // which route is hit — so every test container needs a `db` stub even
+    // when the use-cases under test are mocked at the `userQueryService` /
+    // `updateProfileCommand` level and never call `db` themselves.
+    db: asValue({ user: { findByIdOrCognitoSub: vi.fn(async () => null) } } as any),
     env: asValue({ E2E_TESTING_ENABLED: e2eEnabled } as any),
     registerUserCommand: asValue({
       execute: vi.fn(async (input: any) =>
@@ -185,7 +191,12 @@ describe("routes", () => {
   // documented `buildApp(container)` seam with an isolated Awilix container.
   describe("currentActor from the x-user-id header", () => {
     it("registers currentActor in the DI scope and GET /v1/users/me resolves it via getMe", async () => {
-      const getMe = vi.fn(async (userId: string) => fakeUser({ id: userId, email: "a@b.co" }));
+      // `getMe` now receives the request-scoped `CurrentUser` (see
+      // `shared/auth/current-user.ts`), not a raw string — assert on its
+      // `.identity` and use `.resolve()` to produce the response.
+      const getMe = vi.fn(async (currentUser: { identity: string }) =>
+        fakeUser({ id: currentUser.identity, email: "a@b.co" }),
+      );
       const container = testContainer(false);
       container.register({ userQueryService: asValue({ getMe, getUserById: vi.fn() } as any) });
       const app = buildApp(container);
@@ -197,7 +208,7 @@ describe("routes", () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(getMe).toHaveBeenCalledWith("usr_actor_1");
+      expect(getMe).toHaveBeenCalledWith(expect.objectContaining({ identity: "usr_actor_1" }));
       expect(res.json()).toEqual(fakeUserJson({ id: "usr_actor_1", email: "a@b.co" }));
     });
 
@@ -216,12 +227,12 @@ describe("routes", () => {
 
     it("propagates x-user-id into actorContext's AsyncLocalStorage for the request's async chain", async () => {
       let observedActor: string | undefined;
-      const getMe = vi.fn(async (userId: string) => {
+      const getMe = vi.fn(async (currentUser: { identity: string }) => {
         // Read the AsyncLocalStorage store from *inside* the same async chain
         // the handler runs in, the same way the Prisma audit extension does
         // when it stamps createdBy/updatedBy (see prisma-extensions.ts).
         observedActor = getActor();
-        return fakeUser({ id: userId });
+        return fakeUser({ id: currentUser.identity });
       });
       const container = testContainer(false);
       container.register({ userQueryService: asValue({ getMe, getUserById: vi.fn() } as any) });

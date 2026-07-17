@@ -274,8 +274,8 @@ export function buildApp(
         response: { 200: UserSchema, 404: ErrorSchema },
       },
     }, async (req, reply) => {
-      const { userQueryService, currentActor } = req.diScope.cradle;
-      const me = currentActor ? await userQueryService.getMe(currentActor) : null;
+      const { userQueryService, currentActor, currentUser } = req.diScope.cradle;
+      const me = currentActor ? await userQueryService.getMe(currentUser) : null;
       return me ? reply.send(serializeUser(me)) : reply.code(404).send({ error: "not_found" });
     });
 
@@ -287,8 +287,8 @@ export function buildApp(
         response: { 200: UserSchema, 404: ErrorSchema },
       },
     }, async (req, reply) => {
-      const { updateProfileCommand, currentActor } = req.diScope.cradle;
-      const updated = await updateProfileCommand.execute(currentActor as string, req.body);
+      const { updateProfileCommand, currentUser } = req.diScope.cradle;
+      const updated = await updateProfileCommand.execute(currentUser, req.body);
       return updated
         ? reply.send(serializeUser(updated))
         : reply.code(404).send({ error: "not_found" });
