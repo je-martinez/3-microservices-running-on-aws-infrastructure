@@ -1,0 +1,103 @@
+{
+  "version": 8,
+  "dashboardId": "",
+  "title": "Users — Golden Signals",
+  "description": "Request rate, errors, latency, and top routes for the Users service (derived from structured logs). Managed as code — see observability/dashboards/.",
+  "role": "",
+  "owner": "admin@3mrai.local",
+  "created": "2026-07-16T00:00:00Z",
+  "tabs": [
+    {
+      "tabId": "default",
+      "name": "Default",
+      "panels": [
+        {
+          "id": "users_req_rate",
+          "type": "line",
+          "title": "Request rate",
+          "description": "Requests per interval",
+          "config": { "show_legends": true, "decimals": 0 },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT histogram(_timestamp) AS x_axis_1, COUNT(*) AS y_axis_1 FROM logs WHERE service_name = 'users' AND http_route IS NOT NULL GROUP BY x_axis_1",
+              "customQuery": true,
+              "fields": { "stream": "logs", "stream_type": "logs", "x": [], "y": [], "z": [], "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] } },
+              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+            }
+          ],
+          "layout": { "x": 0, "y": 0, "w": 12, "h": 9, "i": 1 }
+        },
+        {
+          "id": "users_errors_by_status",
+          "type": "bar",
+          "title": "Responses by status code",
+          "description": "Count grouped by HTTP status",
+          "config": { "show_legends": true, "decimals": 0 },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT http_response_status_code AS x_axis_1, COUNT(*) AS y_axis_1 FROM logs WHERE service_name = 'users' AND http_response_status_code IS NOT NULL GROUP BY x_axis_1 ORDER BY x_axis_1",
+              "customQuery": true,
+              "fields": { "stream": "logs", "stream_type": "logs", "x": [], "y": [], "z": [], "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] } },
+              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+            }
+          ],
+          "layout": { "x": 12, "y": 0, "w": 12, "h": 9, "i": 2 }
+        },
+        {
+          "id": "users_latency_pctl",
+          "type": "line",
+          "title": "Latency p50 / p95 / p99 (ms)",
+          "description": "Response time percentiles of duration_ms",
+          "config": { "show_legends": true, "decimals": 2, "unit": "milliseconds" },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT histogram(_timestamp) AS x_axis_1, approx_percentile_cont(duration_ms, 0.5) AS p50, approx_percentile_cont(duration_ms, 0.95) AS p95, approx_percentile_cont(duration_ms, 0.99) AS p99 FROM logs WHERE service_name = 'users' AND duration_ms IS NOT NULL GROUP BY x_axis_1",
+              "customQuery": true,
+              "fields": { "stream": "logs", "stream_type": "logs", "x": [], "y": [], "z": [], "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] } },
+              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+            }
+          ],
+          "layout": { "x": 0, "y": 9, "w": 12, "h": 9, "i": 3 }
+        },
+        {
+          "id": "users_top_routes",
+          "type": "bar",
+          "title": "Top routes by volume",
+          "description": "Requests grouped by route template",
+          "config": { "show_legends": true, "decimals": 0 },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT http_route AS x_axis_1, COUNT(*) AS y_axis_1 FROM logs WHERE service_name = 'users' AND http_route IS NOT NULL GROUP BY x_axis_1 ORDER BY y_axis_1 DESC",
+              "customQuery": true,
+              "fields": { "stream": "logs", "stream_type": "logs", "x": [], "y": [], "z": [], "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] } },
+              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+            }
+          ],
+          "layout": { "x": 12, "y": 9, "w": 12, "h": 9, "i": 4 }
+        },
+        {
+          "id": "users_recent_errors",
+          "type": "table",
+          "title": "Recent errors",
+          "description": "4xx/5xx responses and error logs, newest first",
+          "config": { "show_legends": false },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT _timestamp, http_route, http_response_status_code, error_type, error_message, message FROM logs WHERE service_name = 'users' AND (http_response_status_code >= 400 OR error_type IS NOT NULL) ORDER BY _timestamp DESC",
+              "customQuery": true,
+              "fields": { "stream": "logs", "stream_type": "logs", "x": [], "y": [], "z": [], "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] } },
+              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+            }
+          ],
+          "layout": { "x": 0, "y": 18, "w": 24, "h": 9, "i": 5 }
+        }
+      ]
+    }
+  ],
+  "variables": { "list": [] }
+}
