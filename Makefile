@@ -195,7 +195,12 @@ clean: ## Tear down infra + compose (prompts before removing ./data)
 		if [ "$$ans" = "y" ] || [ "$$ans" = "Y" ]; then rm -rf ./data && echo "removed ./data"; else echo "kept ./data"; fi
 
 observability-up: ## Start OpenObserve + the OTel collector (opt-in; ~512MB-1.5GB RAM)
-	$(COMPOSE) --profile observability up -d
+	# --force-recreate, scoped to just these two services: they sit outside the main
+	# up/down cycle, so a recreated stack network can leave them stranded on a dead
+	# network (exit 128, "network ... not found"). Recreating them re-attaches to the
+	# current network. Naming the services keeps --force-recreate from bouncing the
+	# whole app stack.
+	$(COMPOSE) --profile observability up -d --force-recreate openobserve otel-collector
 	@echo "OpenObserve UI on http://localhost:5080 once it's healthy (~5s)."
 	@echo "Login: admin@3mrai.local / Complexpass#123"
 
