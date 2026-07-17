@@ -62,19 +62,18 @@ test("PATCH /v1/users/me updates the profile and the change is visible on a subs
   expect((await me.json()).fullName).toBe(newFullName);
 });
 
-// The old JE-37 spec (see origin/test/JE-37-e2e-specs) asserted a 401 from the
-// API Gateway JWT authorizer when calling /v1/users/me without a token. That
-// authorizer is NOT reachable on Floci — its HTTP_PROXY integration doesn't
-// forward the request path (docs/lessons/floci-rds-apigw-limits.md) — so
-// these specs drive the users service directly, bypassing the authorizer
-// entirely. Without `x-user-id` the service has no `currentActor`, so
-// `getMe` is skipped and the handler returns 404, not 401 (see routes.ts).
-// This test documents that real behavior instead of faking authorizer
-// coverage. Authorizer/401 coverage is deferred to a real-AWS environment.
-test("GET /v1/users/me without x-user-id returns 404 (authorizer coverage unavailable on Floci)", async () => {
+// The caller-context refactor moved auth enforcement to the `onRequest` hook
+// (routes.ts): a missing `x-user-id` on a non-public route now short-circuits
+// with 401 `{ error: "unauthenticated" }` before any handler runs (see
+// shared/http/public-routes.ts — `/v1/users/me` is not in the public
+// allowlist). This replaces the old pre-refactor behavior, where the request
+// reached the `getMe` handler and fell through to a 404 because `currentActor`
+// was undefined. This test now legitimately covers that middleware auth gate.
+test("GET /v1/users/me without x-user-id returns 401 (middleware auth gate)", async () => {
   const api = await apiClient();
   const res = await api.get("/v1/users/me");
-  expect(res.status()).toBe(404);
+  expect(res.status()).toBe(401);
+  expect(await res.json()).toEqual({ error: "unauthenticated" });
 });
 
 test("register captures Cognito identity into both tables", async () => {
@@ -82,11 +81,17 @@ test("register captures Cognito identity into both tables", async () => {
   const user = makeUser();
   const res = await api.post("/v1/users/register", { data: user });
   expect(res.status()).toBe(201);
+  const { id } = await res.json();
 
   // The identity snapshot is written in-process by register() (spec D2), so it
   // is visible immediately — no polling. The e2e-identity endpoint exists only
-  // when E2E_TESTING_ENABLED (see Task 8), mirroring e2e-cleanup.
-  const identity = await api.get(`/v1/users/e2e-identity?email=${encodeURIComponent(user.email)}`);
+  // when E2E_TESTING_ENABLED (see Task 8), mirroring e2e-cleanup. It is now a
+  // protected route (the caller-context refactor made it subject to the same
+  // auth gate as every other non-public route), so send `x-user-id` like the
+  // passing `/v1/users/me` test above.
+  const identity = await api.get(`/v1/users/e2e-identity?email=${encodeURIComponent(user.email)}`, {
+    headers: { "x-user-id": id },
+  });
   expect(identity.status()).toBe(200);
   expect(await identity.json()).toMatchObject({ data: 1, events: 1 });
 });
@@ -94,10 +99,16 @@ test("register captures Cognito identity into both tables", async () => {
 test("replaying the same Cognito event does not add a second event row (D4)", async () => {
   const api = await apiClient();
   const user = makeUser();
-  await api.post("/v1/users/register", { data: user });
+  const registered = await api.post("/v1/users/register", { data: user });
+  const { id } = await registered.json();
 
-  // The sub is the idempotency input; fetch it via the E2E-only endpoint.
-  const identity = await (await api.get(`/v1/users/e2e-identity?email=${encodeURIComponent(user.email)}`)).json();
+  // The sub is the idempotency input; fetch it via the E2E-only endpoint
+  // (protected — send x-user-id, same as the identity-capture test above).
+  const identity = await (
+    await api.get(`/v1/users/e2e-identity?email=${encodeURIComponent(user.email)}`, {
+      headers: { "x-user-id": id },
+    })
+  ).json();
   expect(identity).toMatchObject({ data: 1, events: 1 });
   const sub: string = identity.cognitoSub;
 
@@ -119,6 +130,10 @@ test("replaying the same Cognito event does not add a second event row (D4)", as
   expect(await replay.json()).toEqual({ status: "duplicate" });
 
   // The event count must still be 1 — the replay was swallowed (spec D4).
-  const after = await (await api.get(`/v1/users/e2e-identity?email=${encodeURIComponent(user.email)}`)).json();
+  const after = await (
+    await api.get(`/v1/users/e2e-identity?email=${encodeURIComponent(user.email)}`, {
+      headers: { "x-user-id": id },
+    })
+  ).json();
   expect(after.events).toBe(1);
 });
