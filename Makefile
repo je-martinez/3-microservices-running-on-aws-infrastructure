@@ -49,9 +49,10 @@ ps: ## Show container status
 
 ## --- Tests (the three-layer convention: docs/shared/conventions/testing.md) ---
 
-test-unit: ## Layer 1 — unit/integration for both services (orders dotnet, users vitest). No stack needed.
+test-unit: ## Layer 1 — unit/integration for both services (orders dotnet, users vitest) + e2e typecheck. No stack needed.
 	dotnet test services/orders/Orders.sln
 	pnpm --filter @3mrai/users test
+	pnpm --filter @3mrai/e2e typecheck
 
 test-e2e: ## Layers 2+3 — Playwright internal + gateway for both services. REQUIRES `make bootstrap` up.
 	pnpm --filter @3mrai/e2e test

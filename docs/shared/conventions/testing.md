@@ -50,8 +50,11 @@ three layers:
 
 - `make test-all` — all three layers for both services (unit + internal E2E + gateway E2E);
   E2E requires the stack up (`make bootstrap`).
-- `make test-unit` — layer 1 only (orders `dotnet test`, users `vitest`); no stack needed.
+- `make test-unit` — layer 1 only (orders `dotnet test`, users `vitest`, e2e `typecheck`); no
+  stack needed.
 - `make test-e2e` — layers 2+3 (Playwright internal + gateway); requires the stack up.
+- `pnpm --filter @3mrai/e2e typecheck` (or `pnpm run typecheck` from `e2e/`) — static type-check
+  of the E2E specs; also runs as part of `make test-unit`.
 - Granular package.json scripts: `pnpm orders:test`, `pnpm users:test`, `pnpm e2e:internal`,
   `pnpm e2e:gateway`, `pnpm e2e` (both projects).
 
