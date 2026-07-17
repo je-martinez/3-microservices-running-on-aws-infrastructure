@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-07-16
+updated: 2026-07-17
 tags:
   - type/spec
   - area/shared
@@ -46,6 +46,7 @@ related:
   - "[[2026-07-16-structured-logging-and-dashboards-design]]"
   - "[[2026-07-16-scoped-current-user-context-design]]"
   - "[[2026-07-16-orders-list-products-endpoint-design]]"
+  - "[[2026-07-17-terraform-remote-state-backend-design]]"
   - "[[ADR-0015-drawio-diagrams]]"
   - "[[ministack-auth-chain-spike-findings]]"
   - "[[floci-vs-ministack-spike-findings]]"
@@ -212,6 +213,7 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-07-16-structured-logging-and-dashboards-design]] — Design standardizing structured application logging (OTel-aligned, `snake_case` JSON) across all four services, collector-side JSON parsing into queryable columns, and versioned OpenObserve "golden signals" dashboards per service plus a cross-service overview; logs-only scope per [[ADR-0018-observability-openobserve]].
 - [[2026-07-16-scoped-current-user-context-design]] — Design of a request-scoped current-caller context, resolved once per request by a middleware against a centralized public-route allowlist, replacing duplicated header reads and identity resolution in `users` (Fastify/Awilix) and `orders` (.NET); see [[ADR-0010-cognito-auth]], [[dependency-injection]], [[audit-fields]], [[ADR-0003-grpc-inter-service]].
 - [[2026-07-16-orders-list-products-endpoint-design]] — Design of a new authenticated `GET /v1/products` read endpoint for Orders, mirroring the existing `OrderReadService`/`OrderDto`/`OrderEndpoints` pattern; gated by the `CallerContextMiddleware`, excludes soft-deleted rows via the global query filter, per [[cqrs]], [[soft-delete]], [[versioning]].
+- [[2026-07-17-terraform-remote-state-backend-design]] — Design moving Terraform state off local files onto a remote S3 + DynamoDB backend (Floci locally, real AWS in prod), created once via a self-excluding `tf-backend` module/root to resolve the backend chicken-and-egg, ending TF↔Floci state drift; named per [[ADR-0001-terraform-cloudposse-naming]], built on [[ADR-0017-floci-local]], mindful of [[floci-rds-apigw-limits]].
 
 ---
 
@@ -275,6 +277,7 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[2026-07-16-structured-logging-and-dashboards-design]]
 - [[2026-07-16-scoped-current-user-context-design]]
 - [[2026-07-16-orders-list-products-endpoint-design]]
+- [[2026-07-17-terraform-remote-state-backend-design]]
 - [[ADR-0015-drawio-diagrams]]
 - [[ministack-auth-chain-spike-findings]]
 - [[floci-vs-ministack-spike-findings]]
