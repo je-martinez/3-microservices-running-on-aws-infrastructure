@@ -9,13 +9,17 @@ import { makeUser } from "./chance-factory.js";
 // We prefer accessToken — it's the token meant for authorizing API calls — with
 // idToken as a fallback in case a route's authorizer config only accepts it.
 export async function getGatewayToken(): Promise<{ token: string; email: string }> {
-  const baseURL = process.env.API_GATEWAY_URL;
-  if (!baseURL) throw new Error("API_GATEWAY_URL is not set — run `make bootstrap`.");
+  const rawBaseURL = process.env.API_GATEWAY_URL;
+  if (!rawBaseURL) throw new Error("API_GATEWAY_URL is not set — run `make bootstrap`.");
+  // See gateway-client.ts for why: trailing-slash baseURL + relative request
+  // paths, so WHATWG URL joining appends onto the gateway's path instead of
+  // replacing it with a leading slash.
+  const baseURL = rawBaseURL.endsWith("/") ? rawBaseURL : `${rawBaseURL}/`;
   const ctx = await request.newContext({ baseURL, extraHTTPHeaders: { "X-E2E-Source": "true" } });
   const user = makeUser();
-  const reg = await ctx.post("/v1/users/register", { data: user });
+  const reg = await ctx.post("v1/users/register", { data: user });
   if (reg.status() !== 201) throw new Error(`register via gateway failed: ${reg.status()} ${await reg.text()}`);
-  const login = await ctx.post("/v1/users/login", { data: { email: user.email, password: user.password } });
+  const login = await ctx.post("v1/users/login", { data: { email: user.email, password: user.password } });
   if (login.status() !== 200) throw new Error(`login via gateway failed: ${login.status()} ${await login.text()}`);
   const body = await login.json();
   const token = body.accessToken ?? body.idToken;
