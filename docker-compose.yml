@@ -162,9 +162,13 @@ services:
         tag: "users"
     develop:
       watch:
-        - action: sync
+        # Users runs the compiled production build (runtime stage → node
+        # dist/server.js), NOT `tsx watch`, so a source sync would copy the .ts
+        # files but the process keeps running the old dist/. `rebuild` reconstructs
+        # the image on a source change so the new code actually runs. Requires
+        # `docker compose watch` to be active.
+        - action: rebuild
           path: ./services/users/src
-          target: /app/services/users/src
 
   # Orders service (.NET Core 10 Minimal API, Clean Architecture + EF Core/MySQL).
   # Build context is the REPO ROOT so the shared gRPC contract (proto/users.proto)
@@ -230,9 +234,12 @@ services:
         tag: "orders"
     develop:
       watch:
-        - action: sync
+        # Orders is .NET (compiled): a source sync alone would copy .cs files into
+        # the container but NOT recompile — the running process keeps the old DLL.
+        # `rebuild` reconstructs the image on any source change so the new code
+        # actually runs. Requires `docker compose watch` to be active.
+        - action: rebuild
           path: ./services/orders/src
-          target: /app/src
 
   tracking:
     build: ./services/tracking
