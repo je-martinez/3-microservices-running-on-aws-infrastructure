@@ -85,6 +85,23 @@ as the cluster superuser (`test/test`), mirroring Users' `make migrate` — NOT 
 is created post-apply by `infra/environments/local/bootstrap.sh`. See
 [[ADR-0017-floci-local]] and [[floci-rds-apigw-limits]].
 
+## 2b. GOLDEN RULE — test every endpoint in all three layers
+
+Convention: [../../docs/shared/conventions/testing.md](../../docs/shared/conventions/testing.md) → [[testing]].
+
+**Every Orders HTTP endpoint MUST have all three test layers:**
+1. **Unit/integration** — xUnit + Testcontainers-MySQL via the in-process
+   `WebApplicationFactory` (`OrdersApiFactory`).
+2. **Internal E2E** — the service URL directly, `x-user-id` faked.
+3. **Gateway E2E** — through `API_GATEWAY_URL` with a real Cognito JWT (the URL the
+   user hits: JWT authorizer → njs → nginx → service). Specs live in
+   `e2e/tests/gateway/`; run with `pnpm --filter @3mrai/e2e test` (needs `make bootstrap`).
+
+**An endpoint without gateway E2E is an incomplete change** — in-process and internal
+tests fake the authorizer and never touch the gateway, so they cannot catch
+gateway-only bugs (missing route, dropped path param, method mismatch). Adding a
+route means adding its gateway spec, same as regenerating `openapi.yaml` (§2a).
+
 ## 3. Solution layout (Clean Architecture)
 Five projects; dependencies point inward (Domain ← Application ← Infrastructure/Api,
 Api → Infrastructure). Domain references nothing.
