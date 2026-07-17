@@ -59,12 +59,20 @@ locals {
       # a literal must still be a valid URL — no unsubstituted {order_id}).
       create_order = { key = "POST /v1/orders", path = "/v1/orders", auth = true }
       my_orders    = { key = "GET /v1/orders/my-orders", path = "/v1/orders/my-orders", auth = true }
-      # {order_id} is an APIGW path param: keep it in the ROUTE key so APIGW
+      # {orderId} is an APIGW path param: keep it in the ROUTE key so APIGW
       # matches, but point the integration URI at the /v1/orders prefix — a
-      # literal "{order_id}" in the URI won't substitute on Floci (which drops
+      # literal "{orderId}" in the URI won't substitute on Floci (which drops
       # the path anyway), and nginx prefix-matches /v1/orders, forwarding the
       # real request URI to orders:8080. Prod (path preserved) handles it too.
-      get_order = { key = "GET /v1/orders/{order_id}", path = "/v1/orders", auth = true }
+      #
+      # camelCase, NOT snake_case: Floci builds a Java regex named-capturing
+      # group from the param name (`(?<orderId>[^/]+)`), and Java only allows
+      # [A-Za-z0-9] in group names — `{order_id}` produced
+      # `(?<order_id>...)` → PatternSyntaxException ("named capturing group is
+      # missing trailing '>'"), returning a Floci 500. The service reads the id
+      # from the real request path (via nginx), so this param name is
+      # gateway-only and doesn't affect Orders.
+      get_order = { key = "GET /v1/orders/{orderId}", path = "/v1/orders", auth = true }
 
       # Products catalog (read-only, authenticated). nginx prefix-matches
       # /v1/products and forwards to orders:8080 (see nginx.conf).
