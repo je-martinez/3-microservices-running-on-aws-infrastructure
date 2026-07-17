@@ -1,0 +1,5 @@
+# Terraform artifacts (this root keeps LOCAL state by design — see terraform.tf)
+**/.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
