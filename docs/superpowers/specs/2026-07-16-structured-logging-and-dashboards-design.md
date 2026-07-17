@@ -18,6 +18,14 @@ related:
 
 # Structured Logging & OpenObserve Dashboards Design
 
+> [!note] Implementation scope (as of 2026-07-16)
+> This design covers all four services, but the **immediate implementation covered `users` +
+> `orders` only** — the two services with running code at the time of implementation. `tracking`
+> and `events-pipeline` were scaffold-only (empty directories, `CMD` commented out) and had no
+> process to instrument. They adopt the same `snake_case` schema and logging approach when built:
+> `events-pipeline` reuses the shared Node/Pino module described below, and `tracking` follows the
+> FastAPI/Python approach as designed. See [[openobserve-runbook]] for the current dashboard scope.
+
 ## Summary
 
 Standardize application logging across the four services (`users`, `orders`, `tracking`,

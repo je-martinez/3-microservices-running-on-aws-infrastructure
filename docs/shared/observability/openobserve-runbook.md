@@ -14,6 +14,7 @@ related:
   - "[[ADR-0018-observability-openobserve]]"
   - "[[2026-07-10-openobserve-migration]]"
   - "[[local-dev]]"
+  - "[[2026-07-16-structured-logging-and-dashboards-design]]"
 ---
 
 # OpenObserve — Local Runbook
@@ -76,6 +77,46 @@ project, not just observability.
   `aws_cloudwatch` sources.
 - `make observability-down` leaves the four core services (`users`, `orders`, `tracking`,
   `events-pipeline`) running.
+
+## Dashboards (as code)
+
+Dashboards are version-controlled JSON, not click-ops in the UI. They live in
+`observability/dashboards/*.dashboard.json`:
+
+- Per-service: `users.dashboard.json`, `orders.dashboard.json`.
+- Cross-service: `overview.dashboard.json`.
+
+The OpenObserve v8 dashboard-schema contract and the import API are documented in
+`observability/dashboards/README.md` — read that before hand-editing a dashboard JSON file.
+
+### Import or update
+
+```bash
+make observability-dashboards
+```
+
+This runs `scripts/import-dashboards.mjs` against the running OpenObserve instance. The script is
+**idempotent**: it matches existing dashboards by title and updates them (`PUT` with the
+dashboard's hash) instead of creating a duplicate. Verified live: the first run creates each
+dashboard, and re-running the same command updates them in place — no duplicates.
+
+### Add or change a panel
+
+1. Edit the relevant dashboard JSON under `observability/dashboards/`.
+2. Re-run `make observability-dashboards` to push the change.
+3. Verify the panel's underlying query with a `_search` call (see the `doc_num` gotcha below) —
+   don't trust the panel rendering alone, and never trust the lagging stream-stats counter.
+
+### Scope
+
+Dashboards are **logs-derived only** — no metrics, no traces (per
+[[ADR-0018-observability-openobserve]]). Panels query the `snake_case` structured-log schema now
+emitted by the services: `service_name`, `http_route`, `http_response_status_code`, `duration_ms`,
+etc. See [[2026-07-16-structured-logging-and-dashboards-design]] for the full schema.
+
+Dashboards currently exist for **`users`** and **`orders`** only — the two services with running
+code as of this writing. `tracking` and `events-pipeline` get their dashboards when those services
+are built out.
 
 ## Gotchas
 
@@ -142,3 +183,4 @@ against Floci.
 - [[ADR-0018-observability-openobserve]]
 - [[2026-07-10-openobserve-migration]]
 - [[local-dev]]
+- [[2026-07-16-structured-logging-and-dashboards-design]]
