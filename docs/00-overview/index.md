@@ -45,6 +45,7 @@ related:
   - "[[2026-07-16-orders-for-update-interceptor-design]]"
   - "[[2026-07-16-structured-logging-and-dashboards-design]]"
   - "[[2026-07-16-scoped-current-user-context-design]]"
+  - "[[2026-07-16-orders-list-products-endpoint-design]]"
   - "[[ADR-0015-drawio-diagrams]]"
   - "[[ministack-auth-chain-spike-findings]]"
   - "[[floci-vs-ministack-spike-findings]]"
@@ -210,6 +211,7 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-07-16-orders-for-update-interceptor-design]] — Design replacing Orders' raw `FromSqlInterpolated FOR UPDATE` pessimistic-lock query with pure LINQ + a `TagWith`-driven EF Core command interceptor, letting the global soft-delete query filter apply automatically per [[ADR-0004-soft-delete-only]].
 - [[2026-07-16-structured-logging-and-dashboards-design]] — Design standardizing structured application logging (OTel-aligned, `snake_case` JSON) across all four services, collector-side JSON parsing into queryable columns, and versioned OpenObserve "golden signals" dashboards per service plus a cross-service overview; logs-only scope per [[ADR-0018-observability-openobserve]].
 - [[2026-07-16-scoped-current-user-context-design]] — Design of a request-scoped current-caller context, resolved once per request by a middleware against a centralized public-route allowlist, replacing duplicated header reads and identity resolution in `users` (Fastify/Awilix) and `orders` (.NET); see [[ADR-0010-cognito-auth]], [[dependency-injection]], [[audit-fields]], [[ADR-0003-grpc-inter-service]].
+- [[2026-07-16-orders-list-products-endpoint-design]] — Design of a new authenticated `GET /v1/products` read endpoint for Orders, mirroring the existing `OrderReadService`/`OrderDto`/`OrderEndpoints` pattern; gated by the `CallerContextMiddleware`, excludes soft-deleted rows via the global query filter, per [[cqrs]], [[soft-delete]], [[versioning]].
 
 ---
 
@@ -272,6 +274,7 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[2026-07-16-orders-for-update-interceptor-design]]
 - [[2026-07-16-structured-logging-and-dashboards-design]]
 - [[2026-07-16-scoped-current-user-context-design]]
+- [[2026-07-16-orders-list-products-endpoint-design]]
 - [[ADR-0015-drawio-diagrams]]
 - [[ministack-auth-chain-spike-findings]]
 - [[floci-vs-ministack-spike-findings]]
