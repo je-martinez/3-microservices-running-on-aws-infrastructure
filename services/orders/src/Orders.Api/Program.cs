@@ -27,6 +27,7 @@ var readerCs = builder.Configuration["DATABASE_READER_URL"]!;
 builder.Services.AddDbContext<OrdersReadDbContext>(o =>
     o.UseMySql(readerCs, ServerVersion.AutoDetect(readerCs)));
 builder.Services.AddScoped<OrderReadService>();
+builder.Services.AddScoped<ProductReadService>();
 
 // Write side (write replica in prod; same MySQL locally).
 var writerCs = builder.Configuration["DATABASE_WRITER_URL"]!;
@@ -128,6 +129,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapOrderEndpoints();
+app.MapProductEndpoints();
 
 // E2E cleanup surface — only when explicitly enabled (local/CI), never in prod.
 // Also mapped during build-time OpenAPI generation (entry assembly

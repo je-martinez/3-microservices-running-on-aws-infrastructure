@@ -84,6 +84,23 @@ paths:
           description: No Content
         '401':
           description: Unauthorized
+  /v1/products:
+    get:
+      tags:
+        - Products
+      summary: List the active product catalog.
+      operationId: GetProducts
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProductDto'
+        '401':
+          description: Unauthorized
 components:
   schemas:
     CreateOrderLine:
@@ -187,5 +204,33 @@ components:
             - integer
             - string
           format: int64
+    ProductDto:
+      required:
+        - id
+        - name
+        - description
+        - unitPriceCents
+        - unitsInStock
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        unitPriceCents:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: int64
+        unitsInStock:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: uint32
 tags:
   - name: Orders
+  - name: Products
