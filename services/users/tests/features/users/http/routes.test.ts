@@ -100,15 +100,24 @@ describe("routes", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  // JE-40 item 2: e2e-* routes are protected (not in the public allowlist), so
+  // these injects now need an x-user-id header to get past the onRequest 401
+  // gate and reach the handler under test.
   it("e2e-cleanup returns 404 when flag disabled", async () => {
     const app = buildApp(testContainer(false));
-    const res = await app.inject({ method: "DELETE", url: "/v1/users/e2e-cleanup" });
+    const res = await app.inject({
+      method: "DELETE", url: "/v1/users/e2e-cleanup",
+      headers: { "x-user-id": "usr_actor_1" },
+    });
     expect(res.statusCode).toBe(404);
   });
 
   it("e2e-cleanup soft-deletes when flag enabled", async () => {
     const app = buildApp(testContainer(true));
-    const res = await app.inject({ method: "DELETE", url: "/v1/users/e2e-cleanup" });
+    const res = await app.inject({
+      method: "DELETE", url: "/v1/users/e2e-cleanup",
+      headers: { "x-user-id": "usr_actor_1" },
+    });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ deleted: 3 });
   });
@@ -116,7 +125,10 @@ describe("routes", () => {
   describe("GET /v1/users/e2e-identity", () => {
     it("returns 404 when E2E_TESTING_ENABLED is false", async () => {
       const app = buildApp(testContainer(false));
-      const res = await app.inject({ method: "GET", url: "/v1/users/e2e-identity?email=test@example.com" });
+      const res = await app.inject({
+        method: "GET", url: "/v1/users/e2e-identity?email=test@example.com",
+        headers: { "x-user-id": "usr_actor_1" },
+      });
       expect(res.statusCode).toBe(404);
     });
 
@@ -128,7 +140,10 @@ describe("routes", () => {
         } as any),
       });
       const app = buildApp(container);
-      const res = await app.inject({ method: "GET", url: "/v1/users/e2e-identity?email=test@example.com" });
+      const res = await app.inject({
+        method: "GET", url: "/v1/users/e2e-identity?email=test@example.com",
+        headers: { "x-user-id": "usr_actor_1" },
+      });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ data: 1, events: 1, cognitoSub: expect.any(String) });
     });
@@ -139,7 +154,10 @@ describe("routes", () => {
         e2eIdentityQuery: asValue({ execute: vi.fn(async () => ({ data: 0, events: 0, cognitoSub: null })) } as any),
       });
       const app = buildApp(container);
-      const res = await app.inject({ method: "GET", url: "/v1/users/e2e-identity?email=missing@example.com" });
+      const res = await app.inject({
+        method: "GET", url: "/v1/users/e2e-identity?email=missing@example.com",
+        headers: { "x-user-id": "usr_actor_1" },
+      });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ data: 0, events: 0, cognitoSub: null });
     });
@@ -150,7 +168,10 @@ describe("routes", () => {
         e2eIdentityQuery: asValue({ execute: vi.fn() } as any),
       });
       const app = buildApp(container);
-      const res = await app.inject({ method: "GET", url: "/v1/users/e2e-identity" });
+      const res = await app.inject({
+        method: "GET", url: "/v1/users/e2e-identity",
+        headers: { "x-user-id": "usr_actor_1" },
+      });
       expect(res.statusCode).toBe(400);
       expect(res.json()).toEqual({ error: "email_required" });
     });
@@ -180,7 +201,7 @@ describe("routes", () => {
       expect(res.json()).toEqual(fakeUserJson({ id: "usr_actor_1", email: "a@b.co" }));
     });
 
-    it("returns 404 from GET /v1/users/me when x-user-id is absent (currentActor is undefined)", async () => {
+    it("returns 401 from GET /v1/users/me when x-user-id is absent (auth gate, before the handler runs)", async () => {
       const getMe = vi.fn(async () => ({ id: "should-not-be-called" }));
       const container = testContainer(false);
       container.register({ userQueryService: asValue({ getMe, getUserById: vi.fn() } as any) });
@@ -188,7 +209,8 @@ describe("routes", () => {
 
       const res = await app.inject({ method: "GET", url: "/v1/users/me" });
 
-      expect(res.statusCode).toBe(404);
+      expect(res.statusCode).toBe(401);
+      expect(res.json()).toEqual({ error: "unauthenticated" });
       expect(getMe).not.toHaveBeenCalled();
     });
 
@@ -213,6 +235,13 @@ describe("routes", () => {
 
       expect(res.statusCode).toBe(200);
       expect(observedActor).toBe("usr_actor_2");
+    });
+
+    it("does not gate a public route (GET /v1/health) even without x-user-id", async () => {
+      const app = buildApp(testContainer(false));
+      const res = await app.inject({ method: "GET", url: "/v1/health" });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ status: "ok" });
     });
   });
 

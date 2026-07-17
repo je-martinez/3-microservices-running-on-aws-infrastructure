@@ -1,12 +1,15 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import { fastifyAwilixPlugin, type Cradle } from "@fastify/awilix";
-import { asValue, type AwilixContainer } from "awilix";
+import { asValue, asFunction, Lifetime, type AwilixContainer } from "awilix";
 import { diContainer, registerSingletons, registerServices } from "#shared/di/awilix-container";
 import { actorContext } from "#shared/audit/actor-context";
 import { AuthError } from "#shared/auth/auth-errors";
 import { RecordNotFoundError } from "#shared/db/db-errors";
 import { buildLoggerOptions } from "#shared/logging/logger";
 import { env } from "#shared/config/env";
+import { isPublicRoute } from "#shared/http/public-routes";
+import { CurrentUser } from "#shared/auth/current-user";
+import type { Db } from "#shared/db/prisma";
 import { cognitoWebhookPayloadSchema } from "../webhooks/cognito-payload.ts";
 import { verifyWebhookSecret } from "../webhooks/verify-secret.ts";
 import { NoMatchingUserError } from "../webhooks/capture-cognito-identity.ts";
@@ -179,10 +182,27 @@ export function buildApp(
   // from *inside* the `als.run` callback — that's what makes the rest of the request's
   // hook/handler chain (which Fastify continues asynchronously off of this `done()` call)
   // inherit the store.
-  app.addHook("onRequest", (req, _reply, done) => {
+  //
+  // Also enforces auth: a missing x-user-id on a non-public route (see
+  // `shared/http/public-routes.ts`) short-circuits with 401 before any handler
+  // runs. `req.routeOptions?.url` is the route's registered template (e.g.
+  // "/v1/users/me"), matching `isPublicRoute`'s allowlist; it falls back to
+  // `req.url` for the rare case it isn't populated yet at this hook stage.
+  app.addHook("onRequest", (req, reply, done) => {
     const actor = req.headers["x-user-id"] as string | undefined;
+    const routePath = req.routeOptions?.url ?? req.url;
+
+    if (actor === undefined && !isPublicRoute(req.method, routePath)) {
+      reply.code(401).send({ error: "unauthenticated" });
+      return; // do NOT call done() — the request is already finished
+    }
+
     req.diScope.register({
       currentActor: asValue(actor),
+      currentUser: asFunction(
+        ({ db }: { db: Db }) => new CurrentUser({ db, identity: actor as string }),
+        { lifetime: Lifetime.SCOPED },
+      ),
     });
     actorContext.run({ actor }, done);
   });
