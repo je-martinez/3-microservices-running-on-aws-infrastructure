@@ -88,7 +88,7 @@
           "queryType": "sql",
           "queries": [
             {
-              "query": "SELECT _timestamp, http_route, http_response_status_code, error_type, error_message, message FROM logs WHERE service_name = 'users' AND (http_response_status_code >= 400 OR error_type IS NOT NULL) ORDER BY _timestamp DESC",
+              "query": "SELECT _timestamp, http_route, http_response_status_code, message FROM logs WHERE service_name = 'users' AND http_response_status_code >= 400 ORDER BY _timestamp DESC",
               "customQuery": true,
               "fields": { "stream": "logs", "stream_type": "logs", "x": [], "y": [], "z": [], "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] } },
               "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
