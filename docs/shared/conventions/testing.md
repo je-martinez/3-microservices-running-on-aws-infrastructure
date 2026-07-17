@@ -48,9 +48,19 @@ invisible to unit, integration, and internal E2E tests, and all three surfaced i
 the gateway URL. Gateway E2E closes that gap by testing exactly what the user hits, not a
 convenient stand-in for it.
 
+## Per-service guidance
+
+This convention defines the rule; each service documents how it satisfies the three layers and
+the checklist for adding a new endpoint:
+
+- [[orders/testing/index|Orders Testing]]
+- [[users/testing/index|Users Testing]]
+
 ## Related
 
 - [[ADR-0010-cognito-auth]]
 - [[ADR-0016-local-apigw-nginx-ecs]]
 - [[local-dev]]
 - [[2026-07-17-testing-layers-and-e2e-gateway-design]]
+- [[orders/testing/index|Orders Testing]]
+- [[users/testing/index|Users Testing]]
