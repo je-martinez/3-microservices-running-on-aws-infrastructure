@@ -23,15 +23,31 @@ Every HTTP endpoint MUST have all three test layers before it is considered done
    Testcontainers-MySQL through the in-process `WebApplicationFactory`; Users uses vitest with a
    mocked container.
 2. **Internal E2E** — the service's own URL hit directly, bypassing the gateway, with `x-user-id`
-   faked. This is the existing Playwright `e2e/` suite running against `http://localhost:3000`.
+   faked. Each service has its own internal Playwright spec running against its own port: orders
+   against `http://localhost:3001`, users against `http://localhost:3000`. Do not assume users'
+   port applies to every service — each service gets its own spec at its own port.
 3. **Gateway E2E** — the `API_GATEWAY_URL` the end user actually hits, with a real
    `Authorization: Bearer <Cognito JWT>`. This is the only layer that exercises the full
    user-facing path: JWT authorizer → njs sub-extraction → nginx routing → service.
 
-**An endpoint missing gateway E2E is an incomplete change** — the same imperative as the OpenAPI
-golden rule applies here. Gateway specs live in `e2e/tests/gateway/`. Run all E2E layers with
+**File structure — every service needs BOTH Playwright specs.** Layers 2 and 3 are not one spec
+each in the abstract — every service MUST have exactly two Playwright spec files, and both must
+exist and cover the service's endpoints:
+
+- **Internal spec:** `e2e/tests/<service>.spec.ts` — the `internal` project, hits the service
+  directly (orders on `http://localhost:3001`, users on `:3000`) with `x-user-id` faked.
+- **Gateway spec:** `e2e/tests/gateway/<service>.spec.ts` — the `gateway` project, hits
+  `API_GATEWAY_URL` with a real JWT.
+
+**An endpoint missing either its internal OR its gateway E2E spec is an incomplete change** — the
+same imperative as the OpenAPI golden rule applies here. Run all E2E layers with
 `pnpm --filter @3mrai/e2e test`, which executes both the `internal` and `gateway` Playwright
 projects. This requires the local stack to be up via `make bootstrap` (see [[local-dev]]).
+
+**Symmetry check:** when adding a service or endpoint, confirm both `e2e/tests/<svc>.spec.ts` and
+`e2e/tests/gateway/<svc>.spec.ts` exist and cover it — an easy asymmetry to miss (this is exactly
+what happened with orders: a gateway spec existed with no internal spec until it was caught in
+review).
 
 ## Rationale
 

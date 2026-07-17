@@ -29,8 +29,9 @@ Docker (Testcontainers spins up a real MySQL container per run).
 
 ## Layer 2 — internal E2E
 
-The Playwright `e2e/` "internal" project hits the service directly on `http://localhost:3000`,
-with `x-user-id` faked — bypassing the gateway entirely.
+The Playwright `e2e/` "internal" project hits the service directly on `http://localhost:3001`,
+with `x-user-id` faked — bypassing the gateway entirely. The spec lives in
+`e2e/tests/orders.spec.ts`.
 
 ## Layer 3 — gateway E2E
 
@@ -51,10 +52,12 @@ obtain the real JWT used as the `Authorization: Bearer` header.
 ## Checklist for a new orders endpoint
 
 1. Add a .NET unit/integration test (xUnit, `OrdersApiFactory`).
-2. Add an internal E2E spec if the endpoint needs service-direct coverage.
-3. Add a gateway spec in `e2e/tests/gateway/orders.spec.ts` hitting the endpoint through
-   `API_GATEWAY_URL` with a real JWT — see the `products` create / get-by-id specs as examples.
-4. If it's a new HTTP route, add **both**:
+2. Add **both** Playwright E2E specs — one is not a substitute for the other:
+   - an internal spec in `e2e/tests/orders.spec.ts`, hitting the service directly on
+     `http://localhost:3001` with `x-user-id` faked, and
+   - a gateway spec in `e2e/tests/gateway/orders.spec.ts`, hitting the endpoint through
+     `API_GATEWAY_URL` with a real JWT — see the `products` create / get-by-id specs as examples.
+3. If it's a new HTTP route, add **both**:
    - the API Gateway route in `infra/modules/api-gateway/main.tf`, and
    - the corresponding nginx location.
 
@@ -63,7 +66,7 @@ obtain the real JWT used as the `Authorization: Bearer` header.
    [[2026-07-17-testing-layers-and-e2e-gateway-design]]). Note: gateway path params use camelCase
    (Floci's Java-regex router), and the integration path must include the `{param}` segment or
    Floci silently drops it.
-5. Regenerate `openapi.yaml` per the golden rule in `services/orders/CLAUDE.md`.
+4. Regenerate `openapi.yaml` per the golden rule in `services/orders/CLAUDE.md`.
 
 ## Related
 
