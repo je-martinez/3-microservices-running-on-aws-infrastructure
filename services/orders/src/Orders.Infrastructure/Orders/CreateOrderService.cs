@@ -63,7 +63,17 @@ public class CreateOrderService
 
             long subtotal = 0, tax = 0, total = 0;
 
-            foreach (var line in command.Lines)
+            // Consolidate duplicate lines (same ProductId) BEFORE locking/pricing so
+            // each product is locked, validated, priced, and decremented exactly ONCE
+            // per order, and produces a single OrderDetail row with the summed
+            // quantity. Ordered by ProductId for a stable, deterministic lock order.
+            var consolidatedLines = command.Lines
+                .GroupBy(l => l.ProductId)
+                .Select(g => new CreateOrderLine(g.Key, (uint)g.Sum(l => (long)l.Quantity)))
+                .OrderBy(l => l.ProductId, StringComparer.Ordinal)
+                .ToList();
+
+            foreach (var line in consolidatedLines)
             {
                 // Pessimistic lock so concurrent orders cannot oversell. Pure LINQ
                 // tagged with ForUpdateInterceptor.Tag — the interceptor appends

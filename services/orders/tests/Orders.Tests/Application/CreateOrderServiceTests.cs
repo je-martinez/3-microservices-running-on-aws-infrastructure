@@ -81,6 +81,56 @@ public class CreateOrderServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Consolidates_duplicate_product_lines_into_one_detail()
+    {
+        var productId = await SeedProduct(stock: 10, priceCents: 1000);
+        await using var db = Ctx();
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m));
+
+        // Two lines for the SAME product (qty 2 and 3) must consolidate into ONE
+        // OrderDetail with Quantity 5, and stock must be decremented by 5 total —
+        // not processed twice against the same already-loaded entity.
+        var orderId = await svc.CreateAsync(
+            new CreateOrderCommand(new[]
+            {
+                new CreateOrderLine(productId, 2),
+                new CreateOrderLine(productId, 3),
+            }), "sub-a");
+
+        var product = await db.Products.FirstAsync(p => p.Id == productId);
+        Assert.Equal(5u, product.UnitsInStock);          // 10 - (2 + 3)
+
+        var order = await db.Orders.Include(o => o.Details).FirstAsync(o => o.Id == orderId);
+        var detail = Assert.Single(order.Details);       // exactly one consolidated line
+        Assert.Equal(productId, detail.ProductId);
+        Assert.Equal(5u, detail.Quantity);
+        Assert.Equal(5000, order.SubtotalCents);         // 5 * 1000
+        Assert.Equal(500, order.TaxCents);               // 10%
+        Assert.Equal(5500, order.TotalCents);
+    }
+
+    [Fact]
+    public async Task Rejects_when_consolidated_quantity_exceeds_stock()
+    {
+        var productId = await SeedProduct(stock: 4, priceCents: 1000);
+        await using var db = Ctx();
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m));
+
+        // Stock is 4; individually each line (2, then 3) would look fine against the
+        // ORIGINAL stock, but the consolidated total (5) must be validated as a whole.
+        await Assert.ThrowsAsync<InsufficientStockException>(() =>
+            svc.CreateAsync(new CreateOrderCommand(new[]
+            {
+                new CreateOrderLine(productId, 2),
+                new CreateOrderLine(productId, 3),
+            }), "sub-a"));
+
+        var product = await db.Products.FirstAsync(p => p.Id == productId);
+        Assert.Equal(4u, product.UnitsInStock);          // unchanged — full rollback
+        Assert.False(await db.Orders.AnyAsync());        // no order persisted
+    }
+
+    [Fact]
     public async Task Rejects_when_stock_insufficient()
     {
         var productId = await SeedProduct(stock: 2, priceCents: 1000);
