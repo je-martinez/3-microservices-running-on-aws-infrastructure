@@ -5,6 +5,8 @@ import { diContainer, registerSingletons, registerServices } from "#shared/di/aw
 import { actorContext } from "#shared/audit/actor-context";
 import { AuthError } from "#shared/auth/auth-errors";
 import { RecordNotFoundError } from "#shared/db/db-errors";
+import { buildLoggerOptions } from "#shared/logging/logger";
+import { env } from "#shared/config/env";
 import { cognitoWebhookPayloadSchema } from "../webhooks/cognito-payload.ts";
 import { verifyWebhookSecret } from "../webhooks/verify-secret.ts";
 import { NoMatchingUserError } from "../webhooks/capture-cognito-identity.ts";
@@ -74,13 +76,45 @@ function serializeUser(user: User) {
 // per-request from `request.diScope` instead of a hand-rolled deps bag (see
 // shared/di/awilix-container.ts for registration). Defaults to the shared `diContainer`
 // singleton; tests can pass an isolated container pre-loaded with mocked services.
-export function buildApp(container: AwilixContainer<Cradle> = diContainer): FastifyInstance {
+//
+// `opts.logStream` is an optional second param (not part of the container arg) that lets
+// tests capture the schema log output instead of writing to stdout — see
+// `tests/shared/request-log.test.ts`.
+export function buildApp(
+  container: AwilixContainer<Cradle> = diContainer,
+  opts?: { logStream?: { write: (s: string) => void } },
+): FastifyInstance {
   if (container === diContainer) {
     registerSingletons();
     registerServices();
   }
 
-  const app = Fastify({ logger: true });
+  const loggerOptions = buildLoggerOptions({
+    serviceName: "users",
+    environment: env.DEPLOYMENT_ENVIRONMENT,
+  });
+
+  const app = Fastify({
+    logger: opts?.logStream
+      ? ({ ...loggerOptions, stream: opts.logStream } as never)
+      : loggerOptions,
+  });
+
+  // Emits one schema-aligned log per response (OTel-style HTTP semantic
+  // conventions), replacing Fastify's default per-request start/end logs.
+  app.addHook("onResponse", (req, reply, done) => {
+    req.log.info(
+      {
+        http_request_method: req.method,
+        http_route: req.routeOptions?.url ?? req.url,
+        http_response_status_code: reply.statusCode,
+        duration_ms: reply.elapsedTime,
+        trace_id: req.id,
+      },
+      "request completed",
+    );
+    done();
+  });
 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);

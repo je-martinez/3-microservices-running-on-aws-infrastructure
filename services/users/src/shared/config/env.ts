@@ -28,6 +28,10 @@ const schema = z.object({
   // be deployed unguarded by omission.
   GRPC_PORT: z.coerce.number().int().positive().default(50051),
   GRPC_API_KEY: z.string().min(1),
+  // Feeds the schema logger's `deployment_environment` base field (see
+  // shared/logging/logger.ts). Defaults to "local" for dev/test; prod deploys
+  // set it explicitly.
+  DEPLOYMENT_ENVIRONMENT: z.string().default("local"),
 });
 
 export type Env = z.infer<typeof schema>;
