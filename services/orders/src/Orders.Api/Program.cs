@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Orders.Api.Endpoints;
+using Orders.Api.Identity;
 using Orders.Api.Logging;
+using Orders.Api.Middleware;
 using Orders.Application.Abstractions;
 using Orders.Application.Identity;
 using Orders.Infrastructure.Config;
@@ -42,6 +44,10 @@ builder.Services.AddScoped<IUserDirectory>(sp =>
 
 // ORDER_CREATED emission seam (SQS deferred).
 builder.Services.AddScoped<IEventPublisher, NoopEventPublisher>();
+
+// Request-scoped caller context, populated by CallerContextMiddleware from
+// x-user-id. Replaces the old per-endpoint CallerIdentity.CognitoSub(ctx) reads.
+builder.Services.AddScoped<ICurrentCaller, CurrentCaller>();
 
 // OpenAPI 3.1 document (imported into Datadog). Document name "v1" so the
 // build-time generator (Microsoft.Extensions.ApiDescription.Server) emits a clean
@@ -86,6 +92,18 @@ app.UseSerilogRequestLogging(options =>
         diag.Set("trace_id", http.TraceIdentifier);
     };
 });
+
+// Explicit UseRouting() so endpoint resolution happens BEFORE
+// CallerContextMiddleware runs. ctx.GetEndpoint() (used by the middleware and by
+// PublicRoutes.IsPublic to recognize GET /v1/health) is only populated once
+// routing has matched a request to an endpoint; without this explicit call the
+// middleware could run ahead of endpoint resolution and see a null route,
+// breaking the public-route allowlist.
+app.UseRouting();
+
+// Resolves the caller from x-user-id and 401s any non-public route with no
+// header, else sets the sub on the scoped ICurrentCaller for the endpoint to use.
+app.UseMiddleware<CallerContextMiddleware>();
 
 // Local bootstrap: apply migrations + seed the Product catalog and baseline
 // configuration (tax_rate) on startup when

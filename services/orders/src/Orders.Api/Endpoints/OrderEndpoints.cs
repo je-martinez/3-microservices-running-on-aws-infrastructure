@@ -19,22 +19,19 @@ public static class OrderEndpoints
             .Produces(StatusCodes.Status404NotFound)
             .Produces(StatusCodes.Status409Conflict);
 
-        group.MapGet("/my-orders", async (HttpContext ctx, OrderReadService reads) =>
+        group.MapGet("/my-orders", async (ICurrentCaller caller, OrderReadService reads) =>
         {
-            var sub = CallerIdentity.CognitoSub(ctx);
-            if (sub is null) return Results.Unauthorized();
-            return Results.Ok(await reads.GetMyOrdersAsync(sub));
+            // x-user-id absence already 401'd by CallerContextMiddleware.
+            return Results.Ok(await reads.GetMyOrdersAsync(caller.CognitoSub!));
         })
             .WithName("GetMyOrders")
             .WithSummary("List the caller's orders (ownership by cognito_sub).")
             .Produces<IReadOnlyList<OrderDto>>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status401Unauthorized);
 
-        group.MapGet("/{orderId}", async (string orderId, HttpContext ctx, OrderReadService reads) =>
+        group.MapGet("/{orderId}", async (string orderId, ICurrentCaller caller, OrderReadService reads) =>
         {
-            var sub = CallerIdentity.CognitoSub(ctx);
-            if (sub is null) return Results.Unauthorized();
-            var order = await reads.GetByIdAsync(orderId, sub);
+            var order = await reads.GetByIdAsync(orderId, caller.CognitoSub!);
             return order is null ? Results.NotFound() : Results.Ok(order);
         })
             .WithName("GetOrderById")
