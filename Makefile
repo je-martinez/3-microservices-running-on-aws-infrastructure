@@ -23,7 +23,7 @@ export AWS_SECRET_ACCESS_KEY ?= test
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps infra-init infra-plan infra-up infra-up-post infra-down infra-output env-file migrate bootstrap clean observability-up observability-down observability-dashboards
+.PHONY: help up down logs build ps backend-up infra-init infra-plan infra-up infra-up-post infra-down infra-output env-file migrate bootstrap clean observability-up observability-down observability-dashboards
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -49,8 +49,12 @@ ps: ## Show container status
 
 ## --- Terraform (against Floci) ---
 
-infra-init: ## terraform init (environments/local)
-	$(TF) init
+backend-up: ## Create the remote-state bucket + lock table in Floci (idempotent; local state)
+	terraform -chdir=$(TF_LOCAL_DIR)/backend init
+	terraform -chdir=$(TF_LOCAL_DIR)/backend apply -auto-approve
+
+infra-init: ## terraform init (environments/local) into the S3 backend
+	$(TF) init -reconfigure -backend-config=backend.hcl
 
 infra-plan: ## terraform plan (environments/local)
 	$(TF) plan
@@ -153,7 +157,7 @@ infra-up-post: ## Phase 2: create DB app-users in Terraform (post-effects), afte
 	@# applies, so the variable's default (7001) is not reliable. (mysql is
 	@# gated off locally; pass -var mysql_port=... too if it is ever enabled.)
 	pgport="$$(bash $(DISCOVER_DB_PORT) postgres)"; \
-	cd $(TF_LOCAL_DIR)/post && terraform init >/dev/null && terraform apply -auto-approve -var pg_port=$$pgport
+	cd $(TF_LOCAL_DIR)/post && terraform init -reconfigure -backend-config=backend.hcl >/dev/null && terraform apply -auto-approve -var pg_port=$$pgport
 
 ## --- Orchestration ---
 
@@ -170,6 +174,7 @@ bootstrap: ## Bring the whole local chain up from scratch, in dependency order
 		if [ $$i -eq 30 ]; then echo "Floci did not become ready in time." >&2; exit 1; fi; \
 		sleep 1; \
 	done
+	$(MAKE) backend-up
 	$(MAKE) infra-init
 	$(MAKE) infra-up
 	$(MAKE) migrate
