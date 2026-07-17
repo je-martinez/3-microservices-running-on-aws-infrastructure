@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-07-12
+updated: 2026-07-16
 tags:
   - type/spec
   - area/shared
@@ -43,6 +43,7 @@ related:
   - "[[2026-07-15-two-phase-post-effects-design]]"
   - "[[2026-07-15-orders-gateway-integration-design]]"
   - "[[2026-07-16-orders-for-update-interceptor-design]]"
+  - "[[2026-07-16-structured-logging-and-dashboards-design]]"
   - "[[ADR-0015-drawio-diagrams]]"
   - "[[ministack-auth-chain-spike-findings]]"
   - "[[floci-vs-ministack-spike-findings]]"
@@ -206,6 +207,7 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-07-15-two-phase-post-effects-design]] — Design for a second Terraform apply phase (`environments/local/post/`, own state) that creates least-privilege DB app-users natively once phase-1 infra is live, replacing `bootstrap.sh`'s Postgres app-user bash step; MySQL app-user creation stays gated off locally (Floci's mysql provider hangs).
 - [[2026-07-15-orders-gateway-integration-design]] — Design integrating Orders into the local API Gateway → nginx chain via multi-backend path-prefix routing, resolving the `/v1/health` collision with Users via per-service health rewrites (`/v1/users/health`, `/v1/orders/health`) and extending the njs `x-user-id` injection to Orders.
 - [[2026-07-16-orders-for-update-interceptor-design]] — Design replacing Orders' raw `FromSqlInterpolated FOR UPDATE` pessimistic-lock query with pure LINQ + a `TagWith`-driven EF Core command interceptor, letting the global soft-delete query filter apply automatically per [[ADR-0004-soft-delete-only]].
+- [[2026-07-16-structured-logging-and-dashboards-design]] — Design standardizing structured application logging (OTel-aligned, `snake_case` JSON) across all four services, collector-side JSON parsing into queryable columns, and versioned OpenObserve "golden signals" dashboards per service plus a cross-service overview; logs-only scope per [[ADR-0018-observability-openobserve]].
 
 ---
 
@@ -266,6 +268,7 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[2026-07-15-two-phase-post-effects-design]]
 - [[2026-07-15-orders-gateway-integration-design]]
 - [[2026-07-16-orders-for-update-interceptor-design]]
+- [[2026-07-16-structured-logging-and-dashboards-design]]
 - [[ADR-0015-drawio-diagrams]]
 - [[ministack-auth-chain-spike-findings]]
 - [[floci-vs-ministack-spike-findings]]
