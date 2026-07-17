@@ -32,4 +32,23 @@ describe("buildLoggerOptions", () => {
     expect(rec.severity_text).toBe("ERROR");
     expect(rec.severity_number).toBe(17);
   });
+
+  it("promotes err to top-level error_type/error_message, matching the shared schema", () => {
+    class NoMatchingUserError extends Error {}
+    const { lines, stream } = capture();
+    const log = pino(buildLoggerOptions({ serviceName: "users", environment: "local" }), stream);
+    log.error({ err: new NoMatchingUserError("boom") }, "failed");
+    const rec = JSON.parse(lines[0]);
+    expect(rec.error_type).toBe("NoMatchingUserError");
+    expect(rec.error_message).toBe("boom");
+  });
+
+  it("does not add error_type/error_message to a normal log with no err", () => {
+    const { lines, stream } = capture();
+    const log = pino(buildLoggerOptions({ serviceName: "users", environment: "local" }), stream);
+    log.info({ trace_id: "req-1" }, "request completed");
+    const rec = JSON.parse(lines[0]);
+    expect(rec.error_type).toBeUndefined();
+    expect(rec.error_message).toBeUndefined();
+  });
 });
