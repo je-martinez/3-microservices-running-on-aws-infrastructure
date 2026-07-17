@@ -1,0 +1,35 @@
+# .NET build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]uild/
+[Oo]ut/
+
+# .NET / MSBuild
+*.user
+*.suo
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Rider / Visual Studio
+.vs/
+.idea/
+*.sln.docstates
+
+# Test / coverage
+[Tt]est[Rr]esult*/
+coverage*.json
+coverage*.xml
+coverage*.cobertura.xml
+*.trx
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+!packages/build/

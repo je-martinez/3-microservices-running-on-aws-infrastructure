@@ -1,9 +1,15 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import { fastifyAwilixPlugin, type Cradle } from "@fastify/awilix";
-import { asValue, type AwilixContainer } from "awilix";
+import { asValue, asFunction, Lifetime, type AwilixContainer } from "awilix";
 import { diContainer, registerSingletons, registerServices } from "#shared/di/awilix-container";
 import { actorContext } from "#shared/audit/actor-context";
 import { AuthError } from "#shared/auth/auth-errors";
+import { RecordNotFoundError } from "#shared/db/db-errors";
+import { buildLoggerOptions } from "#shared/logging/logger";
+import { env } from "#shared/config/env";
+import { isPublicRoute } from "#shared/http/public-routes";
+import { CurrentUser } from "#shared/auth/current-user";
+import type { Db } from "#shared/db/prisma";
 import { cognitoWebhookPayloadSchema } from "../webhooks/cognito-payload.ts";
 import { verifyWebhookSecret } from "../webhooks/verify-secret.ts";
 import { NoMatchingUserError } from "../webhooks/capture-cognito-identity.ts";
@@ -73,13 +79,45 @@ function serializeUser(user: User) {
 // per-request from `request.diScope` instead of a hand-rolled deps bag (see
 // shared/di/awilix-container.ts for registration). Defaults to the shared `diContainer`
 // singleton; tests can pass an isolated container pre-loaded with mocked services.
-export function buildApp(container: AwilixContainer<Cradle> = diContainer): FastifyInstance {
+//
+// `opts.logStream` is an optional second param (not part of the container arg) that lets
+// tests capture the schema log output instead of writing to stdout — see
+// `tests/shared/request-log.test.ts`.
+export function buildApp(
+  container: AwilixContainer<Cradle> = diContainer,
+  opts?: { logStream?: { write: (s: string) => void } },
+): FastifyInstance {
   if (container === diContainer) {
     registerSingletons();
     registerServices();
   }
 
-  const app = Fastify({ logger: true });
+  const loggerOptions = buildLoggerOptions({
+    serviceName: "users",
+    environment: env.DEPLOYMENT_ENVIRONMENT,
+  });
+
+  const app = Fastify({
+    logger: opts?.logStream
+      ? ({ ...loggerOptions, stream: opts.logStream } as never)
+      : loggerOptions,
+  });
+
+  // Emits one schema-aligned log per response (OTel-style HTTP semantic
+  // conventions), replacing Fastify's default per-request start/end logs.
+  app.addHook("onResponse", (req, reply, done) => {
+    req.log.info(
+      {
+        http_request_method: req.method,
+        http_route: req.routeOptions?.url ?? req.url,
+        http_response_status_code: reply.statusCode,
+        duration_ms: reply.elapsedTime,
+        trace_id: req.id,
+      },
+      "request completed",
+    );
+    done();
+  });
 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
@@ -91,6 +129,13 @@ export function buildApp(container: AwilixContainer<Cradle> = diContainer): Fast
   // handler produces the exact same body as before this change.
   app.setErrorHandler((error, _req, reply) => {
     if (error instanceof AuthError) {
+      return reply.code(error.statusCode).send({ error: error.code });
+    }
+    // The cross-cutting `update` handler (see shared/db/prisma-extensions.ts)
+    // translates a soft-deleted/absent update target (Prisma P2025) into this
+    // typed error; map it to the same 404 `{ error: "not_found" }` contract the
+    // /users/me routes already return.
+    if (error instanceof RecordNotFoundError) {
       return reply.code(error.statusCode).send({ error: error.code });
     }
     throw error;
@@ -137,10 +182,27 @@ export function buildApp(container: AwilixContainer<Cradle> = diContainer): Fast
   // from *inside* the `als.run` callback — that's what makes the rest of the request's
   // hook/handler chain (which Fastify continues asynchronously off of this `done()` call)
   // inherit the store.
-  app.addHook("onRequest", (req, _reply, done) => {
+  //
+  // Also enforces auth: a missing x-user-id on a non-public route (see
+  // `shared/http/public-routes.ts`) short-circuits with 401 before any handler
+  // runs. `req.routeOptions?.url` is the route's registered template (e.g.
+  // "/v1/users/me"), matching `isPublicRoute`'s allowlist; it falls back to
+  // `req.url` for the rare case it isn't populated yet at this hook stage.
+  app.addHook("onRequest", (req, reply, done) => {
     const actor = req.headers["x-user-id"] as string | undefined;
+    const routePath = req.routeOptions?.url ?? req.url;
+
+    if (actor === undefined && !isPublicRoute(req.method, routePath)) {
+      reply.code(401).send({ error: "unauthenticated" });
+      return; // do NOT call done() — the request is already finished
+    }
+
     req.diScope.register({
       currentActor: asValue(actor),
+      currentUser: asFunction(
+        ({ db }: { db: Db }) => new CurrentUser({ db, identity: actor as string }),
+        { lifetime: Lifetime.SCOPED },
+      ),
     });
     actorContext.run({ actor }, done);
   });
@@ -212,8 +274,8 @@ export function buildApp(container: AwilixContainer<Cradle> = diContainer): Fast
         response: { 200: UserSchema, 404: ErrorSchema },
       },
     }, async (req, reply) => {
-      const { userQueryService, currentActor } = req.diScope.cradle;
-      const me = currentActor ? await userQueryService.getMe(currentActor) : null;
+      const { userQueryService, currentActor, currentUser } = req.diScope.cradle;
+      const me = currentActor ? await userQueryService.getMe(currentUser) : null;
       return me ? reply.send(serializeUser(me)) : reply.code(404).send({ error: "not_found" });
     });
 
@@ -225,8 +287,8 @@ export function buildApp(container: AwilixContainer<Cradle> = diContainer): Fast
         response: { 200: UserSchema, 404: ErrorSchema },
       },
     }, async (req, reply) => {
-      const { updateProfileCommand, currentActor } = req.diScope.cradle;
-      const updated = await updateProfileCommand.execute(currentActor as string, req.body);
+      const { updateProfileCommand, currentUser } = req.diScope.cradle;
+      const updated = await updateProfileCommand.execute(currentUser, req.body);
       return updated
         ? reply.send(serializeUser(updated))
         : reply.code(404).send({ error: "not_found" });
@@ -278,7 +340,10 @@ export function buildApp(container: AwilixContainer<Cradle> = diContainer): Fast
           // header note for the 404/409 alternatives considered). Cognito
           // retries the trigger in prod on a non-2xx, so a transient race
           // self-heals.
-          req.log.error({ err }, "cognito webhook: no matching users row");
+          req.log.error(
+            { err, app_event: "cognito_webhook_no_match" },
+            "cognito webhook: no matching users row for confirmed identity",
+          );
           return reply.code(500).send({ error: "no_matching_user" });
         }
         throw err;

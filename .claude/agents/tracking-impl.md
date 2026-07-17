@@ -1,6 +1,6 @@
 ---
 name: tracking-impl
-model: sonnet
+model: opus
 skills:
   - fastapi-expert
   - mysql

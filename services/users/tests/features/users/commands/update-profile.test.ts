@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { UpdateProfileCommand } from "#features/users/commands/update-profile";
 import { AuditActor } from "#shared/audit/audit-actor";
 import { getActor } from "#shared/audit/actor-context";
+import { CurrentUser } from "#shared/auth/current-user";
 
 function makeDb(target: { id: string } | null) {
   const findByIdOrCognitoSub = vi.fn(async () => target);
@@ -20,9 +21,10 @@ function makeDb(target: { id: string } | null) {
 }
 
 describe("UpdateProfileCommand", () => {
-  it("resolves by id OR cognitoSub, then updates by the resolved id", async () => {
+  it("resolves via the CurrentUser context, then updates by the resolved id", async () => {
     const { db, findByIdOrCognitoSub, update } = makeDb({ id: "usr_1" });
-    const res = await new UpdateProfileCommand({ db }).execute("sub-uuid", { fullName: "New" });
+    const currentUser = new CurrentUser({ db, identity: "sub-uuid" });
+    const res = await new UpdateProfileCommand({ db }).execute(currentUser, { fullName: "New" });
     expect(findByIdOrCognitoSub).toHaveBeenCalledWith("sub-uuid");
     expect(update).toHaveBeenCalledWith({ where: { id: "usr_1" }, data: { fullName: "New" } });
     expect(res?.id).toBe("usr_1");
@@ -30,14 +32,24 @@ describe("UpdateProfileCommand", () => {
 
   it("runs the update under the UpdateProfile audit actor", async () => {
     const { db, seenActor } = makeDb({ id: "usr_1" });
-    await new UpdateProfileCommand({ db }).execute("sub-uuid", { fullName: "New" });
+    const currentUser = new CurrentUser({ db, identity: "sub-uuid" });
+    await new UpdateProfileCommand({ db }).execute(currentUser, { fullName: "New" });
     expect(seenActor.value).toBe(AuditActor.UpdateProfile);
   });
 
   it("returns null and does not update when no user matches", async () => {
     const { db, update } = makeDb(null);
-    const res = await new UpdateProfileCommand({ db }).execute("nope", { fullName: "X" });
+    const currentUser = new CurrentUser({ db, identity: "nope" });
+    const res = await new UpdateProfileCommand({ db }).execute(currentUser, { fullName: "X" });
     expect(res).toBeNull();
     expect(update).not.toHaveBeenCalled();
+  });
+
+  it("calls findByIdOrCognitoSub only once even if resolve() is shared", async () => {
+    const { db, findByIdOrCognitoSub } = makeDb({ id: "usr_1" });
+    const currentUser = new CurrentUser({ db, identity: "sub-uuid" });
+    await currentUser.resolve();
+    await new UpdateProfileCommand({ db }).execute(currentUser, { fullName: "New" });
+    expect(findByIdOrCognitoSub).toHaveBeenCalledTimes(1);
   });
 });

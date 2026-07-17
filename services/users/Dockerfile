@@ -82,6 +82,11 @@ COPY --from=builder /app/services/users/package.json ./services/users/package.js
 # self-contained node_modules (no separate root + subpackage split), so this
 # is the only node_modules copy runtime needs.
 COPY --from=prod-deps /tmp/deploy/node_modules ./node_modules
+# Shared gRPC contract: the gRPC server (dist/shared/grpc/server.js) loads
+# proto/users.proto at runtime via a path resolved five levels up from its own
+# dir → /app/proto/users.proto. It is NOT part of dist/, so copy it explicitly,
+# else the container crashes at boot with ENOENT '/app/proto/users.proto'.
+COPY proto/users.proto /app/proto/users.proto
 WORKDIR /app/services/users
 EXPOSE 3000
 # Plain `node` against the compiled build — no --experimental-strip-types, no

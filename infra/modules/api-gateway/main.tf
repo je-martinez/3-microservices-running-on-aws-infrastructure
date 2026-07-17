@@ -46,9 +46,37 @@ locals {
       register = { key = "POST /v1/users/register", path = "/v1/users/register", auth = false }
       login    = { key = "POST /v1/users/login", path = "/v1/users/login", auth = false }
       refresh  = { key = "POST /v1/users/refresh", path = "/v1/users/refresh", auth = false }
-      health   = { key = "GET /v1/health", path = "/v1/health", auth = false }
       get_me   = { key = "GET /v1/users/me", path = "/v1/users/me", auth = true }
       patch_me = { key = "PATCH /v1/users/me", path = "/v1/users/me", auth = true }
+
+      # Per-service health (replaces the bare GET /v1/health, which used to hit
+      # Users only). nginx rewrites each to the service's unprefixed /v1/health.
+      users_health  = { key = "GET /v1/users/health", path = "/v1/users/health", auth = false }
+      orders_health = { key = "GET /v1/orders/health", path = "/v1/orders/health", auth = false }
+
+      # Orders functional routes. The route key drives APIGW matching; `path`
+      # is baked into the LOCAL per-route integration URI (Floci ignores it, but
+      # a literal must still be a valid URL — no unsubstituted {order_id}).
+      create_order = { key = "POST /v1/orders", path = "/v1/orders", auth = true }
+      my_orders    = { key = "GET /v1/orders/my-orders", path = "/v1/orders/my-orders", auth = true }
+      # {orderId} is an APIGW path param. It MUST appear in the integration `path`
+      # too: Floci substitutes `{orderId}` in the integration URI with the real
+      # request value (verified live — a request to /v1/orders/ord_X reaches nginx
+      # as /v1/orders/ord_X). Baking only /v1/orders here dropped the id, so nginx
+      # saw `GET /v1/orders` — which Orders only serves for POST (create) — and
+      # returned 405. Real AWS preserves the path natively, so this form works in
+      # both.
+      #
+      # camelCase, NOT snake_case: Floci builds a Java regex named-capturing
+      # group from the param name (`(?<orderId>[^/]+)`), and Java only allows
+      # [A-Za-z0-9] in group names — `{order_id}` produced
+      # `(?<order_id>...)` → PatternSyntaxException ("named capturing group is
+      # missing trailing '>'"), returning a Floci 500.
+      get_order = { key = "GET /v1/orders/{orderId}", path = "/v1/orders/{orderId}", auth = true }
+
+      # Products catalog (read-only, authenticated). nginx prefix-matches
+      # /v1/products and forwards to orders:8080 (see nginx.conf).
+      list_products = { key = "GET /v1/products", path = "/v1/products", auth = true }
     },
     var.enable_e2e_cleanup_route ? {
       e2e_cleanup = { key = "DELETE /v1/users/e2e-cleanup", path = "/v1/users/e2e-cleanup", auth = false }

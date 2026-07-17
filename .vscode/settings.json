@@ -1,0 +1,10 @@
+{
+  // Use the project's TypeScript (5.9.3, installed in the users package) instead
+  // of the editor's older bundled version. Without this, Cursor/VS Code falls
+  // back to its built-in tsserver, which doesn't recognize newer compiler
+  // options the tsconfig uses (rewriteRelativeImportExtensions,
+  // allowImportingTsExtensions, target esnext) and reports spurious errors.
+  // pnpm does not hoist typescript to the repo root, so point at the package.
+  "typescript.tsdk": "services/users/node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true
+}

@@ -48,6 +48,12 @@ function fakeUserJson(overrides: Record<string, unknown> = {}) {
 function testContainer(e2eEnabled: boolean) {
   const container = createContainer({ injectionMode: "PROXY" });
   container.register({
+    // `routes.ts`'s `onRequest` hook always registers `currentUser` (a
+    // `CurrentUser` built via `asFunction(({ db }) => ...)`), regardless of
+    // which route is hit — so every test container needs a `db` stub even
+    // when the use-cases under test are mocked at the `userQueryService` /
+    // `updateProfileCommand` level and never call `db` themselves.
+    db: asValue({ user: { findByIdOrCognitoSub: vi.fn(async () => null) } } as any),
     env: asValue({ E2E_TESTING_ENABLED: e2eEnabled } as any),
     registerUserCommand: asValue({
       execute: vi.fn(async (input: any) =>
@@ -100,15 +106,24 @@ describe("routes", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  // JE-40 item 2: e2e-* routes are protected (not in the public allowlist), so
+  // these injects now need an x-user-id header to get past the onRequest 401
+  // gate and reach the handler under test.
   it("e2e-cleanup returns 404 when flag disabled", async () => {
     const app = buildApp(testContainer(false));
-    const res = await app.inject({ method: "DELETE", url: "/v1/users/e2e-cleanup" });
+    const res = await app.inject({
+      method: "DELETE", url: "/v1/users/e2e-cleanup",
+      headers: { "x-user-id": "usr_actor_1" },
+    });
     expect(res.statusCode).toBe(404);
   });
 
   it("e2e-cleanup soft-deletes when flag enabled", async () => {
     const app = buildApp(testContainer(true));
-    const res = await app.inject({ method: "DELETE", url: "/v1/users/e2e-cleanup" });
+    const res = await app.inject({
+      method: "DELETE", url: "/v1/users/e2e-cleanup",
+      headers: { "x-user-id": "usr_actor_1" },
+    });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ deleted: 3 });
   });
@@ -116,7 +131,10 @@ describe("routes", () => {
   describe("GET /v1/users/e2e-identity", () => {
     it("returns 404 when E2E_TESTING_ENABLED is false", async () => {
       const app = buildApp(testContainer(false));
-      const res = await app.inject({ method: "GET", url: "/v1/users/e2e-identity?email=test@example.com" });
+      const res = await app.inject({
+        method: "GET", url: "/v1/users/e2e-identity?email=test@example.com",
+        headers: { "x-user-id": "usr_actor_1" },
+      });
       expect(res.statusCode).toBe(404);
     });
 
@@ -128,7 +146,10 @@ describe("routes", () => {
         } as any),
       });
       const app = buildApp(container);
-      const res = await app.inject({ method: "GET", url: "/v1/users/e2e-identity?email=test@example.com" });
+      const res = await app.inject({
+        method: "GET", url: "/v1/users/e2e-identity?email=test@example.com",
+        headers: { "x-user-id": "usr_actor_1" },
+      });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ data: 1, events: 1, cognitoSub: expect.any(String) });
     });
@@ -139,7 +160,10 @@ describe("routes", () => {
         e2eIdentityQuery: asValue({ execute: vi.fn(async () => ({ data: 0, events: 0, cognitoSub: null })) } as any),
       });
       const app = buildApp(container);
-      const res = await app.inject({ method: "GET", url: "/v1/users/e2e-identity?email=missing@example.com" });
+      const res = await app.inject({
+        method: "GET", url: "/v1/users/e2e-identity?email=missing@example.com",
+        headers: { "x-user-id": "usr_actor_1" },
+      });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ data: 0, events: 0, cognitoSub: null });
     });
@@ -150,7 +174,10 @@ describe("routes", () => {
         e2eIdentityQuery: asValue({ execute: vi.fn() } as any),
       });
       const app = buildApp(container);
-      const res = await app.inject({ method: "GET", url: "/v1/users/e2e-identity" });
+      const res = await app.inject({
+        method: "GET", url: "/v1/users/e2e-identity",
+        headers: { "x-user-id": "usr_actor_1" },
+      });
       expect(res.statusCode).toBe(400);
       expect(res.json()).toEqual({ error: "email_required" });
     });
@@ -164,7 +191,12 @@ describe("routes", () => {
   // documented `buildApp(container)` seam with an isolated Awilix container.
   describe("currentActor from the x-user-id header", () => {
     it("registers currentActor in the DI scope and GET /v1/users/me resolves it via getMe", async () => {
-      const getMe = vi.fn(async (userId: string) => fakeUser({ id: userId, email: "a@b.co" }));
+      // `getMe` now receives the request-scoped `CurrentUser` (see
+      // `shared/auth/current-user.ts`), not a raw string — assert on its
+      // `.identity` and use `.resolve()` to produce the response.
+      const getMe = vi.fn(async (currentUser: { identity: string }) =>
+        fakeUser({ id: currentUser.identity, email: "a@b.co" }),
+      );
       const container = testContainer(false);
       container.register({ userQueryService: asValue({ getMe, getUserById: vi.fn() } as any) });
       const app = buildApp(container);
@@ -176,11 +208,11 @@ describe("routes", () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(getMe).toHaveBeenCalledWith("usr_actor_1");
+      expect(getMe).toHaveBeenCalledWith(expect.objectContaining({ identity: "usr_actor_1" }));
       expect(res.json()).toEqual(fakeUserJson({ id: "usr_actor_1", email: "a@b.co" }));
     });
 
-    it("returns 404 from GET /v1/users/me when x-user-id is absent (currentActor is undefined)", async () => {
+    it("returns 401 from GET /v1/users/me when x-user-id is absent (auth gate, before the handler runs)", async () => {
       const getMe = vi.fn(async () => ({ id: "should-not-be-called" }));
       const container = testContainer(false);
       container.register({ userQueryService: asValue({ getMe, getUserById: vi.fn() } as any) });
@@ -188,18 +220,19 @@ describe("routes", () => {
 
       const res = await app.inject({ method: "GET", url: "/v1/users/me" });
 
-      expect(res.statusCode).toBe(404);
+      expect(res.statusCode).toBe(401);
+      expect(res.json()).toEqual({ error: "unauthenticated" });
       expect(getMe).not.toHaveBeenCalled();
     });
 
     it("propagates x-user-id into actorContext's AsyncLocalStorage for the request's async chain", async () => {
       let observedActor: string | undefined;
-      const getMe = vi.fn(async (userId: string) => {
+      const getMe = vi.fn(async (currentUser: { identity: string }) => {
         // Read the AsyncLocalStorage store from *inside* the same async chain
         // the handler runs in, the same way the Prisma audit extension does
         // when it stamps createdBy/updatedBy (see prisma-extensions.ts).
         observedActor = getActor();
-        return fakeUser({ id: userId });
+        return fakeUser({ id: currentUser.identity });
       });
       const container = testContainer(false);
       container.register({ userQueryService: asValue({ getMe, getUserById: vi.fn() } as any) });
@@ -213,6 +246,13 @@ describe("routes", () => {
 
       expect(res.statusCode).toBe(200);
       expect(observedActor).toBe("usr_actor_2");
+    });
+
+    it("does not gate a public route (GET /v1/health) even without x-user-id", async () => {
+      const app = buildApp(testContainer(false));
+      const res = await app.inject({ method: "GET", url: "/v1/health" });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ status: "ok" });
     });
   });
 
@@ -364,12 +404,30 @@ describe("POST /v1/webhooks/cognito", () => {
         throw new NoMatchingUserError("a@b.com");
       }),
     );
-    const app = buildApp(container);
+    const lines: string[] = [];
+    const app = buildApp(container, { logStream: { write: (s: string) => lines.push(s) } });
     const res = await app.inject({
       method: "POST", url: "/v1/webhooks/cognito",
       headers: { "x-webhook-secret": "s3cret" }, payload: validEvent,
     });
     expect(res.statusCode).toBe(500);
+
+    // The business-event log this route emits on the failure path: a clear
+    // message plus an `app_*`-prefixed event field, no un-prefixed business
+    // fields (see docs/shared/conventions for the schema shape) — and the
+    // error object is preserved so error_type/error_message serialize.
+    const businessLog = lines
+      .map((l) => JSON.parse(l))
+      .find((entry) => entry.app_event === "cognito_webhook_no_match");
+    expect(businessLog).toBeDefined();
+    expect(businessLog.message).toBe(
+      "cognito webhook: no matching users row for confirmed identity",
+    );
+    expect(businessLog.err).toBeDefined();
+    expect(businessLog.no_matching_user).toBeUndefined();
+    expect(businessLog.userName).toBeUndefined();
+
+    await app.close();
   });
 });
 

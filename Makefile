@@ -7,6 +7,12 @@ TF_LOCAL_DIR := infra/environments/local
 TF           := terraform -chdir=$(TF_LOCAL_DIR)
 FLOCI_URL    := http://localhost:4566
 ENV_FILE     := .env
+# Single reusable per-engine RDS-proxy-port discovery. Floci assigns those ports
+# (7000-7099) by cluster CREATION ORDER, which is NOT stable across applies, so
+# postgres/mysql can flip between 7001/7002. This script reads the port for a
+# given engine from `describe-db-clusters` (which exposes Engine per cluster) —
+# never hardcode 7001=Postgres / 7002=MySQL. Also used by bootstrap.sh.
+DISCOVER_DB_PORT := $(TF_LOCAL_DIR)/scripts/discover-db-port.sh
 
 # Terraform talks to Floci through the host-published port; the AWS provider in
 # environments/local/providers.tf pins every endpoint to localhost:4566.
@@ -17,7 +23,7 @@ export AWS_SECRET_ACCESS_KEY ?= test
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps infra-init infra-plan infra-up infra-down infra-output env-file migrate bootstrap clean observability-up observability-down
+.PHONY: help up down logs build ps test-unit test-e2e test-all backend-up infra-init infra-plan infra-up infra-up-post infra-down infra-output env-file migrate bootstrap clean observability-up observability-down observability-dashboards
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -41,10 +47,28 @@ build: ## Build service images
 ps: ## Show container status
 	$(COMPOSE) ps
 
+## --- Tests (the three-layer convention: docs/shared/conventions/testing.md) ---
+
+test-unit: ## Layer 1 — unit/integration for both services (orders dotnet, users vitest) + e2e typecheck. No stack needed.
+	dotnet test services/orders/Orders.sln
+	pnpm --filter @3mrai/users test
+	pnpm --filter @3mrai/e2e typecheck
+
+test-e2e: ## Layers 2+3 — Playwright internal + gateway for both services. REQUIRES `make bootstrap` up.
+	pnpm --filter @3mrai/e2e test
+
+test-all: ## All three layers for both services (unit + internal E2E + gateway E2E). E2E needs the stack up.
+	$(MAKE) test-unit
+	$(MAKE) test-e2e
+
 ## --- Terraform (against Floci) ---
 
-infra-init: ## terraform init (environments/local)
-	$(TF) init
+backend-up: ## Create the remote-state bucket + lock table in Floci (idempotent; local state)
+	terraform -chdir=$(TF_LOCAL_DIR)/backend init
+	terraform -chdir=$(TF_LOCAL_DIR)/backend apply -auto-approve
+
+infra-init: ## terraform init (environments/local) into the S3 backend
+	$(TF) init -reconfigure -backend-config=backend.hcl
 
 infra-plan: ## terraform plan (environments/local)
 	$(TF) plan
@@ -64,8 +88,12 @@ env-file: ## Refresh Cognito IDs + API_GATEWAY_URL in ./.env from terraform outp
 	@# apply, so these must be rewritten from the live outputs — never hand-edited.
 	@# docker-compose reads COGNITO_USER_POOL_ID / COGNITO_CLIENT_ID / API_GATEWAY_URL
 	@# from here. USERS_DATABASE_URL is a HOST-reachable Postgres URL (Floci's DB
-	@# proxy IP:7001, routable from macOS/OrbStack) for inspecting the DB with a SQL
-	@# client — distinct from the in-container DATABASE_WRITER_URL (floci:7001).
+	@# proxy IP:<pgport>, routable from macOS/OrbStack) for inspecting the DB with a
+	@# SQL client — distinct from the in-container DATABASE_WRITER_URL (floci:<pgport>).
+	@# The RDS-proxy ports are DISCOVERED per-engine (pgport/myport) via
+	@# discover-db-port.sh — Floci assigns them by creation order and they can flip
+	@# across applies, so they are never hardcoded. We also write USERS_DB_PORT /
+	@# ORDERS_DB_PORT so docker-compose (which cannot run commands) can interpolate them.
 	@# The auto-generated lines are wrapped in a labeled box so it's clear
 	@# what env-file owns. Only that box is regenerated; every line outside it
 	@# (e.g. a manually-added APIDOG_ACCESS_TOKEN) is preserved. Box markers are
@@ -74,6 +102,9 @@ env-file: ## Refresh Cognito IDs + API_GATEWAY_URL in ./.env from terraform outp
 	client="$$($(TF) output -raw cognito_client_id)"; \
 	apiid="$$($(TF) output -raw api_id)"; \
 	dbhost="$$($(TF) output -raw db_writer_endpoint)"; \
+	ordersdbhost="$$($(TF) output -raw orders_db_writer_endpoint)"; \
+	pgport="$$(bash $(DISCOVER_DB_PORT) postgres)"; \
+	myport="$$(bash $(DISCOVER_DB_PORT) mysql)"; \
 	touch $(ENV_FILE); \
 	rest=$$(mktemp); \
 	awk '/^# >>> AUTO-GENERATED/{skip=1;next} skip&&/^# <<< END AUTO-GENERATED/{skip=0;next} skip{next} {print}' $(ENV_FILE) \
@@ -85,7 +116,10 @@ env-file: ## Refresh Cognito IDs + API_GATEWAY_URL in ./.env from terraform outp
 		printf 'COGNITO_USER_POOL_ID=%s\n' "$$pool"; \
 		printf 'COGNITO_CLIENT_ID=%s\n' "$$client"; \
 		printf 'API_GATEWAY_URL=http://localhost:4566/restapis/%s/$$default/_user_request_\n' "$$apiid"; \
-		printf 'USERS_DATABASE_URL=postgres://test:test@%s:7001/users\n' "$$dbhost"; \
+		printf 'USERS_DATABASE_URL=postgres://test:test@%s:%s/users\n' "$$dbhost" "$$pgport"; \
+		printf 'ORDERS_DATABASE_URL=mysql://test:test@%s:%s/orders\n' "$$ordersdbhost" "$$myport"; \
+		printf 'USERS_DB_PORT=%s\n' "$$pgport"; \
+		printf 'ORDERS_DB_PORT=%s\n' "$$myport"; \
 		printf '# <<< END AUTO-GENERATED ───────────────────────────────────────────────────\n'; \
 		[ -s $$rest ] && printf '\n' && cat $$rest; \
 	} > $$out; \
@@ -107,18 +141,37 @@ migrate: ## Apply Prisma migrations (users) against Floci's Postgres (idempotent
 	@# Runs inside the compose network via the `deps` build stage (the users
 	@# Dockerfile already assembles it: workspace deps + prisma CLI + prisma/
 	@# for @3mrai/users). We reuse that stage instead of publishing Floci's
-	@# Postgres proxy port (7001) to the host — the port is Floci-internal and,
-	@# per Floci's RDS proxy range (7000-7099), not guaranteed to stay 7001;
-	@# staying in-network avoids depending on it as a host contract.
+	@# Postgres proxy port to the host — the port is Floci-internal and, per
+	@# Floci's RDS proxy range (7000-7099) assigned by creation order, not
+	@# guaranteed to stay 7001; staying in-network avoids depending on it as a
+	@# host contract. Inside the compose network the host is `floci` and the port
+	@# is the SAME proxy port describe-db-clusters reports, so we DISCOVER it
+	@# per-engine (never hardcode 7001) and interpolate it into the URL.
 	@# The users runtime image is production-only and has no prisma CLI/prisma/
 	@# dir, so it cannot run this itself (see services/users/Dockerfile).
 	docker build --target deps -t 3mrai-users:deps -f services/users/Dockerfile .
+	@pgport="$$(bash $(DISCOVER_DB_PORT) postgres)"; \
 	docker run --rm --network 3mrai_3mrai-network \
-		-e DATABASE_WRITER_URL="postgres://test:test@floci:7001/users" \
+		-e DATABASE_WRITER_URL="postgres://test:test@floci:$$pgport/users" \
 		-w /app/services/users \
 		3mrai-users:deps \
 		node node_modules/prisma/build/index.js migrate deploy --schema=./prisma/schema.prisma
 	@echo "Prisma migrations applied."
+
+infra-up-post: ## Phase 2: create DB app-users in Terraform (post-effects), after phase 1
+	@# Two-phase apply (see docs/superpowers/specs/2026-07-15-two-phase-post-effects-design.md
+	@# and environments/local/post/README.md): a SEPARATE Terraform root with its
+	@# own state that reads phase-1 outputs + the master secret by ARN, waits for
+	@# each DB via a healthcheck gate, and creates the least-privilege app-users
+	@# (SELECT/INSERT/UPDATE, no DELETE — ADR-0004). Local enables postgres only
+	@# (users_app); the mysql provider hangs on Floci so orders_app is prod-only.
+	@# Runs host-side, reaching Floci's published RDS proxy ports (7000-7010).
+	@# DISCOVER the Postgres proxy port per-engine and pass it as -var pg_port:
+	@# Floci assigns those ports by creation order and they can flip across
+	@# applies, so the variable's default (7001) is not reliable. (mysql is
+	@# gated off locally; pass -var mysql_port=... too if it is ever enabled.)
+	pgport="$$(bash $(DISCOVER_DB_PORT) postgres)"; \
+	cd $(TF_LOCAL_DIR)/post && terraform init -reconfigure -backend-config=backend.hcl >/dev/null && terraform apply -auto-approve -var pg_port=$$pgport
 
 ## --- Orchestration ---
 
@@ -135,11 +188,24 @@ bootstrap: ## Bring the whole local chain up from scratch, in dependency order
 		if [ $$i -eq 30 ]; then echo "Floci did not become ready in time." >&2; exit 1; fi; \
 		sleep 1; \
 	done
+	$(MAKE) backend-up
 	$(MAKE) infra-init
 	$(MAKE) infra-up
 	$(MAKE) migrate
 	$(COMPOSE) up -d --build users
 	bash $(TF_LOCAL_DIR)/bootstrap.sh
+	@# Phase 2 (post-effects): create the least-privilege DB app-users in
+	@# Terraform now that the clusters exist and migrations have run. Replaces the
+	@# app-user step formerly in bootstrap.sh (which now only manages the nginx alias).
+	$(MAKE) infra-up-post
+	@# Orders migrates + seeds ITSELF on startup (SEED_ON_STARTUP=true in
+	@# compose): the Api applies EF Core migrations then ProductSeed against
+	@# Floci's MySQL before serving. This differs from Users (Prisma via `make
+	@# migrate`) because no Aurora-MySQL cluster is provisioned in infra yet, so
+	@# there is no standalone migrate target to run — the service owns its schema
+	@# locally. Bring it up after users so the Users gRPC gate (users:50051) is
+	@# reachable for POST /v1/orders.
+	$(COMPOSE) up -d --build orders
 
 clean: ## Tear down infra + compose (prompts before removing ./data)
 	-$(TF) destroy -auto-approve
@@ -148,9 +214,17 @@ clean: ## Tear down infra + compose (prompts before removing ./data)
 		if [ "$$ans" = "y" ] || [ "$$ans" = "Y" ]; then rm -rf ./data && echo "removed ./data"; else echo "kept ./data"; fi
 
 observability-up: ## Start OpenObserve + the OTel collector (opt-in; ~512MB-1.5GB RAM)
-	$(COMPOSE) --profile observability up -d
+	# --force-recreate, scoped to just these two services: they sit outside the main
+	# up/down cycle, so a recreated stack network can leave them stranded on a dead
+	# network (exit 128, "network ... not found"). Recreating them re-attaches to the
+	# current network. Naming the services keeps --force-recreate from bouncing the
+	# whole app stack.
+	$(COMPOSE) --profile observability up -d --force-recreate openobserve otel-collector
 	@echo "OpenObserve UI on http://localhost:5080 once it's healthy (~5s)."
 	@echo "Login: admin@3mrai.local / Complexpass#123"
 
 observability-down: ## Stop the observability stack (leaves the rest running)
 	$(COMPOSE) stop openobserve otel-collector
+
+observability-dashboards: ## Import/update OpenObserve dashboards from observability/dashboards/*.dashboard.json (idempotent)
+	node scripts/import-dashboards.mjs

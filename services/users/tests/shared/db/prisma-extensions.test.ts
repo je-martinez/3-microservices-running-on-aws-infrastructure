@@ -3,9 +3,11 @@ import { readFileSync } from "node:fs";
 import {
   buildCrossCuttingQueries,
   computeIsDeleted,
+  MODEL_RELATIONS,
   RESULT_EXTENSIONS,
   type CrossCuttingBaseClient,
 } from "#shared/db/prisma-extensions";
+import { RecordNotFoundError } from "#shared/db/db-errors";
 import { runAsActor } from "#shared/audit/actor-context";
 import { PrismaClient, Prisma } from "../../../src/generated/prisma/client.ts";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -69,8 +71,16 @@ describe("cross-cutting Prisma extension", () => {
       );
 
       expect(update).toHaveBeenCalledOnce();
-      const calledWith = update.mock.calls[0]![0] as { where: unknown; data: { deletedAt: Date; deletedBy: string } };
+      const calledWith = update.mock.calls[0]![0] as {
+        where: Record<string, unknown>;
+        data: { deletedAt: Date; deletedBy: string };
+      };
+      // The rewrite goes to the BASE client's update, NOT the extension's
+      // update handler, so the `deletedAt: null` guard added there is NOT
+      // injected — the where is exactly what the caller passed. This lets the
+      // rewrite (re-)touch an already soft-deleted row.
       expect(calledWith.where).toEqual({ id: "usr_1" });
+      expect(calledWith.where.deletedAt).toBeUndefined();
       expect(calledWith.data.deletedAt).toBeInstanceOf(Date);
       expect(calledWith.data.deletedBy).toBe("usr_actor");
     });
@@ -89,8 +99,152 @@ describe("cross-cutting Prisma extension", () => {
 
       expect(updateMany).toHaveBeenCalledOnce();
       expect(result).toEqual({ count: 3 });
-      const calledWith = updateMany.mock.calls[0]![0] as { data: { deletedAt: Date } };
+      const calledWith = updateMany.mock.calls[0]![0] as { where: Record<string, unknown>; data: { deletedAt: Date } };
       expect(calledWith.data.deletedAt).toBeInstanceOf(Date);
+      // The rewrite goes to the BASE client's updateMany, NOT the extension's
+      // updateMany handler, so the `deletedAt: null` guard added there is NOT
+      // injected here — the where is exactly what the caller passed. This is
+      // what keeps soft-deleting able to (re-)touch already-deleted rows.
+      expect(calledWith.where).toEqual({ tags: { has: "E2E Source" } });
+      expect(calledWith.where.deletedAt).toBeUndefined();
+    });
+  });
+
+  // ADR-0004 hardening: a business `updateMany` now excludes soft-deleted rows
+  // at the query layer (via the same `excludeSoftDeleted` helper the reads
+  // use), turning the old call-site convention into an invariant. The
+  // soft-delete rewrite (`deleteMany` -> BASE client's updateMany) bypasses
+  // this handler, so it is unaffected (asserted in the "soft delete" block).
+  describe("updateMany excludes soft-deleted rows", () => {
+    it("injects deletedAt: null into where for a business updateMany", async () => {
+      const client: CrossCuttingBaseClient = {};
+      const queries = buildCrossCuttingQueries(client);
+      const query = passthroughQuery();
+
+      await queries.updateMany({
+        model: "User",
+        operation: "updateMany",
+        args: { where: { tags: { has: "beta" } }, data: { role: "member" } },
+        query,
+      });
+
+      const calledWith = query.mock.calls[0]![0] as { where: Record<string, unknown>; data: Record<string, unknown> };
+      expect(calledWith.where).toEqual({ tags: { has: "beta" }, deletedAt: null });
+      // still stamps updatedBy on the update path
+      expect(calledWith.data).toMatchObject({ role: "member" });
+      expect("updatedBy" in calledWith.data).toBe(true);
+    });
+
+    it("injects deletedAt: null when where is absent", async () => {
+      const queries = buildCrossCuttingQueries({});
+      const query = passthroughQuery();
+
+      await queries.updateMany({
+        model: "User",
+        operation: "updateMany",
+        args: { data: { role: "member" } },
+        query,
+      });
+
+      const calledWith = query.mock.calls[0]![0] as { where: Record<string, unknown> };
+      expect(calledWith.where).toEqual({ deletedAt: null });
+    });
+
+    it("does not override an explicit deletedAt filter (opt-out preserved)", async () => {
+      const queries = buildCrossCuttingQueries({});
+      const query = passthroughQuery();
+
+      await queries.updateMany({
+        model: "User",
+        operation: "updateMany",
+        args: { where: { deletedAt: { not: null } }, data: { role: "member" } },
+        query,
+      });
+
+      const calledWith = query.mock.calls[0]![0] as { where: Record<string, unknown> };
+      expect(calledWith.where).toEqual({ deletedAt: { not: null } });
+    });
+  });
+
+  // ADR-0004 hardening (delicate part): a business `update` on a unique row now
+  // also requires that row to be non-deleted. Because `update` targets ONE
+  // unique row, excluding a soft-deleted target makes Prisma raise P2025, which
+  // the handler catches and translates into a typed RecordNotFoundError (mapped
+  // to 404 by the HTTP error handler). The soft-delete rewrite (delete ->
+  // update -> BASE client) bypasses this handler and is unaffected (asserted in
+  // the "soft delete" block).
+  describe("update excludes soft-deleted rows", () => {
+    it("injects deletedAt: null into where for a business update", async () => {
+      const client: CrossCuttingBaseClient = {};
+      const queries = buildCrossCuttingQueries(client);
+      const query = passthroughQuery();
+
+      await queries.update({
+        model: "User",
+        operation: "update",
+        args: { where: { id: "usr_1" }, data: { fullName: "Alice" } },
+        query,
+      });
+
+      const calledWith = query.mock.calls[0]![0] as { where: Record<string, unknown>; data: Record<string, unknown> };
+      expect(calledWith.where).toEqual({ id: "usr_1", deletedAt: null });
+      expect(calledWith.data).toMatchObject({ fullName: "Alice" });
+      expect("updatedBy" in calledWith.data).toBe(true);
+    });
+
+    it("does not override an explicit deletedAt filter (opt-out preserved)", async () => {
+      const queries = buildCrossCuttingQueries({});
+      const query = passthroughQuery();
+
+      await queries.update({
+        model: "User",
+        operation: "update",
+        args: { where: { id: "usr_1", deletedAt: { not: null } }, data: { fullName: "Alice" } },
+        query,
+      });
+
+      const calledWith = query.mock.calls[0]![0] as { where: Record<string, unknown> };
+      expect(calledWith.where).toEqual({ id: "usr_1", deletedAt: { not: null } });
+    });
+
+    it("translates a Prisma P2025 from the base query into a RecordNotFoundError", async () => {
+      const queries = buildCrossCuttingQueries({});
+      const p2025 = new Prisma.PrismaClientKnownRequestError("record not found", {
+        code: "P2025",
+        clientVersion: "test",
+      });
+      const query = vi.fn(async () => {
+        throw p2025;
+      });
+
+      await expect(
+        queries.update({
+          model: "User",
+          operation: "update",
+          args: { where: { id: "usr_deleted" }, data: { fullName: "Alice" } },
+          query,
+        }),
+      ).rejects.toBeInstanceOf(RecordNotFoundError);
+    });
+
+    it("re-throws non-P2025 errors unchanged", async () => {
+      const queries = buildCrossCuttingQueries({});
+      const other = new Prisma.PrismaClientKnownRequestError("unique constraint", {
+        code: "P2002",
+        clientVersion: "test",
+      });
+      const query = vi.fn(async () => {
+        throw other;
+      });
+
+      await expect(
+        queries.update({
+          model: "User",
+          operation: "update",
+          args: { where: { id: "usr_1" }, data: { fullName: "Alice" } },
+          query,
+        }),
+      ).rejects.toBe(other);
     });
   });
 
@@ -187,6 +341,186 @@ describe("cross-cutting Prisma extension", () => {
 
       const calledWith = query.mock.calls[0]![0] as { where: Record<string, unknown> };
       expect(calledWith.where).toEqual({ id: "usr_1", deletedAt: { not: null } });
+    });
+
+    // ADR-0004 hardening: the three read ops that previously had NO handler
+    // (so no `deletedAt: null` injection) now get the same shallow top-level
+    // injection as the other reads, closing a latent leak if code ever calls
+    // them.
+    it("injects deletedAt: null into where for findFirstOrThrow", async () => {
+      const queries = buildCrossCuttingQueries({});
+      const query = passthroughQuery();
+
+      await queries.findFirstOrThrow({
+        model: "User",
+        operation: "findFirstOrThrow",
+        args: { where: { email: "a@b.c" } },
+        query,
+      });
+
+      const calledWith = query.mock.calls[0]![0] as { where: Record<string, unknown> };
+      expect(calledWith.where).toEqual({ email: "a@b.c", deletedAt: null });
+    });
+
+    it("injects deletedAt: null into where for aggregate", async () => {
+      const queries = buildCrossCuttingQueries({});
+      const query = passthroughQuery();
+
+      await queries.aggregate({
+        model: "User",
+        operation: "aggregate",
+        args: { where: { tags: { has: "x" } }, _count: true } as never,
+        query,
+      });
+
+      const calledWith = query.mock.calls[0]![0] as { where: Record<string, unknown> };
+      expect(calledWith.where).toEqual({ tags: { has: "x" }, deletedAt: null });
+    });
+
+    it("injects deletedAt: null into where for groupBy", async () => {
+      const queries = buildCrossCuttingQueries({});
+      const query = passthroughQuery();
+
+      await queries.groupBy({
+        model: "User",
+        operation: "groupBy",
+        args: { by: ["email"] } as never,
+        query,
+      });
+
+      const calledWith = query.mock.calls[0]![0] as { where: Record<string, unknown> };
+      expect(calledWith.where).toEqual({ deletedAt: null });
+    });
+  });
+
+  describe("find* propagates deletedAt: null into nested relations", () => {
+    it("injects a where on an include of a relation (value: true)", async () => {
+      const queries = buildCrossCuttingQueries({});
+      const query = passthroughQuery();
+
+      await queries.findMany({
+        model: "User",
+        operation: "findMany",
+        args: { where: { email: "a@b.c" }, include: { cognitoData: true } },
+        query,
+      });
+
+      const calledWith = query.mock.calls[0]![0] as { include: Record<string, unknown> };
+      expect(calledWith.include).toEqual({ cognitoData: { where: { deletedAt: null } } });
+    });
+
+    it("adds deletedAt: null to an include relation's existing where and recurses two levels", async () => {
+      const queries = buildCrossCuttingQueries({});
+      const query = passthroughQuery();
+
+      await queries.findFirst({
+        model: "User",
+        operation: "findFirst",
+        args: {
+          include: {
+            cognitoData: {
+              where: { clientId: "abc" },
+              include: { events: true },
+            },
+          },
+        },
+        query,
+      });
+
+      const calledWith = query.mock.calls[0]![0] as { include: Record<string, unknown> };
+      expect(calledWith.include).toEqual({
+        cognitoData: {
+          where: { clientId: "abc", deletedAt: null },
+          include: { events: { where: { deletedAt: null } } },
+        },
+      });
+    });
+
+    it("does not override an explicit deletedAt on a nested relation where", async () => {
+      const queries = buildCrossCuttingQueries({});
+      const query = passthroughQuery();
+
+      await queries.findMany({
+        model: "User",
+        operation: "findMany",
+        args: { include: { cognitoData: { where: { deletedAt: { not: null } } } } },
+        query,
+      });
+
+      const calledWith = query.mock.calls[0]![0] as { include: Record<string, unknown> };
+      expect(calledWith.include).toEqual({ cognitoData: { where: { deletedAt: { not: null } } } });
+    });
+
+    it("injects into relation keys under select but leaves scalar selections untouched", async () => {
+      const queries = buildCrossCuttingQueries({});
+      const query = passthroughQuery();
+
+      await queries.findMany({
+        model: "User",
+        operation: "findMany",
+        args: { select: { id: true, email: true, cognitoData: true } },
+        query,
+      });
+
+      const calledWith = query.mock.calls[0]![0] as { select: Record<string, unknown> };
+      expect(calledWith.select).toEqual({
+        id: true,
+        email: true,
+        cognitoData: { where: { deletedAt: null } },
+      });
+    });
+
+    it("recurses through a nested select relation (UsersCognitoData -> events)", async () => {
+      const queries = buildCrossCuttingQueries({});
+      const query = passthroughQuery();
+
+      await queries.findMany({
+        model: "User",
+        operation: "findMany",
+        args: { select: { id: true, cognitoData: { select: { id: true, events: true } } } },
+        query,
+      });
+
+      const calledWith = query.mock.calls[0]![0] as { select: Record<string, unknown> };
+      expect(calledWith.select).toEqual({
+        id: true,
+        cognitoData: {
+          where: { deletedAt: null },
+          select: { id: true, events: { where: { deletedAt: null } } },
+        },
+      });
+    });
+  });
+
+  describe("MODEL_RELATIONS agrees with the schema", () => {
+    // Guards the hand-maintained relation map (used to distinguish relations
+    // from scalar selections under `select`): every `kind: "object"` relation
+    // field in the schema must be registered, or nested-select filtering for
+    // that relation would silently be skipped. Parses the schema's relation
+    // fields (those with a `@relation` or a model-typed field) directly.
+    it("registers every relation field declared in the schema", () => {
+      const schema = readFileSync(
+        new URL("../../../prisma/schema.prisma", import.meta.url),
+        "utf8",
+      );
+      const modelNames = [...schema.matchAll(/model\s+(\w+)\s*\{/g)].map(([, name]) => name);
+      const modelBlocks = [...schema.matchAll(/model\s+(\w+)\s*\{([^}]*)\}/g)];
+
+      for (const [, model, body] of modelBlocks) {
+        // A relation field is a field whose type is another model name
+        // (optionally with `?` or `[]`). Scalars (String, Json, DateTime, ...)
+        // are excluded because their type is not a model name.
+        const relationFields = [...body.matchAll(/^\s*(\w+)\s+(\w+)(\[\])?\??/gm)]
+          .filter(([, , type]) => modelNames.includes(type))
+          .map(([, field]) => field);
+
+        for (const field of relationFields) {
+          expect(
+            MODEL_RELATIONS[model!]?.[field],
+            `${model}.${field} is a schema relation but missing from MODEL_RELATIONS`,
+          ).toBeDefined();
+        }
+      }
     });
   });
 

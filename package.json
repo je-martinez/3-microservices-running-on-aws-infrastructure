@@ -6,6 +6,9 @@
   "scripts": {
     "users:dev": "pnpm --filter @3mrai/users dev",
     "users:test": "pnpm --filter @3mrai/users test",
-    "e2e": "pnpm --filter @3mrai/e2e test"
+    "orders:test": "dotnet test services/orders/Orders.sln",
+    "e2e": "pnpm --filter @3mrai/e2e test",
+    "e2e:internal": "pnpm --filter @3mrai/e2e test -- --project=internal",
+    "e2e:gateway": "pnpm --filter @3mrai/e2e test -- --project=gateway"
   }
 }

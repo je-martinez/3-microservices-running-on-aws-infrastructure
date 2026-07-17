@@ -25,6 +25,15 @@ These rules take precedence over default agent/skill behavior.
 ### Scope
 - Stay within what was asked. No unrequested features, files, or refactors (YAGNI).
 
+### Testing — three layers per endpoint
+Every new or changed HTTP endpoint requires **all three** test layers before it's done:
+(1) unit/integration, (2) internal E2E (direct service URL), and (3) **gateway E2E with a
+real Cognito JWT** — the URL the user actually hits. In-process/internal tests fake the
+authorizer and never touch the gateway, so they miss gateway-only bugs (missing route,
+dropped path param, method mismatch). An endpoint without gateway E2E is an incomplete
+change. Full convention: `docs/shared/conventions/testing.md` → [[testing]]; per-service
+specifics in each `services/<svc>/CLAUDE.md` §2b.
+
 ### Subagents
 Custom subagents own their write domains. `linear-pm` (Linear) and `obsidian-vault` (`docs/`) are **single writers** of their tools. `github-ops` is an **optional** git helper (the main session may run git directly — see [[git-workflow]]). The external-write agents **read freely but propose every write and wait for explicit confirmation**.
 

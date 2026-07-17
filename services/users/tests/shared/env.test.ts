@@ -9,6 +9,7 @@ const base = {
   AWS_ENDPOINT_URL: "http://ministack:4566",
   AWS_REGION: "us-east-1",
   WEBHOOK_SECRET: "s3cret",
+  GRPC_API_KEY: "local-dev-grpc-key",
 };
 
 describe("parseEnv", () => {
@@ -44,6 +45,25 @@ describe("parseEnv", () => {
 
   it("requires WEBHOOK_SECRET", () => {
     const { WEBHOOK_SECRET: _omit, ...without } = base;
+    expect(() => parseEnv(without)).toThrow();
+  });
+
+  it("parses GRPC_PORT and GRPC_API_KEY", () => {
+    const env = parseEnv({
+      ...base,
+      GRPC_PORT: "50051",
+      GRPC_API_KEY: "local-dev-grpc-key",
+    });
+    expect(env.GRPC_PORT).toBe(50051);
+    expect(env.GRPC_API_KEY).toBe("local-dev-grpc-key");
+  });
+
+  it("defaults GRPC_PORT to 50051 when absent", () => {
+    expect(parseEnv(base).GRPC_PORT).toBe(50051);
+  });
+
+  it("requires GRPC_API_KEY", () => {
+    const { GRPC_API_KEY: _omit, ...without } = base;
     expect(() => parseEnv(without)).toThrow();
   });
 });

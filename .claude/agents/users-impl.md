@@ -1,6 +1,6 @@
 ---
 name: users-impl
-model: sonnet
+model: opus
 skills:
   - fastify-best-practices
   - prisma-upgrade-v7

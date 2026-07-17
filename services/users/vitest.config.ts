@@ -22,6 +22,8 @@ export default defineConfig({
       AWS_REGION: "us-east-1",
       NODE_ENV: "test",
       WEBHOOK_SECRET: "test-webhook-secret",
+      GRPC_PORT: "50051",
+      GRPC_API_KEY: "test-grpc-key",
     },
   },
 });

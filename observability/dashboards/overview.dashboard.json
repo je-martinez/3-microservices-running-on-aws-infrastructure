@@ -1,0 +1,86 @@
+{
+  "version": 8,
+  "dashboardId": "",
+  "title": "Overview — All Services",
+  "description": "Cross-service comparison of request volume, error rate, and latency (derived from structured logs). Managed as code — see observability/dashboards/.",
+  "role": "",
+  "owner": "admin@3mrai.local",
+  "created": "2026-07-16T00:00:00Z",
+  "tabs": [
+    {
+      "tabId": "default",
+      "name": "Default",
+      "panels": [
+        {
+          "id": "overview_volume_per_service",
+          "type": "bar",
+          "title": "Request volume per service",
+          "description": "Total requests grouped by service",
+          "config": { "show_legends": true, "decimals": 0 },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT service_name AS x_axis_1, COUNT(*) AS y_axis_1 FROM logs WHERE http_route IS NOT NULL GROUP BY x_axis_1 ORDER BY y_axis_1 DESC",
+              "customQuery": true,
+              "fields": { "stream": "logs", "stream_type": "logs", "x": [], "y": [], "z": [], "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] } },
+              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+            }
+          ],
+          "layout": { "x": 0, "y": 0, "w": 12, "h": 9, "i": 1 }
+        },
+        {
+          "id": "overview_errors_per_service",
+          "type": "bar",
+          "title": "Error count per service (status >= 400)",
+          "description": "4xx/5xx responses grouped by service",
+          "config": { "show_legends": true, "decimals": 0 },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT service_name AS x_axis_1, COUNT(*) AS y_axis_1 FROM logs WHERE http_response_status_code >= 400 GROUP BY x_axis_1 ORDER BY y_axis_1 DESC",
+              "customQuery": true,
+              "fields": { "stream": "logs", "stream_type": "logs", "x": [], "y": [], "z": [], "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] } },
+              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+            }
+          ],
+          "layout": { "x": 12, "y": 0, "w": 12, "h": 9, "i": 2 }
+        },
+        {
+          "id": "overview_p95_per_service",
+          "type": "bar",
+          "title": "p95 latency per service (ms)",
+          "description": "95th-percentile duration_ms grouped by service",
+          "config": { "show_legends": true, "decimals": 2, "unit": "milliseconds" },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT service_name AS x_axis_1, approx_percentile_cont(duration_ms, 0.95) AS y_axis_1 FROM logs WHERE duration_ms IS NOT NULL GROUP BY x_axis_1 ORDER BY y_axis_1 DESC",
+              "customQuery": true,
+              "fields": { "stream": "logs", "stream_type": "logs", "x": [], "y": [], "z": [], "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] } },
+              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+            }
+          ],
+          "layout": { "x": 0, "y": 9, "w": 12, "h": 9, "i": 3 }
+        },
+        {
+          "id": "overview_status_breakdown",
+          "type": "table",
+          "title": "Status breakdown per service",
+          "description": "Response count by service and status code",
+          "config": { "show_legends": false },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT service_name, http_response_status_code, COUNT(*) AS n FROM logs WHERE http_response_status_code IS NOT NULL GROUP BY service_name, http_response_status_code ORDER BY n DESC",
+              "customQuery": true,
+              "fields": { "stream": "logs", "stream_type": "logs", "x": [], "y": [], "z": [], "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] } },
+              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+            }
+          ],
+          "layout": { "x": 12, "y": 9, "w": 12, "h": 9, "i": 4 }
+        }
+      ]
+    }
+  ],
+  "variables": { "list": [] }
+}

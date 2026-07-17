@@ -48,6 +48,18 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Per-engine RDS-proxy-port discovery. Floci assigns those ports (7000-7099) by
+# cluster CREATION ORDER, which is NOT stable across applies, so Postgres/MySQL
+# can flip between 7001/7002. Never hardcode the port: discover it per engine
+# from describe-db-clusters (via the shared script the Makefile also uses), but
+# let an explicit env override win (PG_PORT / ORDERS_DB_PORT passed by a caller).
+# Failure to discover is non-fatal here — the callers below fall back to their
+# ${VAR:-default}, and the app-DB-user steps are not invoked by the default chain.
+discover_port() {
+  # discover_port <engine> ; echoes the port or nothing (on failure).
+  bash "${SCRIPT_DIR}/scripts/discover-db-port.sh" "$1" 2>/dev/null || true
+}
+
 NETWORK="3mrai_3mrai-network"
 ALIAS="${NGINX_STABLE_ALIAS:-nginx-stable}"
 # Empty by default → attach the alias only and let Docker assign the IP.
@@ -63,6 +75,9 @@ FIXED_IP="${NGINX_STABLE_IP:-}"
 # hostname (survives container recreation, per JE-36/verified route) rather
 # than a discovered container IP, which changes across recreations.
 PG_HOST="${PG_HOST:-floci}"
+# Explicit PG_PORT wins; otherwise discover the Postgres proxy port per-engine
+# (Floci flips 7001/7002 across applies), falling back to 7001 if discovery fails.
+PG_PORT="${PG_PORT:-$(discover_port postgres)}"
 PG_PORT="${PG_PORT:-7001}"
 PG_SUPERUSER="${PG_SUPERUSER:-test}"
 PG_SUPERUSER_PASSWORD="${PG_SUPERUSER_PASSWORD:-test}"
@@ -125,10 +140,82 @@ SQL
   fi
 }
 
-# Run step 1 independently of step 2: a step-1 failure is reported but does
-# not abort step 2 (and vice versa — each is independently useful/runnable).
+# ─── Step 1b: least-privilege Orders app DB user (MySQL) ────────────────────
+# MySQL analog of bootstrap_app_db_user. Same rationale: module.rds_mysql's
+# app-user resources are disabled locally (manage_app_user = false, chicken-and
+# -egg), so create orders_app directly against the running MySQL cluster.
+# SELECT/INSERT/UPDATE only — NO DELETE (ADR-0004). Unlike Postgres, MySQL's
+# `GRANT ... ON orders.*` already covers future tables, so there is no
+# ALTER DEFAULT PRIVILEGES equivalent to run.
+ORDERS_DB_HOST="${ORDERS_DB_HOST:-floci}"
+# Explicit ORDERS_DB_PORT wins; otherwise discover the MySQL proxy port per-engine
+# (Floci flips 7001/7002 across applies), falling back to 7002 if discovery fails.
+# Only used by bootstrap_orders_app_db_user, which is skipped on Floci unless
+# FORCE_ORDERS_APP=1 (Floci MySQL has no user management).
+ORDERS_DB_PORT="${ORDERS_DB_PORT:-$(discover_port mysql)}"
+ORDERS_DB_PORT="${ORDERS_DB_PORT:-7002}"
+ORDERS_DB_SUPERUSER="${ORDERS_DB_SUPERUSER:-test}"
+ORDERS_DB_SUPERUSER_PASSWORD="${ORDERS_DB_SUPERUSER_PASSWORD:-test}"
+ORDERS_DB_DATABASE="${ORDERS_DB_DATABASE:-orders}"
+ORDERS_APP_DB_USER="${ORDERS_APP_DB_USER:-orders_app}"
+ORDERS_APP_DB_SECRET_FILE="${ORDERS_APP_DB_SECRET_FILE:-${SCRIPT_DIR}/.orders-app-db-secret}"
+
+# KNOWN LIMIT (verified 2026-07-15): Floci's emulated MySQL does NOT support user
+# management — the only exposed user `test` lacks the global CREATE USER privilege
+# (ERROR 1227), the mysql Terraform provider hangs on mysql_user, and Floci has no
+# TLS while caching_sha2_password demands it. So orders_app CANNOT be created on
+# Floci local (Postgres/users_app works; MySQL does not). Locally Orders connects
+# as test/test; the least-privilege orders_app (no DELETE, ADR-0004) is a PROD-only
+# concern handled by the RDS module / the post-effects apply. This function is kept
+# for real AWS and is skipped on Floci unless FORCE_ORDERS_APP=1.
+bootstrap_orders_app_db_user() {
+  if [ "${FORCE_ORDERS_APP:-0}" != "1" ]; then
+    inf "skipping orders_app: Floci MySQL has no user management (set FORCE_ORDERS_APP=1 to attempt against real AWS)"
+    return 0
+  fi
+  echo "== bootstrap: least-privilege Orders app DB user (${ORDERS_APP_DB_USER}) =="
+
+  if [ -f "$ORDERS_APP_DB_SECRET_FILE" ]; then
+    ORDERS_APP_DB_PASSWORD="$(cat "$ORDERS_APP_DB_SECRET_FILE")"
+    inf "reusing existing local password from ${ORDERS_APP_DB_SECRET_FILE}"
+  else
+    ORDERS_APP_DB_PASSWORD="$(docker run --rm mysql:8 sh -c 'head -c 18 /dev/urandom | base64' | tr -d '=+/\n' | cut -c1-24)"
+    printf '%s' "$ORDERS_APP_DB_PASSWORD" >"$ORDERS_APP_DB_SECRET_FILE"
+    chmod 600 "$ORDERS_APP_DB_SECRET_FILE"
+    inf "generated a new local-only password (${ORDERS_APP_DB_SECRET_FILE}, not git-tracked)"
+  fi
+
+  # CREATE USER IF NOT EXISTS is natively idempotent in MySQL 8. ALTER USER keeps
+  # the password in sync on re-runs. Grants are idempotent by nature.
+  SQL=$(
+    cat <<SQL
+CREATE USER IF NOT EXISTS '${ORDERS_APP_DB_USER}'@'%' IDENTIFIED BY '${ORDERS_APP_DB_PASSWORD}';
+ALTER USER '${ORDERS_APP_DB_USER}'@'%' IDENTIFIED BY '${ORDERS_APP_DB_PASSWORD}';
+GRANT SELECT, INSERT, UPDATE ON ${ORDERS_DB_DATABASE}.* TO '${ORDERS_APP_DB_USER}'@'%';
+FLUSH PRIVILEGES;
+SQL
+  )
+
+  # --ssl-mode=DISABLED: Floci's emulated MySQL proxy does not terminate TLS, so
+  # the client's default SSL handshake fails with "unexpected eof while reading".
+  if docker run --rm --network "$NETWORK" mysql:8 \
+    mysql --ssl-mode=DISABLED -h "$ORDERS_DB_HOST" -P "$ORDERS_DB_PORT" -u "$ORDERS_DB_SUPERUSER" -p"$ORDERS_DB_SUPERUSER_PASSWORD" \
+    "$ORDERS_DB_DATABASE" -e "$SQL" >/tmp/bootstrap_mysql.log 2>&1; then
+    ok "user '${ORDERS_APP_DB_USER}' ready: SELECT/INSERT/UPDATE (no DELETE) on ${ORDERS_DB_DATABASE}.*"
+  else
+    no "failed to create/grant Orders app DB user (see /tmp/bootstrap_mysql.log)"
+    cat /tmp/bootstrap_mysql.log
+    return 1
+  fi
+}
+
+# App DB users are now created by the PHASE-2 post-effects Terraform apply
+# (environments/local/post/, run via `make infra-up-post`), NOT here — cleaner,
+# secret-only, idempotent. The bootstrap_app_db_user / bootstrap_orders_app_db_user
+# functions above are kept for reference and manual/real-AWS use (call them with
+# `source bootstrap.sh; bootstrap_app_db_user`), but the bootstrap chain no longer
+# invokes them. This script now only manages the docker-native nginx-stable alias.
 STEP1_STATUS=0
-bootstrap_app_db_user || STEP1_STATUS=$?
 echo ""
 
 echo "== bootstrap: stable DNS alias for the nginx ECS container =="

@@ -4,12 +4,14 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-07-12
+updated: 2026-07-17
 tags:
   - type/spec
   - area/shared
   - status/active
 related:
+  - "[[testing]]"
+  - "[[2026-07-17-testing-layers-and-e2e-gateway-design]]"
   - "[[local-dev-floci]]"
   - "[[architecture]]"
   - "[[system-context]]"
@@ -38,6 +40,15 @@ related:
   - "[[2026-07-11-refresh-token-endpoint-design]]"
   - "[[2026-07-12-app-user-id-token-claim-design]]"
   - "[[2026-07-12-audit-actor-enum-design]]"
+  - "[[2026-07-14-orders-service-milestone-design]]"
+  - "[[2026-07-15-orders-rds-mysql-design]]"
+  - "[[2026-07-15-two-phase-post-effects-design]]"
+  - "[[2026-07-15-orders-gateway-integration-design]]"
+  - "[[2026-07-16-orders-for-update-interceptor-design]]"
+  - "[[2026-07-16-structured-logging-and-dashboards-design]]"
+  - "[[2026-07-16-scoped-current-user-context-design]]"
+  - "[[2026-07-16-orders-list-products-endpoint-design]]"
+  - "[[2026-07-17-terraform-remote-state-backend-design]]"
   - "[[ADR-0015-drawio-diagrams]]"
   - "[[ministack-auth-chain-spike-findings]]"
   - "[[floci-vs-ministack-spike-findings]]"
@@ -150,6 +161,7 @@ Coding and data conventions defined once in `shared/` and referenced project-wid
 - [[phase-c-review-flow]] — Phase C execution cadence: chain issues, batch PRs, stop at dependency gates, user merges every PR.
 - [[git-workflow]] — Who may run git, commit/branch conventions, and the A/B/C/D/E confirmation menu.
 - [[local-dev]] — Running the stack locally (Makefile) and testing endpoints with `.http` files.
+- [[testing]] — Three-layer testing convention: unit/integration, internal E2E, and gateway E2E (real Cognito JWT) — an endpoint missing gateway E2E is an incomplete change.
 - [[skills-catalog]] — Claude Code skills evaluated and approved for the 3MRAI agents (deliverable of [JE-23](https://linear.app/je-martinez/issue/JE-23)).
 
 ---
@@ -196,6 +208,16 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-07-11-refresh-token-endpoint-design]] — Design of `POST /v1/users/refresh`, exchanging a Cognito refresh token for new id + access tokens via `REFRESH_TOKEN_AUTH`.
 - [[2026-07-12-app-user-id-token-claim-design]] — Design adding an `app_user_id` token claim sourced from a new `custom:app_user_id` Cognito attribute, copied in by the repo's first Lambda (Pre-Token-Generation V2 trigger).
 - [[2026-07-12-audit-actor-enum-design]] — Design of the semantic `AuditActor` enum used to stamp `createdBy`/`updatedBy` on system-originated writes (e.g. self-registration); see [[audit-fields]].
+- [[2026-07-14-orders-service-milestone-design]] — Design of the Orders service first delivery milestone: .NET Core 10 Minimal APIs + EF Core on MySQL via Floci, Stripe-style cents money model, double-identity (`user_id` + `cognito_sub`), Clean Architecture with 5 Class Library projects, and the Users gRPC gate (Issue A) with `x-api-key` inter-service auth.
+- [[2026-07-15-orders-rds-mysql-design]] — Design for provisioning Orders' MySQL in the local (Floci) Terraform environment at parity with Users' Postgres: a second `rds-aurora` module instantiation (`engine = "mysql"`), a least-privilege `orders_app` user via `bootstrap.sh`, and `.env`/compose wiring off the current placeholder port.
+- [[2026-07-15-two-phase-post-effects-design]] — Design for a second Terraform apply phase (`environments/local/post/`, own state) that creates least-privilege DB app-users natively once phase-1 infra is live, replacing `bootstrap.sh`'s Postgres app-user bash step; MySQL app-user creation stays gated off locally (Floci's mysql provider hangs).
+- [[2026-07-15-orders-gateway-integration-design]] — Design integrating Orders into the local API Gateway → nginx chain via multi-backend path-prefix routing, resolving the `/v1/health` collision with Users via per-service health rewrites (`/v1/users/health`, `/v1/orders/health`) and extending the njs `x-user-id` injection to Orders.
+- [[2026-07-16-orders-for-update-interceptor-design]] — Design replacing Orders' raw `FromSqlInterpolated FOR UPDATE` pessimistic-lock query with pure LINQ + a `TagWith`-driven EF Core command interceptor, letting the global soft-delete query filter apply automatically per [[ADR-0004-soft-delete-only]].
+- [[2026-07-16-structured-logging-and-dashboards-design]] — Design standardizing structured application logging (OTel-aligned, `snake_case` JSON) across all four services, collector-side JSON parsing into queryable columns, and versioned OpenObserve "golden signals" dashboards per service plus a cross-service overview; logs-only scope per [[ADR-0018-observability-openobserve]].
+- [[2026-07-16-scoped-current-user-context-design]] — Design of a request-scoped current-caller context, resolved once per request by a middleware against a centralized public-route allowlist, replacing duplicated header reads and identity resolution in `users` (Fastify/Awilix) and `orders` (.NET); see [[ADR-0010-cognito-auth]], [[dependency-injection]], [[audit-fields]], [[ADR-0003-grpc-inter-service]].
+- [[2026-07-16-orders-list-products-endpoint-design]] — Design of a new authenticated `GET /v1/products` read endpoint for Orders, mirroring the existing `OrderReadService`/`OrderDto`/`OrderEndpoints` pattern; gated by the `CallerContextMiddleware`, excludes soft-deleted rows via the global query filter, per [[cqrs]], [[soft-delete]], [[versioning]].
+- [[2026-07-17-terraform-remote-state-backend-design]] — Design moving Terraform state off local files onto a remote S3 + DynamoDB backend (Floci locally, real AWS in prod), created once via a self-excluding `tf-backend` module/root to resolve the backend chicken-and-egg, ending TF↔Floci state drift; named per [[ADR-0001-terraform-cloudposse-naming]], built on [[ADR-0017-floci-local]], mindful of [[floci-rds-apigw-limits]].
+- [[2026-07-17-testing-layers-and-e2e-gateway-design]] — Design of a three-layer testing convention (unit/integration, internal E2E, gateway E2E with a real Cognito JWT) plus a Playwright `gateway` project alongside the existing `internal` one, per [[ADR-0010-cognito-auth]], [[ADR-0016-local-apigw-nginx-ecs]], [[local-dev]], [[versioning]].
 
 ---
 
@@ -223,6 +245,8 @@ Origin materials the project grew from — kept for reference only, not the sour
 
 ## Related
 
+- [[testing]]
+- [[2026-07-17-testing-layers-and-e2e-gateway-design]]
 - [[local-dev-floci]]
 - [[architecture]]
 - [[system-context]]
@@ -251,6 +275,15 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[2026-07-11-refresh-token-endpoint-design]]
 - [[2026-07-12-app-user-id-token-claim-design]]
 - [[2026-07-12-audit-actor-enum-design]]
+- [[2026-07-14-orders-service-milestone-design]]
+- [[2026-07-15-orders-rds-mysql-design]]
+- [[2026-07-15-two-phase-post-effects-design]]
+- [[2026-07-15-orders-gateway-integration-design]]
+- [[2026-07-16-orders-for-update-interceptor-design]]
+- [[2026-07-16-structured-logging-and-dashboards-design]]
+- [[2026-07-16-scoped-current-user-context-design]]
+- [[2026-07-16-orders-list-products-endpoint-design]]
+- [[2026-07-17-terraform-remote-state-backend-design]]
 - [[ADR-0015-drawio-diagrams]]
 - [[ministack-auth-chain-spike-findings]]
 - [[floci-vs-ministack-spike-findings]]

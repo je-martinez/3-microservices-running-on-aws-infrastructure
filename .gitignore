@@ -38,6 +38,7 @@ e2e/test-results/
 # generated app DB user password (local Floci only — never a real secret store).
 **/.terraform-cognito/
 infra/environments/local/.app-db-secret
+infra/environments/local/.orders-app-db-secret
 
 # archive_file build artifact (modules/cognito/main.tf data.archive_file.pre_token)
 infra/modules/cognito/pre-token-lambda.zip

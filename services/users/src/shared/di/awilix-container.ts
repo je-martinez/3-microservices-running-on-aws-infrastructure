@@ -44,6 +44,7 @@ declare module "@fastify/awilix" {
   // both from the same header in the same `onRequest` hook.
   interface RequestCradle {
     currentActor: string | undefined;
+    currentUser: import("../auth/current-user.ts").CurrentUser;
   }
 }
 

@@ -52,6 +52,22 @@ together with the code change.** A route change without a matching
 - Verify after regenerating: every route's body/params/response resolves to a
   named `$ref` (not inline), and `pnpm build && pnpm lint && pnpm test` pass.
 
+## 2b. GOLDEN RULE — test every endpoint in all three layers
+
+Convention: [../../docs/shared/conventions/testing.md](../../docs/shared/conventions/testing.md) → [[testing]].
+
+**Every Users HTTP endpoint MUST have all three test layers:**
+1. **Unit/integration** — vitest via `buildApp` with a mocked Awilix container.
+2. **Internal E2E** — the service URL directly (`e2e/`, `localhost:3000`), `x-user-id` faked.
+3. **Gateway E2E** — through `API_GATEWAY_URL` with a real Cognito JWT (the URL the
+   user hits: JWT authorizer → njs → nginx → service). Specs live in
+   `e2e/tests/gateway/`; run with `pnpm --filter @3mrai/e2e test` (needs `make bootstrap`).
+
+**An endpoint without gateway E2E is an incomplete change** — in-process and internal
+tests fake the authorizer and never touch the gateway, so they cannot catch
+gateway-only bugs (missing route, dropped path param, method mismatch). Adding a
+route means adding its gateway spec, same as regenerating `openapi.yaml` (§2a).
+
 ## 3. Folder structure (screaming architecture)
 ```
 services/users/
@@ -96,7 +112,10 @@ services/users/
   - `[POST] /v1/webhooks/cognito` (shared-secret guarded identity capture)
   - `[DELETE] /v1/users/e2e-cleanup`, `[GET] /v1/users/e2e-identity` — only when
     `E2E_TESTING_ENABLED`
-  - gRPC: `GetUserById` (handler exists; no server wiring yet).
+  - gRPC: `GetUserById` — **live** on `:50051` (`GRPC_PORT`), served from
+    `shared/grpc/server.ts` over the shared `/proto/users.proto`, guarded by a
+    constant-time `x-api-key` interceptor (`GRPC_API_KEY`). Resolves by `usr_` id
+    OR Cognito sub; returns `NOT_FOUND` when the user does not exist.
 - Error contract: typed auth errors (`shared/auth/auth-errors.ts`) mapped by a global
   `setErrorHandler` in `routes.ts`.
 - `USER_CREATED` is **not** on SQS yet — `shared/messaging/event-publisher.ts` ships a

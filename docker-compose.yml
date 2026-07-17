@@ -21,6 +21,16 @@ services:
     image: floci/floci:latest
     ports:
       - "4566:4566"
+      # RDS proxy ports (7000-7010): Floci assigns one per cluster at apply time
+      # in the 7000-7099 range, BY CREATION ORDER — which is NOT stable across
+      # applies, so Postgres/MySQL can flip between 7001/7002. The actual per-
+      # engine ports are DISCOVERED from describe-db-clusters (Engine per cluster)
+      # by scripts/discover-db-port.sh and written into .env as USERS_DB_PORT /
+      # ORDERS_DB_PORT — never hardcoded. Published to the host so host-side
+      # clients — the phase-2 post-effects Terraform postgresql/mysql providers,
+      # and any SQL client — can reach the DBs at localhost:<port>. In-network
+      # containers still use floci:<port>.
+      - "7000-7010:7000-7010"
     environment:
       # ECS tasks launched by Floci join the compose network and can resolve
       # other compose containers (users) by service name via Docker DNS.
@@ -97,6 +107,9 @@ services:
     networks: [3mrai-network]
     ports:
       - "3000:3000"
+      # gRPC surface (GetUserById). Reachable as `users:50051` on the network so
+      # the Orders service can resolve identity. Guarded by the x-api-key interceptor.
+      - "50051:50051"
     depends_on:
       floci:
         condition: service_healthy
@@ -106,20 +119,30 @@ services:
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
       - PORT=3000
+      - GRPC_PORT=50051
+      # Shared symmetric key for inter-service gRPC auth. Local-only value; the
+      # Orders service MUST use the same value. Prod reads it from Secrets Manager.
+      - GRPC_API_KEY=local-dev-grpc-key
       # Floci fronts the real Postgres container it launches for the Aurora
-      # cluster on its own proxy port 7001. Reach it by the compose service name
+      # cluster on its own RDS proxy port. Reach it by the compose service name
       # `floci` — the container's IP is reassigned on every recreation, and the
       # RDS `Endpoint` reported by describe-db-clusters is one of those IPs.
+      #
+      # USERS_DB_PORT is DISCOVERED per-engine and written into .env by
+      # `make env-file` (Floci assigns proxy ports 7000-7099 by creation order,
+      # so postgres/mysql can flip across applies — never hardcode 7001). The
+      # ${USERS_DB_PORT:-7001} default only applies when .env has not been
+      # generated yet; after bootstrap the discovered value wins.
       #
       # Writer and reader are the SAME endpoint locally: Floci does not emulate
       # an Aurora read replica. ADR-0006 splits reads/writes in production; the
       # split is preserved in code (two URLs) so the app path stays identical.
       #
       # Credentials are the cluster superuser (test/test). The least-privilege
-      # `users_app` role that bootstrap.sh creates has a generated password kept
-      # in the git-ignored .app-db-secret, which compose cannot read.
-      - DATABASE_WRITER_URL=postgres://test:test@floci:7001/users
-      - DATABASE_READER_URL=postgres://test:test@floci:7001/users
+      # `users_app` role that phase-2 creates has a generated password kept
+      # in Secrets Manager, which compose cannot read.
+      - DATABASE_WRITER_URL=postgres://test:test@floci:${USERS_DB_PORT:-7001}/users
+      - DATABASE_READER_URL=postgres://test:test@floci:${USERS_DB_PORT:-7001}/users
       - COGNITO_USER_POOL_ID=${COGNITO_USER_POOL_ID}
       - COGNITO_CLIENT_ID=${COGNITO_CLIENT_ID}
       - E2E_TESTING_ENABLED=true
@@ -139,21 +162,66 @@ services:
         tag: "users"
     develop:
       watch:
-        - action: sync
+        # Users runs the compiled production build (runtime stage → node
+        # dist/server.js), NOT `tsx watch`, so a source sync would copy the .ts
+        # files but the process keeps running the old dist/. `rebuild` reconstructs
+        # the image on a source change so the new code actually runs. Requires
+        # `docker compose watch` to be active.
+        - action: rebuild
           path: ./services/users/src
-          target: /app/services/users/src
 
+  # Orders service (.NET Core 10 Minimal API, Clean Architecture + EF Core/MySQL).
+  # Build context is the REPO ROOT so the shared gRPC contract (proto/users.proto)
+  # is inside the build context — Grpc.Tools generates the Users client from it.
+  # Reachable as `orders` on 3mrai-network; resolves caller identity by calling
+  # the Users gRPC server at users:50051 (guarded by the shared x-api-key).
   orders:
-    build: ./services/orders
+    build:
+      context: .
+      dockerfile: services/orders/Dockerfile
     networks: [3mrai-network]
+    ports:
+      # Host 3001 → container 8080 (ASPNETCORE_URLS). Health: GET /v1/health.
+      - "3001:8080"
     depends_on:
       floci:
         condition: service_healthy
+      # The gRPC client is dialed lazily on POST /v1/orders, so "started" is
+      # enough — reads and health do not need Users up.
+      users:
+        condition: service_started
     environment:
       - AWS_ENDPOINT_URL=http://floci:4566
       - AWS_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
+      # Floci fronts the real MySQL container it launches for the Aurora-MySQL
+      # cluster on its RDS proxy port (range 7000-7099), reached by the compose
+      # service name `floci`. Writer and reader are the SAME endpoint locally
+      # (Floci does not emulate an Aurora read replica); the split is preserved
+      # in code (two URLs) so the app path matches prod (ADR-0006).
+      #
+      # ORDERS_DB_PORT is DISCOVERED per-engine and written into .env by
+      # `make env-file`: Floci assigns proxy ports by cluster creation order,
+      # which is NOT stable across applies, so postgres/mysql can flip between
+      # 7001/7002 — never hardcode. The ${ORDERS_DB_PORT:-7002} default only
+      # applies before .env is generated; after bootstrap the discovered value
+      # wins. These are ADO.NET connection strings, not DSNs.
+      # SslMode=None: Floci's emulated MySQL does not terminate TLS, so the
+      # MySqlConnector default (Preferred → attempts TLS) fails at startup with
+      # "unexpected EOF from the transport stream". Prod uses TLS (drop this).
+      - DATABASE_WRITER_URL=Server=floci;Port=${ORDERS_DB_PORT:-7002};Database=orders;User=test;Password=test;SslMode=None;
+      - DATABASE_READER_URL=Server=floci;Port=${ORDERS_DB_PORT:-7002};Database=orders;User=test;Password=test;SslMode=None;
+      - USERS_GRPC_URL=http://users:50051
+      # MUST equal the value on the `users` service — the interceptor compares
+      # them constant-time; a mismatch yields UNAUTHENTICATED. Local-only value;
+      # prod reads it from Secrets Manager (ADR-0007).
+      - GRPC_API_KEY=local-dev-grpc-key
+      # Apply migrations + seed the Product catalog + baseline config (tax_rate)
+      # on startup (local bootstrap). The tax rate now lives in the `configuration`
+      # table (was ORDERS_TAX_RATE), read per-request.
+      - SEED_ON_STARTUP=true
+      - E2E_TESTING_ENABLED=true
     # stdout → the observability collector's fluent_forward receiver.
     # localhost:24224 because the Docker daemon resolves fluentd-address from the
     # HOST, not this network. fluentd-async so the service still starts when the
@@ -166,9 +234,12 @@ services:
         tag: "orders"
     develop:
       watch:
-        - action: sync
+        # Orders is .NET (compiled): a source sync alone would copy .cs files into
+        # the container but NOT recompile — the running process keeps the old DLL.
+        # `rebuild` reconstructs the image on any source change so the new code
+        # actually runs. Requires `docker compose watch` to be active.
+        - action: rebuild
           path: ./services/orders/src
-          target: /app/src
 
   tracking:
     build: ./services/tracking

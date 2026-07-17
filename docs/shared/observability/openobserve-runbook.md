@@ -4,7 +4,7 @@ type: runbook
 area: shared
 status: active
 created: 2026-07-10
-updated: 2026-07-10
+updated: 2026-07-16
 integration-status: verified
 verified-on: 2026-07-10
 verified-by: Jose E. Martinez
@@ -14,6 +14,7 @@ related:
   - "[[ADR-0018-observability-openobserve]]"
   - "[[2026-07-10-openobserve-migration]]"
   - "[[local-dev]]"
+  - "[[2026-07-16-structured-logging-and-dashboards-design]]"
 ---
 
 # OpenObserve — Local Runbook
@@ -36,6 +37,10 @@ make observability-up
 ```
 
 Starts OpenObserve and the OTel collector. UI at http://localhost:5080 once healthy (~5s).
+
+If the containers previously exited with code 128 / `network ... not found`,
+`observability-up` now force-recreates them so they re-attach to the current network — see
+Gotchas below.
 
 Login (local dev creds only):
 
@@ -73,6 +78,46 @@ project, not just observability.
 - `make observability-down` leaves the four core services (`users`, `orders`, `tracking`,
   `events-pipeline`) running.
 
+## Dashboards (as code)
+
+Dashboards are version-controlled JSON, not click-ops in the UI. They live in
+`observability/dashboards/*.dashboard.json`:
+
+- Per-service: `users.dashboard.json`, `orders.dashboard.json`.
+- Cross-service: `overview.dashboard.json`.
+
+The OpenObserve v8 dashboard-schema contract and the import API are documented in
+`observability/dashboards/README.md` — read that before hand-editing a dashboard JSON file.
+
+### Import or update
+
+```bash
+make observability-dashboards
+```
+
+This runs `scripts/import-dashboards.mjs` against the running OpenObserve instance. The script is
+**idempotent**: it matches existing dashboards by title and updates them (`PUT` with the
+dashboard's hash) instead of creating a duplicate. Verified live: the first run creates each
+dashboard, and re-running the same command updates them in place — no duplicates.
+
+### Add or change a panel
+
+1. Edit the relevant dashboard JSON under `observability/dashboards/`.
+2. Re-run `make observability-dashboards` to push the change.
+3. Verify the panel's underlying query with a `_search` call (see the `doc_num` gotcha below) —
+   don't trust the panel rendering alone, and never trust the lagging stream-stats counter.
+
+### Scope
+
+Dashboards are **logs-derived only** — no metrics, no traces (per
+[[ADR-0018-observability-openobserve]]). Panels query the `snake_case` structured-log schema now
+emitted by the services: `service_name`, `http_route`, `http_response_status_code`, `duration_ms`,
+etc. See [[2026-07-16-structured-logging-and-dashboards-design]] for the full schema.
+
+Dashboards currently exist for **`users`** and **`orders`** only — the two services with running
+code as of this writing. `tracking` and `events-pipeline` get their dashboards when those services
+are built out.
+
 ## Gotchas
 
 > [!warning] Stream-stats `doc_num` is unreliable
@@ -97,6 +142,35 @@ project, not just observability.
 > `docker compose logs <svc>` behavior for containers using the `fluentd` log driver varies by
 > Docker version. Use OpenObserve to view logs instead of `compose logs`.
 
+> [!warning] Observability containers can strand on a dead Docker network
+> Verified live on 2026-07-16: `3mrai-otel-collector-1` and `3mrai-openobserve-1` were found in
+> `Exited (128)` state. They had been created ~6 days earlier and stayed attached to a Docker
+> network ID that no longer existed — the rest of the compose stack (`users`, `orders`, `floci`,
+> DBs) had since been recreated, which recreated the network, but the observability containers
+> live outside the main up/down cycle (`observability-down` uses `docker compose stop`, not
+> `down`, so they're left stopped rather than removed) and never picked up the new network.
+> Restarting them failed with:
+> ```
+> failed to set up container networking: network <id> not found
+> ```
+>
+> A plain `make observability-up` did **not** fix this on its own — compose reused the stranded
+> container instead of recreating it, so it failed again with the same error. The
+> `observability-up` target now passes `--force-recreate`, scoped to just the two services, so
+> re-running it self-heals by forcing them to re-attach to the current network:
+> ```makefile
+> $(COMPOSE) --profile observability up -d --force-recreate openobserve otel-collector
+> ```
+> The scoping matters: an **unscoped** `--force-recreate` bounces the whole app stack (users,
+> orders, tracking, events-pipeline, floci all get recreated too) — verified live. Always name
+> the two services explicitly.
+>
+> Manual recovery, if ever needed outside the target:
+> ```bash
+> docker rm -f 3mrai-otel-collector-1 3mrai-openobserve-1
+> make observability-up   # now force-recreates them onto the current network
+> ```
+
 ## Prod
 
 Deferred. OpenObserve on AWS and the OTLP Basic-auth secret sourced from Secrets Manager (see
@@ -109,3 +183,4 @@ against Floci.
 - [[ADR-0018-observability-openobserve]]
 - [[2026-07-10-openobserve-migration]]
 - [[local-dev]]
+- [[2026-07-16-structured-logging-and-dashboards-design]]

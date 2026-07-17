@@ -28,7 +28,27 @@ output "db_reader_endpoint" {
   value       = module.rds_aurora.reader_endpoint
 }
 
+output "orders_db_writer_endpoint" {
+  description = "Orders MySQL cluster writer endpoint (INSERT/UPDATE queries)."
+  value       = module.rds_mysql.writer_endpoint
+}
+
+output "orders_db_reader_endpoint" {
+  description = "Orders MySQL cluster reader endpoint (SELECT queries, per ADR-0006)."
+  value       = module.rds_mysql.reader_endpoint
+}
+
 output "app_secret_arn" {
   description = "ARN of the least-privilege app-user credentials secret."
   value       = module.rds_aurora.app_secret_arn
+}
+
+# Master (owner) credentials secret ARN — consumed by the phase-2 post-effects
+# root (environments/local/post/) which reads it BY ARN via
+# aws_secretsmanager_secret_version to configure the postgresql/mysql providers.
+# Secret-only: the ARN travels through remote state, the password never does.
+output "secret_arn" {
+  description = "ARN of the Secrets Manager secret holding the Aurora master credentials."
+  value       = module.rds_aurora.secret_arn
+  sensitive   = true
 }
