@@ -7,6 +7,7 @@
   "devDependencies": {
     "@playwright/test": "^1.48.0",
     "chance": "^1.1.12",
-    "@types/chance": "^1.1.6"
+    "@types/chance": "^1.1.6",
+    "dotenv": "^16.4.5"
   }
 }
