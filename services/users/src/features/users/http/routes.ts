@@ -320,7 +320,10 @@ export function buildApp(
           // header note for the 404/409 alternatives considered). Cognito
           // retries the trigger in prod on a non-2xx, so a transient race
           // self-heals.
-          req.log.error({ err }, "cognito webhook: no matching users row");
+          req.log.error(
+            { err, app_event: "cognito_webhook_no_match" },
+            "cognito webhook: no matching users row for confirmed identity",
+          );
           return reply.code(500).send({ error: "no_matching_user" });
         }
         throw err;

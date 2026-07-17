@@ -364,12 +364,30 @@ describe("POST /v1/webhooks/cognito", () => {
         throw new NoMatchingUserError("a@b.com");
       }),
     );
-    const app = buildApp(container);
+    const lines: string[] = [];
+    const app = buildApp(container, { logStream: { write: (s: string) => lines.push(s) } });
     const res = await app.inject({
       method: "POST", url: "/v1/webhooks/cognito",
       headers: { "x-webhook-secret": "s3cret" }, payload: validEvent,
     });
     expect(res.statusCode).toBe(500);
+
+    // The business-event log this route emits on the failure path: a clear
+    // message plus an `app_*`-prefixed event field, no un-prefixed business
+    // fields (see docs/shared/conventions for the schema shape) — and the
+    // error object is preserved so error_type/error_message serialize.
+    const businessLog = lines
+      .map((l) => JSON.parse(l))
+      .find((entry) => entry.app_event === "cognito_webhook_no_match");
+    expect(businessLog).toBeDefined();
+    expect(businessLog.message).toBe(
+      "cognito webhook: no matching users row for confirmed identity",
+    );
+    expect(businessLog.err).toBeDefined();
+    expect(businessLog.no_matching_user).toBeUndefined();
+    expect(businessLog.userName).toBeUndefined();
+
+    await app.close();
   });
 });
 
