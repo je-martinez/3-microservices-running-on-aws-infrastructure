@@ -3,38 +3,57 @@
 // key) — this keeps them useful for support without putting a full address in
 // OpenObserve, CloudWatch, and every backup.
 //
-//   john.doe@gmail.com  ->  jo******@gm***.com
+//   john.doe@gmail.com  ->  jo*****e@gmail.com
+//
+// The DOMAIN is kept fully visible on purpose: it is the part with real
+// operational value (telling a corporate customer from a consumer signup at a
+// glance) and it identifies no one on its own. The local part — the part that
+// names a person — is what gets masked.
 //
 // Enough to recognize an address you already know, not enough to harvest one
 // you don't. The exact-match key stays `email_hash`, which is unaffected.
 
-const VISIBLE_LOCAL = 2;
-const VISIBLE_DOMAIN = 2;
+const VISIBLE_PREFIX = 2;
+const VISIBLE_SUFFIX = 1;
 
-/** Mask a segment, keeping the first `visible` characters. */
-function maskSegment(segment: string, visible: number): string {
-  if (segment.length === 0) return segment;
-  // A segment at or below the visible budget would otherwise be revealed
-  // whole (a 2-char local part like "jo@..." would leak entirely), so keep
-  // only its first character and star the rest.
-  const keep = segment.length <= visible ? 1 : visible;
-  return segment.slice(0, keep) + "*".repeat(Math.max(segment.length - keep, 1));
+/**
+ * Mask the local part, keeping the first two characters and the last one.
+ *
+ * Short inputs are handled deliberately: a 2-character local part would be
+ * revealed whole by a naive "keep the first two" rule, and one short enough
+ * that prefix+suffix covers it would pass through unmasked. Both collapse to
+ * one visible character plus a star.
+ */
+function maskLocal(local: string): string {
+  if (local.length === 0) return local;
+
+  // 1-2 chars: one visible character, padded so the result never equals the
+  // input and never reveals whether it was 1 or 2 characters long.
+  if (local.length <= 2) return `${local[0]}*`;
+
+  // 3-4 chars: prefix + suffix would leave nothing masked, so mask the tail
+  // entirely and keep only the prefix.
+  if (local.length <= VISIBLE_PREFIX + VISIBLE_SUFFIX + 1) {
+    return local.slice(0, VISIBLE_PREFIX) + "*".repeat(local.length - VISIBLE_PREFIX);
+  }
+
+  const stars = local.length - VISIBLE_PREFIX - VISIBLE_SUFFIX;
+  return local.slice(0, VISIBLE_PREFIX) + "*".repeat(stars) + local.slice(-VISIBLE_SUFFIX);
 }
 
 /**
- * Partially mask an email for logging: `john.doe@gmail.com` → `jo******@gm***.com`.
+ * Partially mask an email for logging: `john.doe@gmail.com` → `jo*****e@gmail.com`.
  *
- * The TLD is preserved (it carries no identifying information on its own and
- * makes the masked value readable). Anything that does not look like an email
- * is masked wholesale rather than passed through, so a malformed body can never
- * leak a raw value into the log stream.
+ * Anything that does not look like an email is masked wholesale rather than
+ * passed through, so a malformed body can never leak a raw value into the log
+ * stream — this runs on unvalidated request bodies.
  */
 export function maskEmail(email: string): string {
   const trimmed = email.trim();
   const at = trimmed.lastIndexOf("@");
 
-  // Not an email shape: mask everything. Being conservative here matters —
-  // this runs on unvalidated request bodies.
+  // Not an email shape (no @, nothing before it, or nothing after it): mask
+  // everything. Being conservative here is the point.
   if (at <= 0 || at === trimmed.length - 1) {
     return "*".repeat(Math.max(trimmed.length, 1));
   }
@@ -42,14 +61,5 @@ export function maskEmail(email: string): string {
   const local = trimmed.slice(0, at);
   const domain = trimmed.slice(at + 1);
 
-  const dot = domain.lastIndexOf(".");
-  if (dot <= 0) {
-    // Domain with no dot (e.g. "localhost") — mask it as one segment.
-    return `${maskSegment(local, VISIBLE_LOCAL)}@${maskSegment(domain, VISIBLE_DOMAIN)}`;
-  }
-
-  const domainName = domain.slice(0, dot);
-  const tld = domain.slice(dot); // includes the leading dot
-
-  return `${maskSegment(local, VISIBLE_LOCAL)}@${maskSegment(domainName, VISIBLE_DOMAIN)}${tld}`;
+  return `${maskLocal(local)}@${domain}`;
 }
