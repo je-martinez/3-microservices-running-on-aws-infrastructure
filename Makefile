@@ -195,7 +195,7 @@ infra-up-post: scripts-setup ## Phase 2: create DB app-users in Terraform (post-
 	@# applies, so the variable's default (7001) is not reliable. (mysql is
 	@# gated off locally; pass -var mysql_port=... too if it is ever enabled.)
 	pgport="$$($(PY) $(DISCOVER_DB_PORT) postgres)"; \
-	cd $(TF_LOCAL_DIR)/post && terraform init -reconfigure -backend-config=backend.hcl >/dev/null && terraform apply -auto-approve -var pg_port=$$pgport
+	cd $(TF_LOCAL_DIR)/post && terraform init -reconfigure -backend-config=backend.hcl >/dev/null && terraform apply -auto-approve -var pg_port=$$pgport -var python_bin=$(PY)
 
 ## --- Orchestration ---
 
