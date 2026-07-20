@@ -84,7 +84,7 @@ resource "aws_cognito_user_pool_client" "this" {
 # via the AWS CLI (a plain SDK call outside Terraform's resource lifecycle, so
 # the SDKv2 consistency check above never runs) and idempotently reuses an
 # existing client with the same name on re-apply instead of creating
-# duplicates (see scripts/create-user-pool-client.sh). The resulting client id
+# duplicates (see scripts/create_user_pool_client.py). The resulting client id
 # is written to a JSON file under the ROOT module's working directory
 # (var.local_state_dir, default path.root/.terraform-cognito — NOT
 # path.module, which points at shared, possibly read-only module source) that
@@ -99,8 +99,8 @@ resource "terraform_data" "client_via_cli" {
   }
 
   provisioner "local-exec" {
-    command     = "${path.module}/scripts/create-user-pool-client.sh"
-    interpreter = ["/usr/bin/env", "bash"]
+    command     = "${var.python_bin} ${path.module}/scripts/create_user_pool_client.py"
+    interpreter = ["/usr/bin/env", "bash", "-c"]
     environment = {
       USER_POOL_ID = self.input.user_pool_id
       CLIENT_NAME  = self.input.client_name

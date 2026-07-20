@@ -140,6 +140,11 @@ module "cognito" {
   issuer_style               = "floci"
   manage_client_via_provider = false
   aws_cli_endpoint_url       = "http://localhost:4566"
+  # The venv interpreter for the module's awscli-fallback provisioners. Resolved
+  # from THIS root (path.root = environments/local), because the shared module
+  # cannot know its distance to the repo root. `make scripts-setup` — a
+  # prerequisite of every apply target — guarantees it exists.
+  python_bin = abspath("${path.root}/../../../.venv/bin/python")
 }
 
 # ─── Compute (ECS cluster + nginx reverse proxy) ────────────────────────────────
