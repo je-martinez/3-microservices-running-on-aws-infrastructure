@@ -200,6 +200,10 @@ services:
       - AWS_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
+      # OTLP trace export (see Program.cs AddOpenTelemetry). Must match the
+      # value the `users` service uses, so both halves of a cross-service trace
+      # land in the same collector.
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       # Floci fronts the real MySQL container it launches for the Aurora-MySQL
       # cluster on its RDS proxy port (range 7000-7099), reached by the compose
       # service name `floci`. Writer and reader are the SAME endpoint locally

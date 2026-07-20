@@ -11,12 +11,43 @@ using Orders.Infrastructure.Grpc;
 using Orders.Infrastructure.Messaging;
 using Orders.Infrastructure.Orders;
 using Orders.Infrastructure.Persistence;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Declared up front: both the tracing resource and the Serilog formatter below
+// stamp it, so they cannot disagree about which environment this process is.
+var deploymentEnvironment = builder.Configuration["DEPLOYMENT_ENVIRONMENT"] ?? "local";
+
 // Needed by LogContextEnricher to reach the request-scoped ICurrentCaller.
 builder.Services.AddHttpContextAccessor();
+
+// Distributed tracing. AddHttpClientInstrumentation is what makes the
+// Orders -> Users identity call a CHILD span of the incoming request rather
+// than an unrelated trace: .NET's gRPC client rides on HttpClient, so this
+// instrumentation injects the W3C traceparent header on every gRPC call.
+// (The dedicated GrpcNetClient package only ships as a prerelease; the stable
+// Http instrumentation covers the same path, so no beta is needed for the one
+// piece cross-service tracing actually depends on.)
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource
+        .AddService(serviceName: "orders")
+        .AddAttributes([
+            new KeyValuePair<string, object>("deployment.environment.name", deploymentEnvironment),
+        ]))
+    .WithTracing(tracing => tracing
+        .AddAspNetCoreInstrumentation()
+        .AddHttpClientInstrumentation()
+        .AddEntityFrameworkCoreInstrumentation()
+        .AddOtlpExporter(options =>
+        {
+            options.Endpoint = new Uri(
+                builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]
+                ?? "http://otel-collector:4318");
+            options.Protocol = OpenTelemetry.Exporter.OtlpExportProtocol.HttpProtobuf;
+        }));
 
 // Structured JSON logging (snake_case OTel-aligned schema). Replaces the
 // default plain-text console logger for all `orders` logs.
@@ -24,7 +55,6 @@ builder.Services.AddHttpContextAccessor();
 // The THREE-argument UseSerilog overload is required: the two-argument one has
 // no `services` parameter, so the enricher could not resolve
 // IHttpContextAccessor and the shared log context would never be attached.
-var deploymentEnvironment = builder.Configuration["DEPLOYMENT_ENVIRONMENT"] ?? "local";
 builder.Host.UseSerilog((_, services, cfg) => cfg
     .MinimumLevel.Information()
     .Enrich.With(new LogContextEnricher(services.GetRequiredService<IHttpContextAccessor>()))
