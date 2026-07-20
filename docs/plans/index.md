@@ -4,10 +4,13 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-07-16
+updated: 2026-07-19
 tags: [type/spec, area/shared, status/active]
 related:
   - "[[2026-06-26-implementation-workflow]]"
+  - "[[developer-experience-milestone]]"
+  - "[[2026-07-19-scripts-to-python-migration-design]]"
+  - "[[2026-07-19-scripts-to-python-migration]]"
   - "[[2026-06-26-3mrai-docs-vault]]"
   - "[[documentation-vault-milestone]]"
   - "[[2026-06-28-services-infra-scaffold]]"
@@ -69,6 +72,9 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-07-15-two-phase-post-effects]] — implementation plan for the two-phase post-effects Terraform apply: a new environments/local/post/ root that reads phase-1 state + the master secret by ARN, waits for the DB, and creates least-privilege app-users via a new engine-parameterized db-app-user module (postgres locally, mysql prod-only), migrating users_app off bootstrap.sh.
 - [[2026-07-15-orders-gateway-integration]] — implementation plan for routing the Orders service through the local API Gateway → nginx front door by path prefix (/v1/orders → orders:8080 with x-user-id injection), and resolving the /v1/health collision via per-service health (/v1/users/health, /v1/orders/health) with nginx rewrite.
 - [[2026-07-16-orders-for-update-interceptor]] — implementation plan replacing the raw `FromSqlInterpolated(... FOR UPDATE)` product lock in Orders with a pure LINQ query tagged for a `DbCommandInterceptor` that appends `FOR UPDATE`, so EF Core's global soft-delete query filter applies automatically (ADR-0004).
+- [[2026-07-19-scripts-to-python-migration-design]] — design spec for migrating the repo's 5 remaining bash scripts to Python behind a shared `lib3mrai` package, freezing every script's external interface, and introducing the Python-first scripting-language convention. Block 1 of the Developer Experience milestone.
+- [[2026-07-19-scripts-to-python-migration]] — implementation plan for the scripts-to-Python migration: task-by-task port of `discover-db-port`, `wait-for-db`, `bootstrap`, `create-user-pool-client`, and `set-pre-token-trigger`.
+- [[developer-experience-milestone]] — logical execution plan for the Developer Experience milestone: three independent blocks (Scripts to Python, logging context + tracing, env-file auto-generation); task sequence and dependency graph for Block 1 (JE-59 through JE-67).
 
 > [!note] No plan note for the AuditActor enum
 > [[2026-07-12-audit-actor-enum-design]] was implemented directly from the spec — there is no separate `writing-plans` plan for it.
@@ -102,3 +108,6 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-07-15-two-phase-post-effects]]
 - [[2026-07-15-orders-gateway-integration]]
 - [[2026-07-16-orders-for-update-interceptor]]
+- [[2026-07-19-scripts-to-python-migration-design]]
+- [[2026-07-19-scripts-to-python-migration]]
+- [[developer-experience-milestone]]
