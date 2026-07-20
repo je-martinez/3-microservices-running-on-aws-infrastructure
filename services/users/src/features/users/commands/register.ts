@@ -5,6 +5,10 @@ import type { Env } from "#shared/config/env";
 import { MODEL_ID_PREFIXES, generateId } from "#shared/id/nano-id";
 import { runAsActor } from "#shared/audit/actor-context";
 import { AuditActor } from "#shared/audit/audit-actor";
+import { appLogger } from "#shared/logging/app-logger";
+import { setLogContext } from "#shared/logging/log-context";
+import { hashEmail } from "#shared/logging/email-hash";
+import { EmailAlreadyExistsError } from "#shared/auth/auth-errors";
 import { toDomain, type User } from "../domain/user.ts";
 import type { CaptureCognitoIdentityCommand } from "../webhooks/capture-cognito-identity.ts";
 
@@ -47,6 +51,17 @@ export class RegisterUserCommand {
   }
 
   async execute(input: RegisterInput): Promise<User> {
+    // Only email_hash goes in the CONTEXT — context fields stick to every
+    // later line of the request, including `request completed`. The plaintext
+    // email is passed per-call-site instead, so it appears on the auth-flow
+    // lines and nowhere else. (Putting it in the context leaked it onto every
+    // request log; caught by the PII check in JE-77's acceptance criteria.)
+    setLogContext({ email_hash: hashEmail(input.email) });
+    appLogger.info(
+      { app_event: "register_started", email: input.email },
+      "Starting user registration",
+    );
+
     // Self-registration: the new row is its own audit actor. The id is
     // reserved up front (instead of letting the nano-id extension generate it)
     // so it can be used as both the row's `id` and the `appUserId` passed to
@@ -56,21 +71,54 @@ export class RegisterUserCommand {
     // `createdBy`/`updatedBy` with the semantic `users_api:register` value
     // rather than the user's own id (see [[audit-fields]], `AuditActor`).
     const id = generateId(MODEL_ID_PREFIXES.User);
-    const signUp = await this.auth.signUp(input.email, input.password, id);
-    const tags = input.e2eSource ? ["E2E Source"] : [];
-    const row = await runAsActor(AuditActor.Register, () =>
-      this.db.user.create({
-        data: {
-          id,
+
+    // The failure branches are distinguished HERE rather than in the route's
+    // error handler: by the time an error reaches `setErrorHandler` it is just
+    // a typed error with no memory of which step produced it, and "Cognito
+    // rejected the signup" versus "the database write failed" are different
+    // operational problems. Each branch rethrows untouched, so the HTTP
+    // contract (409 email_exists, etc.) is unchanged.
+    let signUp;
+    try {
+      signUp = await this.auth.signUp(input.email, input.password, id);
+    } catch (err) {
+      appLogger.error(
+        {
+          err,
+          app_event: "register_failed",
           email: input.email,
-          cognitoSub: signUp.sub,
-          fullName: input.fullName,
-          address: (input.address as any) ?? null,
-          phoneNumber: input.phoneNumber ?? null,
-          tags,
+          reason: err instanceof EmailAlreadyExistsError ? "duplicate_email" : "cognito_error",
         },
-      }),
-    );
+        err instanceof EmailAlreadyExistsError
+          ? "User registration failed: a user with this email already exists"
+          : "User registration failed: could not create the user in Cognito",
+      );
+      throw err;
+    }
+
+    const tags = input.e2eSource ? ["E2E Source"] : [];
+    let row;
+    try {
+      row = await runAsActor(AuditActor.Register, () =>
+        this.db.user.create({
+          data: {
+            id,
+            email: input.email,
+            cognitoSub: signUp.sub,
+            fullName: input.fullName,
+            address: (input.address as any) ?? null,
+            phoneNumber: input.phoneNumber ?? null,
+            tags,
+          },
+        }),
+      );
+    } catch (err) {
+      appLogger.error(
+        { err, app_event: "register_failed", email: input.email, reason: "database_error" },
+        "User registration failed: could not persist the user",
+      );
+      throw err;
+    }
 
     // Spec D2 + D7. Cognito never invokes its Lambda triggers on the local
     // emulator (ADR-0017), so outside production we synthesize the same event
@@ -100,11 +148,22 @@ export class RegisterUserCommand {
           },
         });
       } catch (err) {
-        console.error("cognito identity capture failed (non-fatal)", err);
+        appLogger.warn(
+          { err, app_event: "cognito_identity_capture_failed" },
+          "cognito identity capture failed (non-fatal)",
+        );
       }
     }
 
     await this.events.publishUserCreated({ id, email: input.email });
+
+    // Enrich the context so every LATER line of this request carries the id too.
+    setLogContext({ user_id: id });
+    appLogger.info(
+      { app_event: "register_succeeded", email: input.email, user_id: id },
+      "User registration completed",
+    );
+
     return toDomain(row as any);
   }
 }
