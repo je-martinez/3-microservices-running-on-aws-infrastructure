@@ -35,6 +35,12 @@ const sdk = new NodeSDK({
   // answered 404, silently. Leaving the path to the SDK means a new service
   // needs no endpoint code at all, only the env var. See [[logging-context]].
   traceExporter: new OTLPTraceExporter(),
+  // Traces only. NodeSDK starts a metrics reader by default, which then fails
+  // every export cycle with 404 — the collector runs logs and traces pipelines,
+  // no metrics one. Nothing consumed those metrics, so the reader was pure log
+  // noise (10 stack traces per 200 lines once diagnostics were switched on).
+  // Adding a metrics pipeline would be a separate, deliberate decision.
+  metricReader: undefined,
   instrumentations: [
     getNodeAutoInstrumentations({
       // Pure noise at this scale: every file read becomes a span and buries the
