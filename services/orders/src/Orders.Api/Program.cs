@@ -80,7 +80,8 @@ builder.Services.AddScoped(sp => new CreateOrderService(
     sp.GetRequiredService<OrdersWriteDbContext>(),
     sp.GetRequiredService<IUserDirectory>(),
     sp.GetRequiredService<IEventPublisher>(),
-    sp.GetRequiredService<IConfigurationReader>()));
+    sp.GetRequiredService<IConfigurationReader>(),
+    sp.GetRequiredService<ILogger<CreateOrderService>>()));
 
 var app = builder.Build();
 

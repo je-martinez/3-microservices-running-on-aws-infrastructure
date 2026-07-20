@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Orders.Application.Abstractions;
 using Orders.Application.Identity;
 using Orders.Application.Orders;
@@ -26,19 +27,41 @@ public class CreateOrderService
     private readonly IUserDirectory _users;
     private readonly IEventPublisher _events;
     private readonly IConfigurationReader _config;
+    private readonly ILogger<CreateOrderService> _logger;
 
-    public CreateOrderService(OrdersWriteDbContext db, IUserDirectory users, IEventPublisher events, IConfigurationReader config)
+    public CreateOrderService(
+        OrdersWriteDbContext db,
+        IUserDirectory users,
+        IEventPublisher events,
+        IConfigurationReader config,
+        ILogger<CreateOrderService> logger)
     {
         _db = db;
         _users = users;
         _events = events;
         _config = config;
+        _logger = logger;
     }
 
     public async Task<OrderDto> CreateAsync(CreateOrderCommand command, string cognitoSub, CancellationToken ct = default)
     {
-        var userId = await _users.ResolveInternalUserIdAsync(cognitoSub, ct)
-            ?? throw new UnknownUserException(cognitoSub);
+        _logger.LogInformation(
+            "Starting order creation {app_event} {line_count}",
+            "create_order_started", command.Lines.Count);
+
+        // Failure branches are logged HERE, at the step that produces them: by
+        // the time the endpoint maps the exception to a status code it is just
+        // a typed error, and "the caller is unknown" versus "the product is out
+        // of stock" are different operational problems. Each rethrows
+        // untouched, so the 404/409 HTTP contract is unchanged.
+        var userId = await _users.ResolveInternalUserIdAsync(cognitoSub, ct);
+        if (userId is null)
+        {
+            _logger.LogError(
+                "Order creation failed: the caller is not a known user {app_event} {reason}",
+                "create_order_failed", "unknown_user");
+            throw new UnknownUserException(cognitoSub);
+        }
 
         // Tax rate is read per-request from the configuration table (not an env var).
         var taxRate = await _config.GetTaxRateAsync(ct);
@@ -82,11 +105,24 @@ public class CreateOrderService
                 // never locked/read/sold. Requires the open write transaction above.
                 var product = await _db.Products
                     .TagWith(ForUpdateInterceptor.Tag)
-                    .FirstOrDefaultAsync(p => p.Id == line.ProductId, ct)
-                    ?? throw new UnknownProductException(line.ProductId);
+                    .FirstOrDefaultAsync(p => p.Id == line.ProductId, ct);
+
+                if (product is null)
+                {
+                    _logger.LogError(
+                        "Order creation failed: unknown product {app_event} {reason} {product_id}",
+                        "create_order_failed", "unknown_product", line.ProductId);
+                    throw new UnknownProductException(line.ProductId);
+                }
 
                 if (product.UnitsInStock < line.Quantity)
+                {
+                    _logger.LogError(
+                        "Order creation failed: insufficient stock {app_event} {reason} {product_id} {requested} {available}",
+                        "create_order_failed", "insufficient_stock", line.ProductId,
+                        line.Quantity, product.UnitsInStock);
                     throw new InsufficientStockException(line.ProductId);
+                }
 
                 var (lineSub, lineTax, lineTotal) = OrderPricing.PriceLine(product.UnitPriceCents, line.Quantity, taxRate);
                 subtotal += lineSub;
@@ -120,6 +156,12 @@ public class CreateOrderService
             await _db.SaveChangesAsync(ct);
             await _events.PublishOrderCreatedAsync(order.Id, userId, total, now, ct);
             await tx.CommitAsync(ct);
+
+            // AFTER the commit: the order genuinely exists at this point, so the
+            // success line never claims something a rollback later undid.
+            _logger.LogInformation(
+                "Order creation completed {app_event} {order_id} {line_count} {total_cents}",
+                "create_order_succeeded", order.Id, order.Details.Count, total);
 
             // Map the in-memory order (order.Details already populated) instead of
             // re-querying — mirrors OrderReadService.Map exactly; keep both in sync.
