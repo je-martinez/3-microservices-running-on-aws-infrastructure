@@ -3,6 +3,7 @@ import { InvalidCredentialsError } from "#shared/auth/auth-errors";
 import { appLogger } from "#shared/logging/app-logger";
 import { setLogContext } from "#shared/logging/log-context";
 import { hashEmail } from "#shared/logging/email-hash";
+import { maskEmail } from "#shared/logging/email-mask";
 
 export interface LoginInput {
   email: string;
@@ -24,7 +25,7 @@ export class LoginUserCommand {
     // lines and nowhere else.
     setLogContext({ email_hash: hashEmail(input.email) });
     appLogger.info(
-      { app_event: "login_started", email: input.email },
+      { app_event: "login_started", email: maskEmail(input.email) },
       "Starting user login",
     );
 
@@ -33,7 +34,7 @@ export class LoginUserCommand {
       // NOTE: `tokens` is deliberately NOT logged — access and refresh tokens
       // are credentials, exactly like the password.
       appLogger.info(
-        { app_event: "login_succeeded", email: input.email },
+        { app_event: "login_succeeded", email: maskEmail(input.email) },
         "User login completed",
       );
       return tokens;
@@ -47,7 +48,7 @@ export class LoginUserCommand {
         {
           err,
           app_event: "login_failed",
-          email: input.email,
+          email: maskEmail(input.email),
           reason: invalid ? "invalid_credentials" : "cognito_error",
         },
         invalid

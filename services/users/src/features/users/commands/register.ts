@@ -8,6 +8,7 @@ import { AuditActor } from "#shared/audit/audit-actor";
 import { appLogger } from "#shared/logging/app-logger";
 import { setLogContext } from "#shared/logging/log-context";
 import { hashEmail } from "#shared/logging/email-hash";
+import { maskEmail } from "#shared/logging/email-mask";
 import { EmailAlreadyExistsError } from "#shared/auth/auth-errors";
 import { toDomain, type User } from "../domain/user.ts";
 import type { CaptureCognitoIdentityCommand } from "../webhooks/capture-cognito-identity.ts";
@@ -58,7 +59,7 @@ export class RegisterUserCommand {
     // request log; caught by the PII check in JE-77's acceptance criteria.)
     setLogContext({ email_hash: hashEmail(input.email) });
     appLogger.info(
-      { app_event: "register_started", email: input.email },
+      { app_event: "register_started", email: maskEmail(input.email) },
       "Starting user registration",
     );
 
@@ -86,7 +87,7 @@ export class RegisterUserCommand {
         {
           err,
           app_event: "register_failed",
-          email: input.email,
+          email: maskEmail(input.email),
           reason: err instanceof EmailAlreadyExistsError ? "duplicate_email" : "cognito_error",
         },
         err instanceof EmailAlreadyExistsError
@@ -114,7 +115,7 @@ export class RegisterUserCommand {
       );
     } catch (err) {
       appLogger.error(
-        { err, app_event: "register_failed", email: input.email, reason: "database_error" },
+        { err, app_event: "register_failed", email: maskEmail(input.email), reason: "database_error" },
         "User registration failed: could not persist the user",
       );
       throw err;
@@ -160,7 +161,7 @@ export class RegisterUserCommand {
     // Enrich the context so every LATER line of this request carries the id too.
     setLogContext({ user_id: id });
     appLogger.info(
-      { app_event: "register_succeeded", email: input.email, user_id: id },
+      { app_event: "register_succeeded", email: maskEmail(input.email), user_id: id },
       "User registration completed",
     );
 
