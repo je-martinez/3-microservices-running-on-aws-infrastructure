@@ -35,11 +35,12 @@ const sdk = new NodeSDK({
   // answered 404, silently. Leaving the path to the SDK means a new service
   // needs no endpoint code at all, only the env var. See [[logging-context]].
   traceExporter: new OTLPTraceExporter(),
-  // Traces only — but that is enforced by OTEL_METRICS_EXPORTER=none in
-  // docker-compose.yml, NOT here. NodeSDK auto-detects a metrics exporter from
-  // OTEL_EXPORTER_OTLP_ENDPOINT, and passing `metricReader: undefined` reads as
-  // "not overridden", so auto-detection still wins and the reader keeps running.
-  // The collector has no metrics pipeline, so each cycle failed with a 404.
+  // TRACES ONLY — enforced by OTEL_METRICS_EXPORTER=none and
+  // OTEL_LOGS_EXPORTER=none in docker-compose.yml, NOT here. NodeSDK
+  // auto-detects metrics and logs exporters from OTEL_EXPORTER_OTLP_ENDPOINT,
+  // and an `undefined` option reads as "not overridden", so auto-detection
+  // still wins. The collector serves /v1/traces only (/v1/metrics and /v1/logs
+  // both 404), and this service's logs travel stdout -> fluentd, not OTLP.
   instrumentations: [
     getNodeAutoInstrumentations({
       // Pure noise at this scale: every file read becomes a span and buries the
