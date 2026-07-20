@@ -6,6 +6,7 @@ import { actorContext } from "#shared/audit/actor-context";
 import { AuthError } from "#shared/auth/auth-errors";
 import { RecordNotFoundError } from "#shared/db/db-errors";
 import { buildLoggerOptions } from "#shared/logging/logger";
+import { logContext } from "#shared/logging/log-context";
 import { env } from "#shared/config/env";
 import { isPublicRoute } from "#shared/http/public-routes";
 import { CurrentUser } from "#shared/auth/current-user";
@@ -204,7 +205,18 @@ export function buildApp(
         { lifetime: Lifetime.SCOPED },
       ),
     });
-    actorContext.run({ actor }, done);
+    // Seed the per-request log context so EVERY log line of this request
+    // carries the caller's identity without any call site passing it (the
+    // logger's `formatters.log` merges this store — see shared/logging/).
+    // Commands enrich it later via `setLogContext` once they learn more (the
+    // resolved user_id, the email hash on auth flows).
+    //
+    // Nested inside actorContext.run rather than using enterWith: this hook
+    // already wraps `done` in a store, so the log context wraps the same
+    // continuation and both are live for the whole request.
+    actorContext.run({ actor }, () => {
+      logContext.run(actor === undefined ? {} : { cognito_sub: actor }, done);
+    });
   });
 
   // `app.after()` defers route registration until after `fastifySwagger`'s
