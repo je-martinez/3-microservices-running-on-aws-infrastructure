@@ -24,6 +24,13 @@ These rules take precedence over default agent/skill behavior.
 - Shared helpers live in `infra/scripts/lib3mrai/` (`aws.py`, `console.py`, `db.py`) — don't duplicate boto3 client setup or console helpers. Scripts stay **colocated** with the Terraform module that invokes them.
 - Full convention: `docs/shared/conventions/scripting-language.md` → [[scripting-language]].
 
+### Env files — generated, never hand-edited
+- `make env-file` generates **every** env file from Terraform outputs: `.env` (only the 4 vars compose interpolates), `.env.local.infra`, `.env.local.users`, `.env.local.orders`, `.env.local.debug`. None is hand-maintained — Floci remints ids and reassigns DB ports on every apply.
+- Each file has an **AUTO-GENERATED** box (rewritten every run) and a **CUSTOM** box (preserved). Put overrides and personal tokens in CUSTOM; never edit the AUTO box.
+- Services read their file via compose `env_file:` and declare **nothing** inline — `environment:` silently beats `env_file:`. Adding a service = adding a file + one `env_file:` line.
+- `.env.example` is the committed contract; `.env*` is otherwise git-ignored.
+- Full convention: `docs/shared/conventions/env-files.md` → [[env-files]].
+
 ### Logging & tracing
 - Every log line carries a **shared cross-service context** (`trace_id`, `cognito_sub`, `user_id`, `email_hash`, `order_id`, `duration_ms`). Unknown fields are **omitted, never null**.
 - **Never log** passwords, tokens, or full request bodies. **Never log a plaintext email** — auth flows log a masked form (`jo*****e@gmail.com`); everything else uses `email_hash`.

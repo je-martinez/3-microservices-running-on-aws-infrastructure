@@ -131,6 +131,23 @@ client and the Pre-Token V2 trigger. See [[awscli-fallback-for-floci]] and
 - Local API GW → nginx ECS (no ALB locally): [../docs/shared/decisions/ADR-0016-local-apigw-nginx-ecs.md](../docs/shared/decisions/ADR-0016-local-apigw-nginx-ecs.md)
 - Floci local: [../docs/shared/decisions/ADR-0017-floci-local.md](../docs/shared/decisions/ADR-0017-floci-local.md) (supersedes ADR-0012, Ministack)
 - Scripting language (Python first): [../docs/shared/conventions/scripting-language.md](../docs/shared/conventions/scripting-language.md)
+- Env files (generated, never hand-edited): [../docs/shared/conventions/env-files.md](../docs/shared/conventions/env-files.md)
+
+### Env files are generated here
+`environments/local/scripts/generate_env_files.py` writes all five env files from
+Terraform outputs; `make env-file` runs it, and `infra-up` ends by calling that —
+so every file exists before any service starts. That ordering is load-bearing now
+that services read `.env.local.<service>` via compose `env_file:`.
+
+- Rewrites only each file's **AUTO-GENERATED** box; the **CUSTOM** box is preserved.
+- Every value is REQUIRED: a missing Terraform output raises, naming it, rather
+  than writing an empty segment into a connection string (a service that starts
+  and then cannot connect is far harder to diagnose).
+- **No interpolation in the output.** `env_file:` takes values literally, so ports
+  and ids are resolved as the file is written — a `${...}` left behind would reach
+  the service as that literal string.
+- Adding a service: add its entry to the generator and an `env_file:` line to its
+  compose service. Declare nothing inline — `environment:` silently wins.
 
 ### Infra scripts are Python
 All five infra scripts are Python (`bootstrap.py`, `scripts/discover_db_port.py`,
