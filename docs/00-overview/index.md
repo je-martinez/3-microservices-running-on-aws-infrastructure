@@ -51,6 +51,7 @@ related:
   - "[[2026-07-16-orders-list-products-endpoint-design]]"
   - "[[2026-07-17-terraform-remote-state-backend-design]]"
   - "[[2026-07-19-scripts-to-python-migration-design]]"
+  - "[[2026-07-19-logging-context-and-tracing-design]]"
   - "[[ADR-0015-drawio-diagrams]]"
   - "[[ministack-auth-chain-spike-findings]]"
   - "[[floci-vs-ministack-spike-findings]]"
@@ -222,6 +223,7 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-07-17-terraform-remote-state-backend-design]] — Design moving Terraform state off local files onto a remote S3 + DynamoDB backend (Floci locally, real AWS in prod), created once via a self-excluding `tf-backend` module/root to resolve the backend chicken-and-egg, ending TF↔Floci state drift; named per [[ADR-0001-terraform-cloudposse-naming]], built on [[ADR-0017-floci-local]], mindful of [[floci-rds-apigw-limits]].
 - [[2026-07-17-testing-layers-and-e2e-gateway-design]] — Design of a three-layer testing convention (unit/integration, internal E2E, gateway E2E with a real Cognito JWT) plus a Playwright `gateway` project alongside the existing `internal` one, per [[ADR-0010-cognito-auth]], [[ADR-0016-local-apigw-nginx-ecs]], [[local-dev]], [[versioning]].
 - [[2026-07-19-scripts-to-python-migration-design]] — Design for migrating the repo's 5 remaining bash scripts to Python (shared `lib3mrai` package, venv-pinned Terraform `local-exec` interpreter, boto3 over the `aws` CLI) and establishing a Python-first/JavaScript-second/Bash-last scripting-language convention; block 1 of 3 of the Developer Experience milestone, per [[2026-07-15-two-phase-post-effects-design]], [[awscli-fallback-for-floci]], [[testing]].
+- [[2026-07-19-logging-context-and-tracing-design]] — Design for a shared cross-service log context (trace/span id, hashed email, domain ids), flow-level logs for register/login/create-order, and real OpenTelemetry distributed tracing across the gRPC boundary into the existing OpenObserve collector; block 2 of 3 of the Developer Experience milestone, per [[2026-07-16-structured-logging-and-dashboards-design]], [[ADR-0018-observability-openobserve]], [[2026-07-12-prisma-lazy-promise-als]].
 
 ---
 
@@ -290,6 +292,7 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[2026-07-16-orders-list-products-endpoint-design]]
 - [[2026-07-17-terraform-remote-state-backend-design]]
 - [[2026-07-19-scripts-to-python-migration-design]]
+- [[2026-07-19-logging-context-and-tracing-design]]
 - [[ADR-0015-drawio-diagrams]]
 - [[ministack-auth-chain-spike-findings]]
 - [[floci-vs-ministack-spike-findings]]
