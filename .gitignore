@@ -45,3 +45,9 @@ infra/modules/cognito/pre-token-lambda.zip
 
 # Agent-skills CLI local mirror (canonical copies live in .claude/skills/)
 .agents/
+
+# Python (infra scripts). The venv is created by `make scripts-setup`; Terraform
+# local-exec and the Makefile call .venv/bin/python by ABSOLUTE path.
+.venv/
+__pycache__/
+*.egg-info/
