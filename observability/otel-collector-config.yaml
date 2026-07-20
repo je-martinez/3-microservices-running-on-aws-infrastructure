@@ -38,6 +38,39 @@ processors:
       - context: log
         statements:
           - merge_maps(attributes, ParseJSON(body), "upsert") where IsMatch(body, "^\\s*\\{")
+
+          # nginx access logs (combined format) arrive from CloudWatch as PLAIN
+          # TEXT, so the JSON statement above skips them and they land with only
+          # a raw `body` — no service_name, no status, nothing queryable. That
+          # makes them invisible to any dashboard or filter written against the
+          # shared schema, which is a real gap: nginx is the only place the
+          # edge's own traffic shows up (a gateway 404 never reaches a service).
+          #
+          # Map them onto the same field names the services emit, so one query
+          # spans application and gateway logs.
+          #   192.168.148.3 - - [20/Jul/2026:03:01:17 +0000] "POST /v1/orders HTTP/1.1" 409 109 "-" "curl/8.7.1"
+          # Matched on the body's shape rather than on the CloudWatch group
+          # name: the group arrives as an ATTRIBUTE, not a top-level log field,
+          # and the combined-format prefix identifies these lines unambiguously.
+          - set(attributes["service_name"], "nginx")
+            where IsMatch(body, "^\\S+ \\S+ \\S+ \\[") and attributes["service_name"] == nil
+          - set(attributes["http_request_method"], ExtractPatterns(body, "\"(?P<m>[A-Z]+) ")["m"])
+            where attributes["service_name"] == "nginx"
+          - set(attributes["http_route"], ExtractPatterns(body, "\"[A-Z]+ (?P<p>\\S+) HTTP")["p"])
+            where attributes["service_name"] == "nginx"
+          - set(attributes["http_response_status_code"], Int(ExtractPatterns(body, "HTTP/[0-9.]+\" (?P<s>[0-9]{3})")["s"]))
+            where attributes["service_name"] == "nginx"
+          # Severity mirrors the services' OTel-aligned numbers so a
+          # severity-based filter behaves identically across every source.
+          - set(attributes["severity_text"], "ERROR")
+            where attributes["service_name"] == "nginx" and attributes["http_response_status_code"] >= 500
+          - set(attributes["severity_text"], "WARN")
+            where attributes["service_name"] == "nginx" and attributes["http_response_status_code"] >= 400 and attributes["http_response_status_code"] < 500
+          - set(attributes["severity_text"], "INFO")
+            where attributes["service_name"] == "nginx" and attributes["severity_text"] == nil
+          - set(attributes["severity_number"], 17) where attributes["severity_text"] == "ERROR" and attributes["service_name"] == "nginx"
+          - set(attributes["severity_number"], 13) where attributes["severity_text"] == "WARN" and attributes["service_name"] == "nginx"
+          - set(attributes["severity_number"], 9) where attributes["severity_text"] == "INFO" and attributes["service_name"] == "nginx"
   batch: {}
 
 exporters:
