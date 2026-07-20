@@ -24,6 +24,13 @@ These rules take precedence over default agent/skill behavior.
 - Shared helpers live in `infra/scripts/lib3mrai/` (`aws.py`, `console.py`, `db.py`) — don't duplicate boto3 client setup or console helpers. Scripts stay **colocated** with the Terraform module that invokes them.
 - Full convention: `docs/shared/conventions/scripting-language.md` → [[scripting-language]].
 
+### Logging & tracing
+- Every log line carries a **shared cross-service context** (`trace_id`, `cognito_sub`, `user_id`, `email_hash`, `order_id`, `duration_ms`). Unknown fields are **omitted, never null**.
+- **Never log** passwords, tokens, or full request bodies. **Never log a plaintext email** — auth flows log a masked form (`jo*****e@gmail.com`); everything else uses `email_hash`.
+- Flow logs use `app_event` (`<flow>_started|_succeeded|_failed`) plus `reason` on failures. There is **no SUCCESS severity** — success is `INFO` + `app_event=*_succeeded` (SUCCESS is not an OTel level).
+- **OTel config goes in environment variables, not code** — endpoint, protocol, and disabling the metrics/logs exporters. Three silent failures in this repo came from configuring the SDK in code. A new service needs no endpoint code, only the env vars.
+- Full convention: `docs/shared/conventions/logging-context.md` → [[logging-context]]. Backend decision: [[ADR-0019-distributed-tracing-opentelemetry]] (logs → OpenObserve, traces → Jaeger).
+
 ### Language
 - **Converse with the user in Spanish.**
 - **Vault / documentation content is written in English** (technical terms, filenames, frontmatter).

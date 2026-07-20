@@ -53,6 +53,8 @@ related:
   - "[[2026-07-19-scripts-to-python-migration-design]]"
   - "[[2026-07-19-logging-context-and-tracing-design]]"
   - "[[ADR-0015-drawio-diagrams]]"
+  - "[[ADR-0019-distributed-tracing-opentelemetry]]"
+  - "[[logging-context]]"
   - "[[ministack-auth-chain-spike-findings]]"
   - "[[floci-vs-ministack-spike-findings]]"
   - "[[floci-rds-apigw-limits]]"
@@ -143,6 +145,7 @@ All ADRs use continuous global numbering and live in `docs/shared/decisions/`.
 
 - [[ADR-0011-observability-signoz]] — SigNoz (via CloudWatch) as the observability backend. Superseded by [[ADR-0018-observability-openobserve]].
 - [[ADR-0018-observability-openobserve]] — OpenObserve (via CloudWatch) as the observability backend, superseding SigNoz.
+- [[ADR-0019-distributed-tracing-opentelemetry]] — OpenTelemetry SDK in both services for distributed tracing; traces go to Jaeger while logs stay in OpenObserve, re-evaluating the tracing/logs-only stance of [[ADR-0018-observability-openobserve]] after OpenObserve's trace ingest rejected the collector's OTLP batches.
 
 ### Documentation & Diagrams
 
@@ -167,6 +170,7 @@ Coding and data conventions defined once in `shared/` and referenced project-wid
 - [[testing]] — Three-layer testing convention: unit/integration, internal E2E, and gateway E2E (real Cognito JWT) — an endpoint missing gateway E2E is an incomplete change.
 - [[scripting-language]] — Scripting-language decision tree for the repo: Python first, JavaScript second, Bash last with a documented reason.
 - [[skills-catalog]] — Claude Code skills evaluated and approved for the 3MRAI agents (deliverable of [JE-23](https://linear.app/je-martinez/issue/JE-23)).
+- [[logging-context]] — Shared cross-service log context (trace/span id, hashed/masked email, domain ids), PII masking rules, flow-log pattern, and the OTel environment-variable configuration rules that fixed three silent exporter failures.
 
 ---
 
@@ -294,6 +298,8 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[2026-07-19-scripts-to-python-migration-design]]
 - [[2026-07-19-logging-context-and-tracing-design]]
 - [[ADR-0015-drawio-diagrams]]
+- [[ADR-0019-distributed-tracing-opentelemetry]]
+- [[logging-context]]
 - [[ministack-auth-chain-spike-findings]]
 - [[floci-vs-ministack-spike-findings]]
 - [[floci-rds-apigw-limits]]

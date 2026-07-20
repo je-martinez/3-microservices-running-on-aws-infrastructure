@@ -141,6 +141,25 @@ services/orders/
 - DB naming (snake_case columns ↔ PascalCase properties): [../../docs/shared/conventions/db-naming.md](../../docs/shared/conventions/db-naming.md)
 - gRPC inter-service: [../../docs/shared/decisions/ADR-0003-grpc-inter-service.md](../../docs/shared/decisions/ADR-0003-grpc-inter-service.md)
 - Read/write replicas: [../../docs/shared/decisions/ADR-0006-read-write-replicas.md](../../docs/shared/decisions/ADR-0006-read-write-replicas.md)
+- Logging context & tracing: [../../docs/shared/conventions/logging-context.md](../../docs/shared/conventions/logging-context.md)
+
+### Logging & tracing in this service
+- The shared log context is attached by a Serilog `ILogEventEnricher`
+  (`Orders.Api/Logging/LogContextEnricher.cs`) reading `ICurrentCaller` via
+  `IHttpContextAccessor` — no call site passes identity into the logger.
+- **Read the caller on EVERY event, never cache it.** `ResolveInternalUserIdAsync` resolves the
+  internal `usr_` id lazily, so `user_id` is absent early in a request and present later; caching
+  would freeze the empty early value onto the whole request. `ResolvedInternalUserId` is the
+  non-triggering view the enricher uses — a getter that fired the gRPC call would turn every log
+  line into a network request.
+- `EmailHash.Compute` MUST stay byte-identical to Users' `hashEmail` (SHA-256 of the trimmed,
+  lowercased email, hex, first 16 chars). Both sides pin `b4c9a289323b21a0` for
+  `user@example.com` in a test so a drift fails in CI instead of silently returning no results.
+- `UseSerilog` must use the **three-argument** overload; the two-arg one has no `services`
+  parameter, so the enricher cannot resolve `IHttpContextAccessor`.
+- OTel endpoint and protocol come from **environment variables only** — do not set
+  `options.Endpoint` or `options.Protocol` in code. Hand-building the endpoint made this service
+  POST to the collector's root (404) and export nothing, silently.
 
 ## 5. Agent rules
 - Converse with the user in **Spanish**; write code and comments in **English**.
