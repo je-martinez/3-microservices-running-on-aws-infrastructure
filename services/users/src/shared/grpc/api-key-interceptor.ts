@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { context, propagation } from "@opentelemetry/api";
 import * as grpc from "@grpc/grpc-js";
 
 // Constant-time comparison. Returns false (never throws) on length mismatch or
@@ -35,7 +36,26 @@ export function makeApiKeyInterceptor(expectedKey: string): grpc.ServerIntercept
               });
               return;
             }
-            mdNext(metadata);
+
+            // Auth passed. Extract the caller's W3C trace context and make it
+            // the active context for the rest of the call, so the handler's
+            // span becomes a CHILD of the caller's rather than a new root.
+            //
+            // This has to happen HERE, and nowhere else: `ServerInterceptingCall`
+            // consumes the metadata, so the `call` the handler receives carries
+            // none at all (verified — the metadata map arrives empty). That is
+            // why @opentelemetry/instrumentation-grpc produced no server span
+            // and why extracting inside the handler could not work either.
+            //
+            // Deliberately AFTER the auth gate: an unauthenticated call is
+            // rejected before any tracing work happens.
+            const carrier: Record<string, string> = {};
+            for (const key of ["traceparent", "tracestate"]) {
+              const value = metadata.get(key)[0]?.toString();
+              if (value) carrier[key] = value;
+            }
+            const parent = propagation.extract(context.active(), carrier);
+            context.with(parent, () => mdNext(metadata));
           },
           onReceiveMessage(message, msgNext) {
             msgNext(message);
