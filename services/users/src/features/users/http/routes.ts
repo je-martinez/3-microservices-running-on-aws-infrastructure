@@ -113,7 +113,11 @@ export function buildApp(
         http_route: req.routeOptions?.url ?? req.url,
         http_response_status_code: reply.statusCode,
         duration_ms: reply.elapsedTime,
-        trace_id: req.id,
+        // NO `trace_id: req.id` here. Pino injects the REAL OTel trace_id and
+        // span_id on every line once the SDK is active, and explicit fields beat
+        // the ambient ones — so passing Fastify's local request counter would
+        // override the real id on the single most useful log line, breaking the
+        // join between logs and traces.
       },
       "request completed",
     );

@@ -129,7 +129,10 @@ app.UseSerilogRequestLogging(options =>
             "http_route",
             (http.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText ?? http.Request.Path.Value);
         diag.Set("http_response_status_code", http.Response.StatusCode);
-        diag.Set("trace_id", http.TraceIdentifier);
+        // NO trace_id here. LogContextEnricher supplies the real OTel trace id
+        // from Activity.Current; it uses AddPropertyIfAbsent, so a value set on
+        // the diagnostic context would win and the request log — the single most
+        // useful line — would keep ASP.NET's local, non-propagating identifier.
     };
 });
 

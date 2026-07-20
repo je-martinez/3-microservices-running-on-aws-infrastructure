@@ -23,6 +23,22 @@ public sealed class LogContextEnricher(IHttpContextAccessor accessor) : ILogEven
 {
     public void Enrich(LogEvent logEvent, ILogEventPropertyFactory factory)
     {
+        // The REAL W3C trace id from the active span — the join key between a
+        // log line and its trace. Deliberately NOT HttpContext.TraceIdentifier,
+        // which is an ASP.NET-local counter ("0HNN…:00000001") that never leaves
+        // this process and so cannot correlate anything across services.
+        //
+        // Read before the HttpContext guard: background and startup work also
+        // runs under an Activity and deserves the same correlation.
+        var activity = System.Diagnostics.Activity.Current;
+        if (activity is not null)
+        {
+            logEvent.AddPropertyIfAbsent(
+                factory.CreateProperty("trace_id", activity.TraceId.ToString()));
+            logEvent.AddPropertyIfAbsent(
+                factory.CreateProperty("span_id", activity.SpanId.ToString()));
+        }
+
         var http = accessor.HttpContext;
         if (http is null) return; // startup / background logs have no request
 
