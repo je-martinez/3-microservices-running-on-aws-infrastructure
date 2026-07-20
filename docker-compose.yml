@@ -55,12 +55,34 @@ services:
   # ── Observability (opt-in): `docker compose --profile observability up` ──
   # OTel collector: fluentd from the compose services + CloudWatch (ECS/RDS) on
   # Floci, exported to self-hosted OpenObserve. Pinned image; do not use :latest.
+  # Trace backend. Logs live in OpenObserve; traces live here, joined by the
+  # trace_id every log line carries. See ADR-0019 for why traces are not in
+  # OpenObserve: its ingest rejected the collector's OTLP batches with HTTP 400,
+  # and ADR-0018 had already flagged its APM maturity as the weak spot to
+  # re-evaluate if tracing became a hard requirement. It did.
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    profiles: [observability]
+    ports:
+      - "16686:16686"   # Jaeger UI — the waterfall view
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks: [3mrai-network]
+
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.156.0
     profiles: [observability]
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     ports:
       - "24224:24224"   # fluent_forward — published so the Docker daemon (host) can reach it
+      # OTLP trace ingest. The services reach it in-network at
+      # http://otel-collector:4318, so publishing is only for host-side probing.
+      # NOTE: this service sits behind `profiles: [observability]`, so a plain
+      # `docker compose up` does NOT start it and the SDKs' exports fail with
+      # connection refused — harmless by design, but it means traces only flow
+      # when the stack is brought up with the observability profile enabled.
+      - "4317:4317"     # OTLP/gRPC
+      - "4318:4318"     # OTLP/HTTP
     environment:
       - AWS_ENDPOINT_URL=http://floci:4566
       - AWS_REGION=us-east-1

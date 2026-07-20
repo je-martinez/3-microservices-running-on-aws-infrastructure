@@ -8,6 +8,16 @@ receivers:
   # (the daemon resolves it from the host, hence the published port).
   fluent_forward:
     endpoint: 0.0.0.0:24224
+  # OTLP from the services' OpenTelemetry SDKs — TRACES only. Logs keep using
+  # fluent_forward: the services still write JSON to stdout and Docker's fluentd
+  # driver ships it, so the log path is unchanged by tracing.
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
   # Polls CloudWatch. AWS_ENDPOINT_URL redirects it to Floci locally.
   aws_cloudwatch:
     region: ${env:AWS_REGION}
@@ -39,6 +49,28 @@ exporters:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: logs
 
+  # Traces go to the SAME OpenObserve instance, a different stream. One backend
+  # for both signals is what lets trace_id join a log line to its span without
+  # querying across two systems (see the tracing ADR).
+  # Traces go to Jaeger, NOT OpenObserve — see ADR-0019.
+  #
+  # WHY NOT OpenObserve: its trace ingest rejected every batch the collector
+  # sent with HTTP 400, while a hand-rolled OTLP-JSON POST to the same endpoint
+  # returned 206. So the route and the auth are right; the collector's
+  # serialization and this OpenObserve build's parser disagree, and `encoding:
+  # json` did not reconcile them. Rather than keep guessing at a third party's
+  # ingest, traces land in Jaeger, which speaks OTLP natively. This is exactly
+  # the backend re-evaluation ADR-0018 said would be needed if tracing ever
+  # became a hard requirement — it flagged OpenObserve's APM maturity as the
+  # known weak spot.
+  #
+  # Logs still go to OpenObserve (the exporter above, untouched). The two are
+  # joined by trace_id, which every log line now carries.
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
 service:
   telemetry:
     logs:
@@ -48,3 +80,9 @@ service:
       receivers: [fluent_forward, aws_cloudwatch]
       processors: [transform/parse_body, batch]
       exporters: [otlp_http/openobserve]
+    # No transform/parse_body here: OTLP traces arrive already structured, so
+    # there is no JSON-in-a-string body to flatten as there is for stdout logs.
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/jaeger]
