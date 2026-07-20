@@ -41,13 +41,16 @@ builder.Services.AddOpenTelemetry()
         .AddAspNetCoreInstrumentation()
         .AddHttpClientInstrumentation()
         .AddEntityFrameworkCoreInstrumentation()
-        .AddOtlpExporter(options =>
-        {
-            options.Endpoint = new Uri(
-                builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]
-                ?? "http://otel-collector:4318");
-            options.Protocol = OpenTelemetry.Exporter.OtlpExportProtocol.HttpProtobuf;
-        }));
+        // No Endpoint set here ON PURPOSE. The exporter reads the standard
+        // OTEL_EXPORTER_OTLP_ENDPOINT (set in docker-compose.yml) as a BASE url
+        // and appends the signal path itself, per the OTLP spec.
+        //
+        // Building the URL by hand is what broke this service: it passed the
+        // base with no path, so every batch was POSTed to the collector's root
+        // and answered 404 — silently, since the exporter does not surface it.
+        // Leaving it to the SDK means a new service needs no endpoint code at
+        // all, only the env var. See [[logging-context]].
+        .AddOtlpExporter());
 
 // Structured JSON logging (snake_case OTel-aligned schema). Replaces the
 // default plain-text console logger for all `orders` logs.

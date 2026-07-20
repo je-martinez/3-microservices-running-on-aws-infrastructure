@@ -1,3 +1,4 @@
+import { DiagConsoleLogger, DiagLogLevel, diag } from "@opentelemetry/api";
 import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentations-node";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
@@ -14,14 +15,26 @@ import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
 // from semantic-conventions/incubating: that subpath does not resolve cleanly
 // under this project's module setup, and an incubating constant is by
 // definition unstable. The string is the contract either way.
-const OTLP_ENDPOINT = process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? "http://otel-collector:4318";
+// Surface the SDK's own diagnostics. Without this an export failure — a 404, a
+// refused connection — is swallowed entirely, which is exactly how the Orders
+// misconfiguration went unnoticed: spans were produced, nothing arrived, and
+// nothing complained. ERROR level only, so healthy runs stay quiet.
+diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.ERROR);
 
 const sdk = new NodeSDK({
   resource: resourceFromAttributes({
     [ATTR_SERVICE_NAME]: "users",
     "deployment.environment.name": process.env.DEPLOYMENT_ENVIRONMENT ?? "local",
   }),
-  traceExporter: new OTLPTraceExporter({ url: `${OTLP_ENDPOINT}/v1/traces` }),
+  // No `url` here ON PURPOSE. The exporter reads the standard
+  // OTEL_EXPORTER_OTLP_ENDPOINT (set in docker-compose.yml) as a BASE url and
+  // appends `/v1/traces` itself, per the OTLP spec.
+  //
+  // Hand-building the URL is what broke the Orders service — it passed the base
+  // with no path, so every batch was POSTed to the collector's root and
+  // answered 404, silently. Leaving the path to the SDK means a new service
+  // needs no endpoint code at all, only the env var. See [[logging-context]].
+  traceExporter: new OTLPTraceExporter(),
   instrumentations: [
     getNodeAutoInstrumentations({
       // Pure noise at this scale: every file read becomes a span and buries the
