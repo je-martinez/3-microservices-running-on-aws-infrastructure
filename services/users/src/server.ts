@@ -1,3 +1,8 @@
+// MUST be the first import in the process. The OTel auto-instrumentations patch
+// modules at require time, so anything imported above this line — fastify,
+// @grpc/grpc-js, @prisma/client — loads unpatched and emits no spans at all.
+import "#shared/observability/tracing";
+
 import { env } from "#shared/config/env";
 import { buildApp } from "#features/users/http/routes";
 import { startGrpcServer } from "#shared/grpc/server";

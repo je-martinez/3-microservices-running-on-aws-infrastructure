@@ -120,6 +120,11 @@ services:
       - AWS_SECRET_ACCESS_KEY=test
       - PORT=3000
       - GRPC_PORT=50051
+      # OTLP trace export (see src/shared/observability/tracing.ts). The
+      # collector's OTLP receiver is added in JE-76; until then the SDK simply
+      # fails to export, which is non-fatal by design — telemetry must never
+      # take the service down.
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       # Shared symmetric key for inter-service gRPC auth. Local-only value; the
       # Orders service MUST use the same value. Prod reads it from Secrets Manager.
       - GRPC_API_KEY=local-dev-grpc-key
