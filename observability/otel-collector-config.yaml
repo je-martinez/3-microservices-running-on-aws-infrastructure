@@ -83,6 +83,30 @@ processors:
           # mirror them where the backend actually looks.
           - set(severity_number, Int(attributes["severity_number"])) where attributes["severity_number"] != nil
           - set(severity_text, attributes["severity_text"]) where attributes["severity_text"] != nil
+
+  # Drop nginx access logs for requests that REACHED a service.
+  #
+  # WHY: for any 2xx/3xx/4xx the service already logs the same request with
+  # strictly more information — `POST /v1/users/login 401` from nginx duplicates
+  # `login_failed reason=invalid_credentials` from users. Keeping both doubles
+  # the volume and makes every count query ambiguous about what it is counting.
+  #
+  # WHY NOT ALL OF IT: nginx is the only source that sees a request which never
+  # reaches a service at all — a 502, a bad upstream, a route the gateway
+  # mis-resolves. Those produce no service log by definition, so dropping the
+  # whole group would create a blind spot at the edge precisely when it matters.
+  # 5xx and anything unparsed are therefore kept.
+  #
+  # This is also what removes the `THIS IS INVALID STREAM` rows: that string is
+  # a placeholder the aws_cloudwatch receiver substitutes when it cannot resolve
+  # a stream name (Floci's real streams are named 2026/07/20/nginx/<task-id>),
+  # so it is an emulator artifact carrying no signal.
+  filter/drop_nginx_noise:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'attributes["service_name"] == "nginx" and attributes["http_response_status_code"] != nil and attributes["http_response_status_code"] < 500'
+
   batch: {}
 
 exporters:
@@ -123,7 +147,10 @@ service:
   pipelines:
     logs:
       receivers: [fluent_forward, aws_cloudwatch]
-      processors: [transform/parse_body, batch]
+      # Order matters: parse first so the filter can test real fields
+      # (service_name, http_response_status_code) rather than pattern-match raw
+      # text, then drop, then batch — so dropped records never reach the batcher.
+      processors: [transform/parse_body, filter/drop_nginx_noise, batch]
       exporters: [otlp_http/openobserve]
     # No transform/parse_body here: OTLP traces arrive already structured, so
     # there is no JSON-in-a-string body to flatten as there is for stdout logs.
