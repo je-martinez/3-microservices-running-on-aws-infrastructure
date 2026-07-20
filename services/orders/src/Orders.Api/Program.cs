@@ -15,11 +15,19 @@ using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Needed by LogContextEnricher to reach the request-scoped ICurrentCaller.
+builder.Services.AddHttpContextAccessor();
+
 // Structured JSON logging (snake_case OTel-aligned schema). Replaces the
 // default plain-text console logger for all `orders` logs.
+//
+// The THREE-argument UseSerilog overload is required: the two-argument one has
+// no `services` parameter, so the enricher could not resolve
+// IHttpContextAccessor and the shared log context would never be attached.
 var deploymentEnvironment = builder.Configuration["DEPLOYMENT_ENVIRONMENT"] ?? "local";
-builder.Host.UseSerilog((_, cfg) => cfg
+builder.Host.UseSerilog((_, services, cfg) => cfg
     .MinimumLevel.Information()
+    .Enrich.With(new LogContextEnricher(services.GetRequiredService<IHttpContextAccessor>()))
     .WriteTo.Console(new SchemaLogFormatter("orders", deploymentEnvironment)));
 
 // Read side (read replica in prod; same MySQL locally). ADO connection string.

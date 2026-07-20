@@ -13,6 +13,10 @@ public sealed class CurrentCaller : ICurrentCaller
 
     public string? CognitoSub { get; private set; }
 
+    // Non-triggering view of the resolved id, for the log enricher. Null until
+    // ResolveInternalUserIdAsync has actually run on this request.
+    public string? ResolvedInternalUserId => _resolved ? _internalId : null;
+
     public void SetSub(string sub) => CognitoSub = sub;
 
     public async Task<string> ResolveInternalUserIdAsync(CancellationToken ct)
