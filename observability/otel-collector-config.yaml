@@ -49,28 +49,46 @@ processors:
           # Map them onto the same field names the services emit, so one query
           # spans application and gateway logs.
           #   192.168.148.3 - - [20/Jul/2026:03:01:17 +0000] "POST /v1/orders HTTP/1.1" 409 109 "-" "curl/8.7.1"
-          # Matched on the body's shape rather than on the CloudWatch group
-          # name: the group arrives as an ATTRIBUTE, not a top-level log field,
-          # and the combined-format prefix identifies these lines unambiguously.
+          # Tag EVERY line from the nginx log group, not just access logs. The
+          # container also emits startup output (`/docker-entrypoint.sh: …`,
+          # `10-listen-on-ipv6-by-default.sh: info: …`) which matches no access
+          # format, so it previously fell through untagged and unclassified —
+          # landing in the stream with severity 0 (UNSPECIFIED) and no
+          # service_name, invisible to every schema-based filter.
           - set(attributes["service_name"], "nginx")
-            where IsMatch(body, "^\\S+ \\S+ \\S+ \\[") and attributes["service_name"] == nil
+            where attributes["service_name"] == nil
+              and IsMatch(attributes["cloudwatch_log_group_name"], "nginx")
+
+          # Access logs are the subset in combined format. Only these carry
+          # method/route/status; the startup lines are classified further down.
+          - set(attributes["nginx_log_kind"], "access")
+            where attributes["service_name"] == "nginx"
+              and IsMatch(body, "^\\S+ \\S+ \\S+ \\[")
           - set(attributes["http_request_method"], ExtractPatterns(body, "\"(?P<m>[A-Z]+) ")["m"])
-            where attributes["service_name"] == "nginx"
+            where attributes["nginx_log_kind"] == "access"
           - set(attributes["http_route"], ExtractPatterns(body, "\"[A-Z]+ (?P<p>\\S+) HTTP")["p"])
-            where attributes["service_name"] == "nginx"
+            where attributes["nginx_log_kind"] == "access"
           - set(attributes["http_response_status_code"], Int(ExtractPatterns(body, "HTTP/[0-9.]+\" (?P<s>[0-9]{3})")["s"]))
-            where attributes["service_name"] == "nginx"
+            where attributes["nginx_log_kind"] == "access"
           # Severity mirrors the services' OTel-aligned numbers so a
           # severity-based filter behaves identically across every source.
           - set(attributes["severity_text"], "ERROR")
-            where attributes["service_name"] == "nginx" and attributes["http_response_status_code"] >= 500
+            where attributes["nginx_log_kind"] == "access" and attributes["http_response_status_code"] >= 500
           - set(attributes["severity_text"], "WARN")
-            where attributes["service_name"] == "nginx" and attributes["http_response_status_code"] >= 400 and attributes["http_response_status_code"] < 500
+            where attributes["nginx_log_kind"] == "access" and attributes["http_response_status_code"] >= 400 and attributes["http_response_status_code"] < 500
+          # Everything else from nginx — access 2xx/3xx AND the container's
+          # startup output — is informational. Without this the startup lines
+          # keep severity 0 (UNSPECIFIED), which is what put them outside every
+          # severity filter and rendered them uncoloured.
           - set(attributes["severity_text"], "INFO")
             where attributes["service_name"] == "nginx" and attributes["severity_text"] == nil
           - set(attributes["severity_number"], 17) where attributes["severity_text"] == "ERROR" and attributes["service_name"] == "nginx"
           - set(attributes["severity_number"], 13) where attributes["severity_text"] == "WARN" and attributes["service_name"] == "nginx"
           - set(attributes["severity_number"], 9) where attributes["severity_text"] == "INFO" and attributes["service_name"] == "nginx"
+          # nginx startup lines: keep them, but mark them so the "log a request
+          # once" filter below can tell them apart from access logs.
+          - set(attributes["nginx_log_kind"], "startup")
+            where attributes["service_name"] == "nginx" and attributes["nginx_log_kind"] == nil
 
           # Promote our severity onto the log record's NATIVE severity fields.
           #
