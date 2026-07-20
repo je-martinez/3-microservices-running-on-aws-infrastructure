@@ -17,10 +17,10 @@
     }
   },
   "scripts": {
-    "dev": "tsx watch --conditions=development src/server.ts",
+    "dev": "tsx watch --conditions=development --import ./src/shared/observability/tracing.ts src/server.ts",
     "generate:openapi": "tsx --conditions=development src/features/users/http/generate-openapi.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/server.js",
+    "start": "node --import ./dist/shared/observability/tracing.js dist/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",
