@@ -135,60 +135,14 @@ services:
     depends_on:
       floci:
         condition: service_healthy
-    environment:
-      - AWS_ENDPOINT_URL=http://floci:4566
-      - AWS_REGION=us-east-1
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
-      - PORT=3000
-      - GRPC_PORT=50051
-      # OTLP trace export. This is a BASE url — the SDK appends /v1/traces
-      # itself per the OTLP spec, so no service builds the path by hand. A new
-      # microservice needs only this variable, no endpoint code.
-      # Export failures are non-fatal by design: telemetry must never take the
-      # service down (the collector only runs under the observability profile).
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
-      # Stated explicitly rather than left to the SDK default: the Node and
-      # .NET SDKs default differently, and a mismatch fails silently.
-      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
-      # TRACES ONLY. NodeSDK auto-detects metrics AND logs exporters from the
-      # endpoint above, so neither can be switched off in code — auto-detection
-      # wins. The collector serves /v1/traces only (verified: /v1/metrics and
-      # /v1/logs both 404), and this service's logs travel over stdout ->
-      # fluentd, not OTLP, so an OTLP logs exporter is pure noise.
-      # Enabling either signal stays a deliberate decision, not an SDK default.
-      - OTEL_METRICS_EXPORTER=none
-      - OTEL_LOGS_EXPORTER=none
-      # Shared symmetric key for inter-service gRPC auth. Local-only value; the
-      # Orders service MUST use the same value. Prod reads it from Secrets Manager.
-      - GRPC_API_KEY=local-dev-grpc-key
-      # Floci fronts the real Postgres container it launches for the Aurora
-      # cluster on its own RDS proxy port. Reach it by the compose service name
-      # `floci` — the container's IP is reassigned on every recreation, and the
-      # RDS `Endpoint` reported by describe-db-clusters is one of those IPs.
-      #
-      # USERS_DB_PORT is DISCOVERED per-engine and written into .env by
-      # `make env-file` (Floci assigns proxy ports 7000-7099 by creation order,
-      # so postgres/mysql can flip across applies — never hardcode 7001). The
-      # ${USERS_DB_PORT:-7001} default only applies when .env has not been
-      # generated yet; after bootstrap the discovered value wins.
-      #
-      # Writer and reader are the SAME endpoint locally: Floci does not emulate
-      # an Aurora read replica. ADR-0006 splits reads/writes in production; the
-      # split is preserved in code (two URLs) so the app path stays identical.
-      #
-      # Credentials are the cluster superuser (test/test). The least-privilege
-      # `users_app` role that phase-2 creates has a generated password kept
-      # in Secrets Manager, which compose cannot read.
-      - DATABASE_WRITER_URL=postgres://test:test@floci:${USERS_DB_PORT:-7001}/users
-      - DATABASE_READER_URL=postgres://test:test@floci:${USERS_DB_PORT:-7001}/users
-      - COGNITO_USER_POOL_ID=${COGNITO_USER_POOL_ID}
-      - COGNITO_CLIENT_ID=${COGNITO_CLIENT_ID}
-      - E2E_TESTING_ENABLED=true
-      # Guards POST /v1/webhooks/cognito. Local-only value: the endpoint is not
-      # exposed outside the compose network. Prod reads this from Secrets
-      # Manager (ADR-0007) — see the separate infra issue.
-      - WEBHOOK_SECRET=local-dev-secret
+    # Environment comes from the GENERATED .env.local.users (see
+    # docs/superpowers/specs/2026-07-20-env-file-generation-design.md).
+    # Nothing is declared inline on purpose: compose gives `environment:`
+    # precedence over `env_file:`, so a leftover inline entry would silently
+    # override the generated value and reintroduce the duplication this
+    # removes. Regenerate with `make env-file`; edit only the CUSTOM box.
+    env_file:
+      - .env.local.users
     # stdout → the observability collector's fluent_forward receiver.
     # localhost:24224 because the Docker daemon resolves fluentd-address from the
     # HOST, not this network. fluentd-async so the service still starts when the
@@ -229,50 +183,10 @@ services:
       # enough — reads and health do not need Users up.
       users:
         condition: service_started
-    environment:
-      - AWS_ENDPOINT_URL=http://floci:4566
-      - AWS_REGION=us-east-1
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
-      # OTLP trace export. This is a BASE url — the SDK appends /v1/traces
-      # itself per the OTLP spec, so no service builds the path by hand (doing
-      # so is what silently broke this service's exports). A new microservice
-      # needs only this variable, no endpoint code.
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
-      # The endpoint above is the collector's HTTP receiver, so the protocol
-      # must say so: .NET's OTLP exporter defaults to grpc (port 4317), and a
-      # grpc exporter aimed at an HTTP port fails silently.
-      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
-      # Writes the exporter's own failures to stderr. Without it a 404 or a
-      # refused connection is swallowed and spans just vanish.
-      - OTEL_DIAGNOSTICS__LOGLEVEL=Error
-      # Floci fronts the real MySQL container it launches for the Aurora-MySQL
-      # cluster on its RDS proxy port (range 7000-7099), reached by the compose
-      # service name `floci`. Writer and reader are the SAME endpoint locally
-      # (Floci does not emulate an Aurora read replica); the split is preserved
-      # in code (two URLs) so the app path matches prod (ADR-0006).
-      #
-      # ORDERS_DB_PORT is DISCOVERED per-engine and written into .env by
-      # `make env-file`: Floci assigns proxy ports by cluster creation order,
-      # which is NOT stable across applies, so postgres/mysql can flip between
-      # 7001/7002 — never hardcode. The ${ORDERS_DB_PORT:-7002} default only
-      # applies before .env is generated; after bootstrap the discovered value
-      # wins. These are ADO.NET connection strings, not DSNs.
-      # SslMode=None: Floci's emulated MySQL does not terminate TLS, so the
-      # MySqlConnector default (Preferred → attempts TLS) fails at startup with
-      # "unexpected EOF from the transport stream". Prod uses TLS (drop this).
-      - DATABASE_WRITER_URL=Server=floci;Port=${ORDERS_DB_PORT:-7002};Database=orders;User=test;Password=test;SslMode=None;
-      - DATABASE_READER_URL=Server=floci;Port=${ORDERS_DB_PORT:-7002};Database=orders;User=test;Password=test;SslMode=None;
-      - USERS_GRPC_URL=http://users:50051
-      # MUST equal the value on the `users` service — the interceptor compares
-      # them constant-time; a mismatch yields UNAUTHENTICATED. Local-only value;
-      # prod reads it from Secrets Manager (ADR-0007).
-      - GRPC_API_KEY=local-dev-grpc-key
-      # Apply migrations + seed the Product catalog + baseline config (tax_rate)
-      # on startup (local bootstrap). The tax rate now lives in the `configuration`
-      # table (was ORDERS_TAX_RATE), read per-request.
-      - SEED_ON_STARTUP=true
-      - E2E_TESTING_ENABLED=true
+    # Environment comes from the GENERATED .env.local.orders — see the note
+    # on the users service above for why nothing is declared inline.
+    env_file:
+      - .env.local.orders
     # stdout → the observability collector's fluent_forward receiver.
     # localhost:24224 because the Docker daemon resolves fluentd-address from the
     # HOST, not this network. fluentd-async so the service still starts when the

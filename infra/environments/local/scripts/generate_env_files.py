@@ -119,6 +119,10 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 "PORT": "3000",
                 "GRPC_PORT": "50051",
                 "WEBHOOK_SECRET": "local-dev-secret",
+                # Gates the E2E-only routes (cleanup, identity) and the
+                # "E2E Source" tag the suite asserts on. Local-only: never true
+                # in a deployed environment.
+                "E2E_TESTING_ENABLED": "true",
             },
         ),
         # --- orders service --------------------------------------------------
@@ -137,7 +141,11 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
                 "OTEL_DIAGNOSTICS__LOGLEVEL": "Error",
             },
-            custom_defaults={"SEED_ON_STARTUP": "true"},
+            custom_defaults={
+                "SEED_ON_STARTUP": "true",
+                # Gates the flag-guarded E2E cleanup endpoint. Local-only.
+                "E2E_TESTING_ENABLED": "true",
+            },
         ),
         # --- debug: HOST-reachable, loaded by nothing ------------------------
         # Floci's RDS proxy is published to the host, so these reach the DBs

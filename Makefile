@@ -180,6 +180,10 @@ bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in depe
 	done
 	$(MAKE) backend-up
 	$(MAKE) infra-init
+	@# infra-up ends by calling env-file, so every generated env file exists
+	@# BEFORE any service starts. That ordering is load-bearing now that the
+	@# services read .env.local.<service> via compose `env_file:` — starting
+	@# them first would mean starting against a missing or stale file.
 	$(MAKE) infra-up
 	$(MAKE) migrate
 	$(COMPOSE) up -d --build users
