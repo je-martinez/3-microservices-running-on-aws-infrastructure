@@ -158,9 +158,9 @@ migrate: ## Apply Prisma migrations (users) against Floci's Postgres (idempotent
 	@# can reset data — unsuitable for bootstrap). It must run as the cluster
 	@# SUPERUSER (test/test), because migrations run DDL and users_app
 	@# deliberately has none (ADR-0004: soft-delete enforced at grant level).
-	@# It must ALSO be the same role bootstrap.sh's ALTER DEFAULT PRIVILEGES ran
-	@# as, so users_app correctly inherits SELECT/INSERT/UPDATE on the tables
-	@# this step creates — do not change to a different DB user.
+	@# It must ALSO be the same role the post-effects apply's ALTER DEFAULT
+	@# PRIVILEGES runs as, so users_app correctly inherits SELECT/INSERT/UPDATE
+	@# on the tables this step creates — do not change to a different DB user.
 	@#
 	@# Runs inside the compose network via the `deps` build stage (the users
 	@# Dockerfile already assembles it: workspace deps + prisma CLI + prisma/
@@ -203,8 +203,8 @@ bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in depe
 	@# Order matters. The services cannot start before the infra exists: `users`
 	@# validates COGNITO_* with Zod at boot, and those IDs only exist after apply.
 	@# So: Floci first, then terraform, then .env, then migrations (DB needs
-	@# tables before it's usable), then bootstrap.sh (app DB user + nginx
-	@# alias), and only then the services.
+	@# tables before it's usable), then bootstrap.py (nginx alias), and only
+	@# then the services.
 	$(COMPOSE) up -d floci
 	@echo "Waiting for Floci at $(FLOCI_URL) ..."
 	@for i in $$(seq 1 30); do \
@@ -217,10 +217,10 @@ bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in depe
 	$(MAKE) infra-up
 	$(MAKE) migrate
 	$(COMPOSE) up -d --build users
-	bash $(TF_LOCAL_DIR)/bootstrap.sh
+	$(PY) $(TF_LOCAL_DIR)/bootstrap.py
 	@# Phase 2 (post-effects): create the least-privilege DB app-users in
 	@# Terraform now that the clusters exist and migrations have run. Replaces the
-	@# app-user step formerly in bootstrap.sh (which now only manages the nginx alias).
+	@# app-user step formerly in bootstrap.sh (bootstrap.py only manages the nginx alias).
 	$(MAKE) infra-up-post
 	@# Orders migrates + seeds ITSELF on startup (SEED_ON_STARTUP=true in
 	@# compose): the Api applies EF Core migrations then ProductSeed against
