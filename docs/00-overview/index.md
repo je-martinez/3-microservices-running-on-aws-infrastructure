@@ -12,6 +12,7 @@ tags:
 related:
   - "[[testing]]"
   - "[[2026-07-17-testing-layers-and-e2e-gateway-design]]"
+  - "[[scripting-language]]"
   - "[[local-dev-floci]]"
   - "[[architecture]]"
   - "[[system-context]]"
@@ -163,6 +164,7 @@ Coding and data conventions defined once in `shared/` and referenced project-wid
 - [[git-workflow]] — Who may run git, commit/branch conventions, and the A/B/C/D/E confirmation menu.
 - [[local-dev]] — Running the stack locally (Makefile) and testing endpoints with `.http` files.
 - [[testing]] — Three-layer testing convention: unit/integration, internal E2E, and gateway E2E (real Cognito JWT) — an endpoint missing gateway E2E is an incomplete change.
+- [[scripting-language]] — Scripting-language decision tree for the repo: Python first, JavaScript second, Bash last with a documented reason.
 - [[skills-catalog]] — Claude Code skills evaluated and approved for the 3MRAI agents (deliverable of [JE-23](https://linear.app/je-martinez/issue/JE-23)).
 
 ---
@@ -249,6 +251,7 @@ Origin materials the project grew from — kept for reference only, not the sour
 
 - [[testing]]
 - [[2026-07-17-testing-layers-and-e2e-gateway-design]]
+- [[scripting-language]]
 - [[local-dev-floci]]
 - [[architecture]]
 - [[system-context]]

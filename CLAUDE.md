@@ -18,6 +18,12 @@ These rules take precedence over default agent/skill behavior.
 - This repo pins Node via [`.nvmrc`](.nvmrc) (currently **24.18.0**).
 - Before running ANY Node.js command (`node`, `npm`, `npx`, global installs, `scripts/validate-vault.mjs`), run `nvm use` first so the pinned version is active. Example: `nvm use && node scripts/validate-vault.mjs`.
 
+### Scripting language — Python first
+- New scripts are **Python** by default (infra scripting, Terraform pre/post effects, anything touching AWS, JSON, or non-trivial control flow). **JavaScript** when the task already lives in the Node ecosystem present here (vault tooling, pnpm workspace, npm deps) — that is why `scripts/*.mjs` stay JS. **Bash** only with an explicitly documented limitation, recorded in a comment in the script itself. The repo currently has **zero `.sh` files**.
+- Infra Python scripts run from the repo venv: `make scripts-setup` creates it (idempotent, and a prerequisite of every apply target), and Terraform/Makefile invoke `.venv/bin/python` by **absolute path** — never plain `python3` off `PATH`, which may resolve into an unrelated venv.
+- Shared helpers live in `infra/scripts/lib3mrai/` (`aws.py`, `console.py`, `db.py`) — don't duplicate boto3 client setup or console helpers. Scripts stay **colocated** with the Terraform module that invokes them.
+- Full convention: `docs/shared/conventions/scripting-language.md` → [[scripting-language]].
+
 ### Language
 - **Converse with the user in Spanish.**
 - **Vault / documentation content is written in English** (technical terms, filenames, frontmatter).
