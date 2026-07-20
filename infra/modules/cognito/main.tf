@@ -171,8 +171,8 @@ resource "terraform_data" "pre_token_trigger" {
   }
 
   provisioner "local-exec" {
-    command     = "${path.module}/scripts/set-pre-token-trigger.sh"
-    interpreter = ["/usr/bin/env", "bash"]
+    command     = "${var.python_bin} ${path.module}/scripts/set_pre_token_trigger.py"
+    interpreter = ["/usr/bin/env", "bash", "-c"]
     environment = {
       USER_POOL_ID = self.input.user_pool_id
       LAMBDA_ARN   = self.input.lambda_arn
