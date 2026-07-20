@@ -71,6 +71,18 @@ processors:
           - set(attributes["severity_number"], 17) where attributes["severity_text"] == "ERROR" and attributes["service_name"] == "nginx"
           - set(attributes["severity_number"], 13) where attributes["severity_text"] == "WARN" and attributes["service_name"] == "nginx"
           - set(attributes["severity_number"], 9) where attributes["severity_text"] == "INFO" and attributes["service_name"] == "nginx"
+
+          # Promote our severity onto the log record's NATIVE severity fields.
+          #
+          # Everything above writes ATTRIBUTES, which are queryable but invisible
+          # to the UI: OpenObserve colours its charts from the record's own
+          # `severity`, which stayed 0 (UNSPECIFIED) for EVERY row in the system
+          # — services included, not just nginx. That is why warnings and errors
+          # all rendered the same blue. The attributes stay as they are (the
+          # cross-service schema depends on those names); these two lines just
+          # mirror them where the backend actually looks.
+          - set(severity_number, Int(attributes["severity_number"])) where attributes["severity_number"] != nil
+          - set(severity_text, attributes["severity_text"]) where attributes["severity_text"] != nil
   batch: {}
 
 exporters:
