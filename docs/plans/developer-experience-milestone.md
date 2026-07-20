@@ -2,13 +2,13 @@
 title: "Developer Experience Milestone"
 type: plan
 area: infra
-status: draft
+status: active
 created: 2026-07-19
 updated: 2026-07-19
 tags:
   - type/plan
   - area/infra
-  - status/draft
+  - status/active
   - milestone/developer-experience
   - issue/JE-59
   - issue/JE-60
@@ -30,6 +30,10 @@ tags:
   - issue/JE-76
   - issue/JE-77
   - issue/JE-78
+  - issue/JE-79
+  - issue/JE-80
+  - issue/JE-81
+  - issue/JE-82
 related:
   - "[[milestone-plan]]"
   - "[[linear-references]]"
@@ -38,26 +42,38 @@ related:
   - "[[2026-07-19-scripts-to-python-migration]]"
   - "[[2026-07-19-logging-context-and-tracing-design]]"
   - "[[2026-07-19-logging-context-and-tracing]]"
+  - "[[2026-07-20-env-file-generation-design]]"
+  - "[[env-files]]"
+  - "[[ADR-0019-distributed-tracing-opentelemetry]]"
 ---
 
 # Developer Experience Milestone
 
 Logical execution plan for the **Developer Experience** milestone (Linear project "3MRAI Company", [milestone](https://linear.app/je-martinez/project/3mrai-company-da39253a1d6f)). This note tracks the milestone's task sequence and blocking dependencies as blocks are specced and their issues created — see the framing note below.
 
+> [!warning] Status — 23/24 Done, awaiting a PR decision
+> All three blocks are implemented on a single branch, `feature/developer-experience` (37 commits,
+> clean working tree, all pushed). **23 of 24 issues are Done.** The one open issue is
+> [JE-77](https://linear.app/je-martinez/issue/JE-77) (cross-service trace propagation) — it is
+> not failing outright, but its acceptance criterion (one joined trace across both services) is
+> not yet met; see [[#Resuming this work]] below for exactly where it stands and what to try next.
+> **No PR has been opened** from `feature/developer-experience` into `main` — that decision is
+> pending the user, since JE-77 is still open.
+
 > [!info] Three independent blocks, one milestone
-> This milestone groups three independent pieces of developer-experience work under a single Linear milestone. **Block 1 — Scripts to Python** is specced, has issues, is implemented, and is merged into `feature/developer-experience` (JE-59…JE-67, all Done). **Block 2 — Logging context + distributed tracing** is now specced and has issues (JE-68…JE-78). Block 3 is not yet specced; when it is brainstormed and planned, its issues will be added to this **same** milestone and this note will be updated with its own phase, task sequence rows, and dependency edges.
+> This milestone groups three independent pieces of developer-experience work under a single Linear milestone, all executed one-shot on the same branch.
 >
-> - **Block 1 — Scripts to Python** (implemented, merged into `feature/developer-experience`). Spec: [[2026-07-19-scripts-to-python-migration-design]]. Plan: [[2026-07-19-scripts-to-python-migration]].
-> - **Block 2 — Logging context + distributed tracing** (specced, issues created). Shared cross-service log context (trace/span id, identity, hashed email, domain ids), flow-level logs on register/login/create-order, real distributed tracing over gRPC via the OpenTelemetry SDK, OpenObserve kept as the backend. Spec: [[2026-07-19-logging-context-and-tracing-design]]. Plan: [[2026-07-19-logging-context-and-tracing]].
-> - **Block 3 — Env-file auto-generation** (not yet specced). Generate `.env.<environment>.services`, `.env.<environment>.infra`, `.env.<environment>.debug` from Terraform discovery, split into AUTO-GENERATED and CUSTOM sections per service, with a committable `.env.example` for custom vars.
+> - **Block 1 — Scripts to Python** (Done, merged into `feature/developer-experience`). Spec: [[2026-07-19-scripts-to-python-migration-design]]. Plan: [[2026-07-19-scripts-to-python-migration]].
+> - **Block 2 — Logging context + distributed tracing** (10/11 Done; JE-77 open). Shared cross-service log context (trace/span id, identity, hashed email, domain ids), flow-level logs on register/login/create-order, real distributed tracing over gRPC via the OpenTelemetry SDK. The backend split from the original OpenObserve-only intent — see ADR-0019 and [[#Deviations from the original input]]. Spec: [[2026-07-19-logging-context-and-tracing-design]]. Plan: [[2026-07-19-logging-context-and-tracing]].
+> - **Block 3 — Env-file auto-generation** (Done). `make env-file` generates five files from Terraform outputs, split into AUTO-GENERATED (rewritten) and CUSTOM (preserved) boxes per consumer; services consume theirs via compose `env_file:`. Spec: [[2026-07-20-env-file-generation-design]]. Convention: [[env-files]].
 
 ## Logical phases
 
 | Phase | Issues | Status | Description |
 |---|---|---|---|
 | Block 1 — Scripts to Python | JE-59…JE-67 | Done — merged into `feature/developer-experience` | Migrate the repo's 5 remaining bash scripts to Python behind a shared `lib3mrai` package; freeze every script's external interface; wire the Python-first scripting-language convention into both `CLAUDE.md` files. |
-| Block 2 — Logging context + tracing | JE-68…JE-78 | Specced, issues created | Shared cross-service log context (trace/span id, identity, hashed email, domain ids) on every log line, flow-level logs on register/login/create-order, real distributed tracing over gRPC via the OpenTelemetry SDK, OpenObserve kept as the backend. |
-| Block 3 — Env-file auto-generation | — (not yet specced) | Not started | Generate per-environment `.env.*` files from Terraform discovery, split AUTO-GENERATED/CUSTOM, with a committable `.env.example`. |
+| Block 2 — Logging context + tracing | JE-68…JE-78 | 10/11 Done — JE-77 open | Shared cross-service log context (trace/span id, identity, hashed email, domain ids) on every log line, flow-level logs on register/login/create-order, real distributed tracing over gRPC via the OpenTelemetry SDK. JE-77 (cross-service trace propagation) is the one open issue — see [[#Resuming this work]]. |
+| Block 3 — Env-file auto-generation | JE-79…JE-82 | Done | `make env-file` generates five per-consumer files from Terraform outputs, split AUTO-GENERATED/CUSTOM; services consume theirs via compose `env_file:`. |
 
 ## Block 1 — Scripts to Python (Done)
 
@@ -127,9 +143,18 @@ One-shot on a single branch `feature/developer-experience`, one commit per issue
 
 Full `make infra-down` → `make bootstrap` → `make env-file` → gateway E2E with a real Cognito JWT, matching the pre-migration result, plus a re-run proving idempotence.
 
-## Block 2 — Logging context + distributed tracing
+## Block 2 — Logging context + distributed tracing (10/11 — JE-77 open)
 
-Attach a shared cross-service log context (trace/span id, identity, hashed email, domain ids) to every log line so one user's or order's activity can be filtered end to end; add flow-level start/success/failure logs to the three flows that carry diagnostic value (register, login, create-order); and add real distributed tracing across the gRPC boundary with the OpenTelemetry SDK, keeping OpenObserve as the backend. Structured by LAYER rather than by service, so the shared schema is defined once and both services adopt it together instead of diverging.
+> [!warning] JE-77 is the one issue still open in the whole milestone
+> JE-68…JE-76 and JE-78 are Done. [JE-77](https://linear.app/je-martinez/issue/JE-77)
+> (verify cross-service trace propagation and PII containment) is **not** closed: PII
+> containment passes, but trace propagation does not yet join the two services into one
+> trace. See [[#Resuming this work]] for the exact failure and what to try next. JE-78 (the
+> ADR + convention note) went ahead of JE-77's closure because ADR-0019 records this as a
+> **known limitation**, not a blocker to documenting the decision — see its own "Known
+> limitation, stated honestly" consequence.
+
+Attach a shared cross-service log context (trace/span id, identity, hashed email, domain ids) to every log line so one user's or order's activity can be filtered end to end; add flow-level start/success/failure logs to the three flows that carry diagnostic value (register, login, create-order); and add real distributed tracing across the gRPC boundary with the OpenTelemetry SDK. The backend split from the original OpenObserve-only intent to Jaeger for traces — see [[ADR-0019-distributed-tracing-opentelemetry]] and [[#Deviations from the original input]]. Structured by LAYER rather than by service, so the shared schema is defined once and both services adopt it together instead of diverging.
 
 ### Task sequence
 
@@ -191,7 +216,13 @@ flowchart TD
     JE77 --> JE78["JE-78 / ADR-0019 + logging-context convention"]
 ```
 
-JE-68 is the root: the shared log-context store and the cross-service email-hash contract must exist before either service can adopt it. It forks into JE-69 (Users merges the context into every log line) and JE-70 (Orders' matching enricher). Each service branch then fans out twice — JE-69 gates both JE-71 (Users' register/login flow logs) and JE-73 (bootstrapping the OTel SDK in Users); JE-70 gates JE-72 (Orders' create-order flow logs) and JE-74 (bootstrapping the OTel SDK in Orders). The two tracing bootstraps, JE-73 and JE-74, converge on both JE-75 (replacing the local trace id with the real OTel one in both services) and JE-76 (adding a traces pipeline to the otel collector) — both must exist in both services before either downstream task can be verified. JE-77, the cross-service verification (trace propagation and PII containment), depends on all four leaf tasks — JE-71, JE-72, JE-75, JE-76 — since it exercises both flow logs and tracing together. JE-78, the ADR and convention note, closes the block once verification passes.
+JE-68 is the root: the shared log-context store and the cross-service email-hash contract must exist before either service can adopt it. It forks into JE-69 (Users merges the context into every log line) and JE-70 (Orders' matching enricher). Each service branch then fans out twice — JE-69 gates both JE-71 (Users' register/login flow logs) and JE-73 (bootstrapping the OTel SDK in Users); JE-70 gates JE-72 (Orders' create-order flow logs) and JE-74 (bootstrapping the OTel SDK in Orders). The two tracing bootstraps, JE-73 and JE-74, converge on both JE-75 (replacing the local trace id with the real OTel one in both services) and JE-76 (adding a traces pipeline to the otel collector) — both must exist in both services before either downstream task can be verified. JE-77, the cross-service verification (trace propagation and PII containment), depends on all four leaf tasks — JE-71, JE-72, JE-75, JE-76 — since it exercises both flow logs and tracing together.
+
+> [!note] JE-78 shipped ahead of JE-77's closure
+> The diagram's edge JE-77 → JE-78 reflects the planned order, not what happened: ADR-0019 and
+> the logging-context convention (JE-78) were written and merged documenting propagation as a
+> **known limitation** rather than waiting on JE-77 to pass first. JE-77 remains open to track
+> closing that gap; see [[#Resuming this work]].
 
 ### Execution
 
@@ -199,21 +230,161 @@ Same one-shot approach as Block 1 — single branch `feature/developer-experienc
 
 ### Notable
 
-This block reopens a decision [[ADR-0018-observability-openobserve|ADR-0018]] explicitly deferred: distributed tracing was a documented non-goal at the time OpenObserve was chosen as the logs backend. ADR-0019 (issue JE-78, see [[2026-07-19-logging-context-and-tracing-design]]) records the re-evaluation and is a required deliverable of this block, not paperwork — it is the durable record of why OpenObserve is kept as the trace backend despite its weaker APM UI.
+This block reopens a decision [[ADR-0018-observability-openobserve|ADR-0018]] explicitly deferred: distributed tracing was a documented non-goal at the time OpenObserve was chosen as the logs backend. [[ADR-0019-distributed-tracing-opentelemetry|ADR-0019]] (issue JE-78, see [[2026-07-19-logging-context-and-tracing-design]]) records the re-evaluation and is a required deliverable of this block, not paperwork. It is the durable record of why the **traces backend became Jaeger, not OpenObserve as originally intended**: OpenObserve's ingest rejected the collector's OTLP batches with HTTP 400, while a hand-rolled OTLP-JSON POST to the same endpoint returned 206 — so the disagreement was between the collector's serialization and that build's parser, not a route/auth problem. Logs stay in OpenObserve; traces went to Jaeger, which speaks OTLP natively and ships a real waterfall UI.
 
-**Three deliberate deviations from the original input**, each recorded in the spec:
+See [[#Deviations from the original input]] for the three deliberate deviations recorded across this milestone (two from block 2, one from block 3).
 
-- `duration_ms` is kept instead of `duration_s` — it is what both services already emit and is the OTel HTTP-semantic-convention unit.
-- `email_hash` rides on every log line; plaintext `email` is confined to login/register only, for PII containment.
-- Request-started/completed logs are kept, and Orders is aligned to Users' shape rather than removed — they are the systematic latency/error-rate signal.
+## Block 3 — Env-file auto-generation (Done)
+
+> [!success] Implemented
+> All four issues (JE-79…JE-82) are Done, merged into `feature/developer-experience`.
+
+`make env-file` generates five files from Terraform outputs — `.env` (only the four vars compose
+interpolates: `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`, `USERS_DB_PORT`, `ORDERS_DB_PORT`),
+`.env.local.infra`, `.env.local.users`, `.env.local.orders`, and `.env.local.debug`. Each generated
+file carries an AUTO-GENERATED box (rewritten on every run) and a CUSTOM box (preserved across
+regeneration). Services consume their file via compose `env_file:` instead of inline
+`environment:` lists. Spec: [[2026-07-20-env-file-generation-design]]. Convention: [[env-files]].
+
+### Task sequence
+
+| # | Issue | Task | Deliverable |
+|---|---|---|---|
+| 1 | [JE-79](https://linear.app/je-martinez/issue/JE-79) | feat(infra): env-file generator producing per-consumer files | `infra/scripts/generate_env_files.py` (or equivalent), five generated files + `.env.example` |
+| 2 | [JE-80](https://linear.app/je-martinez/issue/JE-80) | refactor(infra): consume the generated env files from compose and E2E | `docker-compose.yml` migrated to `env_file:`; `playwright.config.ts` loads `.env.local.infra` + `.env.local.users` |
+| 3 | [JE-81](https://linear.app/je-martinez/issue/JE-81) | test(infra): verify full bring-up on generated env files | `make infra-down` → `make bootstrap` → gateway E2E passing on generated files; CUSTOM-box preservation confirmed |
+| 4 | [JE-82](https://linear.app/je-martinez/issue/JE-82) | docs(vault): env-file convention | [[env-files]] |
+
+### Dependencies
+
+#### Dependency table
+
+| Task | Blocked by |
+|---|---|
+| JE-79 | — |
+| JE-80 | JE-79 |
+| JE-81 | JE-80 |
+| JE-82 | JE-81 |
+
+#### Dependency diagram
+
+```mermaid
+flowchart TD
+    JE79["JE-79 / env-file generator"] --> JE80["JE-80 / compose + E2E consume generated files"]
+    JE80 --> JE81["JE-81 / verify full bring-up"]
+    JE81 --> JE82["JE-82 / env-files convention"]
+```
+
+A straight chain: JE-79 must produce the files before JE-80 can wire any consumer to them; JE-80
+must land before JE-81 can verify a bring-up that actually depends on the new files (verifying
+before the switch would just re-verify the old inline config); JE-82, the convention note, closes
+the block once the mechanism is proven.
+
+### Execution
+
+Same one-shot approach as Blocks 1 and 2 — single branch `feature/developer-experience`, one
+commit per issue.
+
+## Resuming this work
+
+> [!danger] The one thing still open: JE-77, cross-service trace propagation
+> This is the only open issue in the milestone. Read this section before touching tracing code
+> again — it records what already passes, what fails, what has been ruled out with evidence, and
+> the next candidate to try.
+
+**What passes.** Both services export spans to Jaeger. Every log line carries a real 32-hex OTel
+`trace_id` (not the old locally-generated one). The Users gRPC **server span now exists**
+(`users.v1.Users/GetUserById`) — earlier in the block this span was missing entirely.
+
+**What fails.** That Users server span is still a **ROOT span** (`refs=0`): no `traceparent`
+arrives with the inbound gRPC call, so Jaeger shows two separate traces — one for the Orders HTTP
+request, one for the Users gRPC call — instead of one joined trace for what is really a single
+user-facing flow.
+
+**Ruled out with evidence — do not re-investigate these:**
+
+- **Instrumentation missing.** It is not; the OTel SDK is loaded in both services.
+- **The gRPC call not happening.** It is; an Orders trace carries a span for
+  `POST http://users:50051/users.v1.Users/GetUserById`, proving the call is made and instrumented
+  on the Orders side.
+- **ESM hoisting.** This WAS a real bug and IS fixed — the SDK now loads via `node --import`
+  rather than a top-of-file `import`, which used to let application code run (and create spans)
+  before the SDK finished patching modules.
+- **The handler being unable to read metadata.** This WAS a real bug and IS fixed —
+  `ServerInterceptingCall` consumes the metadata, so the api-key interceptor now extracts the W3C
+  context from it correctly. Before the fix, the interceptor's metadata access pattern silently
+  dropped the incoming context.
+
+**Next candidate to try.** Orders is likely not injecting the `traceparent` header into the
+outbound gRPC call at all. .NET's `HttpClient` instrumentation produces the POST span seen in
+Orders' trace, but general HTTP client instrumentation is not guaranteed to inject W3C trace
+context into gRPC metadata specifically.
+[`OpenTelemetry.Instrumentation.GrpcNetClient`](https://github.com/open-telemetry/opentelemetry-dotnet-contrib)
+exists for exactly this path and was skipped earlier in the block because it ships **prerelease
+only** (no stable release at the time). Two options: add the prerelease package and re-test, or
+first dump the outbound gRPC metadata from the Orders side (a debug log or a raw interceptor) to
+confirm one way or the other whether `traceparent` is present before deciding to pull in a
+prerelease dependency.
+
+Full investigation detail — including the exact commands run and Jaeger query results — is in the
+JE-77 Linear comments, not duplicated here.
+
+### Operational notes a fresh session needs
+
+- **The observability stack is opt-in.** `jaeger`, `otel-collector`, and `openobserve` all sit
+  behind `profiles: [observability]` in `docker-compose.yml`. A plain `docker compose up` does
+  **not** start them — the SDKs then fail to export with connection-refused errors that look like
+  an instrumentation bug but are actually a missing profile. Bring the stack up with
+  `docker compose --profile observability up -d`.
+- **Where to look.** Traces live in **Jaeger** at `http://localhost:16686`. Logs live in
+  **OpenObserve** at `http://localhost:5080` (`admin@3mrai.local` / `Complexpass#123`). ADR-0019
+  explains why they are two separate backends.
+- **Verification baseline** (the numbers a regression should be checked against): **35 E2E
+  tests**, **184 Users unit tests**. Orders' `dotnet test` has **one pre-existing failure**
+  (`RequestLogTests`) that only fails inside the full suite and passes in isolation — it captures
+  the global `Console.Out`, and something earlier in the full-suite run leaves that redirected.
+  This was confirmed pre-existing by stashing this milestone's changes and re-running; it is not
+  caused by this milestone's work.
+- **Env files are generated, not hand-edited.** After any `terraform apply`, run `make env-file`.
+  Never hand-edit an AUTO-GENERATED box — it is silently overwritten on the next generation; put
+  overrides in the CUSTOM box instead. See [[env-files]].
+
+## Deviations from the original input
+
+Three deviations from what `new-milestone.md` originally asked for, each forced by evidence
+encountered during implementation rather than a planning oversight. Recorded here because,
+without this note, a future reader comparing the original input to what shipped would reasonably
+read these as mistakes.
+
+- **`duration_ms`, not `duration_s`** (block 2). It is what both services already emitted before
+  this milestone, and it is the unit the OTel HTTP semantic conventions specify — changing it to
+  seconds would have meant reformatting a value every consumer already reads correctly.
+- **Masked email, not plaintext** (block 2). The original input asked to filter logs by email; at
+  the time, no email was logged anywhere. Seeding a real email address across every log line, in
+  every backend, is far harder to walk back than to have avoided in the first place — logs
+  propagate to backups, dashboards, and exports faster than any redaction effort can chase them.
+  Auth flows (register/login) log a masked form (`jo*****e@gmail.com`); every other log line uses
+  `email_hash` instead. Related: there is no `SUCCESS` severity in the logging context, because
+  OTel does not define one at the severity level — a successful flow is `INFO` plus
+  `app_event=*_succeeded`, not a distinct level.
+- **One env file per service, not a single `.env.<env>.services`** (block 3). The original input
+  asked for one shared services file. `DATABASE_WRITER_URL` exists in both services with
+  different values AND different formats — a `postgres://` URL for Users versus an ADO connection
+  string (`Server=…;Port=…;`) for Orders — so a single shared file cannot hold both without
+  renaming variables the application code already reads. Per-service files sidestep the collision
+  entirely and make adding a service (`tracking`, `events-pipeline`) additive rather than a
+  rename.
 
 ## Related
 
 - [[milestone-plan]] — convention this plan follows.
 - [[linear-references]] — Linear reference convention.
-- [[phase-c-review-flow]] — batch-review flow and dependency-gate stop points (not triggered here — both Block 1 and Block 2 run one-shot on a single branch).
+- [[phase-c-review-flow]] — batch-review flow and dependency-gate stop points (not triggered here — all three blocks run one-shot on a single branch).
 - [[2026-07-19-scripts-to-python-migration-design]] — Block 1 design spec.
 - [[2026-07-19-scripts-to-python-migration]] — Block 1 implementation plan with detailed task steps.
 - [[2026-07-19-logging-context-and-tracing-design]] — Block 2 design spec.
 - [[2026-07-19-logging-context-and-tracing]] — Block 2 implementation plan with detailed task steps.
+- [[ADR-0019-distributed-tracing-opentelemetry]] — the tracing-backend decision (Jaeger, not OpenObserve) that came out of block 2, and the recorded JE-77 known limitation.
+- [[2026-07-20-env-file-generation-design]] — Block 3 design spec.
+- [[env-files]] — Block 3 convention: the five generated files, their consumers, and the AUTO-GENERATED/CUSTOM boxes.
 - [[orders-service-milestone]] — precedent for the one-shot, single-branch execution approach.
