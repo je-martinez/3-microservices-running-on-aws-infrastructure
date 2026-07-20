@@ -7,12 +7,22 @@ TF_LOCAL_DIR := infra/environments/local
 TF           := terraform -chdir=$(TF_LOCAL_DIR)
 FLOCI_URL    := http://localhost:4566
 ENV_FILE     := .env
+
+# Python interpreter for the infra scripts. ABSOLUTE on purpose: neither this
+# Makefile nor Terraform's local-exec may depend on whichever `python3` sits on
+# PATH — a developer's shell can already be inside an unrelated venv, and an
+# apply must never silently pick up a stray interpreter. `make scripts-setup`
+# creates it; the apply-triggering targets depend on that, so it is invisible.
+REPO_ROOT := $(shell pwd)
+VENV      := $(REPO_ROOT)/.venv
+PY        := $(VENV)/bin/python
+
 # Single reusable per-engine RDS-proxy-port discovery. Floci assigns those ports
 # (7000-7099) by cluster CREATION ORDER, which is NOT stable across applies, so
 # postgres/mysql can flip between 7001/7002. This script reads the port for a
 # given engine from `describe-db-clusters` (which exposes Engine per cluster) —
-# never hardcode 7001=Postgres / 7002=MySQL. Also used by bootstrap.sh.
-DISCOVER_DB_PORT := $(TF_LOCAL_DIR)/scripts/discover-db-port.sh
+# never hardcode 7001=Postgres / 7002=MySQL. Also imported by bootstrap.py.
+DISCOVER_DB_PORT := $(TF_LOCAL_DIR)/scripts/discover_db_port.py
 
 # Terraform talks to Floci through the host-published port; the AWS provider in
 # environments/local/providers.tf pins every endpoint to localhost:4566.
@@ -23,12 +33,26 @@ export AWS_SECRET_ACCESS_KEY ?= test
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps test-unit test-e2e test-all backend-up infra-init infra-plan infra-up infra-up-post infra-down infra-output env-file migrate bootstrap clean observability-up observability-down observability-dashboards
+.PHONY: help up down logs build ps test-unit test-e2e test-all backend-up infra-init infra-plan infra-up infra-up-post infra-down infra-output env-file migrate bootstrap clean observability-up observability-down observability-dashboards scripts-setup
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| sort \
 		| awk 'BEGIN {FS = ":.*?## "} {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
+
+## --- Python infra scripts ---
+
+scripts-setup: $(PY) ## Create .venv and install the infra script package (idempotent)
+
+$(PY):
+	@# A FILE target, so this is naturally idempotent: once the interpreter
+	@# exists, make skips the recipe. Every apply-triggering target depends on
+	@# scripts-setup, so a fresh clone can't hit a cryptic "python: not found"
+	@# from inside a terraform local-exec.
+	python3 -m venv $(VENV)
+	$(VENV)/bin/pip install -q --upgrade pip
+	$(VENV)/bin/pip install -q -e infra/scripts
+	@echo "infra script venv ready at $(VENV)"
 
 ## --- Docker Compose ---
 
@@ -73,7 +97,7 @@ infra-init: ## terraform init (environments/local) into the S3 backend
 infra-plan: ## terraform plan (environments/local)
 	$(TF) plan
 
-infra-up: ## terraform apply -auto-approve (environments/local), then refresh .env
+infra-up: scripts-setup ## terraform apply -auto-approve (environments/local), then refresh .env
 	$(TF) apply -auto-approve
 	$(MAKE) env-file
 
@@ -103,8 +127,8 @@ env-file: ## Refresh Cognito IDs + API_GATEWAY_URL in ./.env from terraform outp
 	apiid="$$($(TF) output -raw api_id)"; \
 	dbhost="$$($(TF) output -raw db_writer_endpoint)"; \
 	ordersdbhost="$$($(TF) output -raw orders_db_writer_endpoint)"; \
-	pgport="$$(bash $(DISCOVER_DB_PORT) postgres)"; \
-	myport="$$(bash $(DISCOVER_DB_PORT) mysql)"; \
+	pgport="$$($(PY) $(DISCOVER_DB_PORT) postgres)"; \
+	myport="$$($(PY) $(DISCOVER_DB_PORT) mysql)"; \
 	touch $(ENV_FILE); \
 	rest=$$(mktemp); \
 	awk '/^# >>> AUTO-GENERATED/{skip=1;next} skip&&/^# <<< END AUTO-GENERATED/{skip=0;next} skip{next} {print}' $(ENV_FILE) \
@@ -150,7 +174,7 @@ migrate: ## Apply Prisma migrations (users) against Floci's Postgres (idempotent
 	@# The users runtime image is production-only and has no prisma CLI/prisma/
 	@# dir, so it cannot run this itself (see services/users/Dockerfile).
 	docker build --target deps -t 3mrai-users:deps -f services/users/Dockerfile .
-	@pgport="$$(bash $(DISCOVER_DB_PORT) postgres)"; \
+	@pgport="$$($(PY) $(DISCOVER_DB_PORT) postgres)"; \
 	docker run --rm --network 3mrai_3mrai-network \
 		-e DATABASE_WRITER_URL="postgres://test:test@floci:$$pgport/users" \
 		-w /app/services/users \
@@ -158,7 +182,7 @@ migrate: ## Apply Prisma migrations (users) against Floci's Postgres (idempotent
 		node node_modules/prisma/build/index.js migrate deploy --schema=./prisma/schema.prisma
 	@echo "Prisma migrations applied."
 
-infra-up-post: ## Phase 2: create DB app-users in Terraform (post-effects), after phase 1
+infra-up-post: scripts-setup ## Phase 2: create DB app-users in Terraform (post-effects), after phase 1
 	@# Two-phase apply (see docs/superpowers/specs/2026-07-15-two-phase-post-effects-design.md
 	@# and environments/local/post/README.md): a SEPARATE Terraform root with its
 	@# own state that reads phase-1 outputs + the master secret by ARN, waits for
@@ -170,12 +194,12 @@ infra-up-post: ## Phase 2: create DB app-users in Terraform (post-effects), afte
 	@# Floci assigns those ports by creation order and they can flip across
 	@# applies, so the variable's default (7001) is not reliable. (mysql is
 	@# gated off locally; pass -var mysql_port=... too if it is ever enabled.)
-	pgport="$$(bash $(DISCOVER_DB_PORT) postgres)"; \
+	pgport="$$($(PY) $(DISCOVER_DB_PORT) postgres)"; \
 	cd $(TF_LOCAL_DIR)/post && terraform init -reconfigure -backend-config=backend.hcl >/dev/null && terraform apply -auto-approve -var pg_port=$$pgport
 
 ## --- Orchestration ---
 
-bootstrap: ## Bring the whole local chain up from scratch, in dependency order
+bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in dependency order
 	@# Order matters. The services cannot start before the infra exists: `users`
 	@# validates COGNITO_* with Zod at boot, and those IDs only exist after apply.
 	@# So: Floci first, then terraform, then .env, then migrations (DB needs
