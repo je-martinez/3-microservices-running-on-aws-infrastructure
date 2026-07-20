@@ -151,6 +151,12 @@ services:
       # Stated explicitly rather than left to the SDK default: the Node and
       # .NET SDKs default differently, and a mismatch fails silently.
       - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      # Traces only. NodeSDK AUTO-DETECTS a metrics exporter from the endpoint
+      # above, so it cannot be switched off in code (`metricReader: undefined`
+      # just means "not overridden" and auto-detection still wins). The
+      # collector runs no metrics pipeline, so every cycle failed with 404.
+      # Adding metrics stays a deliberate decision, not an SDK default.
+      - OTEL_METRICS_EXPORTER=none
       # Shared symmetric key for inter-service gRPC auth. Local-only value; the
       # Orders service MUST use the same value. Prod reads it from Secrets Manager.
       - GRPC_API_KEY=local-dev-grpc-key
