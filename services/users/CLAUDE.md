@@ -108,7 +108,12 @@ services/users/
   module body runs, so importing it "first" still left instrumented libraries already loaded.
 - The gRPC server needs a **manual** server span (`shared/observability/grpc-tracing.ts`): the
   x-api-key interceptor's `ServerInterceptingCall` consumes the metadata, so the auto
-  instrumentation sees nothing. The caller's W3C context is extracted in that interceptor.
+  instrumentation sees nothing. The caller's W3C context is extracted in that interceptor
+  (`extractParentContext`), but **activated in `onReceiveHalfClose`, not `onReceiveMetadata`** —
+  the metadata callback returns synchronously, long before grpc-js dispatches the async handler,
+  so a `context.with` there unwinds before the handler runs and the server span comes out a ROOT
+  (the JE-77 bug: two disjoint traces instead of one). Activate the extracted context in the
+  continuation that dispatches the handler.
 
 ## 5. Agent rules
 - Converse with the user in **Spanish**; write code and comments in **English**.
