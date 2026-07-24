@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: draft
 created: 2026-07-19
-updated: 2026-07-19
+updated: 2026-07-23
 tags:
   - type/spec
   - area/shared
@@ -18,6 +18,8 @@ related:
   - "[[2026-07-16-scoped-current-user-context-design]]"
   - "[[testing]]"
   - "[[ADR-0003-grpc-inter-service]]"
+  - "[[ADR-0019-distributed-tracing-opentelemetry]]"
+  - "[[developer-experience-milestone]]"
 ---
 
 # Logging Context and Tracing Design
@@ -167,6 +169,23 @@ resolved (see "Reconciling with ADR-0018" above) rather than deferred.
   pipeline alongside its `logs` pipeline, exporting to the same OpenObserve instance.
 - W3C `traceparent` propagates over gRPC automatically, so the Orders → Users
   identity-resolution call appears as one trace with parent/child spans.
+
+> [!warning] This assumption did not hold — corrected post-implementation (JE-77)
+> "Propagates automatically" turned out to be only half true, and the half that failed is what
+> the create-order flow fell through: the Users gRPC server span came out a **root span**
+> instead of a child, so Orders and Users produced two disjoint traces for one flow. Automatic
+> injection on the **Orders side** does work — `HttpClient` instrumentation puts a correct,
+> sampled `traceparent` on the outbound gRPC call with no extra package needed (the prerelease
+> `OpenTelemetry.Instrumentation.GrpcNetClient` some earlier debugging considered was never
+> necessary). The failure was entirely on the **Users receive side**: the `x-api-key` gRPC
+> interceptor extracted the inbound W3C context correctly, but activated it in a callback
+> (`onReceiveMetadata`) that returns before grpc-js dispatches the async handler, so the
+> AsyncLocalStorage scope had unwound by the time the server span was created. Manual context
+> extraction in the interceptor was already present; what was missing was deferring
+> **activation** to `onReceiveHalfClose`, the continuation that actually dispatches the handler.
+> Full account: [[ADR-0019-distributed-tracing-opentelemetry]] and
+> [[developer-experience-milestone#The JE-77 fix — applied and verified]].
+
 - The local `trace_id` sources (`req.id`, `TraceIdentifier`) are replaced by OTel's real trace
   id — that is the join key between logs and traces.
 
@@ -250,3 +269,5 @@ three-layer treatment; existing E2E must keep passing (baseline: 35 passed). Spe
 - [[2026-07-16-scoped-current-user-context-design]]
 - [[testing]]
 - [[ADR-0003-grpc-inter-service]]
+- [[ADR-0019-distributed-tracing-opentelemetry]] — records the JE-77 fix that corrects the "propagates automatically" assumption above.
+- [[developer-experience-milestone]] — Block 2 status and the applied JE-77 fix record.

@@ -4,7 +4,7 @@ type: plan
 area: shared
 status: draft
 created: 2026-07-19
-updated: 2026-07-19
+updated: 2026-07-23
 tags:
   - type/plan
   - area/shared
@@ -15,6 +15,8 @@ related:
   - "[[ADR-0018-observability-openobserve]]"
   - "[[2026-07-12-prisma-lazy-promise-als]]"
   - "[[testing]]"
+  - "[[ADR-0019-distributed-tracing-opentelemetry]]"
+  - "[[developer-experience-milestone]]"
 ---
 
 # Logging Context and Tracing Implementation Plan
@@ -888,6 +890,16 @@ Add after `builder.Services.AddHttpContextAccessor();`:
 // Distributed tracing. GrpcNetClient instrumentation is what makes the
 // Orders -> Users identity call a child span of the incoming request rather
 // than an unrelated trace: it injects the W3C traceparent header automatically.
+//
+// CORRECTION (JE-77, post-implementation): this comment's premise about Orders was right, but
+// incomplete as an explanation of the bug this milestone shipped with. A live diagnostic proved
+// Orders' injection was fine — the traceparent arrived at Users correct and sampled. The actual
+// failure was on the Users RECEIVE side: the api-key interceptor activated the extracted W3C
+// context in a callback that returned before grpc-js dispatched the async handler, so the
+// AsyncLocalStorage scope had already unwound when the server span was created. Fixed by
+// deferring activation to onReceiveHalfClose. See
+// [[ADR-0019-distributed-tracing-opentelemetry]] and
+// [[developer-experience-milestone#The JE-77 fix — applied and verified]].
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(r => r.AddService(
         serviceName: "orders",
@@ -1119,7 +1131,21 @@ docker compose logs --no-log-prefix --tail 200 users | grep '"http_route"' | tai
   | python3 -c "import json,sys; print('users  trace:', json.load(sys.stdin).get('trace_id'))"
 ```
 
-Expected: the two trace ids are IDENTICAL for the same logical request. That is the proof W3C `traceparent` propagated over gRPC. If they differ, gRPC client instrumentation is not injecting the header — check `AddGrpcClientInstrumentation` in Orders.
+Expected: the two trace ids are IDENTICAL for the same logical request. That is the proof W3C `traceparent` propagated over gRPC.
+
+> [!warning] CORRECTION (JE-77, post-implementation) — the debugging lead below was wrong
+> This step originally continued: *"If they differ, gRPC client instrumentation is not injecting
+> the header — check `AddGrpcClientInstrumentation` in Orders."* That lead was followed and
+> refuted: a live dump of the inbound gRPC metadata on the Users side showed the `traceparent`
+> arrived correct and sampled (`00-<traceid>-<spanid>-01`), proving Orders' injection was never
+> the problem. The real failure — a Users gRPC server span coming out a root span instead of a
+> child — was on the **Users receive side**: the api-key interceptor activated the extracted W3C
+> context in `onReceiveMetadata`, a callback that returns before grpc-js dispatches the async
+> handler, so the AsyncLocalStorage scope had unwound by span-creation time. If this check ever
+> fails again, look at **context activation timing in the Users interceptor**
+> (`onReceiveHalfClose`, not `onReceiveMetadata`) before suspecting Orders' client
+> instrumentation. Full account: [[ADR-0019-distributed-tracing-opentelemetry]],
+> [[developer-experience-milestone#The JE-77 fix — applied and verified]].
 
 - [ ] **Step 3: Confirm the trace is queryable in OpenObserve**
 
@@ -1203,3 +1229,5 @@ git commit -m "docs(vault): add ADR-0019 tracing decision and the logging-contex
 - [[ADR-0018-observability-openobserve]]
 - [[2026-07-12-prisma-lazy-promise-als]]
 - [[testing]]
+- [[ADR-0019-distributed-tracing-opentelemetry]] — records the JE-77 fix that corrects the "injects automatically" comment and the debugging lead in this plan.
+- [[developer-experience-milestone]] — Block 2 status and the applied JE-77 fix record.

@@ -4,7 +4,7 @@ type: plan
 area: infra
 status: active
 created: 2026-07-19
-updated: 2026-07-19
+updated: 2026-07-23
 tags:
   - type/plan
   - area/infra
@@ -51,20 +51,20 @@ related:
 
 Logical execution plan for the **Developer Experience** milestone (Linear project "3MRAI Company", [milestone](https://linear.app/je-martinez/project/3mrai-company-da39253a1d6f)). This note tracks the milestone's task sequence and blocking dependencies as blocks are specced and their issues created — see the framing note below.
 
-> [!warning] Status — 23/24 Done, awaiting a PR decision
-> All three blocks are implemented on a single branch, `feature/developer-experience` (37 commits,
-> clean working tree, all pushed). **23 of 24 issues are Done.** The one open issue is
-> [JE-77](https://linear.app/je-martinez/issue/JE-77) (cross-service trace propagation) — it is
-> not failing outright, but its acceptance criterion (one joined trace across both services) is
-> not yet met; see [[#Resuming this work]] below for exactly where it stands and what to try next.
-> **No PR has been opened** from `feature/developer-experience` into `main` — that decision is
-> pending the user, since JE-77 is still open.
+> [!success] Status — 24/24 Done
+> All three blocks are implemented on a single branch, `feature/developer-experience`, clean
+> working tree, all pushed. **All 24 issues are Done.** The last open issue,
+> [JE-77](https://linear.app/je-martinez/issue/JE-77) (cross-service trace propagation), is now
+> **fixed and verified** — the create-order flow produces one joined Jaeger trace across Orders
+> and Users, not two disjoint ones; see [[#The JE-77 fix — applied and verified]] below for the
+> root cause and the fix. Whether to open a PR from `feature/developer-experience` into `main` is
+> a decision for the user.
 
 > [!info] Three independent blocks, one milestone
 > This milestone groups three independent pieces of developer-experience work under a single Linear milestone, all executed one-shot on the same branch.
 >
 > - **Block 1 — Scripts to Python** (Done, merged into `feature/developer-experience`). Spec: [[2026-07-19-scripts-to-python-migration-design]]. Plan: [[2026-07-19-scripts-to-python-migration]].
-> - **Block 2 — Logging context + distributed tracing** (10/11 Done; JE-77 open). Shared cross-service log context (trace/span id, identity, hashed email, domain ids), flow-level logs on register/login/create-order, real distributed tracing over gRPC via the OpenTelemetry SDK. The backend split from the original OpenObserve-only intent — see ADR-0019 and [[#Deviations from the original input]]. Spec: [[2026-07-19-logging-context-and-tracing-design]]. Plan: [[2026-07-19-logging-context-and-tracing]].
+> - **Block 2 — Logging context + distributed tracing** (11/11 Done). Shared cross-service log context (trace/span id, identity, hashed email, domain ids), flow-level logs on register/login/create-order, real distributed tracing over gRPC via the OpenTelemetry SDK. The backend split from the original OpenObserve-only intent — see ADR-0019 and [[#Deviations from the original input]]. JE-77 (cross-service trace propagation) is fixed and verified — see [[#The JE-77 fix — applied and verified]]. Spec: [[2026-07-19-logging-context-and-tracing-design]]. Plan: [[2026-07-19-logging-context-and-tracing]].
 > - **Block 3 — Env-file auto-generation** (Done). `make env-file` generates five files from Terraform outputs, split into AUTO-GENERATED (rewritten) and CUSTOM (preserved) boxes per consumer; services consume theirs via compose `env_file:`. Spec: [[2026-07-20-env-file-generation-design]]. Convention: [[env-files]].
 
 ## Logical phases
@@ -72,7 +72,7 @@ Logical execution plan for the **Developer Experience** milestone (Linear projec
 | Phase | Issues | Status | Description |
 |---|---|---|---|
 | Block 1 — Scripts to Python | JE-59…JE-67 | Done — merged into `feature/developer-experience` | Migrate the repo's 5 remaining bash scripts to Python behind a shared `lib3mrai` package; freeze every script's external interface; wire the Python-first scripting-language convention into both `CLAUDE.md` files. |
-| Block 2 — Logging context + tracing | JE-68…JE-78 | 10/11 Done — JE-77 open | Shared cross-service log context (trace/span id, identity, hashed email, domain ids) on every log line, flow-level logs on register/login/create-order, real distributed tracing over gRPC via the OpenTelemetry SDK. JE-77 (cross-service trace propagation) is the one open issue — see [[#Resuming this work]]. |
+| Block 2 — Logging context + tracing | JE-68…JE-78 | 11/11 Done | Shared cross-service log context (trace/span id, identity, hashed email, domain ids) on every log line, flow-level logs on register/login/create-order, real distributed tracing over gRPC via the OpenTelemetry SDK. JE-77 (cross-service trace propagation) is fixed and verified — see [[#The JE-77 fix — applied and verified]]. |
 | Block 3 — Env-file auto-generation | JE-79…JE-82 | Done | `make env-file` generates five per-consumer files from Terraform outputs, split AUTO-GENERATED/CUSTOM; services consume theirs via compose `env_file:`. |
 
 ## Block 1 — Scripts to Python (Done)
@@ -143,16 +143,16 @@ One-shot on a single branch `feature/developer-experience`, one commit per issue
 
 Full `make infra-down` → `make bootstrap` → `make env-file` → gateway E2E with a real Cognito JWT, matching the pre-migration result, plus a re-run proving idempotence.
 
-## Block 2 — Logging context + distributed tracing (10/11 — JE-77 open)
+## Block 2 — Logging context + distributed tracing (11/11 Done)
 
-> [!warning] JE-77 is the one issue still open in the whole milestone
-> JE-68…JE-76 and JE-78 are Done. [JE-77](https://linear.app/je-martinez/issue/JE-77)
-> (verify cross-service trace propagation and PII containment) is **not** closed: PII
-> containment passes, but trace propagation does not yet join the two services into one
-> trace. See [[#Resuming this work]] for the exact failure and what to try next. JE-78 (the
-> ADR + convention note) went ahead of JE-77's closure because ADR-0019 records this as a
-> **known limitation**, not a blocker to documenting the decision — see its own "Known
-> limitation, stated honestly" consequence.
+> [!success] JE-77 is fixed and verified
+> All of JE-68…JE-78 are Done. [JE-77](https://linear.app/je-martinez/issue/JE-77) (verify
+> cross-service trace propagation and PII containment) now passes both halves of its
+> acceptance criterion: PII containment passes, and trace propagation joins the two services
+> into one trace. See [[#The JE-77 fix — applied and verified]] for the root cause and the fix
+> that was applied after this plan note was first written. JE-78 (the ADR + convention note)
+> shipped ahead of JE-77's closure — at the time, ADR-0019 recorded the gap as a known
+> limitation; ADR-0019 has since been updated to record the fix.
 
 Attach a shared cross-service log context (trace/span id, identity, hashed email, domain ids) to every log line so one user's or order's activity can be filtered end to end; add flow-level start/success/failure logs to the three flows that carry diagnostic value (register, login, create-order); and add real distributed tracing across the gRPC boundary with the OpenTelemetry SDK. The backend split from the original OpenObserve-only intent to Jaeger for traces — see [[ADR-0019-distributed-tracing-opentelemetry]] and [[#Deviations from the original input]]. Structured by LAYER rather than by service, so the shared schema is defined once and both services adopt it together instead of diverging.
 
@@ -169,7 +169,7 @@ Attach a shared cross-service log context (trace/span id, identity, hashed email
 | 7 | [JE-74](https://linear.app/je-martinez/issue/JE-74) | feat(orders): bootstrap OpenTelemetry tracing | Tracing | JE-70 |
 | 8 | [JE-75](https://linear.app/je-martinez/issue/JE-75) | feat(observability): use the real OTel trace id in logs across both services | Tracing | JE-73, JE-74 |
 | 9 | [JE-76](https://linear.app/je-martinez/issue/JE-76) | feat(observability): add a traces pipeline to the otel collector | Tracing | JE-73, JE-74 |
-| 10 | [JE-77](https://linear.app/je-martinez/issue/JE-77) | test(observability): verify cross-service trace propagation and PII containment | Verify | JE-75, JE-76, JE-71, JE-72 |
+| 10 | [JE-77](https://linear.app/je-martinez/issue/JE-77) | test(observability): verify cross-service trace propagation and PII containment — fixed, see [[#The JE-77 fix — applied and verified]] | Verify | JE-75, JE-76, JE-71, JE-72 |
 | 11 | [JE-78](https://linear.app/je-martinez/issue/JE-78) | docs(vault): ADR-0019 tracing decision and the logging-context convention | Docs | JE-77 |
 
 ### Dependencies
@@ -221,8 +221,9 @@ JE-68 is the root: the shared log-context store and the cross-service email-hash
 > [!note] JE-78 shipped ahead of JE-77's closure
 > The diagram's edge JE-77 → JE-78 reflects the planned order, not what happened: ADR-0019 and
 > the logging-context convention (JE-78) were written and merged documenting propagation as a
-> **known limitation** rather than waiting on JE-77 to pass first. JE-77 remains open to track
-> closing that gap; see [[#Resuming this work]].
+> **known limitation** rather than waiting on JE-77 to pass first. JE-77 has since been fixed
+> and verified — see [[#The JE-77 fix — applied and verified]] — and ADR-0019 updated to record
+> the resolution.
 
 ### Execution
 
@@ -285,46 +286,61 @@ the block once the mechanism is proven.
 Same one-shot approach as Blocks 1 and 2 — single branch `feature/developer-experience`, one
 commit per issue.
 
-## Resuming this work
+## The JE-77 fix — applied and verified
 
-> [!danger] The one thing still open: JE-77, cross-service trace propagation
-> This is the only open issue in the milestone. Read this section before touching tracing code
-> again — it records what already passes, what fails, what has been ruled out with evidence, and
-> the next candidate to try.
+> [!success] JE-77 is Done — this section is now a record of what was fixed, not a to-do
+> This section originally read "Resuming this work" and described JE-77 as the one open issue in
+> the milestone, ending on a "next candidate to try" that turned out to be the wrong lead. It is
+> kept here, corrected, as the historical record of the investigation and the actual fix, so a
+> future reader sees what was done rather than a stale to-do.
 
-**What passes.** Both services export spans to Jaeger. Every log line carries a real 32-hex OTel
-`trace_id` (not the old locally-generated one). The Users gRPC **server span now exists**
-(`users.v1.Users/GetUserById`) — earlier in the block this span was missing entirely.
+**What passed before the fix.** Both services exported spans to Jaeger. Every log line carried a
+real 32-hex OTel `trace_id` (not the old locally-generated one). The Users gRPC server span
+existed (`users.v1.Users/GetUserById`) — earlier in the block this span was missing entirely.
 
-**What fails.** That Users server span is still a **ROOT span** (`refs=0`): no `traceparent`
-arrives with the inbound gRPC call, so Jaeger shows two separate traces — one for the Orders HTTP
-request, one for the Users gRPC call — instead of one joined trace for what is really a single
-user-facing flow.
+**What failed before the fix.** That Users server span came out a **ROOT span** (`refs=0`):
+Jaeger showed two separate traces — one for the Orders HTTP request, one for the Users gRPC call
+— instead of one joined trace for what is really a single user-facing flow.
 
-**Ruled out with evidence — do not re-investigate these:**
+**Hypotheses ruled out earlier in the block (correctly, with evidence):**
 
-- **Instrumentation missing.** It is not; the OTel SDK is loaded in both services.
-- **The gRPC call not happening.** It is; an Orders trace carries a span for
-  `POST http://users:50051/users.v1.Users/GetUserById`, proving the call is made and instrumented
-  on the Orders side.
-- **ESM hoisting.** This WAS a real bug and IS fixed — the SDK now loads via `node --import`
+- **Instrumentation missing.** It was not; the OTel SDK is loaded in both services.
+- **The gRPC call not happening.** It was happening; an Orders trace carried a span for
+  `POST http://users:50051/users.v1.Users/GetUserById`, proving the call was made and
+  instrumented on the Orders side.
+- **ESM hoisting.** This was a real bug and was fixed — the SDK loads via `node --import`
   rather than a top-of-file `import`, which used to let application code run (and create spans)
   before the SDK finished patching modules.
-- **The handler being unable to read metadata.** This WAS a real bug and IS fixed —
-  `ServerInterceptingCall` consumes the metadata, so the api-key interceptor now extracts the W3C
-  context from it correctly. Before the fix, the interceptor's metadata access pattern silently
+- **The handler being unable to read metadata.** This was a real bug and was fixed —
+  `ServerInterceptingCall` consumes the metadata, so the api-key interceptor extracts the W3C
+  context from it correctly. Before that fix, the interceptor's metadata access pattern silently
   dropped the incoming context.
 
-**Next candidate to try.** Orders is likely not injecting the `traceparent` header into the
-outbound gRPC call at all. .NET's `HttpClient` instrumentation produces the POST span seen in
-Orders' trace, but general HTTP client instrumentation is not guaranteed to inject W3C trace
-context into gRPC metadata specifically.
-[`OpenTelemetry.Instrumentation.GrpcNetClient`](https://github.com/open-telemetry/opentelemetry-dotnet-contrib)
-exists for exactly this path and was skipped earlier in the block because it ships **prerelease
-only** (no stable release at the time). Two options: add the prerelease package and re-test, or
-first dump the outbound gRPC metadata from the Orders side (a debug log or a raw interceptor) to
-confirm one way or the other whether `traceparent` is present before deciding to pull in a
-prerelease dependency.
+**The candidate this note previously proposed next — REFUTED.** The leading hypothesis at the
+time this section was written was that Orders was not injecting the `traceparent` header into
+the outbound gRPC call, with `OpenTelemetry.Instrumentation.GrpcNetClient` (prerelease-only at
+the time) proposed as the fix. A live diagnostic — dumping the inbound gRPC metadata on the Users
+side — disproved this directly: the `traceparent` arrived **correct and sampled**
+(`00-<traceid>-<spanid>-01`). Orders' `HttpClient` instrumentation was injecting it fine all
+along; the prerelease package was never needed.
+
+**The actual root cause — on the Users receive side.** The `x-api-key` gRPC interceptor extracted
+the caller's W3C context correctly, but activated it in `onReceiveMetadata` via
+`context.with(parent, () => mdNext(metadata))`. That callback returns synchronously, while
+grpc-js dispatches the async handler on a **later tick** — so by the time `withGrpcServerSpan`
+ran, the AsyncLocalStorage scope had already unwound, leaving the server span parentless. Same
+failure family as [[2026-07-12-prisma-lazy-promise-als|the Prisma-lazy-promise/ALS pitfall]]: an
+async continuation running outside the context it needs.
+
+**The fix.** Stash the extracted context and re-activate it in `onReceiveHalfClose` — the
+continuation that actually dispatches the handler — via
+`context.with(parentContext, () => hcNext())`. The propagation logic was extracted into a pure
+`extractParentContext(metadata)` helper, covered by unit tests.
+
+**Verification.** Jaeger now shows `users.v1.Users/GetUserById` as a child of the Orders span —
+one joined 8-span trace. 188 Users tests (184 baseline + 4 new regression tests), lint, build,
+and 17/17 gateway E2E all pass. Fixed and verified in commit `a62c5fb` on
+`feature/developer-experience` (pushed).
 
 Full investigation detail — including the exact commands run and Jaeger query results — is in the
 JE-77 Linear comments, not duplicated here.
@@ -384,7 +400,8 @@ read these as mistakes.
 - [[2026-07-19-scripts-to-python-migration]] — Block 1 implementation plan with detailed task steps.
 - [[2026-07-19-logging-context-and-tracing-design]] — Block 2 design spec.
 - [[2026-07-19-logging-context-and-tracing]] — Block 2 implementation plan with detailed task steps.
-- [[ADR-0019-distributed-tracing-opentelemetry]] — the tracing-backend decision (Jaeger, not OpenObserve) that came out of block 2, and the recorded JE-77 known limitation.
+- [[ADR-0019-distributed-tracing-opentelemetry]] — the tracing-backend decision (Jaeger, not OpenObserve) that came out of block 2, and the record of the JE-77 fix.
+- [[2026-07-12-prisma-lazy-promise-als]] — same ALS-scope-unwinding failure family as the JE-77 root cause.
 - [[2026-07-20-env-file-generation-design]] — Block 3 design spec.
 - [[env-files]] — Block 3 convention: the five generated files, their consumers, and the AUTO-GENERATED/CUSTOM boxes.
 - [[orders-service-milestone]] — precedent for the one-shot, single-branch execution approach.

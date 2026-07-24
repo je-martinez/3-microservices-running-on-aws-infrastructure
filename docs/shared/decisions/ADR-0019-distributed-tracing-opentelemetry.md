@@ -5,7 +5,7 @@ area: shared
 status: accepted
 id: ADR-0019
 created: 2026-07-19
-updated: 2026-07-19
+updated: 2026-07-23
 deciders: [Jose E. Martinez]
 supersedes: null
 superseded-by: null
@@ -19,6 +19,8 @@ related:
   - "[[2026-07-19-logging-context-and-tracing-design]]"
   - "[[logging-context]]"
   - "[[ADR-0003-grpc-inter-service]]"
+  - "[[2026-07-12-prisma-lazy-promise-als]]"
+  - "[[developer-experience-milestone]]"
 ---
 
 # ADR-0019: Distributed Tracing via OpenTelemetry, Split from OpenObserve to Jaeger
@@ -68,12 +70,27 @@ logs stay in OpenObserve.**
 - **Reversible:** the collector's trace pipeline is a standard OTLP exporter. Re-pointing it at
   another backend — including OpenObserve, if a future build's ingest improves — is a
   configuration change, not a re-instrumentation of either service.
-- **Known limitation, stated honestly:** cross-service traces do **not** yet join. Both services
-  export spans, and the Users gRPC server span now exists, but the W3C `traceparent` is not
-  propagating across the Orders → Users gRPC boundary (see [[ADR-0003-grpc-inter-service]]), so
-  each service still produces its own, separate trace for what is really one user-facing flow.
-  Logs still correlate per-service via `trace_id` per [[logging-context]]. Tracked as a follow-up
-  in [JE-77](https://linear.app/je-martinez/issue/JE-77).
+- **Resolved: cross-service traces now join into one trace.** The create-order flow
+  (Orders → Users gRPC identity call, see [[ADR-0003-grpc-inter-service]]) produces a single
+  8-span Jaeger trace, with the Users `users.v1.Users/GetUserById` server span a **child** of the
+  Orders span, not a second root. The root cause was on the Users **receive** side, not on
+  Orders' injection side: the `x-api-key` gRPC interceptor extracted the caller's W3C
+  `traceparent` correctly, but activated it in `onReceiveMetadata` via
+  `context.with(parent, () => mdNext(metadata))` — that callback returns synchronously, while
+  grpc-js dispatches the async handler on a **later tick**, so the AsyncLocalStorage scope had
+  already unwound by the time the server span was created, leaving it parentless (`refs=0`).
+  Same failure family as [[2026-07-12-prisma-lazy-promise-als|the Prisma-lazy-promise/ALS
+  pitfall]]. The fix stashes the extracted context and re-activates it in
+  `onReceiveHalfClose` — the continuation that actually dispatches the handler
+  (`context.with(parentContext, () => hcNext())`) — with the propagation logic extracted into a
+  pure, unit-tested `extractParentContext(metadata)` helper. An earlier diagnosis blamed Orders
+  for not injecting the `traceparent` (and considered adding the prerelease
+  `OpenTelemetry.Instrumentation.GrpcNetClient` package) — a live dump of the inbound gRPC
+  metadata on the Users side proved that wrong: the `traceparent` arrived correct and sampled
+  (`00-<traceid>-<spanid>-01`); Orders' instrumentation was never the problem. Verified with 188
+  Users tests (184 baseline + 4 new regression), lint, build, and 17/17 gateway E2E all green.
+  Fixed and verified in commit `a62c5fb` on `feature/developer-experience`;
+  [JE-77](https://linear.app/je-martinez/issue/JE-77) is Done.
 
 ## Supersedes
 
@@ -89,3 +106,5 @@ logs stay in OpenObserve.**
 - [[2026-07-19-logging-context-and-tracing-design]]
 - [[logging-context]]
 - [[ADR-0003-grpc-inter-service]]
+- [[2026-07-12-prisma-lazy-promise-als]] — same ALS-scope-unwinding failure family as the JE-77 root cause.
+- [[developer-experience-milestone]] — Block 2 status, now closed at 11/11 with JE-77 fixed.
