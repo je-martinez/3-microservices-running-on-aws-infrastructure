@@ -18,9 +18,10 @@ prove nothing about whether the endpoint uses it.
 ## The two identities
 
 Every tracking here is seeded with BOTH a `usr_` id and a Cognito sub, and they are
-deliberately different strings, because that is the situation in production: Orders
-sends the internal `usr_` id over gRPC while the gateway hands this service the
-JWT's `sub` in `x-user-id`. A fixture that used one value for both would make the
+deliberately different strings, because that is the situation in production: the
+row's `user_id` is the internal `usr_` id resolved through Users at creation, while
+the gateway hands this service the JWT's `sub` in `x-user-id`. A fixture that used
+one value for both would make the
 whole suite pass against a service scoped by the wrong column — which is exactly
 how the original defect survived 253 tests.
 """
@@ -37,7 +38,7 @@ from src.shared.audit.audit_actor import AuditActor
 
 pytestmark = pytest.mark.integration
 
-# The INTERNAL ids Orders resolves and sends over gRPC.
+# The INTERNAL ids, as resolved through Users at creation time.
 USER_A = "usr_aaaaaaaaaaaaaaaaaaaaa"
 USER_B = "usr_bbbbbbbbbbbbbbbbbbbbb"
 
@@ -150,8 +151,8 @@ class TestSingleRead:
     def test_datetime_is_iso_8601_with_an_explicit_z(
         self, client: TestClient, session: Session
     ) -> None:
-        """Matches what gRPC puts on the wire. The columns are naive UTC, so a bare
-        `isoformat()` would emit no offset and leave the client guessing."""
+        """The columns are naive UTC, so a bare `isoformat()` would emit no offset
+        and leave the client guessing which zone it is in."""
         seed(session, order_id="ord_read00000000000003")
         body = client.get(
             "/v1/trackings/ord_read00000000000003", headers=as_user(SUB_A)
@@ -254,7 +255,7 @@ class TestOwnership:
 class TestScopeIsTheCognitoSubNotTheUserId:
     """The regression guard for the identity defect these reads shipped with.
 
-    `tracking.user_id` holds the internal `usr_` id Orders sends over gRPC, while
+    `tracking.user_id` holds the internal `usr_` id resolved through Users, while
     the gateway hands this service the JWT's `sub` in `x-user-id`
     (`proxy_set_header x-user-id $jwt_sub`). Scoping the reads by `user_id`
     therefore compared a sub against a `usr_` id and matched NOTHING — every

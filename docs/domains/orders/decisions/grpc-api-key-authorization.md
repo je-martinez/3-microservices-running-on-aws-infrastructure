@@ -8,7 +8,7 @@ deciders: ["Jose E. Martinez"]
 supersedes: null
 superseded-by: null
 created: 2026-07-28
-updated: 2026-07-28
+updated: 2026-07-29
 tags: [type/adr, area/orders, status/accepted]
 related:
   - "[[orders-service-design]]"
@@ -17,6 +17,7 @@ related:
   - "[[ADR-0010-cognito-auth]]"
   - "[[2026-07-14-orders-service-milestone-design]]"
   - "[[2026-07-14-orders-service-milestone]]"
+  - "[[tracking-service-design]]"
 ---
 
 # Orders → Users gRPC calls authorized by a shared x-api-key
@@ -52,9 +53,12 @@ A shared symmetric key, `GRPC_API_KEY`, identical on both Users and Orders:
   though it is not behind the public API Gateway/Cognito path.
 - Both services must keep `GRPC_API_KEY` in sync — a mismatch fails closed
   (`UNAUTHENTICATED`), not open.
-- This is currently a two-service (Users↔Orders) scheme. If a third service needs the
-  same gRPC gate, revisit whether a shared key still scales or a per-service credential
-  is warranted — not decided here.
+- This was originally a two-service (Users↔Orders) scheme; Tracking has since joined as a
+  second gRPC client presenting the same `x-api-key` outbound to Users' `GetUserById`, using
+  the identical mechanism (see [[tracking-service-design#gRPC — outbound client to Users]]).
+  Users remains the only gRPC **server** validating the key. Whether a shared key still
+  scales as more clients join, or a per-service credential becomes warranted, remains
+  undecided — not revisited here.
 
 ## Related
 
@@ -64,3 +68,5 @@ A shared symmetric key, `GRPC_API_KEY`, identical on both Users and Orders:
 - [[ADR-0010-cognito-auth]]
 - [[2026-07-14-orders-service-milestone-design]]
 - [[2026-07-14-orders-service-milestone]]
+- [[tracking-service-design]] — Tracking joined as a second gRPC client of the same `x-api-key`
+  scheme, presenting it outbound to Users' `GetUserById` the same way Orders does.

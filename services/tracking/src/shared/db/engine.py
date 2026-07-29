@@ -68,7 +68,7 @@ def _current_engines() -> tuple[Engine, Engine]:
 
 
 def writer_engine() -> Engine:
-    """Engine for all mutations (gRPC CreateTracking, the REST status update)."""
+    """Engine for all mutations (creation, the carrier status PUT, TestMode)."""
     return _current_engines()[0]
 
 

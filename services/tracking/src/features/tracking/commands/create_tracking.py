@@ -1,14 +1,14 @@
 """The tracking-creation command handler (JE-90, extended by JE-105).
 
-Two transports reach this one function, and that is the point: the gRPC
-`CreateTracking` RPC (Orders, `x-api-key`) and `POST /v1/trackings/init-tracking`
-(an end user behind the Cognito authorizer, JE-105). Writing a second creation path
-for REST would give the service two answers to "what does it mean to create a
-tracking" — the initial status, the opening history row, the uniqueness rule — and
-they would drift. JE-108 removes the gRPC caller; this handler outlives it.
+ONE function is the whole meaning of "create a tracking" — the initial status, the
+opening history row, the uniqueness rule. It was reached by two transports for a
+while (a gRPC `CreateTracking` RPC from Orders, and `POST
+/v1/trackings/init-tracking` from an end user behind the Cognito authorizer); the
+RPC was removed in JE-108 and this handler outlived it unchanged, which is exactly
+what having one implementation was for.
 
 Transport-free on purpose: it takes a plain dataclass and returns the persisted
-entity, so each transport's handler is a thin translation and this logic stays
+entity, so the endpoint's handler is a thin translation and this logic stays
 testable (and reusable) without a server.
 """
 
@@ -48,17 +48,17 @@ class TrackingAlreadyExistsError(Exception):
 class CreateTrackingCommand:
     """Input to the create flow.
 
-    `shipping_address` is already mapped to the JSON to persist (see
-    `../grpc/address_mapper.py`) — this layer never touches a proto message.
+    `shipping_address` arrives already shaped as the JSON to persist — this layer
+    stores the mapping it is handed and never reshapes it.
     """
 
     order_id: str
-    #: The internal `usr_` id Orders resolved through Users.
+    #: The internal `usr_` id, resolved through Users by the endpoint's `Caller`.
     user_id: str
     #: The caller's Cognito `sub`, and the ONLY identity the user-scoped REST reads
-    #: can filter by (the gateway injects it as `x-user-id`). `None` when the
-    #: caller predates the wire field — the tracking is still created, and is
-    #: simply unreachable over those reads rather than mis-attributed.
+    #: can filter by (the gateway injects it as `x-user-id`). Still `| None` for the
+    #: rows written before the column existed — such a tracking matches nobody, so
+    #: it is unreachable over those reads rather than mis-attributed.
     cognito_sub: str | None = None
     shipping_address: dict | None = None
     #: Recorded, not acted upon here — see `CreateTrackingResult.test_mode`.
@@ -75,16 +75,19 @@ class CreateTrackingResult:
     fact about the shipment — it is a fact about **how this one request was made**,
     true only for the instant of creation and meaningless afterwards. Persisting it
     would put a test-harness flag into the domain's data model, and every later
-    reader (the REST reads, the carrier webhook, the .NET client) would inherit a
-    column it has no business interpreting. The design's Data Model table lists no
-    such column either.
+    reader (the REST reads, the carrier webhook) would inherit a column it has no
+    business interpreting. The design's Data Model table lists no such column
+    either.
 
-    So the flag is *recorded* by being **returned**, and Phase E's automatic
-    progression consumes it from here: the scheduler it adds reads
-    `result.test_mode` and, when true, schedules the tracking's advance from
-    `result.tracking.id`. That is everything a 10s timer needs — an id and a
-    boolean — with no schema change and no rows to clean up when a run is
-    abandoned.
+    So the flag is *recorded* by being **returned**. That is everything a 10s timer
+    needs — an id and a boolean — with no schema change and no rows to clean up
+    when a run is abandoned.
+
+    The REST endpoint does not actually consume it from here: it passes
+    `test_mode=False` and schedules the progression itself from the `x-test-mode`
+    header, because it is already on the event loop and knows whether the write
+    committed. The field stays on the contract so a caller that DOES want the
+    command to carry the flag is not forced to invent a second channel for it.
 
     The audit trail does not lose the information either: every automatic
     transition is stamped `AuditActor.TEST_MODE_PROGRESSION`, so a completed

@@ -1,12 +1,8 @@
-"""The app factory and the gRPC-alongside-HTTP lifespan (Phase D wiring).
+"""The app factory: what the process actually serves (Phase D wiring).
 
-These do not need a database — the routing table and the lifespan are process
-facts. Deliberately NOT marked `integration` so they still run when no MySQL is
-reachable, which is when a wiring mistake is most likely to go unnoticed.
-
-The gRPC test uses a fake `serve()` rather than a real server: what matters is that
-the lifespan STARTS one on startup and STOPS it on shutdown, and binding a real
-port here would collide with the gRPC suite and with a locally-running service.
+These do not need a database — the routing table is a process fact. Deliberately
+NOT marked `integration` so they still run when no MySQL is reachable, which is
+when a wiring mistake is most likely to go unnoticed.
 """
 
 from __future__ import annotations
@@ -15,7 +11,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.main import GRPC_ENABLED_ENV, create_app
+from src.main import create_app
 
 
 def routes(app: FastAPI) -> set[tuple[str, str]]:
@@ -49,10 +45,10 @@ class TestRoutingTable:
         """Exactly one POST on this surface, and it is `init-tracking` (JE-105).
 
         This test used to assert the OPPOSITE — that no REST creation endpoint
-        existed at all, because creation was gRPC-only. JE-105 inverted that: the
-        endpoint is now the way a tracking is created, and the gRPC RPC is what goes
-        away (JE-108). Pinning the count rather than merely the presence keeps a
-        second, unreviewed write surface from appearing beside it.
+        existed at all, because creation was gRPC-only. JE-105 inverted that and
+        JE-108 removed the RPC, so this is now the ONLY way a tracking is created.
+        Pinning the count rather than merely the presence keeps a second,
+        unreviewed write surface from appearing beside it.
         """
         posts = [path for method, path in routes(create_app()) if method == "POST"]
         assert posts == ["/v1/trackings/init-tracking"]
@@ -74,67 +70,58 @@ class TestRoutingTable:
         )
 
 
-class TestGrpcLifespan:
-    """gRPC and HTTP in one process, via the non-blocking `serve()` seam."""
+class TestHttpIsTheOnlyServedTransport:
+    """Tracking serves REST and nothing else (JE-108).
 
-    def test_lifespan_starts_and_stops_the_grpc_server(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        started: list[str] = []
-        stopped: list[str] = []
+    The gRPC server this app used to start from its lifespan is gone: creation is
+    `POST /v1/trackings/init-tracking` and the two unscoped reads were replaced by
+    the user-scoped REST ones. What remains gRPC in this service points OUTWARD,
+    to Users, and needs no server and no startup hook.
+    """
 
-        class FakeServer:
-            def stop(self, grace: float | None = None):
-                stopped.append("stopped")
+    def test_the_app_starts_and_serves_without_binding_anything_else(self) -> None:
+        """Startup binds no second port, so two apps can run side by side.
 
-                class _Event:
-                    def wait(self) -> None:
-                        return None
-
-                return _Event()
-
-        def fake_serve():
-            started.append("started")
-            return FakeServer()
-
-        import src.shared.grpc.server as grpc_server_module
-
-        monkeypatch.setenv(GRPC_ENABLED_ENV, "1")
-        monkeypatch.setattr(grpc_server_module, "serve", fake_serve)
-
-        with TestClient(create_app()) as client:
-            assert started == ["started"]
-            # HTTP is serving WHILE the gRPC server is up — the whole point of the
-            # non-blocking `serve()`: a blocking `serve_forever()` here would never
-            # have let the app finish starting.
-            assert client.get("/v1/health").status_code == 200
-            assert stopped == []
-
-        assert stopped == ["stopped"]
-
-    def test_the_flag_can_disable_the_grpc_server(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The escape hatch the HTTP test suite relies on — without it, every REST
-        test would try to bind GRPC_PORT."""
-        calls: list[str] = []
-
-        import src.shared.grpc.server as grpc_server_module
-
-        monkeypatch.setenv(GRPC_ENABLED_ENV, "0")
-        monkeypatch.setattr(
-            grpc_server_module, "serve", lambda: calls.append("started")
-        )
-
+        Used as a context manager on purpose — that is what runs startup/shutdown.
+        Before JE-108 this same call bound `GRPC_PORT` unless a flag said otherwise,
+        which is why the REST suite had to set one.
+        """
         with TestClient(create_app()) as client:
             assert client.get("/v1/health").status_code == 200
 
-        assert calls == []
+        # A second app, immediately after, over the same defaults. This is the
+        # assertion the old flag existed to make unnecessary.
+        with TestClient(create_app()) as client:
+            assert client.get("/v1/health").status_code == 200
 
-    def test_serve_forever_is_not_used_by_the_app(self) -> None:
-        """`serve_forever()` blocks and exists only for the standalone gRPC
-        entrypoint. If `main.py` ever called it, uvicorn would never start."""
+    def test_the_app_registers_no_startup_or_shutdown_handlers(self) -> None:
+        """Nothing to start, nothing to stop.
+
+        Starlette records both `lifespan`-context work and legacy `on_event`
+        handlers on the router, so this covers either spelling of "something runs
+        at startup".
+        """
+        app = create_app()
+        assert app.router.on_startup == []
+        assert app.router.on_shutdown == []
+
+    def test_nothing_under_src_imports_a_grpc_server(self) -> None:
+        """The served surface is gone from the source tree, not merely unwired.
+
+        A `shared/grpc/server.py` left behind and simply not called would be
+        re-enabled by one line, and would still carry the inbound `x-api-key`
+        interceptor this service no longer has any use for.
+        """
         from pathlib import Path
 
-        source = Path(__file__).resolve().parents[1] / "src" / "main.py"
-        assert "serve_forever" not in source.read_text().split('"""')[-1]
+        src_root = Path(__file__).resolve().parents[1] / "src"
+        assert not (src_root / "shared" / "grpc" / "server.py").exists()
+        assert not (src_root / "shared" / "grpc" / "api_key_interceptor.py").exists()
+        assert not (src_root / "features" / "tracking" / "grpc").exists()
+
+        offenders = [
+            str(path.relative_to(src_root))
+            for path in src_root.rglob("*.py")
+            if "tracking_pb2" in path.read_text()
+        ]
+        assert not offenders, f"tracking stubs still referenced by {offenders}"

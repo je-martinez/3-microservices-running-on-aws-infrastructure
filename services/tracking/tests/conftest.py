@@ -165,86 +165,25 @@ def anyio_backend() -> str:
     """Run async tests on asyncio only.
 
     anyio would otherwise parametrize them across asyncio AND trio. Production
-    runs on uvicorn's asyncio loop — and `shared/scheduling/background.py` uses
-    `asyncio.run_coroutine_threadsafe` specifically — so a trio run would be
-    testing a runtime this service never uses, and failing on APIs it never calls.
+    runs on uvicorn's asyncio loop, and TestMode progression calls `asyncio` APIs
+    (`create_task`, `to_thread`) directly, so a trio run would be testing a runtime
+    this service never uses and failing on APIs it never calls.
     """
     return "asyncio"
 
 
-# --------------------------------------------------------------------- gRPC
+# --------------------------------------------------- stub Users gRPC server
 #
-# The gRPC tests run against a REAL server over a REAL socket (bound on an
-# ephemeral loopback port), with the servicer talking to the same real MySQL the
-# repository tests use. Not a mocked `ServicerContext`, and not a direct call into
-# the servicer class: a direct call bypasses the interceptor, serialization, and
-# status-code mapping — precisely the three things these tests exist to verify.
-# The skip property is inherited from `database_url`, so no DB still means an
-# explicit skip, never a silent fallback.
+# The ONLY gRPC in this suite, matching the only gRPC left in the service: the
+# OUTBOUND client to Users. Tracking's own gRPC server — and the fixtures that
+# stood one up on an ephemeral port — were removed with it in JE-108.
 
-#: The `x-api-key` the test server is configured with. A literal, not the real
-#: environment's key — these tests must not depend on a generated env file.
+#: The `x-api-key` the stub Users server expects, and the one the client under test
+#: is configured with. A literal, not the real environment's key — these tests must
+#: not depend on a generated env file.
 TEST_API_KEY = "test-grpc-api-key"
 
 
-@pytest.fixture
-def grpc_server(engine: Engine) -> Iterator[int]:
-    """A running gRPC server bound to an ephemeral port; yields that port.
-
-    The servicer's session factories are bound to the TEST engine rather than the
-    process-wide writer/reader engines, so the RPCs read and write the same
-    database the other fixtures set up and clean.
-    """
-    from src.features.tracking.grpc.service import TrackingServicer
-    from src.shared.grpc.server import build_server
-
-    factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
-
-    @contextmanager
-    def write_session() -> Iterator[Session]:
-        """Mirrors `shared.db.engine.write_session`: commits, rolls back, closes."""
-        session = factory()
-        try:
-            yield session
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
-
-    @contextmanager
-    def read_session() -> Iterator[Session]:
-        session = factory()
-        try:
-            yield session
-        finally:
-            session.close()
-
-    server = build_server(
-        api_key=TEST_API_KEY,
-        servicer=TrackingServicer(writer=write_session, reader=read_session),
-    )
-    # Port 0 = let the OS pick a free one. Hardcoding a port makes the suite fail
-    # when anything else on the machine happens to hold it.
-    port = server.add_insecure_port("127.0.0.1:0")
-    server.start()
-    try:
-        yield port
-    finally:
-        # No grace period: every RPC in this suite is complete by teardown, and a
-        # grace window would just slow the run down.
-        server.stop(None).wait()
-
-
-@pytest.fixture
-def grpc_channel(grpc_server: int) -> Iterator[grpc.Channel]:
-    """An insecure channel to the test server."""
-    with grpc.insecure_channel(f"127.0.0.1:{grpc_server}") as channel:
-        yield channel
-
-
-# --------------------------------------------------- stub Users gRPC server
 #
 # The OUTBOUND client (JE-101) is tested against a REAL `users.v1.Users` server on
 # a REAL socket, standing in for the Users service. Not a mocked stub object: a
@@ -381,9 +320,9 @@ def app(engine: Engine) -> FastAPI:
     * `get_settings` — a settings object whose `tracking_carrier_api_key` is the
       literal above, so the carrier tests neither read nor need a real env file.
 
-    The gRPC server is disabled for this app (`TRACKING_GRPC_ENABLED=0` is set by
-    the fixture below): the HTTP suite has no business binding GRPC_PORT, and the
-    gRPC surface already has its own suite on an ephemeral port.
+    Nothing has to be switched off to build this app: it serves HTTP and only HTTP
+    (JE-108), so starting it binds no port of its own and cannot collide with a
+    locally-running service.
     """
     from src.main import create_app
     from src.shared.config.settings import Settings, get_settings
@@ -425,17 +364,12 @@ def app(engine: Engine) -> FastAPI:
 
 
 @pytest.fixture
-def client(app: FastAPI, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
-    """A `TestClient` over the real app, with the gRPC server switched off.
+def client(app: FastAPI) -> Iterator[TestClient]:
+    """A `TestClient` over the real app.
 
-    `TestClient` as a context manager RUNS the lifespan — which is deliberate: it
-    means the startup path Phase D added is exercised on every REST test rather
-    than only in production. `TRACKING_GRPC_ENABLED=0` keeps that startup from
-    binding a second port, which would fail the moment two tests overlapped or the
-    real service was already running locally.
+    Used as a context manager, deliberately: that is what runs the app's startup
+    and shutdown, and what makes `BackgroundTasks` (which TestMode progression is
+    dispatched through) actually execute. A bare `TestClient(app)` would skip both.
     """
-    from src.main import GRPC_ENABLED_ENV
-
-    monkeypatch.setenv(GRPC_ENABLED_ENV, "0")
     with TestClient(app) as test_client:
         yield test_client

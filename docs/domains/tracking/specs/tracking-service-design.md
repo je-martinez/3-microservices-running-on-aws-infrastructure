@@ -21,35 +21,35 @@ related:
   - "[[testing]]"
   - "[[local-gateway-per-route-integrations]]"
   - "[[nginx-njs-x-user-id-injection]]"
+  - "[[grpc-api-key-authorization]]"
 ---
 
 # Tracking Service Design
 
-> [!warning] Not implemented yet
-> The Tracking service is **design-only** — no application code exists. `services/tracking/src/`
-> contains only `.gitkeep` placeholders (no `requirements.txt`, no tests), and
-> `services/tracking/Dockerfile` has every build line commented out. Only a stub
-> [`services/tracking/CLAUDE.md`](../../../../services/tracking/CLAUDE.md) and a placeholder
-> `tracking` service in the root `docker-compose.yml` (build + network wiring only — no ports, no
-> database, no healthcheck) exist so far. Everything below describes the **intended** design, not
-> running behavior.
+> [!warning] Built, but not yet runnable in compose
+> The service itself is **implemented and tested**: the FastAPI app, the domain, the repository,
+> Alembic migrations against real MySQL, every REST endpoint below, and TestMode progression all
+> exist under `services/tracking/`, covered by a passing suite that runs against a live database
+> rather than mocks.
 >
-> This is no longer true of the surrounding repo, though: the infrastructure and patterns
-> Tracking needs now **exist** and can be followed directly.
-> - **Aurora MySQL cluster** — `infra/environments/local/main.tf` provisions one (`rds_mysql`,
->   engine `mysql` 8.0) via the engine-switchable `rds-aurora` module, currently used by Orders.
-> - **gRPC surface** — no longer hypothetical. `proto/users.proto` defines a real service; Users
->   serves it, and Orders consumes it as a client
->   (`services/orders/src/Orders.Infrastructure/Grpc/UserDirectoryGrpcClient.cs`), authenticating
->   calls with a shared `x-api-key` gRPC metadata entry. Tracking's outbound `GetUserById` client
->   (see [gRPC — outbound client to Users](#grpc--outbound-client-to-users)) follows the same
->   pattern.
+> What is still missing is the plumbing that would let anyone actually reach it:
+> - `services/tracking/Dockerfile` has only `FROM` and `WORKDIR` uncommented — it installs nothing
+>   and starts nothing, so the container builds but runs no service.
+> - The `tracking` service in the root `docker-compose.yml` publishes no port (the app listens on
+>   8000) and has no healthcheck.
+> - nginx has no `tracking` upstream, so its catch-all `location /` would send every tracking path
+>   to **Users** — which is why `enable_tracking_routes` in the gateway module stays `false`. The
+>   five routes below are declared but inert.
 >
-> What is still genuinely missing, and remains a blocker for Tracking specifically: no
-> SQS/messaging Terraform module (`infra/modules/messaging/` is an empty `.gitkeep`) and no
-> DocumentDB module (`infra/modules/database/` is empty — only `rds-aurora` is a real module).
-> Neither blocks Tracking today — it emits no domain events (see [Events](#events)), so messaging
-> is a non-issue either way, and it uses Aurora MySQL, not DocumentDB.
+> That chain is tracked as a single blocker: the Dockerfile has to work before the upstream has
+> anything to point at, before the flag can be flipped, before a gateway E2E can pass.
+>
+> The data layer, by contrast, is real: `infra/environments/local/main.tf` provisions the MySQL
+> cluster and a `tracking` database on it, and the migrations run against it.
+>
+> `infra/modules/messaging/` and `infra/modules/database/` are still empty placeholders, but
+> neither blocks this service — Tracking emits no domain events (see [Events](#events)) and uses
+> Aurora MySQL, not DocumentDB.
 
 ## Summary
 
@@ -227,24 +227,25 @@ direct service exposure. Concretely:
 Tracking's reads are REST-only, user-scoped, and serve two purposes: letting the end user see their
 own shipment, and giving the repo's [[testing]] convention an HTTP path to verify tracking state
 from the gateway (see [Gateway E2E verification of TestMode](#gateway-e2e-verification-of-testmode)
-below). They used to be paired with a second, unscoped gRPC surface for inter-service callers — see
-[Deltas from the original design (superseded)](#deltas-from-the-original-design-superseded) for why
-that was removed.
+below). They used to be paired with a second, unscoped gRPC surface for inter-service callers, which
+was later removed — see
+[Deltas from the original design (superseded)](#deltas-from-the-original-design-superseded) for why.
 
 | | REST reads (`GET /v1/trackings/...`) |
-|---|---|---|
-| Caller | End user, through the gateway | Other microservices (inter-service) |
-| Auth | Cognito JWT, validated by the gateway | `x-api-key` shared secret, per [[ADR-0003-grpc-inter-service]] |
-| Scope | **User-scoped** — filtered by `order_id` AND the caller's `user_id`; only the caller's own trackings are ever returned | **Unscoped** — any `order_id`/`order_ids` the caller passes, no per-user filtering |
-| Purpose | Let the end user see their own shipment; also the only way to verify tracking state from the gateway (see [Gateway E2E verification](#gateway-e2e-verification-of-testmode) below) | Let a trusted inter-service caller fetch tracking data it needs, e.g. for display in another service's response |
+|---|---|
+| Caller | End user, through the gateway |
+| Auth | Cognito JWT, validated by the gateway |
+| Scope | **User-scoped** — filtered by `order_id` AND the caller's `user_id`; only the caller's own trackings are ever returned |
+| Purpose | Let the end user see their own shipment; also the only way to verify tracking state from the gateway (see [Gateway E2E verification](#gateway-e2e-verification-of-testmode) below) |
 
 > [!note] Why reads exist on REST at all
 > The original design had reads exposed only over gRPC. That left no way to verify tracking state
 > **from the gateway** — the repo's [[testing]] convention requires a gateway E2E test with a real
 > Cognito JWT for every endpoint, and the gateway speaks HTTP, not gRPC. There was no HTTP path to
 > confirm a `TestMode` tracking actually reached `DELIVERED`. Beyond testing, the end user also has
-> a legitimate need to see their own shipment. REST reads close both gaps without touching the gRPC
-> reads, which stay exactly as they were for inter-service callers.
+> a legitimate need to see their own shipment. The unscoped gRPC reads for inter-service callers were
+> later removed entirely, once the REST reads already served every consumer — see
+> [Deltas from the original design (superseded)](#deltas-from-the-original-design-superseded).
 
 ### Ownership & scoping
 
@@ -270,12 +271,13 @@ This matches Orders' existing ownership semantics exactly (see
 `GET /v1/trackings?order_ids=ord_a,ord_b,ord_c` — a single query parameter holding a
 comma-separated list of order ids — is the chosen shape for the many-trackings read. This is the
 natural REST idiom for "give me N resources by id" (no request body on a `GET`, no need for a
-non-standard batch-specific HTTP method), and it mirrors the gRPC method it fronts
-(`GetTrackingsByOrderIds`, which takes `order_ids: [string]`) closely enough that the REST handler
-is a thin translation over the same repository query. The response is a list of (`Tracking` +
-`Tracking_History`) pairs, same shape as the single-read endpoint's payload, one per **owned**
-order id found among those requested (see [Ownership & scoping](#ownership--scoping) for the
-omission rule).
+non-standard batch-specific HTTP method). It also mirrored the shape of the now-removed gRPC
+`GetTrackingsByOrderIds` method (which took `order_ids: [string]`, see
+[Deltas from the original design (superseded)](#deltas-from-the-original-design-superseded)) closely
+enough that the REST handler is a thin translation over the same repository query. The response is a
+list of (`Tracking` + `Tracking_History`) pairs, same shape as the single-read endpoint's payload,
+one per **owned** order id found among those requested (see
+[Ownership & scoping](#ownership--scoping) for the omission rule).
 
 ### Gateway E2E verification of TestMode
 
@@ -481,7 +483,7 @@ notifying Tracking of a delivery status change. It is subject to the following g
 ## Events
 
 > [!info] No events emitted
-> The Tracking service does **not** produce any domain events. It is a pure consumer/updater: it receives tracking creation and status-update requests (via gRPC and the REST status-update endpoint, including the automatic `TestMode` transitions) and persists them — it does not publish to SQS or any event bus.
+> The Tracking service does **not** produce any domain events. It is a pure consumer/updater: it receives tracking creation and status-update requests (via REST — `POST /v1/trackings/init-tracking` and `PUT /v1/trackings/{orderId}/status`, including the automatic `TestMode` transitions) and persists them — it does not publish to SQS or any event bus.
 
 ## Cross-cutting rules
 
@@ -562,3 +564,5 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
   way Orders' routes did; see [Gateway routing](#gateway-routing-existing-module-not-a-new-one).
 - [[nginx-njs-x-user-id-injection]] — where the `x-user-id` header on Tracking's two
   Cognito-authenticated REST reads comes from locally; explicitly absent on the PUT endpoint.
+- [[grpc-api-key-authorization]] — the shared `x-api-key` scheme Tracking's outbound
+  `GetUserById` call presents to Users, the same mechanism Orders already uses.

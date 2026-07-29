@@ -1,21 +1,23 @@
 #!/usr/bin/env python
 """Regenerate the Python gRPC stubs from the shared protos.
 
-Two contracts, opposite directions, ONE script (JE-101):
+ONE contract, OUTBOUND (JE-101):
 
-* `proto/tracking.proto` — the surface this service **serves** (`TrackingServicer`).
 * `proto/users.proto` — the surface this service **calls** (`GetUserById`, to
   resolve a Cognito sub to the internal `usr_` id, mirroring Orders'
   `UserDirectoryGrpcClient`). Only the client half of that stub is used here; the
   servicer base class protoc also emits is never subclassed.
 
+There used to be a second entry, `proto/tracking.proto` — the surface this service
+**served**. It went away with the gRPC server itself (JE-108): creation is
+`POST /v1/trackings/init-tracking` and the reads are user-scoped REST. The list
+below is still a list, and the generation is still a loop over it, so restoring a
+second contract remains a one-line edit rather than a second script that could
+drift to different codegen flags.
+
 Run from anywhere:
 
     services/tracking/.venv/bin/python services/tracking/scripts/generate_grpc_stubs.py
-
-Everything below applies to both protos identically — one generation step over a
-list, rather than a second script, so a contract added later cannot end up with
-different codegen flags or a different import rewrite than the ones already here.
 
 ## Why the output is COMMITTED
 
@@ -30,8 +32,8 @@ Committing it wins on three counts here:
    `protobuf` major version; generating at image build would put a compiler in the
    runtime image (or force a multi-stage build) for an artifact that changes only
    when the .proto does.
-2. **The protos live OUTSIDE the service.** `proto/tracking.proto` and
-   `proto/users.proto` are at the repo root, shared with the .NET side in Orders.
+2. **The proto lives OUTSIDE the service.** `proto/users.proto` is at the repo
+   root, owned by Users and shared with the .NET side in Orders.
    `services/tracking/Dockerfile` has the service directory as its build context,
    so a build-time generation step would need the context widened to the repo root
    — a change with blast radius well beyond this service.
@@ -44,11 +46,10 @@ proto listed below, so adding one here automatically extends that guard.
 
 ## The import rewrite
 
-`protoc` emits `import tracking_pb2` (flat) into `tracking_pb2_grpc.py`, which only
+`protoc` emits `import users_pb2` (flat) into `users_pb2_grpc.py`, which only
 resolves when the generated directory itself is on `sys.path`. That is exactly the
 kind of implicit path requirement that works in tests and breaks in the container,
-so this script rewrites it to a package-relative `from . import tracking_pb2` — and
-the same for `users_pb2`.
+so this script rewrites it to a package-relative `from . import users_pb2`.
 """
 
 from __future__ import annotations
@@ -64,19 +65,15 @@ REPO_ROOT = SERVICE_ROOT.parents[1]
 PROTO_DIR = REPO_ROOT / "proto"
 OUTPUT_DIR = SERVICE_ROOT / "src" / "shared" / "grpc" / "generated"
 
-#: The protos this service generates stubs for, by base name. `tracking` is the
-#: surface it SERVES; `users` is the surface it CALLS (JE-101). Adding an entry is
-#: the only edit needed — the file list, the generation and the import rewrite are
-#: all derived from it.
-PROTO_STEMS: tuple[str, ...] = ("tracking", "users")
+#: The protos this service generates stubs for, by base name. `users` is the
+#: surface it CALLS (JE-101), and the only one left since JE-108 removed the served
+#: surface. Adding an entry is the only edit needed — the file list, the generation
+#: and the import rewrite are all derived from it.
+PROTO_STEMS: tuple[str, ...] = ("users",)
 
 PROTO_FILES: tuple[Path, ...] = tuple(
     PROTO_DIR / f"{stem}.proto" for stem in PROTO_STEMS
 )
-
-#: Kept as a module constant because it names `tracking.proto` specifically, and
-#: `tests/test_grpc_stubs.py` asserts the SHARED root proto is what feeds codegen.
-PROTO_FILE = PROTO_DIR / "tracking.proto"
 
 #: What protoc writes, and what this script rewrites/normalizes afterwards.
 GENERATED_FILES: tuple[str, ...] = tuple(

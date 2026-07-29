@@ -141,19 +141,14 @@ def init_app(
 
 
 @pytest.fixture
-def init_client(
-    init_app: FastAPI, monkeypatch: pytest.MonkeyPatch
-) -> Iterator[TestClient]:
-    """A `TestClient` over the real app, with the gRPC SERVER switched off.
+def init_client(init_app: FastAPI) -> Iterator[TestClient]:
+    """A `TestClient` over the real app.
 
-    The context manager runs the lifespan on purpose — the endpoint schedules work
-    on the running event loop, so a client that skipped startup would be testing a
-    different runtime than production's. `TRACKING_GRPC_ENABLED=0` keeps that
-    startup from binding a second port.
+    Used as a context manager on purpose — the endpoint schedules work on the
+    running event loop through `BackgroundTasks`, so a client that skipped startup
+    would be testing a different runtime than production's, and the TestMode
+    background task would never run at all.
     """
-    from src.main import GRPC_ENABLED_ENV
-
-    monkeypatch.setenv(GRPC_ENABLED_ENV, "0")
     with TestClient(init_app) as test_client:
         yield test_client
 

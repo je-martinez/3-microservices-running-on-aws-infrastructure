@@ -58,10 +58,10 @@ def _utcnow() -> datetime:
       disagrees with its own row — by up to a second, and in the wrong direction.
 
       That is invisible while everything reads from the database, which is why it
-      survived Phase B. It surfaced the moment `CreateTracking` rendered its
+      survived Phase B. It surfaced the moment creation started rendering its
       response off the just-written entity: create reported
       `2026-07-29T04:03:46.965829Z` while the subsequent read of the same row
-      reported `2026-07-29T04:03:47Z`. Two RPCs, one row, two timestamps — and the
+      reported `2026-07-29T04:03:47Z`. Two calls, one row, two timestamps — and the
       create response quoting an instant the database never held.
 
       Dropping the microseconds HERE, at the single place the write timestamp is
@@ -113,13 +113,19 @@ class TrackingRepository:
     ) -> Tracking | None:
         """Return one tracking by `order_id`, or None.
 
-        `cognito_sub=None` → unscoped (gRPC `GetTrackingByOrderId`).
-        `cognito_sub="<sub>"` → scoped (REST `GET /v1/trackings/{orderId}`); a
-        tracking owned by another user returns None, which the handler renders as
-        `404` — never `403`, which would leak its existence.
+        `cognito_sub="<sub>"` → scoped (`GET /v1/trackings/{orderId}`); a tracking
+        owned by another user returns None, which the handler renders as `404` —
+        never `403`, which would leak its existence.
+
+        `cognito_sub=None` → **unscoped**: any order's tracking is returned. No
+        served endpoint passes None any more — the gRPC reads that did were removed
+        in JE-108 — and the only remaining internal caller is the TestMode
+        progression, which advances a tracking it just created and has no caller
+        identity to scope by. Reach it through `queries/get_my_trackings.py` from
+        anything request-facing, never directly.
 
         History is loaded eagerly (`selectin` on the relationship), so both read
-        surfaces get the tracking together with its history in one round trip
+        endpoints get the tracking together with its history in one round trip
         without an N+1.
         """
         stmt = self._scoped(

@@ -73,7 +73,13 @@ class TestRequiredVars:
         "key", ["GRPC_API_KEY", "TRACKING_CARRIER_API_KEY"]
     )
     def test_empty_api_keys_are_rejected(self, key: str) -> None:
-        """An empty key would deploy the surface unguarded by omission."""
+        """An empty key fails at the wrong time if it is allowed through here.
+
+        `TRACKING_CARRIER_API_KEY` empty would leave a state-mutating endpoint
+        unguarded by omission; `GRPC_API_KEY` empty would be sent to Users as an
+        empty `x-api-key` and rejected there, turning a local misconfiguration into
+        a runtime failure that names the wrong service.
+        """
         with pytest.raises(ValidationError):
             build(**{key: ""})
 
@@ -83,20 +89,29 @@ class TestDefaults:
         """3000 and 8080 are taken by Users and Orders."""
         assert build().port == 8000
 
-    def test_grpc_port_defaults_to_50052(self) -> None:
-        """50051 is Users' gRPC server."""
-        assert build().grpc_port == 50052
-
-    def test_ports_are_coerced_from_strings(self) -> None:
+    def test_the_port_is_coerced_from_a_string(self) -> None:
         """Environment values always arrive as strings."""
-        settings = build(PORT="9000", GRPC_PORT="50999")
-        assert settings.port == 9000
-        assert settings.grpc_port == 50999
+        assert build(PORT="9000").port == 9000
 
     @pytest.mark.parametrize("bad", ["0", "70000", "not-a-port"])
     def test_invalid_ports_are_rejected(self, bad: str) -> None:
         with pytest.raises(ValidationError):
             build(PORT=bad)
+
+    def test_there_is_no_grpc_port_to_serve_on(self) -> None:
+        """Tracking binds no gRPC port: the server was removed in JE-108.
+
+        `GRPC_PORT` is still written into `.env.local.tracking` by the generator in
+        `infra/**`, which is out of this service's reach — `extra="ignore"` is what
+        keeps that leftover from failing validation. Asserting the field's ABSENCE
+        rather than just deleting the old test: a `grpc_port` reappearing would mean
+        something re-acquired a served surface.
+        """
+        assert "grpc_port" not in Settings.model_fields
+
+    def test_a_leftover_grpc_port_in_the_environment_is_harmless(self) -> None:
+        """The generator still emits it; the service must start anyway."""
+        assert build(GRPC_PORT="50052").port == 8000
 
 
 class TestTrustDomains:
@@ -104,8 +119,9 @@ class TestTrustDomains:
         """The internal gRPC key and the external carrier key must never be one value.
 
         Reusing the internal service credential as the externally-distributed
-        carrier key would hand an outside vendor the ability to authenticate as an
-        internal service.
+        carrier key would hand an outside vendor a credential that authenticates as
+        an internal service against every gRPC surface in the mesh — Users' and
+        Orders', even though Tracking itself no longer serves one.
         """
         settings = build(
             GRPC_API_KEY="internal", TRACKING_CARRIER_API_KEY="external"

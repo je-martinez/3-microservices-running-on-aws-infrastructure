@@ -1,26 +1,26 @@
 """User-scoped read queries behind the two REST reads (JE-93).
 
-The counterpart of `get_tracking.py`, which serves gRPC. Same repository methods,
-one difference: these pass the caller's **Cognito sub**, so the ownership predicate
-goes **into the query**. A tracking belonging to someone else is filtered out by
-MySQL and never exists in this process — which is what makes "not yours" and "not
-there" genuinely the same answer rather than two answers a later refactor could
-pull apart.
+**The only read path this service serves.** These pass the caller's **Cognito
+sub**, so the ownership predicate goes **into the query**: a tracking belonging to
+someone else is filtered out by MySQL and never exists in this process — which is
+what makes "not yours" and "not there" genuinely the same answer rather than two
+answers a later refactor could pull apart.
 
 ## The scope is `cognito_sub`, not `user_id`
 
 The value the handler passes here is whatever the gateway put in `x-user-id`, and
 that header carries the Cognito `sub` (`proxy_set_header x-user-id $jwt_sub`), not
-the internal `usr_` id. `Tracking.user_id` holds the latter — Orders resolves it
-via Users and sends it over gRPC. The two are different strings for the same
-person, so scoping by `user_id` matches nothing and 404s every read, the caller's
-own included. The parameter is named `cognito_sub` throughout this file so the
-mismatch cannot be reintroduced by a plausible-looking rename.
+the internal `usr_` id. `Tracking.user_id` holds the latter, resolved through Users
+at creation. The two are different strings for the same person, so scoping by
+`user_id` matches nothing and 404s every read, the caller's own included. The
+parameter is named `cognito_sub` throughout this file so the mismatch cannot be
+reintroduced by a plausible-looking rename.
 
 `cognito_sub` is required here, not optional. `get_by_order_id(order_id)` with the
-argument omitted is the *unscoped* call, and that is a one-character difference
+argument omitted is the *unscoped* call, and that is a one-argument difference
 from a scoped one — so these wrappers exist precisely so the REST handlers never
-call the repository directly and can never omit it by accident.
+call the repository directly and can never omit it by accident. The unscoped
+queries that once sat beside these, for the gRPC reads, were removed in JE-108.
 """
 
 from __future__ import annotations

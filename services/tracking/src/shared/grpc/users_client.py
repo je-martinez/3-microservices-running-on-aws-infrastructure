@@ -1,12 +1,13 @@
 """OUTBOUND gRPC client to the Users service (JE-101).
 
 The Python counterpart of Orders'
-`src/Orders.Infrastructure/Grpc/UserDirectoryGrpcClient.cs`, and the mirror image
-of everything else under `shared/grpc/`: that code SERVES `tracking.v1.Tracking`,
-this code CALLS `users.v1.Users`. It exists for exactly one question — "which
-internal `usr_` id belongs to this Cognito sub?" — because the gateway only ever
-hands this service a sub (see `shared/http/identity.py`) while a persisted
-`tracking.user_id` is a `usr_` id.
+`src/Orders.Infrastructure/Grpc/UserDirectoryGrpcClient.cs`, and — since JE-108
+removed the served `tracking.v1.Tracking` surface — the ONLY gRPC left in this
+service. Everything under `shared/grpc/` now points one way: outward, calling
+`users.v1.Users`. It exists for exactly one question — "which internal `usr_` id
+belongs to this Cognito sub?" — because the gateway only ever hands this service a
+sub (see `shared/http/identity.py`) while a persisted `tracking.user_id` is a
+`usr_` id.
 
 ## `NOT_FOUND` is an answer, not an error
 
@@ -26,10 +27,11 @@ reasons to convert at this boundary instead of upstream:
 
 ## Auth
 
-Every call attaches the shared internal `x-api-key` ([[ADR-0003-grpc-inter-service]])
-as call metadata — the same credential Tracking's own interceptor validates on
-inbound RPCs, because it is one internal trust domain, not two. It is passed
-per-call rather than baked into the channel so the channel stays a plain,
+Every call attaches the shared internal `x-api-key`
+([[ADR-0003-grpc-inter-service]]) as call metadata — `GRPC_API_KEY`, the one
+internal trust domain Users and Orders share. Tracking now only ever PRESENTS it;
+it validates no inbound key of its own since the served surface went away. It is
+passed per-call rather than baked into the channel so the channel stays a plain,
 inspectable object and the credential appears at exactly the place it is used.
 
 ## Blocking on purpose
@@ -55,8 +57,14 @@ from functools import lru_cache
 import grpc
 
 from src.shared.config.settings import get_settings
-from src.shared.grpc.api_key_interceptor import API_KEY_METADATA_KEY
 from src.shared.grpc.generated import users_pb2, users_pb2_grpc
+
+#: Metadata key carrying the shared internal secret. gRPC lowercases metadata keys
+#: on the wire, so this must be lowercase to match what Users reads it as. Declared
+#: here rather than imported: the inbound interceptor that used to own this
+#: constant was removed with the served surface (JE-108), and the only thing left
+#: that needs the key is this client.
+API_KEY_METADATA_KEY = "x-api-key"
 
 #: Seconds to wait for Users before giving up. A gRPC call with NO deadline waits
 #: forever, which in a request path means a hung Users pins a worker thread until
@@ -124,8 +132,7 @@ class UsersGrpcClient:
         """Build a client over a new insecure channel to `target`.
 
         Insecure because this hop is inside the private network and is
-        authenticated by the shared key, exactly as the inbound surface is
-        ([[ADR-0003-grpc-inter-service]]).
+        authenticated by the shared key ([[ADR-0003-grpc-inter-service]]).
         """
         return cls(
             channel=grpc.insecure_channel(normalize_target(target)),

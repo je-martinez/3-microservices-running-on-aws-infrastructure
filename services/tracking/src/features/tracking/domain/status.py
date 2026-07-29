@@ -3,10 +3,10 @@
 PURE domain code: no database, no HTTP, no framework imports. Both callers of the
 state machine depend on that purity —
 
-  * `PUT /v1/trackings/{orderId}/status` (Phase D), which turns a rejection into a
-    `400 Bad Request`; and
-  * TestMode automatic progression (Phase E), which runs on a 10s timer with no
-    request context at all.
+  * `PUT /v1/trackings/{orderId}/status`, the carrier endpoint, which turns a
+    rejection into a `400 Bad Request`; and
+  * TestMode automatic progression, which runs on a 10s timer with no request
+    context at all.
 
 so nothing here may assume an HTTP request, a session, or a caller identity.
 """
@@ -20,9 +20,8 @@ class TrackingStatus(StrEnum):
     """The four valid delivery statuses.
 
     A `StrEnum` so the member compares and serializes as its own name — matching
-    the VARCHAR(50) storage, the proto's `string status` field, and the REST
-    endpoint that takes it as a string. One representation across wire, storage
-    and HTTP, exactly as `proto/tracking.proto` documents.
+    both the `VARCHAR(50)` storage and the REST surface, which takes and returns it
+    as a string. One representation across wire, storage and HTTP.
     """
 
     SHIPPED = "SHIPPED"

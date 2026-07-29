@@ -289,5 +289,5 @@ convention/pattern notes in `shared/`) live in `docs/domains/users/decisions/`:
 - [[2026-07-12-audit-actor-enum-design]]
 - [[orders-service-design]] — `GetUserById`'s `address` is what Orders resolves and snapshots on
   order creation.
-- [[tracking-service-design]] — the address snapshot's final stop, forwarded by Orders via
-  `CreateTracking`.
+- [[tracking-service-design]] — the address snapshot's final stop, forwarded by Orders via an
+  HTTP call to Tracking's `POST /v1/trackings/init-tracking`.

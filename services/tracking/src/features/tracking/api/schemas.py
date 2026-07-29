@@ -4,17 +4,14 @@
 
 The ORM rows carry audit and soft-delete columns (`created_by`, `deleted_at`, …)
 that are internal and must never leave the service, so the mapping is explicit —
-field by field — exactly like `grpc/mappers.py` does for the proto surface. The
-two surfaces are two contracts that only happen to overlap with the table.
+field by field. The response contract and the table are two different things that
+only happen to overlap.
 
 ## Timestamps
 
-`datetime` is emitted as an **ISO-8601 string with an explicit `Z`**, matching what
-`grpc/mappers.iso()` puts on the wire, so the same row reads identically over REST
-and over gRPC. The columns are naive (MySQL `DATETIME` carries no zone) but hold
-UTC; `isoformat()` alone would emit no offset and leave the client guessing. That
-function is imported rather than reimplemented — a second copy is how the two
-surfaces start disagreeing about what time a shipment moved.
+`datetime` is emitted as an **ISO-8601 string with an explicit `Z`** by `iso()`
+below. The columns are naive (MySQL `DATETIME` carries no zone) but hold UTC;
+`isoformat()` alone would emit no offset and leave the client guessing.
 
 Serialized as `str`, not as a Pydantic `datetime`: Pydantic would render the naive
 value without an offset and silently drop the `Z`.
@@ -23,19 +20,36 @@ value without an offset and silently drop the `Z`.
 
 Deliberately **absent** from every schema here. It is PII, it is not needed to
 render a shipment's status, and the narrowest surface that answers the question is
-the one that cannot leak it. gRPC carries it because Orders (a trusted internal
-caller) forwards the snapshot it already owns; an end user's status view does not.
+the one that cannot leak it. It is stored (Orders' snapshot, forwarded at creation)
+but never read back out on any surface this service serves.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import datetime as _datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.features.tracking.domain.models import ID_LENGTH, Tracking, TrackingHistory
-from src.features.tracking.grpc.mappers import iso
+
+
+def iso(moment: _datetime | None) -> str:
+    """Render a DATETIME column as an ISO-8601 string with an explicit `Z`.
+
+    The columns are naive (MySQL DATETIME carries no zone) but hold UTC — the
+    repository writes `datetime.now(UTC)` stripped of its tzinfo. `isoformat()` on
+    a naive value emits no offset, which would leave the consumer to guess the
+    zone, so the `Z` is appended explicitly.
+
+    `None` renders as `""` rather than `null`: every timestamp on this surface is
+    NOT NULL in practice, and a string-typed field that can also be null would make
+    every client branch on a case that never occurs.
+    """
+    if moment is None:
+        return ""
+    return f"{moment.isoformat()}Z"
 
 
 class HealthResponse(BaseModel):
@@ -74,7 +88,7 @@ class TrackingResponse(BaseModel):
 
     History is part of the payload rather than a separate endpoint because every
     caller of these reads wants both — the design specifies the tracking "+ its
-    `Tracking_History`" for the single read, the batch read, and both gRPC reads.
+    `Tracking_History`" for the single read and for the batch read alike.
     """
 
     id: str
@@ -135,10 +149,8 @@ class InitTrackingRequest(BaseModel):
     header, which the gateway derives from a verified Cognito JWT. A `user_id` (or
     `cognito_sub`) field here would be an unauthenticated string a client chooses,
     so anyone could create a tracking attributed to anyone — the body is client
-    input, the header is a gateway assertion. That is also why the gRPC
-    `CreateTracking` could take `user_id` on the wire and this cannot: its caller
-    was Orders behind an `x-api-key`, a trusted service asserting an identity it
-    had already resolved.
+    input, the header is a gateway assertion. The service resolves the internal
+    `usr_` id itself, through Users, rather than believing a claim it was handed.
 
     ## `test_mode` is not here either
 
@@ -165,8 +177,8 @@ class InitTrackingRequest(BaseModel):
     #: service neither reads it back nor renders it on any surface. A strict model
     #: here would make Tracking reject an address the moment Users adds a field,
     #: turning an additive upstream change into a creation outage — for data this
-    #: service only stores. Empty/None is accepted for the same reason the gRPC
-    #: path accepts an absent address.
+    #: service only stores. Empty/None is accepted: an order whose address the
+    #: caller could not resolve must still be trackable.
     shipping_address: dict[str, Any] | None = Field(
         default=None,
         description="Point-in-time delivery address snapshot. Never logged (PII).",

@@ -41,12 +41,14 @@ class Settings(BaseSettings):
     # --- HTTP ---------------------------------------------------------------
     port: int = Field(default=8000, gt=0, lt=65536)
 
-    # --- gRPC ---------------------------------------------------------------
-    # 50051 is Users' gRPC server, so Tracking's serves on 50052.
-    grpc_port: int = Field(default=50052, gt=0, lt=65536)
+    # --- gRPC (OUTBOUND only) ------------------------------------------------
+    # Tracking serves no gRPC: the server surface was removed in JE-108. What is
+    # left points outward, to Users.
+    #
     # INTERNAL service-to-service key (ADR-0003), shared with Users and Orders.
-    # Used in BOTH directions: the inbound interceptor validates it, and the
-    # outbound Users client attaches it (JE-101).
+    # PRESENTED, never validated: the outbound Users client attaches it as
+    # `x-api-key` metadata (JE-101). Nothing inbound checks it any more — the
+    # carrier PUT has its own, external key below.
     grpc_api_key: str = Field(min_length=1)
 
     # Where Users' gRPC server lives, for the OUTBOUND client that resolves a

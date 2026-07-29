@@ -111,8 +111,9 @@ locals {
       # through by the HTTP_PROXY integration untouched.
       list_trackings = { key = "GET /v1/trackings", path = "/v1/trackings", auth = true }
 
-      # Tracking creation over REST (replaces the old gRPC CreateTracking RPC —
-      # Tracking is REST-only). Body carries `order_id` + `shipping_address`;
+      # Tracking creation. Tracking is REST-only and serves no gRPC, so this is
+      # the sole way a tracking record comes into existence. Body carries
+      # `order_id` + `shipping_address`;
       # the caller's identity comes from the `x-user-id` header nginx injects
       # from the JWT claims (ADR-0016), so nothing user-scoped is in the path.
       # auth = true: the caller is Orders propagating the end user's JWT, so the

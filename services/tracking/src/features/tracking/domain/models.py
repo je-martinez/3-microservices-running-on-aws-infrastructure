@@ -45,8 +45,8 @@ COGNITO_SUB_LENGTH = 255
 class Tracking(Base, AuditMixin):
     """A tracking record — one per order.
 
-    Created exclusively through the `CreateTracking` gRPC handler; there is no
-    REST POST.
+    Created exclusively through `POST /v1/trackings/init-tracking`; there is no
+    other write path that brings one into existence.
     """
 
     __tablename__ = "tracking"
@@ -84,12 +84,12 @@ class Tracking(Base, AuditMixin):
     )
 
     #: UNIQUE — one tracking per order. Enforced at the database, not just in the
-    #: application, so a duplicate CreateTracking cannot race past a pre-check.
+    #: application, so a duplicate creation cannot race past a pre-check.
     order_id: Mapped[str] = mapped_column(String(ID_LENGTH), nullable=False)
 
     #: One of the four TrackingStatus values. Stored as a plain VARCHAR rather
-    #: than a MySQL ENUM: the lookup/enum trade-off aside, the proto and the REST
-    #: PUT both carry it as a string, and widening a native ENUM is a DDL change.
+    #: than a MySQL ENUM: the lookup/enum trade-off aside, the REST surface carries
+    #: it as a string, and widening a native ENUM is a DDL change.
     status: Mapped[str] = mapped_column(String(STATUS_LENGTH), nullable=False)
 
     #: Point-in-time snapshot of the delivery address, forwarded as-is by Orders.

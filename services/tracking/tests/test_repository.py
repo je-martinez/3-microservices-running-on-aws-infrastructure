@@ -171,7 +171,7 @@ class TestSchema:
 
 
 class TestCreate:
-    """gRPC CreateTracking's persistence path."""
+    """The persistence path behind `POST /v1/trackings/init-tracking`."""
 
     def test_persists_a_tracking_with_a_prefixed_id(
         self, repo: TrackingRepository
@@ -213,7 +213,7 @@ class TestCreate:
         assert reloaded.shipping_address == ADDRESS
 
     def test_shipping_address_may_be_absent(self, repo: TrackingRepository) -> None:
-        """proto3 has no null; an absent address arrives as nothing to store."""
+        """A caller that could not resolve an address still gets a tracking."""
         tracking = make_tracking(
             repo, order_id="ord_create0000000000006", address=None
         )
@@ -245,7 +245,13 @@ class TestCreate:
 
 
 class TestGetByOrderId:
-    """Single read — unscoped (gRPC) and scoped (REST)."""
+    """Single read, in both of the repository's modes.
+
+    **Scoped** (`cognito_sub=...`) is what every endpoint uses. **Unscoped** is
+    still supported and still tested — the TestMode progression needs it, and the
+    scoping predicate is exactly the thing that must keep working — but no served
+    endpoint reaches it since JE-108 removed the gRPC reads that did.
+    """
 
     def test_unscoped_finds_any_tracking(self, repo: TrackingRepository) -> None:
         make_tracking(repo, order_id="ord_get00000000000000001", user_id="usr_owner")
@@ -327,13 +333,17 @@ class TestGetByOrderId:
             repo.get_by_order_id("ord_get00000000000000007", cognito_sub="sub-owner")
             is None
         )
-        # ...but the unscoped (gRPC) read still returns it.
+        # ...but the unscoped read still returns it.
         assert repo.get_by_order_id("ord_get00000000000000007") is not None
 
     def test_the_same_row_is_visible_unscoped_and_hidden_scoped(
         self, repo: TrackingRepository
     ) -> None:
-        """One row, two transports, two answers — the whole point of the design."""
+        """One row, two modes, two answers — the whole point of the scoping.
+
+        This is why the endpoints must go through `queries/get_my_trackings.py`:
+        the difference between "yours" and "anyone's" is a single keyword argument.
+        """
         make_tracking(
             repo,
             order_id="ord_get00000000000000004",

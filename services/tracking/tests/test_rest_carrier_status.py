@@ -390,8 +390,8 @@ class TestRejectedTransitions:
     def test_status_matching_is_case_sensitive(
         self, client: TestClient, session: Session
     ) -> None:
-        """The four values are a fixed wire contract shared with the proto, not
-        free-form input."""
+        """The four values are a fixed contract, matching the stored column
+        exactly, not free-form input."""
         seed(session, order_id="ord_bad00000000000007")
         assert put(
             client, "ord_bad00000000000007", "on_the_way"

@@ -1,26 +1,31 @@
-"""Read queries behind the two gRPC read RPCs (JE-91).
+"""The shared read shape: a tracking paired with its ordered history.
 
-Both are **UNSCOPED**: they pass no `user_id` to the repository, so any `order_id`
-is looked up as-is. That is the deliberate contrast with Phase D's REST reads,
-which pass the caller's `user_id` through the same repository methods and so make
-another user's tracking indistinguishable from a missing one. The difference is
-justified entirely by the caller: gRPC is a trusted inter-service client
-authenticated by `x-api-key` (see [[ADR-0003-grpc-inter-service]]), REST is an end
-user behind a Cognito JWT.
+Both REST reads return the same thing — a tracking "+ its `Tracking_History`" —
+and both build it here, so the pairing (and therefore the history's order) cannot
+differ between the single read and the batch read.
 
-Transport-free, like the command: they take a `Session` and return domain
-entities, leaving proto mapping to `../grpc/`.
+## What used to be here
+
+Two UNSCOPED query functions, `get_tracking_by_order_id` and
+`get_trackings_by_order_ids`, backing the gRPC read RPCs (JE-91). They passed no
+identity to the repository, which was safe only because their caller was a trusted
+internal service behind an `x-api-key`. Both went away with the gRPC surface
+(JE-108). Everything served now goes through the **scoped** wrappers in
+`get_my_trackings.py`, which require a `cognito_sub`.
+
+Do not reintroduce an unscoped read here. `TrackingRepository.get_by_order_id`
+still accepts an omitted `cognito_sub` — that is a one-argument difference from a
+scoped call, and a query module offering both is how a REST handler ends up calling
+the wrong one.
+
+Transport-free, like the command: takes domain entities, returns domain entities.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass
 
-from sqlalchemy.orm import Session
-
 from src.features.tracking.domain.models import Tracking, TrackingHistory
-from src.features.tracking.domain.repository import TrackingRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,46 +46,7 @@ def with_history(tracking: Tracking) -> TrackingWithHistory:
     tracking's history in ONE extra query for the whole result set, whereas a
     per-tracking `get_history` call would issue one query per row.
 
-    Public (Phase D): the user-scoped REST queries in `get_my_trackings.py` pair
-    their rows the same way, and the pairing must stay identical across the two
-    read surfaces or the same row would come back with differently-ordered history
-    depending on which transport asked.
+    Shared by both read surfaces in `get_my_trackings.py`, so the same row cannot
+    come back with differently-ordered history depending on which endpoint asked.
     """
     return TrackingWithHistory(tracking=tracking, history=list(tracking.history))
-
-
-def get_tracking_by_order_id(
-    session: Session, order_id: str
-) -> TrackingWithHistory | None:
-    """One tracking + its history, or None when no live tracking has that order id.
-
-    None is the honest answer for "not found" — the gRPC handler turns it into
-    `NOT_FOUND`. Unscoped: no `user_id` is passed, so a tracking belonging to any
-    user is returned.
-    """
-    tracking = TrackingRepository(session).get_by_order_id(order_id)
-    if tracking is None:
-        return None
-    return with_history(tracking)
-
-
-def get_trackings_by_order_ids(
-    session: Session, order_ids: Sequence[str]
-) -> list[TrackingWithHistory]:
-    """Many trackings + each one's history, in a bounded number of queries.
-
-    Two queries total regardless of how many ids are asked for: one `WHERE order_id
-    IN (...)` for the trackings, and one `selectin` load for all of their history
-    rows. Explicitly NOT a loop over `get_tracking_by_order_id`, which would be
-    2N queries and is the obvious way to write this wrong.
-
-    Ids with no live tracking are **omitted** from the result, never reported as an
-    error — a caller passing ten ids and matching three gets exactly three, with no
-    per-id failure entry. This follows the .proto, whose response is a bare
-    `repeated TrackingWithHistory` with no field in which a per-id error could even
-    be expressed, and the design's equivalent rule for the batch REST read. It also
-    means an all-missing batch is an empty list and a success, not `NOT_FOUND`:
-    "none of these exist" is a complete, correct answer to the question asked.
-    """
-    trackings = TrackingRepository(session).get_by_order_ids(order_ids)
-    return [with_history(tracking) for tracking in trackings]

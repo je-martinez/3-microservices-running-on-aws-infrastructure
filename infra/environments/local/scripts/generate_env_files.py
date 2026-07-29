@@ -255,9 +255,9 @@ def build(repo_root: Path) -> dict[Path, dict]:
             },
             custom_defaults={
                 # uvicorn's default port; 3000/8080 are taken by Users/Orders.
+                # Tracking serves HTTP only — it has no gRPC port because it has
+                # no gRPC server.
                 "PORT": "8000",
-                # 50051 is Users' gRPC server, so Tracking's serves on 50052.
-                "GRPC_PORT": "50052",
             },
         ),
         # --- debug: HOST-reachable, loaded by nothing ------------------------

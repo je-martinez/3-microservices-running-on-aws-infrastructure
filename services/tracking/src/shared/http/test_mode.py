@@ -8,7 +8,7 @@ as a field on the request body.
 
 The design already specifies this exact header, one hop upstream: `x-test-mode: true`
 on `POST /v1/orders`, guarded by `E2E_TESTING_ENABLED`, which Orders reads and
-propagates as the `test_mode` field on `CreateTracking`
+forwards when it triggers a tracking
 (`docs/domains/tracking/specs/tracking-service-design.md` — "End-to-end origin: a
 client header on Orders, not an Orders-side decision"). Now that a client can reach
 Tracking's creation directly, the same spelling reaching the same flag means one
@@ -41,9 +41,9 @@ Orders guards its header with that flag. This dependency deliberately does not, 
 the reason is that the guard is not implemented here to be dropped — Tracking has
 never had the setting, and adding one is a change to the generated env files
 ([[env-files]]) and therefore to `infra/**`, outside this task. Recording it rather
-than silently doing nothing: the flag remains an open item for whoever closes the
-REST migration. Until then TestMode is reachable wherever this endpoint is, exactly
-as it already is through `CreateTracking`, which has no such guard either.
+than silently doing nothing: the flag remains an OPEN ITEM. Until then TestMode is
+reachable wherever this endpoint is, which is the same exposure the gRPC creation
+path had before it was removed — this dependency did not widen it.
 """
 
 from __future__ import annotations

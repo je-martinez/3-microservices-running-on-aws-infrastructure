@@ -2,7 +2,7 @@
 
 The design's table is the contract:
 
-    t=0s   SHIPPED           (written by CreateTracking)
+    t=0s   SHIPPED           (written at creation)
     t=10s  ON_THE_WAY
     t=20s  OUT_FOR_DELIVERY
     t=30s  DELIVERED         -> 4 history rows, in that order
@@ -15,16 +15,23 @@ while production keeps the design's 10s cadence. Making the suite actually sleep
 would have meant a 30-second test that a future reader deletes, or an
 `@pytest.mark.skip` that hides the whole feature.
 
-What is NOT faked: the database, the state machine, the session-per-transition, and
-(in `TestEndToEndOverGrpc`) the gRPC server and the thread→loop bridge. The timing
-is the only thing compressed, because it is the only thing that is purely a
-duration.
+What is NOT faked: the database, the state machine and the session-per-transition.
+The timing is the only thing compressed, because it is the only thing that is
+purely a duration.
+
+## Scope: the progression itself, not how it is started
+
+This module covers `advance_once` and `run_progression`. The *triggering* — the
+`x-test-mode` header, the background-task hand-off, and a full run driven end to
+end through the real endpoint — lives in `test_rest_init_tracking.py`'s
+`TestTestModeProgression`, next to the handler that does it. It used to be covered
+here as well, over a gRPC `CreateTracking` and the thread→loop bridge that RPC
+needed; both went away with the gRPC server (JE-108).
 """
 
 from __future__ import annotations
 
 import asyncio
-from contextlib import contextmanager
 
 import pytest
 from sqlalchemy.orm import Session
@@ -56,7 +63,7 @@ FULL_PROGRESSION = [
 
 
 def seed(session: Session, *, order_id: str) -> str:
-    """A committed tracking at SHIPPED, as CreateTracking would leave it."""
+    """A committed tracking at SHIPPED, as creation would leave it."""
     tracking = TrackingRepository(session).create(
         order_id=order_id,
         user_id=USER_ID,
@@ -422,267 +429,3 @@ class TestMidProgressionConflicts:
             TrackingStatus.SHIPPED
         )
 
-
-class TestTheSyncToAsyncBridge:
-    """The crux of JE-95: a SYNC gRPC thread starting an ASYNC progression.
-
-    `CreateTracking` runs on a `grpc.server` thread pool (Phase C chose threads
-    because pymysql blocks). That thread has no event loop, so `create_task` raises
-    and `asyncio.run` would block the RPC for 30 seconds. The bridge is
-    `run_coroutine_threadsafe` onto uvicorn's loop, registered by the FastAPI
-    lifespan.
-
-    These tests exercise the seam ACROSS A REAL THREAD, because that is the only
-    place the bug can live — calling `spawn` from the test's own coroutine would
-    prove nothing about the thread it actually runs on.
-    """
-
-    @pytest.mark.anyio
-    async def test_a_worker_thread_can_start_work_on_the_registered_loop(
-        self, session: Session, session_factory
-    ) -> None:
-        """The whole mechanism, minus gRPC: register the loop, call `spawn` from
-        another thread, and watch the tracking advance on the loop."""
-        from src.shared.scheduling import background
-
-        seed(session, order_id="ord_brdg00000000000001")
-        done = asyncio.Event()
-
-        async def progress_then_signal() -> None:
-            await run_progression(
-                "ord_brdg00000000000001", interval=FAST, writer=session_factory
-            )
-            done.set()
-
-        background.set_event_loop(asyncio.get_running_loop())
-        try:
-            # The call happens on a WORKER THREAD, exactly like a gRPC handler.
-            scheduled = await asyncio.to_thread(
-                background.spawn,
-                progress_then_signal(),
-                app_event="test_mode_progression",
-            )
-            assert scheduled is True
-            await asyncio.wait_for(done.wait(), timeout=10)
-        finally:
-            background.set_event_loop(None)
-
-        assert history_of(session, "ord_brdg00000000000001") == FULL_PROGRESSION
-
-    def test_spawn_without_a_loop_is_a_no_op_not_a_crash(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """The standalone gRPC entrypoint and unit tests have no FastAPI loop.
-
-        Creation must still succeed there — a tracking failing to be created
-        because a TEST fixture could not be started would be far worse than the
-        fixture not running.
-        """
-        from src.shared.scheduling import background
-
-        async def never_runs() -> None:  # pragma: no cover - must not execute
-            raise AssertionError("scheduled despite there being no loop")
-
-        background.set_event_loop(None)
-        with caplog.at_level("INFO"):
-            assert (
-                background.spawn(never_runs(), app_event="test_mode_progression")
-                is False
-            )
-
-        assert any(
-            record.__dict__.get("app_event") == "test_mode_progression_failed"
-            and record.__dict__.get("reason") == "no_event_loop"
-            for record in caplog.records
-        )
-
-    def test_the_lifespan_registers_and_clears_the_loop(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Startup must publish the loop, and shutdown must retract it.
-
-        A stale loop left registered after shutdown means a late RPC submitting
-        work to a closed loop.
-        """
-        from fastapi.testclient import TestClient
-
-        from src.main import GRPC_ENABLED_ENV, create_app
-        from src.shared.scheduling import background
-
-        monkeypatch.setenv(GRPC_ENABLED_ENV, "0")
-        background.set_event_loop(None)
-
-        with TestClient(create_app()) as client:
-            assert client.get("/v1/health").status_code == 200
-            # Registered while the app is up — the gRPC thread's target.
-            assert background.get_event_loop() is not None
-
-        assert background.get_event_loop() is None
-
-
-class TestEndToEndOverGrpc:
-    """`CreateTracking(test_mode=True)` over a REAL gRPC server and socket.
-
-    The only test that covers the whole feature as Orders will actually trigger it:
-    a real RPC, on a real thread pool, bridging to a real event loop, writing to a
-    real MySQL. Everything except the 10-second cadence.
-    """
-
-    @pytest.fixture
-    def servicer_port(self, engine, session_factory):
-        """A gRPC server whose progression interval is compressed to ~0."""
-        from src.features.tracking.grpc.service import TrackingServicer
-        from src.shared.grpc.server import build_server
-        from tests.conftest import TEST_API_KEY
-
-        @contextmanager
-        def read_session():
-            with session_factory() as s:
-                yield s
-
-        server = build_server(
-            api_key=TEST_API_KEY,
-            servicer=TrackingServicer(
-                writer=session_factory,
-                reader=read_session,
-                progression_interval=FAST,
-                progression_writer=session_factory,
-            ),
-        )
-        port = server.add_insecure_port("127.0.0.1:0")
-        server.start()
-        try:
-            yield port
-        finally:
-            server.stop(None).wait()
-
-    @pytest.mark.anyio
-    async def test_test_mode_true_drives_the_tracking_to_delivered(
-        self, session: Session, servicer_port: int
-    ) -> None:
-        import grpc
-
-        from src.shared.grpc.generated import tracking_pb2, tracking_pb2_grpc
-        from src.shared.scheduling import background
-
-        background.set_event_loop(asyncio.get_running_loop())
-        try:
-            with grpc.insecure_channel(f"127.0.0.1:{servicer_port}") as channel:
-                stub = tracking_pb2_grpc.TrackingStub(channel)
-                # The RPC must RETURN promptly — it schedules, it does not wait for
-                # the shipment to be "delivered".
-                response = await asyncio.to_thread(
-                    stub.CreateTracking,
-                    tracking_pb2.CreateTrackingRequest(
-                        order_id="ord_e2e000000000000001",
-                        user_id=USER_ID,
-                        cognito_sub=COGNITO_SUB,
-                        test_mode=True,
-                    ),
-                    metadata=[("x-api-key", "test-grpc-api-key")],
-                )
-                assert response.tracking.status == TrackingStatus.SHIPPED
-
-                await _wait_for_delivered(session, "ord_e2e000000000000001")
-        finally:
-            background.set_event_loop(None)
-
-        assert history_of(session, "ord_e2e000000000000001") == FULL_PROGRESSION
-
-    @pytest.mark.anyio
-    async def test_test_mode_false_schedules_nothing(
-        self, session: Session, servicer_port: int
-    ) -> None:
-        """"When TestMode is false or absent, no automatic progression happens."" """
-        import grpc
-
-        from src.shared.grpc.generated import tracking_pb2, tracking_pb2_grpc
-        from src.shared.scheduling import background
-
-        background.set_event_loop(asyncio.get_running_loop())
-        try:
-            with grpc.insecure_channel(f"127.0.0.1:{servicer_port}") as channel:
-                stub = tracking_pb2_grpc.TrackingStub(channel)
-                await asyncio.to_thread(
-                    stub.CreateTracking,
-                    tracking_pb2.CreateTrackingRequest(
-                        order_id="ord_e2e000000000000002",
-                        user_id=USER_ID,
-                        test_mode=False,
-                    ),
-                    metadata=[("x-api-key", "test-grpc-api-key")],
-                )
-                # Give a scheduled-but-unwanted progression ample time to misfire.
-                await asyncio.sleep(0.2)
-        finally:
-            background.set_event_loop(None)
-
-        assert current_status(session, "ord_e2e000000000000002") == (
-            TrackingStatus.SHIPPED
-        )
-        assert history_of(session, "ord_e2e000000000000002") == [
-            TrackingStatus.SHIPPED
-        ]
-
-    @pytest.mark.anyio
-    async def test_the_automatic_transitions_are_attributed_to_test_mode(
-        self, session: Session, servicer_port: int
-    ) -> None:
-        """A completed run is identifiable from `tracking_history.created_by` alone
-        — the audit trail is where "how did this row come to exist" belongs."""
-        import grpc
-
-        from src.shared.grpc.generated import tracking_pb2, tracking_pb2_grpc
-        from src.shared.scheduling import background
-
-        background.set_event_loop(asyncio.get_running_loop())
-        try:
-            with grpc.insecure_channel(f"127.0.0.1:{servicer_port}") as channel:
-                stub = tracking_pb2_grpc.TrackingStub(channel)
-                response = await asyncio.to_thread(
-                    stub.CreateTracking,
-                    tracking_pb2.CreateTrackingRequest(
-                        order_id="ord_e2e000000000000003",
-                        user_id=USER_ID,
-                        test_mode=True,
-                    ),
-                    metadata=[("x-api-key", "test-grpc-api-key")],
-                )
-                await _wait_for_delivered(session, "ord_e2e000000000000003")
-        finally:
-            background.set_event_loop(None)
-
-        _refresh(session)
-        actors = {
-            entry.status: entry.created_by
-            for entry in TrackingRepository(session).get_history(
-                response.tracking.id
-            )
-        }
-        assert actors[TrackingStatus.SHIPPED] == AuditActor.CREATE_TRACKING
-        for status in (
-            TrackingStatus.ON_THE_WAY,
-            TrackingStatus.OUT_FOR_DELIVERY,
-            TrackingStatus.DELIVERED,
-        ):
-            assert actors[status] == AuditActor.TEST_MODE_PROGRESSION
-
-
-async def _wait_for_delivered(
-    session: Session, order_id: str, *, timeout: float = 10.0
-) -> None:
-    """Poll until the tracking reaches DELIVERED, or fail with what it reached.
-
-    Polling rather than a fixed sleep: the progression runs on the loop and its
-    steps hop to worker threads, so the completion time is not a number this test
-    can know. A fixed sleep would be either flaky or needlessly slow.
-    """
-    deadline = asyncio.get_running_loop().time() + timeout
-    while asyncio.get_running_loop().time() < deadline:
-        if current_status(session, order_id) == TrackingStatus.DELIVERED:
-            return
-        await asyncio.sleep(0.02)
-    raise AssertionError(
-        f"{order_id} never reached DELIVERED; stuck at "
-        f"{current_status(session, order_id)}"
-    )

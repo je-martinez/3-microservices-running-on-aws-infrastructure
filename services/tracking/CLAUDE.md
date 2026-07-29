@@ -78,7 +78,7 @@ carry `user_id` + `cognito_sub`; reads filter by `cognito_sub`).
 
 ## 5b. TestMode progression — KNOWN LIMITATION, accepted
 
-`CreateTracking(test_mode=true)` advances the tracking one status every 10s
+`POST /v1/trackings/init-tracking` with `x-test-mode: true` advances the tracking one status every 10s
 (`SHIPPED → ON_THE_WAY → OUT_FOR_DELIVERY → DELIVERED`, 4 history rows) using an
 **in-process `asyncio` task** — deliberately chosen over APScheduler/Celery/a
 durable queue. Do not "fix" this by adding a persistent scheduler.

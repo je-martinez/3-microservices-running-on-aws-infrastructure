@@ -15,7 +15,7 @@ from enum import StrEnum
 class AuditActor(StrEnum):
     """What produced a row. Stamped by the repository on every write."""
 
-    # gRPC CreateTracking, called by Orders on order confirmation.
+    # POST /v1/trackings/init-tracking — the only way a tracking is created.
     CREATE_TRACKING = "tracking_api:create_tracking"
     # PUT /v1/trackings/{orderId}/status — the third-party carrier webhook.
     CARRIER_STATUS_UPDATE = "tracking_api:carrier_status_update"

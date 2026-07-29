@@ -1,10 +1,9 @@
-"""`POST /v1/trackings/init-tracking` — REST tracking creation (JE-105).
+"""`POST /v1/trackings/init-tracking` — tracking creation (JE-105).
 
-Replaces the gRPC `CreateTracking` RPC as the way a tracking comes into existence.
-The RPC still exists and still works; removing it is JE-108, after Orders has
-migrated. Both call the SAME command handler
-(`commands/create_tracking.create_tracking`) — see its docstring for why creation
-has exactly one implementation.
+**The** way a tracking comes into existence. It replaced a gRPC `CreateTracking`
+RPC, which was removed in JE-108; both called the SAME command handler
+(`commands/create_tracking.create_tracking`), which is why the transport could be
+swapped out without touching what creation means.
 
 ## Its own router, like the carrier PUT
 
@@ -30,10 +29,10 @@ Persisting only one would break something silently: without `cognito_sub` the
 tracking is unreadable by its own owner; without `user_id` it is missing the
 reporting/join key every other row has, on a NOT NULL column.
 
-Note the difference from the gRPC path, which took `user_id` on the wire. That was
-sound there — the caller was Orders behind an `x-api-key`, asserting an id it had
-already resolved. Here the caller is an end user, so the service resolves it
-itself; a `user_id` the client supplied would be an unauthenticated claim.
+The removed gRPC path took `user_id` on the wire instead, which was sound there —
+its caller was Orders behind an `x-api-key`, asserting an id it had already
+resolved. Here the caller is an end user, so the service resolves it itself; a
+`user_id` the client supplied would be an unauthenticated claim.
 
 ## Status codes
 
@@ -82,12 +81,12 @@ happens on a worker thread, the loop stays free) reached from the other directio
 
 The reason to reach it from this direction is TestMode. Progression is an asyncio
 task, and scheduling it needs a running loop. A `def` handler has none — it IS a
-threadpool worker — which is exactly why the gRPC path needed
-`shared/scheduling/background.spawn` to hand the coroutine across to uvicorn's loop
-via `run_coroutine_threadsafe`. An `async def` handler is already ON that loop, so
-`asyncio.create_task` works directly: no registration, no cross-thread handoff, no
-"no loop registered" failure mode. The bridge still exists for the gRPC servicer
-(JE-108 owns its removal) but this path does not go through it.
+threadpool worker — which is exactly why the old gRPC creation path needed a
+`run_coroutine_threadsafe` bridge onto a loop published at startup. An `async def`
+handler is already ON that loop, so `asyncio.create_task` works directly: no
+registration, no cross-thread handoff, no "no loop registered" failure mode. That
+bridge was deleted with the gRPC server (JE-108) — this is the only creation path
+left, and it never needed one.
 
 The one subtlety is *when* to start it: not inline in the handler, but from
 Starlette's background-task hook, which runs after the response and therefore after
@@ -135,8 +134,7 @@ router = APIRouter(prefix="/v1/trackings", tags=["trackings"])
 class ProgressionConfig:
     """How a TestMode run started from this endpoint is configured.
 
-    The FastAPI equivalent of `TrackingServicer(progression_interval=…,
-    progression_writer=…)`, and it exists for the same two reasons:
+    Two reasons this is injectable at all:
 
     * **The interval must be injectable.** Production runs the design's 10s cadence;
       a test that actually waited 30 seconds for a four-step run would be deleted or
@@ -256,8 +254,6 @@ async def init_tracking(
         #
         # A background task, by contract, runs after the response is sent, which is
         # after dependency teardown — so the row is committed before the first tick.
-        # The gRPC path did not need this: it opened its session with an explicit
-        # `with` block and scheduled after that block had exited (and committed).
         #
         # !! KNOWN LIMITATION, EXPLICITLY ACCEPTED !!
         # In-process asyncio task: a process restart mid-progression loses it and
@@ -323,8 +319,8 @@ async def _schedule_progression(order_id: str, config: ProgressionConfig) -> Non
     is awaited **on the event loop**, while a plain `def` is pushed to a worker
     thread. A `def` here would therefore land somewhere with no running loop and
     `asyncio.create_task` would raise `RuntimeError: no running event loop` — the
-    same wall the gRPC servicer hit, arrived at from a different direction. So this
-    is `async def` purely to be on the loop.
+    same wall the removed gRPC servicer hit, arrived at from a different direction.
+    So this is `async def` purely to be on the loop.
 
     And it must not `await run_progression` itself: Starlette runs background tasks
     *before* the connection is released, so awaiting would hold that connection open
@@ -332,14 +328,14 @@ async def _schedule_progression(order_id: str, config: ProgressionConfig) -> Non
     returns immediately, which is the behaviour a fixture that outlives its request
     needs.
 
-    No `shared/scheduling/background.spawn` in sight, either: that helper exists to
-    reach uvicorn's loop from a gRPC thread pool that has none. Here the loop is the
-    one we are standing on, so the handoff would be a detour carrying a failure mode
-    ("no loop registered") that cannot occur on this path.
+    No cross-thread scheduling helper in sight, either. One existed for the gRPC
+    servicer, to reach uvicorn's loop from a thread pool that had none; here the
+    loop is the one we are standing on, so such a handoff would be a detour carrying
+    a failure mode ("no loop registered") that cannot occur on this path. It was
+    deleted along with the servicer (JE-108) — do not reintroduce it.
 
-    The task reference is deliberately dropped, like the gRPC path's discarded
-    future. `run_progression` is written so nothing escapes it, which is what makes
-    that safe — see its docstring.
+    The task reference is deliberately dropped. `run_progression` is written so
+    nothing escapes it, which is what makes that safe — see its docstring.
     """
     asyncio.create_task(  # noqa: RUF006 - fire-and-forget by design; see above
         run_progression(order_id, interval=config.interval, writer=config.writer)

@@ -1,9 +1,9 @@
 """TestMode automatic progression (JE-95).
 
-When `CreateTracking` is called with `test_mode=true`, the new tracking advances
-one status every 10 seconds until it is `DELIVERED`:
+When `POST /v1/trackings/init-tracking` is called with `x-test-mode: true`, the new
+tracking advances one status every 10 seconds until it is `DELIVERED`:
 
-    t=0s   SHIPPED           (written by the create itself, Phase C)
+    t=0s   SHIPPED           (written by the create itself)
     t=10s  ON_THE_WAY
     t=20s  OUT_FOR_DELIVERY
     t=30s  DELIVERED
@@ -33,29 +33,22 @@ persistent. Paying for a durable scheduler — a new dependency, a new table, a
 poller, its own failure modes — to make a 30-second test fixture restart-proof is
 not a trade this service wants.
 
-## How a SYNC gRPC handler starts an ASYNC progression
+## Who starts it, and from where
 
-`CreateTracking` runs on a `grpc.server` **thread pool** (Phase C chose threads over
-`grpc.aio` because pymysql is a blocking driver). A thread-pool worker has no
-running event loop, so `asyncio.create_task` there raises `RuntimeError: no running
-event loop` — and `asyncio.run()` would block the RPC for the full 30 seconds.
+`api/init_tracking_router.py`, from Starlette's background-task hook — after the
+response, and therefore after the creating write session has committed. That
+handler is `async def`, so it is already ON uvicorn's event loop and can
+`asyncio.create_task` this coroutine directly.
 
-But there IS an event loop in this process: uvicorn's, running the FastAPI app in
-the main thread. The bridge is `asyncio.run_coroutine_threadsafe`, which exists for
-precisely this — submitting a coroutine to a loop owned by a *different* thread. It
-is thread-safe by contract, and it returns immediately (a `concurrent.futures.
-Future` this module never waits on), so the RPC answers Orders without waiting for
-the shipment to be "delivered".
-
-The loop is captured at FastAPI startup (`src/main.py` lifespan calls
-`set_event_loop`) rather than looked up from the gRPC thread, because
-`asyncio.get_event_loop()` in a non-main thread with no loop does not find
-uvicorn's — it fails or creates a useless new one.
-
-When no loop has been registered — the gRPC server running standalone via
-`shared/grpc/server.py`'s `__main__`, or a unit test — scheduling is a no-op that
-logs and moves on. Creation must never fail because a test fixture could not be
-started.
+That directness is recent. Creation used to be a gRPC RPC running on a
+`grpc.server` **thread pool** (threads, not `grpc.aio`, because pymysql blocks), and
+a thread-pool worker has no running event loop: `asyncio.create_task` there raised
+`RuntimeError: no running event loop`, and `asyncio.run()` would have blocked the
+RPC for the full 30 seconds. That needed a bridge —
+`asyncio.run_coroutine_threadsafe` onto a loop published at FastAPI startup — plus
+the "no loop registered" failure mode that came with it. JE-108 removed the gRPC
+server, and the bridge went with it: there is now exactly one caller, and it is
+already on the loop.
 
 ## Each transition reuses the PUT endpoint's path
 
@@ -70,6 +63,10 @@ automatic run identifiable from `tracking_history.created_by` after the fact.
 Each step opens its **own** write session. The creating request's session was
 committed and closed long before t=10s, so it cannot be reused; holding one open
 across 30 seconds of sleeping would pin a pooled connection for the whole run.
+
+`advance_once` reads the tracking **unscoped** — no `cognito_sub`. That is correct
+here and only here: there is no caller to scope by, and the order id came from a
+tracking this process just created rather than from a request.
 """
 
 from __future__ import annotations

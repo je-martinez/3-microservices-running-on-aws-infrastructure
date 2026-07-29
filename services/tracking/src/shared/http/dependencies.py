@@ -1,13 +1,12 @@
 """Database-session dependencies for the REST handlers.
 
-Thin adapters over `shared/db/engine.py`'s two context managers, so the read/write
-split from ADR-0006 reaches the HTTP surface the same way it reaches the gRPC one:
-the reads take a **reader** session, the carrier PUT takes a **writer** session
-which owns the transaction (status update + history row commit together).
+Thin adapters over `shared/db/engine.py`'s two context managers, carrying the
+read/write split from ADR-0006 onto the HTTP surface: the reads take a **reader**
+session, creation and the carrier PUT take a **writer** session which owns the
+transaction (status update + history row commit together).
 
 Injected as FastAPI dependencies rather than opened inside the handlers so tests
-can override them with sessions bound to the test engine — the same seam
-`TrackingServicer(writer=…, reader=…)` gives the gRPC surface.
+can override them with sessions bound to the test engine.
 
 Both are plain generator dependencies (`def`, not `async def`): pymysql is a
 blocking driver, so FastAPI must run these in the threadpool. An `async def`
