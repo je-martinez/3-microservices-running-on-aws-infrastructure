@@ -30,10 +30,11 @@ caller) forwards the snapshot it already owns; an end user's status view does no
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-from src.features.tracking.domain.models import Tracking, TrackingHistory
+from src.features.tracking.domain.models import ID_LENGTH, Tracking, TrackingHistory
 from src.features.tracking.grpc.mappers import iso
 
 
@@ -122,6 +123,66 @@ class TrackingListResponse(BaseModel):
     """
 
     trackings: list[TrackingResponse]
+
+
+class InitTrackingRequest(BaseModel):
+    """Body of `POST /v1/trackings/init-tracking` (JE-105).
+
+    ## Two fields, and deliberately no identity
+
+    `order_id` and `shipping_address`, nothing else. The caller's identity is NOT
+    in the body and must never be: it arrives as the gateway-injected `x-user-id`
+    header, which the gateway derives from a verified Cognito JWT. A `user_id` (or
+    `cognito_sub`) field here would be an unauthenticated string a client chooses,
+    so anyone could create a tracking attributed to anyone — the body is client
+    input, the header is a gateway assertion. That is also why the gRPC
+    `CreateTracking` could take `user_id` on the wire and this cannot: its caller
+    was Orders behind an `x-api-key`, a trusted service asserting an identity it
+    had already resolved.
+
+    ## `test_mode` is not here either
+
+    It travels as the `x-test-mode` header — see the router's docstring for why.
+
+    `model_config` forbids extra fields: a client sending `user_id` gets a `422`
+    naming the field, rather than having it silently ignored and later wondering
+    why the tracking belongs to someone else.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    order_id: str = Field(
+        min_length=1,
+        max_length=ID_LENGTH,
+        description="The order this tracking follows.",
+    )
+
+    #: The delivery address snapshot, free-form JSON. PII — never logged.
+    #:
+    #: Typed as a permissive mapping rather than a strict `Address` model on
+    #: purpose: this column is a point-in-time SNAPSHOT whose shape is owned by the
+    #: caller that resolved it (Orders, from Users' `Address` message), and the
+    #: service neither reads it back nor renders it on any surface. A strict model
+    #: here would make Tracking reject an address the moment Users adds a field,
+    #: turning an additive upstream change into a creation outage — for data this
+    #: service only stores. Empty/None is accepted for the same reason the gRPC
+    #: path accepts an absent address.
+    shipping_address: dict[str, Any] | None = Field(
+        default=None,
+        description="Point-in-time delivery address snapshot. Never logged (PII).",
+    )
+
+
+class InitTrackingResponse(BaseModel):
+    """`201` payload: the created tracking, at `SHIPPED`, with its first history row.
+
+    Reuses `TrackingResponse`'s shape rather than declaring a leaner one, so the
+    body a client gets from creating a tracking is identical to the one it gets
+    from reading it back — including the deliberate omissions (`shipping_address`
+    and `cognito_sub` are PII/identity and appear on neither).
+    """
+
+    tracking: TrackingResponse
 
 
 class UpdateStatusRequest(BaseModel):

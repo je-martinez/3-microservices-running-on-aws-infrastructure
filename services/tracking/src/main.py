@@ -23,14 +23,20 @@ the event loop uvicorn is running on. For the same reason every database-touchin
 HTTP handler is a plain `def` (FastAPI runs those in a threadpool) rather than
 `async def`.
 
-## Three routers, three auth schemes
+## Four routers, three auth schemes
 
 Registered separately and deliberately: `health_router` declares no auth,
-`trackings_router` requires the gateway-injected `x-user-id` per handler, and
+`trackings_router` requires the gateway-injected `x-user-id` per handler,
+`init_tracking_router` requires it too AND resolves the caller through Users, and
 `carrier_router` declares the carrier key at the router level. Nothing is
 authenticated by a global middleware, so no route can be accidentally exempted by
 an allowlist — and, critically, the carrier PUT cannot inherit an `x-user-id`
 requirement it must not have.
+
+Creation lives in its own router rather than beside the reads because it needs a
+strictly larger dependency set (`Caller`, which can make a gRPC call, versus
+`CallerSub`, which never touches the network). Keeping them apart is what stops a
+read from silently acquiring a per-request call to Users.
 """
 
 from __future__ import annotations
@@ -43,7 +49,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from src.features.tracking.api import carrier_router, health_router, trackings_router
+from src.features.tracking.api import (
+    carrier_router,
+    health_router,
+    init_tracking_router,
+    trackings_router,
+)
 from src.features.tracking.api.errors import (
     RejectedStatusUpdate,
     rejected_status_update_handler,
@@ -147,8 +158,17 @@ def create_app() -> FastAPI:
     app.add_exception_handler(RejectedStatusUpdate, rejected_status_update_handler)
 
     app.include_router(health_router.router)
-    # Reads first, then the carrier PUT. They share the `/v1/trackings` prefix but
-    # not a single dependency — see each router's docstring.
+    # Creation first, then the reads, then the carrier PUT. All three share the
+    # `/v1/trackings` prefix and not a single dependency — see each router's
+    # docstring.
+    #
+    # Creation is registered BEFORE the reads because `/init-tracking` is a literal
+    # segment sitting where `trackings_router`'s `/{order_id}` path parameter also
+    # matches. They do not actually collide today (different methods: POST vs GET),
+    # but Starlette matches in declaration order, and declaring the literal first is
+    # the habit that keeps that from mattering if either surface ever grows a method
+    # the other already has.
+    app.include_router(init_tracking_router.router)
     app.include_router(trackings_router.router)
     app.include_router(carrier_router.router)
 

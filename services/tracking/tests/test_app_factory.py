@@ -30,12 +30,13 @@ def routes(app: FastAPI) -> set[tuple[str, str]]:
 
 
 class TestRoutingTable:
-    """The three Phase D endpoints, at the paths the gateway expects."""
+    """Every REST endpoint, at the path the gateway expects."""
 
     @pytest.mark.parametrize(
         ("method", "path"),
         [
             ("GET", "/v1/health"),
+            ("POST", "/v1/trackings/init-tracking"),
             ("GET", "/v1/trackings"),
             ("GET", "/v1/trackings/{order_id}"),
             ("PUT", "/v1/trackings/{order_id}/status"),
@@ -44,13 +45,27 @@ class TestRoutingTable:
     def test_endpoint_is_registered(self, method: str, path: str) -> None:
         assert (method, path) in routes(create_app())
 
-    def test_there_is_no_rest_creation_endpoint(self) -> None:
-        """Creation is gRPC-only — the design is explicit that no `POST
-        /v1/trackings` exists. A REST create would bypass the Orders-driven flow
-        entirely."""
-        assert not any(
-            method == "POST" for method, _ in routes(create_app())
-        )
+    def test_creation_is_the_only_post(self) -> None:
+        """Exactly one POST on this surface, and it is `init-tracking` (JE-105).
+
+        This test used to assert the OPPOSITE — that no REST creation endpoint
+        existed at all, because creation was gRPC-only. JE-105 inverted that: the
+        endpoint is now the way a tracking is created, and the gRPC RPC is what goes
+        away (JE-108). Pinning the count rather than merely the presence keeps a
+        second, unreviewed write surface from appearing beside it.
+        """
+        posts = [path for method, path in routes(create_app()) if method == "POST"]
+        assert posts == ["/v1/trackings/init-tracking"]
+
+    def test_creation_is_not_at_the_bare_collection_path(self) -> None:
+        """`POST /v1/trackings` is NOT the route — `/init-tracking` is.
+
+        The spelling is a gateway contract, not a REST-style preference: the route
+        published by the API Gateway is `POST /v1/trackings/init-tracking`, and a
+        service listening on the collection path instead would 404 every real call
+        while looking implemented locally.
+        """
+        assert ("POST", "/v1/trackings") not in routes(create_app())
 
     def test_no_delete_endpoint_exists(self) -> None:
         """Soft-delete-only: nothing on this surface removes a tracking."""
