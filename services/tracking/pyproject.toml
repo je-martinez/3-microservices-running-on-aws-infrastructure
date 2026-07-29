@@ -1,0 +1,37 @@
+# Tooling configuration for the Tracking service.
+# Dependencies live in requirements.txt (the stack contract in CLAUDE.md is
+# `pip install -r requirements.txt`), so this file configures tools only and
+# declares no project metadata or dependency list.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Repository tests need a real MySQL (mocks hide schema bugs); they self-skip
+# with a clear message when TRACKING_TEST_DATABASE_URL is unset.
+markers = [
+    "integration: needs a real MySQL database (TRACKING_TEST_DATABASE_URL)",
+]
+filterwarnings = ["error::DeprecationWarning"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+]
+
+[tool.ruff.lint.isort]
+# `src` is this service's own code, not a third-party package — without this,
+# isort merges `from src...` into the third-party block.
+known-first-party = ["src"]
+
+[tool.ruff.lint.per-file-ignores]
+# Alembic generates these; they are not hand-maintained style.
+"alembic/**" = ["E501"]
