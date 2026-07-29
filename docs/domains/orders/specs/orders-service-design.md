@@ -271,6 +271,9 @@ Full milestone design: [[2026-07-14-orders-service-milestone-design]].
 - [[2026-07-16-orders-list-products-endpoint-design]]
 - [[tracking-service-design]] — `x-test-mode` header on `POST /v1/orders` propagates as
   `test_mode` into the `CreateTracking` gRPC call; also the destination of the `shipping_address`
-  snapshot forwarded by `CreateTracking`.
+  snapshot forwarded by `CreateTracking`. Tracking's REST read endpoints
+  (`GET /v1/trackings/{order_id}`, `GET /v1/trackings?order_ids=...`) reuse this spec's `404`-not-
+  `403` ownership pattern and the `x-user-id` gateway-injection mechanism — see
+  [[tracking-service-design#REST reads vs gRPC reads]].
 - [[users-service-design]] — `GetUserById` is where Orders resolves the delivery address it
   snapshots onto `Order.shipping_address`.

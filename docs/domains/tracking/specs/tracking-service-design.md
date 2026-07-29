@@ -14,9 +14,13 @@ related:
   - "[[versioning]]"
   - "[[ADR-0003-grpc-inter-service]]"
   - "[[ADR-0006-read-write-replicas]]"
+  - "[[ADR-0007-secrets-parameter-store]]"
   - "[[orders-service-design]]"
   - "[[users-service-design]]"
   - "[[logging-context]]"
+  - "[[testing]]"
+  - "[[local-gateway-per-route-integrations]]"
+  - "[[nginx-njs-x-user-id-injection]]"
 ---
 
 # Tracking Service Design
@@ -49,11 +53,14 @@ related:
 ## Summary
 
 The Tracking service is responsible for recording and updating the delivery status of orders.
-Creation and reads happen exclusively over **gRPC** — creation is triggered by the Orders service
-confirming an order, an inter-service call, not a user-facing one (see [[ADR-0003-grpc-inter-service]]).
-The only REST surface is a narrow **status-update** endpoint that simulates a third-party carrier
-notifying the system of a delivery status change, plus the standard health check. The service acts
-exclusively as a consumer/updater — it does not emit any domain events.
+Creation happens exclusively over **gRPC** — it is triggered by the Orders service confirming an
+order, an inter-service call, not a user-facing one (see [[ADR-0003-grpc-inter-service]]). Reads
+exist on **both** transports for different callers: gRPC reads are unscoped inter-service lookups
+(any order), while REST reads are user-scoped — a caller only ever sees their own trackings (see
+[REST reads vs gRPC reads](#rest-reads-vs-grpc-reads) below). The REST surface otherwise stays
+narrow: a status-update endpoint that simulates a third-party carrier notifying the system of a
+delivery status change, plus the standard health check. The service acts exclusively as a
+consumer/updater — it does not emit any domain events.
 
 ## Stack & Data Store
 
@@ -64,25 +71,156 @@ exclusively as a consumer/updater — it does not emit any domain events.
 | Container  | AWS Fargate (ECS)                        |
 | Auth       | Amazon Cognito (request validation)      |
 
-Read replicas are used for all reads (the gRPC `GetTrackingByOrderId` / `GetTrackingsByOrderIds` methods); the write replica receives all mutations (gRPC `CreateTracking` and the REST status-update endpoint). See [[ADR-0006-read-write-replicas]].
+Read replicas are used for all reads — both the gRPC (`GetTrackingByOrderId` /
+`GetTrackingsByOrderIds`) and REST (`GET /v1/trackings/{order_id}` /
+`GET /v1/trackings?order_ids=...`) surfaces; the write replica receives all mutations (gRPC
+`CreateTracking` and the REST status-update endpoint). See [[ADR-0006-read-write-replicas]].
 
 ## API / Endpoints
 
-Tracking record **creation and reads are gRPC-only** (see [gRPC Methods](#grpc-methods)) — there is
-no `POST` and no `GET` under REST. The REST surface is intentionally small: the health check and a
-single status-update endpoint. All endpoints are versioned under `/v1`. See [[versioning]].
+Tracking record **creation is gRPC-only** (see [gRPC Methods](#grpc-methods)) — there is no `POST`
+under REST. Reads exist on REST too, alongside the gRPC reads — see
+[REST reads vs gRPC reads](#rest-reads-vs-grpc-reads) for why both exist. All endpoints are
+versioned under `/v1`. See [[versioning]].
 
-| Method | Path                              | Description                          |
-|--------|-----------------------------------|--------------------------------------|
-| GET    | `/v1/health`                      | Liveness/readiness probe. Returns `200 { "status": "ok" }` when healthy. No auth required. Used by ALB/Fargate as health check target. |
-| PUT    | `/v1/trackings/{order_id}/status` | Simulates a third-party carrier service notifying Tracking of a delivery status change. `status` must be one of the four enum values defined in [Tracking statuses](#tracking-statuses), and is subject to the guards in [State machine & update guards](#state-machine--update-guards). |
+All REST routes sit behind the **existing** API Gateway (`infra/modules/api-gateway/`) — the same
+one fronting Users and Orders. There is no new/dedicated gateway for Tracking; adding these routes
+means adding entries to that module's `local.routes` map, per
+[Gateway routing](#gateway-routing-existing-module-not-a-new-one) below.
 
-> [!note] Auth
-> All endpoints require a valid Cognito JWT, **except `/v1/health`** which is unauthenticated. The API Gateway validates the token before routing to the service.
+| Method | Path                              | Auth | Description                          |
+|--------|-----------------------------------|------|--------------------------------------|
+| GET    | `/v1/health`                      | None | Liveness/readiness probe. Returns `200 { "status": "ok" }` when healthy. Used by ALB/Fargate as health check target. |
+| GET    | `/v1/trackings/{order_id}`        | Cognito JWT (gateway authorizer) | Returns one tracking + its `Tracking_History`, scoped to the caller. Filters by `order_id` **and** the caller's `user_id` (from the gateway-injected `x-user-id` header — see [Ownership & scoping](#ownership--scoping)); a tracking that exists but belongs to another user is indistinguishable from one that does not exist — returns `404`, not `403`. |
+| GET    | `/v1/trackings?order_ids=<csv>`   | Cognito JWT (gateway authorizer) | Returns many trackings (+ each one's `Tracking_History`), scoped to the caller. `order_ids` is a comma-separated list of order ids, e.g. `?order_ids=ord_a,ord_b,ord_c` — see [Batch read query shape](#batch-read-query-shape) for why. Filters by `order_id` **and** the caller's `user_id`; ids that exist but belong to another user (or don't exist at all) are silently **omitted** from the results, never reported as an error — see [Ownership & scoping](#ownership--scoping). |
+| PUT    | `/v1/trackings/{order_id}/status` | Custom API key (service-validated, **not** Cognito) | Simulates a third-party carrier service notifying Tracking of a delivery status change. `status` must be one of the four enum values defined in [Tracking statuses](#tracking-statuses), and is subject to the guards in [State machine & update guards](#state-machine--update-guards). See [Auth schemes](#auth-schemes) — this endpoint has **no `x-user-id`** and is identified by `order_id` alone. |
+
+> [!warning] Three different auth schemes on one small service
+> Unlike Users/Orders, where "all endpoints require a Cognito JWT except health" was previously
+> true, Tracking has **three** distinct auth schemes across its surfaces — see
+> [Auth schemes](#auth-schemes) below for the full breakdown. Do not assume the PUT endpoint has a
+> Cognito JWT or an `x-user-id` header; it has neither.
+
+### Auth schemes
+
+Tracking's REST + gRPC surfaces span three separate trust domains — worth documenting explicitly,
+because three schemes on one small service is exactly the kind of thing that gets confused:
+
+| Surface | Auth | Caller |
+|---|---|---|
+| `GET /v1/health` | None | ALB / Fargate health check |
+| `GET /v1/trackings/{order_id}` and the batch read | Cognito JWT via the gateway's JWT authorizer, scoped by `x-user-id` | End user |
+| `PUT /v1/trackings/{order_id}/status` | Custom API key, validated by the service itself | Third-party carrier / webhook |
+| gRPC (`CreateTracking`, both reads) | `x-api-key` interceptor (see [[ADR-0003-grpc-inter-service]]) | Internal services (Orders) |
+
+> [!important] The two key-based schemes are different keys for different trust domains
+> The gRPC `x-api-key` is an **internal** service-to-service secret — the same pattern
+> [[users-service-design]] established for inter-service calls. The PUT endpoint's API key is
+> issued to an **external** party (the carrier/webhook). These must **not** be the same value or
+> the same env var/secret: reusing the internal service credential as the externally-distributed
+> carrier key would hand an outside vendor the ability to authenticate as an internal service.
+> Provision them as two separate secrets.
+>
+> Both should be treated as rotatable secrets in Parameter Store, per
+> [[ADR-0007-secrets-parameter-store]], not hardcoded values. Log failed auth attempts against the
+> PUT endpoint (without ever logging the key itself, per [[logging-context]]) — an endpoint that
+> mutates delivery state and is reachable without a user JWT is a broader attack surface than the
+> rest of the service, and failed-attempt visibility is the cheapest mitigation available.
+
+### Gateway routing (existing module, not a new one)
+
+Tracking's REST routes are added to the API Gateway the repo already has
+(`infra/modules/api-gateway/main.tf`), the same one Users and Orders use — not a new gateway, not
+direct service exposure. Concretely:
+
+- Each route is a new entry in that module's `local.routes` map, carrying a route `key` (e.g.
+  `"GET /v1/trackings/{order_id}"`) and an `auth` boolean, following the existing pattern for
+  Users' and Orders' routes.
+- `authorization_type` is `"JWT"` when `auth = true` and `"NONE"` when `auth = false`, with
+  `authorizer_id` set only in the `true` case (`main.tf` ~line 123) — **per-route auth opt-out is
+  already a supported, used pattern**, not something new this spec introduces. The precedent is
+  `var.enable_e2e_cleanup_route`, which creates `DELETE /v1/users/e2e-cleanup` with `auth = false`.
+- `GET /v1/trackings/{order_id}` and the batch read are declared `auth = true` (Cognito JWT).
+  `PUT /v1/trackings/{order_id}/status` is declared **`auth = false`** — it is not behind the
+  Cognito authorizer at all; the service validates the custom API key itself, the gateway only
+  passes the request through. `GET /v1/health` is also `auth = false`.
+- Locally, the module uses **per-route `HTTP_PROXY` integrations** (a Floci workaround, not a
+  production concern) — see [[local-gateway-per-route-integrations]]. Each new Tracking route gets
+  its own local integration entry the same way Orders' routes did. In production it is a single
+  shared integration.
+- The `x-user-id` header on the two Cognito-authenticated reads comes from the local nginx+njs JWT
+  decode, since Floci's API Gateway cannot map JWT claims to headers — see
+  [[nginx-njs-x-user-id-injection]]. The PUT endpoint receives no such header (see below).
+
+### REST reads vs gRPC reads
+
+Tracking exposes reads on **both** transports, and deliberately — they serve different callers with
+different trust levels:
+
+| | REST reads (`GET /v1/trackings/...`) | gRPC reads (`GetTrackingByOrderId`, `GetTrackingsByOrderIds`) |
+|---|---|---|
+| Caller | End user, through the gateway | Other microservices (inter-service) |
+| Auth | Cognito JWT, validated by the gateway | `x-api-key` shared secret, per [[ADR-0003-grpc-inter-service]] |
+| Scope | **User-scoped** — filtered by `order_id` AND the caller's `user_id`; only the caller's own trackings are ever returned | **Unscoped** — any `order_id`/`order_ids` the caller passes, no per-user filtering |
+| Purpose | Let the end user see their own shipment; also the only way to verify tracking state from the gateway (see [Gateway E2E verification](#gateway-e2e-verification-of-testmode) below) | Let a trusted inter-service caller fetch tracking data it needs, e.g. for display in another service's response |
+
+> [!note] Why reads exist on REST at all
+> The original design had reads exposed only over gRPC. That left no way to verify tracking state
+> **from the gateway** — the repo's [[testing]] convention requires a gateway E2E test with a real
+> Cognito JWT for every endpoint, and the gateway speaks HTTP, not gRPC. There was no HTTP path to
+> confirm a `TestMode` tracking actually reached `DELIVERED`. Beyond testing, the end user also has
+> a legitimate need to see their own shipment. REST reads close both gaps without touching the gRPC
+> reads, which stay exactly as they were for inter-service callers.
+
+### Ownership & scoping
+
+Both REST read endpoints filter by `order_id` **and** `user_id` in the query itself — not
+fetch-then-compare — so a caller only ever receives trackings that belong to them. The caller's
+identity comes from the gateway-injected `x-user-id` header, the same mechanism
+[[orders-service-design]] uses (see its nginx+njs local gateway wiring).
+
+This matches Orders' existing ownership semantics exactly (see
+[[orders-service-design#API / Endpoints|the ownership note on `GET /v1/orders/{order_id}`]]):
+
+- **Single read (`GET /v1/trackings/{order_id}`):** a tracking that exists but belongs to another
+  user returns `404 Not Found`, the same response as a tracking that does not exist at all. The
+  endpoint never answers `403 Forbidden` — that would leak the fact that *some* tracking exists for
+  that `order_id`, just not to this caller.
+- **Batch read (`GET /v1/trackings?order_ids=...`):** the equivalent rule is that non-owned ids
+  (whether they belong to another user or don't exist) are simply **omitted** from the result list
+  — never surfaced as a per-id error or partial-failure entry. A caller who passes ten ids and owns
+  three gets back exactly three trackings, with no indication of what happened to the other seven.
+
+### Batch read query shape
+
+`GET /v1/trackings?order_ids=ord_a,ord_b,ord_c` — a single query parameter holding a
+comma-separated list of order ids — is the chosen shape for the many-trackings read. This is the
+natural REST idiom for "give me N resources by id" (no request body on a `GET`, no need for a
+non-standard batch-specific HTTP method), and it mirrors the gRPC method it fronts
+(`GetTrackingsByOrderIds`, which takes `order_ids: [string]`) closely enough that the REST handler
+is a thin translation over the same repository query. The response is a list of (`Tracking` +
+`Tracking_History`) pairs, same shape as the single-read endpoint's payload, one per **owned**
+order id found among those requested (see [Ownership & scoping](#ownership--scoping) for the
+omission rule).
+
+### Gateway E2E verification of TestMode
+
+`GET /v1/trackings/{order_id}` is what makes it possible to verify
+[TestMode automatic progression](#testmode-automatic-progression) from the gateway: a gateway E2E
+test (real Cognito JWT, hitting the gateway URL, per [[testing]]) can create an order with
+`x-test-mode: true` and then **poll** `GET /v1/trackings/{order_id}` until `status` reaches
+`DELIVERED`. Before this endpoint existed, there was no HTTP-reachable way to observe that
+progression at all — the only reads were gRPC, which the gateway doesn't speak and which internal
+tests would have to fake around, missing exactly the class of gateway-only bug [[testing]] exists
+to catch.
 
 ## gRPC Methods
 
-Tracking record creation and all reads use gRPC instead of REST. See [[ADR-0003-grpc-inter-service]].
+Tracking record creation is gRPC-only. Reads are also exposed over gRPC, for inter-service
+callers — trusted via `x-api-key` and **unscoped** to any particular end user, unlike the
+user-scoped REST reads under [API / Endpoints](#api--endpoints). See
+[REST reads vs gRPC reads](#rest-reads-vs-grpc-reads) for the full comparison, and
+[[ADR-0003-grpc-inter-service]] for why gRPC is the inter-service protocol in the first place.
 
 ### Creation
 
@@ -113,7 +251,11 @@ it — see [[logging-context]]).
 
 ### Reads
 
-Both read methods return the tracking **together with its history** — not a bare `Tracking` message.
+Both read methods return the tracking **together with its history** — not a bare `Tracking`
+message. Neither filters by `user_id`: the caller is a trusted inter-service client (authenticated
+via `x-api-key`, per [[ADR-0003-grpc-inter-service]]), not an end user, so any `order_id`/
+`order_ids` passed in is looked up as-is. This is the deliberate difference from the REST reads —
+see [REST reads vs gRPC reads](#rest-reads-vs-grpc-reads) under [API / Endpoints](#api--endpoints).
 
 | Method                    | Request                        | Response                                            |
 |---------------------------|--------------------------------|------------------------------------------------------|
@@ -251,6 +393,16 @@ client → POST /v1/orders (x-test-mode: true)
 `PUT /v1/trackings/{order_id}/status` exists to **simulate a third-party carrier service**
 notifying Tracking of a delivery status change. It is subject to the following guards:
 
+> [!important] No JWT, no `x-user-id` — identified by `order_id` alone
+> Unlike the two REST read endpoints, this endpoint is **not** called by an end user through the
+> Cognito authorizer — it is called by an external carrier/webhook authenticated with a custom API
+> key (see [Auth schemes](#auth-schemes)). Its gateway route carries no JWT authorizer, so there is
+> no gateway-injected `x-user-id` header on this request at all. Consequently the handler cannot
+> scope or verify the caller by identity the way the GET reads do (see
+> [Ownership & scoping](#ownership--scoping)) — it identifies the tracking to update purely by the
+> `order_id` path parameter. An implementer who assumes `x-user-id` is present here will write
+> broken code; do not reuse the read endpoints' ownership-filter logic on this handler.
+
 > [!warning] No updates once delivered
 > A tracking whose status is already `DELIVERED` (terminal) cannot be updated at all — any
 > `PUT /v1/trackings/{order_id}/status` request against it must be rejected with `400 Bad Request`.
@@ -279,6 +431,10 @@ notifying Tracking of a delivery status change. It is subject to the following g
 | API versioning  | [[versioning]]           |
 | gRPC transport  | [[ADR-0003-grpc-inter-service]] |
 | DB replicas     | [[ADR-0006-read-write-replicas]] |
+| Endpoint test coverage | [[testing]]       |
+| Secrets (carrier API key, gRPC `x-api-key`) | [[ADR-0007-secrets-parameter-store]] |
+| Gateway routing (existing module, per-route local integrations) | [[local-gateway-per-route-integrations]] |
+| `x-user-id` injection (local) | [[nginx-njs-x-user-id-injection]] |
 
 ## Related
 
@@ -291,7 +447,20 @@ notifying Tracking of a delivery status change. It is subject to the following g
 - [[ADR-0006-read-write-replicas]]
 - [[orders-service-design]] — `POST /v1/orders` is where `test_mode` originates (`x-test-mode`
   header, guarded by `E2E_TESTING_ENABLED`) before Orders propagates it into `CreateTracking`; also
-  where the `shipping_address` snapshot forwarded to `CreateTracking` is resolved and persisted.
+  where the `shipping_address` snapshot forwarded to `CreateTracking` is resolved and persisted;
+  also the source of the `404`-not-`403` ownership pattern the REST reads reuse (see
+  [REST reads vs gRPC reads](#rest-reads-vs-grpc-reads)) and the `x-user-id` gateway-injection
+  mechanism both services rely on.
 - [[users-service-design]] — the origin of the delivery address, resolved by Orders via
   `GetUserById` before it reaches Tracking.
 - [[logging-context]] — the address must never be logged, the same way plaintext email never is.
+- [[testing]] — the three-layer test convention (unit/integration, internal E2E, gateway E2E with a
+  real Cognito JWT) that the REST read endpoints exist to satisfy for Tracking's reads.
+- [[ADR-0007-secrets-parameter-store]] — both the carrier's PUT-endpoint API key and the internal
+  gRPC `x-api-key` should be rotatable secrets in Parameter Store, not hardcoded values; see
+  [Auth schemes](#auth-schemes).
+- [[local-gateway-per-route-integrations]] — Tracking's routes are added to the existing API
+  Gateway module's `local.routes` map, and locally get per-route `HTTP_PROXY` integrations the same
+  way Orders' routes did; see [Gateway routing](#gateway-routing-existing-module-not-a-new-one).
+- [[nginx-njs-x-user-id-injection]] — where the `x-user-id` header on Tracking's two
+  Cognito-authenticated REST reads comes from locally; explicitly absent on the PUT endpoint.
