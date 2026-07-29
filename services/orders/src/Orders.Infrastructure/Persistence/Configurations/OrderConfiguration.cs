@@ -16,6 +16,11 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         b.Property(o => o.SubtotalCents).HasColumnName("subtotal_cents").HasColumnType("bigint");
         b.Property(o => o.TaxCents).HasColumnName("tax_cents").HasColumnType("bigint");
         b.Property(o => o.TotalCents).HasColumnName("total_cents").HasColumnType("bigint");
+        // Point-in-time snapshot of the delivery address (see Order.ShippingAddress).
+        // Real MySQL `json` column, nullable — a user may have no address on file.
+        // Mirrors Tracking's own `shipping_address` JSON column so the two snapshots
+        // stay recognisably the same shape. PII: never log it.
+        b.Property(o => o.ShippingAddress).HasColumnName("shipping_address").HasColumnType("json");
         ProductConfiguration.ApplyAudit(b);
         b.Ignore(o => o.Subtotal);
         b.Ignore(o => o.Tax);

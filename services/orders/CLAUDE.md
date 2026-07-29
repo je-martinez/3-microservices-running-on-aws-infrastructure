@@ -31,7 +31,12 @@ first, every time. Cross-cutting rules are **referenced**, never duplicated.
   build is the regenerate command.
 - Test: `dotnet test` (unit + Testcontainers-MySQL integration; needs Docker)
 - Format: `dotnet format` (verify in CI: `dotnet format --verify-no-changes`)
-- Add a migration: `dotnet ef migrations add <Name> --project src/Orders.Infrastructure --startup-project src/Orders.Api --context OrdersWriteDbContext`
+- Add a migration: `dotnet ef migrations add <Name> --project src/Orders.Infrastructure --startup-project src/Orders.Infrastructure --context OrdersWriteDbContext`
+  — the startup project is **Infrastructure, not Api**. `Microsoft.EntityFrameworkCore.Design`
+  is referenced by Infrastructure with `PrivateAssets`, so it does not flow to Api, and pointing
+  the startup project there fails with "doesn't reference Microsoft.EntityFrameworkCore.Design".
+  Infrastructure carries `OrdersWriteDbContextFactory` for exactly this, so no live database is
+  needed.
 - Apply migrations: `dotnet ef database update --project src/Orders.Infrastructure --startup-project src/Orders.Api --context OrdersWriteDbContext`
 - Run local (docker-watch): `docker compose up orders --watch` (from repo root)
 
