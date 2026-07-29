@@ -137,6 +137,7 @@ builder.Services.AddScoped(sp => new CreateOrderService(
     sp.GetRequiredService<IUserDirectory>(),
     sp.GetRequiredService<IEventPublisher>(),
     sp.GetRequiredService<IConfigurationReader>(),
+    sp.GetRequiredService<ITrackingInitiator>(),
     sp.GetRequiredService<ILogger<CreateOrderService>>()));
 
 var app = builder.Build();
