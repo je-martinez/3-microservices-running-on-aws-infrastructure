@@ -41,8 +41,9 @@ related:
 > - **gRPC surface** — no longer hypothetical. `proto/users.proto` defines a real service; Users
 >   serves it, and Orders consumes it as a client
 >   (`services/orders/src/Orders.Infrastructure/Grpc/UserDirectoryGrpcClient.cs`), authenticating
->   calls with a shared `x-api-key` gRPC metadata entry. Tracking's gRPC handlers below follow the
->   same pattern.
+>   calls with a shared `x-api-key` gRPC metadata entry. Tracking's outbound `GetUserById` client
+>   (see [gRPC — outbound client to Users](#grpc--outbound-client-to-users)) follows the same
+>   pattern.
 >
 > What is still genuinely missing, and remains a blocker for Tracking specifically: no
 > SQS/messaging Terraform module (`infra/modules/messaging/` is an empty `.gitkeep`) and no
@@ -53,14 +54,19 @@ related:
 ## Summary
 
 The Tracking service is responsible for recording and updating the delivery status of orders.
-Creation happens exclusively over **gRPC** — it is triggered by the Orders service confirming an
-order, an inter-service call, not a user-facing one (see [[ADR-0003-grpc-inter-service]]). Reads
-exist on **both** transports for different callers: gRPC reads are unscoped inter-service lookups
-(any order), while REST reads are user-scoped — a caller only ever sees their own trackings (see
-[REST reads vs gRPC reads](#rest-reads-vs-grpc-reads) below). The REST surface otherwise stays
-narrow: a status-update endpoint that simulates a third-party carrier notifying the system of a
-delivery status change, plus the standard health check. The service acts exclusively as a
-consumer/updater — it does not emit any domain events.
+**Tracking is REST-only.** Creation happens via `POST /v1/trackings/init-tracking`, authenticated
+by a Cognito JWT through the gateway the same as any other user-facing endpoint; the caller's
+identity comes from the gateway-injected `x-user-id` header, and Tracking resolves the caller's
+internal `usr_` id itself via an **outbound** gRPC call to Users. Reads are also REST, user-scoped —
+a caller only ever sees their own trackings (see [Ownership & scoping](#ownership--scoping)). The
+REST surface otherwise stays narrow: a status-update endpoint that simulates a third-party carrier
+notifying the system of a delivery status change, plus the standard health check. The service acts
+exclusively as a consumer/updater — it does not emit any domain events.
+
+> [!note] This design was not the original one
+> Creation and both reads originally shipped over gRPC (JE-90, JE-91). See
+> [Deltas from the original design (superseded)](#deltas-from-the-original-design-superseded) at
+> the bottom of this note for what changed and why.
 
 ## Stack & Data Store
 
@@ -71,17 +77,18 @@ consumer/updater — it does not emit any domain events.
 | Container  | AWS Fargate (ECS)                        |
 | Auth       | Amazon Cognito (request validation)      |
 
-Read replicas are used for all reads — both the gRPC (`GetTrackingByOrderId` /
-`GetTrackingsByOrderIds`) and REST (`GET /v1/trackings/{orderId}` /
-`GET /v1/trackings?order_ids=...`) surfaces; the write replica receives all mutations (gRPC
-`CreateTracking` and the REST status-update endpoint). See [[ADR-0006-read-write-replicas]].
+Read replicas are used for all reads — `GET /v1/trackings/{orderId}` and
+`GET /v1/trackings?order_ids=...`; the write replica receives all mutations
+(`POST /v1/trackings/init-tracking` and the REST status-update endpoint). See
+[[ADR-0006-read-write-replicas]].
 
 ## API / Endpoints
 
-Tracking record **creation is gRPC-only** (see [gRPC Methods](#grpc-methods)) — there is no `POST`
-under REST. Reads exist on REST too, alongside the gRPC reads — see
-[REST reads vs gRPC reads](#rest-reads-vs-grpc-reads) for why both exist. All endpoints are
-versioned under `/v1`. See [[versioning]].
+Tracking is **REST-only**. Creation happens through `POST /v1/trackings/init-tracking`, behind the
+same Cognito JWT gateway authorizer as the reads — see
+[gRPC — outbound client to Users](#grpc--outbound-client-to-users) for the one remaining gRPC call
+this triggers (outbound, to Users, not a server). All endpoints are versioned under `/v1`. See
+[[versioning]].
 
 All REST routes sit behind the **existing** API Gateway (`infra/modules/api-gateway/`) — the same
 one fronting Users and Orders. There is no new/dedicated gateway for Tracking; adding these routes
@@ -91,15 +98,18 @@ means adding entries to that module's `local.routes` map, per
 | Method | Gateway path                       | Auth | Description                          |
 |--------|-------------------------------------|------|--------------------------------------|
 | GET    | `/v1/tracking/health`               | None | Liveness/readiness probe, **as published at the gateway** — see [Gateway-prefixed health path](#gateway-prefixed-health-path-not-bare-v1health) below for why this is prefixed and not the bare `/v1/health` the service itself serves. Returns `200 { "status": "ok" }` when healthy. Used by ALB/Fargate as health check target. |
-| GET    | `/v1/trackings/{orderId}`           | Cognito JWT (gateway authorizer) | Returns one tracking + its `Tracking_History`, scoped to the caller. Filters by `order_id` **and** the caller's `user_id` (from the gateway-injected `x-user-id` header — see [Ownership & scoping](#ownership--scoping)); a tracking that exists but belongs to another user is indistinguishable from one that does not exist — returns `404`, not `403`. Path param is `{orderId}` (camelCase) at the gateway — see [Gateway path params are camelCase](#gateway-path-params-are-camelcase-not-snake_case) below. |
-| GET    | `/v1/trackings?order_ids=<csv>`     | Cognito JWT (gateway authorizer) | Returns many trackings (+ each one's `Tracking_History`), scoped to the caller. `order_ids` is a comma-separated list of order ids, e.g. `?order_ids=ord_a,ord_b,ord_c` — see [Batch read query shape](#batch-read-query-shape) for why. Filters by `order_id` **and** the caller's `user_id`; ids that exist but belong to another user (or don't exist at all) are silently **omitted** from the results, never reported as an error — see [Ownership & scoping](#ownership--scoping). |
+| POST   | `/v1/trackings/init-tracking`       | Cognito JWT (gateway authorizer) | Creates a tracking record. Body carries `order_id` and `shipping_address` only — the caller's identity comes from the gateway-injected `x-user-id` header, **not** the body. Rejects with `409 Conflict` when the order already has a tracking or any `Tracking_History`. Also accepts an optional `test_mode`, driving [TestMode automatic progression](#testmode-automatic-progression). |
+| GET    | `/v1/trackings/{orderId}`           | Cognito JWT (gateway authorizer) | Returns one tracking + its `Tracking_History`, scoped to the caller. Filters by `order_id` **and** the caller's `cognito_sub` (from the gateway-injected `x-user-id` header — see [Ownership & scoping](#ownership--scoping)); a tracking that exists but belongs to another user is indistinguishable from one that does not exist — returns `404`, not `403`. Path param is `{orderId}` (camelCase) at the gateway — see [Gateway path params are camelCase](#gateway-path-params-are-camelcase-not-snake_case) below. |
+| GET    | `/v1/trackings?order_ids=<csv>`     | Cognito JWT (gateway authorizer) | Returns many trackings (+ each one's `Tracking_History`), scoped to the caller. `order_ids` is a comma-separated list of order ids, e.g. `?order_ids=ord_a,ord_b,ord_c` — see [Batch read query shape](#batch-read-query-shape) for why. Filters by `order_id` **and** the caller's `cognito_sub`; ids that exist but belong to another user (or don't exist at all) are silently **omitted** from the results, never reported as an error — see [Ownership & scoping](#ownership--scoping). |
 | PUT    | `/v1/trackings/{orderId}/status`    | Custom API key (service-validated, **not** Cognito) | Simulates a third-party carrier service notifying Tracking of a delivery status change. `status` must be one of the four enum values defined in [Tracking statuses](#tracking-statuses), and is subject to the guards in [State machine & update guards](#state-machine--update-guards). See [Auth schemes](#auth-schemes) — this endpoint has **no `x-user-id`** and is identified by `order_id` alone. Path param is `{orderId}` (camelCase) — see [Gateway path params are camelCase](#gateway-path-params-are-camelcase-not-snake_case). |
 
-> [!warning] Three different auth schemes on one small service
+> [!warning] Several auth schemes, in both directions
 > Unlike Users/Orders, where "all endpoints require a Cognito JWT except health" was previously
-> true, Tracking has **three** distinct auth schemes across its surfaces — see
-> [Auth schemes](#auth-schemes) below for the full breakdown. Do not assume the PUT endpoint has a
-> Cognito JWT or an `x-user-id` header; it has neither.
+> true, Tracking has **three inbound** schemes (none for health, Cognito JWT for the reads and
+> init-tracking, a custom external key for the carrier PUT) **plus one outbound** scheme (an
+> internal `x-api-key` when Tracking itself calls Users) — see [Auth schemes](#auth-schemes) below
+> for the full breakdown, with the inbound/outbound direction made explicit. Do not assume the PUT
+> endpoint has a Cognito JWT or an `x-user-id` header; it has neither.
 
 > [!note] Gateway path vs internal service path
 > The table above documents the **gateway** surface — what a client actually calls through
@@ -144,23 +154,38 @@ whatever name the service-side handler happens to use.
 
 ### Auth schemes
 
-Tracking's REST + gRPC surfaces span three separate trust domains — worth documenting explicitly,
-because three schemes on one small service is exactly the kind of thing that gets confused:
+Tracking is REST-only, but its surfaces still span several trust domains — worth documenting
+explicitly, and worth being explicit about **direction**, because Tracking is both a callee (its
+REST surface, inbound) and a caller (its one remaining gRPC dependency, outbound) using a
+key-based scheme in *each* direction. Confusing the two is the easiest mistake to make here: the
+gRPC `x-api-key` used to be something Tracking **validated** (an inbound interceptor, see
+[Deltas from the original design (superseded)](#deltas-from-the-original-design-superseded)); it
+is now something Tracking **sends**.
+
+**Inbound** — requests arriving at Tracking:
 
 | Surface | Auth | Caller |
 |---|---|---|
 | `GET /v1/tracking/health` (gateway) / `/v1/health` (internal) | None | ALB / Fargate health check |
-| `GET /v1/trackings/{orderId}` and the batch read | Cognito JWT via the gateway's JWT authorizer, scoped by `x-user-id` | End user |
+| `POST /v1/trackings/init-tracking` | Cognito JWT via the gateway's JWT authorizer, identity from `x-user-id` | End user |
+| `GET /v1/trackings/{orderId}` and the batch read | Cognito JWT via the gateway's JWT authorizer, scoped by `cognito_sub` (from `x-user-id`) | End user |
 | `PUT /v1/trackings/{orderId}/status` | Custom API key, validated by the service itself | Third-party carrier / webhook |
-| gRPC (`CreateTracking`, both reads) | `x-api-key` interceptor (see [[ADR-0003-grpc-inter-service]]) | Internal services (Orders) |
+
+**Outbound** — the one call Tracking itself makes:
+
+| Surface | Auth | Callee |
+|---|---|---|
+| gRPC `users.v1.Users/GetUserById` | `x-api-key` metadata entry (see [[ADR-0003-grpc-inter-service]]) | Users |
 
 > [!important] The two key-based schemes are different keys for different trust domains
-> The gRPC `x-api-key` is an **internal** service-to-service secret — the same pattern
-> [[users-service-design]] established for inter-service calls. The PUT endpoint's API key is
-> issued to an **external** party (the carrier/webhook). These must **not** be the same value or
-> the same env var/secret: reusing the internal service credential as the externally-distributed
-> carrier key would hand an outside vendor the ability to authenticate as an internal service.
-> Provision them as two separate secrets.
+> The gRPC `x-api-key` Tracking sends to Users is an **internal** service-to-service secret — the
+> same pattern [[users-service-design]] established for inter-service calls, and the same one
+> Orders already uses for its own `GetUserById` call (see [[grpc-api-key-authorization]]). The PUT
+> endpoint's API key is issued to an **external** party (the carrier/webhook) and flows in the
+> opposite direction — inbound, not outbound. These must **not** be the same value or the same env
+> var/secret: reusing the internal service credential as the externally-distributed carrier key
+> would hand an outside vendor the ability to authenticate as an internal service. Provision them
+> as two separate secrets.
 >
 > Both should be treated as rotatable secrets in Parameter Store, per
 > [[ADR-0007-secrets-parameter-store]], not hardcoded values. Log failed auth attempts against the
@@ -181,26 +206,32 @@ direct service exposure. Concretely:
   `authorizer_id` set only in the `true` case (`main.tf` ~line 123) — **per-route auth opt-out is
   already a supported, used pattern**, not something new this spec introduces. The precedent is
   `var.enable_e2e_cleanup_route`, which creates `DELETE /v1/users/e2e-cleanup` with `auth = false`.
-- `GET /v1/trackings/{orderId}` and the batch read are declared `auth = true` (Cognito JWT).
-  `PUT /v1/trackings/{orderId}/status` is declared **`auth = false`** — it is not behind the
-  Cognito authorizer at all; the service validates the custom API key itself, the gateway only
-  passes the request through. `GET /v1/tracking/health` is also `auth = false` — see
+- `POST /v1/trackings/init-tracking`, `GET /v1/trackings/{orderId}`, and the batch read are all
+  declared `auth = true` (Cognito JWT). `PUT /v1/trackings/{orderId}/status` is declared
+  **`auth = false`** — it is not behind the Cognito authorizer at all; the service validates the
+  custom API key itself, the gateway only passes the request through. `GET /v1/tracking/health` is
+  also `auth = false` — see
   [Gateway-prefixed health path](#gateway-prefixed-health-path-not-bare-v1health) for why it is
   prefixed rather than bare.
 - Locally, the module uses **per-route `HTTP_PROXY` integrations** (a Floci workaround, not a
   production concern) — see [[local-gateway-per-route-integrations]]. Each new Tracking route gets
   its own local integration entry the same way Orders' routes did. In production it is a single
   shared integration.
-- The `x-user-id` header on the two Cognito-authenticated reads comes from the local nginx+njs JWT
-  decode, since Floci's API Gateway cannot map JWT claims to headers — see
-  [[nginx-njs-x-user-id-injection]]. The PUT endpoint receives no such header (see below).
+- The `x-user-id` header on the three Cognito-authenticated routes (init-tracking, the single read,
+  the batch read) comes from the local nginx+njs JWT decode, since Floci's API Gateway cannot map
+  JWT claims to headers — see [[nginx-njs-x-user-id-injection]]. The PUT endpoint receives no such
+  header (see below).
 
-### REST reads vs gRPC reads
+### REST reads
 
-Tracking exposes reads on **both** transports, and deliberately — they serve different callers with
-different trust levels:
+Tracking's reads are REST-only, user-scoped, and serve two purposes: letting the end user see their
+own shipment, and giving the repo's [[testing]] convention an HTTP path to verify tracking state
+from the gateway (see [Gateway E2E verification of TestMode](#gateway-e2e-verification-of-testmode)
+below). They used to be paired with a second, unscoped gRPC surface for inter-service callers — see
+[Deltas from the original design (superseded)](#deltas-from-the-original-design-superseded) for why
+that was removed.
 
-| | REST reads (`GET /v1/trackings/...`) | gRPC reads (`GetTrackingByOrderId`, `GetTrackingsByOrderIds`) |
+| | REST reads (`GET /v1/trackings/...`) |
 |---|---|---|
 | Caller | End user, through the gateway | Other microservices (inter-service) |
 | Auth | Cognito JWT, validated by the gateway | `x-api-key` shared secret, per [[ADR-0003-grpc-inter-service]] |
@@ -257,53 +288,37 @@ progression at all — the only reads were gRPC, which the gateway doesn't speak
 tests would have to fake around, missing exactly the class of gateway-only bug [[testing]] exists
 to catch.
 
-## gRPC Methods
+## gRPC — outbound client to Users
 
-Tracking record creation is gRPC-only. Reads are also exposed over gRPC, for inter-service
-callers — trusted via `x-api-key` and **unscoped** to any particular end user, unlike the
-user-scoped REST reads under [API / Endpoints](#api--endpoints). See
-[REST reads vs gRPC reads](#rest-reads-vs-grpc-reads) for the full comparison, and
-[[ADR-0003-grpc-inter-service]] for why gRPC is the inter-service protocol in the first place.
+**Tracking serves no gRPC.** It has no gRPC server, no `.proto` of its own, and no inbound
+`x-api-key`. Every operation — creation and both reads — is REST, under
+[API / Endpoints](#api--endpoints).
 
-### Creation
+The single gRPC in this service points the other way: an **outbound client** calling
+`users.v1.Users/GetUserById`, to turn the caller's Cognito `sub` into the internal `usr_` id.
+It exists because the gateway hands Tracking a `sub` while the service also wants the internal
+id for reporting and cross-service joins — see [Ownership & scoping](#ownership--scoping). This
+is inter-service communication, so it stays gRPC per [[ADR-0003-grpc-inter-service]], and it
+carries the internal `x-api-key` the Users surface expects.
 
-Tracking records are created exclusively through this handler — never over REST. The caller is the
-Orders service, confirming an order; this is inter-service communication, consistent with
-[[ADR-0003-grpc-inter-service]].
+| Call                          | Sent                     | Received                                              |
+|-------------------------------|--------------------------|-------------------------------------------------------|
+| `users.v1.Users/GetUserById`  | `{ id: <cognito sub> }`  | `{ id, email, full_name, cognito_sub, address }`      |
 
-| Method            | Request                                                                                    | Response                          |
-|--------------------|---------------------------------------------------------------------------------------------|-----------------------------------|
-| `CreateTracking`  | `{ order_id: string, user_id: string, shipping_address: Address, test_mode: bool }`         | Newly created `Tracking` message  |
+Only `id` is consumed. The response also carries the user's `address`, which Tracking
+deliberately ignores: `init-tracking` receives `shipping_address` in its body, so nothing here
+reads the profile address, and carrying PII through a path that never uses it is a liability
+([[logging-context]]).
 
-`test_mode` (`TestMode`) controls automatic progression after creation — see
-[TestMode automatic progression](#testmode-automatic-progression).
+**`NOT_FOUND` means the user does not exist. Every other status propagates** — a Users outage,
+a deadline, a rejected key. Collapsing them into "unknown user" would turn an infrastructure
+failure into a wrong answer about identity.
 
-`shipping_address` is a snapshot of the delivery address, resolved by Orders via Users'
-`GetUserById` and forwarded as-is — Tracking does not resolve or validate it, only persists it. See
-[[orders-service-design#Delivery address flow (Users → Orders → Tracking)]] for the full path and
-[[users-service-design]] for the typed `Address` wire shape and its privacy implication (never log
-it — see [[logging-context]]).
-
-> [!note] `test_mode` originates outside Tracking
-> Tracking's own contract here is unchanged: it just receives a boolean. But that boolean is not
-> Orders' own decision — it originates as an **optional HTTP header on the client's request**, so
-> the full flow can be exercised end to end from the gateway. See
-> [TestMode automatic progression](#testmode-automatic-progression) for the end-to-end path and
-> [[orders-service-design]] for the Orders-side responsibility (reading the header, applying the
-> guard, propagating the boolean).
-
-### Reads
-
-Both read methods return the tracking **together with its history** — not a bare `Tracking`
-message. Neither filters by `user_id`: the caller is a trusted inter-service client (authenticated
-via `x-api-key`, per [[ADR-0003-grpc-inter-service]]), not an end user, so any `order_id`/
-`order_ids` passed in is looked up as-is. This is the deliberate difference from the REST reads —
-see [REST reads vs gRPC reads](#rest-reads-vs-grpc-reads) under [API / Endpoints](#api--endpoints).
-
-| Method                    | Request                        | Response                                            |
-|---------------------------|--------------------------------|------------------------------------------------------|
-| `GetTrackingByOrderId`    | `{ order_id: string }`         | `Tracking` message + its `Tracking_History` entries  |
-| `GetTrackingsByOrderIds`  | `{ order_ids: [string] }`      | List of (`Tracking` + its `Tracking_History` entries) |
+This is the same shape Orders uses for its own caller context; see
+[[orders-service-design]] and Orders' `ICurrentCaller`, whose central lesson Tracking copies:
+reading the sub costs nothing, while resolving the internal id is an explicit, memoized call.
+A property getter that fired gRPC would make the log enricher — which reads identity on every
+event — a network dependency.
 
 ## Data Model
 
@@ -317,7 +332,7 @@ All IDs use prefixed nano-IDs ([[nano-id]]). All tables apply soft-delete ([[sof
 | `user_id`    | VARCHAR(21)  | Reference to user                  |
 | `order_id`   | VARCHAR(21)  | Reference to order, unique         |
 | `status`     | VARCHAR(50)  | Current delivery status — enum: `SHIPPED`, `ON_THE_WAY`, `OUT_FOR_DELIVERY`, `DELIVERED` (see [Tracking statuses](#tracking-statuses)) |
-| `shipping_address` | JSON  | Snapshot of the delivery address, received as-is from Orders' `CreateTracking` call — see [Delivery address snapshot](#delivery-address-snapshot) below. |
+| `shipping_address` | JSON  | Snapshot of the delivery address, received as-is in the `init-tracking` request body — see [Delivery address snapshot](#delivery-address-snapshot) below. |
 | `datetime`   | DATETIME     | Timestamp of the current status    |
 | `created_at` | DATETIME     | Audit — see [[audit-fields]]       |
 | `updated_at` | DATETIME     | Audit — see [[audit-fields]]       |
@@ -325,10 +340,11 @@ All IDs use prefixed nano-IDs ([[nano-id]]). All tables apply soft-delete ([[sof
 
 #### Delivery address snapshot
 
-`shipping_address` arrives on the `CreateTracking` gRPC call (see [Creation](#creation) above) and
-is persisted once, at tracking-creation time — Tracking does not re-fetch or refresh it. It
-originates in Users and is resolved by Orders during order creation; the full chain is documented
-in [[orders-service-design#Delivery address flow (Users → Orders → Tracking)]].
+`shipping_address` arrives in the `init-tracking` request body (see
+[API / Endpoints](#api--endpoints)) and is persisted once, at tracking-creation time — Tracking
+does not re-fetch or refresh it, and does not read the address Users returns on its own identity
+lookup. It originates in Users and is resolved by Orders during order creation; the full chain is
+documented in [[orders-service-design#Delivery address flow (Users → Orders → Tracking)]].
 
 > [!note] Snapshot, not a live reference — deliberately
 > This is a point-in-time copy, same as `Order.shipping_address` in Orders (see
@@ -381,9 +397,9 @@ the [State machine & update guards](#state-machine--update-guards) below.
 
 ### TestMode automatic progression
 
-The `CreateTracking` gRPC handler accepts a `TestMode` boolean. When `TestMode=true`, the created
-tracking starts at `SHIPPED` and then advances one status automatically every **10 seconds**,
-following the forward-only progression above, until it reaches `DELIVERED`:
+The `init-tracking` endpoint accepts a `test_mode` boolean. When it is true, the created tracking
+starts at `SHIPPED` and then advances one status automatically every **10 seconds**, following the
+forward-only progression above, until it reaches `DELIVERED`:
 
 | Elapsed | Status              |
 |---------|----------------------|
@@ -401,7 +417,7 @@ status only advances through the `PUT /v1/trackings/{orderId}/status` endpoint b
 `test_mode` is not a value Orders decides on its own — it originates as an **optional HTTP header
 on the client's `POST /v1/orders` request** (see [[orders-service-design]]), so the whole flow can
 be exercised end to end from the gateway without special-casing Orders. Tracking's contract stays
-exactly the `test_mode` field on `CreateTracking` above; Tracking has no knowledge of the header —
+exactly the `test_mode` field on `init-tracking` above; Tracking has no knowledge of the header —
 this section documents the path leading up to that field for the reader tracing the flow.
 
 1. **Header:** `x-test-mode: true` on `POST /v1/orders` (the Orders endpoint) — kebab-case with the
@@ -413,23 +429,26 @@ this section documents the path leading up to that field for the reader tracing 
    production the flag is off, so the header is ignored and the simulation can never be triggered
    there; when the flag is off, `test_mode` is always false regardless of the header.
 4. **Propagation:** Orders reads the header, applies the guard, and passes the resulting boolean as
-   `test_mode` in the `CreateTracking` gRPC call to Tracking.
+   `test_mode` on its HTTP call to `init-tracking` — forwarding the `x-user-id` it received from
+   the gateway, so Tracking resolves the caller itself rather than being told who they are.
 
 This is the same context-propagation shape the repo already uses for `x-user-id` (gateway →
-service) and W3C `traceparent` (service → service over gRPC).
+service) and W3C `traceparent` (service → service).
 
 ```
 client → POST /v1/orders (x-test-mode: true)
        → Orders: E2E_TESTING_ENABLED ? header=="true" : false
-       → gRPC CreateTracking({ order_id, user_id, test_mode })
+       → POST /v1/trackings/init-tracking
+           { order_id, shipping_address, test_mode }   x-user-id forwarded
        → Tracking: SHIPPED, then +10s each → DELIVERED
 ```
 
 > [!warning] Orders carries a small but load-bearing responsibility here
 > This decision spans two services. Orders owns reading the header, applying the
-> `E2E_TESTING_ENABLED` guard, and propagating the resulting boolean into `CreateTracking` — a
-> future change to Orders' order-creation flow must not drop this step, or `test_mode` silently
-> goes permanently false. See [[orders-service-design]] for the Orders-side contract.
+> `E2E_TESTING_ENABLED` guard, and propagating both the resulting boolean and the caller's
+> `x-user-id` to `init-tracking` — a future change to Orders' order-creation flow must not drop
+> either, or `test_mode` silently goes permanently false and the tracking loses its owner. See
+> [[orders-service-design]] for the Orders-side contract.
 
 ### State machine & update guards
 
@@ -480,6 +499,41 @@ notifying Tracking of a delivery status change. It is subject to the following g
 | Gateway routing (existing module, per-route local integrations) | [[local-gateway-per-route-integrations]] |
 | `x-user-id` injection (local) | [[nginx-njs-x-user-id-injection]] |
 
+## Deltas from the original design (superseded)
+
+This service was first designed and **built** around gRPC, and shipped that way. Someone reading
+git history will find a `proto/tracking.proto`, a gRPC server, an inbound `x-api-key` interceptor,
+and generated stubs, all removed later. They were not a false start — they worked and were tested.
+This section records why they are gone.
+
+**Creation was `CreateTracking`, a gRPC RPC** ([JE-90](https://linear.app/je-martinez/issue/JE-90)).
+Orders called it when confirming an order, passing `user_id` and `cognito_sub` explicitly in the
+request. It is now `POST /v1/trackings/init-tracking`.
+
+**Reads were exposed twice**: over gRPC, unscoped, for inter-service callers
+([JE-91](https://linear.app/je-martinez/issue/JE-91)), and over REST, user-scoped, for end users.
+The gRPC pair is gone; the REST reads already served every consumer.
+
+**Why it changed.** A whole gRPC server — contract, codegen, an authentication interceptor, and a
+second transport to keep working — existed to carry two operations that HTTP already carried. The
+service was paying the cost of being a gRPC server without the traffic or the cross-language
+pressure that justifies one. gRPC remains where it earns its place: as an **outbound client**, for
+identity resolution against Users, which is genuinely inter-service and which Orders already does
+the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-users).
+
+**What this removed along the way**, worth knowing because each was load-bearing at the time:
+
+- The inbound `x-api-key` trust domain. Tracking no longer authenticates any inbound service
+  caller; the key it holds now points outward, at Users. Two key-based schemes still exist and are
+  still deliberately distinct — see [Auth schemes](#auth-schemes).
+- A sync→async bridge. `CreateTracking` ran on a gRPC thread pool with no event loop, so scheduling
+  TestMode required registering uvicorn's loop and submitting through `run_coroutine_threadsafe`.
+  Creation is now an ordinary async handler, so the progression is scheduled directly and that
+  machinery is unnecessary.
+- `cognito_sub` as a wire field. Orders used to send it; the gateway now supplies it as `x-user-id`
+  on the request itself. It remains a **column**, and remains the ownership key every user-scoped
+  read filters by — see [Ownership & scoping](#ownership--scoping). Only its transport changed.
+
 ## Related
 
 - [[soft-delete]]
@@ -490,11 +544,11 @@ notifying Tracking of a delivery status change. It is subject to the following g
 - [[ADR-0003-grpc-inter-service]]
 - [[ADR-0006-read-write-replicas]]
 - [[orders-service-design]] — `POST /v1/orders` is where `test_mode` originates (`x-test-mode`
-  header, guarded by `E2E_TESTING_ENABLED`) before Orders propagates it into `CreateTracking`; also
-  where the `shipping_address` snapshot forwarded to `CreateTracking` is resolved and persisted;
+  header, guarded by `E2E_TESTING_ENABLED`) before Orders propagates it to `init-tracking`; also
+  where the `shipping_address` forwarded in that request is resolved and persisted;
   also the source of the `404`-not-`403` ownership pattern the REST reads reuse (see
-  [REST reads vs gRPC reads](#rest-reads-vs-grpc-reads)) and the `x-user-id` gateway-injection
-  mechanism both services rely on.
+  [Ownership & scoping](#ownership--scoping)) and the `x-user-id` gateway-injection mechanism both
+  services rely on.
 - [[users-service-design]] — the origin of the delivery address, resolved by Orders via
   `GetUserById` before it reaches Tracking.
 - [[logging-context]] — the address must never be logged, the same way plaintext email never is.

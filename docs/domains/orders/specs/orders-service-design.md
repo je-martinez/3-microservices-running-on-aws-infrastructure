@@ -69,7 +69,7 @@ All routes are versioned under the `/v1` prefix. See [[versioning]] for the vers
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/v1/orders` | Create a new order. Emits `ORDER_CREATED` via a `NoopEventPublisher` seam today — real SQS publish is deferred. Accepts an optional `x-test-mode` header, guarded by `E2E_TESTING_ENABLED`, propagated as `test_mode` into the `CreateTracking` gRPC call — see [[tracking-service-design#TestMode automatic progression]]. Also resolves the caller's delivery address via `GetUserById` and snapshots it on the order — see [Delivery address flow](#delivery-address-flow-users--orders--tracking) below. |
+| `POST` | `/v1/orders` | Create a new order. Emits `ORDER_CREATED` via a `NoopEventPublisher` seam today — real SQS publish is deferred. Accepts an optional `x-test-mode` header, guarded by `E2E_TESTING_ENABLED`, propagated as `test_mode` on the HTTP call to Tracking's `init-tracking` — see [[tracking-service-design#TestMode automatic progression]]. Also resolves the caller's delivery address via `GetUserById` and snapshots it on the order — see [Delivery address flow](#delivery-address-flow-users--orders--tracking) below. |
 | `GET` | `/v1/orders/my-orders` | List all orders belonging to the authenticated user. |
 | `GET` | `/v1/orders/{order_id}` | Fetch a single order. Returns `404` if the order does not belong to the requesting user — see the ownership note below. |
 | `GET` | `/v1/products` | List the active product catalog. Private (requires `x-user-id`), no ownership filtering — products have no owner. See [[2026-07-16-orders-list-products-endpoint-design]]. |
@@ -90,8 +90,9 @@ Defined in the `OrdersService` proto. Used by other microservices to fetch order
 |---|---|---|
 | `GetOrderById` | `GetOrderByIdRequest { order_id: string }` | `OrderResponse { id, user_id, subtotal, tax, total, created_at }` |
 
-Orders is also a gRPC **client**: `POST /v1/orders` calls Users' `GetUserById` (see
-[[users-service-design]]) and Tracking's `CreateTracking` (see [[tracking-service-design]]). See
+Orders is also a gRPC **client** of Users: `POST /v1/orders` calls `GetUserById` (see
+[[users-service-design]]) to resolve the caller. It reaches Tracking over **HTTP**, not gRPC —
+Tracking serves no gRPC (see [[tracking-service-design]]). See
 [Delivery address flow](#delivery-address-flow-users--orders--tracking) below.
 
 ## Delivery address flow (Users → Orders → Tracking)
@@ -103,8 +104,9 @@ in Tracking — persisted as an independent **snapshot** at each stop, not as a 
 Orders.CreateOrder
   → gRPC GetUserById(cognito_sub)     → Users returns { id, email, full_name, address }
   → persist order.shipping_address     (snapshot)
-  → gRPC CreateTracking({ order_id, user_id, shipping_address, test_mode })
-  → Tracking persists tracking.shipping_address (snapshot)
+  → POST /v1/trackings/init-tracking   { order_id, shipping_address, test_mode }
+      forwarding the caller's x-user-id header
+  → Tracking resolves the caller itself, persists tracking.shipping_address (snapshot)
 ```
 
 1. **Resolve.** `POST /v1/orders` calls Users' `GetUserById` (already the gRPC call Orders makes to
@@ -112,9 +114,11 @@ Orders.CreateOrder
    [[users-service-design]] for the typed `Address` wire shape and its privacy implication.
 2. **Snapshot on `Order`.** The resolved address is persisted as `shipping_address` on the `Order`
    row (see [Order](#order) below) at the moment the order is created.
-3. **Forward to Tracking.** The same address is included in the `CreateTracking` gRPC call, alongside
-   `order_id`, `user_id`, and `test_mode` (see [[tracking-service-design#TestMode automatic progression]]
-   for the rest of that call's contract).
+3. **Forward to Tracking.** Orders POSTs to `init-tracking` with `order_id`, the same address, and
+   `test_mode` (see [[tracking-service-design#TestMode automatic progression]]). It **forwards the
+   `x-user-id` header** it received from the gateway rather than sending an identity in the body:
+   Tracking resolves the caller itself, against Users, exactly as Orders does. A second call for
+   the same order is rejected with `409` — Tracking guards creation for idempotency.
 4. **Snapshot on `Tracking`.** Tracking persists its own `shipping_address` copy — see
    [[tracking-service-design]] for that table.
 
@@ -169,7 +173,7 @@ One record per submitted order.
 | `subtotal` | `decimal(10,2)` | |
 | `tax` | `decimal(10,2)` | |
 | `total` | `decimal(10,2)` | |
-| `shipping_address` | `json` | Snapshot of the delivery address at order-creation time, resolved via Users' `GetUserById` (see [[users-service-design]]) and forwarded to Tracking's `CreateTracking`. See [Delivery address flow](#delivery-address-flow-users--orders--tracking). Deliberately a point-in-time copy, not a live reference — see the snapshot-semantics note above. |
+| `shipping_address` | `json` | Snapshot of the delivery address at order-creation time, resolved via Users' `GetUserById` (see [[users-service-design]]) and forwarded to Tracking's `init-tracking`. See [Delivery address flow](#delivery-address-flow-users--orders--tracking). Deliberately a point-in-time copy, not a live reference — see the snapshot-semantics note above. |
 | `created_by` | `varchar(26)` | audit |
 | `created_at` | `datetime` | audit |
 | `updated_by` | `varchar(26)` | audit |
@@ -269,11 +273,11 @@ Full milestone design: [[2026-07-14-orders-service-milestone-design]].
 - [[for-update-pessimistic-locking]]
 - [[2026-07-14-orders-service-milestone-design]]
 - [[2026-07-16-orders-list-products-endpoint-design]]
-- [[tracking-service-design]] — `x-test-mode` header on `POST /v1/orders` propagates as
-  `test_mode` into the `CreateTracking` gRPC call; also the destination of the `shipping_address`
-  snapshot forwarded by `CreateTracking`. Tracking's REST read endpoints
-  (`GET /v1/trackings/{order_id}`, `GET /v1/trackings?order_ids=...`) reuse this spec's `404`-not-
-  `403` ownership pattern and the `x-user-id` gateway-injection mechanism — see
-  [[tracking-service-design#REST reads vs gRPC reads]].
+- [[tracking-service-design]] — the `x-test-mode` header on `POST /v1/orders` propagates as
+  `test_mode` on the HTTP call to `init-tracking`, which also carries the `shipping_address`
+  snapshot and forwards the caller's `x-user-id`. Tracking's REST reads
+  (`GET /v1/trackings/{orderId}`, `GET /v1/trackings?order_ids=...`) reuse this spec's
+  `404`-not-`403` ownership pattern and the same `x-user-id` gateway-injection mechanism — see
+  [[tracking-service-design#Ownership & scoping]].
 - [[users-service-design]] — `GetUserById` is where Orders resolves the delivery address it
   snapshots onto `Order.shipping_address`.
