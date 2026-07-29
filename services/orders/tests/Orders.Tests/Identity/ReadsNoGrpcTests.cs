@@ -23,6 +23,11 @@ public class ReadsNoGrpcTests : IClassFixture<OrdersApiFactory>
         var mock = new Mock<IUserDirectory>();
         mock.Setup(d => d.ResolveInternalUserIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(OrdersApiFactory.KnownUserId);
+        // Order creation resolves through ResolveCallerAsync — it needs the address
+        // as well as the id, from one call. Left unconfigured this returns null,
+        // which the service reads as an unknown user and answers 404.
+        mock.Setup(d => d.ResolveCallerAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CallerProfile(OrdersApiFactory.KnownUserId, null));
 
         var host = _factory.WithWebHostBuilder(builder =>
         {
@@ -47,9 +52,12 @@ public class ReadsNoGrpcTests : IClassFixture<OrdersApiFactory>
         var resp = await client.SendAsync(req);
 
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
-        mock.Verify(
-            d => d.ResolveInternalUserIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
-            Times.Never);
+        // VerifyNoOtherCalls rather than naming one method: the claim is that reads
+        // never touch the directory at all, so it must hold for every method on the
+        // port — including any added later. Naming one would let a new resolution
+        // path slip in silently, which is how adding ResolveCallerAsync went
+        // unnoticed here until the write path started using it.
+        mock.VerifyNoOtherCalls();
     }
 
     [Fact]
@@ -62,9 +70,7 @@ public class ReadsNoGrpcTests : IClassFixture<OrdersApiFactory>
         var resp = await client.SendAsync(req);
 
         Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
-        mock.Verify(
-            d => d.ResolveInternalUserIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
-            Times.Never);
+        mock.VerifyNoOtherCalls();
     }
 
     [Fact]
@@ -81,7 +87,7 @@ public class ReadsNoGrpcTests : IClassFixture<OrdersApiFactory>
 
         Assert.Equal(HttpStatusCode.Created, resp.StatusCode);
         mock.Verify(
-            d => d.ResolveInternalUserIdAsync(OrdersApiFactory.KnownCognitoSub, It.IsAny<CancellationToken>()),
+            d => d.ResolveCallerAsync(OrdersApiFactory.KnownCognitoSub, It.IsAny<CancellationToken>()),
             Times.Once);
     }
 }
