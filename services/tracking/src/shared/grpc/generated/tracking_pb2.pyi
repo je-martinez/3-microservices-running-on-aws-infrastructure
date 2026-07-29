@@ -23,34 +23,38 @@ class Address(_message.Message):
     def __init__(self, line1: _Optional[str] = ..., line2: _Optional[str] = ..., city: _Optional[str] = ..., state: _Optional[str] = ..., country: _Optional[str] = ..., postal_code: _Optional[str] = ...) -> None: ...
 
 class TrackingRecord(_message.Message):
-    __slots__ = ("id", "user_id", "order_id", "status", "datetime", "shipping_address")
+    __slots__ = ("id", "user_id", "order_id", "status", "datetime", "shipping_address", "cognito_sub")
     ID_FIELD_NUMBER: _ClassVar[int]
     USER_ID_FIELD_NUMBER: _ClassVar[int]
     ORDER_ID_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
     DATETIME_FIELD_NUMBER: _ClassVar[int]
     SHIPPING_ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    COGNITO_SUB_FIELD_NUMBER: _ClassVar[int]
     id: str
     user_id: str
     order_id: str
     status: str
     datetime: str
     shipping_address: Address
-    def __init__(self, id: _Optional[str] = ..., user_id: _Optional[str] = ..., order_id: _Optional[str] = ..., status: _Optional[str] = ..., datetime: _Optional[str] = ..., shipping_address: _Optional[_Union[Address, _Mapping]] = ...) -> None: ...
+    cognito_sub: str
+    def __init__(self, id: _Optional[str] = ..., user_id: _Optional[str] = ..., order_id: _Optional[str] = ..., status: _Optional[str] = ..., datetime: _Optional[str] = ..., shipping_address: _Optional[_Union[Address, _Mapping]] = ..., cognito_sub: _Optional[str] = ...) -> None: ...
 
 class TrackingHistoryEntry(_message.Message):
-    __slots__ = ("tracking_id", "user_id", "order_id", "status", "datetime")
+    __slots__ = ("tracking_id", "user_id", "order_id", "status", "datetime", "cognito_sub")
     TRACKING_ID_FIELD_NUMBER: _ClassVar[int]
     USER_ID_FIELD_NUMBER: _ClassVar[int]
     ORDER_ID_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
     DATETIME_FIELD_NUMBER: _ClassVar[int]
+    COGNITO_SUB_FIELD_NUMBER: _ClassVar[int]
     tracking_id: str
     user_id: str
     order_id: str
     status: str
     datetime: str
-    def __init__(self, tracking_id: _Optional[str] = ..., user_id: _Optional[str] = ..., order_id: _Optional[str] = ..., status: _Optional[str] = ..., datetime: _Optional[str] = ...) -> None: ...
+    cognito_sub: str
+    def __init__(self, tracking_id: _Optional[str] = ..., user_id: _Optional[str] = ..., order_id: _Optional[str] = ..., status: _Optional[str] = ..., datetime: _Optional[str] = ..., cognito_sub: _Optional[str] = ...) -> None: ...
 
 class TrackingWithHistory(_message.Message):
     __slots__ = ("tracking", "history")
@@ -61,16 +65,18 @@ class TrackingWithHistory(_message.Message):
     def __init__(self, tracking: _Optional[_Union[TrackingRecord, _Mapping]] = ..., history: _Optional[_Iterable[_Union[TrackingHistoryEntry, _Mapping]]] = ...) -> None: ...
 
 class CreateTrackingRequest(_message.Message):
-    __slots__ = ("order_id", "user_id", "shipping_address", "test_mode")
+    __slots__ = ("order_id", "user_id", "shipping_address", "test_mode", "cognito_sub")
     ORDER_ID_FIELD_NUMBER: _ClassVar[int]
     USER_ID_FIELD_NUMBER: _ClassVar[int]
     SHIPPING_ADDRESS_FIELD_NUMBER: _ClassVar[int]
     TEST_MODE_FIELD_NUMBER: _ClassVar[int]
+    COGNITO_SUB_FIELD_NUMBER: _ClassVar[int]
     order_id: str
     user_id: str
     shipping_address: Address
     test_mode: bool
-    def __init__(self, order_id: _Optional[str] = ..., user_id: _Optional[str] = ..., shipping_address: _Optional[_Union[Address, _Mapping]] = ..., test_mode: _Optional[bool] = ...) -> None: ...
+    cognito_sub: str
+    def __init__(self, order_id: _Optional[str] = ..., user_id: _Optional[str] = ..., shipping_address: _Optional[_Union[Address, _Mapping]] = ..., test_mode: _Optional[bool] = ..., cognito_sub: _Optional[str] = ...) -> None: ...
 
 class TrackingResponse(_message.Message):
     __slots__ = ("tracking",)

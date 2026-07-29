@@ -14,6 +14,15 @@ Everything goes through the app rather than calling the query functions directly
 because the scoping is only correct if the HANDLER passes the caller's id — a
 direct call to `get_my_tracking_by_order_id` would prove the query filters and
 prove nothing about whether the endpoint uses it.
+
+## The two identities
+
+Every tracking here is seeded with BOTH a `usr_` id and a Cognito sub, and they are
+deliberately different strings, because that is the situation in production: Orders
+sends the internal `usr_` id over gRPC while the gateway hands this service the
+JWT's `sub` in `x-user-id`. A fixture that used one value for both would make the
+whole suite pass against a service scoped by the wrong column — which is exactly
+how the original defect survived 253 tests.
 """
 
 from __future__ import annotations
@@ -28,8 +37,15 @@ from src.shared.audit.audit_actor import AuditActor
 
 pytestmark = pytest.mark.integration
 
+# The INTERNAL ids Orders resolves and sends over gRPC.
 USER_A = "usr_aaaaaaaaaaaaaaaaaaaaa"
 USER_B = "usr_bbbbbbbbbbbbbbbbbbbbb"
+
+# The Cognito subs the GATEWAY injects as `x-user-id` for those same two people.
+# Intentionally nothing like the `usr_` ids above: a caller presents one of these,
+# never one of those, and the tests must not be able to confuse them.
+SUB_A = "11111111-1111-4111-8111-111111111111"
+SUB_B = "22222222-2222-4222-8222-222222222222"
 
 ADDRESS = {
     "line1": "742 Evergreen Terrace",
@@ -44,6 +60,7 @@ def seed(
     *,
     order_id: str,
     user_id: str = USER_A,
+    cognito_sub: str | None = SUB_A,
     status: TrackingStatus = TrackingStatus.SHIPPED,
 ) -> str:
     """Create a committed tracking and return its id.
@@ -56,6 +73,7 @@ def seed(
     tracking = repo.create(
         order_id=order_id,
         user_id=user_id,
+        cognito_sub=cognito_sub,
         shipping_address=ADDRESS,
         status=status,
         actor=AuditActor.CREATE_TRACKING,
@@ -64,9 +82,9 @@ def seed(
     return tracking.id
 
 
-def as_user(user_id: str) -> dict[str, str]:
-    """The gateway-injected identity header."""
-    return {"x-user-id": user_id}
+def as_user(cognito_sub: str) -> dict[str, str]:
+    """The gateway-injected identity header — it holds a Cognito SUB, not a usr_ id."""
+    return {"x-user-id": cognito_sub}
 
 
 class TestSingleReadAuth:
@@ -107,7 +125,7 @@ class TestSingleRead:
     ) -> None:
         tracking_id = seed(session, order_id="ord_read00000000000001")
         response = client.get(
-            "/v1/trackings/ord_read00000000000001", headers=as_user(USER_A)
+            "/v1/trackings/ord_read00000000000001", headers=as_user(SUB_A)
         )
         assert response.status_code == 200
         body = response.json()
@@ -123,7 +141,7 @@ class TestSingleRead:
         tracking would be an incomplete payload."""
         seed(session, order_id="ord_read00000000000002")
         body = client.get(
-            "/v1/trackings/ord_read00000000000002", headers=as_user(USER_A)
+            "/v1/trackings/ord_read00000000000002", headers=as_user(SUB_A)
         ).json()
         assert [entry["status"] for entry in body["history"]] == [
             TrackingStatus.SHIPPED
@@ -136,7 +154,7 @@ class TestSingleRead:
         `isoformat()` would emit no offset and leave the client guessing."""
         seed(session, order_id="ord_read00000000000003")
         body = client.get(
-            "/v1/trackings/ord_read00000000000003", headers=as_user(USER_A)
+            "/v1/trackings/ord_read00000000000003", headers=as_user(SUB_A)
         ).json()
         assert body["datetime"].endswith("Z")
         assert body["history"][0]["datetime"].endswith("Z")
@@ -153,7 +171,7 @@ class TestSingleRead:
         """
         seed(session, order_id="ord_read00000000000004")
         response = client.get(
-            "/v1/trackings/ord_read00000000000004", headers=as_user(USER_A)
+            "/v1/trackings/ord_read00000000000004", headers=as_user(SUB_A)
         )
         assert "shipping_address" not in response.json()
         assert "Evergreen" not in response.text
@@ -164,14 +182,14 @@ class TestSingleRead:
         """Internal columns; the response model is a contract, not a row dump."""
         seed(session, order_id="ord_read00000000000005")
         body = client.get(
-            "/v1/trackings/ord_read00000000000005", headers=as_user(USER_A)
+            "/v1/trackings/ord_read00000000000005", headers=as_user(SUB_A)
         ).json()
         for internal in ("created_by", "created_at", "updated_by", "deleted_at"):
             assert internal not in body
 
     def test_unknown_order_id_is_404(self, client: TestClient) -> None:
         response = client.get(
-            "/v1/trackings/ord_nothing000000000001", headers=as_user(USER_A)
+            "/v1/trackings/ord_nothing000000000001", headers=as_user(SUB_A)
         )
         assert response.status_code == 404
 
@@ -192,7 +210,7 @@ class TestOwnership:
         seed(session, order_id="ord_owned0000000000001", user_id=USER_A)
 
         response = client.get(
-            "/v1/trackings/ord_owned0000000000001", headers=as_user(USER_B)
+            "/v1/trackings/ord_owned0000000000001", headers=as_user(SUB_B)
         )
 
         assert response.status_code == 404
@@ -209,10 +227,10 @@ class TestOwnership:
         seed(session, order_id="ord_owned0000000000002", user_id=USER_A)
 
         not_yours = client.get(
-            "/v1/trackings/ord_owned0000000000002", headers=as_user(USER_B)
+            "/v1/trackings/ord_owned0000000000002", headers=as_user(SUB_B)
         )
         not_there = client.get(
-            "/v1/trackings/ord_absent000000000001", headers=as_user(USER_B)
+            "/v1/trackings/ord_absent000000000001", headers=as_user(SUB_B)
         )
 
         assert not_yours.status_code == not_there.status_code == 404
@@ -227,10 +245,176 @@ class TestOwnership:
         seed(session, order_id="ord_owned0000000000003", user_id=USER_A)
         assert (
             client.get(
-                "/v1/trackings/ord_owned0000000000003", headers=as_user(USER_A)
+                "/v1/trackings/ord_owned0000000000003", headers=as_user(SUB_A)
             ).status_code
             == 200
         )
+
+
+class TestScopeIsTheCognitoSubNotTheUserId:
+    """The regression guard for the identity defect these reads shipped with.
+
+    `tracking.user_id` holds the internal `usr_` id Orders sends over gRPC, while
+    the gateway hands this service the JWT's `sub` in `x-user-id`
+    (`proxy_set_header x-user-id $jwt_sub`). Scoping the reads by `user_id`
+    therefore compared a sub against a `usr_` id and matched NOTHING — every
+    user-scoped read 404'd, the caller's own tracking included.
+
+    The 253 tests that existed before this class did not catch it because they
+    created and read with the SAME value. Every test here uses two values that
+    cannot be confused, which is the only shape that can fail on the bug.
+    """
+
+    def test_the_owner_reads_their_tracking_by_presenting_their_sub(
+        self, client: TestClient, session: Session
+    ) -> None:
+        """The test that fails on the unfixed service.
+
+        Created with user_id=usr_X and cognito_sub=sub_X; read by a caller
+        presenting `x-user-id: sub_X`. Against a service scoped by `user_id` this
+        is a 404.
+        """
+        seed(
+            session,
+            order_id="ord_ident000000000001",
+            user_id=USER_A,
+            cognito_sub=SUB_A,
+        )
+
+        response = client.get(
+            "/v1/trackings/ord_ident000000000001", headers=as_user(SUB_A)
+        )
+
+        assert response.status_code == 200
+        assert response.json()["order_id"] == "ord_ident000000000001"
+        # The row still carries the internal id — both identities are persisted.
+        assert response.json()["user_id"] == USER_A
+
+    def test_a_different_users_sub_still_gets_404(
+        self, client: TestClient, session: Session
+    ) -> None:
+        """The other half: `sub_Y` must NOT read `sub_X`'s tracking.
+
+        Without this, "scope by nothing at all" would pass the test above.
+        """
+        seed(
+            session,
+            order_id="ord_ident000000000002",
+            user_id=USER_A,
+            cognito_sub=SUB_A,
+        )
+
+        response = client.get(
+            "/v1/trackings/ord_ident000000000002", headers=as_user(SUB_B)
+        )
+
+        assert response.status_code == 404
+
+    def test_presenting_the_internal_user_id_is_404(
+        self, client: TestClient, session: Session
+    ) -> None:
+        """A caller who somehow presents the `usr_` id gets nothing.
+
+        This pins the direction of the fix: the scope is the sub, so the internal
+        id is not an alternative key that also works. If both matched, a later
+        change could quietly go back to filtering on `user_id` and stay green.
+        """
+        seed(
+            session,
+            order_id="ord_ident000000000003",
+            user_id=USER_A,
+            cognito_sub=SUB_A,
+        )
+
+        response = client.get(
+            "/v1/trackings/ord_ident000000000003", headers=as_user(USER_A)
+        )
+
+        assert response.status_code == 404
+
+    def test_the_batch_read_is_scoped_by_the_sub_too(
+        self, client: TestClient, session: Session
+    ) -> None:
+        """The batch read shares the defect and therefore shares the guard."""
+        seed(
+            session,
+            order_id="ord_ident000000000004",
+            user_id=USER_A,
+            cognito_sub=SUB_A,
+        )
+
+        body = client.get(
+            "/v1/trackings",
+            params={"order_ids": "ord_ident000000000004"},
+            headers=as_user(SUB_A),
+        ).json()
+
+        assert [t["order_id"] for t in body["trackings"]] == [
+            "ord_ident000000000004"
+        ]
+
+    def test_the_batch_read_omits_it_for_the_internal_user_id(
+        self, client: TestClient, session: Session
+    ) -> None:
+        seed(
+            session,
+            order_id="ord_ident000000000005",
+            user_id=USER_A,
+            cognito_sub=SUB_A,
+        )
+
+        body = client.get(
+            "/v1/trackings",
+            params={"order_ids": "ord_ident000000000005"},
+            headers=as_user(USER_A),
+        ).json()
+
+        assert body == {"trackings": []}
+
+    def test_a_tracking_created_without_a_sub_is_unreachable_not_mis_attributed(
+        self, client: TestClient, session: Session
+    ) -> None:
+        """An older caller's row (NULL `cognito_sub`) 404s for everyone.
+
+        The important half is that it is not readable by SOMEONE — a fallback like
+        "if cognito_sub is NULL, match on user_id" would hand it to whoever
+        presented that string. NULL matching nothing is the safe direction.
+        """
+        seed(
+            session,
+            order_id="ord_ident000000000006",
+            user_id=USER_A,
+            cognito_sub=None,
+        )
+
+        for header in (SUB_A, SUB_B, USER_A):
+            assert (
+                client.get(
+                    "/v1/trackings/ord_ident000000000006", headers=as_user(header)
+                ).status_code
+                == 404
+            )
+
+    def test_the_response_never_leaks_the_cognito_sub(
+        self, client: TestClient, session: Session
+    ) -> None:
+        """The sub stays server-side. It identifies the caller in the auth system
+        and adds nothing to a shipment status view, so the narrowest surface that
+        answers the question is the one that omits it — the same reasoning that
+        keeps `shipping_address` out of this schema."""
+        seed(
+            session,
+            order_id="ord_ident000000000007",
+            user_id=USER_A,
+            cognito_sub=SUB_A,
+        )
+
+        response = client.get(
+            "/v1/trackings/ord_ident000000000007", headers=as_user(SUB_A)
+        )
+
+        assert "cognito_sub" not in response.text
+        assert SUB_A not in response.text
 
 
 class TestBatchRead:
@@ -247,7 +431,7 @@ class TestBatchRead:
         body = client.get(
             "/v1/trackings",
             params={"order_ids": "ord_batch0000000000001,ord_batch0000000000002"},
-            headers=as_user(USER_A),
+            headers=as_user(SUB_A),
         ).json()
 
         assert {t["order_id"] for t in body["trackings"]} == {
@@ -265,13 +449,23 @@ class TestBatchRead:
         and a `200` — no per-id error entry, no partial-failure flag, nothing that
         would tell them the other id exists.
         """
-        seed(session, order_id="ord_mine00000000000001", user_id=USER_B)
-        seed(session, order_id="ord_theirs000000000001", user_id=USER_A)
+        seed(
+            session,
+            order_id="ord_mine00000000000001",
+            user_id=USER_B,
+            cognito_sub=SUB_B,
+        )
+        seed(
+            session,
+            order_id="ord_theirs000000000001",
+            user_id=USER_A,
+            cognito_sub=SUB_A,
+        )
 
         response = client.get(
             "/v1/trackings",
             params={"order_ids": "ord_mine00000000000001,ord_theirs000000000001"},
-            headers=as_user(USER_B),
+            headers=as_user(SUB_B),
         )
 
         assert response.status_code == 200
@@ -292,7 +486,7 @@ class TestBatchRead:
         body = client.get(
             "/v1/trackings",
             params={"order_ids": "ord_batch0000000000003,ord_nope00000000000001"},
-            headers=as_user(USER_A),
+            headers=as_user(SUB_A),
         ).json()
 
         assert [t["order_id"] for t in body["trackings"]] == [
@@ -306,7 +500,7 @@ class TestBatchRead:
         response = client.get(
             "/v1/trackings",
             params={"order_ids": "ord_none00000000000001,ord_none00000000000002"},
-            headers=as_user(USER_A),
+            headers=as_user(SUB_A),
         )
         assert response.status_code == 200
         assert response.json() == {"trackings": []}
@@ -323,14 +517,14 @@ class TestBatchRead:
             params={
                 "order_ids": "ord_batch0000000000004,,ord_batch0000000000004"
             },
-            headers=as_user(USER_A),
+            headers=as_user(SUB_A),
         ).json()
 
         assert len(body["trackings"]) == 1
 
     def test_order_ids_is_required(self, client: TestClient) -> None:
         """Without it there is no question to answer; FastAPI rejects at 422."""
-        response = client.get("/v1/trackings", headers=as_user(USER_A))
+        response = client.get("/v1/trackings", headers=as_user(SUB_A))
         assert response.status_code == 422
 
     def test_too_many_ids_is_400(self, client: TestClient) -> None:
@@ -340,7 +534,7 @@ class TestBatchRead:
         response = client.get(
             "/v1/trackings",
             params={"order_ids": too_many},
-            headers=as_user(USER_A),
+            headers=as_user(SUB_A),
         )
         assert response.status_code == 400
 
@@ -351,7 +545,7 @@ class TestBatchRead:
         response = client.get(
             "/v1/trackings",
             params={"order_ids": "ord_batch0000000000005"},
-            headers=as_user(USER_A),
+            headers=as_user(SUB_A),
         )
         assert "Evergreen" not in response.text
         assert "shipping_address" not in response.text

@@ -48,11 +48,22 @@ def make_tracking(
     *,
     order_id: str,
     user_id: str = "usr_aaaaaaaaaaaaaaaaaaaaa",
+    cognito_sub: str | None | object = _DEFAULT,
     address: dict | None | object = _DEFAULT,
 ) -> Tracking:
+    """Create a committed tracking.
+
+    `cognito_sub` defaults to a value DERIVED from `user_id` rather than to a
+    constant, so a test that sets only `user_id` still gets two distinct users with
+    two distinct subs. A shared constant would make every "another user" test pass
+    for the wrong reason — both users would carry the same ownership key.
+    """
     tracking = repo.create(
         order_id=order_id,
         user_id=user_id,
+        cognito_sub=(
+            f"sub-{user_id}" if cognito_sub is _DEFAULT else cognito_sub  # type: ignore[arg-type]
+        ),
         shipping_address=ADDRESS if address is _DEFAULT else address,  # type: ignore[arg-type]
     )
     repo.session.commit()
@@ -88,6 +99,48 @@ class TestSchema:
             if c["name"] == "shipping_address"
         )
         assert "json" in str(column["type"]).lower()
+
+    @pytest.mark.parametrize("table", ["tracking", "tracking_history"])
+    def test_cognito_sub_column_exists_on_both_tables(
+        self, engine, table: str
+    ) -> None:
+        """The ownership key for the user-scoped reads, denormalized onto the
+        history table alongside the `user_id`/`order_id` it already carries."""
+        columns = {c["name"] for c in inspect(engine).get_columns(table)}
+        assert "cognito_sub" in columns
+
+    @pytest.mark.parametrize("table", ["tracking", "tracking_history"])
+    def test_cognito_sub_is_nullable(self, engine, table: str) -> None:
+        """The wire field is optional, so a row created by an older caller keeps
+        NULL — invisible to the scoped reads rather than mis-attributed."""
+        column = next(
+            c
+            for c in inspect(engine).get_columns(table)
+            if c["name"] == "cognito_sub"
+        )
+        assert column["nullable"] is True
+
+    def test_cognito_sub_is_wide_enough_for_orders_column(self, engine) -> None:
+        """255, matching Orders' `order.cognito_sub`. The two MySQL services
+        storing the same value under the same name must not disagree on width."""
+        column = next(
+            c
+            for c in inspect(engine).get_columns("tracking")
+            if c["name"] == "cognito_sub"
+        )
+        assert column["type"].length == 255
+
+    def test_the_reads_composite_index_is_on_cognito_sub(self, engine) -> None:
+        """`(order_id, cognito_sub)` is what the user-scoped reads actually filter
+        on, so that is the composite that must exist."""
+        indexes = {
+            index["name"]: index["column_names"]
+            for index in inspect(engine).get_indexes("tracking")
+        }
+        assert indexes.get("idx_tracking_order_id_cognito_sub") == [
+            "order_id",
+            "cognito_sub",
+        ]
 
     def test_order_id_is_unique(self, engine) -> None:
         constraints = inspect(engine).get_unique_constraints("tracking")
@@ -206,28 +259,92 @@ class TestGetByOrderId:
     def test_scoped_finds_the_owner_s_tracking(
         self, repo: TrackingRepository
     ) -> None:
-        make_tracking(repo, order_id="ord_get00000000000000002", user_id="usr_owner")
-        found = repo.get_by_order_id("ord_get00000000000000002", user_id="usr_owner")
+        make_tracking(
+            repo,
+            order_id="ord_get00000000000000002",
+            user_id="usr_owner",
+            cognito_sub="sub-owner",
+        )
+        found = repo.get_by_order_id(
+            "ord_get00000000000000002", cognito_sub="sub-owner"
+        )
         assert found is not None
 
     def test_scoped_hides_another_user_s_tracking(
         self, repo: TrackingRepository
     ) -> None:
         """The 404-not-403 rule: indistinguishable from a missing tracking."""
-        make_tracking(repo, order_id="ord_get00000000000000003", user_id="usr_owner")
+        make_tracking(
+            repo,
+            order_id="ord_get00000000000000003",
+            user_id="usr_owner",
+            cognito_sub="sub-owner",
+        )
         assert (
-            repo.get_by_order_id("ord_get00000000000000003", user_id="usr_other")
+            repo.get_by_order_id(
+                "ord_get00000000000000003", cognito_sub="sub-other"
+            )
             is None
         )
+
+    def test_scoping_by_the_internal_user_id_finds_nothing(
+        self, repo: TrackingRepository
+    ) -> None:
+        """THE regression guard for the identity defect.
+
+        The scope is the Cognito sub. Passing the row's own INTERNAL `usr_` id —
+        the value Orders sends and the column stores — must match nothing, because
+        that is not the identity a caller presents. Before the fix the repository
+        filtered on `user_id`, so every real read compared a sub against a `usr_`
+        id and returned None for the rightful owner.
+        """
+        make_tracking(
+            repo,
+            order_id="ord_get00000000000000006",
+            user_id="usr_owner",
+            cognito_sub="sub-owner",
+        )
+        assert (
+            repo.get_by_order_id(
+                "ord_get00000000000000006", cognito_sub="usr_owner"
+            )
+            is None
+        )
+
+    def test_a_null_cognito_sub_row_matches_no_caller(
+        self, repo: TrackingRepository
+    ) -> None:
+        """A row created before the field existed is invisible to the scoped read,
+        never attributed to whoever happens to ask. NULL matches nothing in SQL,
+        which is the correct failure direction."""
+        make_tracking(
+            repo,
+            order_id="ord_get00000000000000007",
+            user_id="usr_owner",
+            cognito_sub=None,
+        )
+        assert (
+            repo.get_by_order_id("ord_get00000000000000007", cognito_sub="sub-owner")
+            is None
+        )
+        # ...but the unscoped (gRPC) read still returns it.
+        assert repo.get_by_order_id("ord_get00000000000000007") is not None
 
     def test_the_same_row_is_visible_unscoped_and_hidden_scoped(
         self, repo: TrackingRepository
     ) -> None:
         """One row, two transports, two answers — the whole point of the design."""
-        make_tracking(repo, order_id="ord_get00000000000000004", user_id="usr_owner")
+        make_tracking(
+            repo,
+            order_id="ord_get00000000000000004",
+            user_id="usr_owner",
+            cognito_sub="sub-owner",
+        )
         assert repo.get_by_order_id("ord_get00000000000000004") is not None
         assert (
-            repo.get_by_order_id("ord_get00000000000000004", user_id="usr_other")
+            repo.get_by_order_id(
+                "ord_get00000000000000004", cognito_sub="sub-other"
+            )
             is None
         )
 
@@ -282,9 +399,24 @@ class TestGetByOrderIds:
         self, repo: TrackingRepository
     ) -> None:
         """Pass three, own one, get one — with no indication about the other two."""
-        make_tracking(repo, order_id="ord_batch000000000000020", user_id="usr_mine")
-        make_tracking(repo, order_id="ord_batch000000000000021", user_id="usr_other")
-        make_tracking(repo, order_id="ord_batch000000000000022", user_id="usr_other")
+        make_tracking(
+            repo,
+            order_id="ord_batch000000000000020",
+            user_id="usr_mine",
+            cognito_sub="sub-mine",
+        )
+        make_tracking(
+            repo,
+            order_id="ord_batch000000000000021",
+            user_id="usr_other",
+            cognito_sub="sub-other",
+        )
+        make_tracking(
+            repo,
+            order_id="ord_batch000000000000022",
+            user_id="usr_other",
+            cognito_sub="sub-other",
+        )
 
         found = repo.get_by_order_ids(
             [
@@ -292,9 +424,26 @@ class TestGetByOrderIds:
                 "ord_batch000000000000021",
                 "ord_batch000000000000022",
             ],
-            user_id="usr_mine",
+            cognito_sub="sub-mine",
         )
         assert [t.order_id for t in found] == ["ord_batch000000000000020"]
+
+    def test_scoping_the_batch_by_the_internal_user_id_finds_nothing(
+        self, repo: TrackingRepository
+    ) -> None:
+        """The batch half of the identity regression guard."""
+        make_tracking(
+            repo,
+            order_id="ord_batch000000000000023",
+            user_id="usr_mine",
+            cognito_sub="sub-mine",
+        )
+        assert (
+            repo.get_by_order_ids(
+                ["ord_batch000000000000023"], cognito_sub="usr_mine"
+            )
+            == []
+        )
 
     def test_unscoped_returns_all_three(self, repo: TrackingRepository) -> None:
         make_tracking(repo, order_id="ord_batch000000000000030", user_id="usr_mine")

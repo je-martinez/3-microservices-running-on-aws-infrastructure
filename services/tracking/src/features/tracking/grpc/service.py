@@ -23,6 +23,10 @@ from src.features.tracking.commands.create_tracking import (
     CreateTrackingCommand,
     create_tracking,
 )
+from src.features.tracking.commands.test_mode_progression import (
+    DEFAULT_INTERVAL_SECONDS,
+    run_progression,
+)
 from src.features.tracking.grpc.address_mapper import request_address_to_dict
 from src.features.tracking.grpc.mappers import (
     tracking_to_proto,
@@ -34,6 +38,7 @@ from src.features.tracking.queries.get_tracking import (
 )
 from src.shared.db.engine import read_session, write_session
 from src.shared.grpc.generated import tracking_pb2, tracking_pb2_grpc
+from src.shared.scheduling.background import spawn
 
 logger = logging.getLogger(__name__)
 
@@ -54,9 +59,20 @@ class TrackingServicer(tracking_pb2_grpc.TrackingServicer):
         *,
         writer: SessionFactory = write_session,
         reader: SessionFactory = read_session,
+        progression_interval: float = DEFAULT_INTERVAL_SECONDS,
+        progression_writer: SessionFactory | None = None,
     ) -> None:
         self._writer = writer
         self._reader = reader
+        # Injected, not read from a module constant at the call site, so tests can
+        # run a full four-step progression in milliseconds while production keeps
+        # the design's 10s cadence. A test that had to wait 30 real seconds would
+        # either be skipped or be made to lie.
+        self._progression_interval = progression_interval
+        # The progression opens its OWN sessions (each transition is 10s after the
+        # request that caused it), so it needs a factory of its own. Defaults to
+        # `writer`, which in tests is already bound to the test engine.
+        self._progression_writer = progression_writer or writer
 
     # ---------------------------------------------------------------- commands
 
@@ -70,6 +86,15 @@ class TrackingServicer(tracking_pb2_grpc.TrackingServicer):
         `order_id` and `user_id` are validated as present here rather than deeper
         down: proto3 gives them `""` when omitted, and `""` would otherwise be
         persisted as a perfectly valid-looking identifier that matches nothing.
+
+        `cognito_sub` is deliberately NOT in that list. It is optional on the wire
+        (see the .proto), so an older caller that does not send it still gets its
+        tracking created — rejecting would turn a rolling deploy into an outage of
+        order confirmation. `""` is normalized to `None` rather than stored: an
+        empty string is a value that could be *matched*, and the gateway sets
+        `x-user-id: ""` on a missing/malformed token, so a row stored with `""`
+        would be readable by any unauthenticated-shaped caller that slipped past
+        the 401. NULL matches nothing, which is the correct failure direction.
         """
         for field in ("order_id", "user_id"):
             if not getattr(request, field):
@@ -80,6 +105,7 @@ class TrackingServicer(tracking_pb2_grpc.TrackingServicer):
         command = CreateTrackingCommand(
             order_id=request.order_id,
             user_id=request.user_id,
+            cognito_sub=request.cognito_sub or None,
             # Mapped field by field, empty strings dropped — see address_mapper.
             shipping_address=request_address_to_dict(request),
             test_mode=request.test_mode,
@@ -105,9 +131,39 @@ class TrackingServicer(tracking_pb2_grpc.TrackingServicer):
                 "test_mode": result.test_mode,
             },
         )
-        # `result.test_mode` is the hand-off point for Phase E's automatic
-        # progression — see CreateTrackingResult's docstring for why the flag is
-        # returned rather than stored. Nothing schedules anything yet.
+
+        # ------------------------------------------------------------------
+        # TestMode automatic progression (JE-95).
+        #
+        # Scheduled AFTER the writer session has exited, so the tracking is
+        # committed before anything can try to advance it — a task racing an
+        # uncommitted row would find nothing and stop immediately.
+        #
+        # !! KNOWN LIMITATION, EXPLICITLY ACCEPTED !!
+        # This is an in-process asyncio task. If the process restarts while a
+        # progression is pending (docker-watch rebuild, redeploy, crash), the task
+        # is LOST and the tracking stays frozen at whatever status it reached. There
+        # is no recovery, no retry, and no error anywhere. A TestMode tracking stuck
+        # at ON_THE_WAY after a rebuild is EXPECTED, not a mystery bug. The
+        # alternative — a persistent scheduler — was considered and rejected for a
+        # 30-second test fixture. Full reasoning:
+        # `commands/test_mode_progression.py`.
+        #
+        # `spawn` never raises and never blocks: this handler is on a gRPC thread
+        # pool with no event loop of its own, so the coroutine is handed to
+        # uvicorn's loop with `run_coroutine_threadsafe`. A create must never fail
+        # because a test fixture could not be started, so the result is logged by
+        # `spawn` and ignored here.
+        if result.test_mode:
+            spawn(
+                run_progression(
+                    command.order_id,
+                    interval=self._progression_interval,
+                    writer=self._progression_writer,
+                ),
+                app_event="test_mode_progression",
+            )
+
         return response
 
     # ----------------------------------------------------------------- queries

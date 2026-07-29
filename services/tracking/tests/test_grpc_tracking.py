@@ -40,7 +40,12 @@ ADDRESS = {
     "postal_code": "97477",
 }
 
+#: The INTERNAL id Orders resolves through Users and sends as `user_id`.
 USER_ID = "usr_aaaaaaaaaaaaaaaaaaaaa"
+
+#: The SAME person's Cognito `sub` — what the gateway injects as `x-user-id`, and
+#: what the user-scoped REST reads filter by. Deliberately nothing like USER_ID.
+COGNITO_SUB = "11111111-1111-4111-8111-111111111111"
 
 
 def auth() -> list[tuple[str, str]]:
@@ -255,6 +260,113 @@ class TestCreateTracking:
             ["ord_grpcdup00000000001"]
         )
         assert len(found) == 1
+
+
+class TestCreateTrackingCognitoSub:
+    """`cognito_sub` on the wire — the identity the REST reads are scoped by.
+
+    Orders sends the internal `usr_` id as `user_id`, but an end user's request
+    reaches this service carrying the Cognito `sub` in `x-user-id`. Both have to be
+    persisted, or the user-scoped reads have nothing to match on.
+    """
+
+    def test_it_is_persisted_when_supplied(
+        self, stub: tracking_pb2_grpc.TrackingStub, session: Session
+    ) -> None:
+        stub.CreateTracking(
+            tracking_pb2.CreateTrackingRequest(
+                order_id="ord_grpcsub0000000001",
+                user_id=USER_ID,
+                cognito_sub=COGNITO_SUB,
+            ),
+            metadata=auth(),
+        )
+        stored = TrackingRepository(session).get_by_order_id("ord_grpcsub0000000001")
+        assert stored is not None
+        assert stored.cognito_sub == COGNITO_SUB
+        # Both identities land — the internal id is not overwritten by the sub.
+        assert stored.user_id == USER_ID
+
+    def test_the_history_row_carries_it_too(
+        self, stub: tracking_pb2_grpc.TrackingStub, session: Session
+    ) -> None:
+        """Denormalized off the parent, like `user_id` and `order_id` already are."""
+        response = stub.CreateTracking(
+            tracking_pb2.CreateTrackingRequest(
+                order_id="ord_grpcsub0000000002",
+                user_id=USER_ID,
+                cognito_sub=COGNITO_SUB,
+            ),
+            metadata=auth(),
+        )
+        history = TrackingRepository(session).get_history(response.tracking.id)
+        assert [entry.cognito_sub for entry in history] == [COGNITO_SUB]
+
+    def test_the_response_echoes_it(
+        self, stub: tracking_pb2_grpc.TrackingStub
+    ) -> None:
+        response = stub.CreateTracking(
+            tracking_pb2.CreateTrackingRequest(
+                order_id="ord_grpcsub0000000003",
+                user_id=USER_ID,
+                cognito_sub=COGNITO_SUB,
+            ),
+            metadata=auth(),
+        )
+        assert response.tracking.cognito_sub == COGNITO_SUB
+
+    def test_omitting_it_still_creates_the_tracking(
+        self, stub: tracking_pb2_grpc.TrackingStub, session: Session
+    ) -> None:
+        """Optional on the wire, unlike `order_id`/`user_id`.
+
+        A caller that predates the field must not be rejected — that would turn a
+        rolling deploy into an outage of order confirmation itself. The tracking is
+        created and is simply unreachable over the user-scoped REST reads.
+        """
+        response = stub.CreateTracking(
+            tracking_pb2.CreateTrackingRequest(
+                order_id="ord_grpcsub0000000004", user_id=USER_ID
+            ),
+            metadata=auth(),
+        )
+        assert response.tracking.status == TrackingStatus.SHIPPED
+
+        stored = TrackingRepository(session).get_by_order_id("ord_grpcsub0000000004")
+        assert stored is not None
+        assert stored.cognito_sub is None
+
+    def test_an_empty_string_is_stored_as_null_not_as_a_matchable_value(
+        self, stub: tracking_pb2_grpc.TrackingStub, session: Session
+    ) -> None:
+        """proto3 renders an omitted string as `""`, and the gateway sets
+        `x-user-id: ""` on a missing/malformed token. A row stored with `""` would
+        therefore be *matchable* by that degenerate identity; NULL matches nothing,
+        which is the only safe direction."""
+        stub.CreateTracking(
+            tracking_pb2.CreateTrackingRequest(
+                order_id="ord_grpcsub0000000005", user_id=USER_ID, cognito_sub=""
+            ),
+            metadata=auth(),
+        )
+        stored = TrackingRepository(session).get_by_order_id("ord_grpcsub0000000005")
+        assert stored is not None
+        assert stored.cognito_sub is None
+
+    def test_the_reads_stay_unscoped(
+        self, stub: tracking_pb2_grpc.TrackingStub, session: Session
+    ) -> None:
+        """gRPC is a trusted inter-service caller: adding the column must NOT have
+        introduced any per-user filtering on this transport."""
+        seed(session, order_id="ord_grpcsub0000000006")
+
+        response = stub.GetTrackingByOrderId(
+            tracking_pb2.GetTrackingByOrderIdRequest(
+                order_id="ord_grpcsub0000000006"
+            ),
+            metadata=auth(),
+        )
+        assert response.tracking.tracking.order_id == "ord_grpcsub0000000006"
 
 
 class TestCreateTrackingAddressMapping:

@@ -29,7 +29,13 @@ class CreateTrackingCommand:
     """
 
     order_id: str
+    #: The internal `usr_` id Orders resolved through Users.
     user_id: str
+    #: The caller's Cognito `sub`, and the ONLY identity the user-scoped REST reads
+    #: can filter by (the gateway injects it as `x-user-id`). `None` when the
+    #: caller predates the wire field — the tracking is still created, and is
+    #: simply unreachable over those reads rather than mis-attributed.
+    cognito_sub: str | None = None
     shipping_address: dict | None = None
     #: Recorded, not acted upon here — see `CreateTrackingResult.test_mode`.
     test_mode: bool = False
@@ -83,6 +89,7 @@ def create_tracking(
     tracking = repository.create(
         order_id=command.order_id,
         user_id=command.user_id,
+        cognito_sub=command.cognito_sub,
         shipping_address=command.shipping_address,
         # The initial status is not a parameter of this flow — every tracking
         # starts at SHIPPED, per the state machine, whether or not TestMode is on.

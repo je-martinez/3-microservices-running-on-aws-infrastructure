@@ -10,6 +10,12 @@ testpaths = ["tests"]
 markers = [
     "integration: needs a real MySQL database (TRACKING_TEST_DATABASE_URL)",
 ]
+# Async tests (TestMode progression) run through anyio's pytest plugin, which
+# ships with anyio — already present as a FastAPI/httpx dependency, so no new
+# package. The backend is pinned to asyncio by the `anyio_backend` fixture in
+# conftest: the production loop is uvicorn's asyncio loop, and running these
+# against trio as well would test a runtime this service never uses.
+anyio_mode = "auto"
 filterwarnings = ["error::DeprecationWarning"]
 
 [tool.ruff]

@@ -68,9 +68,20 @@ class UpdateTrackingStatusCommand:
 
 
 def update_tracking_status(
-    session: Session, command: UpdateTrackingStatusCommand
+    session: Session,
+    command: UpdateTrackingStatusCommand,
+    *,
+    actor: AuditActor = AuditActor.CARRIER_STATUS_UPDATE,
 ) -> Tracking:
     """Advance a tracking to `command.status`, appending a history row.
+
+    `actor` is the ONLY thing that differs between this function's two callers.
+    The carrier PUT takes the default; TestMode progression (Phase E) passes
+    `AuditActor.TEST_MODE_PROGRESSION` so an automatic run stays identifiable from
+    `tracking_history.created_by` after the fact. Everything else — the parse, the
+    lookup, the guards, the persistence — is deliberately shared: a second
+    implementation for the automatic path is how the two would start disagreeing
+    about what a transition means.
 
     Order of operations is load-bearing:
 
@@ -101,5 +112,5 @@ def update_tracking_status(
     return repository.update_status(
         tracking=tracking,
         status=requested,
-        actor=AuditActor.CARRIER_STATUS_UPDATE,
+        actor=actor,
     )

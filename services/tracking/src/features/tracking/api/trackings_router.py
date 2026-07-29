@@ -6,6 +6,16 @@
 Both are behind the gateway's Cognito JWT authorizer, and both take the caller's
 identity from the gateway-injected `x-user-id` header (see `shared/http/identity`).
 
+## The header holds a Cognito sub, NOT the internal `usr_` id
+
+Despite its name, `x-user-id` carries the JWT's `sub` claim — nginx sets it with
+`proxy_set_header x-user-id $jwt_sub`. That is why these handlers pass it as
+`cognito_sub`, and why `Tracking` persists both identities: `tracking.user_id`
+holds the internal `usr_` id Orders resolved through Users, which no end-user
+request ever carries. Filtering these reads by `user_id` would compare a sub
+against a `usr_` id, match nothing, and 404 every read — including the caller's
+own tracking, while looking entirely correct. See `domain/models.py`.
+
 ## Route order matters
 
 `GET /v1/trackings` (the batch read) is declared BEFORE `GET /v1/trackings/{order_id}`.
@@ -47,7 +57,7 @@ from src.features.tracking.queries.get_my_trackings import (
     get_my_trackings_by_order_ids,
 )
 from src.shared.http.dependencies import ReadSession
-from src.shared.http.identity import CallerId
+from src.shared.http.identity import CallerSub
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +91,7 @@ def _parse_order_ids(raw: str) -> list[str]:
     summary="Read several of the caller's trackings by order id",
 )
 def get_trackings(
-    caller_id: CallerId,
+    caller_sub: CallerSub,
     session: ReadSession,
     order_ids: Annotated[
         str,
@@ -108,7 +118,7 @@ def get_trackings(
         )
 
     found = get_my_trackings_by_order_ids(
-        session, order_ids=parsed, user_id=caller_id
+        session, order_ids=parsed, cognito_sub=caller_sub
     )
     return TrackingListResponse(
         trackings=[
@@ -124,7 +134,7 @@ def get_trackings(
     summary="Read one of the caller's trackings by order id",
 )
 def get_tracking(
-    caller_id: CallerId,
+    caller_sub: CallerSub,
     session: ReadSession,
     order_id: Annotated[str, Path(description="The order's id")],
 ) -> TrackingResponse:
@@ -132,12 +142,12 @@ def get_tracking(
 
     The `404` covers both "no such tracking" and "belongs to another user" — the
     two are the same answer by design. The failure is logged with the machine-
-    readable `reason` the logging convention requires; `order_id` and `user_id` are
-    part of the shared context and are safe to log, unlike the shipping address,
-    which this surface does not even carry.
+    readable `reason` the logging convention requires; `order_id` and
+    `cognito_sub` are part of the shared context and are safe to log, unlike the
+    shipping address, which this surface does not even carry.
     """
     found = get_my_tracking_by_order_id(
-        session, order_id=order_id, user_id=caller_id
+        session, order_id=order_id, cognito_sub=caller_sub
     )
     if found is None:
         logger.info(
@@ -146,7 +156,7 @@ def get_tracking(
                 "app_event": "get_tracking_failed",
                 "reason": "not_found",
                 "order_id": order_id,
-                "user_id": caller_id,
+                "cognito_sub": caller_sub,
             },
         )
         raise HTTPException(

@@ -157,6 +157,18 @@ def pytest_configure(config: pytest.Config) -> None:
         sys.path.insert(0, service_root)
 
 
+@pytest.fixture
+def anyio_backend() -> str:
+    """Run async tests on asyncio only.
+
+    anyio would otherwise parametrize them across asyncio AND trio. Production
+    runs on uvicorn's asyncio loop — and `shared/scheduling/background.py` uses
+    `asyncio.run_coroutine_threadsafe` specifically — so a trio run would be
+    testing a runtime this service never uses, and failing on APIs it never calls.
+    """
+    return "asyncio"
+
+
 # --------------------------------------------------------------------- gRPC
 #
 # The gRPC tests run against a REAL server over a REAL socket (bound on an
@@ -227,6 +239,31 @@ def grpc_channel(grpc_server: int) -> Iterator[grpc.Channel]:
     """An insecure channel to the test server."""
     with grpc.insecure_channel(f"127.0.0.1:{grpc_server}") as channel:
         yield channel
+
+
+@pytest.fixture
+def session_factory(engine: Engine):
+    """A `write_session`-shaped factory bound to the TEST engine.
+
+    Extracted so the TestMode suite can hand the same factory to the progression,
+    which opens a session of its own per transition (the creating request's is long
+    closed by then).
+    """
+    factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+
+    @contextmanager
+    def write_session() -> Iterator[Session]:
+        session = factory()
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    return write_session
 
 
 # --------------------------------------------------------------------- HTTP

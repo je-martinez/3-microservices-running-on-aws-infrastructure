@@ -7,14 +7,24 @@ Tracking's two read transports want the SAME query with ONE difference:
   * **gRPC** reads are inter-service and **unscoped** — any `order_id`, no
     per-user filter (the caller is trusted via `x-api-key`).
   * **REST** reads (Phase D) are **user-scoped** — filtered by `order_id` AND the
-    caller's `user_id`, so a tracking belonging to someone else is indistinguishable
-    from one that does not exist.
+    caller's **Cognito sub**, so a tracking belonging to someone else is
+    indistinguishable from one that does not exist.
 
 Rather than duplicating each query in a scoped and an unscoped variant (four
 near-identical methods that would drift), the read methods take an optional
-`user_id: str | None`. `None` means unscoped (gRPC); a value adds the ownership
+`cognito_sub: str | None`. `None` means unscoped (gRPC); a value adds the ownership
 predicate **to the query itself** — never fetch-then-compare, which would let a
 non-owned row exist in memory and leak through a careless later change.
+
+## Why the scope is `cognito_sub` and NOT `user_id`
+
+The parameter is the Cognito `sub`, because that is what a real caller presents:
+the gateway injects it as `x-user-id` (`proxy_set_header x-user-id $jwt_sub`).
+`Tracking.user_id` holds the INTERNAL `usr_` id that Orders sends over gRPC — a
+different value for the same person. Scoping by `user_id` therefore matches
+nothing and 404s every read, including the caller's own; see
+`Tracking.cognito_sub` in `models.py` for the full account. Orders filters its
+reads by `cognito_sub` for exactly this reason.
 
 ## Soft-delete
 
@@ -80,26 +90,33 @@ class TrackingRepository:
         return stmt.where(model.deleted_at.is_(None))
 
     @staticmethod
-    def _scoped(stmt: Select, model: type[Tracking], user_id: str | None) -> Select:
-        """Add the ownership predicate when `user_id` is given.
+    def _scoped(
+        stmt: Select, model: type[Tracking], cognito_sub: str | None
+    ) -> Select:
+        """Add the ownership predicate when `cognito_sub` is given.
 
         `None` = unscoped (gRPC, trusted inter-service caller). A value = the REST
         reads' user scoping. Filtering here, inside the query, is what makes a
         non-owned tracking indistinguishable from a missing one.
+
+        The predicate is on `cognito_sub`, not `user_id` — see the module
+        docstring. A row whose `cognito_sub` is NULL (created before the field
+        existed) matches no caller, which is the correct failure direction: it is
+        invisible rather than attributed to the wrong person.
         """
-        if user_id is None:
+        if cognito_sub is None:
             return stmt
-        return stmt.where(model.user_id == user_id)
+        return stmt.where(model.cognito_sub == cognito_sub)
 
     def get_by_order_id(
-        self, order_id: str, *, user_id: str | None = None
+        self, order_id: str, *, cognito_sub: str | None = None
     ) -> Tracking | None:
         """Return one tracking by `order_id`, or None.
 
-        `user_id=None` → unscoped (gRPC `GetTrackingByOrderId`).
-        `user_id="usr_…"` → scoped (REST `GET /v1/trackings/{orderId}`); a tracking
-        owned by another user returns None, which the handler renders as `404` —
-        never `403`, which would leak its existence.
+        `cognito_sub=None` → unscoped (gRPC `GetTrackingByOrderId`).
+        `cognito_sub="<sub>"` → scoped (REST `GET /v1/trackings/{orderId}`); a
+        tracking owned by another user returns None, which the handler renders as
+        `404` — never `403`, which would leak its existence.
 
         History is loaded eagerly (`selectin` on the relationship), so both read
         surfaces get the tracking together with its history in one round trip
@@ -110,12 +127,12 @@ class TrackingRepository:
                 Tracking.order_id == order_id
             ),
             Tracking,
-            user_id,
+            cognito_sub,
         )
         return self.session.execute(stmt).scalar_one_or_none()
 
     def get_by_order_ids(
-        self, order_ids: Sequence[str], *, user_id: str | None = None
+        self, order_ids: Sequence[str], *, cognito_sub: str | None = None
     ) -> list[Tracking]:
         """Return the trackings for `order_ids`, in one query.
 
@@ -134,7 +151,7 @@ class TrackingRepository:
                 Tracking.order_id.in_(list(order_ids))
             ),
             Tracking,
-            user_id,
+            cognito_sub,
         ).order_by(Tracking.created_at)
         return list(self.session.execute(stmt).scalars().all())
 
@@ -160,6 +177,7 @@ class TrackingRepository:
         *,
         order_id: str,
         user_id: str,
+        cognito_sub: str | None = None,
         shipping_address: dict | None = None,
         status: TrackingStatus = TrackingStatus.SHIPPED,
         actor: AuditActor = AuditActor.CREATE_TRACKING,
@@ -174,12 +192,17 @@ class TrackingRepository:
 
         Does NOT commit — the caller's `write_session` owns the transaction
         boundary, so creation and any follow-up work commit or roll back together.
+
+        `cognito_sub` defaults to None so a caller that does not know it can still
+        create — the wire field is optional (see the .proto). The resulting row is
+        unreachable over the user-scoped REST reads and fully readable over gRPC.
         """
         moment = now or _utcnow()
         tracking = Tracking(
             id=new_tracking_id(),
             order_id=order_id,
             user_id=user_id,
+            cognito_sub=cognito_sub,
             status=status.value,
             shipping_address=shipping_address,
             datetime_=moment,
@@ -209,15 +232,17 @@ class TrackingRepository:
     ) -> TrackingHistory:
         """Append one immutable transition row for `tracking`.
 
-        `user_id` and `order_id` are copied off the tracking rather than taken as
-        parameters: they are fixed for its lifetime, and accepting them would let a
-        caller write a history row that disagrees with its parent.
+        `user_id`, `order_id` and `cognito_sub` are copied off the tracking rather
+        than taken as parameters: they are fixed for its lifetime, and accepting
+        them would let a caller write a history row that disagrees with its parent
+        about who owns it.
         """
         moment = now or _utcnow()
         entry = TrackingHistory(
             tracking_id=tracking.id,
             user_id=tracking.user_id,
             order_id=tracking.order_id,
+            cognito_sub=tracking.cognito_sub,
             status=status.value,
             datetime_=moment,
         )

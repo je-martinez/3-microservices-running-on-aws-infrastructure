@@ -35,6 +35,12 @@ ID_LENGTH = 26
 # The spec's declared width for the status column.
 STATUS_LENGTH = 50
 
+# Width of the `cognito_sub` column. A Cognito `sub` is a 36-char UUID today, but
+# 255 is what Orders' `order.cognito_sub` uses (verified in
+# `OrderConfiguration.cs`), and the two MySQL services storing the same value under
+# the same name should not disagree on its width.
+COGNITO_SUB_LENGTH = 255
+
 
 class Tracking(Base, AuditMixin):
     """A tracking record — one per order.
@@ -48,7 +54,34 @@ class Tracking(Base, AuditMixin):
     #: Prefixed nano-ID (`trk_...`), per the nano-id convention.
     id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True)
 
+    #: The INTERNAL `usr_` id, as Orders resolved it from Users. Stored for
+    #: reporting and cross-service joins — NOT the key the user-scoped reads
+    #: filter by. See `cognito_sub`.
     user_id: Mapped[str] = mapped_column(String(ID_LENGTH), nullable=False)
+
+    #: The owner's Cognito `sub`, and **the ownership key for the REST reads**.
+    #:
+    #: Two identities describe the same person here and they are not
+    #: interchangeable. `user_id` above is the internal `usr_` id that Orders
+    #: resolves through Users and sends over gRPC. But an end user's request
+    #: arrives at this service carrying the gateway-injected `x-user-id` header,
+    #: which holds the Cognito `sub` — `proxy_set_header x-user-id $jwt_sub` in
+    #: `infra/modules/compute/nginx/nginx.conf`, and the equivalent mapping at the
+    #: production gateway.
+    #:
+    #: So scoping a REST read by `user_id` compares a `sub` against a `usr_` id.
+    #: Those never match, which means every user-scoped read would answer 404 —
+    #: including for the caller's own tracking — while looking perfectly
+    #: implemented. Orders hit exactly this and settled on persisting BOTH columns
+    #: and filtering reads by `cognito_sub`; this column is that same fix.
+    #:
+    #: Nullable, because the field is optional on the wire (see the .proto): a
+    #: caller that predates it is accepted rather than failed. Such a row is simply
+    #: unreachable over the user-scoped reads — never mis-attributed to someone
+    #: else, since NULL matches no caller's sub.
+    cognito_sub: Mapped[str | None] = mapped_column(
+        String(COGNITO_SUB_LENGTH), nullable=True
+    )
 
     #: UNIQUE — one tracking per order. Enforced at the database, not just in the
     #: application, so a duplicate CreateTracking cannot race past a pre-check.
@@ -83,12 +116,16 @@ class Tracking(Base, AuditMixin):
 
     __table_args__ = (
         UniqueConstraint("order_id", name="uq_tracking_order_id"),
-        # The REST reads filter on (order_id, user_id) together — see the
-        # ownership rule in the design — so a composite index serves them, while
-        # the unique constraint above already covers the unscoped gRPC lookup by
-        # order_id alone.
+        # The REST reads filter on (order_id, cognito_sub) together — cognito_sub,
+        # NOT user_id, is the ownership key (see the column's docstring) — so this
+        # is the composite that actually serves them. The unique constraint above
+        # already covers the unscoped gRPC lookup by order_id alone.
+        Index("idx_tracking_order_id_cognito_sub", "order_id", "cognito_sub"),
+        # Kept: `user_id` remains a real reporting/join key even though no read
+        # scopes by it.
         Index("idx_tracking_order_id_user_id", "order_id", "user_id"),
         Index("idx_tracking_user_id", "user_id"),
+        Index("idx_tracking_cognito_sub", "cognito_sub"),
         Index("idx_tracking_deleted_at", "deleted_at"),
     )
 
@@ -132,6 +169,24 @@ class TrackingHistory(Base, AuditMixin):
     user_id: Mapped[str] = mapped_column(String(ID_LENGTH), nullable=False)
     order_id: Mapped[str] = mapped_column(String(ID_LENGTH), nullable=False)
 
+    #: Denormalized off the parent, exactly like `user_id` and `order_id` above.
+    #:
+    #: This table DOES carry the Cognito sub while it deliberately does not carry
+    #: `shipping_address`, and the difference is not "fixed for the tracking's
+    #: lifetime" — `user_id` and `order_id` are equally fixed and are both here.
+    #: The address is omitted because it is bulky PII that says nothing about a
+    #: transition. `cognito_sub` is the opposite: it is the row's ownership
+    #: context, and the table already denormalizes the rest of that context (and
+    #: indexes it, below) precisely so a transition row is self-describing.
+    #:
+    #: Leaving it off would strand that: the existing
+    #: `(order_id, user_id)` index would key this table by an identity no read
+    #: surface filters by any more. Orders makes the same call — `order_details`
+    #: carries both `user_id` and `cognito_sub`, denormalized off `order`.
+    cognito_sub: Mapped[str | None] = mapped_column(
+        String(COGNITO_SUB_LENGTH), nullable=True
+    )
+
     #: Timestamp of THIS status transition.
     datetime_: Mapped[datetime] = mapped_column(
         "datetime", DateTime, nullable=False
@@ -140,6 +195,9 @@ class TrackingHistory(Base, AuditMixin):
     tracking: Mapped[Tracking] = relationship(back_populates="history")
 
     __table_args__ = (
+        Index(
+            "idx_tracking_history_order_id_cognito_sub", "order_id", "cognito_sub"
+        ),
         Index("idx_tracking_history_order_id_user_id", "order_id", "user_id"),
         Index("idx_tracking_history_deleted_at", "deleted_at"),
     )

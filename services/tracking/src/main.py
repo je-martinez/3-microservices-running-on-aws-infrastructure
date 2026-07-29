@@ -35,6 +35,7 @@ requirement it must not have.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from collections.abc import AsyncIterator
@@ -66,39 +67,68 @@ def grpc_enabled() -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Start the gRPC server alongside HTTP, and stop it on shutdown.
+    """Register the event loop, start the gRPC server, and undo both on shutdown.
 
     Imported lazily, inside the function, so that merely importing this module does
     not pull in the gRPC stack (and, through settings, require a valid environment).
     That keeps `create_app()` usable in a test process that only wants the HTTP
     surface.
 
+    ## Why the loop is registered here (JE-95)
+
+    TestMode progression is an `asyncio` task, but it is scheduled from the gRPC
+    servicer, which runs on a **thread pool** with no event loop of its own.
+    `asyncio.run_coroutine_threadsafe` bridges the two — and it needs a loop
+    object, which a gRPC worker thread cannot discover on its own
+    (`asyncio.get_event_loop()` there does not find uvicorn's).
+
+    This is the one place that both runs ON the loop and knows the app is up, so it
+    captures `asyncio.get_running_loop()` and hands it to the scheduling seam. The
+    registration is cleared on shutdown so a late RPC cannot submit work to a loop
+    that is closing. See `shared/scheduling/background.py`.
+
+    Registered regardless of `grpc_enabled()`: the flag controls the transport, not
+    the loop, and tying them together would make the seam's availability depend on
+    an unrelated switch.
+
     A failure to bind is NOT swallowed: `serve()` raises when
     `add_insecure_port` returns 0, and letting that propagate out of startup aborts
     the process. A container that serves HTTP while its gRPC port is silently dead
     would pass its health check and fail every call from Orders.
     """
-    if not grpc_enabled():
-        logger.info(
-            "grpc_server_disabled",
-            extra={"app_event": "grpc_server_disabled"},
-        )
-        yield
-        return
+    from src.shared.scheduling.background import set_event_loop
 
-    from src.shared.grpc.server import serve
-
-    server = serve()
+    set_event_loop(asyncio.get_running_loop())
     try:
-        yield
+        if not grpc_enabled():
+            logger.info(
+                "grpc_server_disabled",
+                extra={"app_event": "grpc_server_disabled"},
+            )
+            yield
+            return
+
+        from src.shared.grpc.server import serve
+
+        server = serve()
+        try:
+            yield
+        finally:
+            # A short grace period lets an in-flight RPC finish rather than being
+            # cut mid-write; `stop` returns immediately and the event is waited on.
+            server.stop(grace=5).wait()
+            logger.info(
+                "grpc_server_stopped",
+                extra={"app_event": "grpc_server_stopped"},
+            )
     finally:
-        # A short grace period lets an in-flight RPC finish rather than being cut
-        # mid-write; `stop` returns immediately and the event is waited on.
-        server.stop(grace=5).wait()
-        logger.info(
-            "grpc_server_stopped",
-            extra={"app_event": "grpc_server_stopped"},
-        )
+        # Outermost, so it runs on BOTH exit paths — including the early `return`
+        # above, which otherwise leaves a stale loop registered after shutdown.
+        #
+        # Any TestMode progression still pending at this point is simply lost with
+        # the loop: the documented, accepted limitation (see
+        # `features/tracking/commands/test_mode_progression.py`).
+        set_event_loop(None)
 
 
 def create_app() -> FastAPI:

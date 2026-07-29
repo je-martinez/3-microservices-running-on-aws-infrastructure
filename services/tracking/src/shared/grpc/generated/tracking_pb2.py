@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0etracking.proto\x12\x0btracking.v1\"j\n\x07\x41\x64\x64ress\x12\r\n\x05line1\x18\x01 \x01(\t\x12\r\n\x05line2\x18\x02 \x01(\t\x12\x0c\n\x04\x63ity\x18\x03 \x01(\t\x12\r\n\x05state\x18\x04 \x01(\t\x12\x0f\n\x07\x63ountry\x18\x05 \x01(\t\x12\x13\n\x0bpostal_code\x18\x06 \x01(\t\"\x91\x01\n\x0eTrackingRecord\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0f\n\x07user_id\x18\x02 \x01(\t\x12\x10\n\x08order_id\x18\x03 \x01(\t\x12\x0e\n\x06status\x18\x04 \x01(\t\x12\x10\n\x08\x64\x61tetime\x18\x05 \x01(\t\x12.\n\x10shipping_address\x18\x06 \x01(\x0b\x32\x14.tracking.v1.Address\"p\n\x14TrackingHistoryEntry\x12\x13\n\x0btracking_id\x18\x01 \x01(\t\x12\x0f\n\x07user_id\x18\x02 \x01(\t\x12\x10\n\x08order_id\x18\x03 \x01(\t\x12\x0e\n\x06status\x18\x04 \x01(\t\x12\x10\n\x08\x64\x61tetime\x18\x05 \x01(\t\"x\n\x13TrackingWithHistory\x12-\n\x08tracking\x18\x01 \x01(\x0b\x32\x1b.tracking.v1.TrackingRecord\x12\x32\n\x07history\x18\x02 \x03(\x0b\x32!.tracking.v1.TrackingHistoryEntry\"}\n\x15\x43reateTrackingRequest\x12\x10\n\x08order_id\x18\x01 \x01(\t\x12\x0f\n\x07user_id\x18\x02 \x01(\t\x12.\n\x10shipping_address\x18\x03 \x01(\x0b\x32\x14.tracking.v1.Address\x12\x11\n\ttest_mode\x18\x04 \x01(\x08\"A\n\x10TrackingResponse\x12-\n\x08tracking\x18\x01 \x01(\x0b\x32\x1b.tracking.v1.TrackingRecord\"/\n\x1bGetTrackingByOrderIdRequest\x12\x10\n\x08order_id\x18\x01 \x01(\t\"Q\n\x1bTrackingWithHistoryResponse\x12\x32\n\x08tracking\x18\x01 \x01(\x0b\x32 .tracking.v1.TrackingWithHistory\"2\n\x1dGetTrackingsByOrderIdsRequest\x12\x11\n\torder_ids\x18\x01 \x03(\t\"S\n\x1cTrackingsWithHistoryResponse\x12\x33\n\ttrackings\x18\x01 \x03(\x0b\x32 .tracking.v1.TrackingWithHistory2\xbc\x02\n\x08Tracking\x12S\n\x0e\x43reateTracking\x12\".tracking.v1.CreateTrackingRequest\x1a\x1d.tracking.v1.TrackingResponse\x12j\n\x14GetTrackingByOrderId\x12(.tracking.v1.GetTrackingByOrderIdRequest\x1a(.tracking.v1.TrackingWithHistoryResponse\x12o\n\x16GetTrackingsByOrderIds\x12*.tracking.v1.GetTrackingsByOrderIdsRequest\x1a).tracking.v1.TrackingsWithHistoryResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0etracking.proto\x12\x0btracking.v1\"j\n\x07\x41\x64\x64ress\x12\r\n\x05line1\x18\x01 \x01(\t\x12\r\n\x05line2\x18\x02 \x01(\t\x12\x0c\n\x04\x63ity\x18\x03 \x01(\t\x12\r\n\x05state\x18\x04 \x01(\t\x12\x0f\n\x07\x63ountry\x18\x05 \x01(\t\x12\x13\n\x0bpostal_code\x18\x06 \x01(\t\"\xa6\x01\n\x0eTrackingRecord\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0f\n\x07user_id\x18\x02 \x01(\t\x12\x10\n\x08order_id\x18\x03 \x01(\t\x12\x0e\n\x06status\x18\x04 \x01(\t\x12\x10\n\x08\x64\x61tetime\x18\x05 \x01(\t\x12.\n\x10shipping_address\x18\x06 \x01(\x0b\x32\x14.tracking.v1.Address\x12\x13\n\x0b\x63ognito_sub\x18\x07 \x01(\t\"\x85\x01\n\x14TrackingHistoryEntry\x12\x13\n\x0btracking_id\x18\x01 \x01(\t\x12\x0f\n\x07user_id\x18\x02 \x01(\t\x12\x10\n\x08order_id\x18\x03 \x01(\t\x12\x0e\n\x06status\x18\x04 \x01(\t\x12\x10\n\x08\x64\x61tetime\x18\x05 \x01(\t\x12\x13\n\x0b\x63ognito_sub\x18\x06 \x01(\t\"x\n\x13TrackingWithHistory\x12-\n\x08tracking\x18\x01 \x01(\x0b\x32\x1b.tracking.v1.TrackingRecord\x12\x32\n\x07history\x18\x02 \x03(\x0b\x32!.tracking.v1.TrackingHistoryEntry\"\x92\x01\n\x15\x43reateTrackingRequest\x12\x10\n\x08order_id\x18\x01 \x01(\t\x12\x0f\n\x07user_id\x18\x02 \x01(\t\x12.\n\x10shipping_address\x18\x03 \x01(\x0b\x32\x14.tracking.v1.Address\x12\x11\n\ttest_mode\x18\x04 \x01(\x08\x12\x13\n\x0b\x63ognito_sub\x18\x05 \x01(\t\"A\n\x10TrackingResponse\x12-\n\x08tracking\x18\x01 \x01(\x0b\x32\x1b.tracking.v1.TrackingRecord\"/\n\x1bGetTrackingByOrderIdRequest\x12\x10\n\x08order_id\x18\x01 \x01(\t\"Q\n\x1bTrackingWithHistoryResponse\x12\x32\n\x08tracking\x18\x01 \x01(\x0b\x32 .tracking.v1.TrackingWithHistory\"2\n\x1dGetTrackingsByOrderIdsRequest\x12\x11\n\torder_ids\x18\x01 \x03(\t\"S\n\x1cTrackingsWithHistoryResponse\x12\x33\n\ttrackings\x18\x01 \x03(\x0b\x32 .tracking.v1.TrackingWithHistory2\xbc\x02\n\x08Tracking\x12S\n\x0e\x43reateTracking\x12\".tracking.v1.CreateTrackingRequest\x1a\x1d.tracking.v1.TrackingResponse\x12j\n\x14GetTrackingByOrderId\x12(.tracking.v1.GetTrackingByOrderIdRequest\x1a(.tracking.v1.TrackingWithHistoryResponse\x12o\n\x16GetTrackingsByOrderIds\x12*.tracking.v1.GetTrackingsByOrderIdsRequest\x1a).tracking.v1.TrackingsWithHistoryResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -34,23 +34,23 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_ADDRESS']._serialized_start=31
   _globals['_ADDRESS']._serialized_end=137
   _globals['_TRACKINGRECORD']._serialized_start=140
-  _globals['_TRACKINGRECORD']._serialized_end=285
-  _globals['_TRACKINGHISTORYENTRY']._serialized_start=287
-  _globals['_TRACKINGHISTORYENTRY']._serialized_end=399
-  _globals['_TRACKINGWITHHISTORY']._serialized_start=401
-  _globals['_TRACKINGWITHHISTORY']._serialized_end=521
-  _globals['_CREATETRACKINGREQUEST']._serialized_start=523
-  _globals['_CREATETRACKINGREQUEST']._serialized_end=648
-  _globals['_TRACKINGRESPONSE']._serialized_start=650
-  _globals['_TRACKINGRESPONSE']._serialized_end=715
-  _globals['_GETTRACKINGBYORDERIDREQUEST']._serialized_start=717
-  _globals['_GETTRACKINGBYORDERIDREQUEST']._serialized_end=764
-  _globals['_TRACKINGWITHHISTORYRESPONSE']._serialized_start=766
-  _globals['_TRACKINGWITHHISTORYRESPONSE']._serialized_end=847
-  _globals['_GETTRACKINGSBYORDERIDSREQUEST']._serialized_start=849
-  _globals['_GETTRACKINGSBYORDERIDSREQUEST']._serialized_end=899
-  _globals['_TRACKINGSWITHHISTORYRESPONSE']._serialized_start=901
-  _globals['_TRACKINGSWITHHISTORYRESPONSE']._serialized_end=984
-  _globals['_TRACKING']._serialized_start=987
-  _globals['_TRACKING']._serialized_end=1303
+  _globals['_TRACKINGRECORD']._serialized_end=306
+  _globals['_TRACKINGHISTORYENTRY']._serialized_start=309
+  _globals['_TRACKINGHISTORYENTRY']._serialized_end=442
+  _globals['_TRACKINGWITHHISTORY']._serialized_start=444
+  _globals['_TRACKINGWITHHISTORY']._serialized_end=564
+  _globals['_CREATETRACKINGREQUEST']._serialized_start=567
+  _globals['_CREATETRACKINGREQUEST']._serialized_end=713
+  _globals['_TRACKINGRESPONSE']._serialized_start=715
+  _globals['_TRACKINGRESPONSE']._serialized_end=780
+  _globals['_GETTRACKINGBYORDERIDREQUEST']._serialized_start=782
+  _globals['_GETTRACKINGBYORDERIDREQUEST']._serialized_end=829
+  _globals['_TRACKINGWITHHISTORYRESPONSE']._serialized_start=831
+  _globals['_TRACKINGWITHHISTORYRESPONSE']._serialized_end=912
+  _globals['_GETTRACKINGSBYORDERIDSREQUEST']._serialized_start=914
+  _globals['_GETTRACKINGSBYORDERIDSREQUEST']._serialized_end=964
+  _globals['_TRACKINGSWITHHISTORYRESPONSE']._serialized_start=966
+  _globals['_TRACKINGSWITHHISTORYRESPONSE']._serialized_end=1049
+  _globals['_TRACKING']._serialized_start=1052
+  _globals['_TRACKING']._serialized_end=1368
 # @@protoc_insertion_point(module_scope)
