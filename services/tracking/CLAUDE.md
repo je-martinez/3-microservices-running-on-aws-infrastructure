@@ -49,8 +49,9 @@ services/tracking/
 
 A tracking stores **both**, and they are not interchangeable:
 
-- **`user_id`** — the internal `usr_` id, resolved by Orders through Users and sent
-  over gRPC. Used for reporting and cross-service joins.
+- **`user_id`** — the internal `usr_` id. Tracking resolves it itself, from the sub,
+  through its outbound gRPC client to Users (§6) while handling the request. Used for
+  reporting and cross-service joins.
 - **`cognito_sub`** — the Cognito `sub`, and **the ownership key every user-scoped
   REST read filters by**.
 
@@ -94,11 +95,11 @@ depends on it completing, and real carrier updates arrive through the (persisten
 PUT endpoint.
 
 Implementation notes:
-- **Sync gRPC → async loop:** `CreateTracking` runs on a gRPC **thread pool** (Phase C
-  chose threads because pymysql blocks), which has no event loop. The FastAPI
-  lifespan registers uvicorn's loop with `shared/scheduling/background.py`, and the
-  handler submits via `asyncio.run_coroutine_threadsafe`. `asyncio.create_task` would
-  raise there; `asyncio.run` would block the RPC for 30s.
+- **Scheduled from an async handler.** Creation is `POST /v1/trackings/init-tracking`,
+  an ordinary async FastAPI route, so the progression is scheduled directly on the
+  running loop — no thread-pool handoff. The `run_coroutine_threadsafe` bridge that
+  used to be needed existed only because creation ran on the gRPC thread pool, which
+  has no event loop; with the gRPC server gone, so is that constraint.
 - Each transition reuses `update_tracking_status` — the same handler behind the
   carrier PUT — differing only in `AuditActor.TEST_MODE_PROGRESSION`. Never write a
   parallel transition path.
@@ -110,10 +111,25 @@ Implementation notes:
 
 ## 6. Design reference
 - Service spec (vault, source of truth): [../../docs/domains/tracking/specs/tracking-service-design.md](../../docs/domains/tracking/specs/tracking-service-design.md)
-- REST: `[GET] /v1/health` (unauthenticated), `[PUT] /v1/trackings/{order_id}/status`
-  (carrier-simulation endpoint; guarded — terminal `DELIVERED` rejects any update, and backward
-  transitions are rejected). No `POST /trackings` — creation is gRPC-only.
-- gRPC: `CreateTracking` (accepts `test_mode`, driving automatic `TestMode` progression), plus
-  `GetTrackingByOrderId` and `GetTrackingsByOrderIds` — both return the tracking **together with
-  its history**, not a bare `Tracking` message.
+- **Tracking is REST-only.** It serves no gRPC; the single gRPC in this service is an
+  OUTBOUND client to Users (below).
+- REST:
+  - `[GET] /v1/health` — unauthenticated. Served unprefixed; the gateway publishes it as
+    `/v1/tracking/health` and nginx rewrites.
+  - `[POST] /v1/trackings/init-tracking` — creation. Body carries `order_id` and
+    `shipping_address`; the caller's identity comes from the `x-user-id` header, never
+    the body. Guarded for idempotency: an order that already has a tracking or any
+    history is rejected with `409`, so a retry cannot duplicate a shipment. Accepts
+    `test_mode`, driving the automatic progression in §5b.
+  - `[GET] /v1/trackings/{orderId}` and `[GET] /v1/trackings?order_ids=<csv>` —
+    user-scoped reads, filtered by `cognito_sub` (see §5a). Both return the tracking
+    **together with its history**.
+  - `[PUT] /v1/trackings/{orderId}/status` — carrier-simulation endpoint, authenticated
+    by its own external API key rather than a Cognito JWT, so it receives no
+    `x-user-id`. Guarded: terminal `DELIVERED` rejects any update, and backward or
+    same-status transitions are rejected.
+- gRPC (client only): `users.v1.Users/GetUserById`, to resolve the caller's `usr_` id
+  from the Cognito sub — the same shape as Orders' `ICurrentCaller`. `NOT_FOUND` means
+  the user does not exist; every other status propagates, so a Users outage is never
+  mistaken for an unknown caller.
 - Entities: Tracking, Tracking_History.

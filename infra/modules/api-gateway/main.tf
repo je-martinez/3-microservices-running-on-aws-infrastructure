@@ -111,6 +111,23 @@ locals {
       # through by the HTTP_PROXY integration untouched.
       list_trackings = { key = "GET /v1/trackings", path = "/v1/trackings", auth = true }
 
+      # Tracking creation over REST (replaces the old gRPC CreateTracking RPC —
+      # Tracking is REST-only). Body carries `order_id` + `shipping_address`;
+      # the caller's identity comes from the `x-user-id` header nginx injects
+      # from the JWT claims (ADR-0016), so nothing user-scoped is in the path.
+      # auth = true: the caller is Orders propagating the end user's JWT, so the
+      # request always carries a Cognito token and goes through the existing JWT
+      # authorizer — exactly like the read routes below.
+      #
+      # Static path, deliberately placed BEFORE get_tracking in this map for
+      # readability only (map order is irrelevant to APIGW matching). It cannot
+      # be shadowed by `GET /v1/trackings/{orderId}`: route keys include the
+      # method, and POST != GET, so the two keys never compete. If a GET on this
+      # same static path were ever added, APIGW v2 precedence would still favour
+      # the static segment over the `{orderId}` variable one — but that is a
+      # rule to rely on knowingly, not by accident.
+      init_tracking = { key = "POST /v1/trackings/init-tracking", path = "/v1/trackings/init-tracking", auth = true }
+
       # User-scoped single read. camelCase path param, NOT snake_case: Floci
       # builds a Java named-capturing group from the param name and Java only
       # allows [A-Za-z0-9] in group names — `{order_id}` throws

@@ -14,6 +14,7 @@ import os
 import subprocess
 import sys
 from collections.abc import Iterator
+from concurrent import futures
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -25,6 +26,8 @@ from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.shared.db.base import Base
+from src.shared.grpc.generated import users_pb2, users_pb2_grpc
+from src.shared.grpc.users_client import UsersGrpcClient
 
 # services/tracking/tests/conftest.py -> repo root
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -239,6 +242,87 @@ def grpc_channel(grpc_server: int) -> Iterator[grpc.Channel]:
     """An insecure channel to the test server."""
     with grpc.insecure_channel(f"127.0.0.1:{grpc_server}") as channel:
         yield channel
+
+
+# --------------------------------------------------- stub Users gRPC server
+#
+# The OUTBOUND client (JE-101) is tested against a REAL `users.v1.Users` server on
+# a REAL socket, standing in for the Users service. Not a mocked stub object: a
+# mock would return whatever a Python attribute lookup produces, while the things
+# worth verifying here — that `x-api-key` reaches the server as metadata, that a
+# `context.abort(NOT_FOUND)` arrives as an `RpcError` with that code, that the
+# proto fields deserialize onto the right names — all live in the wire round trip
+# a mock deletes. Same reasoning as `grpc_server` above, and this one needs no
+# database at all, so it never skips.
+
+
+class StubUsersServicer(users_pb2_grpc.UsersServicer):
+    """A minimal `users.v1.Users` server: a dict of known users, plus a call log.
+
+    Records every call it receives so a test can assert on *absence* — the caller
+    context's whole contract is that reading the sub causes NO call and that a
+    second resolution causes no SECOND call, and both are assertions about the
+    number of entries here.
+    """
+
+    def __init__(
+        self,
+        users: dict[str, users_pb2.UserResponse],
+        *,
+        expected_api_key: str,
+    ) -> None:
+        self.users = users
+        self.expected_api_key = expected_api_key
+        #: One `(identifier, api_key)` per received RPC, in order.
+        self.calls: list[tuple[str, str | None]] = []
+
+    def GetUserById(self, request, context):  # noqa: N802 - protoc's method name
+        api_key = next(
+            (
+                value
+                for key, value in context.invocation_metadata()
+                if key == "x-api-key"
+            ),
+            None,
+        )
+        self.calls.append((request.id, api_key))
+        if api_key != self.expected_api_key:
+            context.abort(grpc.StatusCode.UNAUTHENTICATED, "invalid api key")
+        user = self.users.get(request.id)
+        if user is None:
+            context.abort(grpc.StatusCode.NOT_FOUND, "user not found")
+        return user
+
+
+@pytest.fixture
+def users_servicer() -> StubUsersServicer:
+    """The stub servicer, empty; a test populates `.users` before calling."""
+    return StubUsersServicer({}, expected_api_key=TEST_API_KEY)
+
+
+@pytest.fixture
+def users_server(users_servicer: StubUsersServicer) -> Iterator[int]:
+    """A running stub Users server on an ephemeral port; yields that port."""
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
+    users_pb2_grpc.add_UsersServicer_to_server(users_servicer, server)
+    port = server.add_insecure_port("127.0.0.1:0")
+    server.start()
+    try:
+        yield port
+    finally:
+        server.stop(None).wait()
+
+
+@pytest.fixture
+def users_client(users_server: int) -> Iterator[UsersGrpcClient]:
+    """A `UsersGrpcClient` pointed at the stub server, carrying the valid key."""
+    client = UsersGrpcClient.for_target(
+        f"127.0.0.1:{users_server}", api_key=TEST_API_KEY
+    )
+    try:
+        yield client
+    finally:
+        client.close()
 
 
 @pytest.fixture

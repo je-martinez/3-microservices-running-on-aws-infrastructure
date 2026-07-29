@@ -45,7 +45,29 @@ class Settings(BaseSettings):
     # 50051 is Users' gRPC server, so Tracking's serves on 50052.
     grpc_port: int = Field(default=50052, gt=0, lt=65536)
     # INTERNAL service-to-service key (ADR-0003), shared with Users and Orders.
+    # Used in BOTH directions: the inbound interceptor validates it, and the
+    # outbound Users client attaches it (JE-101).
     grpc_api_key: str = Field(min_length=1)
+
+    # Where Users' gRPC server lives, for the OUTBOUND client that resolves a
+    # Cognito sub to the internal `usr_` id (JE-101) — the same value Orders
+    # receives under this exact name (`USERS_GRPC_URL=http://users:50051` in
+    # `generate_env_files.py`).
+    #
+    # DEFAULTED, unlike every other gRPC setting here, and deliberately: the
+    # generator does NOT currently write this key into `.env.local.tracking`
+    # (only into `.env.local.orders`), and env files are generated, never
+    # hand-edited ([[env-files]]). A required field would therefore refuse to
+    # start the service the moment this lands, for a reason that lives in
+    # `infra/**` — outside this service's change. The default is the compose
+    # service name, which is exactly what the generator would emit, so local
+    # behavior is identical either way; a deployed environment overrides it.
+    #
+    # Note this is a bare `host:port` target for `grpc.insecure_channel`, not a
+    # URL — Orders' .NET channel takes `http://users:50051` because
+    # `GrpcChannel.ForAddress` wants a scheme, while grpcio does not. The client
+    # normalizes a scheme away if one is present; see `users_client.py`.
+    users_grpc_url: str = Field(default="users:50051", min_length=1)
 
     # --- carrier webhook ----------------------------------------------------
     # EXTERNAL key issued to the third-party carrier for

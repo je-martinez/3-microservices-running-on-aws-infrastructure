@@ -27,6 +27,7 @@ MANAGED_KEYS = (
     *MINIMAL_ENV,
     "PORT",
     "GRPC_PORT",
+    "USERS_GRPC_URL",
     "ENVIRONMENT",
     "DEPLOYMENT_ENVIRONMENT",
 )
@@ -111,6 +112,30 @@ class TestTrustDomains:
         )
         assert settings.grpc_api_key == "internal"
         assert settings.tracking_carrier_api_key == "external"
+
+
+class TestUsersGrpcUrl:
+    """The OUTBOUND target for the Users client (JE-101)."""
+
+    def test_defaults_to_the_compose_service_name(self) -> None:
+        """Defaulted on purpose: the env generator does NOT write this key into
+        `.env.local.tracking` yet (only into `.env.local.orders`), and env files
+        are generated, never hand-edited. A required field would refuse to start
+        the service for a reason living in `infra/**`.
+        """
+        assert build().users_grpc_url == "users:50051"
+
+    def test_is_overridable_from_the_environment(self) -> None:
+        """Under the SAME name Orders reads, so one value serves both services."""
+        assert (
+            build(USERS_GRPC_URL="http://users:50051").users_grpc_url
+            == "http://users:50051"
+        )
+
+    def test_an_empty_value_is_rejected(self) -> None:
+        """Blank would resolve to an empty gRPC target and fail at first call."""
+        with pytest.raises(ValidationError):
+            build(USERS_GRPC_URL="")
 
 
 class TestReplicaSplit:

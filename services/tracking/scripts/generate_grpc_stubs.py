@@ -1,9 +1,21 @@
 #!/usr/bin/env python
-"""Regenerate the Python gRPC stubs from `proto/tracking.proto`.
+"""Regenerate the Python gRPC stubs from the shared protos.
+
+Two contracts, opposite directions, ONE script (JE-101):
+
+* `proto/tracking.proto` — the surface this service **serves** (`TrackingServicer`).
+* `proto/users.proto` — the surface this service **calls** (`GetUserById`, to
+  resolve a Cognito sub to the internal `usr_` id, mirroring Orders'
+  `UserDirectoryGrpcClient`). Only the client half of that stub is used here; the
+  servicer base class protoc also emits is never subclassed.
 
 Run from anywhere:
 
     services/tracking/.venv/bin/python services/tracking/scripts/generate_grpc_stubs.py
+
+Everything below applies to both protos identically — one generation step over a
+list, rather than a second script, so a contract added later cannot end up with
+different codegen flags or a different import rewrite than the ones already here.
 
 ## Why the output is COMMITTED
 
@@ -18,23 +30,25 @@ Committing it wins on three counts here:
    `protobuf` major version; generating at image build would put a compiler in the
    runtime image (or force a multi-stage build) for an artifact that changes only
    when the .proto does.
-2. **The proto lives OUTSIDE the service.** `proto/tracking.proto` is at the repo
-   root, shared with the .NET client in Orders. `services/tracking/Dockerfile` has
-   the service directory as its build context, so a build-time generation step
-   would need the context widened to the repo root — a change with blast radius
-   well beyond this service.
+2. **The protos live OUTSIDE the service.** `proto/tracking.proto` and
+   `proto/users.proto` are at the repo root, shared with the .NET side in Orders.
+   `services/tracking/Dockerfile` has the service directory as its build context,
+   so a build-time generation step would need the context widened to the repo root
+   — a change with blast radius well beyond this service.
 3. **A contract change is reviewable.** The stubs are a diff in the PR that
    changes the .proto, so a wire-breaking edit is visible rather than implied.
 
 The cost is that they can go stale. `tests/test_grpc_stubs.py` closes that: it
-regenerates into a temp dir and fails if the committed output differs.
+regenerates into a temp dir and fails if the committed output differs — for every
+proto listed below, so adding one here automatically extends that guard.
 
 ## The import rewrite
 
 `protoc` emits `import tracking_pb2` (flat) into `tracking_pb2_grpc.py`, which only
 resolves when the generated directory itself is on `sys.path`. That is exactly the
 kind of implicit path requirement that works in tests and breaks in the container,
-so this script rewrites it to a package-relative `from . import tracking_pb2`.
+so this script rewrites it to a package-relative `from . import tracking_pb2` — and
+the same for `users_pb2`.
 """
 
 from __future__ import annotations
@@ -48,18 +62,47 @@ SERVICE_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = SERVICE_ROOT.parents[1]
 
 PROTO_DIR = REPO_ROOT / "proto"
-PROTO_FILE = PROTO_DIR / "tracking.proto"
 OUTPUT_DIR = SERVICE_ROOT / "src" / "shared" / "grpc" / "generated"
 
-#: What protoc writes, and what this script rewrites/normalizes afterwards.
-GENERATED_FILES = ("tracking_pb2.py", "tracking_pb2.pyi", "tracking_pb2_grpc.py")
+#: The protos this service generates stubs for, by base name. `tracking` is the
+#: surface it SERVES; `users` is the surface it CALLS (JE-101). Adding an entry is
+#: the only edit needed — the file list, the generation and the import rewrite are
+#: all derived from it.
+PROTO_STEMS: tuple[str, ...] = ("tracking", "users")
 
-_FLAT_IMPORT = "import tracking_pb2 as tracking__pb2"
-_RELATIVE_IMPORT = "from . import tracking_pb2 as tracking__pb2"
+PROTO_FILES: tuple[Path, ...] = tuple(
+    PROTO_DIR / f"{stem}.proto" for stem in PROTO_STEMS
+)
+
+#: Kept as a module constant because it names `tracking.proto` specifically, and
+#: `tests/test_grpc_stubs.py` asserts the SHARED root proto is what feeds codegen.
+PROTO_FILE = PROTO_DIR / "tracking.proto"
+
+#: What protoc writes, and what this script rewrites/normalizes afterwards.
+GENERATED_FILES: tuple[str, ...] = tuple(
+    f"{stem}_pb2{suffix}"
+    for stem in PROTO_STEMS
+    for suffix in (".py", ".pyi", "_grpc.py")
+)
+
+
+def _flat_import(stem: str) -> str:
+    """What protoc emits into `<stem>_pb2_grpc.py` — a top-level import."""
+    return f"import {stem}_pb2 as {stem}__pb2"
+
+
+def _relative_import(stem: str) -> str:
+    """What we rewrite it to, so the package imports from anywhere."""
+    return f"from . import {stem}_pb2 as {stem}__pb2"
 
 
 def generate(output_dir: Path, *, python: str | None = None) -> None:
-    """Run protoc into `output_dir` and fix up the generated imports."""
+    """Run protoc into `output_dir` and fix up the generated imports.
+
+    All protos are passed in a SINGLE protoc invocation so they share one
+    descriptor pool pass — and so a new contract cannot accidentally be generated
+    with different flags than the existing one.
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         [
@@ -70,7 +113,7 @@ def generate(output_dir: Path, *, python: str | None = None) -> None:
             f"--python_out={output_dir}",
             f"--grpc_python_out={output_dir}",
             f"--pyi_out={output_dir}",
-            str(PROTO_FILE),
+            *(str(proto) for proto in PROTO_FILES),
         ],
         check=True,
         cwd=REPO_ROOT,
@@ -79,15 +122,17 @@ def generate(output_dir: Path, *, python: str | None = None) -> None:
 
 
 def _rewrite_imports(output_dir: Path) -> None:
-    """Turn protoc's flat `import tracking_pb2` into a package-relative import."""
-    grpc_module = output_dir / "tracking_pb2_grpc.py"
-    source = grpc_module.read_text()
-    if _FLAT_IMPORT not in source:
-        raise SystemExit(
-            f"expected {_FLAT_IMPORT!r} in {grpc_module}; protoc's output shape "
-            "changed and this rewrite needs revisiting"
-        )
-    grpc_module.write_text(source.replace(_FLAT_IMPORT, _RELATIVE_IMPORT))
+    """Turn protoc's flat `import <stem>_pb2` into a package-relative import."""
+    for stem in PROTO_STEMS:
+        grpc_module = output_dir / f"{stem}_pb2_grpc.py"
+        source = grpc_module.read_text()
+        flat = _flat_import(stem)
+        if flat not in source:
+            raise SystemExit(
+                f"expected {flat!r} in {grpc_module}; protoc's output shape "
+                "changed and this rewrite needs revisiting"
+            )
+        grpc_module.write_text(source.replace(flat, _relative_import(stem)))
 
 
 def main() -> None:
