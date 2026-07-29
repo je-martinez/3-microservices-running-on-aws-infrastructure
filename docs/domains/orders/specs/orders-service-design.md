@@ -4,7 +4,7 @@ type: spec
 area: orders
 status: accepted
 created: 2026-06-26
-updated: 2026-07-28
+updated: 2026-07-29
 tags: [type/spec, area/orders, status/accepted]
 related:
   - "[[soft-delete]]"
@@ -25,6 +25,8 @@ related:
   - "[[for-update-pessimistic-locking]]"
   - "[[2026-07-14-orders-service-milestone-design]]"
   - "[[2026-07-16-orders-list-products-endpoint-design]]"
+  - "[[tracking-service-design]]"
+  - "[[users-service-design]]"
 ---
 
 # Orders Service Design
@@ -67,7 +69,7 @@ All routes are versioned under the `/v1` prefix. See [[versioning]] for the vers
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/v1/orders` | Create a new order. Emits `ORDER_CREATED` via a `NoopEventPublisher` seam today — real SQS publish is deferred. |
+| `POST` | `/v1/orders` | Create a new order. Emits `ORDER_CREATED` via a `NoopEventPublisher` seam today — real SQS publish is deferred. Accepts an optional `x-test-mode` header, guarded by `E2E_TESTING_ENABLED`, propagated as `test_mode` into the `CreateTracking` gRPC call — see [[tracking-service-design#TestMode automatic progression]]. Also resolves the caller's delivery address via `GetUserById` and snapshots it on the order — see [Delivery address flow](#delivery-address-flow-users--orders--tracking) below. |
 | `GET` | `/v1/orders/my-orders` | List all orders belonging to the authenticated user. |
 | `GET` | `/v1/orders/{order_id}` | Fetch a single order. Returns `404` if the order does not belong to the requesting user — see the ownership note below. |
 | `GET` | `/v1/products` | List the active product catalog. Private (requires `x-user-id`), no ownership filtering — products have no owner. See [[2026-07-16-orders-list-products-endpoint-design]]. |
@@ -87,6 +89,42 @@ Defined in the `OrdersService` proto. Used by other microservices to fetch order
 | Method | Request | Response |
 |---|---|---|
 | `GetOrderById` | `GetOrderByIdRequest { order_id: string }` | `OrderResponse { id, user_id, subtotal, tax, total, created_at }` |
+
+Orders is also a gRPC **client**: `POST /v1/orders` calls Users' `GetUserById` (see
+[[users-service-design]]) and Tracking's `CreateTracking` (see [[tracking-service-design]]). See
+[Delivery address flow](#delivery-address-flow-users--orders--tracking) below.
+
+## Delivery address flow (Users → Orders → Tracking)
+
+The delivery address originates in Users, flows through Orders at order-creation time, and ends up
+in Tracking — persisted as an independent **snapshot** at each stop, not as a shared reference.
+
+```
+Orders.CreateOrder
+  → gRPC GetUserById(cognito_sub)     → Users returns { id, email, full_name, address }
+  → persist order.shipping_address     (snapshot)
+  → gRPC CreateTracking({ order_id, user_id, shipping_address, test_mode })
+  → Tracking persists tracking.shipping_address (snapshot)
+```
+
+1. **Resolve.** `POST /v1/orders` calls Users' `GetUserById` (already the gRPC call Orders makes to
+   resolve the caller identity) and reads the `address` field on the response — see
+   [[users-service-design]] for the typed `Address` wire shape and its privacy implication.
+2. **Snapshot on `Order`.** The resolved address is persisted as `shipping_address` on the `Order`
+   row (see [Order](#order) below) at the moment the order is created.
+3. **Forward to Tracking.** The same address is included in the `CreateTracking` gRPC call, alongside
+   `order_id`, `user_id`, and `test_mode` (see [[tracking-service-design#TestMode automatic progression]]
+   for the rest of that call's contract).
+4. **Snapshot on `Tracking`.** Tracking persists its own `shipping_address` copy — see
+   [[tracking-service-design]] for that table.
+
+> [!note] Snapshots are deliberate, not accidental denormalization
+> Both copies (`Order.shipping_address` and `Tracking.shipping_address`) are point-in-time copies
+> **by design**. If the user later edits their profile address, the historical order and its
+> tracking record must still show where the shipment was actually sent — that is only possible if
+> each stop keeps its own copy taken at the time it acted. A future reader should not "clean this
+> up" into a single shared reference; that would silently rewrite delivery history whenever a user
+> edits their address.
 
 ## Data Model
 
@@ -131,6 +169,7 @@ One record per submitted order.
 | `subtotal` | `decimal(10,2)` | |
 | `tax` | `decimal(10,2)` | |
 | `total` | `decimal(10,2)` | |
+| `shipping_address` | `json` | Snapshot of the delivery address at order-creation time, resolved via Users' `GetUserById` (see [[users-service-design]]) and forwarded to Tracking's `CreateTracking`. See [Delivery address flow](#delivery-address-flow-users--orders--tracking). Deliberately a point-in-time copy, not a live reference — see the snapshot-semantics note above. |
 | `created_by` | `varchar(26)` | audit |
 | `created_at` | `datetime` | audit |
 | `updated_by` | `varchar(26)` | audit |
@@ -230,3 +269,8 @@ Full milestone design: [[2026-07-14-orders-service-milestone-design]].
 - [[for-update-pessimistic-locking]]
 - [[2026-07-14-orders-service-milestone-design]]
 - [[2026-07-16-orders-list-products-endpoint-design]]
+- [[tracking-service-design]] — `x-test-mode` header on `POST /v1/orders` propagates as
+  `test_mode` into the `CreateTracking` gRPC call; also the destination of the `shipping_address`
+  snapshot forwarded by `CreateTracking`.
+- [[users-service-design]] — `GetUserById` is where Orders resolves the delivery address it
+  snapshots onto `Order.shipping_address`.

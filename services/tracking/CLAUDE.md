@@ -46,6 +46,11 @@ services/tracking/
 - Stay within the single task handed to you (YAGNI).
 
 ## 6. Design reference
-- Service spec (vault): [../../docs/domains/tracking/specs/tracking-service-design.md](../../docs/domains/tracking/specs/tracking-service-design.md)
-- Endpoints: `[POST] /trackings`, `[PUT] /trackings/{order_id}/status`. gRPC: `GetTrackingByOrderId`, `GetTrackingsByOrderIds`.
+- Service spec (vault, source of truth): [../../docs/domains/tracking/specs/tracking-service-design.md](../../docs/domains/tracking/specs/tracking-service-design.md)
+- REST: `[GET] /v1/health` (unauthenticated), `[PUT] /v1/trackings/{order_id}/status`
+  (carrier-simulation endpoint; guarded — terminal `DELIVERED` rejects any update, and backward
+  transitions are rejected). No `POST /trackings` — creation is gRPC-only.
+- gRPC: `CreateTracking` (accepts `test_mode`, driving automatic `TestMode` progression), plus
+  `GetTrackingByOrderId` and `GetTrackingsByOrderIds` — both return the tracking **together with
+  its history**, not a bare `Tracking` message.
 - Entities: Tracking, Tracking_History.

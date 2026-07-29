@@ -167,6 +167,13 @@ for (const f of files) {
     }
   }
   const body = stripCode(text);
+  // Anchor written OUTSIDE the brackets (`[[note]]#Heading`) instead of inside
+  // (`[[note#Heading]]`). Obsidian renders that as a plain link followed by literal text, so the
+  // anchor silently does nothing — and the link check below can't see it, since it only reads the
+  // part before the `#`.
+  for (const bad of body.matchAll(/\[\[[^\]]+\]\]#\S/g)) {
+    errors.push(`${f}: anchor outside the wikilink — '${bad[0].slice(0, 40)}…' (use [[note#Heading]])`);
+  }
   for (const link of body.matchAll(/\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g)) {
     const target = link[1].trim();
     const targetExt = extname(target).toLowerCase();

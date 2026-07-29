@@ -4,7 +4,7 @@ type: spec
 area: users
 status: active
 created: 2026-06-26
-updated: 2026-07-28
+updated: 2026-07-29
 tags: [type/spec, area/users, status/active]
 related:
   - "[[soft-delete]]"
@@ -35,6 +35,8 @@ related:
   - "[[2026-07-11-authenticated-identity-resolution-design]]"
   - "[[2026-07-12-app-user-id-token-claim-design]]"
   - "[[2026-07-12-audit-actor-enum-design]]"
+  - "[[orders-service-design]]"
+  - "[[tracking-service-design]]"
 ---
 
 # Users Service Design
@@ -161,9 +163,53 @@ The event payload, when wired, is intended to carry the new user ID and email. S
 
 | Method | Request | Response |
 |---|---|---|
-| `GetUserById` | `{ id: string }` | `User` object |
+| `GetUserById` | `{ id: string }` | `User` object, including `address` (typed `Address` message — see below) |
 
 Used by Orders and Tracking services for inter-service lookups (see [[ADR-0003-grpc-inter-service]]).
+
+### `address` on `GetUserById` — typed message, not raw JSON
+
+`GetUserById`'s response gains an `address` field so the delivery address can flow to Orders and,
+from there, to Tracking (see [[orders-service-design]] and [[tracking-service-design]] for the rest
+of the chain). Users already stores the address — `address Json?` on the `User` model
+(`services/users/prisma/schema.prisma`, `address JSONB` since the `20260629051541_init` migration)
+— and already exposes it over REST (`RegisterInputSchema`, `UpdateProfileInputSchema`, `UserSchema`
+in `services/users/src/features/users/http/schemas.ts`, typed `z.unknown()` there). It was simply
+never on the gRPC contract: today's `UserResponse` in `proto/users.proto` has only `id`, `email`,
+`full_name`, `cognito_sub`.
+
+The proto gains a dedicated `Address` message rather than a raw JSON string or
+`google.protobuf.Struct`:
+
+```proto
+message Address {
+  string line1 = 1;
+  string line2 = 2;
+  string city = 3;
+  string state = 4;
+  string country = 5;
+  string postal_code = 6;
+}
+```
+
+A typed message gives a real, validated contract that both consumers — Orders (.NET) and Tracking
+(Python) — can consume ergonomically, instead of each having to parse an opaque blob. Users maps
+its stored JSON onto these fields at read time; the de-facto shape seen in practice today is
+`{ line1, city, country }` (from `e2e/support/chance-factory.ts`), even though the underlying
+column is schema-free `Json?`.
+
+> [!warning] proto3 scalars have no null
+> Any address key absent from the stored JSON (e.g. `line2`, `state`, `postal_code` in the current
+> de-facto shape) comes through as an **empty string**, not `null` — proto3 scalar fields have no
+> null representation. Consumers must treat `""` as "not provided," not fail validation on it.
+
+> [!warning] `GetUserById` now returns personal data, not just identity
+> Adding `address` means this RPC's response carries PII, not only an identity lookup. The
+> existing `x-api-key` interceptor on the Users gRPC surface
+> (`services/users/src/shared/grpc/api-key-interceptor.ts`) is what guards this — no unauthenticated
+> caller can reach it. Implementers must also **never log the address** while wiring or debugging
+> this, the same way plaintext email is never logged — see [[logging-context]] (full request bodies
+> and plaintext PII are forbidden in log lines).
 
 ## Cross-cutting rules
 
@@ -241,3 +287,7 @@ convention/pattern notes in `shared/`) live in `docs/domains/users/decisions/`:
 - [[2026-07-11-authenticated-identity-resolution-design]]
 - [[2026-07-12-app-user-id-token-claim-design]]
 - [[2026-07-12-audit-actor-enum-design]]
+- [[orders-service-design]] — `GetUserById`'s `address` is what Orders resolves and snapshots on
+  order creation.
+- [[tracking-service-design]] — the address snapshot's final stop, forwarded by Orders via
+  `CreateTracking`.
