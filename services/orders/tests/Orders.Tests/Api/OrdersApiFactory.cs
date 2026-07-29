@@ -66,6 +66,9 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
         builder.UseSetting("DATABASE_WRITER_URL", cs);
         builder.UseSetting("USERS_GRPC_URL", "http://localhost:50051");
         builder.UseSetting("GRPC_API_KEY", "test-key");
+        // Well-formed placeholder so the typed Tracking client can be constructed.
+        // Nothing in these tests calls it, so no request is ever dialed.
+        builder.UseSetting("TRACKING_BASE_URL", "http://localhost:8000");
 
         builder.ConfigureTestServices(services =>
         {

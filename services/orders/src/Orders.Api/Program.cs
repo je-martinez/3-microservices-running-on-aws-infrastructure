@@ -6,11 +6,13 @@ using Orders.Api.Logging;
 using Orders.Api.Middleware;
 using Orders.Application.Abstractions;
 using Orders.Application.Identity;
+using Orders.Application.Tracking;
 using Orders.Infrastructure.Config;
 using Orders.Infrastructure.Grpc;
 using Orders.Infrastructure.Messaging;
 using Orders.Infrastructure.Orders;
 using Orders.Infrastructure.Persistence;
+using Orders.Infrastructure.Tracking;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Serilog;
@@ -86,6 +88,27 @@ builder.Services.AddScoped<IUserDirectory>(sp =>
 
 // ORDER_CREATED emission seam (SQS deferred).
 builder.Services.AddScoped<IEventPublisher, NoopEventPublisher>();
+
+// Tracking HTTP client (POST /v1/trackings/init-tracking). Typed client so the
+// base address and timeout are configured once, in the composition root, and
+// HttpClientFactory owns handler lifetime/pooling. AddHttpClientInstrumentation
+// above already makes each call a child span of the incoming request.
+//
+// TIMEOUT: 5 seconds. This call sits on the order-creation path, so an unbounded
+// wait would let a hung Tracking service pin an Orders request (and its DB
+// connection) indefinitely — the classic way one slow dependency exhausts the
+// pool of a healthy service. 5s is comfortably above a normal same-network round
+// trip yet short enough that a stalled downstream degrades order creation by
+// seconds rather than stalling it; on expiry the client returns Unreachable and
+// the order still succeeds.
+var trackingBaseUrl = builder.Configuration["TRACKING_BASE_URL"]!;   // e.g. http://tracking:8000
+builder.Services.AddHttpClient<ITrackingInitiator, TrackingHttpClient>(client =>
+{
+    // Trailing slash matters: without it, Uri resolution against a relative path
+    // would drop the last base-path segment.
+    client.BaseAddress = new Uri(trackingBaseUrl.TrimEnd('/') + "/");
+    client.Timeout = TimeSpan.FromSeconds(5);
+});
 
 // Request-scoped caller context, populated by CallerContextMiddleware from
 // x-user-id. Replaces the old per-endpoint CallerIdentity.CognitoSub(ctx) reads.
