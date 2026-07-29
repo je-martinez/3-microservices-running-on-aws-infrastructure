@@ -3,19 +3,21 @@
 
 Usage: generate_env_files.py [--repo-root PATH]
 
-Produces five files, each for one consumer:
+Produces six files, each for one consumer:
 
   .env                 the ONLY four vars docker-compose interpolates as ${VAR}
   .env.local.infra     terraform outputs — read by the E2E suite and by humans
-  .env.local.users     the Users service environment   (compose env_file:)
-  .env.local.orders    the Orders service environment  (compose env_file:)
+  .env.local.users     the Users service environment    (compose env_file:)
+  .env.local.orders    the Orders service environment   (compose env_file:)
+  .env.local.tracking  the Tracking service environment (compose env_file:)
   .env.local.debug     HOST-reachable connection strings for a SQL client
 
 WHY PER-SERVICE FILES, and not the single `.services` file originally sketched:
-DATABASE_WRITER_URL and DATABASE_READER_URL exist in BOTH services with
+DATABASE_WRITER_URL and DATABASE_READER_URL exist in EVERY service with
 different values AND different formats — a postgres:// URL for Users, an ADO
-connection string for Orders. One shared file cannot hold two values for one
-key without renaming variables the application code already reads.
+connection string for Orders, a SQLAlchemy URL for Tracking. One shared file
+cannot hold three values for one key without renaming variables the application
+code already reads.
 
 IMPORTANT — no interpolation here. docker-compose expands ${USERS_DB_PORT} in
 the compose file, but `env_file:` does NOT: values are taken literally. So every
@@ -41,8 +43,41 @@ from lib3mrai.envfile import MissingValue, terraform_output, write_env_file
 AWS_ENDPOINT = "http://floci:4566"
 AWS_REGION = "us-east-1"
 OTLP_ENDPOINT = "http://otel-collector:4318"
-GRPC_API_KEY = "local-dev-grpc-key"
 FLOCI_HOST = "floci"
+
+# ─── The two key-based auth schemes — KEEP THEM SEPARATE ─────────────────────
+# These are two different keys for two different TRUST DOMAINS. Do not
+# "simplify" by collapsing them into one constant, and do not point both env
+# vars at the same value. See the Tracking design's "Auth schemes" section
+# (docs/domains/tracking/specs/tracking-service-design.md).
+#
+#   GRPC_API_KEY            INTERNAL. Shared symmetric secret between our own
+#                           services: Orders -> Users and Orders -> Tracking
+#                           gRPC calls carry it as `x-api-key` metadata, and the
+#                           callee's interceptor compares it in constant time
+#                           (see docs/domains/orders/decisions/
+#                           grpc-api-key-authorization.md). It never leaves the
+#                           compose network / VPC.
+#
+#   TRACKING_CARRIER_API_KEY  EXTERNAL. Issued to a third-party shipping carrier
+#                           so it can call PUT /v1/trackings/{orderId}/status.
+#                           That gateway route is declared `auth = false` — it
+#                           sits OUTSIDE the Cognito authorizer, so the Tracking
+#                           service validates this key itself.
+#
+# Reusing the internal key as the carrier key would hand an outside vendor a
+# credential that authenticates as an internal service against every gRPC
+# surface we have. The blast radius is the entire inter-service mesh, so the
+# separation is a security boundary, not a naming preference.
+#
+# Both are local-dev placeholders here, matching how GRPC_API_KEY has always
+# been sourced locally (a static constant, no Terraform resource). Neither is
+# provisioned in Parameter Store or Secrets Manager: as of today this repo has
+# ZERO `aws_ssm_parameter` resources, and Secrets Manager holds only
+# Terraform-generated DB credentials. Real rotation for both keys is prod work,
+# deferred exactly like every other secret in ADR-0007.
+GRPC_API_KEY = "local-dev-grpc-key"
+TRACKING_CARRIER_API_KEY = "local-dev-carrier-key"
 
 
 def build(repo_root: Path) -> dict[Path, dict]:
@@ -54,6 +89,12 @@ def build(repo_root: Path) -> dict[Path, dict]:
     api_id = terraform_output(tf_dir, "api_id")
     users_db_host = terraform_output(tf_dir, "db_writer_endpoint")
     orders_db_host = terraform_output(tf_dir, "orders_db_writer_endpoint")
+    # Tracking shares the Orders MySQL CLUSTER — only the database differs (see
+    # terraform_data.tracking_database in main.tf). Read from Tracking's OWN
+    # output rather than reusing orders_db_host: the value is identical today,
+    # but addressing it by its own key keeps the two services decoupled if
+    # Tracking ever moves to its own cluster.
+    tracking_db_host = terraform_output(tf_dir, "tracking_db_writer_endpoint")
 
     # Discovered per-engine, never assumed: Floci assigns proxy ports 7000-7099
     # by cluster creation order, so postgres and mysql swap across applies.
@@ -68,6 +109,25 @@ def build(repo_root: Path) -> dict[Path, dict]:
     orders_db = (
         f"Server={FLOCI_HOST};Port={my_port};Database=orders;"
         "User=test;Password=test;SslMode=None;"
+    )
+    # Tracking is Python/SQLAlchemy, so its URL is a SQLAlchemy DSN — NOT the
+    # .NET `Server=...;Database=...;` form Orders uses, even though both point
+    # at the same MySQL cluster on the same discovered port.
+    #
+    # Driver `pymysql`: the pure-Python DBAPI, the only MySQL driver this repo
+    # has ever named (the scaffold design calls out psycopg2/pymysql as the
+    # bundled drivers). Sync rather than async (aiomysql/asyncmy) because
+    # nothing in the Tracking design commits to an async engine, Alembic
+    # migrations run against a sync engine regardless, and pymysql needs no
+    # build toolchain in the container (unlike mysqlclient's C extension). If
+    # the service later adopts `create_async_engine`, this becomes
+    # `mysql+aiomysql://` — a one-line change here, since the URL is generated.
+    #
+    # ?charset=utf8mb4 matches the collation the tracking database is created
+    # with; pymysql otherwise negotiates latin1 and mangles non-ASCII text.
+    # No TLS parameters: Floci's MySQL proxy does not terminate TLS.
+    tracking_db = (
+        f"mysql+pymysql://test:test@{FLOCI_HOST}:{my_port}/tracking?charset=utf8mb4"
     )
 
     return {
@@ -93,8 +153,12 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 "API_GATEWAY_URL": api_gateway_url,
                 "USERS_DB_HOST": users_db_host,
                 "ORDERS_DB_HOST": orders_db_host,
+                "TRACKING_DB_HOST": tracking_db_host,
                 "USERS_DB_PORT": str(pg_port),
                 "ORDERS_DB_PORT": str(my_port),
+                # Same cluster as Orders, so the same discovered port. Named
+                # separately so a consumer never has to know they coincide.
+                "TRACKING_DB_PORT": str(my_port),
             },
         ),
         # --- users service ---------------------------------------------------
@@ -147,6 +211,45 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 "E2E_TESTING_ENABLED": "true",
             },
         ),
+        # --- tracking service ------------------------------------------------
+        # Python/FastAPI/SQLAlchemy. Same MySQL cluster as Orders, different
+        # database — hence the same discovered port with `/tracking` as the
+        # database segment.
+        repo_root / ".env.local.tracking": dict(
+            header="Tracking service environment. Loaded via env_file: in docker-compose.yml.",
+            generated={
+                "AWS_ENDPOINT_URL": AWS_ENDPOINT,
+                "AWS_REGION": AWS_REGION,
+                "AWS_ACCESS_KEY_ID": "test",
+                "AWS_SECRET_ACCESS_KEY": "test",
+                # Writer and reader are the same value locally: Floci does not
+                # emulate an Aurora read replica. Both keys exist anyway so the
+                # service can honor ADR-0006 (reads on the reader) unchanged
+                # between local and prod.
+                "DATABASE_WRITER_URL": tracking_db,
+                "DATABASE_READER_URL": tracking_db,
+                # The INTERNAL service-to-service key — the same value Users and
+                # Orders share, because Orders calls Tracking's gRPC surface
+                # with it.
+                "GRPC_API_KEY": GRPC_API_KEY,
+                # The EXTERNAL carrier/webhook key, validated by the service
+                # itself on PUT /v1/trackings/{orderId}/status (a gateway route
+                # with NO Cognito authorizer). A DIFFERENT value from
+                # GRPC_API_KEY on purpose — see the trust-domain note at the top
+                # of this file before touching either.
+                "TRACKING_CARRIER_API_KEY": TRACKING_CARRIER_API_KEY,
+                "OTEL_EXPORTER_OTLP_ENDPOINT": OTLP_ENDPOINT,
+                "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+                "OTEL_METRICS_EXPORTER": "none",
+                "OTEL_LOGS_EXPORTER": "none",
+            },
+            custom_defaults={
+                # uvicorn's default port; 3000/8080 are taken by Users/Orders.
+                "PORT": "8000",
+                # 50051 is Users' gRPC server, so Tracking's serves on 50052.
+                "GRPC_PORT": "50052",
+            },
+        ),
         # --- debug: HOST-reachable, loaded by nothing ------------------------
         # Floci's RDS proxy is published to the host, so these reach the DBs
         # from outside Docker (a SQL client on macOS). Deliberately not loaded
@@ -157,8 +260,12 @@ def build(repo_root: Path) -> dict[Path, dict]:
             generated={
                 "USERS_DATABASE_URL": f"postgres://test:test@localhost:{pg_port}/users",
                 "ORDERS_DATABASE_URL": f"mysql://test:test@localhost:{my_port}/orders",
+                # Plain mysql:// (not mysql+pymysql://) — this file is for a GUI
+                # SQL client, which wants a generic URL, not a SQLAlchemy DSN.
+                "TRACKING_DATABASE_URL": f"mysql://test:test@localhost:{my_port}/tracking",
                 "USERS_DB_PROXY_HOST": users_db_host,
                 "ORDERS_DB_PROXY_HOST": orders_db_host,
+                "TRACKING_DB_PROXY_HOST": tracking_db_host,
             },
         ),
     }

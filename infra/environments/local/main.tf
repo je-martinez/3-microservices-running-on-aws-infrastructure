@@ -126,6 +126,47 @@ module "rds_mysql" {
   subnet_group_name   = "default"
 }
 
+# ─── Tracking database (SECOND schema on the SAME MySQL cluster) ────────────────
+# DECISION: Tracking gets its own database/schema on the EXISTING rds_mysql
+# cluster above — NOT a second MySQL cluster.
+#
+# WHY NOT A SECOND CLUSTER: Floci assigns its RDS proxy ports (7000-7099) by
+# cluster CREATION ORDER, and that order is NOT stable across applies — with two
+# clusters today (Users Postgres + Orders MySQL) the assignment already flips
+# between applies, which is why every consumer must call discover_port(engine).
+# `discover_port` resolves a port by matching the cluster's `Engine` field, so a
+# THIRD cluster with engine = "mysql" would make that lookup ambiguous: two
+# clusters would match "mysql" and the helper would return whichever came first,
+# non-deterministically. Disambiguating would mean threading cluster identifiers
+# through every caller (Makefile, generator, gate) for zero benefit — Tracking
+# and Orders have no cross-schema queries and no independent scaling story
+# locally. One cluster, two databases.
+#
+# MECHANISM: `aws_rds_cluster.database_name` creates exactly ONE database, at
+# cluster-creation time (that is how `orders` exists). There is no AWS API — and
+# so no Terraform AWS resource — for adding a database to an existing cluster;
+# it is engine DDL. The petoju/mysql provider's `mysql_database` is not an option
+# either: it needs the cluster endpoint configured BEFORE the cluster exists
+# (the same chicken-and-egg that forced manage_app_user = false), and it hangs
+# against Floci. So this uses the repo's established awscli-fallback shape
+# (terraform_data + local-exec + idempotent Python), which runs after the
+# cluster resource. See scripts/create_mysql_database.py for why the DDL must
+# run as root rather than as `test`.
+resource "terraform_data" "tracking_database" {
+  # cluster_identifier is in `input` purely to make this resource DEPEND on the
+  # cluster: terraform_data replaces when `input` changes, so a recreated
+  # cluster (new identifier) re-runs the DDL against the fresh, empty database.
+  input = {
+    database   = "tracking"
+    cluster_id = module.rds_mysql.cluster_identifier
+  }
+
+  provisioner "local-exec" {
+    command     = "${abspath("${path.root}/../../../.venv/bin/python")} ${abspath("${path.root}/scripts/create_mysql_database.py")} ${self.input.database}"
+    interpreter = ["/usr/bin/env", "bash", "-c"]
+  }
+}
+
 # ─── Cognito ────────────────────────────────────────────────────────────────────
 # manage_client_via_provider = false (LOCAL ONLY): the native
 # aws_cognito_user_pool_client resource cannot apply cleanly against Floci —
@@ -175,4 +216,11 @@ module "api_gateway" {
   local_gateway            = true
   nginx_base_uri           = "http://nginx-stable"
   enable_e2e_cleanup_route = true
+
+  # Tracking's REST routes stay OFF until the service exists and nginx has a
+  # `tracking` upstream. With no upstream, nginx's default `location /` would
+  # send /v1/health and /v1/trackings/* to users:3000 — a green health check
+  # served by the wrong service is harder to spot than a 404. Flip to true in
+  # the change that adds both.
+  enable_tracking_routes = false
 }

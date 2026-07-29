@@ -1,0 +1,113 @@
+syntax = "proto3";
+
+package tracking.v1;
+
+// Shared contract for the Tracking gRPC surface. Source of truth for both the
+// Python server (services/tracking) and the .NET client (services/orders).
+service Tracking {
+  // Create a tracking record. This is the ONLY way one is created — there is no
+  // REST POST. Caller is the Orders service, on order confirmation.
+  rpc CreateTracking(CreateTrackingRequest) returns (TrackingResponse);
+
+  // Read one tracking with its history. UNSCOPED: unlike the REST read, this does
+  // NOT filter by user_id — the caller is a trusted service (x-api-key), not an
+  // end user, so any order_id is looked up as-is.
+  rpc GetTrackingByOrderId(GetTrackingByOrderIdRequest) returns (TrackingWithHistoryResponse);
+
+  // Read many trackings, each with its own history. UNSCOPED, same as above.
+  rpc GetTrackingsByOrderIds(GetTrackingsByOrderIdsRequest) returns (TrackingsWithHistoryResponse);
+}
+
+// Snapshot of the delivery address, forwarded as-is by Orders (which resolved it
+// from Users' GetUserById). Tracking persists it, never resolves or validates it.
+//
+// Mirrored deliberately instead of importing users.v1.Address: every consumer here
+// loads exactly one proto file (services/orders/.../Orders.Infrastructure.csproj
+// lists each .proto explicitly; services/users/Dockerfile copies its own proto in
+// alone), so an import would make Tracking's codegen — Python and .NET both —
+// depend on resolving users.proto. Keep the two in sync by hand; the fields are a
+// frozen 6-string value object, not an evolving contract.
+//
+// proto3 scalars have no null: an address key absent upstream arrives as "", not
+// null. Treat "" as "not provided". Never log this message — it is PII.
+message Address {
+  string line1 = 1;
+  string line2 = 2;
+  string city = 3;
+  string state = 4;
+  string country = 5;
+  string postal_code = 6;
+}
+
+// A tracking record. Named TrackingRecord, not Tracking, because protobuf puts
+// services and messages in ONE namespace — `message Tracking` collides with
+// `service Tracking` above and fails to compile.
+//
+// `status` is one of SHIPPED, ON_THE_WAY, OUT_FOR_DELIVERY, DELIVERED,
+// forward-only in that order.
+//
+// Modelled as a string, not a proto enum, to match the VARCHAR(50) storage and the
+// REST PUT endpoint that also takes it as a string — one representation across
+// wire, storage and HTTP. The forward-only state machine and its update guards are
+// enforced in Tracking's domain layer, which is the only place that can reject a
+// backward or terminal transition anyway; an enum would add a wire-level
+// UNSPECIFIED zero value that is never a legal status, plus enum-versioning cost,
+// without moving that validation.
+message TrackingRecord {
+  string id = 1;
+  string user_id = 2;
+  string order_id = 3;
+  string status = 4;
+  // Timestamp of the current status, ISO-8601.
+  string datetime = 5;
+  Address shipping_address = 6;
+}
+
+// One immutable status transition. Carries no shipping_address: the address is
+// fixed for the lifetime of a tracking, so only TrackingRecord above holds it.
+message TrackingHistoryEntry {
+  string tracking_id = 1;
+  string user_id = 2;
+  string order_id = 3;
+  string status = 4;
+  // Timestamp of this status transition, ISO-8601.
+  string datetime = 5;
+}
+
+// A tracking together with its history entries — what both read methods return.
+message TrackingWithHistory {
+  TrackingRecord tracking = 1;
+  repeated TrackingHistoryEntry history = 2;
+}
+
+message CreateTrackingRequest {
+  string order_id = 1;
+  string user_id = 2;
+  Address shipping_address = 3;
+  // When true, the new tracking starts at SHIPPED and advances one status every
+  // 10s until DELIVERED. Originates as the x-test-mode header on Orders' POST
+  // /v1/orders, guarded there by E2E_TESTING_ENABLED.
+  bool test_mode = 4;
+}
+
+// The newly created tracking. No history here — a just-created record's history is
+// the single SHIPPED row implied by the tracking itself.
+message TrackingResponse {
+  TrackingRecord tracking = 1;
+}
+
+message GetTrackingByOrderIdRequest {
+  string order_id = 1;
+}
+
+message TrackingWithHistoryResponse {
+  TrackingWithHistory tracking = 1;
+}
+
+message GetTrackingsByOrderIdsRequest {
+  repeated string order_ids = 1;
+}
+
+message TrackingsWithHistoryResponse {
+  repeated TrackingWithHistory trackings = 1;
+}

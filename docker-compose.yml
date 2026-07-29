@@ -212,11 +212,12 @@ services:
     depends_on:
       floci:
         condition: service_healthy
-    environment:
-      - AWS_ENDPOINT_URL=http://floci:4566
-      - AWS_REGION=us-east-1
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
+    # Environment comes from the GENERATED .env.local.tracking — see the note on
+    # the users service above for why nothing is declared inline. An
+    # `environment:` block here would silently WIN over env_file, so the service
+    # would never see its generated DB URLs, gRPC port, or API keys.
+    env_file:
+      - .env.local.tracking
     # stdout → the observability collector's fluent_forward receiver.
     # localhost:24224 because the Docker daemon resolves fluentd-address from the
     # HOST, not this network. fluentd-async so the service still starts when the

@@ -38,6 +38,22 @@ output "orders_db_reader_endpoint" {
   value       = module.rds_mysql.reader_endpoint
 }
 
+# Tracking shares the Orders MySQL CLUSTER (see terraform_data.tracking_database
+# in main.tf for why there is no second cluster) — only the database/schema
+# differs. These outputs therefore resolve to the same endpoints as the
+# orders_db_* ones above; they exist as separate names so the env-file generator
+# and any future consumer address Tracking's connection by its own key rather
+# than reaching for an Orders output and quietly coupling the two.
+output "tracking_db_writer_endpoint" {
+  description = "Tracking MySQL writer endpoint (INSERT/UPDATE queries). Same cluster as Orders, different database."
+  value       = module.rds_mysql.writer_endpoint
+}
+
+output "tracking_db_reader_endpoint" {
+  description = "Tracking MySQL reader endpoint (SELECT queries, per ADR-0006). Same cluster as Orders, different database."
+  value       = module.rds_mysql.reader_endpoint
+}
+
 output "app_secret_arn" {
   description = "ARN of the least-privilege app-user credentials secret."
   value       = module.rds_aurora.app_secret_arn

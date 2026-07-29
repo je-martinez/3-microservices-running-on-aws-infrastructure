@@ -72,7 +72,7 @@ consumer/updater — it does not emit any domain events.
 | Auth       | Amazon Cognito (request validation)      |
 
 Read replicas are used for all reads — both the gRPC (`GetTrackingByOrderId` /
-`GetTrackingsByOrderIds`) and REST (`GET /v1/trackings/{order_id}` /
+`GetTrackingsByOrderIds`) and REST (`GET /v1/trackings/{orderId}` /
 `GET /v1/trackings?order_ids=...`) surfaces; the write replica receives all mutations (gRPC
 `CreateTracking` and the REST status-update endpoint). See [[ADR-0006-read-write-replicas]].
 
@@ -88,18 +88,59 @@ one fronting Users and Orders. There is no new/dedicated gateway for Tracking; a
 means adding entries to that module's `local.routes` map, per
 [Gateway routing](#gateway-routing-existing-module-not-a-new-one) below.
 
-| Method | Path                              | Auth | Description                          |
-|--------|-----------------------------------|------|--------------------------------------|
-| GET    | `/v1/health`                      | None | Liveness/readiness probe. Returns `200 { "status": "ok" }` when healthy. Used by ALB/Fargate as health check target. |
-| GET    | `/v1/trackings/{order_id}`        | Cognito JWT (gateway authorizer) | Returns one tracking + its `Tracking_History`, scoped to the caller. Filters by `order_id` **and** the caller's `user_id` (from the gateway-injected `x-user-id` header — see [Ownership & scoping](#ownership--scoping)); a tracking that exists but belongs to another user is indistinguishable from one that does not exist — returns `404`, not `403`. |
-| GET    | `/v1/trackings?order_ids=<csv>`   | Cognito JWT (gateway authorizer) | Returns many trackings (+ each one's `Tracking_History`), scoped to the caller. `order_ids` is a comma-separated list of order ids, e.g. `?order_ids=ord_a,ord_b,ord_c` — see [Batch read query shape](#batch-read-query-shape) for why. Filters by `order_id` **and** the caller's `user_id`; ids that exist but belong to another user (or don't exist at all) are silently **omitted** from the results, never reported as an error — see [Ownership & scoping](#ownership--scoping). |
-| PUT    | `/v1/trackings/{order_id}/status` | Custom API key (service-validated, **not** Cognito) | Simulates a third-party carrier service notifying Tracking of a delivery status change. `status` must be one of the four enum values defined in [Tracking statuses](#tracking-statuses), and is subject to the guards in [State machine & update guards](#state-machine--update-guards). See [Auth schemes](#auth-schemes) — this endpoint has **no `x-user-id`** and is identified by `order_id` alone. |
+| Method | Gateway path                       | Auth | Description                          |
+|--------|-------------------------------------|------|--------------------------------------|
+| GET    | `/v1/tracking/health`               | None | Liveness/readiness probe, **as published at the gateway** — see [Gateway-prefixed health path](#gateway-prefixed-health-path-not-bare-v1health) below for why this is prefixed and not the bare `/v1/health` the service itself serves. Returns `200 { "status": "ok" }` when healthy. Used by ALB/Fargate as health check target. |
+| GET    | `/v1/trackings/{orderId}`           | Cognito JWT (gateway authorizer) | Returns one tracking + its `Tracking_History`, scoped to the caller. Filters by `order_id` **and** the caller's `user_id` (from the gateway-injected `x-user-id` header — see [Ownership & scoping](#ownership--scoping)); a tracking that exists but belongs to another user is indistinguishable from one that does not exist — returns `404`, not `403`. Path param is `{orderId}` (camelCase) at the gateway — see [Gateway path params are camelCase](#gateway-path-params-are-camelcase-not-snake_case) below. |
+| GET    | `/v1/trackings?order_ids=<csv>`     | Cognito JWT (gateway authorizer) | Returns many trackings (+ each one's `Tracking_History`), scoped to the caller. `order_ids` is a comma-separated list of order ids, e.g. `?order_ids=ord_a,ord_b,ord_c` — see [Batch read query shape](#batch-read-query-shape) for why. Filters by `order_id` **and** the caller's `user_id`; ids that exist but belong to another user (or don't exist at all) are silently **omitted** from the results, never reported as an error — see [Ownership & scoping](#ownership--scoping). |
+| PUT    | `/v1/trackings/{orderId}/status`    | Custom API key (service-validated, **not** Cognito) | Simulates a third-party carrier service notifying Tracking of a delivery status change. `status` must be one of the four enum values defined in [Tracking statuses](#tracking-statuses), and is subject to the guards in [State machine & update guards](#state-machine--update-guards). See [Auth schemes](#auth-schemes) — this endpoint has **no `x-user-id`** and is identified by `order_id` alone. Path param is `{orderId}` (camelCase) — see [Gateway path params are camelCase](#gateway-path-params-are-camelcase-not-snake_case). |
 
 > [!warning] Three different auth schemes on one small service
 > Unlike Users/Orders, where "all endpoints require a Cognito JWT except health" was previously
 > true, Tracking has **three** distinct auth schemes across its surfaces — see
 > [Auth schemes](#auth-schemes) below for the full breakdown. Do not assume the PUT endpoint has a
 > Cognito JWT or an `x-user-id` header; it has neither.
+
+> [!note] Gateway path vs internal service path
+> The table above documents the **gateway** surface — what a client actually calls through
+> `infra/modules/api-gateway/`. The Tracking service's own internal route handlers may spell paths
+> differently (e.g. the health check is served unprefixed, see below, and a handler may bind its
+> path param under a different name than the gateway's `{orderId}`, since the service reads it
+> positionally). Where the two surfaces diverge, this spec calls it out explicitly rather than
+> assuming they match.
+
+#### Gateway-prefixed health path, not bare `/v1/health`
+
+The gateway publishes `GET /v1/tracking/health`, **not** a bare `GET /v1/health` — following the
+same per-service-prefixed convention already used for `GET /v1/users/health` and
+`GET /v1/orders/health` (`infra/modules/api-gateway/main.tf` `local.routes`). The Tracking service
+itself still serves the check **unprefixed**, at `/v1/health` internally; nginx rewrites the
+prefixed gateway path down to the bare internal one (`infra/modules/compute/nginx/nginx.conf`, a
+comment there marks this **HEALTH-ONLY** — the rewrite must not be extended to functional routes).
+
+This prefix is not cosmetic — it is the only thing standing between a green health check and a
+silently wrong one. nginx's default `location /` proxies anything unmatched to `users:3000`. A bare
+`GET /v1/health` gateway route, with no distinguishing prefix, would fall through to that catch-all
+and resolve to **Users**, returning Users' `200`. A Tracking health probe configured that way would
+report healthy while never once reaching the Tracking service — worse than a `404`, because nothing
+would ever flag it. Any future service added to this gateway must prefix its health route the same
+way, for the same reason.
+
+#### Gateway path params are camelCase, not snake_case
+
+Gateway path params — `{orderId}` in the table above — are spelled **camelCase**, not the
+snake_case (`{order_id}`) this spec used elsewhere and that earlier drafts of this table showed.
+Floci's local API Gateway builds a Java regex named-capturing group from the param name
+(`(?<orderId>[^/]+)`), and Java only allows `[A-Za-z0-9]` in capturing-group names — `{order_id}`
+produces `(?<order_id>...)`, which throws `PatternSyntaxException` and returns a Floci `500`. This
+is verified live in this repo for Orders' `get_order` route
+(`infra/modules/api-gateway/main.tf`), and Tracking's `get_tracking` /
+`update_tracking_status` routes follow the same constraint.
+
+This is a **gateway-spelling** constraint only — the service reads the param positionally, so its
+internal handler signature is free to use a different name (e.g. `order_id`). Document the gateway
+spelling accurately here, since that is what a client actually calls; do not assume it matches
+whatever name the service-side handler happens to use.
 
 ### Auth schemes
 
@@ -108,9 +149,9 @@ because three schemes on one small service is exactly the kind of thing that get
 
 | Surface | Auth | Caller |
 |---|---|---|
-| `GET /v1/health` | None | ALB / Fargate health check |
-| `GET /v1/trackings/{order_id}` and the batch read | Cognito JWT via the gateway's JWT authorizer, scoped by `x-user-id` | End user |
-| `PUT /v1/trackings/{order_id}/status` | Custom API key, validated by the service itself | Third-party carrier / webhook |
+| `GET /v1/tracking/health` (gateway) / `/v1/health` (internal) | None | ALB / Fargate health check |
+| `GET /v1/trackings/{orderId}` and the batch read | Cognito JWT via the gateway's JWT authorizer, scoped by `x-user-id` | End user |
+| `PUT /v1/trackings/{orderId}/status` | Custom API key, validated by the service itself | Third-party carrier / webhook |
 | gRPC (`CreateTracking`, both reads) | `x-api-key` interceptor (see [[ADR-0003-grpc-inter-service]]) | Internal services (Orders) |
 
 > [!important] The two key-based schemes are different keys for different trust domains
@@ -134,16 +175,18 @@ Tracking's REST routes are added to the API Gateway the repo already has
 direct service exposure. Concretely:
 
 - Each route is a new entry in that module's `local.routes` map, carrying a route `key` (e.g.
-  `"GET /v1/trackings/{order_id}"`) and an `auth` boolean, following the existing pattern for
+  `"GET /v1/trackings/{orderId}"`) and an `auth` boolean, following the existing pattern for
   Users' and Orders' routes.
 - `authorization_type` is `"JWT"` when `auth = true` and `"NONE"` when `auth = false`, with
   `authorizer_id` set only in the `true` case (`main.tf` ~line 123) — **per-route auth opt-out is
   already a supported, used pattern**, not something new this spec introduces. The precedent is
   `var.enable_e2e_cleanup_route`, which creates `DELETE /v1/users/e2e-cleanup` with `auth = false`.
-- `GET /v1/trackings/{order_id}` and the batch read are declared `auth = true` (Cognito JWT).
-  `PUT /v1/trackings/{order_id}/status` is declared **`auth = false`** — it is not behind the
+- `GET /v1/trackings/{orderId}` and the batch read are declared `auth = true` (Cognito JWT).
+  `PUT /v1/trackings/{orderId}/status` is declared **`auth = false`** — it is not behind the
   Cognito authorizer at all; the service validates the custom API key itself, the gateway only
-  passes the request through. `GET /v1/health` is also `auth = false`.
+  passes the request through. `GET /v1/tracking/health` is also `auth = false` — see
+  [Gateway-prefixed health path](#gateway-prefixed-health-path-not-bare-v1health) for why it is
+  prefixed rather than bare.
 - Locally, the module uses **per-route `HTTP_PROXY` integrations** (a Floci workaround, not a
   production concern) — see [[local-gateway-per-route-integrations]]. Each new Tracking route gets
   its own local integration entry the same way Orders' routes did. In production it is a single
@@ -182,7 +225,7 @@ identity comes from the gateway-injected `x-user-id` header, the same mechanism
 This matches Orders' existing ownership semantics exactly (see
 [[orders-service-design#API / Endpoints|the ownership note on `GET /v1/orders/{order_id}`]]):
 
-- **Single read (`GET /v1/trackings/{order_id}`):** a tracking that exists but belongs to another
+- **Single read (`GET /v1/trackings/{orderId}`):** a tracking that exists but belongs to another
   user returns `404 Not Found`, the same response as a tracking that does not exist at all. The
   endpoint never answers `403 Forbidden` — that would leak the fact that *some* tracking exists for
   that `order_id`, just not to this caller.
@@ -205,10 +248,10 @@ omission rule).
 
 ### Gateway E2E verification of TestMode
 
-`GET /v1/trackings/{order_id}` is what makes it possible to verify
+`GET /v1/trackings/{orderId}` is what makes it possible to verify
 [TestMode automatic progression](#testmode-automatic-progression) from the gateway: a gateway E2E
 test (real Cognito JWT, hitting the gateway URL, per [[testing]]) can create an order with
-`x-test-mode: true` and then **poll** `GET /v1/trackings/{order_id}` until `status` reaches
+`x-test-mode: true` and then **poll** `GET /v1/trackings/{orderId}` until `status` reaches
 `DELIVERED`. Before this endpoint existed, there was no HTTP-reachable way to observe that
 progression at all — the only reads were gRPC, which the gateway doesn't speak and which internal
 tests would have to fake around, missing exactly the class of gateway-only bug [[testing]] exists
@@ -351,7 +394,7 @@ following the forward-only progression above, until it reaches `DELIVERED`:
 
 Each automatic transition writes a `Tracking_History` row, so a completed `TestMode` run leaves 4
 history entries in total. When `TestMode` is false or absent, no automatic progression happens —
-status only advances through the `PUT /v1/trackings/{order_id}/status` endpoint below.
+status only advances through the `PUT /v1/trackings/{orderId}/status` endpoint below.
 
 #### End-to-end origin: a client header on Orders, not an Orders-side decision
 
@@ -390,22 +433,23 @@ client → POST /v1/orders (x-test-mode: true)
 
 ### State machine & update guards
 
-`PUT /v1/trackings/{order_id}/status` exists to **simulate a third-party carrier service**
+`PUT /v1/trackings/{orderId}/status` exists to **simulate a third-party carrier service**
 notifying Tracking of a delivery status change. It is subject to the following guards:
 
-> [!important] No JWT, no `x-user-id` — identified by `order_id` alone
+> [!important] No JWT, no `x-user-id` — identified by `orderId` alone
 > Unlike the two REST read endpoints, this endpoint is **not** called by an end user through the
 > Cognito authorizer — it is called by an external carrier/webhook authenticated with a custom API
 > key (see [Auth schemes](#auth-schemes)). Its gateway route carries no JWT authorizer, so there is
 > no gateway-injected `x-user-id` header on this request at all. Consequently the handler cannot
 > scope or verify the caller by identity the way the GET reads do (see
 > [Ownership & scoping](#ownership--scoping)) — it identifies the tracking to update purely by the
-> `order_id` path parameter. An implementer who assumes `x-user-id` is present here will write
-> broken code; do not reuse the read endpoints' ownership-filter logic on this handler.
+> `orderId` path parameter (see [Gateway path params are camelCase](#gateway-path-params-are-camelcase-not-snake_case)).
+> An implementer who assumes `x-user-id` is present here will write broken code; do not reuse the
+> read endpoints' ownership-filter logic on this handler.
 
 > [!warning] No updates once delivered
 > A tracking whose status is already `DELIVERED` (terminal) cannot be updated at all — any
-> `PUT /v1/trackings/{order_id}/status` request against it must be rejected with `400 Bad Request`.
+> `PUT /v1/trackings/{orderId}/status` request against it must be rejected with `400 Bad Request`.
 
 > [!warning] No backward transitions
 > A `DELIVERED` (or any later-status) tracking cannot move back to an earlier status — e.g.
