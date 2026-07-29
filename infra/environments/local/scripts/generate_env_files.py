@@ -52,12 +52,14 @@ FLOCI_HOST = "floci"
 # (docs/domains/tracking/specs/tracking-service-design.md).
 #
 #   GRPC_API_KEY            INTERNAL. Shared symmetric secret between our own
-#                           services: Orders -> Users and Orders -> Tracking
-#                           gRPC calls carry it as `x-api-key` metadata, and the
-#                           callee's interceptor compares it in constant time
-#                           (see docs/domains/orders/decisions/
-#                           grpc-api-key-authorization.md). It never leaves the
-#                           compose network / VPC.
+#                           services. Users is the only gRPC server left, and
+#                           both Orders and Tracking call it to resolve a
+#                           caller's identity, carrying this as `x-api-key`
+#                           metadata; the interceptor compares it in constant
+#                           time (see docs/domains/orders/decisions/
+#                           grpc-api-key-authorization.md). Orders reaches
+#                           Tracking over HTTP instead — Tracking serves no
+#                           gRPC. This key never leaves the compose network/VPC.
 #
 #   TRACKING_CARRIER_API_KEY  EXTERNAL. Issued to a third-party shipping carrier
 #                           so it can call PUT /v1/trackings/{orderId}/status.
@@ -200,6 +202,10 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 "DATABASE_WRITER_URL": orders_db,
                 "DATABASE_READER_URL": orders_db,
                 "USERS_GRPC_URL": "http://users:50051",
+                # Tracking is reached over HTTP, not gRPC: it serves no gRPC
+                # surface. Orders POSTs the caller's order here to open a
+                # tracking record, forwarding the x-user-id it received.
+                "TRACKING_BASE_URL": "http://tracking:8000",
                 "GRPC_API_KEY": GRPC_API_KEY,
                 "OTEL_EXPORTER_OTLP_ENDPOINT": OTLP_ENDPOINT,
                 "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
@@ -228,9 +234,13 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # between local and prod.
                 "DATABASE_WRITER_URL": tracking_db,
                 "DATABASE_READER_URL": tracking_db,
+                # Tracking serves no gRPC. Its one gRPC call goes OUT, to Users,
+                # to resolve the caller's usr_ id from the Cognito sub the
+                # gateway hands it — the same lookup Orders makes.
+                "USERS_GRPC_URL": "http://users:50051",
                 # The INTERNAL service-to-service key — the same value Users and
-                # Orders share, because Orders calls Tracking's gRPC surface
-                # with it.
+                # Orders share. Tracking presents it when calling Users, rather
+                # than validating it on the way in.
                 "GRPC_API_KEY": GRPC_API_KEY,
                 # The EXTERNAL carrier/webhook key, validated by the service
                 # itself on PUT /v1/trackings/{orderId}/status (a gateway route
