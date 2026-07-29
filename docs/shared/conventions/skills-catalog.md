@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-06-28
-updated: 2026-07-12
+updated: 2026-07-29
 tags:
   - type/convention
   - area/shared
@@ -15,6 +15,7 @@ related:
   - "[[2026-06-28-services-infra-scaffold-design]]"
   - "[[2026-06-28-services-infra-scaffold]]"
   - "[[linear-references]]"
+  - "[[scripting-language]]"
 ---
 
 # Skills Catalog
@@ -42,7 +43,7 @@ Installed via `/plugin install`. Registration is written into `.claude/settings.
 
 ## Installed — npx Agent Skills
 
-These skills are installed as real directories in `.claude/skills/` (20 total) and pinned in `skills-lock.json`.
+These skills are installed as real directories in `.claude/skills/` (24 total) and pinned in `skills-lock.json`.
 
 | Skill | Source repo | Used by |
 |---|---|---|
@@ -56,7 +57,11 @@ These skills are installed as real directories in `.claude/skills/` (20 total) a
 | `typescript-advanced-types` | community | Users service |
 | `efcore-patterns` | Aaronontheweb/dotnet-skills | Orders service |
 | `database-performance` | Aaronontheweb/dotnet-skills | Orders service |
-| `fastapi-expert` | Jeffallan/claude-skills | Tracking service |
+| `fastapi` | official FastAPI skill (source not in frontmatter — `description` only, no `source`/`origin` field) | Tracking service |
+| `fastapi-patterns` | `metadata.origin: ECC` (per its `SKILL.md` frontmatter) | Tracking service |
+| `fastapi-templates` | not discoverable in frontmatter — `description` only, no `source`/`origin` field | Tracking service |
+| `fastapi-expert` | Jeffallan/claude-skills | Tracking service — one of four FastAPI skills on `tracking-impl` (see note below) |
+| `python-pro` | community (per its `SKILL.md` frontmatter: `source: community`, `date_added: 2026-02-27`) | Tracking service, Infrastructure |
 | `mysql` | planetscale/database-skills | Orders + Tracking |
 | `database-designer` | alirezarezvani/claude-skills | Cross-cutting DB design |
 | `terraform-skill` | antonbabenko/terraform-skill | Infrastructure (converted from plugin evaluation → npx) |
@@ -66,6 +71,24 @@ These skills are installed as real directories in `.claude/skills/` (20 total) a
 | `obsidian-cli` | obsidian community | Vault authoring — CLI read/search/manage |
 | `json-canvas` | obsidian community | Vault authoring — `.canvas` files |
 | `defuddle` | obsidian community | Clean markdown extraction from web pages |
+
+> [!note] FastAPI skill family on `tracking-impl`
+> `tracking-impl` declares four FastAPI skills together, each covering a different slice:
+> `fastapi` (official skill — routing, Pydantic models, dependencies, SSE/streaming, keeping
+> up with new FastAPI releases), `fastapi-patterns` (project structure, Pydantic v2 schemas,
+> dependency injection, async handlers, auth, transactional service layers, testing with
+> httpx/pytest), `fastapi-templates` (production-ready project scaffolding for new FastAPI
+> apps), and `fastapi-expert` (async SQLAlchemy, JWT auth, WebSocket endpoints, OpenAPI docs).
+> `fastapi-expert` was the only Tracking-service FastAPI skill installed as of 2026-07-12; the
+> other three were added on 2026-07-29 to round out the family. `python-pro` (modern Python
+> 3.12+, async, uv/ruff/pydantic tooling) is declared alongside them on the same agent.
+
+> [!note] `python-pro` is also on `infra-impl`
+> `infra-impl` declares `python-pro` alongside `terraform-skill` and `floci`. This is not a
+> Tracking-only skill: the repo's scripting convention is Python-first for infra scripting
+> ([[scripting-language]]), and every `infra/scripts/**` script is Python — `python-pro` backs
+> that convention on the infrastructure implementer the same way it backs FastAPI/Python work
+> on `tracking-impl`.
 
 > [!note] obsidian-\* skills are installed, not built-in
 > The five `obsidian-*` skills above (`obsidian-markdown`, `obsidian-bases`, `obsidian-cli`,
@@ -125,3 +148,4 @@ SkillsMP is a massive aggregator (~1.8 M entries) with low signal-to-noise ratio
 - [[2026-06-28-services-infra-scaffold-design]] — the design spec whose candidate-skills catalog this note supersedes after validation and install.
 - [[2026-06-28-services-infra-scaffold]] — the implementation plan that includes this catalog as Task 7.
 - [[linear-references]] — Linear reference convention (tags + inline links, no mirroring).
+- [[scripting-language]] — Python-first scripting convention that justifies `python-pro` on `infra-impl`.

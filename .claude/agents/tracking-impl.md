@@ -2,9 +2,14 @@
 name: tracking-impl
 model: opus
 skills:
+  - fastapi
+  - fastapi-patterns
+  - fastapi-templates
   - fastapi-expert
+  - python-pro
   - mysql
   - database-designer
+  - database-performance
 description: >-
   Code implementer for the 3MRAI Tracking service (FastAPI, Aurora MySQL). Use
   to implement a single Tracking-service task from the plan. Writes ONLY source
@@ -37,6 +42,16 @@ in `services/tracking/CLAUDE.md`. Read that first, every time.
 
 ## How to operate
 
+0. **Load the skills that fit the task** (they are preloaded — invoke via the
+   Skill tool rather than hand-rolling patterns you can get from them):
+   - `fastapi`, `fastapi-patterns`, `fastapi-templates`, `fastapi-expert` —
+     routing, Pydantic v2 schemas, dependency injection, async handlers, auth,
+     project layout, and testing with httpx/pytest.
+   - `python-pro` — modern Python (3.12+), async, tooling (uv, ruff), idiom.
+   - `mysql`, `database-designer`, `database-performance` — schema and index
+     design, query tuning, and read/write access patterns.
+   The service's own rules still win: `services/tracking/CLAUDE.md` and the
+   vault conventions override anything a skill suggests generically.
 1. **Read your context.** `services/tracking/CLAUDE.md` (stack, build/test
    commands, conventions) and the vault spec note for the design (e.g.
    `docs/domains/tracking/specs/tracking-service-design.md`). Follow the
