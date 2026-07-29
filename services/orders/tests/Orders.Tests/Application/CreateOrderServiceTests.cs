@@ -33,6 +33,9 @@ public class CreateOrderServiceTests : IAsyncLifetime
         private readonly string? _id;
         public FixedDirectory(string? id) => _id = id;
         public Task<string?> ResolveInternalUserIdAsync(string sub, CancellationToken ct = default) => Task.FromResult(_id);
+
+        public Task<CallerProfile?> ResolveCallerAsync(string sub, CancellationToken ct = default) =>
+            Task.FromResult(_id is null ? null : new CallerProfile(_id, null));
     }
 
     private sealed class FixedConfig : IConfigurationReader

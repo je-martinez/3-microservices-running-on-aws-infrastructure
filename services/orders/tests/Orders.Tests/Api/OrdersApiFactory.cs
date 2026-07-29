@@ -82,5 +82,14 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
     {
         public Task<string?> ResolveInternalUserIdAsync(string cognitoSub, CancellationToken ct = default)
             => Task.FromResult<string?>(cognitoSub == KnownCognitoSub ? KnownUserId : null);
+
+        // A populated address, so endpoint tests exercise the snapshot path rather
+        // than the "user has none on file" branch.
+        public Task<CallerProfile?> ResolveCallerAsync(string cognitoSub, CancellationToken ct = default)
+            => Task.FromResult(cognitoSub == KnownCognitoSub
+                ? new CallerProfile(
+                    KnownUserId,
+                    new CallerAddress("1 Test St", null, "Testville", null, "Testland", null))
+                : null);
     }
 }
