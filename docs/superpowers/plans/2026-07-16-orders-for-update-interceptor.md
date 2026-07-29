@@ -7,6 +7,9 @@ created: 2026-07-16
 updated: 2026-07-16
 tags: [type/plan, area/orders, status/draft]
 related: ["[[2026-07-16-orders-for-update-interceptor-design]]", "[[orders-service-design]]", "[[2026-07-14-orders-service-milestone-design]]", "[[ADR-0004-soft-delete-only]]", "[[cqrs]]", "[[db-naming]]"]
+propagates-to:
+  - "[[for-update-pessimistic-locking]]"
+  - "[[orders-service-design]]"
 ---
 
 # Orders FOR UPDATE via LINQ + Interceptor Implementation Plan

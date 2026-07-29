@@ -8,6 +8,16 @@ receivers:
   # (the daemon resolves it from the host, hence the published port).
   fluent_forward:
     endpoint: 0.0.0.0:24224
+  # OTLP from the services' OpenTelemetry SDKs — TRACES only. Logs keep using
+  # fluent_forward: the services still write JSON to stdout and Docker's fluentd
+  # driver ships it, so the log path is unchanged by tracing.
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
   # Polls CloudWatch. AWS_ENDPOINT_URL redirects it to Floci locally.
   aws_cloudwatch:
     region: ${env:AWS_REGION}
@@ -28,6 +38,93 @@ processors:
       - context: log
         statements:
           - merge_maps(attributes, ParseJSON(body), "upsert") where IsMatch(body, "^\\s*\\{")
+
+          # nginx access logs (combined format) arrive from CloudWatch as PLAIN
+          # TEXT, so the JSON statement above skips them and they land with only
+          # a raw `body` — no service_name, no status, nothing queryable. That
+          # makes them invisible to any dashboard or filter written against the
+          # shared schema, which is a real gap: nginx is the only place the
+          # edge's own traffic shows up (a gateway 404 never reaches a service).
+          #
+          # Map them onto the same field names the services emit, so one query
+          # spans application and gateway logs.
+          #   192.168.148.3 - - [20/Jul/2026:03:01:17 +0000] "POST /v1/orders HTTP/1.1" 409 109 "-" "curl/8.7.1"
+          # Tag EVERY line from the nginx log group, not just access logs. The
+          # container also emits startup output (`/docker-entrypoint.sh: …`,
+          # `10-listen-on-ipv6-by-default.sh: info: …`) which matches no access
+          # format, so it previously fell through untagged and unclassified —
+          # landing in the stream with severity 0 (UNSPECIFIED) and no
+          # service_name, invisible to every schema-based filter.
+          - set(attributes["service_name"], "nginx")
+            where attributes["service_name"] == nil
+              and IsMatch(attributes["cloudwatch_log_group_name"], "nginx")
+
+          # Access logs are the subset in combined format. Only these carry
+          # method/route/status; the startup lines are classified further down.
+          - set(attributes["nginx_log_kind"], "access")
+            where attributes["service_name"] == "nginx"
+              and IsMatch(body, "^\\S+ \\S+ \\S+ \\[")
+          - set(attributes["http_request_method"], ExtractPatterns(body, "\"(?P<m>[A-Z]+) ")["m"])
+            where attributes["nginx_log_kind"] == "access"
+          - set(attributes["http_route"], ExtractPatterns(body, "\"[A-Z]+ (?P<p>\\S+) HTTP")["p"])
+            where attributes["nginx_log_kind"] == "access"
+          - set(attributes["http_response_status_code"], Int(ExtractPatterns(body, "HTTP/[0-9.]+\" (?P<s>[0-9]{3})")["s"]))
+            where attributes["nginx_log_kind"] == "access"
+          # Severity mirrors the services' OTel-aligned numbers so a
+          # severity-based filter behaves identically across every source.
+          - set(attributes["severity_text"], "ERROR")
+            where attributes["nginx_log_kind"] == "access" and attributes["http_response_status_code"] >= 500
+          - set(attributes["severity_text"], "WARN")
+            where attributes["nginx_log_kind"] == "access" and attributes["http_response_status_code"] >= 400 and attributes["http_response_status_code"] < 500
+          # Everything else from nginx — access 2xx/3xx AND the container's
+          # startup output — is informational. Without this the startup lines
+          # keep severity 0 (UNSPECIFIED), which is what put them outside every
+          # severity filter and rendered them uncoloured.
+          - set(attributes["severity_text"], "INFO")
+            where attributes["service_name"] == "nginx" and attributes["severity_text"] == nil
+          - set(attributes["severity_number"], 17) where attributes["severity_text"] == "ERROR" and attributes["service_name"] == "nginx"
+          - set(attributes["severity_number"], 13) where attributes["severity_text"] == "WARN" and attributes["service_name"] == "nginx"
+          - set(attributes["severity_number"], 9) where attributes["severity_text"] == "INFO" and attributes["service_name"] == "nginx"
+          # nginx startup lines: keep them, but mark them so the "log a request
+          # once" filter below can tell them apart from access logs.
+          - set(attributes["nginx_log_kind"], "startup")
+            where attributes["service_name"] == "nginx" and attributes["nginx_log_kind"] == nil
+
+          # Promote our severity onto the log record's NATIVE severity fields.
+          #
+          # Everything above writes ATTRIBUTES, which are queryable but invisible
+          # to the UI: OpenObserve colours its charts from the record's own
+          # `severity`, which stayed 0 (UNSPECIFIED) for EVERY row in the system
+          # — services included, not just nginx. That is why warnings and errors
+          # all rendered the same blue. The attributes stay as they are (the
+          # cross-service schema depends on those names); these two lines just
+          # mirror them where the backend actually looks.
+          - set(severity_number, Int(attributes["severity_number"])) where attributes["severity_number"] != nil
+          - set(severity_text, attributes["severity_text"]) where attributes["severity_text"] != nil
+
+  # Drop nginx access logs for requests that REACHED a service.
+  #
+  # WHY: for any 2xx/3xx/4xx the service already logs the same request with
+  # strictly more information — `POST /v1/users/login 401` from nginx duplicates
+  # `login_failed reason=invalid_credentials` from users. Keeping both doubles
+  # the volume and makes every count query ambiguous about what it is counting.
+  #
+  # WHY NOT ALL OF IT: nginx is the only source that sees a request which never
+  # reaches a service at all — a 502, a bad upstream, a route the gateway
+  # mis-resolves. Those produce no service log by definition, so dropping the
+  # whole group would create a blind spot at the edge precisely when it matters.
+  # 5xx and anything unparsed are therefore kept.
+  #
+  # This is also what removes the `THIS IS INVALID STREAM` rows: that string is
+  # a placeholder the aws_cloudwatch receiver substitutes when it cannot resolve
+  # a stream name (Floci's real streams are named 2026/07/20/nginx/<task-id>),
+  # so it is an emulator artifact carrying no signal.
+  filter/drop_nginx_noise:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'attributes["service_name"] == "nginx" and attributes["http_response_status_code"] != nil and attributes["http_response_status_code"] < 500'
+
   batch: {}
 
 exporters:
@@ -39,6 +136,28 @@ exporters:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: logs
 
+  # Traces go to the SAME OpenObserve instance, a different stream. One backend
+  # for both signals is what lets trace_id join a log line to its span without
+  # querying across two systems (see the tracing ADR).
+  # Traces go to Jaeger, NOT OpenObserve — see ADR-0019.
+  #
+  # WHY NOT OpenObserve: its trace ingest rejected every batch the collector
+  # sent with HTTP 400, while a hand-rolled OTLP-JSON POST to the same endpoint
+  # returned 206. So the route and the auth are right; the collector's
+  # serialization and this OpenObserve build's parser disagree, and `encoding:
+  # json` did not reconcile them. Rather than keep guessing at a third party's
+  # ingest, traces land in Jaeger, which speaks OTLP natively. This is exactly
+  # the backend re-evaluation ADR-0018 said would be needed if tracing ever
+  # became a hard requirement — it flagged OpenObserve's APM maturity as the
+  # known weak spot.
+  #
+  # Logs still go to OpenObserve (the exporter above, untouched). The two are
+  # joined by trace_id, which every log line now carries.
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
 service:
   telemetry:
     logs:
@@ -46,5 +165,14 @@ service:
   pipelines:
     logs:
       receivers: [fluent_forward, aws_cloudwatch]
-      processors: [transform/parse_body, batch]
+      # Order matters: parse first so the filter can test real fields
+      # (service_name, http_response_status_code) rather than pattern-match raw
+      # text, then drop, then batch — so dropped records never reach the batcher.
+      processors: [transform/parse_body, filter/drop_nginx_noise, batch]
       exporters: [otlp_http/openobserve]
+    # No transform/parse_body here: OTLP traces arrive already structured, so
+    # there is no JSON-in-a-string body to flatten as there is for stdout logs.
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/jaeger]

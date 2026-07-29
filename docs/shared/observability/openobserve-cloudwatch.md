@@ -4,9 +4,9 @@ type: convention
 area: shared
 status: active
 created: 2026-07-10
-updated: 2026-07-10
+updated: 2026-07-28
 tags: [type/convention, area/shared, status/active]
-related: ["[[ADR-0018-observability-openobserve]]", "[[cqrs]]"]
+related: ["[[ADR-0018-observability-openobserve]]", "[[cqrs]]", "[[2026-07-10-signoz-logs-observability-design]]", "[[2026-07-10-openobserve-migration-design]]"]
 ---
 
 # OpenObserve via CloudWatch
@@ -28,3 +28,5 @@ demonstrated by the SigNoz → OpenObserve migration in [[ADR-0018-observability
 
 - [[ADR-0018-observability-openobserve]]
 - [[cqrs]] — handler-level boundaries that logs follow across services.
+- [[2026-07-10-signoz-logs-observability-design]] — the design spec that first specified the collector/receivers this convention documents.
+- [[2026-07-10-openobserve-migration-design]] — the design spec that repointed the exporter to OpenObserve.

@@ -7,6 +7,7 @@ created: 2026-07-10
 updated: 2026-07-10
 tags: [type/spec, area/shared, status/draft]
 related: ["[[ADR-0011-observability-signoz]]", "[[openobserve-cloudwatch]]", "[[ADR-0017-floci-local]]", "[[local-dev]]", "[[floci-rds-apigw-limits]]", "[[2026-07-10-openobserve-migration-design]]"]
+propagates-to: none — the SigNoz backend design (Components → "SigNoz self-hosted") was superseded by OpenObserve before it could be deployed; the log-capture pipeline it also designed (receivers, fluentd routing) propagated instead via [[2026-07-10-openobserve-migration-design]] → [[openobserve-cloudwatch]] / [[ADR-0018-observability-openobserve]]. The blocker itself is captured in [[signoz-selfhost-migrator-blocker]].
 ---
 
 # SigNoz log observability via CloudWatch + fluentd — Design

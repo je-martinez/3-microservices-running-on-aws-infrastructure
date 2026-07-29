@@ -6,6 +6,14 @@ namespace Orders.Api.Identity;
 public interface ICurrentCaller
 {
     string? CognitoSub { get; }
+
+    // The internal usr_ id IF it has already been resolved this request, else
+    // null. Deliberately does NOT trigger resolution: the log enricher reads it
+    // on every event, and a property getter that fired a gRPC call would turn
+    // logging into a network dependency. Resolution stays explicit, via
+    // ResolveInternalUserIdAsync on the write path.
+    string? ResolvedInternalUserId { get; }
+
     void SetSub(string sub);
     Task<string> ResolveInternalUserIdAsync(CancellationToken ct);
 }

@@ -1,3 +1,22 @@
+---
+title: "Gap 1: nginx+njs Injects x-user-id Plan"
+type: plan
+area: infra
+status: draft
+created: 2026-07-11
+updated: 2026-07-11
+tags:
+  - type/plan
+  - area/infra
+  - status/draft
+propagates-to:
+  - "[[nginx-njs-x-user-id-injection]]"
+  - "[[networking]]"
+related:
+  - "[[2026-07-11-gap1-nginx-njs-xuserid-design]]"
+  - "[[ADR-0016-local-apigw-nginx-ecs]]"
+---
+
 # Gap 1 — nginx+njs injects x-user-id — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

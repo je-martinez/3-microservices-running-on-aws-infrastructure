@@ -4,13 +4,14 @@ type: convention
 area: shared
 status: active
 created: 2026-06-28
-updated: 2026-07-12
+updated: 2026-07-28
 tags:
   - type/convention
   - area/shared
   - status/active
 related:
   - "[[2026-06-26-implementation-workflow-design]]"
+  - "[[2026-06-26-implementation-workflow]]"
   - "[[milestone-plan]]"
   - "[[linear-references]]"
   - "[[git-workflow]]"
@@ -65,6 +66,7 @@ The [[milestone-plan]] convention defines the task-order and dependency graph th
 ## Related
 
 - [[2026-06-26-implementation-workflow-design]] — the Phases A–D flow this convention refines.
+- [[2026-06-26-implementation-workflow]] — the implementation plan for that design.
 - [[milestone-plan]] — milestone plan convention (task order + dependency graph that defines the gates).
 - [[linear-references]] — Linear reference rules for tagging and linking issues.
 - [[git-workflow]] — git confirmation menu and the decentralized git policy (main session runs git directly; `github-ops` is optional).

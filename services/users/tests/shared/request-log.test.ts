@@ -16,7 +16,17 @@ describe("request logging", () => {
     expect(reqLog.http_request_method).toBe("GET");
     expect(reqLog.http_response_status_code).toBeDefined();
     expect(typeof reqLog.duration_ms).toBe("number");
-    expect(reqLog.trace_id).toBeDefined();
+
+    // `trace_id` is deliberately NOT asserted here any more. It used to be
+    // Fastify's local `req.id`, which this service stopped emitting: Pino now
+    // injects the REAL OTel trace_id/span_id whenever a span is active, and
+    // that is the id that joins a log line to its trace. No OTel SDK runs in
+    // the unit-test process, so there is no active span and the field is
+    // correctly absent. Its presence in a running service is verified end to
+    // end against the live stack instead (JE-75/JE-77).
+    expect(reqLog.trace_id).toBeUndefined();
+
     await app.close();
   });
+
 });

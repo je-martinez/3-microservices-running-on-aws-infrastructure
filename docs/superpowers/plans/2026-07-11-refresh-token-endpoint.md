@@ -1,3 +1,21 @@
+---
+title: Refresh Token Endpoint Plan
+type: plan
+area: users
+status: draft
+created: 2026-07-11
+updated: 2026-07-11
+tags:
+  - type/plan
+  - area/users
+  - status/draft
+related:
+  - "[[2026-07-11-refresh-token-endpoint-design]]"
+  - "[[ADR-0010-cognito-auth]]"
+propagates-to:
+  - "[[refresh-token-endpoint]]"
+---
+
 # Refresh Token Endpoint — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

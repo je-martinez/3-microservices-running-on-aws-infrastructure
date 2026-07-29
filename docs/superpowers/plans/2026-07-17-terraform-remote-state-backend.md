@@ -1,3 +1,23 @@
+---
+title: Terraform Remote State Backend Plan
+type: plan
+area: infra
+status: draft
+created: 2026-07-17
+updated: 2026-07-17
+tags:
+  - type/plan
+  - area/infra
+  - status/draft
+propagates-to:
+  - "[[terraform-remote-state-backend]]"
+  - "[[terraform-modules]]"
+related:
+  - "[[2026-07-17-terraform-remote-state-backend-design]]"
+  - "[[ADR-0017-floci-local]]"
+  - "[[floci-rds-apigw-limits]]"
+---
+
 # Terraform Remote State Backend Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

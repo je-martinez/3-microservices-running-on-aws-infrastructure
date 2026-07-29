@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { createContainer, asValue } from "awilix";
 import { buildApp } from "#features/users/http/routes";
 import { getActor } from "#shared/audit/actor-context";
+import { getLogContext, setLogContext } from "#shared/logging/log-context";
 import { NoMatchingUserError } from "#features/users/webhooks/capture-cognito-identity";
 import { InvalidCredentialsError, EmailAlreadyExistsError } from "#shared/auth/auth-errors";
 
@@ -246,6 +247,66 @@ describe("routes", () => {
 
       expect(res.statusCode).toBe(200);
       expect(observedActor).toBe("usr_actor_2");
+    });
+
+    it("propagates x-user-id into the log context for the request's async chain", async () => {
+      let observed: Record<string, unknown> | undefined;
+      const getMe = vi.fn(async (currentUser: { identity: string }) => {
+        // Read from inside the handler's async chain — the same place the Pino
+        // `formatters.log` hook reads it when enriching a log line.
+        observed = { ...getLogContext() };
+        return fakeUser({ id: currentUser.identity });
+      });
+      const container = testContainer(false);
+      container.register({ userQueryService: asValue({ getMe, getUserById: vi.fn() } as any) });
+      const app = buildApp(container);
+
+      const res = await app.inject({
+        method: "GET",
+        url: "/v1/users/me",
+        headers: { "x-user-id": "usr_ctx_1" },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(observed).toEqual({ cognito_sub: "usr_ctx_1" });
+    });
+
+    it("leaves the log context empty on a public route with no x-user-id", async () => {
+      let observed: Record<string, unknown> | undefined;
+      const container = testContainer(false);
+      const app = buildApp(container);
+      app.get("/v1/health-probe", async () => {
+        observed = { ...getLogContext() };
+        return { status: "ok" };
+      });
+
+      const res = await app.inject({ method: "GET", url: "/v1/health" });
+
+      expect(res.statusCode).toBe(200);
+      // The health route is public, so no identity is known — the context must
+      // carry no keys at all rather than a null cognito_sub.
+      expect(observed ?? {}).toEqual({});
+    });
+
+    it("enriches the context mid-request via setLogContext", async () => {
+      let observed: Record<string, unknown> | undefined;
+      const getMe = vi.fn(async (currentUser: { identity: string }) => {
+        setLogContext({ user_id: "usr_resolved" });
+        observed = { ...getLogContext() };
+        return fakeUser({ id: currentUser.identity });
+      });
+      const container = testContainer(false);
+      container.register({ userQueryService: asValue({ getMe, getUserById: vi.fn() } as any) });
+      const app = buildApp(container);
+
+      const res = await app.inject({
+        method: "GET",
+        url: "/v1/users/me",
+        headers: { "x-user-id": "usr_ctx_2" },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(observed).toEqual({ cognito_sub: "usr_ctx_2", user_id: "usr_resolved" });
     });
 
     it("does not gate a public route (GET /v1/health) even without x-user-id", async () => {

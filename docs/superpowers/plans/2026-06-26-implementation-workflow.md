@@ -7,6 +7,9 @@ created: 2026-06-26
 updated: 2026-06-26
 tags: [type/plan, area/shared, status/active]
 related: ["[[2026-06-26-implementation-workflow-design]]"]
+propagates-to:
+  - "[[phase-c-review-flow]]"
+  - "[[git-workflow]]"
 ---
 
 # 3MRAI Implementation Workflow Implementation Plan

@@ -6,6 +6,9 @@ status: accepted
 created: 2026-06-26
 updated: 2026-06-26
 tags: [type/spec, area/shared, status/accepted]
+propagates-to:
+  - "[[doc-propagation]]"
+  - "[[index]]"
 ---
 
 # 3MRAI Documentation Vault — Design

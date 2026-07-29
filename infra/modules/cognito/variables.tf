@@ -57,3 +57,15 @@ variable "local_state_dir" {
   type        = string
   default     = ""
 }
+
+variable "python_bin" {
+  description = <<-DESC
+    Absolute path to the repo venv's Python interpreter, used by the awscli-
+    fallback local-exec provisioners (create_user_pool_client.py /
+    set_pre_token_trigger.py). Passed by the root module, which knows the repo
+    root; this module is shared, so it cannot derive a reliable relative depth
+    of its own. Never plain `python3` — a developer's shell may already be
+    inside an unrelated venv, and an apply must not pick up a stray interpreter.
+  DESC
+  type        = string
+}

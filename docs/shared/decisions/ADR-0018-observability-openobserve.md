@@ -5,12 +5,12 @@ area: shared
 status: accepted
 id: ADR-0018
 created: 2026-07-10
-updated: 2026-07-10
+updated: 2026-07-28
 deciders: [Jose E. Martinez]
 supersedes: ADR-0011
 superseded-by: null
 tags: [type/adr, area/shared, status/accepted]
-related: ["[[ADR-0011-observability-signoz]]", "[[openobserve-cloudwatch]]", "[[signoz-selfhost-migrator-blocker]]", "[[ADR-0007-secrets-parameter-store]]"]
+related: ["[[ADR-0011-observability-signoz]]", "[[openobserve-cloudwatch]]", "[[signoz-selfhost-migrator-blocker]]", "[[ADR-0007-secrets-parameter-store]]", "[[2026-07-10-openobserve-migration-design]]", "[[2026-07-10-openobserve-migration]]"]
 ---
 
 # ADR-0018: Observability via CloudWatch and OpenObserve
@@ -64,3 +64,5 @@ interface for engineers.
 - [[openobserve-cloudwatch]]
 - [[signoz-selfhost-migrator-blocker]]
 - [[ADR-0007-secrets-parameter-store]]
+- [[2026-07-10-openobserve-migration-design]] — the design spec that made this decision.
+- [[2026-07-10-openobserve-migration]] — the implementation plan for that design.

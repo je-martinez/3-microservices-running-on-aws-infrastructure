@@ -7,6 +7,8 @@ created: 2026-07-03
 updated: 2026-07-03
 tags: [type/plan, area/shared, status/draft]
 related: ["[[2026-07-03-git-workflow-decentralization-design]]", "[[2026-06-26-implementation-workflow-design]]", "[[phase-c-review-flow]]"]
+propagates-to:
+  - "[[git-workflow]]"
 ---
 
 # Git Workflow Decentralization Implementation Plan

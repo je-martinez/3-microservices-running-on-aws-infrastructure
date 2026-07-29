@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-06-27
-updated: 2026-06-27
+updated: 2026-07-28
 tags:
   - type/convention
   - area/shared
@@ -13,6 +13,7 @@ related:
   - "[[linear-references]]"
   - "[[2026-06-26-3mrai-docs-vault]]"
   - "[[ADR-0015-drawio-diagrams]]"
+  - "[[2026-06-27-milestone-plan-convention-design]]"
 ---
 
 # Milestone Plan Convention
@@ -98,3 +99,4 @@ The separation between the convention (defined once here in `shared/`) and each 
 - [[linear-references]] — general Linear reference rules; this convention extends them.
 - [[2026-06-26-3mrai-docs-vault]] — the vault build plan; the first milestone that exposed the need for this convention.
 - [[ADR-0015-drawio-diagrams]] — governs the `.drawio.svg` diagram format used in plan notes.
+- [[2026-06-27-milestone-plan-convention-design]] — the design spec that introduced this convention.

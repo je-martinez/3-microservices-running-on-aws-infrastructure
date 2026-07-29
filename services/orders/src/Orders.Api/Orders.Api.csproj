@@ -7,6 +7,11 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.17.0" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.17.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.17.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.EntityFrameworkCore" Version="1.17.0-beta.1" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.17.0" />
     <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" Version="9.0.0" />
     <!-- OpenAPI 3.1 document generation. AddOpenApi/MapOpenApi come from
          Microsoft.AspNetCore.OpenApi (aligned to the ASP.NET Core 10 runtime).
@@ -56,9 +61,7 @@
 
   <!-- Convert the generated openapi.json to openapi.yaml (3.1) via the file-based
        converter app, then drop the intermediate JSON so only the YAML is committed. -->
-  <Target Name="ConvertOpenApiToYaml"
-          AfterTargets="GenerateOpenApiDocuments"
-          Condition=" '$(OpenApiGenerateDocuments)' == 'true' AND Exists('$(_OpenApiJsonPath)') ">
+  <Target Name="ConvertOpenApiToYaml" AfterTargets="GenerateOpenApiDocuments" Condition=" '$(OpenApiGenerateDocuments)' == 'true' AND Exists('$(_OpenApiJsonPath)') ">
     <Message Importance="high" Text="ConvertOpenApiToYaml: openapi.json -&gt; openapi.yaml (3.1)" />
     <Exec Command="dotnet run --file &quot;$(_OpenApiConverter)&quot; -- &quot;$(_OpenApiJsonPath)&quot; &quot;$(_OpenApiYamlPath)&quot;" />
     <Delete Files="$(_OpenApiJsonPath)" />

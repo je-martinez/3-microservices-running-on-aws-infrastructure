@@ -130,6 +130,42 @@ client and the Pre-Token V2 trigger. See [[awscli-fallback-for-floci]] and
 - Observability (OpenObserve): [../docs/shared/decisions/ADR-0018-observability-openobserve.md](../docs/shared/decisions/ADR-0018-observability-openobserve.md) (supersedes ADR-0011, SigNoz)
 - Local API GW → nginx ECS (no ALB locally): [../docs/shared/decisions/ADR-0016-local-apigw-nginx-ecs.md](../docs/shared/decisions/ADR-0016-local-apigw-nginx-ecs.md)
 - Floci local: [../docs/shared/decisions/ADR-0017-floci-local.md](../docs/shared/decisions/ADR-0017-floci-local.md) (supersedes ADR-0012, Ministack)
+- Scripting language (Python first): [../docs/shared/conventions/scripting-language.md](../docs/shared/conventions/scripting-language.md)
+- Env files (generated, never hand-edited): [../docs/shared/conventions/env-files.md](../docs/shared/conventions/env-files.md)
+
+### Env files are generated here
+`environments/local/scripts/generate_env_files.py` writes all five env files from
+Terraform outputs; `make env-file` runs it, and `infra-up` ends by calling that —
+so every file exists before any service starts. That ordering is load-bearing now
+that services read `.env.local.<service>` via compose `env_file:`.
+
+- Rewrites only each file's **AUTO-GENERATED** box; the **CUSTOM** box is preserved.
+- Every value is REQUIRED: a missing Terraform output raises, naming it, rather
+  than writing an empty segment into a connection string (a service that starts
+  and then cannot connect is far harder to diagnose).
+- **No interpolation in the output.** `env_file:` takes values literally, so ports
+  and ids are resolved as the file is written — a `${...}` left behind would reach
+  the service as that literal string.
+- Adding a service: add its entry to the generator and an `env_file:` line to its
+  compose service. Declare nothing inline — `environment:` silently wins.
+
+### Infra scripts are Python
+All five infra scripts are Python (`bootstrap.py`, `scripts/discover_db_port.py`,
+`post/scripts/wait_for_db.py`, `modules/cognito/scripts/create_user_pool_client.py`,
+`modules/cognito/scripts/set_pre_token_trigger.py`) — there are **no `.sh` files** left.
+
+- They import shared helpers from `infra/scripts/lib3mrai/` (`aws.py` boto3 factory
+  honoring `AWS_ENDPOINT_URL`, `console.py` ok/no/inf, `db.py` discover_port/wait_for_db).
+  Add shared logic there rather than duplicating it per script.
+- Each script stays **colocated** with the Terraform module that invokes it.
+- `local-exec` provisioners call the venv interpreter by **absolute path**, passed in as
+  `var.python_bin` (the root module resolves it from its own `path.root`; the shared
+  cognito module requires it with no default, so a wrong wiring fails at plan time).
+  Never plain `python3` — the ambient one may resolve into an unrelated venv.
+- `make scripts-setup` creates `.venv/` and is a prerequisite of every apply target, so a
+  fresh clone cannot hit `python: not found` from inside an apply.
+- When porting or editing, preserve the external interface: CLI args, exit codes, env var
+  names, state-file shapes, and stdout purity where the Makefile captures it.
 
 ## 5. Agent rules
 - Converse with the user in **Spanish**; write config and comments in **English**.

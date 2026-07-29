@@ -1,0 +1,112 @@
+---
+title: "ADR-0019: Distributed Tracing via OpenTelemetry, Split from OpenObserve to Jaeger"
+type: adr
+area: shared
+status: accepted
+id: ADR-0019
+created: 2026-07-19
+updated: 2026-07-28
+deciders: [Jose E. Martinez]
+supersedes: null
+superseded-by: null
+tags:
+  - type/adr
+  - area/shared
+  - status/accepted
+related:
+  - "[[ADR-0018-observability-openobserve]]"
+  - "[[2026-07-16-structured-logging-and-dashboards-design]]"
+  - "[[2026-07-19-logging-context-and-tracing-design]]"
+  - "[[2026-07-19-logging-context-and-tracing]]"
+  - "[[logging-context]]"
+  - "[[ADR-0003-grpc-inter-service]]"
+  - "[[2026-07-12-prisma-lazy-promise-als]]"
+  - "[[developer-experience-milestone]]"
+---
+
+# ADR-0019: Distributed Tracing via OpenTelemetry, Split from OpenObserve to Jaeger
+
+## Context
+
+[[ADR-0018-observability-openobserve]] chose OpenObserve over SigNoz for logs and put distributed
+tracing out of scope, recording the trade-off verbatim:
+
+> [!quote] ADR-0018, verbatim
+> OpenObserve supports traces via OTLP, but its distributed-tracing/APM maturity is below
+> SigNoz's. We are logs-only today. If distributed tracing becomes a hard requirement, the
+> backend is re-evaluated in a future ADR — this is a "sufficient for now", not a closed door.
+
+[[2026-07-16-structured-logging-and-dashboards-design]] listed tracing under Non-Goals for the
+same reason ("Metrics or distributed tracing (out of scope per ADR-0018)"). Block 2 of the
+Developer Experience milestone ([[2026-07-19-logging-context-and-tracing-design]]) made tracing a
+hard requirement, triggering exactly the re-evaluation ADR-0018 called for.
+
+## Decision
+
+Adopt the OpenTelemetry SDK in both services (`@opentelemetry/sdk-node` in Users,
+`OpenTelemetry.*` in Orders), exporting OTLP to the existing collector. **Traces go to Jaeger;
+logs stay in OpenObserve.**
+
+> [!important] This differs from what was planned — recorded honestly
+> The intent going in ([[2026-07-19-logging-context-and-tracing-design]]) was to keep
+> OpenObserve for both signals, accepting a weaker APM UI in exchange for one backend. That did
+> not hold up against the real ingest. OpenObserve's trace ingest **rejected every batch the
+> collector sent with HTTP 400**, while a hand-rolled OTLP-JSON POST to the same endpoint
+> returned 206 — so the route and auth were correct, and the disagreement was between the
+> collector's serialization and that build's parser. Setting `encoding: json` on the exporter did
+> not reconcile it. Rather than keep guessing at a third party's ingest behavior, traces were
+> pointed at Jaeger, which speaks OTLP natively and ships a real waterfall UI. This is the
+> concrete form the ADR-0018 re-evaluation took: the APM-maturity weakness ADR-0018 flagged as a
+> risk is exactly what materialized, just earlier and more concretely (a hard ingest rejection,
+> not merely a weaker UI) than that ADR anticipated.
+
+## Consequences
+
+- Logs (OpenObserve) and traces (Jaeger) now live in two separate backends, joined by
+  `trace_id`, which every log line carries per [[logging-context]]. Two UIs instead of one is the
+  accepted cost of this split.
+- Jaeger runs under the `observability` Docker Compose profile alongside the collector and
+  OpenObserve — it does **not** start with a plain `docker compose up`; the profile must be
+  requested explicitly.
+- **Reversible:** the collector's trace pipeline is a standard OTLP exporter. Re-pointing it at
+  another backend — including OpenObserve, if a future build's ingest improves — is a
+  configuration change, not a re-instrumentation of either service.
+- **Resolved: cross-service traces now join into one trace.** The create-order flow
+  (Orders → Users gRPC identity call, see [[ADR-0003-grpc-inter-service]]) produces a single
+  8-span Jaeger trace, with the Users `users.v1.Users/GetUserById` server span a **child** of the
+  Orders span, not a second root. The root cause was on the Users **receive** side, not on
+  Orders' injection side: the `x-api-key` gRPC interceptor extracted the caller's W3C
+  `traceparent` correctly, but activated it in `onReceiveMetadata` via
+  `context.with(parent, () => mdNext(metadata))` — that callback returns synchronously, while
+  grpc-js dispatches the async handler on a **later tick**, so the AsyncLocalStorage scope had
+  already unwound by the time the server span was created, leaving it parentless (`refs=0`).
+  Same failure family as [[2026-07-12-prisma-lazy-promise-als|the Prisma-lazy-promise/ALS
+  pitfall]]. The fix stashes the extracted context and re-activates it in
+  `onReceiveHalfClose` — the continuation that actually dispatches the handler
+  (`context.with(parentContext, () => hcNext())`) — with the propagation logic extracted into a
+  pure, unit-tested `extractParentContext(metadata)` helper. An earlier diagnosis blamed Orders
+  for not injecting the `traceparent` (and considered adding the prerelease
+  `OpenTelemetry.Instrumentation.GrpcNetClient` package) — a live dump of the inbound gRPC
+  metadata on the Users side proved that wrong: the `traceparent` arrived correct and sampled
+  (`00-<traceid>-<spanid>-01`); Orders' instrumentation was never the problem. Verified with 188
+  Users tests (184 baseline + 4 new regression), lint, build, and 17/17 gateway E2E all green.
+  Fixed and verified in commit `a62c5fb` on `feature/developer-experience`;
+  [JE-77](https://linear.app/je-martinez/issue/JE-77) is Done.
+
+## Supersedes
+
+- The **tracing / logs-only stance** of [[ADR-0018-observability-openobserve]] — its
+  OpenObserve-over-SigNoz **backend choice for logs stands unchanged**; only the "traces are out
+  of scope" position is superseded.
+- The tracing Non-Goal of [[2026-07-16-structured-logging-and-dashboards-design]].
+
+## Related
+
+- [[ADR-0018-observability-openobserve]]
+- [[2026-07-16-structured-logging-and-dashboards-design]]
+- [[2026-07-19-logging-context-and-tracing-design]]
+- [[2026-07-19-logging-context-and-tracing]] — the implementation plan for that design.
+- [[logging-context]]
+- [[ADR-0003-grpc-inter-service]]
+- [[2026-07-12-prisma-lazy-promise-als]] — same ALS-scope-unwinding failure family as the JE-77 root cause.
+- [[developer-experience-milestone]] — Block 2 status, now closed at 11/11 with JE-77 fixed.

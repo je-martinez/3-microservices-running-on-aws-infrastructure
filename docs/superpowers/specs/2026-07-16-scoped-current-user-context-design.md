@@ -14,6 +14,10 @@ related:
   - "[[dependency-injection]]"
   - "[[audit-fields]]"
   - "[[ADR-0003-grpc-inter-service]]"
+propagates-to:
+  - "[[current-caller-context]]"
+  - "[[users-service-design]]"
+  - "[[orders-service-design]]"
 ---
 
 # Scoped Current-User Context (Middleware) Design

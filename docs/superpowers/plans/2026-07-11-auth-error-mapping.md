@@ -1,3 +1,21 @@
+---
+title: Auth Error Mapping Plan
+type: plan
+area: users
+status: draft
+created: 2026-07-11
+updated: 2026-07-11
+tags:
+  - type/plan
+  - area/users
+  - status/draft
+related:
+  - "[[2026-07-11-auth-error-mapping-design]]"
+  - "[[ADR-0010-cognito-auth]]"
+propagates-to:
+  - "[[auth-error-mapping]]"
+---
+
 # Auth Error Mapping — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

@@ -9,6 +9,9 @@ tags:
   - type/spec
   - area/infra
   - status/draft
+propagates-to:
+  - "[[nginx-njs-x-user-id-injection]]"
+  - "[[networking]]"
 related:
   - "[[ADR-0016-local-apigw-nginx-ecs]]"
   - "[[ADR-0010-cognito-auth]]"

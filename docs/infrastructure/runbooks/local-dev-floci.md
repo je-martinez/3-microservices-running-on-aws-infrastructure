@@ -4,7 +4,7 @@ type: runbook
 area: infra
 status: active
 created: 2026-07-12
-updated: 2026-07-15
+updated: 2026-07-28
 integration-status: verified
 verified-on: 2026-07-15
 verified-by: Jose E. Martinez
@@ -18,6 +18,11 @@ related:
   - "[[terraform-modules]]"
   - "[[local-dev-ministack]]"
   - "[[2026-07-15-orders-gateway-integration-design]]"
+  - "[[rds-aurora-engine-switchable-floci]]"
+  - "[[two-phase-terraform-apply]]"
+  - "[[terraform-remote-state-backend]]"
+  - "[[local-gateway-per-route-integrations]]"
+  - "[[nginx-njs-x-user-id-injection]]"
 ---
 
 # Local Dev — Floci
@@ -157,6 +162,20 @@ nginx routes by path prefix — `/v1/orders/*` goes to `orders:8080`, everything
 `users:3000` — injecting the `x-user-id` header (the Cognito `sub`, decoded via njs) on every
 location. Orders is now reachable through the front door, not only on its direct `:3001` port.
 
+## Related decisions layered on this bootstrap
+
+Several infra decisions extend this runbook's flow without changing the entry point
+(`make bootstrap` is still the one supported path):
+
+- [[rds-aurora-engine-switchable-floci]] — why the RDS module targets real Postgres/MySQL
+  containers instead of Aurora locally.
+- [[two-phase-terraform-apply]] — the second apply phase that creates least-privilege DB
+  app-users after phase 1's infra is live.
+- [[terraform-remote-state-backend]] — state moved to S3 + DynamoDB, `backend-up` runs first.
+- [[local-gateway-per-route-integrations]] — why the local API Gateway needs one integration
+  per route.
+- [[nginx-njs-x-user-id-injection]] — how local identity (`x-user-id`) is injected.
+
 ## Known limitation — second `apply` fails
 
 A **second** `terraform apply` against the same Floci state fails (Floci's `UpdateTags`
@@ -190,3 +209,8 @@ make bootstrap    # rebuild from scratch
 - [[local-dev-ministack]] — the superseded Ministack runbook this note replaces.
 - [[2026-07-15-orders-gateway-integration-design]] — the design behind routing Orders through
   the local API Gateway → nginx front door and the per-service health endpoints above.
+- [[rds-aurora-engine-switchable-floci]]
+- [[two-phase-terraform-apply]]
+- [[terraform-remote-state-backend]]
+- [[local-gateway-per-route-integrations]]
+- [[nginx-njs-x-user-id-injection]]

@@ -4,13 +4,14 @@ type: convention
 area: shared
 status: active
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-28
 tags: [type/convention, area/shared, status/active]
 related:
   - "[[ADR-0010-cognito-auth]]"
   - "[[ADR-0016-local-apigw-nginx-ecs]]"
   - "[[local-dev]]"
   - "[[2026-07-17-testing-layers-and-e2e-gateway-design]]"
+  - "[[2026-07-17-testing-layers-and-e2e-gateway]]"
 ---
 
 # Testing
@@ -92,5 +93,6 @@ the checklist for adding a new endpoint:
 - [[ADR-0016-local-apigw-nginx-ecs]]
 - [[local-dev]]
 - [[2026-07-17-testing-layers-and-e2e-gateway-design]]
+- [[2026-07-17-testing-layers-and-e2e-gateway]] — the implementation plan for the design above.
 - [[orders/testing/index|Orders Testing]]
 - [[users/testing/index|Users Testing]]

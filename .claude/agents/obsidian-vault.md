@@ -88,6 +88,46 @@ Whenever brainstorming/writing-plans produces a spec or plan in `docs/superpower
 3. Add an index link from the vault: plans from `docs/plans/index.md`, design specs from
    `docs/00-overview/index.md` (create those index notes if missing).
 4. Do not relocate the files — the plugin expects them under `docs/superpowers/`.
+5. **Propagate its decisions** into the organized vault — see the checklist below. Normalizing
+   frontmatter is NOT enough; steps 1–4 are what the vault did before and they still let 63
+   specs/plans drop their decisions on the floor.
+
+## Propagating decisions — mandatory, not optional
+
+`docs/superpowers/` is where decisions are **made**; the organized vault is where they **live**.
+A spec/plan is not done until its decisions land in the category folders they concern. Full
+convention: [[doc-propagation]] (`docs/shared/conventions/doc-propagation.md`) — read it.
+
+For every spec/plan you touch:
+
+1. **Identify the target category** by decision kind (routing table in [[doc-propagation]]):
+   service behaviour/API/data model → `domains/<svc>/specs/<svc>-service-design.md`;
+   service-local decision → `domains/<svc>/decisions/`; cross-service/global → an ADR in
+   `shared/decisions/`; reusable rule → `shared/conventions/`; reusable shape →
+   `shared/patterns/`; procedure → `*/runbooks/`; test strategy → `domains/<svc>/testing/`;
+   infra → `infrastructure/specs/`; hard-won failure + root cause → `lessons/`.
+   One spec commonly propagates to **several** targets.
+2. **Update or CREATE the target note** — editing the real note, not just the superpowers one.
+3. **Link bidirectionally**: the target's `## Related` links back to the spec; the spec lists
+   the target under `propagates-to:`. A one-way link is how 11 specs ended up referenced from
+   exactly one index and nowhere else.
+4. **Bump the target's `updated:`** to the propagation date. A target whose `updated:` predates
+   a milestone that changed it is the tell that propagation was skipped.
+5. **Never duplicate a cross-cutting rule** into a service spec — define once in `shared/`,
+   link by `[[wikilink]]`.
+
+`propagates-to:` frontmatter is **required** on every superpowers spec/plan created on or after
+`2026-07-28`, and the validator fails without it:
+
+```yaml
+propagates-to:
+  - "[[users-service-design]]"
+  - "[[ADR-0019-distributed-tracing-opentelemetry]]"
+```
+
+Opting out is allowed only **with a stated reason** — `propagates-to: none — <reason>` (e.g. a
+spike that concluded "do not adopt"). A bare `none` fails; silent opt-out is what the gate
+exists to prevent. Every declared target must resolve to a real note.
 
 ## Validation
 
@@ -98,9 +138,13 @@ After writing, run the vault validator. **Always `nvm use` first** — the repo 
 nvm use && node scripts/validate-vault.mjs
 ```
 
-It checks required frontmatter keys and broken wikilinks. Fix anything it reports before
+It checks required frontmatter keys, broken wikilinks, and the **propagation gate**
+(`propagates-to:` on superpowers specs/plans — see above). Fix anything it reports before
 reporting done. The validator skips `.obsidian/`. This `nvm use` rule applies to every
 Node.js command you run.
+
+It also prints an informational `Propagation debt: N …` line for pre-2026-07-28 superpowers
+notes. That is **not** an error and does not need fixing — backfilling those is out of scope.
 
 ## Output
 

@@ -7,6 +7,9 @@ created: 2026-07-09
 updated: 2026-07-10
 tags: [type/spec, area/users, status/draft, issue/JE-38]
 related: ["[[users-service-milestone]]", "[[ADR-0010-cognito-auth]]", "[[ADR-0017-floci-local]]", "[[floci-vs-ministack-spike-findings]]", "[[soft-delete]]", "[[audit-fields]]", "[[nano-id]]", "[[db-naming]]", "[[versioning]]", "[[ADR-0007-secrets-parameter-store]]"]
+propagates-to:
+  - "[[cognito-identity-webhook]]"
+  - "[[users-service-design]]"
 ---
 
 # JE-38 — Cognito identity webhook + identity tables — Design

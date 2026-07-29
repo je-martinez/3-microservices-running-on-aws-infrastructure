@@ -92,6 +92,28 @@ services/users/
 - API versioning: [../../docs/shared/conventions/versioning.md](../../docs/shared/conventions/versioning.md)
 - DB naming (snake_case ↔ PascalCase aliases): [../../docs/shared/conventions/db-naming.md](../../docs/shared/conventions/db-naming.md)
 - Env validation (Zod): [../../docs/shared/decisions/ADR-0014-env-validation-zod.md](../../docs/shared/decisions/ADR-0014-env-validation-zod.md)
+- Logging context & tracing: [../../docs/shared/conventions/logging-context.md](../../docs/shared/conventions/logging-context.md)
+
+### Logging & tracing in this service
+- Per-request context lives in an **AsyncLocalStorage** store (`shared/logging/log-context.ts`),
+  a sibling to the audit `actor-context.ts`, merged into every line by Pino's `formatters.log`.
+  Commands enrich it via `setLogContext` and log through `shared/logging/app-logger.ts` — no
+  logger is injected, so no function signature changes.
+- **PITFALL:** Prisma promises are lazy. Any `await` must happen **inside** the ALS callback, or
+  the context is lost at the await site (see `runAsActor`'s comment and [[prisma-lazy-promise-als]]).
+- **PITFALL:** put the masked email on the **log call site**, not in the ambient context —
+  context fields stick to every later line, which leaked it onto `request completed`.
+- The OTel SDK is loaded via `node --import` (Dockerfile CMD + npm scripts), **not** imported in
+  `server.ts`. This service is ESM, where static imports are hoisted and resolved before any
+  module body runs, so importing it "first" still left instrumented libraries already loaded.
+- The gRPC server needs a **manual** server span (`shared/observability/grpc-tracing.ts`): the
+  x-api-key interceptor's `ServerInterceptingCall` consumes the metadata, so the auto
+  instrumentation sees nothing. The caller's W3C context is extracted in that interceptor
+  (`extractParentContext`), but **activated in `onReceiveHalfClose`, not `onReceiveMetadata`** —
+  the metadata callback returns synchronously, long before grpc-js dispatches the async handler,
+  so a `context.with` there unwinds before the handler runs and the server span comes out a ROOT
+  (the JE-77 bug: two disjoint traces instead of one). Activate the extracted context in the
+  continuation that dispatches the handler.
 
 ## 5. Agent rules
 - Converse with the user in **Spanish**; write code and comments in **English**.

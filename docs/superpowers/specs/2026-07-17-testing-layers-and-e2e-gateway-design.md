@@ -14,6 +14,8 @@ related:
   - "[[ADR-0016-local-apigw-nginx-ecs]]"
   - "[[local-dev]]"
   - "[[versioning]]"
+propagates-to:
+  - "[[testing]]"
 ---
 
 # Three-Layer Testing Convention + E2E-Gateway Harness Design

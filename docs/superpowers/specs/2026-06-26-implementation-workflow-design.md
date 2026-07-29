@@ -7,6 +7,9 @@ created: 2026-06-26
 updated: 2026-06-26
 tags: [type/spec, area/shared, status/accepted]
 related: ["[[2026-06-26-3mrai-docs-vault-design]]", "[[index]]", "[[linear-references]]"]
+propagates-to:
+  - "[[phase-c-review-flow]]"
+  - "[[git-workflow]]"
 ---
 
 # 3MRAI Implementation Workflow — Design

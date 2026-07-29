@@ -4,13 +4,15 @@ type: spec
 area: infra
 status: active
 created: 2026-06-26
-updated: 2026-07-12
+updated: 2026-07-28
 tags: [type/spec, area/infra, status/active]
 related:
   - ADR-0009-apigw-alb-fargate
   - "[[ADR-0016-local-apigw-nginx-ecs]]"
   - "[[ADR-0017-floci-local]]"
   - "[[local-dev-floci]]"
+  - "[[local-gateway-per-route-integrations]]"
+  - "[[nginx-njs-x-user-id-injection]]"
 ---
 
 # Networking
@@ -87,6 +89,18 @@ deliberate decision, not a simplification of the diagram above: Floci's API Gate
 JWT/authorizer claims into a request header (verified across 6 configurations), so nginx+njs
 decodes the token and injects `x-user-id` itself. Full rationale, verified findings, and the
 Floci-capability update: [[ADR-0016-local-apigw-nginx-ecs]]. Full bootstrap steps: [[local-dev-floci]].
+The njs mechanism itself — what it decodes, why, and its consequences — is recorded in
+[[nginx-njs-x-user-id-injection]].
+
+### Local path forwarding — per-route integrations
+
+Floci's `HTTP_PROXY` integration treats `integration_uri` as a literal URL and does not forward
+the matched route's path, so a single shared integration (the production shape) always delivers
+`GET /` to nginx regardless of the route hit. The local `api-gateway` module works around this
+with **one integration per route**, the route's path baked into the URI — gated by a
+`local_gateway` variable that defaults to `false` (production keeps the single shared
+integration, unaffected). Full rationale and the Orders extension (per-service health paths,
+resolving the `/v1/health` collision): [[local-gateway-per-route-integrations]].
 
 ## Route 53 Names
 
@@ -129,3 +143,5 @@ Floci-capability update: [[ADR-0016-local-apigw-nginx-ecs]]. Full bootstrap step
 - [[terraform-modules]]
 - [[aws-resources]]
 - [[local-dev-floci]]
+- [[local-gateway-per-route-integrations]]
+- [[nginx-njs-x-user-id-injection]]

@@ -1,4 +1,5 @@
 import type { LoggerOptions } from "pino";
+import { getLogContext } from "./log-context.ts";
 
 export const SEVERITY_NUMBER: Record<string, number> = {
   DEBUG: 5,
@@ -47,7 +48,13 @@ export function buildLoggerOptions(opts: {
       // removed — so existing consumers of `err` keep working. Non-error logs
       // are untouched: no `err`, no `error_type`/`error_message`.
       log(object) {
-        const err = (object as { err?: unknown }).err;
+        // Ambient request context first, explicit call-site fields second: a
+        // field passed at the call site always wins over the context. Unknown
+        // context fields are simply absent from the store, so nothing null is
+        // emitted (see shared/logging/log-context.ts).
+        const object_ = { ...getLogContext(), ...object } as typeof object;
+
+        const err = (object_ as { err?: unknown }).err;
         if (err && typeof err === "object") {
           const errObj = err as {
             constructor?: { name?: string };
@@ -56,12 +63,12 @@ export function buildLoggerOptions(opts: {
             message?: string;
           };
           return {
-            ...object,
+            ...object_,
             error_type: errObj.constructor?.name ?? errObj.type ?? errObj.name ?? "Error",
             error_message: errObj.message ?? "",
           };
         }
-        return object;
+        return object_;
       },
     },
   };

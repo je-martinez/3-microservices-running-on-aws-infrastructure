@@ -6,6 +6,10 @@ status: draft
 created: 2026-07-15
 updated: 2026-07-15
 tags: [type/spec, area/infra, status/draft]
+propagates-to:
+  - "[[rds-aurora-engine-switchable-floci]]"
+  - "[[aws-resources]]"
+  - "[[local-dev-floci]]"
 related:
   - "[[ADR-0006-read-write-replicas]]"
   - "[[ADR-0007-secrets-parameter-store]]"

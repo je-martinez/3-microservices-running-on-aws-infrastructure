@@ -94,4 +94,11 @@ EXPOSE 3000
 # fall back to their "default" condition when no matching condition is active,
 # resolving to ./dist/shared/*.js and ./dist/features/*.js (verified: node
 # dist/server.js starts and listens without --conditions).
-CMD ["node", "dist/server.js"]
+# --import loads the OTel bootstrap in its OWN module graph, before the app's
+# graph is resolved. This service is ESM ("type": "module"), where every static
+# import is hoisted and resolved before any module body runs — so importing the
+# SDK "first" inside server.ts still left @grpc/grpc-js loaded by the time
+# sdk.start() ran, and the gRPC server went uninstrumented (no server spans, so
+# a trace from Orders could never continue into this service). --import is
+# OpenTelemetry's supported answer for ESM.
+CMD ["node", "--import", "./dist/shared/observability/tracing.js", "dist/server.js"]

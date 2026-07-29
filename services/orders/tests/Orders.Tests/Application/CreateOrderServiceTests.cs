@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Orders.Application.Abstractions;
 using Orders.Application.Identity;
 using Orders.Application.Orders;
@@ -56,7 +57,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
     {
         var productId = await SeedProduct(stock: 10, priceCents: 1000);
         await using var db = Ctx();
-        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m));
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), NullLogger<CreateOrderService>.Instance);
 
         var dto = await svc.CreateAsync(
             new CreateOrderCommand(new[] { new CreateOrderLine(productId, 3) }), "sub-a");
@@ -95,7 +96,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
     {
         var productId = await SeedProduct(stock: 10, priceCents: 1000);
         await using var db = Ctx();
-        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m));
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), NullLogger<CreateOrderService>.Instance);
 
         // Two lines for the SAME product (qty 2 and 3) must consolidate into ONE
         // OrderDetail with Quantity 5, and stock must be decremented by 5 total —
@@ -132,7 +133,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
     {
         var productId = await SeedProduct(stock: 4, priceCents: 1000);
         await using var db = Ctx();
-        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m));
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), NullLogger<CreateOrderService>.Instance);
 
         // Stock is 4; individually each line (2, then 3) would look fine against the
         // ORIGINAL stock, but the consolidated total (5) must be validated as a whole.
@@ -153,7 +154,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
     {
         var productId = await SeedProduct(stock: 2, priceCents: 1000);
         await using var db = Ctx();
-        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m));
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), NullLogger<CreateOrderService>.Instance);
 
         await Assert.ThrowsAsync<InsufficientStockException>(() =>
             svc.CreateAsync(new CreateOrderCommand(new[] { new CreateOrderLine(productId, 5) }), "sub-a"));
@@ -168,7 +169,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
     {
         var productId = await SeedProduct(stock: 10, priceCents: 1000);
         await using var db = Ctx();
-        var svc = new CreateOrderService(db, new FixedDirectory(null), new NoopEventPublisher(), new FixedConfig(0.10m));
+        var svc = new CreateOrderService(db, new FixedDirectory(null), new NoopEventPublisher(), new FixedConfig(0.10m), NullLogger<CreateOrderService>.Instance);
 
         await Assert.ThrowsAsync<UnknownUserException>(() =>
             svc.CreateAsync(new CreateOrderCommand(new[] { new CreateOrderLine(productId, 1) }), "sub-x"));
@@ -197,7 +198,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
         }
 
         await using var db = Ctx();
-        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m));
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), NullLogger<CreateOrderService>.Instance);
 
         // The soft-deleted product is not orderable: the FOR UPDATE lock returns null
         // (query filter hides it), so the service raises UnknownProductException —

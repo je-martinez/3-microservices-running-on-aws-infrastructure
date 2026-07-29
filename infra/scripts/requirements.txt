@@ -1,0 +1,4 @@
+# Installed editable so the colocated scripts can `import lib3mrai` without
+# sys.path tricks. `make scripts-setup` runs `pip install -e infra/scripts`,
+# which resolves boto3 from pyproject.toml.
+-e .

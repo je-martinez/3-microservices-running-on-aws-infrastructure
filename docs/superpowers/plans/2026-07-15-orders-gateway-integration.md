@@ -6,6 +6,11 @@ status: draft
 created: 2026-07-15
 updated: 2026-07-15
 tags: [type/plan, area/infra, status/draft]
+propagates-to:
+  - "[[local-gateway-per-route-integrations]]"
+  - "[[nginx-njs-x-user-id-injection]]"
+  - "[[networking]]"
+  - "[[local-dev-floci]]"
 related: ["[[2026-07-15-orders-gateway-integration-design]]", "[[orders-service-design]]", "[[2026-07-14-orders-service-milestone-design]]", "[[ADR-0016-local-apigw-nginx-ecs]]", "[[ADR-0009-apigw-alb-fargate]]", "[[ADR-0010-cognito-auth]]", "[[ADR-0017-floci-local]]", "[[versioning]]", "[[local-dev-floci]]"]
 ---
 

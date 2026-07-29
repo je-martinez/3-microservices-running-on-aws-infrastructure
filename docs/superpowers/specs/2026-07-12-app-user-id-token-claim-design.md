@@ -13,6 +13,8 @@ related:
   - "[[ADR-0010-cognito-auth]]"
   - "[[ADR-0017-floci-local]]"
   - "[[users-service-design]]"
+propagates-to:
+  - "[[app-user-id-token-claim]]"
 ---
 
 # app_user_id token claim via Pre-Token-Generation trigger

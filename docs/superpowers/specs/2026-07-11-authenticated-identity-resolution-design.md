@@ -12,6 +12,8 @@ tags:
 related:
   - "[[ADR-0010-cognito-auth]]"
   - "[[users-service-design]]"
+propagates-to:
+  - "[[authenticated-identity-resolution]]"
 ---
 
 # Resolve users by id or cognitoSub (byIdOrCognitoSub)

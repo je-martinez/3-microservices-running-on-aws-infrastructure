@@ -11,15 +11,56 @@ using Orders.Infrastructure.Grpc;
 using Orders.Infrastructure.Messaging;
 using Orders.Infrastructure.Orders;
 using Orders.Infrastructure.Persistence;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Declared up front: both the tracing resource and the Serilog formatter below
+// stamp it, so they cannot disagree about which environment this process is.
+var deploymentEnvironment = builder.Configuration["DEPLOYMENT_ENVIRONMENT"] ?? "local";
+
+// Needed by LogContextEnricher to reach the request-scoped ICurrentCaller.
+builder.Services.AddHttpContextAccessor();
+
+// Distributed tracing. AddHttpClientInstrumentation is what makes the
+// Orders -> Users identity call a CHILD span of the incoming request rather
+// than an unrelated trace: .NET's gRPC client rides on HttpClient, so this
+// instrumentation injects the W3C traceparent header on every gRPC call.
+// (The dedicated GrpcNetClient package only ships as a prerelease; the stable
+// Http instrumentation covers the same path, so no beta is needed for the one
+// piece cross-service tracing actually depends on.)
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource
+        .AddService(serviceName: "orders")
+        .AddAttributes([
+            new KeyValuePair<string, object>("deployment.environment.name", deploymentEnvironment),
+        ]))
+    .WithTracing(tracing => tracing
+        .AddAspNetCoreInstrumentation()
+        .AddHttpClientInstrumentation()
+        .AddEntityFrameworkCoreInstrumentation()
+        // No Endpoint set here ON PURPOSE. The exporter reads the standard
+        // OTEL_EXPORTER_OTLP_ENDPOINT (set in docker-compose.yml) as a BASE url
+        // and appends the signal path itself, per the OTLP spec.
+        //
+        // Building the URL by hand is what broke this service: it passed the
+        // base with no path, so every batch was POSTed to the collector's root
+        // and answered 404 — silently, since the exporter does not surface it.
+        // Leaving it to the SDK means a new service needs no endpoint code at
+        // all, only the env var. See [[logging-context]].
+        .AddOtlpExporter());
+
 // Structured JSON logging (snake_case OTel-aligned schema). Replaces the
 // default plain-text console logger for all `orders` logs.
-var deploymentEnvironment = builder.Configuration["DEPLOYMENT_ENVIRONMENT"] ?? "local";
-builder.Host.UseSerilog((_, cfg) => cfg
+//
+// The THREE-argument UseSerilog overload is required: the two-argument one has
+// no `services` parameter, so the enricher could not resolve
+// IHttpContextAccessor and the shared log context would never be attached.
+builder.Host.UseSerilog((_, services, cfg) => cfg
     .MinimumLevel.Information()
+    .Enrich.With(new LogContextEnricher(services.GetRequiredService<IHttpContextAccessor>()))
     .WriteTo.Console(new SchemaLogFormatter("orders", deploymentEnvironment)));
 
 // Read side (read replica in prod; same MySQL locally). ADO connection string.
@@ -72,7 +113,8 @@ builder.Services.AddScoped(sp => new CreateOrderService(
     sp.GetRequiredService<OrdersWriteDbContext>(),
     sp.GetRequiredService<IUserDirectory>(),
     sp.GetRequiredService<IEventPublisher>(),
-    sp.GetRequiredService<IConfigurationReader>()));
+    sp.GetRequiredService<IConfigurationReader>(),
+    sp.GetRequiredService<ILogger<CreateOrderService>>()));
 
 var app = builder.Build();
 
@@ -90,7 +132,10 @@ app.UseSerilogRequestLogging(options =>
             "http_route",
             (http.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText ?? http.Request.Path.Value);
         diag.Set("http_response_status_code", http.Response.StatusCode);
-        diag.Set("trace_id", http.TraceIdentifier);
+        // NO trace_id here. LogContextEnricher supplies the real OTel trace id
+        // from Activity.Current; it uses AddPropertyIfAbsent, so a value set on
+        // the diagnostic context would win and the request log — the single most
+        // useful line — would keep ASP.NET's local, non-propagating identifier.
     };
 });
 
