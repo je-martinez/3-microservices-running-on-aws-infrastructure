@@ -4,12 +4,14 @@ type: runbook
 area: orders
 status: active
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-28
 tags: [type/runbook, area/orders, status/active]
 related:
   - "[[testing]]"
   - "[[orders-service-design]]"
   - "[[2026-07-17-testing-layers-and-e2e-gateway-design]]"
+  - "[[2026-07-14-orders-service-milestone-design]]"
+  - "[[2026-07-16-orders-list-products-endpoint-design]]"
 ---
 
 # Orders Testing
@@ -73,3 +75,5 @@ obtain the real JWT used as the `Authorization: Bearer` header.
 - [[testing]]
 - [[orders-service-design]]
 - [[2026-07-17-testing-layers-and-e2e-gateway-design]]
+- [[2026-07-14-orders-service-milestone-design]]
+- [[2026-07-16-orders-list-products-endpoint-design]]

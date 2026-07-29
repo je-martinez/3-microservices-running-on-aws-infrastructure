@@ -4,7 +4,7 @@ type: spec
 area: infra
 status: active
 created: 2026-06-26
-updated: 2026-07-12
+updated: 2026-07-28
 tags: [type/spec, area/infra, status/active]
 related:
   - ADR-0001-terraform-cloudposse-naming
@@ -12,6 +12,11 @@ related:
   - "[[local-dev-floci]]"
   - "[[cognito-pre-token-lambda]]"
   - "[[awscli-fallback-for-floci]]"
+  - "[[rds-aurora-engine-switchable-floci]]"
+  - "[[two-phase-terraform-apply]]"
+  - "[[terraform-remote-state-backend]]"
+  - "[[local-gateway-per-route-integrations]]"
+  - "[[nginx-njs-x-user-id-injection]]"
 ---
 
 # Terraform Modules
@@ -58,6 +63,24 @@ lifecycle) because the native Terraform resource cannot apply against Floci at t
 provider version: the Cognito App Client and the Pre-Token-Generation V2 trigger. See
 [[awscli-fallback-for-floci]] for the pattern and why each case needed it.
 
+### Local composition and its follow-on decisions
+
+`infra/environments/local` composes `label`, `networking`, `rds-aurora`, `cognito`, `compute`,
+and `api-gateway` against Floci. Several decisions layered on top of that initial composition:
+
+- **`rds-aurora` has a switchable engine** (`var.engine`, default `aurora-postgresql`) so local
+  can instantiate real Floci Postgres/MySQL containers instead of Aurora, which Floci does not
+  emulate — see [[rds-aurora-engine-switchable-floci]].
+- **A second Terraform apply phase** (`environments/local/post/`) creates least-privilege
+  database app-users natively, after the base infra is live, resolving the provider
+  chicken-and-egg that previously pushed this into bash — see [[two-phase-terraform-apply]].
+- **State moved to a remote S3 + DynamoDB backend** (a create-once bootstrap root +
+  per-environment `backend.hcl`), ending local `.tfstate` drift against Floci — see
+  [[terraform-remote-state-backend]].
+- **The local API Gateway uses per-route integrations**, and the local nginx reverse proxy
+  injects `x-user-id` via njs — both are Floci-only workarounds for gaps in the emulator; see
+  [[local-gateway-per-route-integrations]] and [[nginx-njs-x-user-id-injection]].
+
 ## Naming Convention
 
 Every module instantiation passes a `context` object sourced from the root
@@ -95,3 +118,8 @@ Resource names are derived via `module.label.id` (e.g. `3mrai-prod-users`). Tags
 - [[awscli-fallback-for-floci]]
 - [[networking]]
 - [[aws-resources]]
+- [[rds-aurora-engine-switchable-floci]]
+- [[two-phase-terraform-apply]]
+- [[terraform-remote-state-backend]]
+- [[local-gateway-per-route-integrations]]
+- [[nginx-njs-x-user-id-injection]]

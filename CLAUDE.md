@@ -38,6 +38,13 @@ These rules take precedence over default agent/skill behavior.
 - **OTel config goes in environment variables, not code** — endpoint, protocol, and disabling the metrics/logs exporters. Three silent failures in this repo came from configuring the SDK in code. A new service needs no endpoint code, only the env vars.
 - Full convention: `docs/shared/conventions/logging-context.md` → [[logging-context]]. Backend decision: [[ADR-0019-distributed-tracing-opentelemetry]] (logs → OpenObserve, traces → Jaeger).
 
+### Documentation propagation — superpowers output must feed the vault
+- `docs/superpowers/{specs,plans}/` is where decisions are **made**; the organized vault (`docs/domains/`, `docs/shared/`, `docs/infrastructure/`, `docs/00-overview/`) is where they **live**. A spec/plan is **not done when written** — it is done when its decisions have propagated into the category folders they belong to.
+- **Before proposing the PR that closes an issue or milestone**, propagate: update/create the target notes, link bidirectionally, and bump each target's `updated:`. Route vault writes through `obsidian-vault` (sole writer of `docs/`).
+- Every **new** spec/plan under `docs/superpowers/` declares a `propagates-to:` frontmatter key listing its target notes, or opts out with `propagates-to: none — <reason>` (a bare `none` fails). `nvm use && node scripts/validate-vault.mjs` **enforces this** — it is a gate, not a suggestion.
+- Notes predating 2026-07-28 are exempt and reported as a "Propagation debt" count; backfilling them is out of scope, so that line is the gate working, not failing.
+- Full convention (routing table by decision kind + mechanics): `docs/shared/conventions/doc-propagation.md` → [[doc-propagation]].
+
 ### Language
 - **Converse with the user in Spanish.**
 - **Vault / documentation content is written in English** (technical terms, filenames, frontmatter).
@@ -135,5 +142,5 @@ The Obsidian vault lives in [`docs/`](docs/). Design and plan for it:
 - Source of truth for technical content is the **organized vault** (specs, ADRs, conventions). The original prompt [`first-prompt-en.md`](docs/00-overview/sources/first-prompt-en.md) is only the **starting point** that planning grew from — it lives under `docs/00-overview/sources/` as reference material, not as the source of truth.
 
 ### Validation
-- `node scripts/validate-vault.mjs` checks frontmatter and broken wikilinks (run after editing vault notes).
+- `node scripts/validate-vault.mjs` checks frontmatter (required keys **and** valid `type`/`area`/`status` enum values), broken wikilinks, and the **propagation gate** (`propagates-to:` on new superpowers specs/plans — see [[doc-propagation]]). Run after editing vault notes.
 - The validator does **not** check **intra-note anchor links** (`[text](#heading)`). Verify these by hand: GitHub-style slugs lowercase, strip punctuation, hyphenate spaces, and an em-dash yields a double hyphen — e.g. `## Commit messages — Conventional Commits v1.0.0` → `#commit-messages--conventional-commits-v100`, **not** `#commit-messages`.

@@ -43,6 +43,8 @@ related:
   - "[[ADR-0009-apigw-alb-fargate]]"
   - "[[ADR-0010-cognito-auth]]"
   - "[[ADR-0012-ministack-local]]"
+propagates-to:
+  - "[[users-service-design]]"
 ---
 
 # Users Service Implementation — Design

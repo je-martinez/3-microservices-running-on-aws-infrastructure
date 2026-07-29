@@ -14,6 +14,9 @@ related:
   - "[[openobserve-runbook]]"
   - "[[openobserve-cloudwatch]]"
   - "[[local-dev]]"
+propagates-to:
+  - "[[openobserve-runbook]]"
+  - "[[ADR-0019-distributed-tracing-opentelemetry]]"
 ---
 
 # Structured Logging & OpenObserve Dashboards Design

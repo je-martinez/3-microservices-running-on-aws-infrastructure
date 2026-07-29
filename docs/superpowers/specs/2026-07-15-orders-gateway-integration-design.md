@@ -9,6 +9,11 @@ tags:
   - type/spec
   - area/infra
   - status/draft
+propagates-to:
+  - "[[local-gateway-per-route-integrations]]"
+  - "[[nginx-njs-x-user-id-injection]]"
+  - "[[networking]]"
+  - "[[local-dev-floci]]"
 related:
   - "[[ADR-0016-local-apigw-nginx-ecs]]"
   - "[[ADR-0009-apigw-alb-fargate]]"

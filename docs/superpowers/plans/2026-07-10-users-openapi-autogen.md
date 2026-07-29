@@ -1,3 +1,22 @@
+---
+title: Users OpenAPI Auto-generation Plan
+type: plan
+area: users
+status: draft
+created: 2026-07-10
+updated: 2026-07-10
+tags:
+  - type/plan
+  - area/users
+  - status/draft
+related:
+  - "[[2026-07-10-users-openapi-autogen-design]]"
+  - "[[users-service-design]]"
+  - "[[mcp-servers]]"
+propagates-to:
+  - "[[openapi-autogen]]"
+---
+
 # Users OpenAPI Auto-generation Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

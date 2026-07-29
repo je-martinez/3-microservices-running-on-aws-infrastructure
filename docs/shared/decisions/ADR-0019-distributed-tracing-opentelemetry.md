@@ -5,7 +5,7 @@ area: shared
 status: accepted
 id: ADR-0019
 created: 2026-07-19
-updated: 2026-07-23
+updated: 2026-07-28
 deciders: [Jose E. Martinez]
 supersedes: null
 superseded-by: null
@@ -17,6 +17,7 @@ related:
   - "[[ADR-0018-observability-openobserve]]"
   - "[[2026-07-16-structured-logging-and-dashboards-design]]"
   - "[[2026-07-19-logging-context-and-tracing-design]]"
+  - "[[2026-07-19-logging-context-and-tracing]]"
   - "[[logging-context]]"
   - "[[ADR-0003-grpc-inter-service]]"
   - "[[2026-07-12-prisma-lazy-promise-als]]"
@@ -104,6 +105,7 @@ logs stay in OpenObserve.**
 - [[ADR-0018-observability-openobserve]]
 - [[2026-07-16-structured-logging-and-dashboards-design]]
 - [[2026-07-19-logging-context-and-tracing-design]]
+- [[2026-07-19-logging-context-and-tracing]] — the implementation plan for that design.
 - [[logging-context]]
 - [[ADR-0003-grpc-inter-service]]
 - [[2026-07-12-prisma-lazy-promise-als]] — same ALS-scope-unwinding failure family as the JE-77 root cause.

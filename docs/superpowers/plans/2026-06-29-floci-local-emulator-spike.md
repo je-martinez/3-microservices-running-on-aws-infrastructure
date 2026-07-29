@@ -1,3 +1,22 @@
+---
+title: Floci Local Emulator Spike Plan
+type: plan
+area: infra
+status: draft
+created: 2026-06-29
+updated: 2026-06-29
+tags:
+  - type/plan
+  - area/infra
+  - status/draft
+propagates-to:
+  - "[[floci-vs-ministack-spike-findings]]"
+related:
+  - "[[2026-06-29-floci-local-emulator-spike-design]]"
+  - "[[ADR-0012-ministack-local]]"
+  - "[[ministack-auth-chain-spike-findings]]"
+---
+
 # Floci Local Emulator Spike — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

@@ -1,3 +1,19 @@
+---
+title: 3MRAI Documentation Vault — Plan
+type: plan
+area: shared
+status: active
+created: 2026-06-26
+updated: 2026-07-28
+tags: [type/plan, area/shared, status/active]
+related:
+  - "[[2026-06-26-3mrai-docs-vault-design]]"
+  - "[[index]]"
+propagates-to:
+  - "[[doc-propagation]]"
+  - "[[index]]"
+---
+
 # 3MRAI Documentation Vault Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

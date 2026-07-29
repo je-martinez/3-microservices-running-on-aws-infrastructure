@@ -7,6 +7,8 @@ created: 2026-07-03
 updated: 2026-07-03
 tags: [type/spec, area/shared, status/draft]
 related: ["[[ADR-0017-floci-local]]", "[[local-dev-ministack]]", "[[git-workflow]]"]
+propagates-to:
+  - "[[local-dev]]"
 ---
 
 # Local Dev Tooling (Makefile + .http files) — Design

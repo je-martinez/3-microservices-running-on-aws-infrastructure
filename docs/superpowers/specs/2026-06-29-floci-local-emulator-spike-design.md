@@ -6,6 +6,9 @@ status: accepted
 created: 2026-06-29
 updated: 2026-06-29
 tags: [type/spec, area/infra, status/accepted]
+propagates-to:
+  - "[[floci-vs-ministack-spike-findings]]"
+  - "[[ADR-0017-floci-local]]"
 related:
   - "[[ADR-0012-ministack-local]]"
   - "[[2026-06-28-services-infra-scaffold-design]]"

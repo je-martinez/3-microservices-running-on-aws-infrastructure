@@ -13,6 +13,9 @@ related:
   - "[[users-service-design]]"
   - "[[mcp-servers]]"
   - "[[versioning]]"
+propagates-to:
+  - "[[openapi-autogen]]"
+  - "[[users-service-design]]"
 ---
 
 # Users OpenAPI auto-generation (@fastify/swagger + Zod)

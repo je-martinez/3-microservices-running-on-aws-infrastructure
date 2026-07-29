@@ -27,6 +27,8 @@ related:
   - "[[2026-06-28-users-service-design]]"
   - "[[users-service-design]]"
   - "[[users-service-milestone]]"
+propagates-to:
+  - "[[users-service-design]]"
 ---
 
 # Users Service Implementation Plan

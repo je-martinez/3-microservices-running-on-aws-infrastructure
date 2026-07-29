@@ -1,3 +1,22 @@
+---
+title: Three-Layer Testing Convention + E2E-Gateway Harness Plan
+type: plan
+area: shared
+status: draft
+created: 2026-07-17
+updated: 2026-07-17
+tags:
+  - type/plan
+  - area/shared
+  - status/draft
+related:
+  - "[[2026-07-17-testing-layers-and-e2e-gateway-design]]"
+  - "[[ADR-0010-cognito-auth]]"
+  - "[[local-dev]]"
+propagates-to:
+  - "[[testing]]"
+---
+
 # Three-Layer Testing Convention + E2E-Gateway Harness Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

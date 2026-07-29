@@ -4,7 +4,7 @@ type: spec
 area: users
 status: active
 created: 2026-06-26
-updated: 2026-07-12
+updated: 2026-07-28
 tags: [type/spec, area/users, status/active]
 related:
   - "[[soft-delete]]"
@@ -17,6 +17,16 @@ related:
   - "[[ADR-0010-cognito-auth]]"
   - "[[ADR-0017-floci-local]]"
   - "[[cognito-pre-token-lambda]]"
+  - "[[logging-context]]"
+  - "[[env-files]]"
+  - "[[testing]]"
+  - "[[ADR-0019-distributed-tracing-opentelemetry]]"
+  - "[[auth-error-mapping]]"
+  - "[[authenticated-identity-resolution]]"
+  - "[[app-user-id-token-claim]]"
+  - "[[refresh-token-endpoint]]"
+  - "[[cognito-identity-webhook]]"
+  - "[[openapi-autogen]]"
   - "[[2026-06-28-users-service-design]]"
   - "[[2026-07-09-users-cognito-webhook-design]]"
   - "[[2026-07-10-users-openapi-autogen-design]]"
@@ -168,6 +178,33 @@ Used by Orders and Tracking services for inter-service lookups (see [[ADR-0003-g
 | Dependency injection (Awilix) | [[dependency-injection]] |
 | Authentication & authorization | [[ADR-0010-cognito-auth]] |
 | Local identity header injection | [[ADR-0017-floci-local]] |
+| Structured logging context (trace/actor fields, no raw email) | [[logging-context]] |
+| Env files generated, never hand-edited | [[env-files]] |
+| Three-layer testing (unit/integration, internal E2E, gateway E2E) | [[testing]] |
+| Distributed tracing backend | [[ADR-0019-distributed-tracing-opentelemetry]] |
+
+## Observability
+
+The service participates in the repo-wide observability conventions, not a Users-specific
+scheme: structured logs carry the shared cross-service context (`trace_id`, `cognito_sub`,
+`user_id`, `email_hash`, `duration_ms`) per [[logging-context]] — auth flows log a masked
+email, never a plaintext one — and traces export to the backend decided in
+[[ADR-0019-distributed-tracing-opentelemetry]] (Jaeger), configured entirely through
+environment variables, not code.
+
+## Service-local decisions
+
+Decisions made specifically for this service (not cross-cutting, so they are not
+convention/pattern notes in `shared/`) live in `docs/domains/users/decisions/`:
+
+| Decision | Note |
+|---|---|
+| Login/register error mapping (401/409 via typed domain errors + global `setErrorHandler`) | [[auth-error-mapping]] |
+| Authenticated identity resolution (`findByIdOrCognitoSub`) | [[authenticated-identity-resolution]] |
+| `app_user_id` token claim via Pre-Token-Generation Lambda | [[app-user-id-token-claim]] |
+| Refresh token endpoint (`POST /v1/users/refresh`) | [[refresh-token-endpoint]] |
+| Cognito identity webhook (shared capture use case, two entry paths) | [[cognito-identity-webhook]] |
+| OpenAPI spec generated from routes (`@fastify/swagger` + Zod) | [[openapi-autogen]] |
 
 ## Related
 
@@ -186,6 +223,16 @@ Used by Orders and Tracking services for inter-service lookups (see [[ADR-0003-g
 - [[ADR-0017-floci-local]]
 - [[cognito-pre-token-lambda]]
 - [[awscli-fallback-for-floci]]
+- [[logging-context]]
+- [[env-files]]
+- [[testing]]
+- [[ADR-0019-distributed-tracing-opentelemetry]]
+- [[auth-error-mapping]]
+- [[authenticated-identity-resolution]]
+- [[app-user-id-token-claim]]
+- [[refresh-token-endpoint]]
+- [[cognito-identity-webhook]]
+- [[openapi-autogen]]
 - [[2026-06-28-users-service-design]]
 - [[2026-07-09-users-cognito-webhook-design]]
 - [[2026-07-10-users-openapi-autogen-design]]

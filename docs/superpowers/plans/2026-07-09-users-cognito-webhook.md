@@ -7,6 +7,8 @@ created: 2026-07-09
 updated: 2026-07-10
 tags: [type/plan, area/users, status/draft, issue/JE-38]
 related: ["[[2026-07-09-users-cognito-webhook-design]]", "[[users-service-milestone]]", "[[ADR-0017-floci-local]]", "[[soft-delete]]", "[[audit-fields]]", "[[nano-id]]", "[[db-naming]]", "[[floci-rds-apigw-limits]]"]
+propagates-to:
+  - "[[cognito-identity-webhook]]"
 ---
 
 # JE-38 Cognito Identity Webhook Implementation Plan

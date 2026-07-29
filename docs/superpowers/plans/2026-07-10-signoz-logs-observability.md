@@ -7,6 +7,8 @@ created: 2026-07-10
 updated: 2026-07-10
 tags: [type/plan, area/shared, status/draft]
 related: ["[[2026-07-10-signoz-logs-observability-design]]", "[[ADR-0011-observability-signoz]]", "[[openobserve-cloudwatch]]", "[[ADR-0017-floci-local]]", "[[local-dev]]", "[[2026-07-10-openobserve-migration-design]]"]
+propagates-to:
+  - "[[signoz-selfhost-migrator-blocker]]"
 ---
 
 # SigNoz Log Observability Implementation Plan

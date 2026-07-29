@@ -9,6 +9,8 @@ tags:
   - type/spec
   - area/infra
   - status/draft
+propagates-to:
+  - "[[env-files]]"
 related:
   - "[[2026-07-19-scripts-to-python-migration-design]]"
   - "[[2026-07-19-logging-context-and-tracing-design]]"

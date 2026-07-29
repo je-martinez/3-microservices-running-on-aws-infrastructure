@@ -13,6 +13,8 @@ related:
   - "[[linear-references]]"
   - "[[2026-06-26-3mrai-docs-vault]]"
   - "[[ADR-0015-drawio-diagrams]]"
+propagates-to:
+  - "[[milestone-plan]]"
 ---
 
 # Milestone Plan Convention — Design

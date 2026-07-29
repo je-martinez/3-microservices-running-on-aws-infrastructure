@@ -15,6 +15,9 @@ related:
   - "[[2026-07-14-orders-service-milestone-design]]"
   - "[[cqrs]]"
   - "[[db-naming]]"
+propagates-to:
+  - "[[for-update-pessimistic-locking]]"
+  - "[[orders-service-design]]"
 ---
 
 # Orders FOR UPDATE via LINQ + Interceptor Design

@@ -7,6 +7,12 @@ created: 2026-07-14
 updated: 2026-07-14
 tags: [type/plan, area/orders, status/draft]
 related: ["[[2026-07-14-orders-service-milestone-design]]", "[[orders-service-design]]", "[[users-service-design]]", "[[soft-delete]]", "[[nano-id]]", "[[audit-fields]]", "[[db-naming]]", "[[cqrs]]", "[[versioning]]", "[[ADR-0003-grpc-inter-service]]", "[[ADR-0006-read-write-replicas]]", "[[ADR-0010-cognito-auth]]"]
+propagates-to:
+  - "[[orders-service-design]]"
+  - "[[clean-architecture-divergence]]"
+  - "[[money-as-integer-cents]]"
+  - "[[grpc-api-key-authorization]]"
+  - "[[domains/orders/testing/index]]"
 ---
 
 # Orders Service Milestone Implementation Plan

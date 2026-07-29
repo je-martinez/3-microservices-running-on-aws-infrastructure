@@ -6,6 +6,10 @@ status: draft
 created: 2026-07-15
 updated: 2026-07-15
 tags: [type/plan, area/infra, status/draft]
+propagates-to:
+  - "[[rds-aurora-engine-switchable-floci]]"
+  - "[[aws-resources]]"
+  - "[[local-dev-floci]]"
 related: ["[[2026-07-15-orders-rds-mysql-design]]", "[[orders-service-design]]", "[[2026-07-14-orders-service-milestone]]", "[[ADR-0004-soft-delete-only]]", "[[ADR-0006-read-write-replicas]]", "[[ADR-0007-secrets-parameter-store]]", "[[ADR-0017-floci-local]]", "[[floci-rds-apigw-limits]]", "[[local-dev-floci]]", "[[2026-07-15-orders-rds-mysql]]"]
 ---
 

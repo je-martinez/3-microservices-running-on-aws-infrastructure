@@ -4,7 +4,7 @@ type: spec
 area: infra
 status: active
 created: 2026-06-26
-updated: 2026-07-12
+updated: 2026-07-28
 tags: [type/spec, area/infra, status/active]
 related:
   - ADR-0006-read-write-replicas
@@ -12,6 +12,8 @@ related:
   - ADR-0010-cognito-auth
   - "[[ADR-0018-observability-openobserve]]"
   - "[[cognito-pre-token-lambda]]"
+  - "[[rds-aurora-engine-switchable-floci]]"
+  - "[[two-phase-terraform-apply]]"
 ---
 
 # AWS Resources
@@ -48,6 +50,16 @@ Both clusters follow the read/write replica pattern from [[ADR-0006-read-write-r
 - **Writer endpoint** — receives all `INSERT`, `UPDATE` commands (no `DELETE` — see [[soft-delete]]).
 - **Reader endpoint** — load-balanced across one or more read replicas for `SELECT` queries.
 - Automated backups: 7-day retention; point-in-time recovery enabled.
+
+Locally (Floci), both clusters are provisioned by the same engine-agnostic `rds-aurora` module
+instantiated with a real, non-Aurora engine (`postgres` for Users, `mysql` for Orders), since
+Floci emulates single-instance Postgres/MySQL containers, not Aurora — see
+[[rds-aurora-engine-switchable-floci]]. Least-privilege app users (`users_app`, `orders_app`;
+`SELECT, INSERT, UPDATE`, never `DELETE`) are created by a second, dedicated Terraform apply
+phase once the cluster endpoint is live, rather than by post-apply bash — see
+[[two-phase-terraform-apply]]. Locally, only the Postgres app-user is managed by Terraform
+today; Floci's MySQL provider cannot manage users, so `orders_app` remains a bash-created
+exception until that emulator gap is resolved.
 
 ### Messaging
 
@@ -110,3 +122,5 @@ the rotation runbook.
 - [[networking]]
 - [[soft-delete]]
 - [[secret-rotation]]
+- [[rds-aurora-engine-switchable-floci]]
+- [[two-phase-terraform-apply]]

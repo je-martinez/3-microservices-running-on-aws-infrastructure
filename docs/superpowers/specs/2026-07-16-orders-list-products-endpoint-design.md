@@ -14,6 +14,9 @@ related:
   - "[[cqrs]]"
   - "[[soft-delete]]"
   - "[[versioning]]"
+propagates-to:
+  - "[[orders-service-design]]"
+  - "[[domains/orders/testing/index]]"
 ---
 
 # Orders — List Products Endpoint Design

@@ -10,6 +10,11 @@ related:
   - "[[2026-06-28-services-infra-scaffold-design]]"
   - "[[2026-06-26-implementation-workflow-design]]"
   - "[[index]]"
+propagates-to:
+  - "[[skills-catalog]]"
+  - "[[users-service-design]]"
+  - "[[orders-service-design]]"
+  - "[[tracking-service-design]]"
 ---
 
 # 3MRAI Services & Infra Scaffold + Skill Discovery Implementation Plan

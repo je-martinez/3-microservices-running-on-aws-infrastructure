@@ -6,6 +6,10 @@ status: draft
 created: 2026-07-15
 updated: 2026-07-15
 tags: [type/spec, area/infra, status/draft]
+propagates-to:
+  - "[[two-phase-terraform-apply]]"
+  - "[[terraform-modules]]"
+  - "[[local-dev-floci]]"
 related:
   - "[[ADR-0004-soft-delete-only]]"
   - "[[ADR-0006-read-write-replicas]]"

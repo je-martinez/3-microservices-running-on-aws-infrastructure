@@ -12,6 +12,8 @@ tags:
 related:
   - "[[audit-fields]]"
   - "[[users-service-design]]"
+propagates-to:
+  - "[[audit-fields]]"
 ---
 
 # AuditActor enum for createdBy/updatedBy

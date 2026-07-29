@@ -8,6 +8,7 @@
     "superpowers@claude-plugins-official": true,
     "obsidian@obsidian-skills": true,
     "mongodb@claude-plugins-official": true,
-    "aws-dev-toolkit@sample-claude-code-plugins-for-startups": true
+    "aws-dev-toolkit@sample-claude-code-plugins-for-startups": true,
+    "claude-obsidian@agricidaniel-claude-obsidian": true
   }
 }

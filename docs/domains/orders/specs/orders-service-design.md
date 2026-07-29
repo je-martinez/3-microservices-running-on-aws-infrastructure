@@ -2,35 +2,45 @@
 title: Orders Service Design
 type: spec
 area: orders
-status: draft
+status: accepted
 created: 2026-06-26
-updated: 2026-07-12
-tags: [type/spec, area/orders, status/draft]
+updated: 2026-07-28
+tags: [type/spec, area/orders, status/accepted]
 related:
-  - soft-delete
-  - nano-id
-  - audit-fields
-  - db-naming
-  - cqrs
-  - versioning
-  - ADR-0003-grpc-inter-service
-  - ADR-0006-read-write-replicas
+  - "[[soft-delete]]"
+  - "[[nano-id]]"
+  - "[[audit-fields]]"
+  - "[[db-naming]]"
+  - "[[cqrs]]"
+  - "[[versioning]]"
+  - "[[ADR-0003-grpc-inter-service]]"
+  - "[[ADR-0006-read-write-replicas]]"
+  - "[[logging-context]]"
+  - "[[env-files]]"
+  - "[[testing]]"
+  - "[[ADR-0019-distributed-tracing-opentelemetry]]"
+  - "[[clean-architecture-divergence]]"
+  - "[[money-as-integer-cents]]"
+  - "[[grpc-api-key-authorization]]"
+  - "[[for-update-pessimistic-locking]]"
+  - "[[2026-07-14-orders-service-milestone-design]]"
+  - "[[2026-07-16-orders-list-products-endpoint-design]]"
 ---
 
 # Orders Service Design
 
-> [!warning] Not implemented yet
-> The Orders service is **design-only** — no source code exists. `services/orders/src/` contains
-> only `.gitkeep` placeholders (no `.csproj`, no tests), and `services/orders/Dockerfile` has every
-> build line commented out. Only a stub [`services/orders/CLAUDE.md`](../../../../services/orders/CLAUDE.md)
-> and a placeholder `orders` service in the root `docker-compose.yml` (build + network wiring only —
-> no ports, no database, no healthcheck) exist so far. Everything below describes the **intended**
-> design, not running behavior.
+> [!note] Live since the Orders Service milestone
+> The Orders service shipped in the Orders Service milestone (merged via PR #51, plus follow-up
+> commits) as a .NET Core 10 Minimal API on Aurora MySQL (Floci-emulated locally), with a live
+> Users gRPC client, OpenTelemetry tracing, and the three-layer test suite ([[testing]]). It
+> diverges from this spec's original design in several ways — see
+> [[#Deltas from the original design (superseded)|Deltas from the original design]] below and the
+> service-local decision notes it links to. `services/orders/CLAUDE.md` is the day-to-day
+> reference for stack/commands; this note is the durable service-design record.
 >
-> The supporting infrastructure this design assumes is also not built yet: there is no SQS/messaging
-> Terraform module (`infra/modules/messaging/` is an empty `.gitkeep`), no DocumentDB module
-> (`infra/modules/database/` is empty — only `rds-aurora` exists), no Aurora MySQL cluster, and no
-> gRPC surface anywhere in the repo (no `.proto` files exist yet).
+> **Not yet built:** real SQS wiring for `ORDER_CREATED` (still a `NoopEventPublisher` emission
+> seam), Orders' own gRPC **server** surface (`GetOrderById`), and Product CRUD — all explicitly
+> out of scope for the shipped milestone.
 
 ## Summary
 
@@ -57,13 +67,18 @@ All routes are versioned under the `/v1` prefix. See [[versioning]] for the vers
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/v1/orders` | Create a new order. Publishes `ORDER_CREATED` to SQS. |
+| `POST` | `/v1/orders` | Create a new order. Emits `ORDER_CREATED` via a `NoopEventPublisher` seam today — real SQS publish is deferred. |
 | `GET` | `/v1/orders/my-orders` | List all orders belonging to the authenticated user. |
-| `GET` | `/v1/orders/{order_id}` | Fetch a single order. Returns `403` if the order does not belong to the requesting user. |
+| `GET` | `/v1/orders/{order_id}` | Fetch a single order. Returns `404` if the order does not belong to the requesting user — see the ownership note below. |
+| `GET` | `/v1/products` | List the active product catalog. Private (requires `x-user-id`), no ownership filtering — products have no owner. See [[2026-07-16-orders-list-products-endpoint-design]]. |
 | `GET` | `/v1/health` | Liveness/readiness probe. Returns `200 { "status": "ok" }` when healthy. No auth required. Used by ALB/Fargate as health check target. |
 
-> [!note] Authorization check
-> `GET /orders/{order_id}` must compare the `user_id` stored on the order against the caller's identity (from the Cognito JWT). Return `403 Forbidden` — never `404` — to avoid leaking existence of other users' orders.
+> [!note] Authorization check — filter in the query, not fetch-then-compare
+> `GET /orders/{order_id}` filters `WHERE id = @orderId AND cognito_sub = @callerSub`
+> directly in the query, so another user's order returns zero rows and the endpoint answers
+> **`404`**, not `403` — indistinguishable from "does not exist," so existence of other users'
+> orders is never leaked. This **supersedes** this spec's original `403 Forbidden` choice; see
+> [[2026-07-14-orders-service-milestone-design]].
 
 ## gRPC Methods
 
@@ -76,6 +91,14 @@ Defined in the `OrdersService` proto. Used by other microservices to fetch order
 ## Data Model
 
 All fields follow snake_case naming in the database and are mapped to PascalCase aliases in the ORM layer. See [[db-naming]]. All IDs use the prefixed nano-id format (`ord_`, `prd_`, `odd_`). See [[nano-id]]. All entities carry the standard audit fields and support soft delete only. See [[audit-fields]] and [[soft-delete]].
+
+> [!note] Money is integer cents, not decimal
+> The tables below still show the original `decimal(10,2)` columns as first designed. As shipped,
+> every monetary column is an integer-cents `bigint` (`unit_price_cents`, `subtotal_cents`,
+> `tax_cents`, `total_cents`) with a non-persisted computed dollar property — see
+> [[money-as-integer-cents]] for the full decision and rationale. `Order` and `OrderDetails` also
+> carry both `user_id` (internal) and `cognito_sub` (gateway-supplied) — the "double identity"
+> decision recorded in [[2026-07-14-orders-service-milestone-design]].
 
 ### Product
 
@@ -153,13 +176,36 @@ This service follows all shared conventions defined once in the vault:
 - [[db-naming]] — snake_case in DB, PascalCase aliases in EF Core models.
 - [[cqrs]] — read queries routed to the read replica; write commands routed to the write replica.
 - [[versioning]] — all HTTP endpoints versioned under `/v1/`.
+- [[logging-context]] — every log line carries the shared cross-service context (`trace_id`, `cognito_sub`, `user_id`, `email_hash`, `order_id`, `duration_ms`); Orders attaches it via a Serilog enricher reading `ICurrentCaller` lazily (never cached — see `services/orders/CLAUDE.md` §4).
+- [[env-files]] — Orders reads its config from `.env.local.orders`, generated by `make env-file`; nothing is hand-maintained.
+- [[testing]] — every endpoint needs all three test layers (unit/integration, internal E2E, gateway E2E with a real Cognito JWT); see [[domains/orders/testing/index]] for how Orders satisfies it.
+- [[ADR-0019-distributed-tracing-opentelemetry]] — traces export via OTel to Jaeger, logs to OpenObserve; OTel endpoint/protocol come from environment variables only, never set in code.
 
-Additional ADRs:
+Additional ADRs and service-local decisions:
 
 - [[ADR-0003-grpc-inter-service]] — gRPC is the inter-service communication protocol.
 - [[ADR-0006-read-write-replicas]] — Aurora MySQL read/write replica topology.
-- [[ADR-0008-screaming-arch-di]] — Screaming architecture + dependency injection.
+- [[ADR-0008-screaming-arch-di]] — Screaming architecture + dependency injection (Orders diverges — see [[clean-architecture-divergence]]).
 - [[ADR-0010-cognito-auth]] — Authentication via AWS Cognito JWT.
+- [[clean-architecture-divergence]] — Orders' 5-project Clean Architecture layering, service-local.
+- [[money-as-integer-cents]] — money stored as integer cents, not `decimal`.
+- [[grpc-api-key-authorization]] — the `x-api-key` scheme securing the Orders→Users gRPC call.
+- [[for-update-pessimistic-locking]] — tagged LINQ + interceptor for the stock row lock.
+
+## Deltas from the original design (superseded)
+
+The following decisions, made during and after the Orders Service milestone, supersede what this
+spec originally said:
+
+- Money columns: `decimal(10,2)` → integer `_cents` `bigint` columns. See [[money-as-integer-cents]].
+- `GET /v1/orders/{order_id}` ownership-failure response: `403 Forbidden` → `404 Not Found` (filter-in-query pattern, avoids leaking existence).
+- `Order`/`OrderDetails` store both `user_id` (internal) and `cognito_sub` (gateway-supplied), not `user_id` alone.
+- Architecture diverges from [[ADR-0008-screaming-arch-di]] for this service only. See [[clean-architecture-divergence]].
+- Added `GET /v1/products` (not in the original endpoint table). See [[2026-07-16-orders-list-products-endpoint-design]].
+- Added the gRPC `x-api-key` authorization scheme for the Users call. See [[grpc-api-key-authorization]].
+- Stock locking moved from raw `FOR UPDATE` SQL to tagged LINQ + an EF Core interceptor. See [[for-update-pessimistic-locking]].
+
+Full milestone design: [[2026-07-14-orders-service-milestone-design]].
 
 ## Related
 
@@ -169,8 +215,18 @@ Additional ADRs:
 - [[db-naming]]
 - [[cqrs]]
 - [[versioning]]
+- [[logging-context]]
+- [[env-files]]
+- [[testing]]
 - [[ADR-0003-grpc-inter-service]]
 - [[ADR-0006-read-write-replicas]]
 - [[ADR-0007-secrets-parameter-store]]
 - [[ADR-0008-screaming-arch-di]]
 - [[ADR-0010-cognito-auth]]
+- [[ADR-0019-distributed-tracing-opentelemetry]]
+- [[clean-architecture-divergence]]
+- [[money-as-integer-cents]]
+- [[grpc-api-key-authorization]]
+- [[for-update-pessimistic-locking]]
+- [[2026-07-14-orders-service-milestone-design]]
+- [[2026-07-16-orders-list-products-endpoint-design]]

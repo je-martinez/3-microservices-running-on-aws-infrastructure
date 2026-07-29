@@ -1,3 +1,23 @@
+---
+title: Local Gateway Per-Route Integration Plan
+type: plan
+area: infra
+status: draft
+created: 2026-07-11
+updated: 2026-07-11
+tags:
+  - type/plan
+  - area/infra
+  - status/draft
+propagates-to:
+  - "[[local-gateway-per-route-integrations]]"
+  - "[[networking]]"
+related:
+  - "[[2026-07-11-local-gateway-per-route-integration-design]]"
+  - "[[ADR-0016-local-apigw-nginx-ecs]]"
+  - "[[mcp-servers]]"
+---
+
 # Local Gateway Per-Route Integration Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

@@ -12,6 +12,9 @@ tags:
 related:
   - "[[ADR-0010-cognito-auth]]"
   - "[[users-service-design]]"
+propagates-to:
+  - "[[refresh-token-endpoint]]"
+  - "[[users-service-design]]"
 ---
 
 # Refresh token endpoint — POST /v1/users/refresh

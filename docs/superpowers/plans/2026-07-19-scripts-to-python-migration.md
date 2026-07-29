@@ -9,6 +9,8 @@ tags:
   - type/plan
   - area/infra
   - status/draft
+propagates-to:
+  - "[[scripting-language]]"
 related:
   - "[[2026-07-19-scripts-to-python-migration-design]]"
   - "[[2026-07-15-two-phase-post-effects-design]]"

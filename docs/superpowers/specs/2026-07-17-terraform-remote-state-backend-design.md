@@ -9,6 +9,9 @@ tags:
   - type/spec
   - area/infra
   - status/draft
+propagates-to:
+  - "[[terraform-remote-state-backend]]"
+  - "[[terraform-modules]]"
 related:
   - "[[ADR-0017-floci-local]]"
   - "[[floci-rds-apigw-limits]]"

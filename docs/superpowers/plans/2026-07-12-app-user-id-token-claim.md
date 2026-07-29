@@ -1,3 +1,21 @@
+---
+title: app_user_id Token Claim Plan
+type: plan
+area: users
+status: draft
+created: 2026-07-12
+updated: 2026-07-12
+tags:
+  - type/plan
+  - area/users
+  - status/draft
+related:
+  - "[[2026-07-12-app-user-id-token-claim-design]]"
+  - "[[ADR-0010-cognito-auth]]"
+propagates-to:
+  - "[[app-user-id-token-claim]]"
+---
+
 # app_user_id Token Claim — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

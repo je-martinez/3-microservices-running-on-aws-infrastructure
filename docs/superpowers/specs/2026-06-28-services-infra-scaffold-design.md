@@ -23,6 +23,11 @@ related:
   - "[[orders-service-design]]"
   - "[[tracking-service-design]]"
   - "[[events-pipeline-design]]"
+propagates-to:
+  - "[[skills-catalog]]"
+  - "[[users-service-design]]"
+  - "[[orders-service-design]]"
+  - "[[tracking-service-design]]"
 ---
 
 # 3MRAI Services & Infra Scaffold + Skill Discovery — Design

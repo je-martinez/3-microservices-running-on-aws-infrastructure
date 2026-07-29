@@ -1,3 +1,23 @@
+---
+title: "Orders: List Products Endpoint Plan"
+type: plan
+area: orders
+status: draft
+created: 2026-07-16
+updated: 2026-07-16
+tags:
+  - type/plan
+  - area/orders
+  - status/draft
+related:
+  - "[[2026-07-16-orders-list-products-endpoint-design]]"
+  - "[[orders-service-design]]"
+  - "[[cqrs]]"
+propagates-to:
+  - "[[orders-service-design]]"
+  - "[[domains/orders/testing/index]]"
+---
+
 # Orders — List Products Endpoint Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

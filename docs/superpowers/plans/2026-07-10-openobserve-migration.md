@@ -7,6 +7,9 @@ created: 2026-07-10
 updated: 2026-07-10
 tags: [type/plan, area/shared, status/draft]
 related: ["[[2026-07-10-openobserve-migration-design]]", "[[ADR-0018-observability-openobserve]]", "[[2026-07-10-signoz-logs-observability]]", "[[openobserve-cloudwatch]]", "[[ADR-0007-secrets-parameter-store]]"]
+propagates-to:
+  - "[[ADR-0018-observability-openobserve]]"
+  - "[[openobserve-runbook]]"
 ---
 
 # OpenObserve Backend Migration Implementation Plan

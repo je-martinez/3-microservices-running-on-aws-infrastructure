@@ -7,6 +7,8 @@ created: 2026-07-03
 updated: 2026-07-03
 tags: [type/plan, area/shared, status/draft]
 related: ["[[2026-07-03-local-dev-tooling-design]]", "[[ADR-0017-floci-local]]", "[[git-workflow]]"]
+propagates-to:
+  - "[[local-dev]]"
 ---
 
 # Local Dev Tooling (Makefile + .http files) Implementation Plan

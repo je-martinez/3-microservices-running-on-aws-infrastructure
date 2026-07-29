@@ -23,6 +23,11 @@ related:
   - "[[ADR-0010-cognito-auth]]"
   - "[[users-service-design]]"
   - "[[2026-06-26-implementation-workflow-design]]"
+propagates-to:
+  - "[[orders-service-design]]"
+  - "[[clean-architecture-divergence]]"
+  - "[[money-as-integer-cents]]"
+  - "[[grpc-api-key-authorization]]"
 ---
 
 # Orders Service Milestone Design

@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-03
-updated: 2026-07-03
+updated: 2026-07-28
 tags:
   - type/convention
   - area/shared
@@ -13,6 +13,8 @@ related:
   - "[[phase-c-review-flow]]"
   - "[[linear-references]]"
   - "[[milestone-plan]]"
+  - "[[2026-07-03-git-workflow-decentralization-design]]"
+  - "[[2026-07-03-git-workflow-decentralization]]"
 ---
 
 # Git Workflow
@@ -138,3 +140,5 @@ restate them.
 - [[phase-c-review-flow]]
 - [[linear-references]]
 - [[milestone-plan]]
+- [[2026-07-03-git-workflow-decentralization-design]] — the design spec that introduced this convention (decentralizing git off `github-ops`).
+- [[2026-07-03-git-workflow-decentralization]] — the implementation plan for that design.

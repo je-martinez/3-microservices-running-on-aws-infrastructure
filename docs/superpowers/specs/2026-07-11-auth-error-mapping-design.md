@@ -12,6 +12,8 @@ tags:
 related:
   - "[[ADR-0010-cognito-auth]]"
   - "[[users-service-design]]"
+propagates-to:
+  - "[[auth-error-mapping]]"
 ---
 
 # Map Cognito auth exceptions to HTTP status codes (no more 500s)

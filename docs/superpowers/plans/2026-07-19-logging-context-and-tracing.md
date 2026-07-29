@@ -17,6 +17,9 @@ related:
   - "[[testing]]"
   - "[[ADR-0019-distributed-tracing-opentelemetry]]"
   - "[[developer-experience-milestone]]"
+propagates-to:
+  - "[[logging-context]]"
+  - "[[ADR-0019-distributed-tracing-opentelemetry]]"
 ---
 
 # Logging Context and Tracing Implementation Plan

@@ -4,13 +4,14 @@ type: convention
 area: shared
 status: active
 created: 2026-07-19
-updated: 2026-07-19
+updated: 2026-07-28
 tags:
   - type/convention
   - area/shared
   - status/active
 related:
   - "[[2026-07-19-logging-context-and-tracing-design]]"
+  - "[[2026-07-19-logging-context-and-tracing]]"
   - "[[ADR-0019-distributed-tracing-opentelemetry]]"
   - "[[ADR-0018-observability-openobserve]]"
   - "[[testing]]"
@@ -141,6 +142,7 @@ reach the shared schema.
 ## Related
 
 - [[2026-07-19-logging-context-and-tracing-design]]
+- [[2026-07-19-logging-context-and-tracing]] — the implementation plan for that design.
 - [[ADR-0019-distributed-tracing-opentelemetry]]
 - [[ADR-0018-observability-openobserve]]
 - [[testing]]

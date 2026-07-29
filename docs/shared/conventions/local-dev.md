@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-03
-updated: 2026-07-12
+updated: 2026-07-28
 tags:
   - type/convention
   - area/shared
@@ -14,6 +14,8 @@ related:
   - "[[local-dev-floci]]"
   - "[[git-workflow]]"
   - "[[floci-storage-modes-and-tmp-corruption]]"
+  - "[[2026-07-03-local-dev-tooling-design]]"
+  - "[[2026-07-03-local-dev-tooling]]"
 ---
 
 # Local Development
@@ -68,3 +70,5 @@ a new service needs local testing.
 - [[local-dev-floci]]
 - [[git-workflow]]
 - [[floci-storage-modes-and-tmp-corruption]]
+- [[2026-07-03-local-dev-tooling-design]] — the design spec that introduced the Makefile + `.http` convention.
+- [[2026-07-03-local-dev-tooling]] — the implementation plan for that design.

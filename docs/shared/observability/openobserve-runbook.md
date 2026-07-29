@@ -4,7 +4,7 @@ type: runbook
 area: shared
 status: active
 created: 2026-07-10
-updated: 2026-07-16
+updated: 2026-07-28
 integration-status: verified
 verified-on: 2026-07-10
 verified-by: Jose E. Martinez
@@ -15,6 +15,8 @@ related:
   - "[[2026-07-10-openobserve-migration]]"
   - "[[local-dev]]"
   - "[[2026-07-16-structured-logging-and-dashboards-design]]"
+  - "[[2026-07-16-structured-logging-and-dashboards]]"
+  - "[[2026-07-10-openobserve-migration-design]]"
 ---
 
 # OpenObserve — Local Runbook
@@ -184,3 +186,5 @@ against Floci.
 - [[2026-07-10-openobserve-migration]]
 - [[local-dev]]
 - [[2026-07-16-structured-logging-and-dashboards-design]]
+- [[2026-07-16-structured-logging-and-dashboards]] — the implementation plan for the dashboards this runbook documents.
+- [[2026-07-10-openobserve-migration-design]] — the design spec for the OpenObserve backend this runbook operates.

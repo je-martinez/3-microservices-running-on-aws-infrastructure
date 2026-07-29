@@ -6,6 +6,10 @@ status: draft
 created: 2026-07-04
 updated: 2026-07-04
 tags: [type/spec, area/infra, status/draft, issue/JE-36]
+propagates-to:
+  - "[[terraform-modules]]"
+  - "[[local-dev-floci]]"
+  - "[[rds-aurora-engine-switchable-floci]]"
 related: ["[[users-service-milestone]]", "[[ADR-0017-floci-local]]", "[[floci-vs-ministack-spike-findings]]", "[[local-dev]]", "[[git-workflow]]", "[[soft-delete]]"]
 ---
 
