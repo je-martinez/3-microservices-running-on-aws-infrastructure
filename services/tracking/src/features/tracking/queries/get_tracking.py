@@ -31,7 +31,7 @@ class TrackingWithHistory:
     history: list[TrackingHistory]
 
 
-def _with_history(tracking: Tracking) -> TrackingWithHistory:
+def with_history(tracking: Tracking) -> TrackingWithHistory:
     """Pair a tracking with its history, taken off the eager relationship.
 
     `Tracking.history` is `lazy="selectin"` and ordered by
@@ -40,6 +40,11 @@ def _with_history(tracking: Tracking) -> TrackingWithHistory:
     is what keeps the batch read free of an N+1: `selectin` fetches every
     tracking's history in ONE extra query for the whole result set, whereas a
     per-tracking `get_history` call would issue one query per row.
+
+    Public (Phase D): the user-scoped REST queries in `get_my_trackings.py` pair
+    their rows the same way, and the pairing must stay identical across the two
+    read surfaces or the same row would come back with differently-ordered history
+    depending on which transport asked.
     """
     return TrackingWithHistory(tracking=tracking, history=list(tracking.history))
 
@@ -56,7 +61,7 @@ def get_tracking_by_order_id(
     tracking = TrackingRepository(session).get_by_order_id(order_id)
     if tracking is None:
         return None
-    return _with_history(tracking)
+    return with_history(tracking)
 
 
 def get_trackings_by_order_ids(
@@ -78,4 +83,4 @@ def get_trackings_by_order_ids(
     "none of these exist" is a complete, correct answer to the question asked.
     """
     trackings = TrackingRepository(session).get_by_order_ids(order_ids)
-    return [_with_history(tracking) for tracking in trackings]
+    return [with_history(tracking) for tracking in trackings]

@@ -19,6 +19,8 @@ from pathlib import Path
 
 import grpc
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -225,3 +227,94 @@ def grpc_channel(grpc_server: int) -> Iterator[grpc.Channel]:
     """An insecure channel to the test server."""
     with grpc.insecure_channel(f"127.0.0.1:{grpc_server}") as channel:
         yield channel
+
+
+# --------------------------------------------------------------------- HTTP
+#
+# The REST tests drive the REAL FastAPI app (built by `create_app`) through
+# `TestClient`, against the SAME real MySQL every other suite uses. Not a mocked
+# handler and not a hand-called function: going through the app is what exercises
+# the routing, the auth dependencies, the Pydantic response models and the
+# exception handlers — the four things a direct call would skip, and three of them
+# (auth, ownership scoping, the 400 `reason` field) are the point of Phase D.
+#
+# The skip property is inherited from `database_url`: no MySQL still means an
+# explicit skip, never a fallback to mocks.
+
+#: The carrier key the test app is configured with. A literal, not the real
+#: environment's key — these tests must not depend on a generated env file.
+TEST_CARRIER_API_KEY = "test-carrier-api-key"
+
+
+@pytest.fixture
+def app(engine: Engine) -> FastAPI:
+    """The real app, with its DB sessions and settings bound to the test engine.
+
+    Three overrides, each replacing a process-wide singleton with a test-scoped
+    one:
+
+    * `get_read_session` / `get_write_session` — sessions on the TEST engine, so
+      the HTTP surface reads and writes the same database the other fixtures set up
+      and clean. The write override commits, exactly as `write_session` does, so a
+      test can assert the row survived the request rather than only the response.
+    * `get_settings` — a settings object whose `tracking_carrier_api_key` is the
+      literal above, so the carrier tests neither read nor need a real env file.
+
+    The gRPC server is disabled for this app (`TRACKING_GRPC_ENABLED=0` is set by
+    the fixture below): the HTTP suite has no business binding GRPC_PORT, and the
+    gRPC surface already has its own suite on an ephemeral port.
+    """
+    from src.main import create_app
+    from src.shared.config.settings import Settings, get_settings
+    from src.shared.http.dependencies import get_read_session, get_write_session
+
+    factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+
+    def override_read() -> Iterator[Session]:
+        db = factory()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    def override_write() -> Iterator[Session]:
+        db = factory()
+        try:
+            yield db
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+
+    def override_settings() -> Settings:
+        return Settings(
+            database_writer_url="mysql+pymysql://unused/unused",
+            database_reader_url="mysql+pymysql://unused/unused",
+            grpc_api_key="unused-grpc-key",
+            tracking_carrier_api_key=TEST_CARRIER_API_KEY,
+        )
+
+    application = create_app()
+    application.dependency_overrides[get_read_session] = override_read
+    application.dependency_overrides[get_write_session] = override_write
+    application.dependency_overrides[get_settings] = override_settings
+    return application
+
+
+@pytest.fixture
+def client(app: FastAPI, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    """A `TestClient` over the real app, with the gRPC server switched off.
+
+    `TestClient` as a context manager RUNS the lifespan — which is deliberate: it
+    means the startup path Phase D added is exercised on every REST test rather
+    than only in production. `TRACKING_GRPC_ENABLED=0` keeps that startup from
+    binding a second port, which would fail the moment two tests overlapped or the
+    real service was already running locally.
+    """
+    from src.main import GRPC_ENABLED_ENV
+
+    monkeypatch.setenv(GRPC_ENABLED_ENV, "0")
+    with TestClient(app) as test_client:
+        yield test_client

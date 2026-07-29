@@ -349,6 +349,43 @@ class TestUpdateStatus:
             TrackingStatus.DELIVERED,
         ]
 
+    def test_the_returned_entitys_history_includes_the_new_transition(
+        self, repo: TrackingRepository, session: Session
+    ) -> None:
+        """Regression (JE-94): the updated entity must not report a stale history.
+
+        `append_history_entry` adds the row to the SESSION, not to the loaded
+        `tracking.history` collection — so an entity that came from a READ (where
+        `lazy="selectin"` already populated that collection) kept the pre-update
+        history after being updated.
+
+        Invisible to any caller that re-reads the tracking, which is why it
+        survived Phase B/C. The carrier PUT is the first caller to render its
+        response off the just-updated entity, and it reported the new status
+        alongside a history that did not contain it — a transition that had
+        provably happened and left no trace in the log whose entire purpose is to
+        record it. `update_status` now expires the attribute so the next access
+        reloads it.
+        """
+        # Fetched, not the object `create` returned: `get_by_order_id` is what
+        # populates the eager collection, and the stale copy is the bug.
+        make_tracking(repo, order_id="ord_upd00000000000000009")
+        session.commit()
+        fetched = repo.get_by_order_id("ord_upd00000000000000009")
+        assert fetched is not None
+        assert [h.status for h in fetched.history] == [TrackingStatus.SHIPPED]
+
+        updated = repo.update_status(
+            tracking=fetched,
+            status=TrackingStatus.ON_THE_WAY,
+            actor=AuditActor.CARRIER_STATUS_UPDATE,
+        )
+
+        assert [h.status for h in updated.history] == [
+            TrackingStatus.SHIPPED,
+            TrackingStatus.ON_THE_WAY,
+        ]
+
     def test_history_is_ordered_by_time_not_alphabetically(
         self, repo: TrackingRepository, session: Session
     ) -> None:

@@ -239,6 +239,25 @@ class TrackingRepository:
         `domain/status.py` as pure functions, and the caller applies them — that
         keeps them usable by TestMode progression, which has no session at all.
         This method persists a decision already made.
+
+        ## Why `history` is expired at the end
+
+        `append_history_entry` adds the new row to the SESSION, not to the
+        `tracking.history` collection. When `tracking` came from a read, that
+        collection is already loaded (`lazy="selectin"`) and therefore **stale** —
+        it still holds the transitions from before this update.
+
+        That is invisible to a caller who re-reads the tracking, which is why it
+        survived Phase B/C: the gRPC reads load history fresh. It surfaced the
+        moment the carrier PUT rendered its response off the just-updated entity —
+        the endpoint reported the NEW status alongside a history that did not
+        contain it, i.e. a transition that had demonstrably happened and left no
+        trace in the log it exists to write.
+
+        Expiring the attribute makes the next access reload it (ordered by
+        `TrackingHistory.ordering()`, like any other load), so the returned entity
+        and its own row agree by construction and no caller has to know that
+        appending went through the session.
         """
         moment = now or _utcnow()
         tracking.status = status.value
@@ -248,6 +267,7 @@ class TrackingRepository:
             tracking=tracking, status=status, actor=actor, now=moment
         )
         self.session.flush()
+        self.session.expire(tracking, ["history"])
         return tracking
 
     # ------------------------------------------------------------ audit stamps
