@@ -36,8 +36,29 @@ from src.shared.db.nano_id import new_tracking_id
 
 
 def _utcnow() -> datetime:
-    """Naive UTC `datetime`, matching the DATETIME columns (which carry no tz)."""
-    return datetime.now(UTC).replace(tzinfo=None)
+    """Naive, whole-second UTC `datetime`, matching what the columns can hold.
+
+    Two adjustments, both matching the storage rather than the clock:
+
+    * **No tzinfo** — MySQL `DATETIME` carries no zone.
+    * **No microseconds** — and this one is load-bearing. `sa.DateTime()` maps to
+      `DATETIME` with fsp 0, and MySQL does not truncate the fractional part on
+      write, it **ROUNDS** it (verified on 8.0.46: inserting `04:03:46.965829`
+      stores `04:03:47`). So an in-memory entity keeping its microseconds
+      disagrees with its own row — by up to a second, and in the wrong direction.
+
+      That is invisible while everything reads from the database, which is why it
+      survived Phase B. It surfaced the moment `CreateTracking` rendered its
+      response off the just-written entity: create reported
+      `2026-07-29T04:03:46.965829Z` while the subsequent read of the same row
+      reported `2026-07-29T04:03:47Z`. Two RPCs, one row, two timestamps — and the
+      create response quoting an instant the database never held.
+
+      Dropping the microseconds HERE, at the single place the write timestamp is
+      minted, keeps the entity and the row identical by construction, so no caller
+      has to know about the column's precision.
+    """
+    return datetime.now(UTC).replace(tzinfo=None, microsecond=0)
 
 
 class TrackingRepository:
