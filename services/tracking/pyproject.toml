@@ -16,6 +16,10 @@ filterwarnings = ["error::DeprecationWarning"]
 target-version = "py312"
 line-length = 88
 src = ["src", "tests"]
+# protoc output — machine-generated, regenerated wholesale by
+# `scripts/generate_grpc_stubs.py`, and not hand-maintained style. Linting it
+# would only ever produce findings nobody may fix.
+extend-exclude = ["src/shared/grpc/generated"]
 
 [tool.ruff.lint]
 select = [

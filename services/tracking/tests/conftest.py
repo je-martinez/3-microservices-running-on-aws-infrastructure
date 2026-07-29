@@ -14,8 +14,10 @@ import os
 import subprocess
 import sys
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
+import grpc
 import pytest
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
@@ -151,3 +153,75 @@ def pytest_configure(config: pytest.Config) -> None:
     service_root = str(Path(__file__).resolve().parents[1])
     if service_root not in sys.path:
         sys.path.insert(0, service_root)
+
+
+# --------------------------------------------------------------------- gRPC
+#
+# The gRPC tests run against a REAL server over a REAL socket (bound on an
+# ephemeral loopback port), with the servicer talking to the same real MySQL the
+# repository tests use. Not a mocked `ServicerContext`, and not a direct call into
+# the servicer class: a direct call bypasses the interceptor, serialization, and
+# status-code mapping — precisely the three things these tests exist to verify.
+# The skip property is inherited from `database_url`, so no DB still means an
+# explicit skip, never a silent fallback.
+
+#: The `x-api-key` the test server is configured with. A literal, not the real
+#: environment's key — these tests must not depend on a generated env file.
+TEST_API_KEY = "test-grpc-api-key"
+
+
+@pytest.fixture
+def grpc_server(engine: Engine) -> Iterator[int]:
+    """A running gRPC server bound to an ephemeral port; yields that port.
+
+    The servicer's session factories are bound to the TEST engine rather than the
+    process-wide writer/reader engines, so the RPCs read and write the same
+    database the other fixtures set up and clean.
+    """
+    from src.features.tracking.grpc.service import TrackingServicer
+    from src.shared.grpc.server import build_server
+
+    factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+
+    @contextmanager
+    def write_session() -> Iterator[Session]:
+        """Mirrors `shared.db.engine.write_session`: commits, rolls back, closes."""
+        session = factory()
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    @contextmanager
+    def read_session() -> Iterator[Session]:
+        session = factory()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    server = build_server(
+        api_key=TEST_API_KEY,
+        servicer=TrackingServicer(writer=write_session, reader=read_session),
+    )
+    # Port 0 = let the OS pick a free one. Hardcoding a port makes the suite fail
+    # when anything else on the machine happens to hold it.
+    port = server.add_insecure_port("127.0.0.1:0")
+    server.start()
+    try:
+        yield port
+    finally:
+        # No grace period: every RPC in this suite is complete by teardown, and a
+        # grace window would just slow the run down.
+        server.stop(None).wait()
+
+
+@pytest.fixture
+def grpc_channel(grpc_server: int) -> Iterator[grpc.Channel]:
+    """An insecure channel to the test server."""
+    with grpc.insecure_channel(f"127.0.0.1:{grpc_server}") as channel:
+        yield channel

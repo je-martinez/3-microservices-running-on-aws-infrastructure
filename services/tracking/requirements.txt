@@ -13,7 +13,18 @@ alembic==1.14.1
 # mysqlclient. The DSN is mysql+pymysql:// (see .env.local.tracking).
 pymysql==1.1.1
 nanoid==2.0.0
+# gRPC server for CreateTracking / the two unscoped reads. `protobuf` is pinned
+# alongside it on purpose: the committed stubs under
+# src/shared/grpc/generated/ are generated against a specific protobuf major and
+# refuse to load on an older runtime, so the two versions must move together.
+grpcio==1.83.0
+protobuf==7.35.1
 
 # --- dev / test ------------------------------------------------------------
 pytest==8.3.4
 ruff==0.9.2
+# Codegen only (`scripts/generate_grpc_stubs.py`), never imported at runtime —
+# the stubs it produces are committed, so the image needs no protoc. Kept at the
+# SAME version as grpcio: grpc_tools emits a version guard into the generated
+# _pb2_grpc module that raises when the installed grpcio is older.
+grpcio-tools==1.83.0
