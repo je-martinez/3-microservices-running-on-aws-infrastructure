@@ -13,9 +13,35 @@ message GetUserByIdRequest {
   string id = 1;
 }
 
+// The user's delivery address. Users stores it as schema-free JSON (`address
+// Json?` on the Prisma model) and maps it onto these fields at read time.
+//
+// Mirrors tracking.v1.Address field for field — same six strings, same numbering
+// — deliberately, instead of one importing the other: every consumer of either
+// proto loads exactly ONE file (Orders' csproj lists each .proto explicitly;
+// Users' Dockerfile copies only its own), so an import would make one service's
+// codegen depend on resolving the other's contract. Keep the two in sync by
+// hand; the fields are a frozen value object, not an evolving contract.
+//
+// proto3 scalars have no null: a key absent from the stored JSON (commonly
+// `line2`, `state`, `postal_code`) arrives as "", not null. Treat "" as "not
+// provided" — never fail validation on it.
+message Address {
+  string line1 = 1;
+  string line2 = 2;
+  string city = 3;
+  string state = 4;
+  string country = 5;
+  string postal_code = 6;
+}
+
 message UserResponse {
   string id = 1;
   string email = 2;
   string full_name = 3;
   string cognito_sub = 4;
+  // PII. This response is guarded by the x-api-key interceptor on the Users gRPC
+  // surface — it is no longer only an identity lookup. NEVER log this message,
+  // the same way plaintext email is never logged (see [[logging-context]]).
+  Address address = 5;
 }
