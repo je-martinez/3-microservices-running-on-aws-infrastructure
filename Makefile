@@ -33,7 +33,7 @@ export AWS_SECRET_ACCESS_KEY ?= test
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps test-unit test-e2e test-all backend-up infra-init infra-plan infra-up infra-up-post infra-down infra-output env-file migrate bootstrap clean observability-up observability-down observability-dashboards scripts-setup
+.PHONY: help up down logs build ps test-unit test-e2e test-all backend-up infra-init infra-plan infra-up infra-up-post infra-down infra-output env-file migrate migrate-tracking bootstrap clean observability-up observability-down observability-dashboards scripts-setup
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -148,6 +148,37 @@ migrate: ## Apply Prisma migrations (users) against Floci's Postgres (idempotent
 		node node_modules/prisma/build/index.js migrate deploy --schema=./prisma/schema.prisma
 	@echo "Prisma migrations applied."
 
+migrate-tracking: ## Apply Alembic migrations (tracking) against Floci's MySQL (idempotent)
+	@# `alembic upgrade head` (services/tracking/CLAUDE.md §2). Idempotent: on an
+	@# up-to-date database it is a no-op, so bootstrap and a manual re-run are both safe.
+	@#
+	@# Runs INSIDE a one-off tracking container, not on the host. Three reasons:
+	@#   1. Dependencies. alembic/SQLAlchemy/pymysql live in the per-service venv
+	@#      services/tracking/.venv, which a fresh clone does NOT have — the repo-root
+	@#      .venv is for the INFRA scripts only and deliberately carries none of them.
+	@#      The image already ships alembic/ + alembic.ini + the runtime venv (see
+	@#      services/tracking/Dockerfile), so the container needs no second toolchain.
+	@#   2. The DB URL. `.env.local.tracking` holds the IN-NETWORK writer URL
+	@#      (mysql+pymysql://test:test@floci:<discovered-port>/tracking) and alembic/env.py
+	@#      reads DATABASE_WRITER_URL straight from the environment. `compose run` mounts
+	@#      that same generated file via the service's `env_file:`, so the recipe needs no
+	@#      port discovery and no URL rewriting at all. A host-side run would have to
+	@#      rebuild the URL against `localhost` plus the discovered port — Floci reassigns
+	@#      those (7000-7099, by cluster creation order) on every apply, so that would be a
+	@#      second, drift-prone copy of a value the env file already resolved correctly.
+	@#   3. Credentials. Like `make migrate` (Users/Prisma), migrations run as the cluster
+	@#      SUPERUSER (test/test) because they execute DDL, and the least-privilege app user
+	@#      has no DDL grant by design (ADR-0004). The generated URL is already the
+	@#      superuser one, so this comes for free rather than being re-derived.
+	@# Trade-off: this REQUIRES the tracking image to exist, so the build must precede it
+	@# (bootstrap builds it in the same step chain). `--no-deps` keeps the one-off from
+	@# starting anything else, and `--rm` leaves no stopped container behind. The
+	@# `--entrypoint` override replaces the image CMD (uvicorn) for this run only; the
+	@# long-running service container is untouched.
+	$(COMPOSE) build tracking
+	$(COMPOSE) run --rm --no-deps --entrypoint alembic tracking upgrade head
+	@echo "Alembic migrations applied (tracking)."
+
 infra-up-post: scripts-setup ## Phase 2: create DB app-users in Terraform (post-effects), after phase 1
 	@# Two-phase apply (see docs/superpowers/specs/2026-07-15-two-phase-post-effects-design.md
 	@# and environments/local/post/README.md): a SEPARATE Terraform root with its
@@ -200,6 +231,25 @@ bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in depe
 	@# locally. Bring it up after users so the Users gRPC gate (users:50051) is
 	@# reachable for POST /v1/orders.
 	$(COMPOSE) up -d --build orders
+	@# Tracking, LAST in the chain, and unlike Orders it does NOT self-migrate: it has
+	@# real Alembic migrations that nothing invoked until `migrate-tracking` existed, so
+	@# the migration is an explicit step here (the Orders comment above explains why that
+	@# service owns its schema instead).
+	@#
+	@# Placement. Only two things actually gate it:
+	@#   - Its MySQL cluster and the `tracking` database must exist — both are created by
+	@#     phase-1 `infra-up` (terraform_data.tracking_database), far above.
+	@#   - `.env.local.tracking` must exist, because `migrate-tracking` reads
+	@#     DATABASE_WRITER_URL from it — also written by `infra-up` via `env-file`.
+	@# It does NOT need `users` running: Tracking's only gRPC is an OUTBOUND client to
+	@# Users, dialed lazily per REQUEST on POST /v1/trackings/init-tracking — nothing at
+	@# boot. That is the same reasoning that keeps its compose `depends_on` at `floci`
+	@# alone, and this ordering must not contradict it: Tracking is placed here for
+	@# readability (services grouped at the end), NOT because it depends on users/orders.
+	@# migrate-tracking builds the image itself, which is also what the container-based
+	@# migrate needs, so the build below is a cache hit.
+	$(MAKE) migrate-tracking
+	$(COMPOSE) up -d --build tracking
 
 clean: ## Tear down infra + compose (prompts before removing ./data)
 	-$(TF) destroy -auto-approve
