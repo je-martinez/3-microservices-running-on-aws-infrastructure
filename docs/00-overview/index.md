@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-07-20
+updated: 2026-07-30
 tags:
   - type/spec
   - area/shared
@@ -55,6 +55,7 @@ related:
   - "[[2026-07-19-scripts-to-python-migration-design]]"
   - "[[2026-07-19-logging-context-and-tracing-design]]"
   - "[[2026-07-20-env-file-generation-design]]"
+  - "[[2026-07-30-post-infra-root-design]]"
   - "[[ADR-0015-drawio-diagrams]]"
   - "[[ADR-0019-distributed-tracing-opentelemetry]]"
   - "[[logging-context]]"
@@ -234,6 +235,7 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-07-19-scripts-to-python-migration-design]] — Design for migrating the repo's 5 remaining bash scripts to Python (shared `lib3mrai` package, venv-pinned Terraform `local-exec` interpreter, boto3 over the `aws` CLI) and establishing a Python-first/JavaScript-second/Bash-last scripting-language convention; block 1 of 3 of the Developer Experience milestone, per [[2026-07-15-two-phase-post-effects-design]], [[awscli-fallback-for-floci]], [[testing]].
 - [[2026-07-19-logging-context-and-tracing-design]] — Design for a shared cross-service log context (trace/span id, hashed email, domain ids), flow-level logs for register/login/create-order, and real OpenTelemetry distributed tracing across the gRPC boundary into the existing OpenObserve collector; block 2 of 3 of the Developer Experience milestone, per [[2026-07-16-structured-logging-and-dashboards-design]], [[ADR-0018-observability-openobserve]], [[2026-07-12-prisma-lazy-promise-als]].
 - [[2026-07-20-env-file-generation-design]] — Design for auto-generating every env file that derives from Terraform discovery, split per consumer (root `.env` for compose interpolation, `.env.local.infra`, per-service `.env.local.<svc>`, and a host-debug file), replacing the Makefile's inline awk/printf and moving compose from inline `environment:` to `env_file:`; block 3 of 3 of the Developer Experience milestone, per [[2026-07-19-scripts-to-python-migration-design]], [[scripting-language]], [[testing]].
+- [[2026-07-30-post-infra-root-design]] — Design splitting `make bootstrap` (ends usable: services up, seeded, connecting as the cluster superuser) from a new `make post-infra` (hardens it: moved MySQL provider GRANTs + the existing phase-2 least-privilege app-user apply), plus a DynamoDB execution log — declared in `tf-backend` — that records, but never uses to skip, the outcome of the four post-resource provisioning scripts; per [[two-phase-terraform-apply]], [[scripting-language]], [[env-files]].
 
 ---
 
@@ -306,6 +308,7 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[2026-07-19-scripts-to-python-migration-design]]
 - [[2026-07-19-logging-context-and-tracing-design]]
 - [[2026-07-20-env-file-generation-design]]
+- [[2026-07-30-post-infra-root-design]]
 - [[ADR-0015-drawio-diagrams]]
 - [[ADR-0019-distributed-tracing-opentelemetry]]
 - [[logging-context]]
