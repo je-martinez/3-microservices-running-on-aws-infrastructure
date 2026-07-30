@@ -550,7 +550,13 @@ class TestUpdateStatus:
     ) -> None:
         """`DELIVERED` sorts first alphabetically; it must come last here."""
         tracking = make_tracking(repo, order_id="ord_upd00000000000000003")
-        base = datetime(2026, 7, 29, 12, 0, 0)
+        # Anchored to the tracking's own SHIPPED row, not to a wall-clock literal.
+        # `make_tracking` stamps SHIPPED with the real current time, so a fixed
+        # base like 2026-07-29 12:00 puts every later transition BEFORE the
+        # creation whenever the suite runs after midday — SHIPPED then sorts last
+        # by timestamp, correctly, and the assertion fails for a reason that has
+        # nothing to do with alphabetical ordering.
+        base = tracking.datetime_
         for offset, status in enumerate(
             (
                 TrackingStatus.ON_THE_WAY,
