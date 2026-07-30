@@ -4,7 +4,7 @@ type: adr
 area: infra
 status: accepted
 created: 2026-07-28
-updated: 2026-07-28
+updated: 2026-07-30
 tags:
   - type/adr
   - area/infra
@@ -38,8 +38,12 @@ Terraform roots with separate state**:
   healthcheck gate (`wait_for_db`) blocks app-user creation until the DB actually accepts
   connections.
 
-App-user management is gated **per engine, per environment**: locally only `postgres` is
-enabled (`users_app`); `mysql` (`orders_app`) stays disabled, created outside Terraform. In
+App-user management is gated **per engine, per environment** via `enabled_app_users` in
+`infra/environments/local/post/`. As of 2026-07-30 this defaults to `["postgres", "mysql"]` —
+both engines are managed by Terraform locally, and a `tracking_app` module now joins
+`orders_app` on the shared MySQL cluster (see
+[Update 2026-07-30 — the MySQL provider no longer hangs](#update-2026-07-30--the-mysql-provider-no-longer-hangs)
+below for why this changed from the postgres-only default this ADR originally recorded). In
 production both are enabled. `make bootstrap` runs phase 2 after phase 1; `bootstrap.sh` shrinks
 to only its irreducibly non-Terraform step (the `nginx-stable` Docker alias).
 
@@ -56,13 +60,49 @@ neither apply ever re-touches the other's resources, sidestepping Floci's second
 `UpdateTags` failure (see [[floci-rds-apigw-limits]], referenced from
 [[rds-aurora-engine-switchable-floci]]) for the phase-1 resources.
 
-**MySQL cannot be validated locally.** Verified empirically (2026-07-15): Floci's MySQL does
-not support user management at all — `CREATE USER` fails with CLI error 1227, the
-`petoju/mysql` Terraform provider **hangs** on `mysql_user`, and Floci's MySQL has no TLS while
-`caching_sha2_password` requires it. Floci's Postgres app-user creation **does** work. So the
-`mysql` branch of phase 2 is gated off locally (`enabled_app_users` excludes it) and can only be
-`terraform validate`d, not applied — the MySQL app-user (`orders_app`) is created by the older
-bash mechanism until this gap is resolved or a different local MySQL path is found.
+**MySQL could not be validated locally, as of 2026-07-15.** Verified empirically at the time:
+Floci's MySQL appeared not to support user management at all — `CREATE USER` failed with CLI
+error 1227, and the `petoju/mysql` Terraform provider **hung** on `mysql_user` for over two
+minutes. Floci's Postgres app-user creation worked. So the `mysql` branch of phase 2 was gated
+off locally (`enabled_app_users` excluded it) and could only be `terraform validate`d, not
+applied — the MySQL app-user (`orders_app`) was created by the older bash mechanism.
+**This is no longer the current state — see the update below.**
+
+#### Update 2026-07-30 — the MySQL provider no longer hangs
+
+Re-verified live against the local Floci cluster on 2026-07-30, not inferred from the earlier
+symptom: creating a MySQL user plus its grants via `petoju/mysql` (still pinned `~> 3.0`, locked
+at `3.0.94` — the same version, no upgrade) completed in **~10 seconds**, and a second `plan`
+reported no drift.
+
+**Root cause of the 2026-07-15 hang, now identified:** the user Terraform tried to create used
+`caching_sha2_password`, MySQL's default authentication plugin since 8.0. `caching_sha2_password`
+requires TLS for a full (non-cached) handshake, and Floci does not terminate TLS on its MySQL
+proxy — so the connection stalled indefinitely rather than failing fast. The half-created user was
+also unusable even where the hang eventually resolved. Switching the user to
+`mysql_native_password` (which does not require TLS) resolves the hang entirely; this is
+unrelated to Floci's general "no user management" reputation, which was itself a symptom of the
+same TLS mismatch rather than a separate limitation. The created user authenticated, read its own
+database, and was correctly denied `DELETE` with `ERROR 1142` — the soft-delete-only model of
+[[ADR-0004-soft-delete-only]] holds for MySQL exactly as it does for Postgres.
+
+As a result, `enabled_app_users` in `infra/environments/local/post/` now defaults to
+`["postgres", "mysql"]`, and a `tracking_app` module joins `orders_app` on the shared MySQL
+cluster. Committed as `6a45d5a`.
+
+> [!warning] Still connecting as the cluster superuser — not fully switched over
+> The modules now **validate**, but phase 2 has not been **applied**, so `orders_app` and
+> `tracking_app` do not exist in the local database yet. And even once applied, the services
+> still connect as the cluster superuser: the same `DATABASE_WRITER_URL` also drives Alembic and
+> EF Core migrations, and the app users deliberately hold no DDL grant (per this ADR's own
+> chicken-and-egg reasoning above), so pointing runtime traffic at the least-privilege users would
+> break the migrations that create the schema in the first place. Separating a dedicated migration
+> URL from a runtime URL is a follow-up, not done as of this update.
+
+This finding is worth generalizing beyond MySQL: a Terraform provider that appears to hang against
+Floci may be waiting on a TLS handshake Floci never completes, rather than genuinely unsupported
+functionality. Check the authentication/negotiation mechanism before concluding the emulator
+cannot do something.
 
 ## Consequences
 

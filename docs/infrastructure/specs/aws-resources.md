@@ -4,7 +4,7 @@ type: spec
 area: infra
 status: active
 created: 2026-06-26
-updated: 2026-07-28
+updated: 2026-07-30
 tags: [type/spec, area/infra, status/active]
 related:
   - ADR-0006-read-write-replicas
@@ -52,14 +52,18 @@ Both clusters follow the read/write replica pattern from [[ADR-0006-read-write-r
 - Automated backups: 7-day retention; point-in-time recovery enabled.
 
 Locally (Floci), both clusters are provisioned by the same engine-agnostic `rds-aurora` module
-instantiated with a real, non-Aurora engine (`postgres` for Users, `mysql` for Orders), since
-Floci emulates single-instance Postgres/MySQL containers, not Aurora — see
-[[rds-aurora-engine-switchable-floci]]. Least-privilege app users (`users_app`, `orders_app`;
-`SELECT, INSERT, UPDATE`, never `DELETE`) are created by a second, dedicated Terraform apply
-phase once the cluster endpoint is live, rather than by post-apply bash — see
-[[two-phase-terraform-apply]]. Locally, only the Postgres app-user is managed by Terraform
-today; Floci's MySQL provider cannot manage users, so `orders_app` remains a bash-created
-exception until that emulator gap is resolved.
+instantiated with a real, non-Aurora engine (`postgres` for Users, `mysql` for Orders/Tracking),
+since Floci emulates single-instance Postgres/MySQL containers, not Aurora — see
+[[rds-aurora-engine-switchable-floci]]. Least-privilege app users (`users_app`, `orders_app`,
+`tracking_app`; `SELECT, INSERT, UPDATE`, never `DELETE`) are created by a second, dedicated
+Terraform apply phase once the cluster endpoint is live, rather than by post-apply bash — see
+[[two-phase-terraform-apply]]. As of 2026-07-30 both Postgres and MySQL app-users are managed by
+Terraform (`enabled_app_users` defaults to `["postgres", "mysql"]`); the earlier belief that
+Floci's MySQL provider could not manage users at all turned out to be a TLS/auth-plugin mismatch
+(`caching_sha2_password` demands TLS Floci doesn't terminate), not a real limitation — see
+[[two-phase-terraform-apply#Update 2026-07-30 — the MySQL provider no longer hangs]] for the
+full account. The modules validate, but phase 2 has not yet been applied, so `orders_app` and
+`tracking_app` do not exist in the local database today.
 
 ### Messaging
 

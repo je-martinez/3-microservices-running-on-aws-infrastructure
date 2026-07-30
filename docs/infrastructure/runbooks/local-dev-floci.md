@@ -4,7 +4,7 @@ type: runbook
 area: infra
 status: active
 created: 2026-07-12
-updated: 2026-07-28
+updated: 2026-07-30
 integration-status: verified
 verified-on: 2026-07-15
 verified-by: Jose E. Martinez
@@ -63,11 +63,18 @@ This runs, in order:
    below).
 4. **`migrate`** — applies Prisma migrations (`migrate deploy`, never `migrate dev`) against
    Floci's Postgres, run as the cluster superuser so DDL succeeds even though the app DB user
-   deliberately has no elevated privileges (see [[soft-delete]] / ADR-0004).
+   deliberately has no elevated privileges (see [[soft-delete]] / ADR-0004). The same
+   superuser-for-migrations, least-privilege-for-runtime split applies to the MySQL cluster's
+   Alembic/EF Core migrations — see the note in
+   [[two-phase-terraform-apply#Update 2026-07-30 — the MySQL provider no longer hangs]].
 5. **`docker compose up -d --build users`** — builds and starts the Users service container.
 6. **`bootstrap.sh`** (`infra/environments/local/bootstrap.sh`) — creates the least-privilege
    application DB user (no `DELETE` grant — see [[soft-delete]]) and sets up the
    `nginx-stable` Docker alias used by the reverse-proxy path (see [[ADR-0016-local-apigw-nginx-ecs]]).
+   As of 2026-07-30, MySQL app-user creation (`orders_app`, `tracking_app`) has moved to the
+   Terraform phase-2 root (`enabled_app_users` now includes `mysql`) — see
+   [[two-phase-terraform-apply]] — rather than being created here by bash. Phase 2 has not yet
+   been applied, so those users do not exist in the local database yet.
 
 The order matters precisely because of step 3→4→5: infra must exist before `.env` has real
 Cognito ids, `.env` must be correct before the Users container starts (it fails Zod validation

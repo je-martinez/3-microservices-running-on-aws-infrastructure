@@ -52,9 +52,21 @@ instantiation with `engine = "mysql"`, letter-led `mysql-${label}` id). Both run
 `manage_app_user = false`; the least-privilege app users (`users_app` Postgres,
 `orders_app` MySQL — each SELECT/INSERT/UPDATE, no DELETE per ADR-0004) are
 created post-apply by the **phase-2** `environments/local/post/` root (see the
-two-phase apply section below), not inside the phase-1 module. Locally only
-`users_app` is created — Floci hangs the mysql provider, so `orders_app` is
-prod-only.
+two-phase apply section below), not inside the phase-1 module. All three are
+created locally — `users_app` on Postgres, plus `orders_app` and `tracking_app`
+on the shared MySQL cluster.
+
+The mysql provider used to hang against Floci, which is why this was Postgres-only
+until 2026-07-30. Re-verified on that date: it creates a user and its grants in
+about ten seconds with no drift on a second plan. The old failure is now
+explicable — the user came back with `caching_sha2_password`, which demands TLS
+that Floci does not terminate; it now uses `mysql_native_password`, so there is
+nothing to negotiate.
+
+Note the services still connect as the cluster superuser even so, for a reason
+that has nothing to do with Floci: `DATABASE_WRITER_URL` also drives Alembic and
+EF Core migrations, and the app users hold no DDL grant by design. Using them at
+runtime requires splitting the migration URL from the runtime one first.
 
 Postgres is reached at `floci:<port>` (Floci's RDS proxy port), never by
 container IP — Floci reassigns those on every recreation. **Proxy ports are
@@ -91,10 +103,16 @@ A `terraform_data` + `local-exec` **wait-for-db gate** (`gate.tf` +
 `scripts/wait-for-db.sh`, probing over `3mrai_3mrai-network`) blocks app-user
 creation until the DB accepts connections.
 
-**Per-engine gating** (`enabled_app_users`): local enables **postgres only**
-(`users_app`) — Floci **hangs** the mysql provider; **prod** enables both
-(`users_app` + `orders_app`). Grants stay SELECT/INSERT/UPDATE, **no DELETE**
+**Per-engine gating** (`enabled_app_users`): **both** engines are enabled, local
+and prod — `users_app` on Postgres, `orders_app` and `tracking_app` on MySQL.
+Local was Postgres-only until 2026-07-30, when the mysql provider was re-verified
+against Floci (see above). Grants stay SELECT/INSERT/UPDATE, **no DELETE**
 (ADR-0004). See [environments/local/post/README.md](environments/local/post/README.md).
+
+`infra-up-post` discovers **both** proxy ports and passes them as `-var`. It used
+to discover only Postgres, leaving mysql on a default of 7002 — and a live check
+on 2026-07-30 found mysql on 7001 and postgres on 7002, exactly reversed. Floci
+assigns those by cluster creation order, so no default is reliable.
 
 Updated `make bootstrap` order: `floci` → `infra-init` → `infra-up` (phase 1
 apply + `env-file`) → `migrate` → build/start `users` → `bootstrap.sh`
