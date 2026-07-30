@@ -184,15 +184,18 @@ infra-up-post: scripts-setup ## Phase 2: create DB app-users in Terraform (post-
 	@# and environments/local/post/README.md): a SEPARATE Terraform root with its
 	@# own state that reads phase-1 outputs + the master secret by ARN, waits for
 	@# each DB via a healthcheck gate, and creates the least-privilege app-users
-	@# (SELECT/INSERT/UPDATE, no DELETE — ADR-0004). Local enables postgres only
-	@# (users_app); the mysql provider hangs on Floci so orders_app is prod-only.
-	@# Runs host-side, reaching Floci's published RDS proxy ports (7000-7010).
-	@# DISCOVER the Postgres proxy port per-engine and pass it as -var pg_port:
-	@# Floci assigns those ports by creation order and they can flip across
-	@# applies, so the variable's default (7001) is not reliable. (mysql is
-	@# gated off locally; pass -var mysql_port=... too if it is ever enabled.)
+	@# (SELECT/INSERT/UPDATE, no DELETE — ADR-0004). BOTH engines are enabled:
+	@# users_app on Postgres, plus orders_app and tracking_app on the shared MySQL
+	@# cluster. The mysql provider was re-verified against Floci on 2026-07-30 and
+	@# no longer hangs, so the old postgres-only gating is gone.
+	@# Runs host-side, reaching Floci's published RDS proxy ports (7000-7099).
+	@# DISCOVER both proxy ports per-engine and pass them as -var: Floci assigns
+	@# those ports by cluster creation order and they flip across applies, so the
+	@# variable defaults (7001/7002) are not reliable — a live check saw mysql on
+	@# 7001 and postgres on 7002, the reverse of the defaults.
 	pgport="$$($(PY) $(DISCOVER_DB_PORT) postgres)"; \
-	cd $(TF_LOCAL_DIR)/post && terraform init -reconfigure -backend-config=backend.hcl >/dev/null && terraform apply -auto-approve -var pg_port=$$pgport -var python_bin=$(PY)
+	myport="$$($(PY) $(DISCOVER_DB_PORT) mysql)"; \
+	cd $(TF_LOCAL_DIR)/post && terraform init -reconfigure -backend-config=backend.hcl >/dev/null && terraform apply -auto-approve -var pg_port=$$pgport -var mysql_port=$$myport -var python_bin=$(PY)
 
 ## --- Orchestration ---
 

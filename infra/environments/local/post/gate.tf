@@ -7,8 +7,10 @@
 resource "terraform_data" "wait_for_db" {
   for_each = toset(var.enabled_app_users)
 
+  # One gate per ENGINE, not per app-user: orders_app and tracking_app share the
+  # same MySQL cluster, so a single "mysql" probe covers both.
   input = {
-    host   = each.key == "postgres" ? "floci" : "floci"
+    host   = "floci"
     port   = each.key == "postgres" ? local.pg_port : local.mysql_port
     engine = each.key
   }

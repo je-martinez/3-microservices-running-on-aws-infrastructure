@@ -68,7 +68,10 @@ resource "postgresql_default_privileges" "future_tables" {
   privileges  = ["SELECT", "INSERT", "UPDATE"]
 }
 
-# ── MySQL branch (prod only; Floci hangs this — see the Floci MySQL limit) ────
+# ── MySQL branch ──────────────────────────────────────────────────────────────
+# Works locally against Floci as well as in prod: the petoju/mysql provider was
+# re-verified on 2026-07-30 (user + grants created in ~10s, second plan clean).
+# The older "prod only, Floci hangs this" note was stale.
 resource "mysql_user" "app" {
   count              = local.is_mysql ? 1 : 0
   user               = var.app_username

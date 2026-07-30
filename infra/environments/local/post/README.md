@@ -27,13 +27,27 @@ creation until the DB accepts connections. The `db-app-user` modules
 
 ## Per-engine gating (`enabled_app_users`)
 
-- **Local:** `["postgres"]` — only `users_app` is created. Floci **hangs** the
-  mysql provider (see the Floci MySQL limit lesson), so `orders_app` is gated
-  off here.
-- **Prod:** `["postgres","mysql"]` — both `users_app` and `orders_app`.
+- **Local and prod:** `["postgres","mysql"]` — `users_app` (Postgres) plus
+  `orders_app` and `tracking_app`, which share the MySQL cluster but are each
+  granted on their own database (`orders`.* / `tracking`.*) so neither can read
+  the other's schema.
+- The old local-only `["postgres"]` gating is gone. It existed because the
+  petoju/mysql provider hung against Floci; re-verified on 2026-07-30, the
+  provider creates a user + grants in ~10s and a second plan reports no drift.
 
 Grants are `SELECT, INSERT, UPDATE` — **never DELETE** (soft-delete only,
 [ADR-0004](../../../../docs/shared/decisions/ADR-0004-soft-delete-only.md)).
+Verified live: the created user can `SELECT` but `DELETE` returns `ERROR 1142`.
+
+## Services do not use these MySQL users yet
+
+The generated `DATABASE_WRITER_URL` / `DATABASE_READER_URL` for Orders and
+Tracking still point at the cluster superuser (`test`). Wiring them to
+`orders_app` / `tracking_app` is **blocked on ordering**, not on the provider:
+`generate_env_files.py` runs in phase 1, while these users are created in phase
+2, and both `make migrate-tracking` and Orders' self-migration read that same
+`DATABASE_WRITER_URL` to run **DDL**, which the app-users deliberately cannot do.
+Splitting the migration URL from the runtime URL is the prerequisite.
 
 ## Run
 
