@@ -70,7 +70,16 @@ def _sql(database: str) -> str:
     return (
         f"CREATE DATABASE IF NOT EXISTS `{database}` "
         "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; "
-        f"GRANT ALL PRIVILEGES ON `{database}`.* TO '{APP_USER}'@'%'; "
+        f"GRANT ALL PRIVILEGES ON `{database}`.* TO '{APP_USER}'@'%' "
+        "WITH GRANT OPTION; "
+        # Phase 2 configures the mysql provider as this same user, and creating a
+        # least-privilege app-user needs three things Floci does not grant it out
+        # of the box. Without them `make infra-up-post` fails: first 1227 on
+        # CREATE USER, then 1142 reading `mysql.user` to diff the grants it just
+        # wrote. GRANT OPTION above is the third — you cannot hand out privileges
+        # you do not hold with it.
+        f"GRANT CREATE USER ON *.* TO '{APP_USER}'@'%'; "
+        f"GRANT SELECT ON mysql.* TO '{APP_USER}'@'%'; "
         "FLUSH PRIVILEGES;"
     )
 
