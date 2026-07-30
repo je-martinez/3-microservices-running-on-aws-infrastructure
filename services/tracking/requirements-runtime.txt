@@ -1,0 +1,32 @@
+# Tracking service RUNTIME dependencies (Python 3.12+).
+# Pinned exactly: a floating range is how a service that built yesterday stops
+# building today. Bump deliberately, never implicitly.
+#
+# This file is what the Docker image installs (see ../Dockerfile). It exists so the
+# runtime image does NOT carry the test/lint toolchain (pytest, ruff, httpx,
+# grpcio-tools ≈ tens of MB plus a bundled protoc that the image never invokes —
+# the gRPC stubs under src/shared/grpc/generated/ are committed).
+#
+# `requirements.txt` includes this file with `-r`, so the documented developer
+# contract (`pip install -r requirements.txt`, CLAUDE.md §2) still installs
+# everything. Add a runtime dependency HERE; add a dev/test one to
+# requirements.txt.
+
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.5
+pydantic-settings==2.7.1
+sqlalchemy==2.0.37
+alembic==1.14.1
+# Pure-Python MySQL driver: no C build toolchain in the slim image, unlike
+# mysqlclient. The DSN is mysql+pymysql:// (see .env.local.tracking).
+pymysql==1.1.1
+nanoid==2.0.0
+# gRPC CLIENT only — Tracking serves no gRPC (JE-108 removed the server). This is
+# here for the outbound call to Users' `GetUserById`, which resolves the caller's
+# Cognito sub to the internal `usr_` id (JE-101). `protobuf` is pinned alongside it
+# on purpose: the committed stubs under src/shared/grpc/generated/ are generated
+# against a specific protobuf major and refuse to load on an older runtime, so the
+# two versions must move together.
+grpcio==1.83.0
+protobuf==7.35.1

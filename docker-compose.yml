@@ -206,18 +206,59 @@ services:
         - action: rebuild
           path: ./services/orders/src
 
+  # Tracking service (FastAPI + uvicorn on Python 3.12, SQLAlchemy/pymysql → MySQL).
+  # Build context is ./services/tracking — NOT the repo root like Users and Orders.
+  # It needs nothing from outside its own tree: the Users gRPC stubs generated from
+  # proto/users.proto are COMMITTED under src/shared/grpc/generated/, so the shared
+  # .proto is read neither at build nor at run time (verified — contrast Users,
+  # whose gRPC SERVER loads /app/proto/users.proto at boot).
+  # Reachable as `tracking` on 3mrai-network so the Nginx ECS task can
+  # proxy_pass to http://tracking:8000. REST-only: Tracking serves no gRPC (JE-108),
+  # so there is no second port to publish.
   tracking:
     build: ./services/tracking
     networks: [3mrai-network]
+    ports:
+      # Host 3002 → container 8000 (uvicorn --port). 3000/3001 are taken by Users
+      # and Orders. Health: GET /v1/health (unprefixed — the gateway publishes
+      # /v1/tracking/health and nginx rewrites; see health_router.py).
+      - "3002:8000"
     depends_on:
       floci:
         condition: service_healthy
+      # NOT depends_on: users. Tracking's only gRPC is an OUTBOUND client to Users,
+      # dialed lazily per request on POST /v1/trackings/init-tracking — nothing at
+      # boot, and neither the reads, the carrier PUT, nor the healthcheck touch it.
+      # Orders declares `users: service_started` for the same lazy client; the
+      # difference is only that Orders' compose block predates this reasoning being
+      # written down. `service_started` buys no ordering guarantee that matters here
+      # (a started container is not a listening gRPC server), so adding it would be
+      # coupling that looks like a guarantee without being one.
     # Environment comes from the GENERATED .env.local.tracking — see the note on
     # the users service above for why nothing is declared inline. An
     # `environment:` block here would silently WIN over env_file, so the service
     # would never see its generated DB URLs, gRPC port, or API keys.
     env_file:
       - .env.local.tracking
+    healthcheck:
+      # python -m urllib, NOT curl: python:3.12-slim ships neither curl nor wget
+      # (verified), and installing curl just for a probe would add an apt layer to
+      # buy nothing — the interpreter is already in the image.
+      # Hits the service's own UNPREFIXED /v1/health. The handler deliberately does
+      # NOT touch the database (it is a liveness probe), so this reports healthy
+      # even while Floci's MySQL is down — which is correct: a transient DB blip
+      # must not cycle an otherwise-serving task.
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/v1/health', timeout=2).status == 200 else 1)
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      # uvicorn imports the app graph (FastAPI + SQLAlchemy + grpc) before it
+      # listens; failures inside this window do not count against `retries`.
+      start_period: 10s
     # stdout → the observability collector's fluent_forward receiver.
     # localhost:24224 because the Docker daemon resolves fluentd-address from the
     # HOST, not this network. fluentd-async so the service still starts when the
@@ -228,6 +269,16 @@ services:
         fluentd-address: "localhost:24224"
         fluentd-async: "true"
         tag: "tracking"
+    # Adds --reload to the image's CMD. Tracking is INTERPRETED Python, so the
+    # `sync` below is genuinely enough to get new code into the container — unlike
+    # Users (compiled to dist/) and Orders (compiled to a DLL), which both need
+    # `rebuild`. But a sync only helps if the process re-imports the file, so the
+    # reload watcher is required for the pair to work.
+    # It lives HERE and not in the Dockerfile CMD on purpose: --reload is a
+    # local-dev tool (extra watcher process, reload-on-touch) that must not follow
+    # the image into a deployment.
+    command:
+      ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     develop:
       watch:
         - action: sync

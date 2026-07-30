@@ -217,10 +217,12 @@ module "api_gateway" {
   nginx_base_uri           = "http://nginx-stable"
   enable_e2e_cleanup_route = true
 
-  # Tracking's REST routes stay OFF until the service exists and nginx has a
-  # `tracking` upstream. With no upstream, nginx's default `location /` would
-  # send /v1/health and /v1/trackings/* to users:3000 — a green health check
-  # served by the wrong service is harder to spot than a 404. Flip to true in
-  # the change that adds both.
-  enable_tracking_routes = false
+  # ON: the Tracking service now exists AND nginx has a `tracking` upstream
+  # (`location = /v1/tracking/health` + `location /v1/trackings`, both on port
+  # 8000 — see modules/compute/nginx/nginx.conf). Until that upstream existed,
+  # nginx's default `location /` sent /v1/trackings/* to users:3000 — a green
+  # health check served by the wrong service is harder to spot than a 404. The
+  # two must stay in lockstep: removing the nginx locations means flipping this
+  # back to false in the same change.
+  enable_tracking_routes = true
 }
