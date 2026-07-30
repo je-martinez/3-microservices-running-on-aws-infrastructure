@@ -45,7 +45,30 @@ services/tracking/
   (`github-ops` is an optional helper for complex git batches — see [[git-workflow]]).
 - Stay within the single task handed to you (YAGNI).
 
-## 5a. Two identities per tracking — `user_id` vs `cognito_sub`
+## 5a. Auth schemes — four surfaces, and they are not interchangeable
+
+| Surface | Auth | Caller |
+|---|---|---|
+| `GET /v1/health` | none | ALB / Fargate liveness probe |
+| `GET /v1/trackings/{orderId}`, `GET /v1/trackings?order_ids=` | Cognito JWT at the gateway, then scoped by `x-user-id` | the end user |
+| `POST /v1/trackings/init-tracking` | Cognito JWT at the gateway, identity from `x-user-id` | Orders, forwarding the user's own header |
+| `PUT /v1/trackings/{orderId}/status` | `TRACKING_CARRIER_API_KEY`, validated by the service | an external shipping carrier |
+| outbound `users.v1.Users/GetUserById` | `GRPC_API_KEY`, presented by us | this service, calling Users |
+
+Two things to keep straight:
+
+- **The two keys are different secrets in different trust domains.** `GRPC_API_KEY` is
+  internal and shared between our own services; the carrier key is handed to an outside
+  vendor. Reusing one as the other would give that vendor a credential valid against
+  every internal gRPC surface we have. Never collapse them.
+- **The carrier PUT is the odd one out**: no Cognito JWT, so its gateway route is declared
+  `auth = false` and it receives **no `x-user-id`**. It identifies the tracking by
+  `order_id` alone and must never reuse the reads' ownership filter — see §5b.
+
+Nothing inbound authenticates with `GRPC_API_KEY` any more: Tracking serves no gRPC, so
+that key now only travels outward. See §6.
+
+## 5b. Two identities per tracking — `user_id` vs `cognito_sub`
 
 A tracking stores **both**, and they are not interchangeable:
 
@@ -76,7 +99,7 @@ Rules:
 Orders solves the identical problem the same way (`order` and `order_details` both
 carry `user_id` + `cognito_sub`; reads filter by `cognito_sub`).
 
-## 5b. TestMode progression — KNOWN LIMITATION, accepted
+## 5c. TestMode progression — KNOWN LIMITATION, accepted
 
 `POST /v1/trackings/init-tracking` with `x-test-mode: true` advances the tracking one status every 10s
 (`SHIPPED → ON_THE_WAY → OUT_FOR_DELIVERY → DELIVERED`, 4 history rows) using an

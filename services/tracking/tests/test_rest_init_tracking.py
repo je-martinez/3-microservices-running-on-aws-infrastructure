@@ -12,7 +12,7 @@ actually landing) are things only a real database can settle.
 Every test presents a Cognito sub in `x-user-id` and expects the row to come back
 carrying a DIFFERENT `usr_` id, resolved through Users. That is the situation in
 production, and it is the only shape that can fail on the identity defect
-`services/tracking/CLAUDE.md` §5a describes: a test that used one value for both
+`services/tracking/CLAUDE.md` §5b describes: a test that used one value for both
 would pass against a service that persisted the wrong one, dropped one, or copied
 the sub into `user_id`.
 
@@ -309,7 +309,7 @@ class TestSuccessfulCreation:
         This is the test that fails if creation persists the WRONG identity — the
         read scopes by `cognito_sub`, so a tracking stamped with only the `usr_` id
         would 404 for the very caller who just created it, exactly the defect
-        §5a describes.
+        §5b describes.
         """
         create(init_client, "ord_init00000000000009")
 
@@ -322,7 +322,7 @@ class TestSuccessfulCreation:
 
 
 class TestBothIdentitiesArePersisted:
-    """CLAUDE.md §5a, at the write end.
+    """CLAUDE.md §5b, at the write end.
 
     The caller presents ONLY a sub. The row must end up with both that sub and the
     internal `usr_` id resolved from it — two different strings, neither derived

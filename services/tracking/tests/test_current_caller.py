@@ -98,7 +98,7 @@ class TestResolution:
     def test_the_internal_id_differs_from_the_sub(
         self, caller: CurrentCaller, users_servicer: StubUsersServicer
     ) -> None:
-        """CLAUDE.md §5a: two identities, never interchangeable.
+        """CLAUDE.md §5b: two identities, never interchangeable.
 
         A test whose two identities were the same value could not fail on the
         mix-up this rule exists to prevent.

@@ -21,7 +21,7 @@ The body carries `order_id` and `shipping_address` — no identity at all (see
 from a verified Cognito JWT, and the handler persists BOTH identities:
 
 * `cognito_sub` — the header value verbatim, and **the ownership key** the REST
-  reads filter by (`services/tracking/CLAUDE.md` §5a).
+  reads filter by (`services/tracking/CLAUDE.md` §5b).
 * `user_id` — the internal `usr_` id, resolved from that sub through Users over
   gRPC (`Caller.resolve_internal_user_id()`).
 

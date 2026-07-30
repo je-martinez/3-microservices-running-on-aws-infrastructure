@@ -107,7 +107,7 @@ class CurrentCaller:
         when Users has no such user — a `None` return would push the same decision
         onto every write-path caller, and a write that silently proceeded without
         a `user_id` is precisely the mis-attribution the two-identities rule in
-        `services/tracking/CLAUDE.md` §5a exists to prevent.
+        `services/tracking/CLAUDE.md` §5b exists to prevent.
 
         Synchronous, like every other DB/gRPC touch in this service: FastAPI runs
         the `def` handlers that call it in a threadpool.
