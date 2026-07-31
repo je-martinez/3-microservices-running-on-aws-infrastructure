@@ -19,7 +19,13 @@ container.
 
 The API GW integration proxies to the REAL `users` service, whose health
 endpoint returns {"status":"ok"} at /v1/health. The verification step below
-checks exactly that, rather than trusting that the alias attached.
+polls exactly that, rather than trusting that the alias attached.
+
+That verification is ADVISORY: it warns but does not fail the script. Attaching
+the alias is this script's job and `attach_alias` already exits non-zero on its
+own if Docker refuses; the health poll only reports whether a *different*
+container is answering yet. Conflating the two is what made a passing
+precondition abort `make bootstrap` and skip every later step (JE-112).
 
 NOTE ON SCOPE: this script used to also create the least-privilege app DB users
 (Postgres `users_app` / MySQL `orders_app`). Those steps moved to the PHASE-2
@@ -118,15 +124,44 @@ def attach_alias(container: str) -> None:
         sys.exit(1)
 
 
-def proxies_to_users(container: str) -> str:
-    """The body the alias returns for users' health endpoint (may be empty)."""
-    return docker(
-        "exec",
-        container,
-        "sh",
-        "-c",
-        f"wget -qO- --timeout=5 http://{ALIAS}{HEALTH_PATH} 2>/dev/null",
-    ).stdout
+def proxies_to_users(
+    container: str, attempts: int = 20, sleep_s: int = 3
+) -> tuple[bool, str]:
+    """Poll users' health endpoint through the alias. Returns (healthy, detail).
+
+    Same attempts/sleep_s budget as find_nginx_container above, and for the same
+    reason: both wait on a container someone else started asynchronously. This
+    one used to be a SINGLE probe behind a fixed one-second sleep, which is what
+    made JE-112 reproduce on every cold bootstrap — `users` has no compose
+    healthcheck, so the preceding `up -d --build users` returns when the
+    container starts, not when Node has validated COGNITO_* and bound :3000.
+    One second against a cold boot is a coin flip.
+
+    60s is a deliberate ceiling, not a round number: a service that has not
+    answered its own health endpoint a minute after starting is broken, not
+    slow, and waiting longer only delays the diagnosis.
+
+    stderr is kept rather than discarded — it is what distinguishes
+    "bad address 'nginx-stable'" (the alias genuinely does not resolve) from
+    "connection refused" (alias fine, users still booting). Both used to render
+    as an empty string, which told the operator nothing.
+    """
+    detail = ""
+    for attempt in range(1, attempts + 1):
+        result = docker(
+            "exec",
+            container,
+            "sh",
+            "-c",
+            f"wget -qO- --timeout=5 http://{ALIAS}{HEALTH_PATH}",
+        )
+        if HEALTHY_BODY in result.stdout:
+            return True, result.stdout
+        detail = (result.stdout or result.stderr).strip()[:160]
+        if attempt < attempts:
+            inf(f"waiting for {ALIAS}{HEALTH_PATH} (attempt {attempt}/{attempts})… {detail}")
+            time.sleep(sleep_s)
+    return False, detail
 
 
 def main() -> int:
@@ -144,13 +179,30 @@ def main() -> int:
         return 0
 
     attach_alias(nginx)
-    time.sleep(1)
 
-    body = proxies_to_users(nginx)
-    if HEALTHY_BODY not in body:
-        no(f"alias attached but {HEALTH_PATH} did not return the expected body (got: '{body[:80]}')")
-        inf("the users container may not be ready yet; re-run after it is up.")
-        return 1
+    healthy, detail = proxies_to_users(nginx)
+    if not healthy:
+        # NOT fatal, and that is the fix for JE-112.
+        #
+        # attach_alias() above already succeeded — it exits(1) itself when
+        # `docker network connect` fails — so by this point Docker has confirmed
+        # the alias IS attached and this script's own job is done. What just
+        # failed is a check on a DIFFERENT container: `users`, started by the
+        # previous make step, which has no compose healthcheck.
+        #
+        # Returning 1 here meant reporting someone else's readiness as this
+        # script's failure, and because `make` halts a chain on any non-zero
+        # exit, it skipped every later step — `orders`, `migrate-tracking`,
+        # `tracking`. That is how a passing precondition left Tracking's tables
+        # uncreated and produced "Table 'tracking.tracking' doesn't exist".
+        # The advice it printed ("re-run after it is up") could not be followed
+        # either: a re-run re-enters phase-1 apply, which Floci fails on
+        # UpdateTags (JE-113).
+        no(f"alias attached, but {HEALTH_PATH} never returned {HEALTHY_BODY} (last: '{detail}')")
+        inf("the alias itself is attached — this is users not answering yet, not a broken alias.")
+        inf(f"  check: docker exec {nginx} wget -qO- http://{ALIAS}{HEALTH_PATH}")
+        inf("  check: docker compose logs users --tail 50")
+        return 0
 
     ok(f'alias \'{ALIAS}\' resolves and proxies → users {HEALTH_PATH} {{"status":"ok"}}')
     print()

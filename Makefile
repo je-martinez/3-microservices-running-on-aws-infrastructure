@@ -226,8 +226,15 @@ bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in depe
 	@# Order matters. The services cannot start before the infra exists: `users`
 	@# validates COGNITO_* with Zod at boot, and those IDs only exist after apply.
 	@# So: Floci first, then terraform, then .env, then migrations (DB needs
-	@# tables before it's usable), then bootstrap.py (nginx alias), and only
-	@# then the services.
+	@# tables before it's usable), then the services.
+	@#
+	@# bootstrap.py (the nginx alias) runs LAST, not before the services. The
+	@# alias is what the API Gateway routes THROUGH; no service reads it — grep
+	@# for nginx-stable under services/ and compose and you get nothing. Running
+	@# it mid-chain meant a failure there skipped `orders`, `migrate-tracking`
+	@# and `tracking`, which is how a cold bootstrap ended up with Tracking's
+	@# database created but its tables missing (JE-112). Placed last, its
+	@# blast radius is itself.
 	$(COMPOSE) up -d floci
 	@echo "Waiting for Floci at $(FLOCI_URL) ..."
 	@for i in $$(seq 1 30); do \
@@ -244,7 +251,6 @@ bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in depe
 	$(MAKE) infra-up
 	$(MAKE) migrate
 	$(COMPOSE) up -d --build users
-	$(PY) $(TF_LOCAL_DIR)/bootstrap.py
 	@# Phase 2 is deliberately NOT called here. `bootstrap` leaves the stack
 	@# usable (all three services up, Orders seeded) but not yet hardened;
 	@# `make post-infra` is the separate, explicit step that creates the
@@ -279,6 +285,11 @@ bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in depe
 	@# migrate needs, so the build below is a cache hit.
 	$(MAKE) migrate-tracking
 	$(COMPOSE) up -d --build tracking
+	@# LAST, deliberately — see the ordering note at the top of this target.
+	@# It also benefits from running here: by now `users` has had the whole
+	@# orders/tracking build to finish booting, so its health poll succeeds on
+	@# the first attempt instead of racing a container that started seconds ago.
+	$(PY) $(TF_LOCAL_DIR)/bootstrap.py
 
 clean: ## Tear down infra + compose (prompts before removing ./data)
 	-$(TF) destroy -auto-approve
