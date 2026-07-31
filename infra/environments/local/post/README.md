@@ -52,16 +52,38 @@ Splitting the migration URL from the runtime URL is the prerequisite.
 ## Run
 
 ```bash
-make infra-up-post          # runs as part of `make bootstrap`, after phase 1
+make post-infra             # REQUIRES a successful `make bootstrap` first
 # or, raw:
 cd infra/environments/local/post && terraform init && terraform apply -auto-approve
 ```
+
+`make bootstrap` does **not** run this phase. It leaves the stack usable (all
+three services up, Orders seeded) but not hardened; `post-infra` is the separate,
+explicit step that hardens it. Run without a prior successful `bootstrap`, it
+fails at the `terraform_remote_state` read of phase 1's state — before any
+provisioner runs — which is ordinary `terraform_remote_state` behavior, not a
+guard this root implements.
+
+Its first step grants the `test` identity the two MySQL privileges the `mysql`
+provider needs to manage users at all (`CREATE USER ON *.*`, `SELECT ON mysql.*`).
+Those moved here from phase 1's `create_mysql_database.py`, which issued them only
+because it happens to connect as root; they are phase-2 prerequisites, so they now
+live where they are used (`scripts/grant_mysql_provider_privileges.py`, run by
+`grants.tf`). Without them this apply fails 1227 on `CREATE USER`, then 1142
+diffing the grants it just wrote.
+
+Every provisioning script here records its run to the DynamoDB table exposed as
+the backend root's `execution_log_table_name` output — for **traceability, never
+to skip a re-run**. The scripts are already idempotent and `make clean` recreates
+the resources they act on, so a record that caused a skip would leave a recreated
+resource unprovisioned while looking done. Recording is also fail-open: an
+unreachable table warns on stderr and the script runs anyway.
 
 `host = "localhost"` in the providers because phase 2 runs on the **host** and
 reaches Floci's published proxy ports. Those ports are **discovered per-engine**,
 not fixed: Floci assigns them (7000-7099) by cluster creation order, which is not
 stable across applies, so Postgres/MySQL can flip between 7001/7002. `make
-infra-up-post` discovers the Postgres port (via `../scripts/discover-db-port.sh`,
+post-infra` discovers the Postgres port (via `../scripts/discover-db-port.sh`,
 which reads `describe-db-clusters` per `Engine`) and passes it as `-var pg_port`;
 the `pg_port`/`mysql_port` variables keep 7001/7002 defaults only as a fallback.
 The gate uses `floci` because it runs a probe container **on** the compose

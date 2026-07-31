@@ -36,9 +36,10 @@ Floci mounts the docker socket and joins them to the same compose network
 **`make bootstrap` is the single supported entry point.** It runs, in order:
 `floci` → `infra-init` → `infra-up` (phase-1 apply + regenerate `./.env` from
 outputs via `env-file`) → **`migrate`** (Prisma `migrate deploy`) → build/start
-`users` → `bootstrap.sh` (`nginx-stable` alias) → **`infra-up-post`** (phase 2:
-least-privilege DB app-users in Terraform — see the two-phase section below) →
-services. The order matters: `users` validates `COGNITO_*` with Zod at boot, and
+`users` → `bootstrap.sh` (`nginx-stable` alias) → services (`orders`,
+`migrate-tracking`, `tracking`). It **stops there**: phase 2 is no longer part of
+`bootstrap`, and is run separately with **`make post-infra`** (see the two-phase
+section below). The order matters: `users` validates `COGNITO_*` with Zod at boot, and
 those IDs only exist after apply — and Floci mints new ones on every apply, so
 `.env` is generated, never hand-edited.
 
@@ -86,9 +87,14 @@ API GW v2 / RDS). Re-apply by tearing down and rebuilding, not by re-running
 apply. See [../docs/lessons/floci-rds-apigw-limits.md](../docs/lessons/floci-rds-apigw-limits.md).
 
 ### Two-phase apply — phase 2 (`environments/local/post/`)
-`make bootstrap` runs a second Terraform apply (**phase 2**, `infra-up-post`)
-**after** phase 1 (cluster + endpoints exist) and after `bootstrap.sh` — see the
-`make bootstrap` order below. Phase 2 lives in `environments/local/post/` with
+Phase 2 is a **separate, explicit target**: `make post-infra`. `make bootstrap`
+does NOT call it — it leaves the stack usable but not hardened. `post-infra`
+requires a successful `bootstrap` first: it reads phase 1's state via
+`terraform_remote_state`, so against a torn-down phase 1 it fails at that read,
+before any provisioner runs. Its first step grants the `test` identity the two
+privileges the `mysql` provider needs (`CREATE USER ON *.*`, `SELECT ON mysql.*`),
+moved here from phase 1's `create_mysql_database.py` because they are phase-2
+prerequisites. Phase 2 lives in `environments/local/post/` with
 its **own** (gitignored) state, so it never re-touches phase 1's resources
 (which would trip the second-apply `UpdateTags` limit above).
 
@@ -109,14 +115,21 @@ Local was Postgres-only until 2026-07-30, when the mysql provider was re-verifie
 against Floci (see above). Grants stay SELECT/INSERT/UPDATE, **no DELETE**
 (ADR-0004). See [environments/local/post/README.md](environments/local/post/README.md).
 
-`infra-up-post` discovers **both** proxy ports and passes them as `-var`. It used
+`post-infra` discovers **both** proxy ports and passes them as `-var`. It used
 to discover only Postgres, leaving mysql on a default of 7002 — and a live check
 on 2026-07-30 found mysql on 7001 and postgres on 7002, exactly reversed. Floci
 assigns those by cluster creation order, so no default is reliable.
 
 Updated `make bootstrap` order: `floci` → `infra-init` → `infra-up` (phase 1
 apply + `env-file`) → `migrate` → build/start `users` → `bootstrap.sh`
-(nginx-stable alias) → **`infra-up-post`** (phase 2: DB app-users) → services.
+(nginx-stable alias) → `orders` → `migrate-tracking` → `tracking`. Phase 2 is
+**not** in this chain any more — run `make post-infra` after it.
+
+Every `local-exec` provisioning script (the awscli-fallback pattern) records its
+run to a DynamoDB `execution_log` table declared in `modules/tf-backend`, beside
+the state-lock table — for **traceability, never to skip a re-run**, and fail-open
+so an unreachable table never blocks provisioning. Full argument:
+[../docs/infrastructure/decisions/two-phase-terraform-apply.md](../docs/infrastructure/decisions/two-phase-terraform-apply.md).
 
 ## 3. Folder structure
 ```

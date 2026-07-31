@@ -50,7 +50,7 @@ export EXECUTION_LOG_TABLE ?= 3mrai-local-tfstate-execution-log
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps test-unit test-e2e test-all backend-up infra-init infra-plan infra-up infra-up-post infra-down infra-output env-file migrate migrate-tracking bootstrap clean observability-up observability-down observability-dashboards scripts-setup
+.PHONY: help up down logs build ps test-unit test-e2e test-all backend-up infra-init infra-plan infra-up post-infra infra-down infra-output env-file migrate migrate-tracking bootstrap clean observability-up observability-down observability-dashboards scripts-setup
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -196,7 +196,13 @@ migrate-tracking: ## Apply Alembic migrations (tracking) against Floci's MySQL (
 	$(COMPOSE) run --rm --no-deps --entrypoint alembic tracking upgrade head
 	@echo "Alembic migrations applied (tracking)."
 
-infra-up-post: scripts-setup ## Phase 2: create DB app-users in Terraform (post-effects), after phase 1
+post-infra: scripts-setup ## Harden a bootstrapped environment: MySQL provider grants + least-privilege DB app-users (phase 2)
+	@# REQUIRES a successful `make bootstrap` first — phase 2 reads phase-1's
+	@# state via terraform_remote_state; running this against a torn-down or
+	@# never-applied phase 1 fails at that read, before any provisioner runs.
+	@# See docs/superpowers/specs/2026-07-30-post-infra-root-design.md
+	@# ("What happens if post-infra runs before bootstrap").
+	@#
 	@# Two-phase apply (see docs/superpowers/specs/2026-07-15-two-phase-post-effects-design.md
 	@# and environments/local/post/README.md): a SEPARATE Terraform root with its
 	@# own state that reads phase-1 outputs + the master secret by ARN, waits for
@@ -239,10 +245,13 @@ bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in depe
 	$(MAKE) migrate
 	$(COMPOSE) up -d --build users
 	$(PY) $(TF_LOCAL_DIR)/bootstrap.py
-	@# Phase 2 (post-effects): create the least-privilege DB app-users in
-	@# Terraform now that the clusters exist and migrations have run. Replaces the
-	@# app-user step formerly in bootstrap.sh (bootstrap.py only manages the nginx alias).
-	$(MAKE) infra-up-post
+	@# Phase 2 is deliberately NOT called here. `bootstrap` leaves the stack
+	@# usable (all three services up, Orders seeded) but not yet hardened;
+	@# `make post-infra` is the separate, explicit step that creates the
+	@# least-privilege DB app-users. Splitting them keeps post-infra effects
+	@# centralized and predictable instead of buried as the last of twelve
+	@# steps, where a failure was the hardest in the chain to diagnose.
+	@# See docs/superpowers/specs/2026-07-30-post-infra-root-design.md.
 	@# Orders migrates + seeds ITSELF on startup (SEED_ON_STARTUP=true in
 	@# compose): the Api applies EF Core migrations then ProductSeed against
 	@# Floci's MySQL before serving. This differs from Users (Prisma via `make
