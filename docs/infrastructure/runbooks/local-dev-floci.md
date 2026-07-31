@@ -4,7 +4,7 @@ type: runbook
 area: infra
 status: active
 created: 2026-07-12
-updated: 2026-07-30
+updated: 2026-07-31
 integration-status: verified
 verified-on: 2026-07-15
 verified-by: Jose E. Martinez
@@ -194,6 +194,51 @@ pick up infra changes:
 make clean       # tear down (prompts before removing ./data)
 make bootstrap    # rebuild from scratch
 ```
+
+## Known limitation — `bootstrap.py` health check has no retry
+
+`make bootstrap` reproducibly fails at the `bootstrap.py` step with the nginx alias already
+attached correctly:
+
+```
+NO: alias attached but /v1/health did not return the expected body (got: '')
+   the users container may not be ready yet; re-run after it is up.
+make: *** [bootstrap] Error 1
+```
+
+**Cause:** the script queries `/v1/health` **once**, after a fixed `time.sleep(1)`
+(`infra/environments/local/bootstrap.py:147`), and the `users` container is usually not yet
+responding at that point. The alias attachment — the script's actual job — did succeed; only
+the follow-up health probe fails, but it still returns exit 1 and aborts the rest of the
+`bootstrap` chain. The message itself names the race.
+
+The asymmetry that gives it away: the same script **does** retry to locate the nginx
+container (`find_nginx_container(attempts=20, sleep_s=3)`,
+`infra/environments/local/bootstrap.py:63`), but the health check right after is a single
+attempt behind one second of sleep. Two waits in the same script, only one of them robust.
+
+**Why it matters more than it looks:** resuming means re-running `make bootstrap`, which
+triggers a **second** phase-1 `terraform apply` — and that hits the `UpdateTags` limitation
+documented in the sibling section above ([[floci-rds-apigw-limits]]). The two failures
+together leave a cold bootstrap with no clean resume path: the first one breaks the chain,
+the second one blocks re-entering it.
+
+**Workaround (verified 2026-07-31):** wait for `users` to respond, then continue the
+remaining steps by hand instead of re-running `make bootstrap` from the top:
+
+```bash
+# wait for users to respond
+curl -sf http://localhost:3000/v1/health
+
+# then continue with the remaining steps manually
+make post-infra
+make migrate-tracking
+docker compose up -d --build orders tracking
+```
+
+Re-running `make bootstrap` does **not** work — it collides with the second-apply failure
+above. There is a pending Linear issue proposed to give the health check the same
+retry-with-backoff `find_nginx_container` already has; not yet created.
 
 ## Verification
 
