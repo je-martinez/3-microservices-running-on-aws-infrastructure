@@ -37,6 +37,7 @@ services/events-pipeline/
 - Prefixed nano IDs (`friendlyId`): [../../docs/shared/conventions/nano-id.md](../../docs/shared/conventions/nano-id.md)
 - Audit fields: [../../docs/shared/conventions/audit-fields.md](../../docs/shared/conventions/audit-fields.md)
 - Env validation: [../../docs/shared/decisions/ADR-0014-env-validation-zod.md](../../docs/shared/decisions/ADR-0014-env-validation-zod.md)
+- Logging context & tracing: [../../docs/shared/conventions/logging-context.md](../../docs/shared/conventions/logging-context.md)
 
 ## 5. Agent rules
 - Converse with the user in **Spanish**; write code and comments in **English**.
