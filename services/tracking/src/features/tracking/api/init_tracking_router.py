@@ -124,6 +124,7 @@ from src.shared.db.engine import write_session
 from src.shared.http.caller import Caller, UnknownUserError
 from src.shared.http.dependencies import WriteSession
 from src.shared.http.test_mode import TestMode
+from src.shared.logging import merge_log_context
 
 logger = logging.getLogger(__name__)
 
@@ -203,10 +204,20 @@ async def init_tracking(
     success line carries `order_id`, `user_id`, `cognito_sub` and `tracking_id`,
     all of which are shared-context fields.
     """
+    # Into the ambient context so every later line of this request carries it,
+    # including uvicorn's access line and anything logged deeper in the stack.
+    merge_log_context(order_id=payload.order_id)
+
     try:
         tracking, user_id = await asyncio.to_thread(
             _resolve_and_create, caller, session, payload
         )
+        # Merged HERE, after the await, not inside `_resolve_and_create`:
+        # asyncio.to_thread COPIES the context, so a merge in that thread would
+        # be discarded on return. The resolved id comes back as a value, which
+        # is what makes this the correct place. Same class of trap as Prisma's
+        # lazy promises in Users ([[prisma-lazy-promise-breaks-als]]).
+        merge_log_context(user_id=user_id, tracking_id=tracking.id)
     except UnknownUserError as exc:
         # Authenticated, but Users has no record. See the module docstring for why
         # this is a 404 rather than a 401 or a 422.

@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 import sys
 
+from .context_filter import LogContextFilter
 from .json_formatter import JsonFormatter
 
 # uvicorn attaches its own handlers to these and sets propagate = False.
@@ -52,6 +53,11 @@ def configure_logging(
 
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(formatter)
+    # Enrichment lives on the HANDLER, not on individual loggers: a filter on a
+    # logger only sees records logged through that logger, while one on the
+    # single root handler sees everything that reaches it — including uvicorn's
+    # records, which the propagation fix below routes here.
+    handler.addFilter(LogContextFilter())
 
     root = logging.getLogger()
     # Remove existing handlers rather than adding to them — see the idempotency

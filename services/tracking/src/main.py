@@ -48,6 +48,7 @@ from src.features.tracking.api.errors import (
     RejectedStatusUpdate,
     rejected_status_update_handler,
 )
+from src.shared.http.log_context_middleware import LogContextMiddleware
 from src.shared.logging import configure_logging
 
 logger = logging.getLogger(__name__)
@@ -83,6 +84,13 @@ def create_app() -> FastAPI:
         title="Tracking Service API",
         version="1.0.0",
     )
+
+    # Outermost: seeds the per-request log context so EVERY line of the request
+    # carries the caller's identity, including lines emitted deep in a
+    # repository that never sees the request. Pure ASGI, not
+    # BaseHTTPMiddleware — see the module docstring for why that distinction
+    # decides whether a mid-request merge is visible.
+    app.add_middleware(LogContextMiddleware)
 
     app.add_exception_handler(RejectedStatusUpdate, rejected_status_update_handler)
 
