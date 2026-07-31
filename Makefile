@@ -50,7 +50,7 @@ export EXECUTION_LOG_TABLE ?= 3mrai-local-tfstate-execution-log
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps test-unit test-e2e test-all backend-up infra-init infra-plan infra-up post-infra infra-down infra-output env-file migrate migrate-tracking bootstrap clean observability-up observability-down observability-dashboards scripts-setup
+.PHONY: help up down logs build ps test-unit test-e2e test-all backend-up infra-init infra-plan infra-up post-infra infra-down infra-output env-file migrate migrate-tracking bootstrap bootstrap-provision bootstrap-converge doctor clean observability-up observability-down observability-dashboards scripts-setup
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -220,6 +220,14 @@ post-infra: scripts-setup ## Harden a bootstrapped environment: MySQL provider g
 	myport="$$($(PY) $(DISCOVER_DB_PORT) mysql)"; \
 	cd $(TF_LOCAL_DIR)/post && terraform init -reconfigure -backend-config=backend.hcl >/dev/null && terraform apply -auto-approve -var pg_port=$$pgport -var mysql_port=$$myport -var python_bin=$(PY)
 
+doctor: scripts-setup ## Diagnose the local stack: what ran, what did not, and how to finish it
+	@# READ-ONLY. Every check is a SELECT, a SHOW, an HTTP GET or a docker
+	@# inspect; it repairs nothing and prints the command that would. The check
+	@# it exists for is the one nothing else surfaces: a database that EXISTS
+	@# while its tables do not, which is what a bootstrap that died before
+	@# `migrate-tracking` leaves behind (JE-112).
+	$(PY) infra/scripts/doctor.py
+
 ## --- Orchestration ---
 
 bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in dependency order
@@ -227,6 +235,12 @@ bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in depe
 	@# validates COGNITO_* with Zod at boot, and those IDs only exist after apply.
 	@# So: Floci first, then terraform, then .env, then migrations (DB needs
 	@# tables before it's usable), then the services.
+	@#
+	@# Split in two halves: `bootstrap-provision` (Floci + terraform + env files)
+	@# and `bootstrap-converge` (migrations + services + alias). Only the first
+	@# is un-re-runnable, because a second phase-1 apply fails on Floci's
+	@# UpdateTags (JE-113). So when a run dies partway, `make bootstrap-converge`
+	@# resumes it without re-entering the apply that cannot succeed.
 	@#
 	@# bootstrap.py (the nginx alias) runs LAST, not before the services. The
 	@# alias is what the API Gateway routes THROUGH; no service reads it — grep
@@ -249,6 +263,45 @@ bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in depe
 	@# services read .env.local.<service> via compose `env_file:` — starting
 	@# them first would mean starting against a missing or stale file.
 	$(MAKE) infra-up
+	@# Everything from here down is `bootstrap-converge` — see that target. It is
+	@# repeated there rather than factored out because a prerequisite would run
+	@# it in the wrong order relative to the terraform steps above.
+	$(MAKE) bootstrap-converge
+
+bootstrap-provision: scripts-setup ## Phase 1 of bootstrap: Floci + terraform + env files (NOT re-runnable — see below)
+	@# The half of `bootstrap` that CANNOT be safely re-run: a second phase-1
+	@# apply fails against Floci on UpdateTags (JE-113). Split out so that
+	@# `bootstrap-converge` exists as a resume path that never re-enters it.
+	$(COMPOSE) up -d floci
+	@echo "Waiting for Floci at $(FLOCI_URL) ..."
+	@for i in $$(seq 1 30); do \
+		if curl -sf -o /dev/null "$(FLOCI_URL)"; then echo "Floci is up."; break; fi; \
+		if [ $$i -eq 30 ]; then echo "Floci did not become ready in time." >&2; exit 1; fi; \
+		sleep 1; \
+	done
+	$(MAKE) backend-up
+	$(MAKE) infra-init
+	$(MAKE) infra-up
+
+bootstrap-converge: scripts-setup ## Phase 2 of bootstrap: migrations + services + nginx alias. SAFE to re-run.
+	@# The resume path for a `bootstrap` that died partway. Every step here is
+	@# idempotent — Prisma and Alembic are no-ops on an up-to-date database,
+	@# `compose up -d` reconciles rather than duplicates, and bootstrap.py
+	@# returns early when the alias already resolves — so re-running costs time
+	@# and nothing else.
+	@#
+	@# Starts with `env-file` because it is the one thing `infra-up` did that
+	@# this half depends on: `migrate-tracking` reads DATABASE_WRITER_URL from
+	@# .env.local.tracking, and the services read their own files via compose
+	@# `env_file:`. Regenerating is cheap and reads existing terraform outputs —
+	@# it does NOT apply, so it is safe against JE-113.
+	@#
+	@# On a full `make bootstrap` this runs twice (infra-up ends by calling it
+	@# too). Intentional, not an oversight: the second call is a sub-second
+	@# no-op, and dropping it would make this target depend on having been
+	@# entered through bootstrap — exactly the assumption that would stop it
+	@# working as a standalone resume path.
+	$(MAKE) env-file
 	$(MAKE) migrate
 	$(COMPOSE) up -d --build users
 	@# Phase 2 is deliberately NOT called here. `bootstrap` leaves the stack
