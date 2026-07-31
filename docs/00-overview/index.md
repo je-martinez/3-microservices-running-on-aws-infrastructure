@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-07-30
+updated: 2026-07-31
 tags:
   - type/spec
   - area/shared
@@ -66,6 +66,7 @@ related:
   - "[[drawio-diagram-legibility]]"
   - "[[cognito-pre-token-lambda]]"
   - "[[awscli-fallback-for-floci]]"
+  - "[[execution-log-for-provisioning-scripts]]"
 ---
 
 # 3MRAI — Index
@@ -188,6 +189,7 @@ Architectural patterns documented once and linked from service specs.
 - [[screaming-architecture]] — Screaming architecture: folder structure by feature/domain.
 - [[dependency-injection]] — DI container setup and usage across services.
 - [[awscli-fallback-for-floci]] — `terraform_data` + idempotent awscli script fallback for native Terraform resources/provider blocks that cannot apply against Floci.
+- [[execution-log-for-provisioning-scripts]] — DynamoDB-backed log (record-never-skip, fail-open) tracing what `local-exec` provisioning scripts actually did.
 
 ---
 

@@ -2,10 +2,10 @@
 title: Tracking Service Design
 type: spec
 area: tracking
-status: draft
+status: accepted
 created: 2026-06-26
-updated: 2026-07-29
-tags: [type/spec, area/tracking, status/draft]
+updated: 2026-07-31
+tags: [type/spec, area/tracking, status/accepted]
 related:
   - "[[soft-delete]]"
   - "[[nano-id]]"
@@ -22,30 +22,25 @@ related:
   - "[[local-gateway-per-route-integrations]]"
   - "[[nginx-njs-x-user-id-injection]]"
   - "[[grpc-api-key-authorization]]"
+  - "[[user-id-vs-cognito-sub-ownership-key]]"
+  - "[[two-api-keys-two-trust-domains]]"
+  - "[[testmode-in-process-asyncio-task]]"
 ---
 
 # Tracking Service Design
 
-> [!warning] Built, but not yet runnable in compose
-> The service itself is **implemented and tested**: the FastAPI app, the domain, the repository,
-> Alembic migrations against real MySQL, every REST endpoint below, and TestMode progression all
-> exist under `services/tracking/`, covered by a passing suite that runs against a live database
-> rather than mocks.
+> [!info] As built — fully wired and verified end to end (2026-07-31)
+> Every part of the chain this note once listed as missing now exists: a multi-stage
+> `services/tracking/Dockerfile` that installs and starts the app, a `tracking` service in
+> `docker-compose.yml` publishing `3002:8000` with a healthcheck, an nginx upstream
+> (`location /v1/trackings` plus the rewritten `/v1/tracking/health`), and
+> `enable_tracking_routes = true` in `infra/environments/local/main.tf` — so the five gateway
+> routes below are live, not inert.
 >
-> What is still missing is the plumbing that would let anyone actually reach it:
-> - `services/tracking/Dockerfile` has only `FROM` and `WORKDIR` uncommented — it installs nothing
->   and starts nothing, so the container builds but runs no service.
-> - The `tracking` service in the root `docker-compose.yml` publishes no port (the app listens on
->   8000) and has no healthcheck.
-> - nginx has no `tracking` upstream, so its catch-all `location /` would send every tracking path
->   to **Users** — which is why `enable_tracking_routes` in the gateway module stays `false`. The
->   five routes below are declared but inert.
->
-> That chain is tracked as a single blocker: the Dockerfile has to work before the upstream has
-> anything to point at, before the flag can be flipped, before a gateway E2E can pass.
->
-> The data layer, by contrast, is real: `infra/environments/local/main.tf` provisions the MySQL
-> cluster and a `tracking` database on it, and the migrations run against it.
+> Verified from a destroyed environment, not incrementally: `make clean` (with `./data`
+> deleted) → `make bootstrap` completed in **one pass** → **70/70 E2E tests pass**, including
+> the full journey through the gateway (user → order → tracking → DELIVERED). 294 unit and
+> integration tests pass against a live MySQL rather than mocks.
 >
 > `infra/modules/messaging/` and `infra/modules/database/` are still empty placeholders, but
 > neither blocks this service — Tracking emits no domain events (see [Events](#events)) and uses
@@ -192,6 +187,8 @@ is now something Tracking **sends**.
 > PUT endpoint (without ever logging the key itself, per [[logging-context]]) — an endpoint that
 > mutates delivery state and is reachable without a user JWT is a broader attack surface than the
 > rest of the service, and failed-attempt visibility is the cheapest mitigation available.
+>
+> See [[two-api-keys-two-trust-domains]] for the formal decision record.
 
 ### Gateway routing (existing module, not a new one)
 
@@ -235,7 +232,7 @@ was later removed — see
 |---|---|
 | Caller | End user, through the gateway |
 | Auth | Cognito JWT, validated by the gateway |
-| Scope | **User-scoped** — filtered by `order_id` AND the caller's `user_id`; only the caller's own trackings are ever returned |
+| Scope | **User-scoped** — filtered by `order_id` AND the caller's `cognito_sub`; only the caller's own trackings are ever returned — see [[user-id-vs-cognito-sub-ownership-key]] for why `user_id` must never be the filter |
 | Purpose | Let the end user see their own shipment; also the only way to verify tracking state from the gateway (see [Gateway E2E verification](#gateway-e2e-verification-of-testmode) below) |
 
 > [!note] Why reads exist on REST at all
@@ -249,10 +246,12 @@ was later removed — see
 
 ### Ownership & scoping
 
-Both REST read endpoints filter by `order_id` **and** `user_id` in the query itself — not
-fetch-then-compare — so a caller only ever receives trackings that belong to them. The caller's
-identity comes from the gateway-injected `x-user-id` header, the same mechanism
-[[orders-service-design]] uses (see its nginx+njs local gateway wiring).
+Both REST read endpoints filter by `order_id` **and** `cognito_sub` in the query itself — not
+`user_id`, and not fetch-then-compare — so a caller only ever receives trackings that belong to
+them. The caller's identity comes from the gateway-injected `x-user-id` header, the same
+mechanism [[orders-service-design]] uses (see its nginx+njs local gateway wiring). See
+[[user-id-vs-cognito-sub-ownership-key]] for why the two identity columns are not
+interchangeable and what breaks if a read is scoped by `user_id` instead.
 
 This matches Orders' existing ownership semantics exactly (see
 [[orders-service-design#API / Endpoints|the ownership note on `GET /v1/orders/{order_id}`]]):
@@ -414,6 +413,9 @@ Each automatic transition writes a `Tracking_History` row, so a completed `TestM
 history entries in total. When `TestMode` is false or absent, no automatic progression happens —
 status only advances through the `PUT /v1/trackings/{orderId}/status` endpoint below.
 
+Scheduling mechanism, and the accepted limitation if the process restarts mid-progression:
+[[testmode-in-process-asyncio-task]].
+
 #### End-to-end origin: a client header on Orders, not an Orders-side decision
 
 `test_mode` is not a value Orders decides on its own — it originates as an **optional HTTP header
@@ -566,3 +568,9 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
   Cognito-authenticated REST reads comes from locally; explicitly absent on the PUT endpoint.
 - [[grpc-api-key-authorization]] — the shared `x-api-key` scheme Tracking's outbound
   `GetUserById` call presents to Users, the same mechanism Orders already uses.
+- [[user-id-vs-cognito-sub-ownership-key]] — the ADR formalizing why user-scoped reads filter
+  by `cognito_sub`, never `user_id`, and the incident that motivated it.
+- [[two-api-keys-two-trust-domains]] — the ADR formalizing why `GRPC_API_KEY` and
+  `TRACKING_CARRIER_API_KEY` must never collapse into one secret.
+- [[testmode-in-process-asyncio-task]] — the ADR formalizing the in-process `asyncio`
+  scheduling choice for TestMode and its accepted restart-loses-progress limitation.

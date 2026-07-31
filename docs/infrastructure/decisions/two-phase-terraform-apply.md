@@ -21,6 +21,7 @@ related:
   - "[[local-dev-floci]]"
   - "[[2026-07-30-post-infra-root-design]]"
   - "[[scripting-language]]"
+  - "[[execution-log-for-provisioning-scripts]]"
 ---
 
 # Two-phase Terraform apply: app-users created after infra is live
@@ -147,7 +148,8 @@ whether any of them ran, against what resource, or whether it succeeded — that
 disappeared the instant the terminal scrolled past it. A new `infra.modules.tf-backend`-declared
 DynamoDB table, `execution_log`, and a `lib3mrai.execution_log.record_execution(...)` context
 manager wrapping each script's existing body fix that, resting on two explicit design rules
-that hold this together:
+that hold this together (generalized as their own pattern:
+[[execution-log-for-provisioning-scripts]]):
 
 - **It is a log, not a cache.** All four scripts are already idempotent on their own terms
   (`CREATE ... IF NOT EXISTS`, lookup-then-reuse, a declarative `UpdateUserPool`), and `make clean`
@@ -271,3 +273,4 @@ different problem.
 - [[local-dev-floci]]
 - [[2026-07-30-post-infra-root-design]]
 - [[scripting-language]]
+- [[execution-log-for-provisioning-scripts]]

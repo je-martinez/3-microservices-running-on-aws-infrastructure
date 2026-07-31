@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-19
-updated: 2026-07-28
+updated: 2026-07-31
 tags:
   - type/convention
   - area/shared
@@ -16,6 +16,8 @@ related:
   - "[[ADR-0018-observability-openobserve]]"
   - "[[testing]]"
   - "[[2026-07-12-prisma-lazy-promise-als]]"
+  - "[[2026-07-31-contextvars-lost-across-task-boundaries]]"
+  - "[[2026-07-31-python-logging-extra-silently-dropped]]"
 ---
 
 # Logging Context
@@ -33,7 +35,7 @@ Every log line attaches the following fields, identically defined across service
 | `email` | request body, **masked** | auth flows only (register/login) |
 | `order_id` | domain operation | Orders operations |
 | `duration_ms` | request log | per response |
-| `tracking_id` | — | **reserved** for `tracking`, emitted by nothing today |
+| `tracking_id` | domain operation | Tracking operations, once a tracking exists |
 | `type` | — | **reserved** for `events-pipeline`, emitted by nothing today |
 
 **Rule: unknown fields are OMITTED, never emitted as null.** A `user_id: null` reads as a
@@ -138,6 +140,14 @@ reach the shared schema.
 - **Orders:** a Serilog `ILogEventEnricher` reading `ICurrentCaller` via `IHttpContextAccessor`.
   The caller is read on **every** event, never cached — the internal `usr_` id resolves lazily
   and is absent early in a request.
+- **Tracking:** Python `contextvars`, merged into every record via a `logging.Formatter`
+  subclass that explicitly emits the record's extra attributes — the stdlib default formatter
+  does not. See [[2026-07-31-python-logging-extra-silently-dropped]].
+  > [!warning] Pitfall — contextvars don't survive every task/thread boundary
+  > `asyncio.to_thread` copies the context rather than sharing it, so a merge performed inside
+  > the offloaded call is discarded on return; Starlette's `BaseHTTPMiddleware` runs the app in
+  > a sibling anyio task, so context a handler sets is invisible to that middleware. See
+  > [[2026-07-31-contextvars-lost-across-task-boundaries]].
 
 ## Related
 
@@ -147,3 +157,7 @@ reach the shared schema.
 - [[ADR-0018-observability-openobserve]]
 - [[testing]]
 - [[2026-07-12-prisma-lazy-promise-als]]
+- [[2026-07-31-contextvars-lost-across-task-boundaries]] — Tracking's contextvars sibling to
+  the Prisma/ALS lesson above.
+- [[2026-07-31-python-logging-extra-silently-dropped]] — why Tracking needed a custom
+  formatter for `extra=` fields to reach the output at all.
