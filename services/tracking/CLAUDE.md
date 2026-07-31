@@ -37,6 +37,7 @@ services/tracking/
 - Audit fields: [../../docs/shared/conventions/audit-fields.md](../../docs/shared/conventions/audit-fields.md)
 - API versioning: [../../docs/shared/conventions/versioning.md](../../docs/shared/conventions/versioning.md)
 - DB naming (snake_case ↔ PascalCase aliases): [../../docs/shared/conventions/db-naming.md](../../docs/shared/conventions/db-naming.md)
+- Logging context & tracing: [../../docs/shared/conventions/logging-context.md](../../docs/shared/conventions/logging-context.md)
 
 ## 5. Agent rules
 - Converse with the user in **Spanish**; write code and comments in **English**.

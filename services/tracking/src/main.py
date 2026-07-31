@@ -34,6 +34,7 @@ read from silently acquiring a per-request call to Users.
 from __future__ import annotations
 
 import logging
+import os
 
 from fastapi import FastAPI
 
@@ -47,6 +48,7 @@ from src.features.tracking.api.errors import (
     RejectedStatusUpdate,
     rejected_status_update_handler,
 )
+from src.shared.logging import configure_logging
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +65,20 @@ def create_app() -> FastAPI:
     needed — TestMode progression is now scheduled from an `async` handler that is
     already on uvicorn's loop, so nothing has to be published to it in advance.
     """
+    # Before anything else, so no line escapes in uvicorn's plain-text default.
+    # Structured JSON is what makes `order_id` / `user_id` filterable in the
+    # dashboard: logs reach OpenObserve through Docker's fluentd driver, and a
+    # line with no fields is a line no query can select on. See
+    # shared/logging/json_formatter.py and [[logging-context]].
+    # Read straight from the environment rather than through get_settings():
+    # logging must not make app construction depend on a fully-valid Settings.
+    # Tests build the app without the DB/Cognito variables, and failing to log
+    # is never a reason to fail to start. Same default as Settings.
+    configure_logging(
+        service_name="tracking",
+        deployment_environment=os.environ.get("DEPLOYMENT_ENVIRONMENT", "local"),
+    )
+
     app = FastAPI(
         title="Tracking Service API",
         version="1.0.0",
