@@ -31,6 +31,23 @@ export AWS_DEFAULT_REGION  ?= us-east-1
 export AWS_ACCESS_KEY_ID   ?= test
 export AWS_SECRET_ACCESS_KEY ?= test
 
+# DynamoDB table the provisioning scripts record their runs to, for traceability
+# only — never to skip a re-run (lib3mrai/execution_log.py explains why). Threaded
+# the same way AWS_ENDPOINT_URL is: exported here, inherited by terraform and by
+# every local-exec provisioner it spawns, and passed on explicitly by the two
+# cognito provisioners (which is a SHARED module, so it takes it as a variable).
+#
+# WHY A LITERAL, NOT A terraform_remote_state READ of environments/local/backend:
+# that root deliberately keeps LOCAL state (it creates the S3 bucket every other
+# root's backend points at), so reading it would mean a `backend = "local"` data
+# source hardcoding a relative path between two roots — a mechanism this repo
+# uses nowhere. The name is deterministic anyway: modules/tf-backend derives it
+# as "<context.id>-execution-log" and the backend root's label is
+# 3mrai-local-tfstate. An override still flows through: `?=` yields to an
+# environment value, and the table name is exposed as the backend root's
+# execution_log_table_name output for anyone who needs to confirm it.
+export EXECUTION_LOG_TABLE ?= 3mrai-local-tfstate-execution-log
+
 .DEFAULT_GOAL := help
 
 .PHONY: help up down logs build ps test-unit test-e2e test-all backend-up infra-init infra-plan infra-up infra-up-post infra-down infra-output env-file migrate migrate-tracking bootstrap clean observability-up observability-down observability-dashboards scripts-setup

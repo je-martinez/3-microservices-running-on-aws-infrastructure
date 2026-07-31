@@ -39,6 +39,11 @@ Runs the client inside a throwaway `mysql:8` container joined to Floci's compose
 network, exactly like lib3mrai.db's readiness probes — so it resolves the `floci`
 service by name and needs no mysql client on the host.
 
+Execution is recorded to the DynamoDB execution log (lib3mrai.execution_log) for
+traceability — never to skip a re-run. With EXECUTION_LOG_TABLE unset (a hand
+run outside the Makefile/Terraform chain) nothing is recorded and the script
+behaves exactly as it did before.
+
 Exit codes: 0 created-or-already-present, 1 failure.
 """
 
@@ -48,6 +53,7 @@ import sys
 
 from lib3mrai.console import inf, no, ok
 from lib3mrai.db import COMPOSE_NETWORK, discover_port
+from lib3mrai.execution_log import record_execution
 
 # Floci's only reachable MySQL superuser. Not a secret: Floci fixes it at
 # test/test (MYSQL_ROOT_PASSWORD=test on the container it launches).
@@ -71,15 +77,13 @@ def _sql(database: str) -> str:
         f"CREATE DATABASE IF NOT EXISTS `{database}` "
         "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; "
         f"GRANT ALL PRIVILEGES ON `{database}`.* TO '{APP_USER}'@'%' "
+        # WITH GRANT OPTION is load-bearing beyond this script: phase 2 grants
+        # this database to its least-privilege app-user AS this same user, and
+        # you cannot hand out privileges you do not hold with it. The two
+        # *other* provider-enablement grants that used to live here (CREATE USER
+        # ON *.*, SELECT ON mysql.*) moved to phase 2, where they are used —
+        # post/scripts/grant_mysql_provider_privileges.py.
         "WITH GRANT OPTION; "
-        # Phase 2 configures the mysql provider as this same user, and creating a
-        # least-privilege app-user needs three things Floci does not grant it out
-        # of the box. Without them `make infra-up-post` fails: first 1227 on
-        # CREATE USER, then 1142 reading `mysql.user` to diff the grants it just
-        # wrote. GRANT OPTION above is the third — you cannot hand out privileges
-        # you do not hold with it.
-        f"GRANT CREATE USER ON *.* TO '{APP_USER}'@'%'; "
-        f"GRANT SELECT ON mysql.* TO '{APP_USER}'@'%'; "
         "FLUSH PRIVILEGES;"
     )
 
@@ -116,14 +120,38 @@ def main(argv: list[str]) -> int:
 
     # Discovered, never hardcoded: Floci assigns RDS proxy ports 7000-7099 by
     # cluster CREATION ORDER, which is not stable across applies.
+    #
+    # OUTSIDE the execution-log wrapper on purpose: a failure here means the
+    # MySQL cluster was never found, so there is no resource identity to record
+    # the run against — the same reasoning that keeps wait_for_db.py's usage
+    # error (exit 2) outside its wrapper.
     try:
         port = discover_port("mysql")
     except LookupError as exc:
         no(f"create_mysql_database.py: {exc}")
         return 1
 
-    inf(f"creating MySQL database '{args.database}' on {FLOCI_HOST}:{port} …")
-    if not create_database(args.database, port):
+    # The MySQL cluster reached through this proxy port is the resource acted
+    # on; the port identifies it as precisely as anything available here (the
+    # provisioner passes no cluster id, and discover_port matches on Engine).
+    resource_id = f"mysql:{FLOCI_HOST}:{port}"
+
+    try:
+        with record_execution(
+            script="create_mysql_database.py", resource_id=resource_id
+        ):
+            inf(f"creating MySQL database '{args.database}' on {FLOCI_HOST}:{port} …")
+            # BEHAVIORAL SEAM: create_database reports failure by RETURNING
+            # False (having already emitted the operator-facing `no(...)` with
+            # MySQL's own stderr), but record_execution can only detect failure
+            # from an exception. Left untranslated, a genuine failure would be
+            # recorded as "ok" — the worst possible outcome for a traceability
+            # log. So the False is raised here, purely so the wrapper observes
+            # it, and caught immediately below to restore the script's exit-code
+            # contract (0/1, never an uncaught traceback).
+            if not create_database(args.database, port):
+                raise RuntimeError(f"failed to create database '{args.database}'")
+    except RuntimeError:
         return 1
 
     ok(f"MySQL database '{args.database}' present (granted to '{APP_USER}')")

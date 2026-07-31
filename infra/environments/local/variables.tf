@@ -39,3 +39,24 @@ variable "db_password" {
   default     = "test"
   sensitive   = true
 }
+
+variable "execution_log_table" {
+  description = <<-DESC
+    DynamoDB table where the local-exec provisioning scripts record each run,
+    for TRACEABILITY ONLY — never to skip a re-run (see
+    infra/scripts/lib3mrai/execution_log.py).
+
+    Created by the `backend/` root (modules/tf-backend), which keeps LOCAL state
+    by design and so cannot be read via terraform_remote_state the way phase 1
+    is. The name is deterministic — "<label id>-execution-log" for the backend
+    root's 3mrai-local-tfstate label — so it is a plain default here, and the
+    Makefile exports the same value as EXECUTION_LOG_TABLE for the scripts it
+    invokes directly. Confirm it against the backend root's
+    execution_log_table_name output.
+
+    Empty string disables recording: the scripts treat an unset table as a
+    legitimate state and run exactly as they did before the log existed.
+  DESC
+  type        = string
+  default     = "3mrai-local-tfstate-execution-log"
+}

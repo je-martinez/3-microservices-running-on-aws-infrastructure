@@ -16,6 +16,11 @@ Required env vars (set by the calling local-exec provisioner):
   STATE_FILE    - path to write the resulting {"ClientId": "..."} JSON
   ENDPOINT_URL  - optional endpoint override (empty = default resolution)
   AWS_REGION    - AWS region
+
+Optional:
+  EXECUTION_LOG_TABLE - DynamoDB table recording this run for traceability
+                        (lib3mrai.execution_log). Unset = record nothing and
+                        behave exactly as before; the log never skips a run.
 """
 
 import json
@@ -30,6 +35,7 @@ if "ENDPOINT_URL" in os.environ:
     os.environ["AWS_ENDPOINT_URL"] = os.environ["ENDPOINT_URL"]
 
 from lib3mrai import aws  # noqa: E402  (must follow the env bridge above)
+from lib3mrai.execution_log import record_execution  # noqa: E402  (same reason)
 
 # Must match what the native resource sets (modules/cognito/main.tf,
 # aws_cognito_user_pool_client.this) so the CLI and provider paths agree.
@@ -57,36 +63,46 @@ def write_state(state_file: pathlib.Path, client_id: str, pool_id: str) -> None:
 
 
 def main() -> int:
+    # require() exits(1) on a missing var, before the pool id is known — so it
+    # stays outside the execution-log wrapper: there would be no resource
+    # identity to record the run against.
     pool_id = require("USER_POOL_ID")
     client_name = require("CLIENT_NAME")
     state_file = pathlib.Path(require("STATE_FILE"))
     state_file.parent.mkdir(parents=True, exist_ok=True)
 
-    idp = aws.client("cognito-idp")
+    # Both branches below `return 0` from inside the `with`, which leaves the
+    # context manager normally and closes the record as "ok" — correct for
+    # reuse and create alike. A boto3 error propagates instead, closing it as
+    # "failed" and surfacing unchanged, exactly as before this wrapper existed.
+    with record_execution(script="create_user_pool_client.py", resource_id=pool_id):
+        idp = aws.client("cognito-idp")
 
-    # 1. Idempotent lookup: reuse an existing client with the same name, if any.
-    existing = idp.list_user_pool_clients(UserPoolId=pool_id, MaxResults=60)
-    for candidate in existing.get("UserPoolClients", []):
-        if candidate.get("ClientName") == client_name:
-            client_id = candidate["ClientId"]
-            write_state(state_file, client_id, pool_id)
-            print(
-                f"create_user_pool_client.py: reused existing client "
-                f"'{client_name}' ({client_id})"
-            )
-            return 0
+        # 1. Idempotent lookup: reuse an existing client with the same name, if any.
+        existing = idp.list_user_pool_clients(UserPoolId=pool_id, MaxResults=60)
+        for candidate in existing.get("UserPoolClients", []):
+            if candidate.get("ClientName") == client_name:
+                client_id = candidate["ClientId"]
+                write_state(state_file, client_id, pool_id)
+                print(
+                    f"create_user_pool_client.py: reused existing client "
+                    f"'{client_name}' ({client_id})"
+                )
+                return 0
 
-    # 2. Create the client.
-    created = idp.create_user_pool_client(
-        UserPoolId=pool_id,
-        ClientName=client_name,
-        GenerateSecret=False,
-        ExplicitAuthFlows=EXPLICIT_AUTH_FLOWS,
-    )
-    client_id = created["UserPoolClient"]["ClientId"]
-    write_state(state_file, client_id, pool_id)
-    print(f"create_user_pool_client.py: created client '{client_name}' ({client_id})")
-    return 0
+        # 2. Create the client.
+        created = idp.create_user_pool_client(
+            UserPoolId=pool_id,
+            ClientName=client_name,
+            GenerateSecret=False,
+            ExplicitAuthFlows=EXPLICIT_AUTH_FLOWS,
+        )
+        client_id = created["UserPoolClient"]["ClientId"]
+        write_state(state_file, client_id, pool_id)
+        print(
+            f"create_user_pool_client.py: created client '{client_name}' ({client_id})"
+        )
+        return 0
 
 
 if __name__ == "__main__":

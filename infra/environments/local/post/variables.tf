@@ -70,3 +70,22 @@ variable "python_bin" {
   type        = string
   default     = "../../../../.venv/bin/python"
 }
+
+variable "execution_log_table" {
+  description = <<-DESC
+    DynamoDB table where the wait-for-db gate records each run, for
+    TRACEABILITY ONLY — never to skip a re-run (see
+    infra/scripts/lib3mrai/execution_log.py).
+
+    Created by the `backend/` root (modules/tf-backend). That root keeps LOCAL
+    state by design, so unlike phase 1's outputs it cannot be read through the
+    terraform_remote_state data source in data.tf; the name is deterministic
+    ("<label id>-execution-log" for the 3mrai-local-tfstate label), so it is a
+    plain default here and the Makefile exports the same value.
+
+    Empty string disables recording: the script treats an unset table as a
+    legitimate state and behaves exactly as it did before the log existed.
+  DESC
+  type        = string
+  default     = "3mrai-local-tfstate-execution-log"
+}

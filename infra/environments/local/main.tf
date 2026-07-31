@@ -164,6 +164,12 @@ resource "terraform_data" "tracking_database" {
   provisioner "local-exec" {
     command     = "${abspath("${path.root}/../../../.venv/bin/python")} ${abspath("${path.root}/scripts/create_mysql_database.py")} ${self.input.database}"
     interpreter = ["/usr/bin/env", "bash", "-c"]
+    environment = {
+      # Traceability only: the script always runs and the log never causes a
+      # skip. Set explicitly rather than relying on the Makefile's exported
+      # value being inherited, so a `terraform apply` run by hand records too.
+      EXECUTION_LOG_TABLE = var.execution_log_table
+    }
   }
 }
 
@@ -186,6 +192,10 @@ module "cognito" {
   # cannot know its distance to the repo root. `make scripts-setup` — a
   # prerequisite of every apply target — guarantees it exists.
   python_bin = abspath("${path.root}/../../../.venv/bin/python")
+  # Traceability log for those same two provisioners. The module defaults this
+  # to "" (record nothing), which is what prod wants — there the client is
+  # managed by the native provider and neither script runs.
+  execution_log_table = var.execution_log_table
 }
 
 # ─── Compute (ECS cluster + nginx reverse proxy) ────────────────────────────────
