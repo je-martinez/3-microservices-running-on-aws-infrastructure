@@ -60,11 +60,26 @@ PROVIDER_USER = "test"
 
 FLOCI_HOST = "floci"
 
-# Exactly the two statements that moved out of create_mysql_database.py, plus a
-# FLUSH so the running server picks them up without waiting for a reconnect.
+# The database Floci creates with the cluster itself, via
+# aws_rds_cluster.database_name. Unlike `tracking`, it never passes through
+# create_mysql_database.py, so nothing ever granted `test` GRANT OPTION on it.
+CLUSTER_OWNED_DATABASE = "orders"
+
+# The two statements that moved out of create_mysql_database.py, plus the
+# GRANT OPTION this script must add itself, plus a FLUSH so the running server
+# picks them up without waiting for a reconnect.
 SQL = (
     f"GRANT CREATE USER ON *.* TO '{PROVIDER_USER}'@'%'; "
     f"GRANT SELECT ON mysql.* TO '{PROVIDER_USER}'@'%'; "
+    # Asymmetry this script has to correct, found by running phase 2 end to end:
+    # `tracking` is created BY create_mysql_database.py, which grants it to
+    # `test` WITH GRANT OPTION, but `orders` is created by the cluster resource
+    # itself and Floci grants it WITHOUT that option. Phase 2 then creates
+    # orders_app as `test` and fails 1044 delegating privileges it does not hold
+    # with GRANT OPTION — you cannot hand out what you were not given the right
+    # to hand out. Issued as root here, the one identity that can.
+    f"GRANT ALL PRIVILEGES ON `{CLUSTER_OWNED_DATABASE}`.* "
+    f"TO '{PROVIDER_USER}'@'%' WITH GRANT OPTION; "
     "FLUSH PRIVILEGES;"
 )
 
