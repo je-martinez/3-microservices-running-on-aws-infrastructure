@@ -37,7 +37,10 @@ module "orders_app" {
   db_host         = local.mysql_host
   db_port         = local.mysql_port
 
-  depends_on = [terraform_data.wait_for_db]
+  # Both gates, and they are independent of each other: wait_for_db proves the
+  # endpoint answers, mysql_provider_grants proves the provider's identity may
+  # create users at all (see grants.tf). Postgres needs only the first.
+  depends_on = [terraform_data.wait_for_db, terraform_data.mysql_provider_grants]
 }
 
 # Tracking app-user (MySQL). Shares the Orders cluster (same host/port, hence the
@@ -56,5 +59,6 @@ module "tracking_app" {
   db_host         = local.mysql_host
   db_port         = local.mysql_port
 
-  depends_on = [terraform_data.wait_for_db]
+  # Same two gates as orders_app — same cluster, same provider identity.
+  depends_on = [terraform_data.wait_for_db, terraform_data.mysql_provider_grants]
 }
