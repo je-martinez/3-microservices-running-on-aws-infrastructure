@@ -9,8 +9,13 @@ through a request reaches every later line.
 
 Only the sub is available this early: it arrives as the `x-user-id` header the
 gateway injects (nginx `proxy_set_header x-user-id $jwt_sub`). The internal
-`usr_` id is resolved later, over gRPC to Users, and handlers add it with
-`merge_log_context(user_id=...)` at that point.
+`usr_` id is NOT resolvable here — it takes a gRPC call to Users, and this
+middleware runs for every route including `/v1/health` and the carrier PUT,
+neither of which has a user identity to resolve or any business making that
+call. It is added a moment later by `stamp_caller_user_id`
+(`shared/http/log_identity.py`), a dependency that the user-scoped routes declare
+and those two do not — so the exemption is structural rather than an allowlist
+this middleware would have to remember to keep correct.
 
 The header is NOT trusted for authorization here — this is logging only.
 Authorization stays with `require_caller_sub` (shared/http/identity.py), which

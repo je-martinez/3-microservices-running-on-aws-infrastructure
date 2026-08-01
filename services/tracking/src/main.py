@@ -18,17 +18,18 @@ threadpool. `POST /init-tracking` is the deliberate exception — see its router
 ## Four routers, three auth schemes
 
 Registered separately and deliberately: `health_router` declares no auth,
-`trackings_router` requires the gateway-injected `x-user-id` per handler,
-`init_tracking_router` requires it too AND resolves the caller through Users, and
-`carrier_router` declares the carrier key at the router level. Nothing is
-authenticated by a global middleware, so no route can be accidentally exempted by
-an allowlist — and, critically, the carrier PUT cannot inherit an `x-user-id`
-requirement it must not have.
+`trackings_router` and `init_tracking_router` both require the gateway-injected
+`x-user-id` per handler and resolve the caller through Users, and `carrier_router`
+declares the carrier key at the router level. Nothing is authenticated by a global
+middleware, so no route can be accidentally exempted by an allowlist — and,
+critically, the carrier PUT cannot inherit an `x-user-id` requirement it must not
+have, nor the outbound call to Users that comes with one.
 
-Creation lives in its own router rather than beside the reads because it needs a
-strictly larger dependency set (`Caller`, which can make a gRPC call, versus
-`CallerSub`, which never touches the network). Keeping them apart is what stops a
-read from silently acquiring a per-request call to Users.
+Creation lives in its own router rather than beside the reads because it treats a
+failed resolution differently: for a read the `usr_` id is log enrichment and its
+absence is ignorable, while creation cannot persist a row without it and answers
+`404`. Keeping them apart is what stops one of those two meanings leaking into the
+other.
 """
 
 from __future__ import annotations

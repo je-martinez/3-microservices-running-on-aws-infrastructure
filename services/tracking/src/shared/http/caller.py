@@ -78,7 +78,14 @@ class CurrentCaller:
     is handled by one thread, and the memoization below has no writer racing it.
     """
 
-    def __init__(self, *, cognito_sub: str, users: UsersGrpcClient) -> None:
+    def __init__(
+        self, *, cognito_sub: str, users: UsersGrpcClient | None
+    ) -> None:
+        # `users` may be None: `log_identity.get_optional_users_client` hands one
+        # over when no client could be built (a misconfigured environment), so
+        # that enriching a log line degrades instead of failing a request that
+        # never needed the `usr_` id. Nothing here dereferences it; only
+        # `resolve_internal_user_id` does, and it is documented to raise.
         self._cognito_sub = cognito_sub
         self._users = users
         self._resolved: ResolvedUser | None = None
@@ -111,6 +118,11 @@ class CurrentCaller:
 
         Synchronous, like every other DB/gRPC touch in this service: FastAPI runs
         the `def` handlers that call it in a threadpool.
+
+        Raises `AttributeError` when built with no client at all — a case only
+        `log_identity` creates, and only inside a block that swallows everything.
+        Deliberately not a graceful `None`: on the write path a missing client is a
+        misconfiguration that must be loud, not a user who happens to be unknown.
         """
         if not self._has_resolved:
             # Set BEFORE the assignment can be skipped: a NOT_FOUND caches as

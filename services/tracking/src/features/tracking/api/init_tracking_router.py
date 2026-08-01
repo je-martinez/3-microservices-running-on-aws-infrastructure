@@ -8,11 +8,19 @@ swapped out without touching what creation means.
 ## Its own router, like the carrier PUT
 
 A third router under `/v1/trackings`, for the reason the carrier PUT has a second:
-it does not share a dependency set with anything else on that prefix. The reads
-need `CallerSub` (a sub, no network), this needs `Caller` (a sub AND a resolved
-`usr_` id, one gRPC call), and the carrier PUT needs neither and must never acquire
-either. Keeping the three apart means none of them can inherit a dependency by
-being edited next to code that has one.
+it does not share a dependency set with anything else on that prefix. This and the
+reads both take `IdentifiedCaller` (a sub AND the resolved `usr_` id, one gRPC
+call), but they part company on what a failed resolution means — on a read it is
+ignorable enrichment, here it is a `404` — and the carrier PUT must never acquire
+any identity dependency at all. Keeping the three apart means none of them can
+inherit a dependency by being edited next to code that has one.
+
+The resolution itself now happens in `stamp_caller_user_id`
+(`shared/http/log_identity.py`), before this handler runs, so that every log line
+of the request carries `user_id` rather than only the ones emitted after the
+handler resolved it. That dependency swallows failures — it is enrichment — so
+this handler still calls `resolve_internal_user_id()` itself, off the cached
+result, and still turns `UnknownUserError` into the `404` below.
 
 ## Identity: the header, never the body
 
@@ -121,8 +129,9 @@ from src.features.tracking.commands.test_mode_progression import (
     run_progression,
 )
 from src.shared.db.engine import write_session
-from src.shared.http.caller import Caller, UnknownUserError
+from src.shared.http.caller import CurrentCaller, UnknownUserError
 from src.shared.http.dependencies import WriteSession
+from src.shared.http.log_identity import IdentifiedCaller
 from src.shared.http.test_mode import TestMode
 from src.shared.logging import merge_log_context
 
@@ -186,7 +195,7 @@ ALREADY_EXISTS_REASON = "tracking_already_exists"
     },
 )
 async def init_tracking(
-    caller: Caller,
+    caller: IdentifiedCaller,
     session: WriteSession,
     payload: InitTrackingRequest,
     test_mode: TestMode,
@@ -214,9 +223,15 @@ async def init_tracking(
         )
         # Merged HERE, after the await, not inside `_resolve_and_create`:
         # asyncio.to_thread COPIES the context, so a merge in that thread would
-        # be discarded on return. The resolved id comes back as a value, which
+        # be discarded on return. The resolved values come back as values, which
         # is what makes this the correct place. Same class of trap as Prisma's
         # lazy promises in Users ([[prisma-lazy-promise-breaks-als]]).
+        #
+        # `user_id` is already in context (`IdentifiedCaller` put it there before
+        # this handler ran, which is what gets it onto the EARLIER lines too);
+        # re-merging the identical value is a no-op kept for the case where that
+        # resolution failed quietly and this one — off the same cache — did not.
+        # `tracking_id` genuinely only exists here.
         merge_log_context(user_id=user_id, tracking_id=tracking.id)
     except UnknownUserError as exc:
         # Authenticated, but Users has no record. See the module docstring for why
@@ -279,7 +294,7 @@ async def init_tracking(
 
 
 def _resolve_and_create(
-    caller: Caller, session: Session, payload: InitTrackingRequest
+    caller: CurrentCaller, session: Session, payload: InitTrackingRequest
 ) -> tuple[object, str]:
     """The blocking half: resolve the caller, then write. Runs on a worker thread.
 

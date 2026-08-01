@@ -39,6 +39,20 @@ parameter.
 pymysql is a blocking driver, so these run in the threadpool. An `async def`
 handler doing a blocking DBAPI round trip would stall the whole event loop —
 including the health check.
+
+## Why these reads declare `IdentifiedCaller` rather than `CallerSub`
+
+The scoping still uses the sub and nothing else — that part is unchanged, and
+`caller.cognito_sub` is the same header value `CallerSub` returned. What the
+richer dependency adds is one outbound resolution of the internal `usr_` id into
+the log context, so every line of a read carries `user_id` the way creation's
+already did (`shared/http/log_identity.py` explains the cost and why it is paid
+here rather than in middleware).
+
+It is genuinely extra work on a path that had none: a read now makes a gRPC call
+to Users it did not make before. It is bounded — one call per request, memoized on
+the caller — and it cannot fail the read: an unresolvable id merges nothing and the
+line simply goes out without `user_id`.
 """
 
 from __future__ import annotations
@@ -57,7 +71,7 @@ from src.features.tracking.queries.get_my_trackings import (
     get_my_trackings_by_order_ids,
 )
 from src.shared.http.dependencies import ReadSession
-from src.shared.http.identity import CallerSub
+from src.shared.http.log_identity import IdentifiedCaller
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +105,7 @@ def _parse_order_ids(raw: str) -> list[str]:
     summary="Read several of the caller's trackings by order id",
 )
 def get_trackings(
-    caller_sub: CallerSub,
+    caller: IdentifiedCaller,
     session: ReadSession,
     order_ids: Annotated[
         str,
@@ -118,7 +132,7 @@ def get_trackings(
         )
 
     found = get_my_trackings_by_order_ids(
-        session, order_ids=parsed, cognito_sub=caller_sub
+        session, order_ids=parsed, cognito_sub=caller.cognito_sub
     )
     return TrackingListResponse(
         trackings=[
@@ -134,7 +148,7 @@ def get_trackings(
     summary="Read one of the caller's trackings by order id",
 )
 def get_tracking(
-    caller_sub: CallerSub,
+    caller: IdentifiedCaller,
     session: ReadSession,
     order_id: Annotated[str, Path(description="The order's id")],
 ) -> TrackingResponse:
@@ -147,7 +161,7 @@ def get_tracking(
     shipping address, which this surface does not even carry.
     """
     found = get_my_tracking_by_order_id(
-        session, order_id=order_id, cognito_sub=caller_sub
+        session, order_id=order_id, cognito_sub=caller.cognito_sub
     )
     if found is None:
         logger.info(
@@ -156,7 +170,7 @@ def get_tracking(
                 "app_event": "get_tracking_failed",
                 "reason": "not_found",
                 "order_id": order_id,
-                "cognito_sub": caller_sub,
+                "cognito_sub": caller.cognito_sub,
             },
         )
         raise HTTPException(
