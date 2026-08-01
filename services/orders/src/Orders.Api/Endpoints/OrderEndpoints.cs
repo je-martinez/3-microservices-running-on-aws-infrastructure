@@ -1,5 +1,6 @@
 using Orders.Api.Identity;
 using Orders.Application.Orders;
+using Orders.Application.Tracking;
 using Orders.Infrastructure.Orders;
 
 namespace Orders.Api.Endpoints;
@@ -19,24 +20,73 @@ public static class OrderEndpoints
             .Produces(StatusCodes.Status404NotFound)
             .Produces(StatusCodes.Status409Conflict);
 
-        group.MapGet("/my-orders", async (ICurrentCaller caller, OrderReadService reads) =>
+        group.MapGet("/my-orders", async (
+            ICurrentCaller caller,
+            OrderReadService reads,
+            ITrackingReader trackingReader,
+            bool includeTracking = false,
+            CancellationToken ct = default) =>
         {
             // x-user-id absence already 401'd by CallerContextMiddleware.
-            return Results.Ok(await reads.GetMyOrdersAsync(caller.CognitoSub!));
+            var orders = await reads.GetMyOrdersAsync(caller.CognitoSub!);
+
+            // Default false keeps this response byte-identical to what every existing
+            // caller already receives — no tracking key, no extra round trip.
+            if (!includeTracking)
+            {
+                return Results.Ok(orders);
+            }
+
+            // ONE batch call for N orders. Tracking's csv-shaped read exists so a list
+            // does not fan out into a call per order.
+            var trackings = await trackingReader.GetTrackingsAsync(
+                orders.Select(o => o.Id).ToArray(), caller.CognitoSub!, ct);
+
+            return Results.Ok(orders
+                .Select(o => new OrderWithTrackingDto(
+                    o, trackings.GetValueOrDefault(o.Id)))
+                .ToArray());
         })
             .WithName("GetMyOrders")
-            .WithSummary("List the caller's orders (ownership by cognito_sub).")
-            .Produces<IReadOnlyList<OrderDto>>(StatusCodes.Status200OK)
+            .WithSummary("List the caller's orders (ownership by cognito_sub); optionally with each order's tracking.")
+            // Two shapes behind one route: a bare OrderDto list by default, and the
+            // wrapped form when includeTracking=true. OpenAPI cannot express "this
+            // status returns either of two schemas" cleanly, so the wrapped shape is
+            // declared — it is the one a reader needs the schema for, and the bare one
+            // is OrderDto, already documented on the sibling route.
+            .Produces<IReadOnlyList<OrderWithTrackingDto>>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status401Unauthorized);
 
-        group.MapGet("/{orderId}", async (string orderId, ICurrentCaller caller, OrderReadService reads) =>
+        group.MapGet("/{orderId}", async (
+            string orderId,
+            ICurrentCaller caller,
+            OrderReadService reads,
+            ITrackingReader trackingReader,
+            bool includeTracking = false,
+            CancellationToken ct = default) =>
         {
             var order = await reads.GetByIdAsync(orderId, caller.CognitoSub!);
-            return order is null ? Results.NotFound() : Results.Ok(order);
+            if (order is null)
+            {
+                return Results.NotFound();
+            }
+
+            if (!includeTracking)
+            {
+                return Results.Ok(order);
+            }
+
+            var trackings = await trackingReader.GetTrackingsAsync(
+                new[] { order.Id }, caller.CognitoSub!, ct);
+
+            return Results.Ok(new OrderWithTrackingDto(
+                order, trackings.GetValueOrDefault(order.Id)));
         })
             .WithName("GetOrderById")
-            .WithSummary("Get one of the caller's orders by id; another user's order returns 404.")
-            .Produces<OrderDto>(StatusCodes.Status200OK)
+            .WithSummary("Get one of the caller's orders by id; another user's order returns 404. Optionally includes its tracking.")
+            // As on my-orders: the wrapped shape is declared because it is the one
+            // carrying a schema a reader cannot guess.
+            .Produces<OrderWithTrackingDto>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status404NotFound);
 

@@ -262,3 +262,80 @@ async function pollUntilDelivered(
       "restart, on the other hand, is a real defect.",
   );
 }
+
+// The other half of the contract guard. Orders maps Tracking's payload into a DTO it
+// owns (Orders.Application.Tracking.TrackingDto), and the unit tests pin that DTO
+// against a committed fixture. A fixture only catches drift once somebody remembers to
+// update it, so this asserts the same shape against a tracking Tracking ACTUALLY
+// produced, end to end through the gateway. If Tracking renames or drops a field, the
+// mapped value arrives null here and this fails — which is the whole point of paying
+// for a typed DTO instead of forwarding opaque JSON.
+test("includeTracking returns Tracking's payload mapped onto the shape Orders declares", async () => {
+  test.setTimeout(120_000);
+
+  const { token } = await registerAndLogin();
+  const api = await gatewayClient(token);
+
+  const products = await api.get("v1/products");
+  expect(products.status()).toBe(200);
+  const catalogue = await products.json();
+  const product = catalogue.find((p: { unitsInStock: number }) => p.unitsInStock > 0);
+  expect(product, "no product with stock in the catalogue").toBeTruthy();
+
+  const created = await api.post("v1/orders", {
+    data: { lines: [{ productId: product.id, quantity: 1 }] },
+  });
+  expect(created.status(), `order creation failed: ${await created.text()}`).toBe(201);
+  const order = await created.json();
+
+  // Orders calls init-tracking after its own transaction commits, so give the row a
+  // moment to exist before asking for it.
+  await waitForTracking(api, order.id);
+
+  // --- The default must stay untouched -------------------------------------
+  // Every existing caller reads this endpoint without the parameter, and their payload
+  // must not have changed shape. A bare order, not { order, tracking }.
+  const withoutParam = await api.get(`v1/orders/${order.id}`);
+  expect(withoutParam.status()).toBe(200);
+  const bare = await withoutParam.json();
+  expect(bare.id).toBe(order.id);
+  expect(bare.tracking).toBeUndefined();
+  expect(bare.order).toBeUndefined();
+
+  // --- includeTracking=true -------------------------------------------------
+  const withTracking = await api.get(`v1/orders/${order.id}?includeTracking=true`);
+  expect(withTracking.status(), await withTracking.text()).toBe(200);
+  const wrapped = await withTracking.json();
+
+  expect(wrapped.order.id).toBe(order.id);
+  expect(wrapped.tracking, "tracking was not included").toBeTruthy();
+
+  // Every member Orders declares, asserted individually. A blanket toBeTruthy on the
+  // object would pass with every field null, which is exactly what a rename produces.
+  const t = wrapped.tracking;
+  expect(t.id, "tracking.id — renamed or dropped in Tracking?").toMatch(/^trk_/);
+  expect(t.user_id, "tracking.user_id — renamed or dropped?").toMatch(/^usr_/);
+  expect(t.order_id).toBe(order.id);
+  expect(typeof t.status, "tracking.status — renamed or dropped?").toBe("string");
+  expect(typeof t.datetime, "tracking.datetime — renamed or dropped?").toBe("string");
+  expect(Array.isArray(t.history), "tracking.history — renamed or no longer a list?").toBe(true);
+
+  // The history entry names the tracking `tracking_id`, not `id` — the one place the
+  // two shapes differ, and the easiest to get wrong.
+  expect(t.history.length, "a new tracking should have at least one history row").toBeGreaterThan(0);
+  const entry = t.history[0];
+  expect(entry.tracking_id, "history[].tracking_id — renamed or dropped?").toBe(t.id);
+  expect(entry.order_id).toBe(order.id);
+  expect(typeof entry.status).toBe("string");
+  expect(typeof entry.datetime).toBe("string");
+
+  // --- The batch path, which is the one that can fan out -------------------
+  const list = await api.get("v1/orders/my-orders?includeTracking=true");
+  expect(list.status()).toBe(200);
+  const wrappedList = await list.json();
+  expect(Array.isArray(wrappedList)).toBe(true);
+
+  const mine = wrappedList.find((o: { order: { id: string } }) => o.order.id === order.id);
+  expect(mine, "the created order is missing from my-orders").toBeTruthy();
+  expect(mine.tracking?.order_id).toBe(order.id);
+});

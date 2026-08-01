@@ -110,6 +110,13 @@ builder.Services.AddHttpClient<ITrackingInitiator, TrackingHttpClient>(client =>
     client.Timeout = TimeSpan.FromSeconds(5);
 });
 
+// The same typed client also serves the read port. Resolved through
+// ITrackingInitiator rather than registered as a second AddHttpClient so both ports
+// share one HttpMessageHandler — registering it twice would build a separate handler
+// pool for what is one service and one base address.
+builder.Services.AddScoped<ITrackingReader>(sp =>
+    (TrackingHttpClient)sp.GetRequiredService<ITrackingInitiator>());
+
 // Request-scoped caller context, populated by CallerContextMiddleware from
 // x-user-id. Replaces the old per-endpoint CallerIdentity.CognitoSub(ctx) reads.
 builder.Services.AddScoped<ICurrentCaller, CurrentCaller>();
