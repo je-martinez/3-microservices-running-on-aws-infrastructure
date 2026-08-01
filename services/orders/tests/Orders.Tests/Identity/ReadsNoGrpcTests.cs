@@ -9,10 +9,19 @@ using Orders.Tests.Api;
 
 namespace Orders.Tests.Identity;
 
-// Reads (my-orders, by-id) filter by cognito_sub only and must NEVER call the
-// gRPC IUserDirectory — only the write path (create order) resolves the
-// internal usr_ id. This test replaces the factory's stub IUserDirectory with a
-// Mock so the "never called" claim is verifiable rather than assumed.
+// Reads (my-orders, by-id) filter by cognito_sub and need no internal usr_ id to
+// do their work — but they now resolve one anyway, ONCE per request in
+// CallerContextMiddleware, so every log line of the request carries user_id.
+//
+// That reverses what this file used to assert. Reads previously made no gRPC call
+// at all, which was deliberate; the reversal is equally deliberate, because log
+// lines carrying only a sub cannot be joined to Users or Tracking, both of which
+// key by user_id. The trade — one Users call per read — was accepted explicitly.
+//
+// The class name is kept: git history is easier to follow when the file that
+// asserted "no gRPC on reads" is the same file that now asserts what replaced it.
+// These tests replace the factory's stub IUserDirectory with a Mock so the call
+// count is verifiable rather than assumed.
 [Collection(Orders.Tests.Api.OrdersApiCollection.Name)]
 public class ReadsNoGrpcTests
 {
@@ -53,11 +62,22 @@ public class ReadsNoGrpcTests
         var resp = await client.SendAsync(req);
 
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
-        // VerifyNoOtherCalls rather than naming one method: the claim is that reads
-        // never touch the directory at all, so it must hold for every method on the
-        // port — including any added later. Naming one would let a new resolution
-        // path slip in silently, which is how adding ResolveCallerAsync went
-        // unnoticed here until the write path started using it.
+        // Resolved EXACTLY once, by the middleware, for log enrichment.
+        //
+        // This assertion used to be VerifyNoOtherCalls: reads scope by cognito_sub
+        // and genuinely need no usr_ id, so they made no gRPC call at all. That was
+        // deliberate and is now deliberately reversed — read log lines carried only
+        // a sub and could not be joined to Users or Tracking, which key by user_id.
+        // The cost was accepted explicitly: one Users call per read.
+        //
+        // Times.Once is the part worth keeping strict. CurrentCaller memoizes the
+        // resolution, so a second call would mean the cache broke — and since the
+        // enricher reads the resolved id on EVERY log event, a cache regression
+        // would turn one call per request into one per log line.
+        mock.Verify(
+            d => d.ResolveInternalUserIdAsync(
+                OrdersApiFactory.KnownCognitoSub, It.IsAny<CancellationToken>()),
+            Times.Once);
         mock.VerifyNoOtherCalls();
     }
 
@@ -71,6 +91,14 @@ public class ReadsNoGrpcTests
         var resp = await client.SendAsync(req);
 
         Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+        // Resolved once even though the order was not found: enrichment happens in
+        // the middleware, before routing reaches a handler, so a 404 still gets a
+        // log line carrying user_id. That is the point — a request that fails is
+        // exactly when you want to know whose it was.
+        mock.Verify(
+            d => d.ResolveInternalUserIdAsync(
+                OrdersApiFactory.KnownCognitoSub, It.IsAny<CancellationToken>()),
+            Times.Once);
         mock.VerifyNoOtherCalls();
     }
 
