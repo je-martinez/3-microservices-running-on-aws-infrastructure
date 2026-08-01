@@ -4,7 +4,8 @@ using Orders.Application.Orders;
 
 namespace Orders.Tests.Api;
 
-public class CreateOrderEndpointTests : IClassFixture<OrdersApiFactory>
+[Collection(Orders.Tests.Api.OrdersApiCollection.Name)]
+public class CreateOrderEndpointTests
 {
     private readonly OrdersApiFactory _factory;
     public CreateOrderEndpointTests(OrdersApiFactory factory) => _factory = factory;

@@ -13,7 +13,8 @@ namespace Orders.Tests.Identity;
 // gRPC IUserDirectory — only the write path (create order) resolves the
 // internal usr_ id. This test replaces the factory's stub IUserDirectory with a
 // Mock so the "never called" claim is verifiable rather than assumed.
-public class ReadsNoGrpcTests : IClassFixture<OrdersApiFactory>
+[Collection(Orders.Tests.Api.OrdersApiCollection.Name)]
+public class ReadsNoGrpcTests
 {
     private readonly OrdersApiFactory _factory;
     public ReadsNoGrpcTests(OrdersApiFactory factory) => _factory = factory;
