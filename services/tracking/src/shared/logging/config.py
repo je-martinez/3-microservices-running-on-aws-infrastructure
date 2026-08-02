@@ -34,6 +34,20 @@ from .json_formatter import JsonFormatter
 # uvicorn attaches its own handlers to these and sets propagate = False.
 _UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
 
+# SQLAlchemy does the same when echo=True (Settings.echo_sql, on outside
+# production): it installs a handler on `sqlalchemy.engine` with a plain-text
+# formatter of its own, so every statement went out TWICE — once as JSON through
+# our pipeline, and once as raw text like
+#   2026-08-02 00:49:37,970 INFO sqlalchemy.engine.Engine SELECT tracking.id, ...
+# The raw copy has no service_name and no shared context, and a multi-line
+# statement arrives as several unrelated records ("FROM tracking" on its own).
+# It was 4187 of 12498 records in a 30-minute window — a third of the stream,
+# unfilterable by service.
+#
+# Stripped the same way uvicorn's are: same fix, same reason, and the JSON copy
+# already carries the statement with full context.
+_SQLALCHEMY_LOGGERS = ("sqlalchemy", "sqlalchemy.engine", "sqlalchemy.pool")
+
 
 def configure_logging(
     *,
@@ -69,8 +83,8 @@ def configure_logging(
 
     # Strip uvicorn's own handlers and let it propagate to root, so its access
     # lines are rendered by the same formatter as everything else.
-    for name in _UVICORN_LOGGERS:
-        uv_logger = logging.getLogger(name)
-        for existing in uv_logger.handlers[:]:
-            uv_logger.removeHandler(existing)
-        uv_logger.propagate = True
+    for name in _UVICORN_LOGGERS + _SQLALCHEMY_LOGGERS:
+        library_logger = logging.getLogger(name)
+        for existing in library_logger.handlers[:]:
+            library_logger.removeHandler(existing)
+        library_logger.propagate = True

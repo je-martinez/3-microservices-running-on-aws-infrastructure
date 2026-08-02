@@ -10,6 +10,7 @@ FastAPI handlers that use these sessions must therefore be plain `def` (run in t
 threadpool), not `async def`, so a blocking DBAPI call never stalls the event loop.
 """
 
+import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import lru_cache
@@ -21,9 +22,27 @@ from src.shared.config.settings import Settings, get_settings
 
 
 def _build_engine(url: str, *, echo: bool) -> Engine:
+    # echo is applied through the LOGGER, never through create_engine(echo=True).
+    #
+    # `echo=True` makes SQLAlchemy attach its own StreamHandler with a plain-text
+    # formatter, and it does so when the engine is built — which, because the
+    # engines are lru_cached and built on the first request, happens long AFTER
+    # configure_logging() has stripped library handlers at startup. The result was
+    # every statement emitted twice: once as JSON with the full shared context,
+    # and once as raw text with no service_name at all, multi-line statements
+    # arriving as several unrelated records. That raw copy was a third of the log
+    # stream and could not be filtered by service.
+    #
+    # Setting the logger's level instead produces the SAME records through the
+    # normal logging tree, where the root JSON handler formats them and the
+    # context filter enriches them. Order-independent: no handler to be
+    # reinstalled behind our back.
+    if echo:
+        logging.getLogger("sqlalchemy.engine").setLevel(logging.INFO)
+
     return create_engine(
         url,
-        echo=echo,
+        echo=False,
         # Floci's MySQL proxy drops idle connections; recycling below the server's
         # timeout and pre-pinging keeps a pooled connection from being handed out
         # dead ("MySQL server has gone away") on the first query after an idle gap.
