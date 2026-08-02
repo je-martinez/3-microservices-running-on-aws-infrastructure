@@ -55,8 +55,15 @@ processors:
           # format, so it previously fell through untagged and unclassified —
           # landing in the stream with severity 0 (UNSPECIFIED) and no
           # service_name, invisible to every schema-based filter.
+          # Guarded on the attribute being non-nil BEFORE IsMatch touches it.
+          # IsMatch on a nil value raises, and with error_mode: ignore that
+          # aborts the whole statement silently — which is why every nginx record
+          # was still arriving with no service_name despite this rule existing.
+          # Most records reaching here are NOT from CloudWatch and have no log
+          # group at all, so the nil case is the common one, not the exception.
           - set(attributes["service_name"], "nginx")
             where attributes["service_name"] == nil
+              and attributes["cloudwatch_log_group_name"] != nil
               and IsMatch(attributes["cloudwatch_log_group_name"], "nginx")
 
           # Access logs are the subset in combined format. Only these carry
