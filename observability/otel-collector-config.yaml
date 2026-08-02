@@ -125,6 +125,36 @@ processors:
       log_record:
         - 'attributes["service_name"] == "nginx" and attributes["http_response_status_code"] != nil and attributes["http_response_status_code"] < 500'
 
+  # The SQL-echo split. These two conditions MUST stay exact complements: a
+  # record matching neither is lost, and one matching both is stored twice. They
+  # are written against the same expression so the pair can be read as one rule.
+  #
+  # `filter` DROPS what matches, so the sense is inverted in each: the sql
+  # pipeline drops everything that is NOT a statement, the logs pipeline drops
+  # everything that IS one.
+  #
+  # Matching on the statement keywords rather than on the logger name because
+  # the fluent_forward path carries no logger field — by the time a record
+  # reaches here it is the parsed JSON body, and `message` is what survives.
+  # SQLAlchemy's echo also emits the parameter tuples on their own lines
+  # ("[generated in 0.0001s] {...}"), which start with neither keyword; those
+  # stay in the main stream, which is imperfect but harmless — they are one line
+  # per statement, not per row.
+  # Reads `attributes`, not `body`: transform/parse_body merges the parsed JSON
+  # into attributes, so by the time a record reaches here the message lives
+  # there. Same place the nginx filter above tests.
+  filter/only_sql:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'not (attributes["message"] != nil and IsMatch(attributes["message"], "^(SELECT|INSERT|UPDATE|DELETE|BEGIN|COMMIT|ROLLBACK)\\b"))'
+
+  filter/drop_sql:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'attributes["message"] != nil and IsMatch(attributes["message"], "^(SELECT|INSERT|UPDATE|DELETE|BEGIN|COMMIT|ROLLBACK)\\b")'
+
   batch: {}
 
 exporters:
@@ -135,6 +165,24 @@ exporters:
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: logs
+
+  # SQL echo goes to its OWN stream. Same instance, same auth — only the
+  # stream-name header differs, which is how OpenObserve separates them.
+  #
+  # Why separate rather than drop: the statements are genuinely useful locally
+  # (SQLAlchemy's echo is on outside production by design — Settings.echo_sql),
+  # but they are high-volume and drown the application events in the default
+  # stream. A single tracking read emits several SELECTs, so a flow log ends up
+  # buried among the queries that served it.
+  #
+  # They keep their shared-context fields (user_id, order_id, trace_id…), so a
+  # query can still be traced back to the request that issued it — the split is
+  # about which stream you look at, not about losing the correlation.
+  otlp_http/openobserve_sql:
+    endpoint: http://openobserve:5080/api/default
+    headers:
+      Authorization: "Basic ${env:O2_BASIC_AUTH}"
+      stream-name: sql
 
   # Traces go to the SAME OpenObserve instance, a different stream. One backend
   # for both signals is what lets trace_id join a log line to its span without
@@ -168,8 +216,21 @@ service:
       # Order matters: parse first so the filter can test real fields
       # (service_name, http_response_status_code) rather than pattern-match raw
       # text, then drop, then batch — so dropped records never reach the batcher.
-      processors: [transform/parse_body, filter/drop_nginx_noise, batch]
+      processors: [transform/parse_body, filter/drop_nginx_noise, filter/drop_sql, batch]
       exporters: [otlp_http/openobserve]
+
+    # SQL echo, same receivers, opposite filter, its own stream. Two pipelines
+    # rather than one with routing because the exporter is what carries the
+    # stream-name header, and a record can only leave through one.
+    #
+    # Both start with the same transform/parse_body: each pipeline processes its
+    # own copy of every record, so the parse has to happen in both. The filters
+    # then discard the copy that does not belong, which is why they must remain
+    # exact complements — see their definitions.
+    logs/sql:
+      receivers: [fluent_forward, aws_cloudwatch]
+      processors: [transform/parse_body, filter/only_sql, batch]
+      exporters: [otlp_http/openobserve_sql]
     # No transform/parse_body here: OTLP traces arrive already structured, so
     # there is no JSON-in-a-string body to flatten as there is for stdout logs.
     traces:
