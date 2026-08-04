@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 import UserCreatedEmail, { type UserCreatedEmailProps } from "../../emails/user-created.tsx";
+import OrderCreatedEmail, { type OrderCreatedEmailProps } from "../../emails/order-created.tsx";
 
 // The single registry: template key → component + sample props. Three consumers
 // read THIS object and nothing else — handlers (to render), the preview server
@@ -36,5 +37,9 @@ export const catalog: EmailCatalog = {
   "user-created": defineTemplate<UserCreatedEmailProps>({
     component: UserCreatedEmail,
     sampleProps: { fullName: "Ada Lovelace", email: "ada@example.com" },
+  }),
+  "order-created": defineTemplate<OrderCreatedEmailProps>({
+    component: OrderCreatedEmail,
+    sampleProps: { orderId: "ord_sample1", totalCents: 4599 },
   }),
 };

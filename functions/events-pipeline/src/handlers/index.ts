@@ -1,5 +1,6 @@
 import type { HandlerMap } from "#pipeline/process-record";
 import { userCreatedHandler } from "#handlers/user-created";
+import { orderCreatedHandler } from "#handlers/order-created";
 
 // The CQRS dispatch table: event `type` → handler. Adding a type is ONE entry
 // here, with no change to src/handler.ts — see the milestone design spec's
@@ -7,4 +8,5 @@ import { userCreatedHandler } from "#handlers/user-created";
 // Task 11, which is what proves that claim rather than assuming it.
 export const handlers: HandlerMap = {
   USER_CREATED: userCreatedHandler,
+  ORDER_CREATED: orderCreatedHandler,
 };
