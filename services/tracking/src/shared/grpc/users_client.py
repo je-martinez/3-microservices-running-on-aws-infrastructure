@@ -80,12 +80,25 @@ class ResolvedUser:
     A domain value, not the proto message, so nothing downstream imports the
     generated module or holds a reference into gRPC's object graph.
 
-    Deliberately NOT carrying the address, even though `UserResponse.address` now
+    Still deliberately NOT carrying the address, even though `UserResponse.address`
     exists: no caller in this service needs it. The REST creation endpoint takes
     `shipping_address` in the request body, so pulling the address through here
     would be an unused field carrying PII around — see [[logging-context]] on
     keeping PII to the places that genuinely need it. Add it when something
     actually consumes it, not before.
+
+    `email` IS carried, as of the events-pipeline milestone, and it is the
+    "something actually consumes it" case this docstring reserved. The
+    `TRACKING_STATUS_CHANGED` publisher must put the recipient's address in the
+    event payload — the pipeline's handler
+    (`functions/events-pipeline/src/handlers/tracking-status-changed.ts`) rejects
+    a payload without `email` as a PERMANENT error, so the email would never be
+    sent. Tracking persists no email of its own, and Users is the only place that
+    holds one, so this RPC is where it has to come from.
+
+    It is PII exactly like the address: never log a `ResolvedUser`, and log
+    `email_hash` rather than this field (see the module docstring's "Never log a
+    `UserResponse`").
     """
 
     #: The internal `usr_` id — what `tracking.user_id` stores.
@@ -93,6 +106,15 @@ class ResolvedUser:
     #: The Cognito `sub` Users has on file. Echoed back for the caller to sanity
     #: check against the sub it asked with; the RPC accepts either identifier.
     cognito_sub: str
+    #: The user's email address — PII, consumed ONLY by the events publisher to
+    #: address the notification. Never logged, never returned over REST.
+    #:
+    #: proto3 has no null, so an absent email arrives as `""`. Normalized to
+    #: `None` here rather than propagating the empty string: `""` would be
+    #: published as a valid-looking payload field and rejected downstream by the
+    #: handler's `z.string().email()`, whereas `None` lets the publisher decide
+    #: (and log a `reason`) before anything reaches the queue.
+    email: str | None = None
 
 
 class UsersGrpcClient:
@@ -171,6 +193,10 @@ class UsersGrpcClient:
         return ResolvedUser(
             internal_id=response.id,
             cognito_sub=response.cognito_sub,
+            # proto3 sends an absent string as "", never null. Normalized to None
+            # so "Users has no email on file" is one value, not two — see the
+            # field's docstring.
+            email=response.email or None,
         )
 
 

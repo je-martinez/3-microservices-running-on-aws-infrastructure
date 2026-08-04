@@ -83,6 +83,36 @@ class Settings(BaseSettings):
     # "Auth schemes" section.
     tracking_carrier_api_key: str = Field(min_length=1)
 
+    # --- events pipeline (outbound SQS) --------------------------------------
+    # The ONE shared queue all three producers write to. Tracking publishes
+    # TRACKING_STATUS_CHANGED here on every delivery-status transition; Users
+    # and Orders publish USER_CREATED/ORDER_CREATED to the same URL.
+    #
+    # DEFAULTED to empty, unlike `database_writer_url`, and the direction is
+    # deliberate. The generator DOES write this key
+    # (`EVENTS_QUEUE_URL` in `generate_env_files.py`), so a real runtime always
+    # has it — but a required field would make every context that constructs
+    # `Settings` by hand (the REST test fixtures, which pass only the four
+    # values their surface needs) fail on a variable that has nothing to do with
+    # what they test. `shared_event_publisher()` is only ever reached with a
+    # real environment, and an empty URL fails there, loudly, at the one call
+    # site that actually needs it — rather than refusing to start the service.
+    events_queue_url: str = ""
+
+    # Where the AWS SDK should point. Locally this is Floci
+    # (`http://floci:4566`); in a deployed environment it is unset and boto3
+    # resolves the real endpoint itself, which is why the default is None rather
+    # than a literal.
+    #
+    # Both of these were previously absorbed by `extra="ignore"` — the env file
+    # has always carried them for the SDKs to read directly. They are declared
+    # now because the SQS client is constructed in code
+    # (`shared/messaging/sqs_event_publisher.py`) and needs the values, and a
+    # declared field is what `test_settings.py` can pin against a generator
+    # rename.
+    aws_endpoint_url: str | None = None
+    aws_region: str = "us-east-1"
+
     # --- E2E test harness ----------------------------------------------------
     # Gates the flag-guarded cleanup route (`DELETE /v1/trackings/e2e-cleanup`),
     # the same name and the same meaning Users and Orders already read
