@@ -208,5 +208,13 @@ services/orders/
     rows for someone else's teardown to delete. `order.tags` is a JSON column
     (MySQL has no array type), queried with `JSON_CONTAINS`; `OrderDetail`
     carries no tag of its own and is deleted through its parent.
-- `ORDER_CREATED` is **not** on SQS yet — `NoopEventPublisher` is the emission
-  seam; the SQS wiring is deferred.
+- `ORDER_CREATED` **is published to SQS** by `SqsEventPublisher`
+  (`Orders.Infrastructure/Messaging/`), on the shared events queue Users and
+  Tracking also write to. `NoopEventPublisher` is kept for tests that must not
+  emit. The envelope is snake_case with `type`/`source` also set as message
+  attributes, and `event_id` is minted inside the publisher as the pipeline's
+  idempotency key. Its payload carries the caller's **email**, which is why
+  `CallerProfile` maps it off the `GetUserById` response order creation already
+  makes. A publish failure is logged and swallowed, never rethrown: the publish
+  runs inside the write transaction, so throwing would roll back a paid-for
+  order because a queue was down.
