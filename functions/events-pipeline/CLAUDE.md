@@ -9,17 +9,36 @@ duplicated.
 - Trigger: SQS message → single Lambda (CQRS dispatch by event `type`).
 - Runtime: Node.js (repo-pinned via `.nvmrc` — run `nvm use`).
 - Database: DocumentDB (document model + schema).
-- Production: AWS Lambda. Local: a worker service via docker-watch.
+- Production: AWS Lambda. Local: also a real Lambda on Floci (Terraform deploys
+  the function + SQS event source mapping) — **not** a compose worker. See
+  [../../docs/domains/events-pipeline/specs/events-pipeline-design.md](../../docs/domains/events-pipeline/specs/events-pipeline-design.md)
+  and [../../docs/lessons/floci-sqs-lambda-docdb-support.md](../../docs/lessons/floci-sqs-lambda-docdb-support.md).
+  Re-deploying the zip on code changes trades away docker-watch hot-reload, in
+  exchange for the event source mapping actually being exercised locally.
 
 ## 2. Commands
-- Install: `nvm use && npm ci`
-- Build: `npm run build`
-- Test: `npm test`
-- Lint: `npm run lint`
-- Run local (docker-watch): `docker compose up events-pipeline --watch` (from repo root)
+This repo uses **pnpm**, not npm — a bare `npm install` corrupts the pnpm tree.
 
-> These commands are the intended contract; the scripts themselves are created
-> in the events-pipeline implementation milestone.
+- Install: `nvm use && pnpm install`
+- Build: `pnpm run build` (emits `dist/`; the Lambda entrypoint is `dist/handler.handler`)
+- Test: `pnpm test`
+- Lint: `pnpm run lint`
+- Run local: `terraform apply` (Block A infra) + `pnpm run build` inside
+  `functions/events-pipeline/`, then re-`terraform apply` to redeploy the zip
+  (the `archive_file` data source's hash triggers a Lambda update automatically
+  when `dist/` changes). No `docker compose up events-pipeline --watch`.
+
+> `tests/shared/db/events-repository.integration.test.ts` needs a reachable
+> DocumentDB and therefore must run from **inside** `3mrai_3mrai-network`
+> (see §3b). With the `DOCDB_*` env vars absent it **skips**, printing why and
+> how to run it for real — `pnpm test` on a clean host stays green and honest,
+> which is what Layer 1 (`make test-unit`, "no stack needed") requires.
+>
+> Strictness is **opt-in**, and belongs in the context where the integration
+> tests are actually expected to run: set `EVENTS_PIPELINE_REQUIRE_INTEGRATION=1`
+> there (inside the network, or in a future `make test-integration`). It means
+> "I expect DocumentDB to be reachable", so a missing or broken env is a hard
+> failure instead of a skip that silently proves nothing.
 
 ## 3. Folder structure
 ```

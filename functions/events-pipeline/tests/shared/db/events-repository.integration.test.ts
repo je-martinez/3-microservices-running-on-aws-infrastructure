@@ -30,10 +30,50 @@ const DOCDB_DATABASE = process.env.DOCDB_DATABASE ?? "events";
 // `admin`. Overridable so the same suite runs against either substrate.
 const DOCDB_AUTH_SOURCE = process.env.DOCDB_AUTH_SOURCE;
 
-// Guard, not a silent skip: without a reachable DocumentDB this suite proves
-// nothing, so it must FAIL loudly rather than report green. Set
-// EVENTS_PIPELINE_SKIP_INTEGRATION=1 only for a deliberate, reported skip.
+// How this suite decides between skipping and failing.
+//
+// Absent DOCDB env → SKIP, and the skip explains itself (see the message
+// below). That is the honest answer for Layer 1: `make test-unit` is the
+// no-stack layer, so on a clean machine "you have no Docker running" must not
+// look like "something is broken" — a red that everyone learns to ignore costs
+// more than the false green it prevents.
+//
+// The strictness belongs where the integration tests are actually EXPECTED to
+// run. Set EVENTS_PIPELINE_REQUIRE_INTEGRATION=1 there (the `docker run` inside
+// 3mrai_3mrai-network, or a future `make test-integration`) and it means "I
+// expect DocumentDB to be reachable" — a missing or broken env then FAILS
+// loudly instead of quietly proving nothing. That is the real hazard now that
+// DocumentDB is live: a broken env file reporting green in the one context
+// built to catch it.
+//
+// Both branches are READ here, not merely described. An earlier version of this
+// comment documented a variable that no code consumed, so the only actual
+// behaviour was the silent skip the comment claimed to forbid.
+const REQUIRE_INTEGRATION = process.env.EVENTS_PIPELINE_REQUIRE_INTEGRATION === "1";
 const missingEnv = !DOCDB_HOST || !DOCDB_USERNAME || !DOCDB_PASSWORD;
+
+if (missingEnv && REQUIRE_INTEGRATION) {
+  throw new Error(
+    "events-repository integration suite: EVENTS_PIPELINE_REQUIRE_INTEGRATION=1 declares that " +
+      "DocumentDB must be reachable, but DOCDB_HOST/DOCDB_USERNAME/DOCDB_PASSWORD are not all " +
+      "set, so nothing would actually be verified. Check the generated env file " +
+      "(.env.local.* — see `make env-file`), including DOCDB_AUTH_SOURCE, which Floci's mongo " +
+      "root user needs (it lives in `admin`).",
+  );
+}
+
+if (missingEnv) {
+  // A skip must be self-explanatory: state WHY and exactly how to run it for real.
+  console.warn(
+    "[events-repository integration] SKIPPED: DOCDB_HOST/DOCDB_USERNAME/DOCDB_PASSWORD are not " +
+      "set, so there is no DocumentDB to verify against. This suite must run from INSIDE the " +
+      "Docker network `3mrai_3mrai-network` (port 27017 is not published to the host and Floci " +
+      "reassigns the container IP — see functions/events-pipeline/CLAUDE.md §3b). To run it for " +
+      "real, execute it in that network with the DOCDB_* vars set and " +
+      "EVENTS_PIPELINE_REQUIRE_INTEGRATION=1, which turns a missing env into a hard failure " +
+      "instead of this skip.",
+  );
+}
 
 const uri =
   `mongodb://${DOCDB_USERNAME}:${DOCDB_PASSWORD}@${DOCDB_HOST}:${DOCDB_PORT}/${DOCDB_DATABASE}?tls=false` +
@@ -64,6 +104,8 @@ function makeDoc(overrides: Partial<EventDocument> = {}): EventDocument {
   };
 }
 
+// Reached only when the env IS present, or when REQUIRE_INTEGRATION already
+// threw above — so a skip here always means "no DocumentDB configured".
 describe.skipIf(missingEnv)("MongoEventsRepository (integration, real DocumentDB)", () => {
   let client: MongoClient;
   let db: Db;
