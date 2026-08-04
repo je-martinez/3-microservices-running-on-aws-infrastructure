@@ -129,7 +129,7 @@ the rejected per-status-type alternative). Envelope fields specific to this type
 ### Per-record flow (state machine)
 
 1. Parse and validate the envelope (Zod).
-2. Persist the event document with `status: STARTED` and an `evt_`-prefixed `friendlyId`.
+2. Persist the event document with `status: STARTED`, keyed by the producer-supplied `event_id`.
 3. Look up `handlers[type]` — if missing, set `FAILED` with `error: "Unknown event type"`.
 4. Set `IN_PROGRESS`.
 5. Invoke the handler.
@@ -145,19 +145,22 @@ recorded as `FAILED` rather than silently dropped. This is a decision [[events-p
 left open — resolved here: the audit trail must capture failures too, since that is what makes
 an event store useful.
 
-### Idempotency (new field)
+### Idempotency (only identifier, no separate display id)
 
 SQS is at-least-once and retries genuinely redeliver messages (verified in
-[[floci-sqs-lambda-docdb-support]]). A Lambda-generated `friendlyId` differs per attempt, so it
+[[floci-sqs-lambda-docdb-support]]). A Lambda-generated id would differ per attempt, so it
 cannot be used to dedupe. **The producer generates `event_id`**, and it carries a unique index
 in DocumentDB — a retry collides on that index and is treated as already-processed instead of
 being duplicated.
 
-`event_id` is a **new field on the `events` collection**, added to the data model in
-[[events-pipeline-design]] (which does not currently list it), persisted on every document, and
-carrying its own unique index alongside the existing `friendlyId` unique index. The two are
-different things and both are kept: `friendlyId` is the pipeline's own `evt_`-prefixed display
-id (see [[nano-id]]); `event_id` is the producer's idempotency key.
+`event_id` is now the **only identifier on the `events` collection** — as implemented (commit
+`5fd6e0d`), there is no separate `evt_`-prefixed `friendlyId`. An earlier version of this design
+kept both: a pipeline-minted display id per [[nano-id]]/[[ADR-0005-nano-id-prefixed]] alongside
+the producer's idempotency key. That was dropped — the pipeline mints nothing of its own, and
+`event_id` (already required for idempotency) also serves as the event's identifier, so a second
+id would have been pure duplication. [[events-pipeline-design]] reflects this as the current data
+model, and [[nano-id]] records the events-pipeline as no longer a consumer of the prefixed
+nano-id scheme.
 
 This matters more here than in a typical event store because handlers send email: a duplicate
 processing is a duplicate email to a real user, not just an extra row.
@@ -417,7 +420,7 @@ production path — rather than the literal layers.
 
 ### Layer 2 — integration against Floci
 
-- Real persistence: full document including audit fields and `friendlyId`, connecting by
+- Real persistence: full document including audit fields and `event_id`, connecting by
   container name from inside the Docker network.
 - Unique-index/idempotency: insert the same `event_id` twice → second is rejected and no second
   email is sent.

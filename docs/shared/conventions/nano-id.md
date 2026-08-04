@@ -4,9 +4,9 @@ type: convention
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-07-12
+updated: 2026-08-03
 tags: [type/convention, area/shared, status/active, issue/JE-39]
-related: ["[[db-naming]]", "[[audit-fields]]", "[[soft-delete]]", "[[users-service-design]]"]
+related: ["[[db-naming]]", "[[audit-fields]]", "[[soft-delete]]", "[[users-service-design]]", "[[events-pipeline-design]]"]
 ---
 
 # Nano ID entity identifiers
@@ -17,11 +17,20 @@ Entity identifiers use a Stripe-style `prefix_nanoid` format: a short per-entity
 
 - The prefix is fixed per entity type (e.g. `ord_` for orders, `usr_` for users) so an ID is self-describing.
 - This format is the primary key in our relational databases.
-- The same scheme is reused for the events pipeline `friendlyId`.
 
 ## Rationale
 
-Prefixed Nano IDs are URL-safe, collision-resistant, and human-readable: you can tell at a glance what an ID refers to, which helps when debugging across service boundaries and logs. Reusing the same scheme for the events `friendlyId` keeps identifiers consistent end to end.
+Prefixed Nano IDs are URL-safe, collision-resistant, and human-readable: you can tell at a glance what an ID refers to, which helps when debugging across service boundaries and logs.
+
+## Scope correction — events-pipeline does not use this scheme
+
+> [!warning] The events-pipeline no longer mints a prefixed nano-id
+> Earlier versions of this note (and of [[events-pipeline-design]]) said the events pipeline
+> reused this scheme for an `evt_`-prefixed `friendlyId`. As implemented (commit `5fd6e0d`),
+> that field was **removed**: the pipeline has no `nanoid` dependency and mints no id of its
+> own. `event_id` — the producer-generated idempotency key already carried in the SQS
+> envelope — is now the event's only identifier. This scheme (`prefix_nanoid`) remains in
+> effect for the services below; the events-pipeline is simply not one of its consumers.
 
 ## Implementation (Users service, [JE-39](https://linear.app/issue/JE-39))
 
@@ -56,3 +65,4 @@ sites deliberately bypass the extension's auto-stamp:
 - [[audit-fields]] — stamped by the same Prisma client extension.
 - [[soft-delete]] — stamped by the same Prisma client extension.
 - [[users-service-design]] — the two exceptions above, in context.
+- [[events-pipeline-design]] — the events-pipeline's scope correction: it does not consume this scheme.

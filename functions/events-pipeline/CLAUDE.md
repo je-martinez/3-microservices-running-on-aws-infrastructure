@@ -26,7 +26,7 @@ duplicated.
 functions/events-pipeline/
 ├── src/handlers/      # type → handler map (e.g. OrderCreatedHandler)
 ├── src/pipeline/      # lifecycle: STARTED → IN_PROGRESS → COMPLETED/FAILED
-├── src/domain/        # Event schema (friendlyId, status_history, audit fields)
+├── src/domain/        # Event schema (event_id, status_history, audit fields)
 ├── src/shared/{config,db,di}/
 └── tests/
 ```
@@ -65,10 +65,14 @@ Two constraints when writing code:
 ## 4. Conventions (referenced, never duplicated)
 - CQRS dispatch: [../../docs/shared/patterns/cqrs.md](../../docs/shared/patterns/cqrs.md)
 - Dependency injection: [../../docs/shared/patterns/dependency-injection.md](../../docs/shared/patterns/dependency-injection.md)
-- Prefixed nano IDs (`friendlyId`): [../../docs/shared/conventions/nano-id.md](../../docs/shared/conventions/nano-id.md)
-- Audit fields: [../../docs/shared/conventions/audit-fields.md](../../docs/shared/conventions/audit-fields.md)
+- Audit fields: [../../docs/shared/conventions/audit-fields.md](../../docs/shared/conventions/audit-fields.md) — persisted **snake_case** here (no ORM mapping layer), unlike this note's camelCase examples; see the events-pipeline spec's Data Model section.
 - Env validation: [../../docs/shared/decisions/ADR-0014-env-validation-zod.md](../../docs/shared/decisions/ADR-0014-env-validation-zod.md)
 - Logging context & tracing: [../../docs/shared/conventions/logging-context.md](../../docs/shared/conventions/logging-context.md)
+
+> No prefixed nano-IDs in this service: `event_id` (producer-generated) is the event's only
+> identifier — no `friendlyId`, no `nanoid` dependency. See
+> [../../docs/shared/conventions/nano-id.md](../../docs/shared/conventions/nano-id.md) for the
+> scope correction.
 
 ## 5. Agent rules
 - Converse with the user in **Spanish**; write code and comments in **English**.
@@ -81,4 +85,4 @@ Two constraints when writing code:
 - Service spec (vault): [../../docs/domains/events-pipeline/specs/events-pipeline-design.md](../../docs/domains/events-pipeline/specs/events-pipeline-design.md)
 - Local substrate probe (SQS/Lambda/DocumentDB on Floci): [../../docs/lessons/floci-sqs-lambda-docdb-support.md](../../docs/lessons/floci-sqs-lambda-docdb-support.md) — see §3b
 - Lifecycle: message saved as `STARTED` → `IN_PROGRESS` (to handler) → `COMPLETED`, or `FAILED` (error saved).
-- Event fields: `friendlyId`, `order_id`, `user_id`, `type`, `source`, `payload`, `status_history`, audit fields.
+- Event fields (all snake_case, persisted as-is — no ORM): `event_id`, `order_id`, `user_id`, `type`, `source`, `payload`, `status`, `error`, `status_history`, `created_by`, `created_at`, `updated_by`, `updated_at`, `deleted_by`, `deleted_at`, `is_deleted`. `event_id` is producer-generated and the event's only identifier (uniquely indexed) — the pipeline mints no `friendlyId` of its own.
