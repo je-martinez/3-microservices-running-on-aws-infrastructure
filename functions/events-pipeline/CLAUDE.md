@@ -31,6 +31,37 @@ functions/events-pipeline/
 └── tests/
 ```
 
+## 3b. Local substrate — what Floci does and does not emulate
+Probed on 2026-08-03 (Floci v1.5.28). Full evidence and the local-vs-AWS
+classification: [../../docs/lessons/floci-sqs-lambda-docdb-support.md](../../docs/lessons/floci-sqs-lambda-docdb-support.md).
+**Everything below is a local-only limitation — none of it constrains the
+production design.** Do not design around these as if they were AWS limits.
+
+Behaves like real AWS, so rely on it: SQS visibility timeout,
+`ApproximateReceiveCount`, automatic DLQ redrive, real batching in the event
+source mapping, and **partial batch responses** — returning
+`{ batchItemFailures: [{ itemIdentifier: <messageId> }] }` retries **only** the
+failed records, verified empirically. Prefer that over throwing, which would
+retry the whole batch.
+
+Two constraints when writing code:
+
+- **No multi-document transactions locally.** Floci backs DocumentDB with a
+  single standalone `mongo:7.0` (no replica set), so `startTransaction()` fails
+  — and it still fails with `retryWrites=false`, so don't chase that flag. Real
+  Amazon DocumentDB does support them (engine 4.0+). The designed flow needs
+  none: one insert plus single-document `$set`/`$push` updates are atomic in
+  MongoDB. **If a handler ever needs a cross-collection atomic write, it will
+  work in AWS but cannot be tested locally** — raise it rather than silently
+  designing around it.
+- **Connect to DocumentDB by container name, never by IP.** `aws docdb
+  describe-db-clusters` returns a Docker network IP that Floci reassigns on
+  every recreation, and port 27017 is not published to the host. Use the
+  backing container name **`floci-docdb-<db-cluster-identifier>`** on
+  `3mrai-network`. The connection string belongs in the generated env file
+  (see [[env-files]]), never hardcoded. Tests running on the host must enter
+  the Docker network to reach it.
+
 ## 4. Conventions (referenced, never duplicated)
 - CQRS dispatch: [../../docs/shared/patterns/cqrs.md](../../docs/shared/patterns/cqrs.md)
 - Dependency injection: [../../docs/shared/patterns/dependency-injection.md](../../docs/shared/patterns/dependency-injection.md)
@@ -48,5 +79,6 @@ functions/events-pipeline/
 
 ## 6. Design reference
 - Service spec (vault): [../../docs/domains/events-pipeline/specs/events-pipeline-design.md](../../docs/domains/events-pipeline/specs/events-pipeline-design.md)
+- Local substrate probe (SQS/Lambda/DocumentDB on Floci): [../../docs/lessons/floci-sqs-lambda-docdb-support.md](../../docs/lessons/floci-sqs-lambda-docdb-support.md) — see §3b
 - Lifecycle: message saved as `STARTED` → `IN_PROGRESS` (to handler) → `COMPLETED`, or `FAILED` (error saved).
 - Event fields: `friendlyId`, `order_id`, `user_id`, `type`, `source`, `payload`, `status_history`, audit fields.

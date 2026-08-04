@@ -86,6 +86,45 @@ Known limitation: a **second** `terraform apply` fails (Floci's `UpdateTags` for
 API GW v2 / RDS). Re-apply by tearing down and rebuilding, not by re-running
 apply. See [../docs/lessons/floci-rds-apigw-limits.md](../docs/lessons/floci-rds-apigw-limits.md).
 
+#### SQS / Lambda / DocumentDB (events-pipeline substrate)
+Probed empirically on 2026-08-03 against Floci v1.5.28 — full evidence and the
+local-vs-AWS classification in
+[../docs/lessons/floci-sqs-lambda-docdb-support.md](../docs/lessons/floci-sqs-lambda-docdb-support.md).
+**Every limitation below is local-only; none constrains the production design.**
+
+Working as in real AWS: SQS queues, message attributes, visibility timeout,
+`ApproximateReceiveCount`, and **automatic DLQ redrive** via `RedrivePolicy`.
+The **SQS → Lambda event source mapping genuinely polls and invokes** (verified
+from CloudWatch logs: one invocation carrying a 3-record batch), and **partial
+batch responses (`batchItemFailures`) are honored** — only the failed item is
+retried.
+
+Two things to get right when writing the Terraform:
+
+- **`function_response_types` must be set at create time.** Floci's
+  `update-event-source-mapping` silently drops `ReportBatchItemFailures`
+  (returns `[]`); `create` persists it correctly. Terraform declares it on
+  `aws_lambda_event_source_mapping`, so this is fine — but if the field is ever
+  added to an existing mapping, **recreate the mapping, don't update it**, or
+  partial batch responses stop being honored and every failure retries the
+  whole batch.
+- **DocumentDB is NOT discovered like RDS.** It does not appear in
+  `aws rds describe-db-clusters` (that only returns mysql/postgres), so
+  `scripts/discover_db_port.py` does not apply. `aws docdb describe-db-clusters`
+  returns the backing container's **Docker network IP** on port 27017, and
+  because Floci runs containerized here, **27017 is not published to the host**
+  (unlike the RDS proxy ports 7000–7010). Do not pin that IP — Floci reassigns
+  it on every recreation. The backing container is named
+  **`floci-docdb-<db-cluster-identifier>`** (derived from the Terraform cluster
+  identifier, not random) and resolves via Docker DNS on `3mrai-network`, so
+  connect by that container name. Anything on the host must reach it from
+  inside the Docker network.
+
+Floci backs each docdb cluster with a **single standalone `mongo:7.0` container,
+no replica set**, so multi-document transactions are unavailable locally
+(real Amazon DocumentDB supports them from engine 4.0+). Single-document writes
+are atomic, which is all the current design needs.
+
 ### Two-phase apply — phase 2 (`environments/local/post/`)
 Phase 2 is a **separate, explicit target**: `make post-infra`. `make bootstrap`
 does NOT call it — it leaves the stack usable but not hardened. `post-infra`
