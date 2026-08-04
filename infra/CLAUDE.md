@@ -111,9 +111,11 @@ Two things to get right when writing the Terraform:
 - **DocumentDB is NOT discovered like RDS.** It does not appear in
   `aws rds describe-db-clusters` (that only returns mysql/postgres), so
   `scripts/discover_db_port.py` does not apply. `aws docdb describe-db-clusters`
-  returns the backing container's **Docker network IP** on port 27017, and
-  because Floci runs containerized here, **27017 is not published to the host**
-  (unlike the RDS proxy ports 7000–7010). Do not pin that IP — Floci reassigns
+  returns the backing container's **Docker network IP** on port 27017. Floci
+  supports a host-published dynamic port in its default (host) mode, but
+  **because we run Floci containerized here, 27017 is not published to the
+  host** (unlike the RDS proxy ports 7000–7010) — a consequence of our
+  deployment mode, not a flat Floci limitation. Do not pin that IP — Floci reassigns
   it on every recreation. The backing container is named
   **`floci-docdb-<db-cluster-identifier>`** (derived from the Terraform cluster
   identifier, not random) and resolves via Docker DNS on `3mrai-network`, so

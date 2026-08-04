@@ -108,12 +108,40 @@ disabled by default.
 > emulator.
 
 `describe-db-clusters` returns the backing container's **Docker network IP** (e.g.
-`192.168.148.9`) on port 27017. Because Floci itself runs containerized in our compose stack, port
-27017 is **not published to the host** — unlike Floci's RDS proxy, which publishes 7000-7010.
-Floci's docs describe three modes; ours is the "Containerized Floci" one (endpoint = container
-hostname on 27017). The container also has **no network alias** (`aliases=[]`), and per the
-established Floci pattern (see [[floci-rds-apigw-limits]] on ECS task recreation) IPs must not be
-pinned.
+`192.168.148.9`) on port 27017. Floci's own docs
+(https://floci.io/floci/services/docdb/) describe **three** deployment modes, and the port
+behavior is a property of *which mode is running*, not a flat Floci limitation:
+
+1. **Real mode, Floci on the host (their default):** the container's 27017 is published on a
+   **dynamically assigned host port**, and `DescribeDBClusters.Port` returns that mapped port.
+2. **Real mode, Floci in a container on a shared Docker network (our mode):** the endpoint
+   becomes the container host on **27017 itself**, reachable within the Docker network — no host
+   port is published.
+3. **Mock mode** (`FLOCI_SERVICES_DOCDB_MOCK=true`): no container is started; the cluster reports
+   `localhost:27017`.
+
+**3MRAI runs mode 2** — Floci is the `floci` service in the root `docker-compose.yml`, with
+`/var/run/docker.sock` mounted (compose line 46) so it can launch MongoDB containers itself. So
+port 27017 genuinely is not host-published *for us*, but that is a consequence of **how we run
+Floci** (containerized), not an absolute Floci property. The container also has **no network
+alias** (`aliases=[]`), and per the established Floci pattern (see [[floci-rds-apigw-limits]] on
+ECS task recreation) IPs must not be pinned.
+
+**Re-verified empirically today (2026-08-03) against the live stack:**
+
+- `aws docdb describe-db-clusters` → `Endpoint: 192.168.148.6`, `Port: 27017` — a Docker-internal
+  IP with a fixed port, not a dynamically assigned host port.
+- `docker ps` → `floci-docdb-<id>   27017/tcp` with no `->` mapping, i.e. genuinely unpublished.
+- **Worth stating explicitly, because it's what makes this confusing: RDS in the same Floci DOES
+  publish** host ports 7000-7010 on the `3mrai-floci-1` container, while DocumentDB does not. Same
+  emulator, different behavior per service — because RDS's proxy-port model is unrelated to
+  docdb's host-vs-containerized mode split.
+
+**Portability caveat (not a bug):** Floci's own docs recommend *"Always read the host and port
+from `DescribeDBClusters` rather than assuming a fixed port."* Our Lambda client hardcodes 27017,
+which is correct for mode 2 and works today — but it would break if Floci were ever run
+host-based (mode 1), where the port is dynamic. Worth a comment near that hardcode if we ever
+change how Floci is launched.
 
 **Scope: local-only.** In AWS the cluster endpoint is a stable DNS name.
 
