@@ -93,7 +93,24 @@ builder.Services.AddScoped<IUserDirectory>(sp =>
 //
 // NoopEventPublisher is deliberately NOT deleted: tests that must not emit
 // register it in place of this.
-var eventsQueueUrl = builder.Configuration["EVENTS_QUEUE_URL"]!;
+// Fail fast rather than `!`. A null-forgiving assertion would let the service
+// boot with a null queue URL and fail at the first publish — which the
+// publisher swallows by design, so the only symptom would be that no order
+// ever produces a confirmation email, silently. Users does the same with Zod.
+//
+// Exempt during OpenAPI generation: `dotnet build` runs this very Program
+// through GetDocument.Insider to emit openapi.yaml (§2a), with no env file
+// loaded, so throwing there would break the build for every developer rather
+// than catching a misconfigured runtime. Same entry-assembly test the
+// e2e-cleanup route uses below.
+var isDocumentGeneration =
+    System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name == "GetDocument.Insider";
+var eventsQueueUrl = builder.Configuration["EVENTS_QUEUE_URL"]
+    ?? (isDocumentGeneration
+        ? string.Empty
+        : throw new InvalidOperationException(
+            "EVENTS_QUEUE_URL is not set. It is generated into .env.local.orders by "
+            + "`make env-file`; see docs/shared/conventions/env-files.md."));
 // One SQS client per process (Singleton) — it owns an HTTP connection pool, so a
 // per-request client would build and discard one on every order.
 builder.Services.AddSingleton<IAmazonSQS>(_ =>

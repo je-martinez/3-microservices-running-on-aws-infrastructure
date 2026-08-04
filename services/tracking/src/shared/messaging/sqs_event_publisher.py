@@ -277,6 +277,18 @@ def _cached_publisher(queue_url: str, endpoint_url: str | None, region: str):
     `BaseSettings` is unhashable, so an `lru_cache` taking a settings object
     raises `TypeError` on its first call.
     """
+    # `events_queue_url` defaults to "" so hand-built Settings in the REST test
+    # fixtures need not supply a value they do not use. That default is only
+    # safe because it fails HERE, at the one call site that actually needs it:
+    # without this check boto3 would accept QueueUrl="" and the resulting error
+    # would be swallowed by the publisher's log-and-swallow policy, so a
+    # misconfigured environment would silently never emit an event.
+    if not queue_url:
+        raise ValueError(
+            "EVENTS_QUEUE_URL is empty. It is generated into .env.local.tracking "
+            "by `make env-file`; see docs/shared/conventions/env-files.md."
+        )
+
     client = boto3.client("sqs", endpoint_url=endpoint_url, region_name=region)
     return SqsEventPublisher(
         client=client,

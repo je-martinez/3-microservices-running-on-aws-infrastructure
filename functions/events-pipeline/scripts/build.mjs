@@ -48,7 +48,11 @@ await build({
   // handler.mjs — works too, but then the zip's entrypoint name depends on the
   // extension; CJS is unambiguous for a bare .js.
   format: "cjs",
-  sourcemap: true,
+  // Off deliberately. Terraform zips ALL of dist/, and the map is larger than
+  // the bundle itself (~7.6MB vs ~4.6MB), so leaving it on nearly tripled the
+  // deployment package — slowing cold starts and every apply — for a file the
+  // runtime does not even read unless started with --enable-source-maps.
+  sourcemap: false,
   // The AUTOMATIC JSX runtime, for the `emails/*.tsx` templates that
   // src/email/catalog.ts imports. esbuild defaults to the CLASSIC runtime
   // (React.createElement), which needs React in scope in every template — they
