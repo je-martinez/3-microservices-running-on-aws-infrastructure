@@ -28,6 +28,11 @@ const schema = z.object({
   // be deployed unguarded by omission.
   GRPC_PORT: z.coerce.number().int().positive().default(50051),
   GRPC_API_KEY: z.string().min(1),
+  // Shared events queue consumed by the events-pipeline Lambda. Required in
+  // every environment and never hardcoded: `make env-file` writes it into
+  // .env.local.users from the Terraform output, because Floci remints the queue
+  // URL on every apply (see [[env-files]]).
+  EVENTS_QUEUE_URL: z.string().url(),
   // Feeds the schema logger's `deployment_environment` base field (see
   // shared/logging/logger.ts). Defaults to "local" for dev/test; prod deploys
   // set it explicitly.

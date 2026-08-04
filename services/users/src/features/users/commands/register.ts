@@ -156,7 +156,12 @@ export class RegisterUserCommand {
       }
     }
 
-    await this.events.publishUserCreated({ id, email: input.email });
+    // `fullName` travels with the event because the events-pipeline
+    // USER_CREATED handler requires it (its payload schema rejects an envelope
+    // without it) and the welcome email greets the user by name. The publisher
+    // is best-effort by design: it swallows and logs its own failures, so a
+    // queue outage never turns a completed registration into an HTTP error.
+    await this.events.publishUserCreated({ id, email: input.email, fullName: input.fullName });
 
     // Enrich the context so every LATER line of this request carries the id too.
     setLogContext({ user_id: id });

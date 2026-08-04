@@ -36,6 +36,17 @@ describe("RegisterUserCommand", () => {
     expect(d.events.publishUserCreated).toHaveBeenCalledOnce();
   });
 
+  it("publishes USER_CREATED with the id, email AND fullName the pipeline handler requires", async () => {
+    const d = deps();
+    const command = new RegisterUserCommand(d);
+    const user = await command.execute({ email: "a@b.c", password: "P!1", fullName: "Ada L", e2eSource: false });
+    expect(d.events.publishUserCreated).toHaveBeenCalledWith({
+      id: user.id,
+      email: "a@b.c",
+      fullName: "Ada L",
+    });
+  });
+
   it("leaves tags empty when e2eSource is false", async () => {
     const d = deps();
     const command = new RegisterUserCommand(d);

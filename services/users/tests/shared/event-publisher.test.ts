@@ -4,6 +4,8 @@ import { NoopEventPublisher } from "#shared/messaging/event-publisher";
 describe("NoopEventPublisher", () => {
   it("resolves without throwing", async () => {
     const pub = new NoopEventPublisher();
-    await expect(pub.publishUserCreated({ id: "usr_a", email: "a@b.c" })).resolves.toBeUndefined();
+    await expect(
+      pub.publishUserCreated({ id: "usr_a", email: "a@b.c", fullName: "A B" }),
+    ).resolves.toBeUndefined();
   });
 });

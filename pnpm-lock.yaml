@@ -95,6 +95,9 @@ importers:
       '@aws-sdk/client-cognito-identity-provider':
         specifier: ^3.1075.0
         version: 3.1075.0
+      '@aws-sdk/client-sqs':
+        specifier: ^3.1075.0
+        version: 3.1102.0
       '@fastify/awilix':
         specifier: ^8.2.0
         version: 8.2.0(awilix@13.0.5)(fastify@5.9.0)
@@ -8088,7 +8091,7 @@ snapshots:
     dependencies:
       '@types/node': 26.0.1
       tapable: 2.3.3
-      webpack: 5.109.2(esbuild@0.25.10)(postcss@8.5.16)
+      webpack: 5.109.2(esbuild@0.28.1)(postcss@8.5.16)
     transitivePeerDependencies:
       - '@minify-html/node'
       - '@swc/core'
@@ -9388,13 +9391,13 @@ snapshots:
 
   minimist@1.2.8: {}
 
-  minimizer-webpack-plugin@5.6.1(esbuild@0.25.10)(postcss@8.5.16)(webpack@5.109.2(esbuild@0.28.1)(postcss@8.5.16)):
+  minimizer-webpack-plugin@5.6.1(esbuild@0.25.10)(postcss@8.5.16)(webpack@5.109.2(esbuild@0.25.10)(postcss@8.5.16)):
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
       jest-worker: 27.5.1
       schema-utils: 4.3.3
       terser: 5.49.1
-      webpack: 5.109.2(esbuild@0.25.10)(postcss@8.5.16)
+      webpack: 5.109.2(esbuild@0.28.1)(postcss@8.5.16)
     optionalDependencies:
       esbuild: 0.25.10
       postcss: 8.5.16
@@ -10460,7 +10463,7 @@ snapshots:
 
   webpack-sources@3.5.1: {}
 
-  webpack@5.109.2(esbuild@0.25.10)(postcss@8.5.16):
+  webpack@5.109.2(esbuild@0.28.1)(postcss@8.5.16):
     dependencies:
       '@types/estree': 1.0.9
       '@types/json-schema': 7.0.15
@@ -10476,7 +10479,7 @@ snapshots:
       events: 3.3.0
       graceful-fs: 4.2.11
       mime-db: 1.54.0
-      minimizer-webpack-plugin: 5.6.1(esbuild@0.25.10)(postcss@8.5.16)(webpack@5.109.2(esbuild@0.28.1)(postcss@8.5.16))
+      minimizer-webpack-plugin: 5.6.1(esbuild@0.25.10)(postcss@8.5.16)(webpack@5.109.2(esbuild@0.25.10)(postcss@8.5.16))
       neo-async: 2.6.2
       schema-utils: 4.3.3
       tapable: 2.3.3
