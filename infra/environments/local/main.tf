@@ -242,14 +242,41 @@ module "messaging" {
 # identifier forces cluster REPLACEMENT and invalidates every consumer of that
 # container name, so treat it as a stable contract from here on. See
 # docs/lessons/floci-sqs-lambda-docdb-support.md.
+#
+# manage_cluster_via_provider = false (LOCAL ONLY): the native aws_docdb_cluster
+# resource cannot apply against Floci — it fails with
+#   creating DocumentDB Cluster (db-3mrai-local-events-docdb):
+#   InvalidClientTokenId: The security token included in the request is invalid.
+#   status code: 403
+# while the IDENTICAL CreateDBCluster call through the AWS CLI / boto3 succeeds
+# against the same live Floci (verified 2026-08-03: the cluster comes back
+# Status "available" on port 27017, with its floci-docdb-<id> container running).
+# So Floci implements DocumentDB fine and the pinned provider (`= 5.31.0`,
+# non-negotiable — newer versions break aws_cognito_user_pool_client here) signs
+# this request in a way Floci's docdb handler rejects. That is the same class of
+# failure create_subnet_group already works around one resource earlier, and it
+# meets the awscli-fallback pattern's bar: proven by a real apply failure, with a
+# proven-working SDK equivalent. Prod keeps the default (true) and the native
+# resources. See docs/shared/patterns/awscli-fallback-for-floci.md.
 module "database" {
-  source              = "../../modules/database"
-  context             = { id = "db-${module.label_events.id}", tags = module.label_events.tags }
-  subnet_ids          = module.networking.subnet_ids
-  security_group_ids  = module.networking.security_group_ids
-  master_password     = var.docdb_password
-  create_subnet_group = false
-  subnet_group_name   = "default"
+  source                      = "../../modules/database"
+  context                     = { id = "db-${module.label_events.id}", tags = module.label_events.tags }
+  subnet_ids                  = module.networking.subnet_ids
+  security_group_ids          = module.networking.security_group_ids
+  master_password             = var.docdb_password
+  create_subnet_group         = false
+  subnet_group_name           = "default"
+  manage_cluster_via_provider = false
+  aws_cli_endpoint_url        = "http://localhost:4566"
+  region                      = local.region
+  # Same reasoning as the cognito module's python_bin: resolved from THIS root
+  # (path.root = environments/local), because the shared module cannot know its
+  # distance to the repo root. `make scripts-setup` — a prerequisite of every
+  # apply target — guarantees it exists.
+  python_bin = abspath("${path.root}/../../../.venv/bin/python")
+  # Traceability log for the fallback provisioner. The module defaults this to
+  # "" (record nothing), which is what prod wants — there the script never runs.
+  execution_log_table = var.execution_log_table
 }
 
 # ─── Events Pipeline Lambda ─────────────────────────────────────────────────────

@@ -39,9 +39,12 @@ e2e/test-results/
 .terraform.lock.hcl
 
 # Local-only Cognito client descriptor (modules/cognito manage_client_via_provider
-# = false fallback, Floci only — see modules/cognito/main.tf) and bootstrap.sh's
-# generated app DB user password (local Floci only — never a real secret store).
+# = false fallback, Floci only — see modules/cognito/main.tf), the DocumentDB
+# cluster descriptor (modules/database manage_cluster_via_provider = false
+# fallback, same pattern), and bootstrap.sh's generated app DB user password
+# (local Floci only — never a real secret store).
 **/.terraform-cognito/
+**/.terraform-docdb/
 infra/environments/local/.app-db-secret
 infra/environments/local/.orders-app-db-secret
 
