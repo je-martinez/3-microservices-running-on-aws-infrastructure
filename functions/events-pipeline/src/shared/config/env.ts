@@ -17,6 +17,11 @@ const EnvSchema = z.object({
   // locally. Optional so the same code serves both substrates.
   DOCDB_AUTH_SOURCE: z.string().min(1).optional(),
   SES_FROM_ADDRESS: z.string().email(),
+  // Feeds the schema logger's `deployment_environment` base field (see
+  // #shared/logging/logger). Defaults to "local" for dev/test; prod deploys set
+  // it explicitly. Same name, shape and default as Users' env schema — the
+  // field is part of the shared log schema, so it must not drift.
+  DEPLOYMENT_ENVIRONMENT: z.string().default("local"),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

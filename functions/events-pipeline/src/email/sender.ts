@@ -1,6 +1,8 @@
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 import { env } from "#shared/config/env";
 import { TransientError } from "#pipeline/errors";
+import { appLogger } from "#shared/logging/app-logger";
+import { hashEmail } from "#shared/logging/email-hash";
 
 export interface SendEmailParams {
   to: string;
@@ -38,6 +40,14 @@ function getClient(): SESClient {
 // explicit is what keeps a future refactor from turning a send failure into a
 // silently-consumed message — i.e. a user's email lost with no trace.
 export async function sendEmail(params: SendEmailParams): Promise<void> {
+  // The recipient reaches the log only as a NON-REVERSIBLE hash. Plaintext
+  // email is never logged (docs/shared/conventions/logging-context.md); the
+  // hash is the cross-service key that still lets an operator trace every
+  // failed send to one recipient. The envelope context (event_id, type, ...)
+  // rides along automatically from the ALS store the handler opened.
+  const email_hash = hashEmail(params.to);
+  const startedAt = Date.now();
+
   try {
     await getClient().send(
       new SendEmailCommand({
@@ -56,8 +66,36 @@ export async function sendEmail(params: SendEmailParams): Promise<void> {
     // plaintext email address is precisely the PII the logging convention
     // forbids. The recipient is already recoverable from the event's payload.
     const message = err instanceof Error ? err.message : String(err);
+
+    // Logged HERE, not only at the handler level: without this line a failed
+    // send leaves no trace of its own — the entrypoint reports the record as
+    // failed, but nothing says the email was the thing that failed, nor to
+    // whom. `reason` carries the SDK message (already established as safe
+    // above); `err` is deliberately not passed, so nothing else of the error
+    // reaches the record.
+    appLogger.error(
+      {
+        app_event: "email_send_failed",
+        reason: message,
+        email_hash,
+        duration_ms: Date.now() - startedAt,
+      },
+      "SES send failed",
+    );
+
     throw new TransientError(`SES send failed: ${message}`);
   }
+
+  // No SUCCESS severity by design (it is not an OTel level): success is INFO
+  // plus app_event=*_succeeded.
+  appLogger.info(
+    {
+      app_event: "email_send_succeeded",
+      email_hash,
+      duration_ms: Date.now() - startedAt,
+    },
+    "sent email",
+  );
 }
 
 // Test seam: the module-scope client would otherwise leak configuration across
