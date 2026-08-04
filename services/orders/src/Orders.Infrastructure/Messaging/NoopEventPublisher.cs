@@ -13,6 +13,7 @@ public class NoopEventPublisher : IEventPublisher
         string email,
         long totalCents,
         DateTime createdAt,
+        string? cognitoSub = null,
         CancellationToken ct = default)
         => Task.CompletedTask;
 }

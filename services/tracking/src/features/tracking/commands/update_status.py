@@ -124,6 +124,16 @@ def update_tracking_status(
     be the wrong one — that is the ownership key the REST reads filter by, not
     the envelope's `user_id`.
 
+    **The envelope's `author` is this function's `actor`, and carries no human.**
+    `user_id` above says who the event is ABOUT; `author` says what ORIGINATED
+    it, and on both of this command's paths that is a system: an external carrier
+    or a TestMode timer. So the author's own `user_id`/`cognito_sub` are omitted
+    rather than backfilled with the order's owner — attributing a carrier's
+    status update to the buyer would be plainly false, and it is the reason the
+    two fields are separate. `actor` is passed down (never fixed in the
+    publisher) so the two paths stay distinguishable on the wire exactly as they
+    already are in `tracking_history.created_by`.
+
     `publisher` defaults to the real shared SQS publisher, so the carrier and
     TestMode paths need no call-site change; tests inject a recording fake, or
     `NoopEventPublisher` when they must not emit. The default is resolved
@@ -163,6 +173,12 @@ def update_tracking_status(
         # The transition's own timestamp, which `update_status` just stamped —
         # not `updated_at`, which moves on any write.
         changed_at=updated.datetime_,
+        # THIS function's `actor` — the one already distinguishing the carrier
+        # PUT from TestMode progression — travels onto the envelope as its
+        # author. Passed down rather than fixed in the publisher, or a TestMode
+        # run would be published as a carrier update; see the docstring's
+        # section 5.
+        actor=actor,
     )
 
     return updated
@@ -176,6 +192,7 @@ def _emit_status_changed(
     status: str,
     previous_status: str,
     changed_at: datetime,
+    actor: AuditActor,
 ) -> None:
     """Publish the transition, and never let doing so break the transition.
 
@@ -220,6 +237,7 @@ def _emit_status_changed(
             status=status,
             previous_status=previous_status,
             changed_at=changed_at,
+            actor=actor,
         )
     except Exception:  # noqa: BLE001 - a notification must not fail a write
         logger.exception(

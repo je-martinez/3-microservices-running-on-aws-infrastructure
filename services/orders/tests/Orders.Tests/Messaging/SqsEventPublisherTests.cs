@@ -31,6 +31,9 @@ public class SqsEventPublisherTests
     private const string UserId = "usr_xyz789";
     private const string Email = "buyer@example.com";
     private const long TotalCents = 4599;
+    // Deliberately unlike UserId: an implementation that put the internal id in
+    // author.cognito_sub (or vice versa) must fail rather than coincide.
+    private const string CognitoSub = "a1b2-c3d4";
 
     private static readonly DateTime CreatedAt =
         new(2026, 8, 3, 14, 30, 15, DateTimeKind.Utc);
@@ -45,7 +48,7 @@ public class SqsEventPublisherTests
 
     private static async Task<JsonElement> PublishAndReadBody(RecordingSqs sqs, SqsEventPublisher publisher)
     {
-        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt);
+        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt, CognitoSub);
         return JsonDocument.Parse(sqs.Requests.Single().MessageBody).RootElement;
     }
 
@@ -54,7 +57,7 @@ public class SqsEventPublisherTests
     {
         var (publisher, sqs, _) = Build();
 
-        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt);
+        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt, CognitoSub);
 
         var request = Assert.Single(sqs.Requests);
         // The queue URL is injected, never hardcoded — this pins that the injected value
@@ -69,10 +72,10 @@ public class SqsEventPublisherTests
 
         var body = await PublishAndReadBody(sqs, publisher);
 
-        // EnvelopeSchema requires all six. `order_id` is nullable but NOT optional: an
+        // EnvelopeSchema requires all seven. `order_id` is nullable but NOT optional: an
         // absent key fails validation just as a wrong name would.
         Assert.Equal(
-            new[] { "event_id", "order_id", "payload", "source", "type", "user_id" },
+            new[] { "author", "event_id", "order_id", "payload", "source", "type", "user_id" },
             body.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
 
         Assert.Equal("ORDER_CREATED", body.GetProperty("type").GetString());
@@ -111,11 +114,109 @@ public class SqsEventPublisherTests
     }
 
     [Fact]
+    public async Task Author_records_who_originated_the_event_not_only_who_it_is_about()
+    {
+        var (publisher, sqs, _) = Build();
+
+        var body = await PublishAndReadBody(sqs, publisher);
+        var author = body.GetProperty("author");
+
+        // A real human acted here — the buyer placed their own order — so all three keys
+        // are present. `actor` is the same semantic value the audit columns carry.
+        Assert.Equal(
+            new[] { "actor", "cognito_sub", "user_id" },
+            author.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
+
+        // A literal, not AuditActor.CreateOrder: renaming the constant must not silently
+        // rename the value the consumer reads.
+        Assert.Equal("orders_api:create_order", author.GetProperty("actor").GetString());
+        Assert.Equal(UserId, author.GetProperty("user_id").GetString());
+        Assert.Equal(CognitoSub, author.GetProperty("cognito_sub").GetString());
+    }
+
+    [Fact]
+    public async Task Author_does_not_repeat_the_producing_service()
+    {
+        var (publisher, sqs, _) = Build();
+
+        var body = await PublishAndReadBody(sqs, publisher);
+
+        // AuthorSchema has no `source`. Two copies of a per-publisher constant carry no
+        // information and can only drift; the root one stays.
+        Assert.False(body.GetProperty("author").TryGetProperty("source", out _));
+        Assert.Equal("orders", body.GetProperty("source").GetString());
+    }
+
+    [Fact]
+    public async Task Author_ids_are_real_ids_never_the_actor_label()
+    {
+        var (publisher, sqs, _) = Build();
+
+        var body = await PublishAndReadBody(sqs, publisher);
+        var author = body.GetProperty("author");
+
+        // The failure this rules out is filling an unknown id with the actor string. A
+        // consumer joining on author.user_id must get something joinable.
+        Assert.DoesNotContain(":", author.GetProperty("user_id").GetString());
+        Assert.DoesNotContain(":", author.GetProperty("cognito_sub").GetString());
+        Assert.NotEqual(
+            author.GetProperty("user_id").GetString(),
+            author.GetProperty("cognito_sub").GetString());
+    }
+
+    [Fact]
+    public async Task Omits_cognito_sub_entirely_rather_than_serializing_it_as_null()
+    {
+        var (publisher, sqs, _) = Build();
+
+        // No sub supplied — the shape a producer with no human author sends.
+        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt);
+
+        // Asserted against the RAW JSON as well as the parsed keys: `"cognito_sub": null`
+        // would satisfy a ValueKind.Null check while violating the contract, which says
+        // an unknown identity is ABSENT, never present-and-null.
+        var raw = sqs.Requests.Single().MessageBody;
+        var author = JsonDocument.Parse(raw).RootElement.GetProperty("author");
+
+        Assert.Equal(
+            new[] { "actor", "user_id" },
+            author.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
+        Assert.DoesNotContain("cognito_sub", raw);
+    }
+
+    [Fact]
+    public async Task A_blank_cognito_sub_is_omitted_too_rather_than_sent_as_an_empty_string()
+    {
+        var (publisher, sqs, _) = Build();
+
+        // proto3 has no null, so an absent identity can reach us as "". An empty string
+        // would pass a null check and reach the consumer as a real-looking value.
+        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt, "  ");
+
+        var raw = sqs.Requests.Single().MessageBody;
+        Assert.DoesNotContain("cognito_sub", raw);
+    }
+
+    [Fact]
+    public async Task Order_id_stays_present_despite_the_null_ignoring_serializer()
+    {
+        var (publisher, sqs, _) = Build();
+
+        var body = await PublishAndReadBody(sqs, publisher);
+
+        // Guards the WhenWritingNull switch made for the author: `order_id` is nullable
+        // but REQUIRED, so a future null there would be silently DROPPED rather than
+        // serialized, and the envelope would fail the consumer's schema. Orders always
+        // sends a real id, which is what keeps that safe — pinned so it stays true.
+        Assert.Equal(OrderId, body.GetProperty("order_id").GetString());
+    }
+
+    [Fact]
     public async Task Sets_type_and_source_as_message_attributes()
     {
         var (publisher, sqs, _) = Build();
 
-        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt);
+        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt, CognitoSub);
 
         // Duplicated as attributes so the queue can be inspected/filtered without
         // deserializing bodies.
@@ -132,8 +233,8 @@ public class SqsEventPublisherTests
         var (publisher, sqs, _) = Build();
 
         // Same arguments both times: only an id minted INSIDE the publisher can differ.
-        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt);
-        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt);
+        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt, CognitoSub);
+        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt, CognitoSub);
 
         var ids = sqs.Requests
             .Select(r => JsonDocument.Parse(r.MessageBody).RootElement.GetProperty("event_id").GetString())
@@ -153,7 +254,7 @@ public class SqsEventPublisherTests
 
         // No assertion that "the throwing fake threw" — the behaviour under test is that
         // the publisher does NOT propagate, i.e. the caller's transaction is not aborted.
-        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt);
+        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt, CognitoSub);
 
         // Swallowed is not the same as hidden: it must still be alertable.
         var entry = Assert.Single(logger.Entries);
@@ -167,7 +268,7 @@ public class SqsEventPublisherTests
     {
         var (publisher, _, logger) = Build(sendFailure: new AmazonSQSException("queue unreachable"));
 
-        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt);
+        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt, CognitoSub);
 
         // Read over EVERYTHING the logger received — rendered message, the raw template,
         // every structured value, and the exception — not just the formatted line. A

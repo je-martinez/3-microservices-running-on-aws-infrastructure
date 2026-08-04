@@ -40,6 +40,7 @@ from typing import Any
 
 import pytest
 
+from src.shared.audit.audit_actor import AuditActor
 from src.shared.messaging.sqs_event_publisher import (
     EVENT_ID_PREFIX,
     EVENT_SOURCE,
@@ -126,6 +127,7 @@ def publish(
     status: str = "ON_THE_WAY",
     previous_status: str = "SHIPPED",
     changed_at: datetime = CHANGED_AT,
+    actor: AuditActor = AuditActor.CARRIER_STATUS_UPDATE,
 ) -> None:
     publisher.publish_tracking_status_changed(
         order_id=order_id,
@@ -133,6 +135,7 @@ def publish(
         status=status,
         previous_status=previous_status,
         changed_at=changed_at,
+        actor=actor,
     )
 
 
@@ -156,7 +159,7 @@ class TestTheEnvelopeItBuilds:
         assert client.sends[0]["QueueUrl"] == QUEUE_URL
 
     def test_every_envelope_key_is_present(self) -> None:
-        """`EnvelopeSchema` requires all six. `order_id` is NULLABLE, not
+        """`EnvelopeSchema` requires all seven. `order_id` is NULLABLE, not
         optional — an omitted key fails the schema exactly like a wrong one, and
         the handler then rejects the record as a PermanentError."""
         client = RecordingSqsClient()
@@ -168,18 +171,24 @@ class TestTheEnvelopeItBuilds:
             "source",
             "user_id",
             "order_id",
+            "author",
             "payload",
         }
 
     def test_the_keys_are_snake_case(self) -> None:
         """The pipeline is TypeScript and would idiomatically read `eventId`; the
         contract is snake_case on the wire. Asserted structurally so a future key
-        cannot arrive camelCased without failing."""
+        cannot arrive camelCased without failing.
+
+        Covers the nested objects too: `author` was added later than the rest, and
+        a nested `cognitoSub` would be exactly the kind of key this catches."""
         body = RecordingSqsClient()
         publish(build(body))
         envelope = sent_body(body)
 
-        keys = list(envelope) + list(envelope["payload"])
+        keys = (
+            list(envelope) + list(envelope["payload"]) + list(envelope["author"])
+        )
         assert all(re.fullmatch(r"[a-z][a-z0-9_]*", key) for key in keys), keys
 
     def test_type_is_the_key_the_pipeline_dispatches_on(self) -> None:
@@ -219,6 +228,98 @@ class TestTheEnvelopeItBuilds:
         client = RecordingSqsClient()
         publish(build(client))
         assert sent_body(client)["event_id"].startswith(EVENT_ID_PREFIX)
+
+
+class TestTheAuthorItBuilds:
+    """WHO originated the event, as opposed to `user_id`, which is WHO it is
+    about.
+
+    This event is the reason the two are separate at all: neither of its paths
+    has a human author. The carrier is an external system holding an API key and
+    TestMode progression is a timer, so the author carries `actor` and nothing
+    else — the order's owner belongs in the envelope's root `user_id`, and
+    copying it here would assert that the buyer changed their own parcel's
+    status.
+    """
+
+    def test_the_author_carries_exactly_the_actor(self) -> None:
+        """No `user_id`, no `cognito_sub`: there IS no human on either path, and
+        the contract omits what it does not know rather than nulling it. No
+        `source` either — the envelope's root one already names the producer."""
+        client = RecordingSqsClient()
+        publish(build(client))
+
+        assert set(sent_body(client)["author"]) == {"actor"}
+
+    def test_the_omitted_identity_keys_are_absent_from_the_json(self) -> None:
+        """Absence is asserted on the SERIALIZED body, not on the dict: a
+        `"user_id": null` would satisfy a `.get(...) is None` check while
+        violating the contract — the key must not be there at all."""
+        client = RecordingSqsClient()
+        publish(build(client))
+        raw = client.sends[0]["MessageBody"]
+
+        assert "cognito_sub" not in raw
+        # `user_id` DOES appear at the envelope root (the subject); what must not
+        # exist is one inside the author.
+        assert "user_id" not in sent_body(client)["author"]
+
+    def test_the_producer_is_named_once_at_the_root_not_twice(self) -> None:
+        """`AuthorSchema` has no `source`. Two copies of a per-publisher constant
+        carry no information and can only drift; the root one stays."""
+        client = RecordingSqsClient()
+        publish(build(client))
+        envelope = sent_body(client)
+
+        assert "source" not in envelope["author"]
+        assert envelope["source"] == "tracking"
+
+    def test_the_carrier_path_is_labelled_as_the_carrier(self) -> None:
+        """A literal, not the enum: renaming the member must not silently rename
+        the wire value the consumer reads."""
+        client = RecordingSqsClient()
+        publish(build(client), actor=AuditActor.CARRIER_STATUS_UPDATE)
+
+        assert (
+            sent_body(client)["author"]["actor"]
+            == "tracking_api:carrier_status_update"
+        )
+
+    def test_the_testmode_path_is_labelled_as_testmode(self) -> None:
+        """The case a hardcoded constant in the publisher would get wrong: an
+        automatic progression must not reach the pipeline looking like a real
+        third-party carrier update."""
+        client = RecordingSqsClient()
+        publish(build(client), actor=AuditActor.TEST_MODE_PROGRESSION)
+
+        assert (
+            sent_body(client)["author"]["actor"]
+            == "tracking_api:test_mode_progression"
+        )
+
+    def test_the_two_paths_do_not_share_one_label(self) -> None:
+        """Directly rules out the constant: no fixed value can satisfy this."""
+        client = RecordingSqsClient()
+        publisher = build(client)
+        publish(publisher, actor=AuditActor.CARRIER_STATUS_UPDATE)
+        publish(publisher, actor=AuditActor.TEST_MODE_PROGRESSION)
+
+        assert (
+            sent_body(client, 0)["author"]["actor"]
+            != sent_body(client, 1)["author"]["actor"]
+        )
+
+    def test_the_actor_is_serialized_as_its_string_value(self) -> None:
+        """`AuditActor` is a `StrEnum`, so `json.dumps` would serialize it either
+        way — but only after someone remembers it is one. Pinned as a plain
+        string so a future non-str enum cannot make `json.dumps` raise inside the
+        send, where the swallow policy would turn it into "no event at all"."""
+        client = RecordingSqsClient()
+        publish(build(client))
+        actor = sent_body(client)["author"]["actor"]
+
+        assert isinstance(actor, str)
+        assert actor.startswith("tracking_api:")
 
 
 class TestThePayloadItBuilds:

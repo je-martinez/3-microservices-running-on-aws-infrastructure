@@ -161,7 +161,18 @@ export class RegisterUserCommand {
     // without it) and the welcome email greets the user by name. The publisher
     // is best-effort by design: it swallows and logs its own failures, so a
     // queue outage never turns a completed registration into an HTTP error.
-    await this.events.publishUserCreated({ id, email: input.email, fullName: input.fullName });
+    //
+    // `cognitoSub` rides along because it is already in hand here: `signUp.sub`
+    // is the same value stamped onto the row above. It lands in the envelope's
+    // `author` block — WHO originated the event, next to the `user_id` that says
+    // WHO it is about (the same person on a self-registration, not on every
+    // event). Nothing is plumbed through to fetch it.
+    await this.events.publishUserCreated({
+      id,
+      email: input.email,
+      fullName: input.fullName,
+      cognitoSub: signUp.sub,
+    });
 
     // Enrich the context so every LATER line of this request carries the id too.
     setLogContext({ user_id: id });

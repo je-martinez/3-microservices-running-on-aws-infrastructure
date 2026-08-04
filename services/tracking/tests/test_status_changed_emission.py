@@ -286,6 +286,89 @@ class TestItPublishesOnEverySuccessfulTransition:
         assert len(publisher.published) == 1
 
 
+class TestTheActorReachesThePublisher:
+    """The actor is the envelope's AUTHOR, and the command's two callers are the
+    only thing it distinguishes.
+
+    A publisher that hardcoded its own constant would pass every other test in
+    this file — the event would still be published, with every other field
+    right — while labelling every automatic TestMode transition as a real
+    third-party carrier update. That is the one confusion the semantic actor
+    exists to prevent, so both callers are pinned here.
+    """
+
+    def test_the_carrier_path_publishes_its_own_actor(
+        self, session: Session
+    ) -> None:
+        seed(session, order_id="ord_auth00000000000001")
+        publisher = RecordingPublisher()
+
+        advance(
+            session,
+            "ord_auth00000000000001",
+            TrackingStatus.ON_THE_WAY,
+            publisher=publisher,
+            actor=AuditActor.CARRIER_STATUS_UPDATE,
+        )
+
+        assert publisher.published[0]["actor"] is AuditActor.CARRIER_STATUS_UPDATE
+        # The wire value, pinned as a literal: the enum could be renamed without
+        # the consumer noticing, but not re-valued.
+        assert (
+            publisher.published[0]["actor"].value
+            == "tracking_api:carrier_status_update"
+        )
+
+    def test_the_testmode_path_publishes_its_own_actor(
+        self, session: Session
+    ) -> None:
+        seed(session, order_id="ord_auth00000000000002")
+        publisher = RecordingPublisher()
+
+        advance(
+            session,
+            "ord_auth00000000000002",
+            TrackingStatus.ON_THE_WAY,
+            publisher=publisher,
+            actor=AuditActor.TEST_MODE_PROGRESSION,
+        )
+
+        assert publisher.published[0]["actor"] is AuditActor.TEST_MODE_PROGRESSION
+        assert (
+            publisher.published[0]["actor"].value
+            == "tracking_api:test_mode_progression"
+        )
+
+    def test_the_two_paths_publish_different_actors(
+        self, session: Session
+    ) -> None:
+        """The property the two tests above imply, asserted directly: a
+        hardcoded constant satisfies each of them in isolation only if it happens
+        to be the one they expect, but nothing can satisfy this one."""
+        seed(session, order_id="ord_auth00000000000003")
+        seed(session, order_id="ord_auth00000000000004")
+        publisher = RecordingPublisher()
+
+        advance(
+            session,
+            "ord_auth00000000000003",
+            TrackingStatus.ON_THE_WAY,
+            publisher=publisher,
+            actor=AuditActor.CARRIER_STATUS_UPDATE,
+        )
+        advance(
+            session,
+            "ord_auth00000000000004",
+            TrackingStatus.ON_THE_WAY,
+            publisher=publisher,
+            actor=AuditActor.TEST_MODE_PROGRESSION,
+        )
+
+        assert (
+            publisher.published[0]["actor"] != publisher.published[1]["actor"]
+        )
+
+
 class TestNothingIsPublishedForANonTransition:
     """The event announces a state change; a call that changed no state must not
     produce one, or a rejected replay would mail the user again."""
@@ -869,6 +952,7 @@ class TestNoopPublisher:
                 status="SHIPPED",
                 previous_status="SHIPPED",
                 changed_at=datetime(2026, 8, 3),
+                actor=AuditActor.CARRIER_STATUS_UPDATE,
             )
             is None
         )

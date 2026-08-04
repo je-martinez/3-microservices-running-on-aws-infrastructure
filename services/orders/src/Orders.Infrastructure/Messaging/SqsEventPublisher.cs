@@ -27,6 +27,13 @@ namespace Orders.Infrastructure.Messaging;
 /// Every envelope key must be PRESENT: <c>order_id</c> is nullable in the schema but not
 /// optional. It carries the real order id here (unlike USER_CREATED, which sends null).
 /// </para>
+/// <para>
+/// The one exception is inside <c>author</c>, where <c>user_id</c>/<c>cognito_sub</c> are
+/// genuinely OPTIONAL and are omitted when there is no human author. Orders always has
+/// one — the buyer — so both are populated here; the omission path exists because the
+/// same block is produced by Tracking's carrier webhook, where no person acted at all.
+/// <c>author</c> carries no <c>source</c> of its own — the root one names the producer.
+/// </para>
 /// </remarks>
 public class SqsEventPublisher : IEventPublisher
 {
@@ -37,9 +44,17 @@ public class SqsEventPublisher : IEventPublisher
     // No camelCase policy and no property renaming: the DTOs below already declare the
     // exact snake_case names the consumer validates, so the wire shape is readable in
     // the source rather than being the product of a serializer convention.
+    //
+    // WhenWritingNull, not Never: the author block OMITS an identity it does not have
+    // rather than sending `null` for it (see EventAuthor). Never would serialize those
+    // as `"cognito_sub": null`, which is precisely the shape the contract forbids.
+    //
+    // The envelope's own `order_id` is unaffected — it is nullable but REQUIRED, and this
+    // publisher always populates it with a real order id, so there is no null to drop.
+    // (USER_CREATED is the event that sends null there, and that is Users' publisher.)
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
-        DefaultIgnoreCondition = JsonIgnoreCondition.Never,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
     private readonly IAmazonSQS _client;
@@ -59,6 +74,7 @@ public class SqsEventPublisher : IEventPublisher
         string email,
         long totalCents,
         DateTime createdAt,
+        string? cognitoSub = null,
         CancellationToken ct = default)
     {
         var envelope = new EventEnvelope(
@@ -70,6 +86,22 @@ public class SqsEventPublisher : IEventPublisher
             Source: EventSource,
             UserId: userId,
             OrderId: orderId,
+            // WHO originated the event, next to the UserId above, which is WHO it is
+            // about. A real human acted here — the buyer placed their own order — so the
+            // author carries both identities. `Actor` is the same semantic AuditActor
+            // value the audit interceptor stamps into CreatedBy/UpdatedBy for this write
+            // path, so the event and the row it produced name their origin identically.
+            //
+            // There is no author.source: the producing service is already this envelope's
+            // root Source, and a second copy would carry no information while inviting
+            // the two to disagree (see AuthorSchema in the consumer's envelope.ts).
+            //
+            // An absent CognitoSub is OMITTED from the JSON, never serialized as null —
+            // see SerializerOptions above.
+            Author: new EventAuthor(
+                Actor: AuditActor.CreateOrder,
+                UserId: userId,
+                CognitoSub: string.IsNullOrWhiteSpace(cognitoSub) ? null : cognitoSub),
             Payload: new OrderCreatedPayload(
                 OrderId: orderId,
                 UserId: userId,
@@ -129,7 +161,18 @@ public class SqsEventPublisher : IEventPublisher
         [property: JsonPropertyName("source")] string Source,
         [property: JsonPropertyName("user_id")] string UserId,
         [property: JsonPropertyName("order_id")] string? OrderId,
+        [property: JsonPropertyName("author")] EventAuthor Author,
         [property: JsonPropertyName("payload")] OrderCreatedPayload Payload);
+
+    // Who originated the event. Only `actor` is always present; `user_id` and
+    // `cognito_sub` are OMITTED when unknown rather than sent as null — which is what
+    // makes them nullable here and why the serializer uses WhenWritingNull. A producer
+    // with no human behind it (Tracking's carrier webhook) sends `actor` alone. There is
+    // no `source`: the envelope's root one already names the producing service.
+    private sealed record EventAuthor(
+        [property: JsonPropertyName("actor")] string Actor,
+        [property: JsonPropertyName("user_id")] string? UserId,
+        [property: JsonPropertyName("cognito_sub")] string? CognitoSub);
 
     // Exactly the five fields OrderCreatedPayloadSchema requires, no more: the payload is
     // persisted on the event document, so anything extra would be stored for no reason.

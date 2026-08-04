@@ -2,6 +2,7 @@ import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import { appLogger } from "#shared/logging/app-logger";
 import { hashEmail } from "#shared/logging/email-hash";
 import { generateId } from "#shared/id/nano-id";
+import { AuditActor } from "#shared/audit/audit-actor";
 
 // `fullName` is required by the pipeline: the events-pipeline USER_CREATED
 // handler validates the payload with a Zod schema that requires BOTH `fullName`
@@ -9,10 +10,17 @@ import { generateId } from "#shared/id/nano-id";
 // welcome template greets the user by name. Publishing `{ id, email }` alone
 // would be rejected as a PermanentError on every single event, so the seam
 // carries the name the consumer contract already demands.
+//
+// `cognitoSub` is OPTIONAL on the seam, not on this path: register() has it in
+// hand (the `signUp` response) and passes it. It stays optional because the
+// envelope's `author` omits what it does not know rather than inventing it, so
+// a future caller without a sub is expressible without a null creeping onto the
+// wire.
 export interface UserCreatedPayload {
   id: string;
   email: string;
   fullName: string;
+  cognitoSub?: string;
 }
 
 export interface EventPublisher {
@@ -53,6 +61,27 @@ export class SqsEventPublisher implements EventPublisher {
       source: EVENT_SOURCE,
       user_id: payload.id,
       order_id: null,
+      // WHO originated the event, as opposed to `user_id`, which is its
+      // SUBJECT. The two coincide on this event (a self-registration) and do
+      // not on others — TRACKING_STATUS_CHANGED has a subject but no human
+      // author at all. `actor` is the same semantic `AuditActor` value already
+      // stamped into `createdBy`/`updatedBy` for this write path, so an event
+      // and the row it produced name their origin identically.
+      //
+      // No `author.source`: the producing service is already the envelope's
+      // root `source` above, and a second copy inside `author` would carry no
+      // information while inviting the two to disagree (see AuthorSchema in
+      // functions/events-pipeline/src/domain/envelope.ts).
+      //
+      // `cognito_sub` is OMITTED when the caller did not supply one — the key
+      // is absent from the JSON, never present-and-null. `undefined` is the
+      // right absence marker here: `JSON.stringify` drops undefined-valued
+      // properties, whereas `null` would serialize.
+      author: {
+        actor: AuditActor.Register,
+        user_id: payload.id,
+        ...(payload.cognitoSub ? { cognito_sub: payload.cognitoSub } : {}),
+      },
       // Only what the handler's payload schema consumes. The user id already
       // travels as `user_id` on the envelope; repeating it here would put it in
       // the document the email is rendered from for no reason.

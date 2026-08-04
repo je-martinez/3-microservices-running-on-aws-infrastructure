@@ -1,9 +1,12 @@
 import type { Envelope } from "#domain/envelope";
 import type { EventDocument, EventStatus } from "#domain/event";
 import { isTransient } from "#pipeline/errors";
+import { appLogger } from "#shared/logging/app-logger";
 
-// Actor stamped on the audit fields — this pipeline is the writer, there is no
-// end user in the loop. See docs/shared/conventions/audit-fields.md.
+// Actor stamped on `updated_by` (and on the repository's transition writes) —
+// this pipeline is what PROCESSES the event, so it owns every mutation after the
+// insert. It is NOT what created the row: see the audit split on the document
+// below. See docs/shared/conventions/audit-fields.md.
 const PIPELINE_ACTOR = "events-pipeline";
 
 // Port the state machine depends on — implemented by Task 8's
@@ -23,6 +26,23 @@ export type ProcessRecordResult = { ok: true } | { ok: false; transient: boolean
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+// The document's status transitions, at DEBUG: the entrypoint already reports
+// each record's outcome at INFO/ERROR with a reason, so these lines add nothing
+// on a healthy path — their value is answering "how far did this event get
+// before it stopped?" when the persisted document alone is ambiguous (a record
+// stuck IN_PROGRESS means the handler never returned; one never reaching
+// IN_PROGRESS means dispatch itself refused it). DEBUG keeps them out of the
+// stream by default rather than tripling the volume of every batch.
+//
+// `event_status`, not `status`: `status` is not in the shared log schema and
+// would collide with the HTTP status other services log under that name.
+// The envelope's event_id/type/... come from the ambient context, so nothing is
+// spread here — and the payload, which this function holds in `doc`, is never
+// touched by a log line.
+function logStatus(status: EventStatus): void {
+  appLogger.debug({ app_event: "event_status_changed", event_status: status }, "event status changed");
 }
 
 // One record's full lifecycle: STARTED -> IN_PROGRESS -> COMPLETED | FAILED.
@@ -50,7 +70,16 @@ export async function processRecord(
     status: "STARTED",
     error: null,
     status_history: [{ status: "STARTED", timestamp: now }],
-    created_by: PIPELINE_ACTOR,
+    // The audit split, and it is deliberate:
+    //   created_by = what ORIGINATED the row — the producer's semantic actor,
+    //     carried over from the envelope (e.g. `users_api:register`,
+    //     `tracking_api:carrier_status_update`). Stamping PIPELINE_ACTOR here
+    //     made every event claim the pipeline as its cause, which is only ever
+    //     true of the row, never of the event.
+    //   updated_by = what PROCESSED it — this pipeline, which performs the later
+    //     STARTED -> IN_PROGRESS -> COMPLETED/FAILED transitions (the repository
+    //     stamps the same actor on each of them).
+    created_by: envelope.author.actor,
     created_at: now,
     updated_by: PIPELINE_ACTOR,
     updated_at: now,
@@ -64,6 +93,7 @@ export async function processRecord(
 
   try {
     await deps.repository.insertStarted(doc);
+    logStatus("STARTED");
   } catch (err) {
     // Nothing was persisted, so there is no document to mark FAILED. Report the
     // failure upward and let SQS decide (transient → retried, then DLQ).
@@ -79,18 +109,22 @@ export async function processRecord(
   if (!handler) {
     // Permanent by definition: retrying an event nobody handles can never help.
     await deps.repository.transition(envelope.event_id, "FAILED", { error: "Unknown event type" });
+    logStatus("FAILED");
     return { ok: false, transient: false };
   }
 
   await deps.repository.transition(envelope.event_id, "IN_PROGRESS");
+  logStatus("IN_PROGRESS");
 
   try {
     await handler(envelope);
   } catch (err) {
     await deps.repository.transition(envelope.event_id, "FAILED", { error: errorMessage(err) });
+    logStatus("FAILED");
     return { ok: false, transient: isTransient(err) };
   }
 
   await deps.repository.transition(envelope.event_id, "COMPLETED");
+  logStatus("COMPLETED");
   return { ok: true };
 }

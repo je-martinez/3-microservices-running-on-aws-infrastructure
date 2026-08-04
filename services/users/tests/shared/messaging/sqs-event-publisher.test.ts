@@ -17,7 +17,12 @@ function sentCommand(client: ReturnType<typeof fakeClient>): SendMessageCommand 
   return client.send.mock.calls[0]![0] as SendMessageCommand;
 }
 
-const PAYLOAD = { id: "usr_1", email: "a@example.com", fullName: "Ada Lovelace" };
+const PAYLOAD = {
+  id: "usr_1",
+  email: "a@example.com",
+  fullName: "Ada Lovelace",
+  cognitoSub: "a1b2-c3d4",
+};
 
 describe("SqsEventPublisher", () => {
   it("sends exactly one SendMessageCommand to the configured queue URL", async () => {
@@ -59,6 +64,59 @@ describe("SqsEventPublisher", () => {
 
     const body = JSON.parse(sentCommand(client).input.MessageBody!);
     expect(body.payload).toEqual({ email: "a@example.com", fullName: "Ada Lovelace" });
+  });
+
+  it("stamps the author block naming WHO originated the event, not just who it is about", async () => {
+    const client = fakeClient();
+    await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+
+    const body = JSON.parse(sentCommand(client).input.MessageBody!);
+    // The whole object, so a stray extra key fails here rather than reaching
+    // the consumer. `actor` is the same semantic AuditActor value the audit
+    // columns carry for this write path.
+    expect(body.author).toEqual({
+      actor: "users_api:register",
+      user_id: "usr_1",
+      cognito_sub: "a1b2-c3d4",
+    });
+  });
+
+  it("does not duplicate the producing service inside author — the root source owns it", async () => {
+    const client = fakeClient();
+    await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+
+    const body = JSON.parse(sentCommand(client).input.MessageBody!);
+    // AuthorSchema has no `source`. Two copies of a per-publisher constant
+    // carry no information and can only drift; the root one stays.
+    expect(body.author).not.toHaveProperty("source");
+    expect(body.source).toBe("users");
+  });
+
+  it("OMITS cognito_sub from the serialized author when the caller supplied none", async () => {
+    const client = fakeClient();
+    const { cognitoSub: _omitted, ...withoutSub } = PAYLOAD;
+    await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(withoutSub);
+
+    // Read back off the SERIALIZED body, not the object: the rule is about the
+    // JSON on the wire. `"cognito_sub": null` would satisfy a `?.toBeFalsy()`
+    // assertion and violate the contract, so the key's ABSENCE is what is
+    // pinned.
+    const raw = sentCommand(client).input.MessageBody!;
+    const body = JSON.parse(raw);
+    expect(Object.keys(body.author)).toEqual(["actor", "user_id"]);
+    expect(raw).not.toContain("cognito_sub");
+  });
+
+  it("keeps the author's user_id as the real id, never the actor label", async () => {
+    const client = fakeClient();
+    await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+
+    const body = JSON.parse(sentCommand(client).input.MessageBody!);
+    // The subject and the author coincide on a self-registration; the point is
+    // that `author.user_id` is an id, not the `users_api:register` label — a
+    // consumer joining on it must get a joinable value.
+    expect(body.author.user_id).toBe(body.user_id);
+    expect(body.author.user_id).not.toContain(":");
   });
 
   it("does not leak the user's id into the payload the pipeline emails from", async () => {

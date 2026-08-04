@@ -9,9 +9,12 @@ queue.
 The AUTHORITY is the consumer, not this file:
 
 * envelope — `functions/events-pipeline/src/domain/envelope.ts`:
-  `{ event_id, type, source, user_id, order_id, payload }`, all snake_case,
-  **every key present** (`order_id` is nullable, not optional; here it is always
-  a real order).
+  `{ event_id, type, source, user_id, order_id, author, payload }`, all
+  snake_case, **every key present** (`order_id` is nullable, not optional; here
+  it is always a real order). Inside `author`, only `actor` is required;
+  `user_id`/`cognito_sub` are OMITTED when there is no human author — which, on
+  this event, is always. There is no `author.source`: the root `source` already
+  names the producer.
 * payload — `functions/events-pipeline/src/handlers/tracking-status-changed.ts`:
   `{ status, previous_status, changed_at, email }`. `status` is an enum of the
   four progression values.
@@ -54,6 +57,7 @@ from typing import Any
 
 import boto3
 
+from src.shared.audit.audit_actor import AuditActor
 from src.shared.config.settings import get_settings
 from src.shared.grpc.users_client import shared_users_client
 
@@ -172,8 +176,15 @@ class SqsEventPublisher:
         status: str,
         previous_status: str,
         changed_at: datetime,
+        actor: AuditActor,
     ) -> None:
-        """Emit one transition. Never raises — see the class docstring."""
+        """Emit one transition. Never raises — see the class docstring.
+
+        `actor` becomes the envelope's `author.actor`. It is handed down from
+        `update_tracking_status` rather than fixed here: the carrier PUT and
+        TestMode progression share this publisher, and a constant would mislabel
+        one of them (see the port's docstring).
+        """
         try:
             email = self._resolve_email(user_id)
         except Exception:  # noqa: BLE001 - a notification must not break a write
@@ -217,6 +228,30 @@ class SqsEventPublisher:
             # `update_tracking_status`. Never a request value: this path has none.
             "user_id": user_id,
             "order_id": order_id,
+            # WHO originated this transition, as opposed to `user_id` above,
+            # which is WHO it is about. This event is the reason the distinction
+            # exists at all: neither of its two paths has a human author. The
+            # carrier is an external system authenticated by an API key, and
+            # TestMode progression is a timer with no request behind it — so
+            # `user_id` and `cognito_sub` are OMITTED from the author entirely.
+            #
+            # Omitted, not null and not filled in with the order owner: the
+            # owner is the subject and already travels as the envelope's root
+            # `user_id`. Repeating it here would assert that they made the
+            # change, which is exactly false for a carrier update.
+            #
+            # `actor` is the same semantic value stamped into
+            # `tracking_history.created_by` for this transition, so an event and
+            # its history row agree about what produced them.
+            #
+            # There is no `author.source`: the producing service is already the
+            # envelope's root `source` above (see AuthorSchema in
+            # functions/events-pipeline/src/domain/envelope.ts). On THIS event
+            # that leaves `actor` alone — which is the whole point of the block,
+            # since a carrier update has no human to name.
+            "author": {
+                "actor": actor.value,
+            },
             "payload": {
                 "status": status,
                 "previous_status": previous_status,

@@ -20,6 +20,7 @@ function makeEnvelope(status: string, previousStatus: string, event_id?: string)
     source: "tracking",
     user_id: "usr_1",
     order_id: "ord_1",
+    author: { actor: "tracking_api:carrier_status_update" },
     payload: {
       status,
       previous_status: previousStatus,
@@ -107,6 +108,7 @@ describe("trackingStatusChangedHandler", () => {
       source: "tracking",
       user_id: "usr_1",
       order_id: "ord_1",
+      author: { actor: "tracking_api:carrier_status_update" },
       payload: { status: "SHIPPED" }, // missing previous_status, changed_at, email
     };
 
@@ -143,6 +145,7 @@ describe("trackingStatusChangedHandler", () => {
         source: "tracking",
         user_id: "usr_1",
         order_id: "ord_1",
+        author: { actor: "tracking_api:carrier_status_update" },
         payload: fullPayload,
       };
 
@@ -165,6 +168,7 @@ describe("trackingStatusChangedHandler", () => {
       source: "tracking",
       user_id: "usr_1",
       order_id: "ord_1",
+      author: { actor: "tracking_api:carrier_status_update" },
       payload: {
         status: "LOST_IN_TRANSIT",
         previous_status: "SHIPPED",

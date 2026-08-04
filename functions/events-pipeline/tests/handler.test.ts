@@ -37,6 +37,31 @@ vi.mock("#shared/db/events-repository", async () => {
     ensureIndexes: (...args: unknown[]) => ensureIndexes(...(args as [])),
   };
 });
+// Pino writes to its DESTINATION, never through console, so the console spies
+// this suite used before the pino migration would now capture nothing. The
+// logger is redirected instead: same real `buildLoggerOptions` — the ALS context
+// merge, the severity mapping and the `err` promotion are all the production
+// ones — but writing into an array rather than stdout. Only the destination is
+// faked, so the PII assertions below still exercise the real serialization path
+// that a leak would travel through.
+//
+// `level: "debug"` so #pipeline/process-record's DEBUG status lines are captured
+// too: they are below pino's default threshold, and a payload leak through one
+// of them would otherwise be invisible to this suite.
+const { rawLines } = vi.hoisted(() => ({ rawLines: [] as string[] }));
+
+vi.mock("#shared/logging/app-logger", async () => {
+  const { buildLoggerOptions: build } =
+    await vi.importActual<typeof import("#shared/logging/logger")>("#shared/logging/logger");
+  const { default: pinoActual } = await vi.importActual<typeof import("pino")>("pino");
+  return {
+    appLogger: pinoActual(
+      { ...build({ serviceName: "events-pipeline", environment: "test" }), level: "debug" },
+      { write: (s: string) => rawLines.push(s) },
+    ),
+  };
+});
+
 vi.mock("#handlers/index", () => ({
   handlers: {
     USER_CREATED: vi.fn(async () => {}),
@@ -63,6 +88,7 @@ function envelope(overrides: Record<string, unknown> = {}) {
     source: "users",
     user_id: "usr_1",
     order_id: null,
+    author: { actor: "users_api:register", user_id: "usr_1", cognito_sub: "sub-1" },
     payload: { id: "usr_1", email: "a@example.com" },
     ...overrides,
   };
@@ -70,21 +96,22 @@ function envelope(overrides: Record<string, unknown> = {}) {
 
 type LogLine = Record<string, unknown>;
 
-let logs: { level: string; line: LogLine }[];
-
-function capture(level: "info" | "warn" | "error") {
-  return vi.spyOn(console, level).mockImplementation((raw: unknown) => {
-    logs.push({ level, line: JSON.parse(String(raw)) as LogLine });
+// Every emitted line, parsed. `level` is read from the record's own
+// `severity_text` rather than from which console method was called: pino writes
+// every severity to the SAME destination, so the severity only exists in the
+// record. That is also the field an operator filters on, which makes these
+// assertions test what production is actually queried by.
+function emitted(): { level: string; line: LogLine }[] {
+  return rawLines.map((raw) => {
+    const line = JSON.parse(raw) as LogLine;
+    return { level: String(line.severity_text ?? "").toLowerCase(), line };
   });
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   resetIndexBootstrapForTests();
-  logs = [];
-  capture("info");
-  capture("warn");
-  capture("error");
+  rawLines.length = 0;
 });
 
 afterEach(() => {
@@ -192,11 +219,11 @@ describe("handler — malformed bodies are permanent", () => {
     const secret = { not: "valid", email: "leak@example.com", password: "hunter2" };
     await handler({ Records: [sqsRecord("msg-malformed", secret)] });
 
-    const failed = logs.find((l) => l.line.app_event === "event_processing_failed");
+    const failed = emitted().find((l) => l.line.app_event === "event_processing_failed");
     expect(failed?.level).toBe("error");
     expect(failed?.line.reason).toBe("invalid_envelope");
     // The full body would carry PII (and passwords) straight into CloudWatch.
-    const serialized = JSON.stringify(logs);
+    const serialized = rawLines.join("\n");
     expect(serialized).not.toContain("leak@example.com");
     expect(serialized).not.toContain("hunter2");
   });
@@ -256,11 +283,11 @@ describe("handler — duplicate redeliveries", () => {
     const result = await handler({ Records: [sqsRecord("msg-dup", envelope())] });
 
     expect(result.batchItemFailures).toEqual([]);
-    const dup = logs.find((l) => l.line.app_event === "event_processing_skipped");
+    const dup = emitted().find((l) => l.line.app_event === "event_processing_skipped");
     expect(dup?.level).toBe("info");
     expect(dup?.line.reason).toBe("duplicate_event");
     // A redelivery is benign; nothing about it is an ERROR.
-    expect(logs.filter((l) => l.level === "error")).toEqual([]);
+    expect(emitted().filter((l) => l.level === "error")).toEqual([]);
   });
 });
 
@@ -282,12 +309,12 @@ describe("handler — a failing insert does not leak the document into the log",
     // Still reported transient (unclassified) — only the LOG is sanitized.
     expect(result.batchItemFailures).toEqual([{ itemIdentifier: "msg-1" }]);
 
-    const serialized = JSON.stringify(logs);
+    const serialized = rawLines.join("\n");
     expect(serialized).not.toContain("leak@example.com");
     expect(serialized).not.toContain("hunter2");
 
     // The failure is still reported — sanitizing must not mean going silent.
-    const failed = logs.find((l) => l.line.app_event === "event_processing_failed");
+    const failed = emitted().find((l) => l.line.app_event === "event_processing_failed");
     expect(failed?.level).toBe("error");
     expect(failed?.line.reason).toBeDefined();
   });
@@ -300,7 +327,7 @@ describe("handler — a failing insert does not leak the document into the log",
     const result = await handler({ Records: [sqsRecord("msg-dup", envelope())] });
 
     expect(result.batchItemFailures).toEqual([]);
-    expect(logs.find((l) => l.line.app_event === "event_processing_skipped")?.level).toBe("info");
+    expect(emitted().find((l) => l.line.app_event === "event_processing_skipped")?.level).toBe("info");
   });
 });
 
@@ -319,11 +346,11 @@ describe("handler — a throwing transition", () => {
     });
 
     expect(result.batchItemFailures).toEqual([{ itemIdentifier: "msg-1" }]);
-    const failed = logs.find((l) => l.line.app_event === "event_processing_failed");
+    const failed = emitted().find((l) => l.line.app_event === "event_processing_failed");
     expect(failed?.level).toBe("error");
     expect(failed?.line.transient).toBe(true);
     // The rest of the batch is still processed.
-    expect(logs.some((l) => l.line.app_event === "event_processing_succeeded")).toBe(true);
+    expect(emitted().some((l) => l.line.app_event === "event_processing_succeeded")).toBe(true);
   });
 });
 
@@ -340,7 +367,7 @@ describe("handler — per-record failure isolation", () => {
       ],
     });
 
-    const failures = logs.filter((l) => l.line.app_event === "event_processing_failed");
+    const failures = emitted().filter((l) => l.line.app_event === "event_processing_failed");
     const byEvent = new Map(failures.map((l) => [l.line.event_id, l.line.reason]));
 
     expect(byEvent.get("evt_a")).toBe("simulated outage");
@@ -368,11 +395,11 @@ describe("handler — per-record failure isolation", () => {
 
     expect(result.batchItemFailures).toEqual([{ itemIdentifier: "msg-fail" }]);
 
-    const skipped = logs.filter((l) => l.line.app_event === "event_processing_skipped");
+    const skipped = emitted().filter((l) => l.line.app_event === "event_processing_skipped");
     expect(skipped).toHaveLength(1);
     expect(skipped[0]?.line.event_id).toBe("evt_dup");
 
-    const failed = logs.filter((l) => l.line.app_event === "event_processing_failed");
+    const failed = emitted().filter((l) => l.line.app_event === "event_processing_failed");
     expect(failed).toHaveLength(1);
     expect(failed[0]?.line.event_id).toBe("evt_fail");
     expect(failed[0]?.level).toBe("error");
@@ -386,7 +413,7 @@ describe("handler — per-record failure isolation", () => {
       ],
     });
 
-    const succeeded = logs.find((l) => l.line.app_event === "event_processing_succeeded");
+    const succeeded = emitted().find((l) => l.line.app_event === "event_processing_succeeded");
     expect(succeeded?.line.event_id).toBe("evt_b");
     expect(succeeded?.line).not.toHaveProperty("reason");
   });
@@ -403,8 +430,8 @@ describe("handler — log context", () => {
       ],
     });
 
-    const started = logs.find((l) => l.line.app_event === "event_processing_started");
-    const succeeded = logs.find((l) => l.line.app_event === "event_processing_succeeded");
+    const started = emitted().find((l) => l.line.app_event === "event_processing_started");
+    const succeeded = emitted().find((l) => l.line.app_event === "event_processing_succeeded");
 
     expect(started?.line).toMatchObject({
       event_id: "evt_ctx",
@@ -419,14 +446,14 @@ describe("handler — log context", () => {
   it("omits order_id entirely when it is null — never emits it as null", async () => {
     await handler({ Records: [sqsRecord("msg-1", envelope({ order_id: null }))] });
 
-    const started = logs.find((l) => l.line.app_event === "event_processing_started");
+    const started = emitted().find((l) => l.line.app_event === "event_processing_started");
     expect(started?.line).not.toHaveProperty("order_id");
   });
 
   it("emits *_failed with a reason when the handler fails", async () => {
     await handler({ Records: [sqsRecord("msg-1", envelope({ type: "FLAKY" }))] });
 
-    const failed = logs.find((l) => l.line.app_event === "event_processing_failed");
+    const failed = emitted().find((l) => l.line.app_event === "event_processing_failed");
     expect(failed?.level).toBe("error");
     expect(failed?.line.reason).toBe("simulated outage");
     expect(failed?.line.transient).toBe(true);
@@ -437,16 +464,156 @@ describe("handler — log context", () => {
       Records: [sqsRecord("msg-1", envelope({ payload: { email: "leak@example.com" } }))],
     });
 
-    expect(JSON.stringify(logs)).not.toContain("leak@example.com");
+    expect(rawLines.join("\n")).not.toContain("leak@example.com");
+  });
+
+  it("carries the author on every line for the record, flattened under author_*", async () => {
+    await handler({
+      Records: [
+        sqsRecord(
+          "msg-1",
+          envelope({
+            author: {
+              actor: "users_api:register",
+              user_id: "usr_author",
+              cognito_sub: "a1b2-c3d4",
+            },
+          }),
+        ),
+      ],
+    });
+
+    const started = emitted().find((l) => l.line.app_event === "event_processing_started");
+    const succeeded = emitted().find((l) => l.line.app_event === "event_processing_succeeded");
+
+    for (const line of [started?.line, succeeded?.line]) {
+      expect(line).toMatchObject({
+        author_actor: "users_api:register",
+        author_user_id: "usr_author",
+        author_cognito_sub: "a1b2-c3d4",
+      });
+    }
+    // Flattened, not nested: a nested object is not a field the collector can
+    // filter on the way every other shared-context key is.
+    expect(started?.line).not.toHaveProperty("author");
+  });
+
+  it("does NOT let the author's user_id collide with the subject user_id", async () => {
+    // The sharpest test of the naming decision. The two identities differ here,
+    // so a shared `user_id` key would silently overwrite the subject and the
+    // line would attribute the event to the wrong user while looking correct.
+    await handler({
+      Records: [
+        sqsRecord(
+          "msg-1",
+          envelope({
+            user_id: "usr_subject",
+            author: { actor: "users_api:update_profile", user_id: "usr_author" },
+          }),
+        ),
+      ],
+    });
+
+    const started = emitted().find((l) => l.line.app_event === "event_processing_started");
+    expect(started?.line.user_id).toBe("usr_subject");
+    expect(started?.line.author_user_id).toBe("usr_author");
+  });
+
+  it("omits author_user_id and author_cognito_sub when no human originated the event", async () => {
+    // The carrier webhook. Omitted, NEVER null and never backfilled with the
+    // actor label — the rule from docs/shared/conventions/logging-context.md.
+    await handler({
+      Records: [
+        sqsRecord(
+          "msg-1",
+          envelope({
+            type: "USER_CREATED",
+            author: { actor: "tracking_api:carrier_status_update" },
+          }),
+        ),
+      ],
+    });
+
+    const started = emitted().find((l) => l.line.app_event === "event_processing_started");
+    expect(started?.line.author_actor).toBe("tracking_api:carrier_status_update");
+    expect(started?.line).not.toHaveProperty("author_user_id");
+    expect(started?.line).not.toHaveProperty("author_cognito_sub");
+  });
+
+  it("does not carry one record's author onto the next record's lines", async () => {
+    // Per-record ALS scoping, checked on the author the same way it is on
+    // event_id: a store shared across the loop would leak the first author
+    // onto the second record.
+    await handler({
+      Records: [
+        sqsRecord(
+          "msg-1",
+          envelope({
+            event_id: "evt_a",
+            author: { actor: "users_api:register", user_id: "usr_a" },
+          }),
+        ),
+        sqsRecord(
+          "msg-2",
+          envelope({
+            event_id: "evt_b",
+            author: { actor: "tracking_api:carrier_status_update" },
+          }),
+        ),
+      ],
+    });
+
+    const byEvent = new Map(
+      emitted()
+        .filter((l) => l.line.app_event === "event_processing_started")
+        .map((l) => [l.line.event_id, l.line]),
+    );
+
+    expect(byEvent.get("evt_a")).toMatchObject({
+      author_actor: "users_api:register",
+      author_user_id: "usr_a",
+    });
+    expect(byEvent.get("evt_b")?.author_actor).toBe("tracking_api:carrier_status_update");
+    expect(byEvent.get("evt_b")).not.toHaveProperty("author_user_id");
+  });
+
+  it("never puts an email on the author, and none reaches the log", async () => {
+    // cognito_sub is an identifier and is loggable; an email is not, and the
+    // schema has no field for one. A producer smuggling one in an unknown key
+    // must not reach a line either.
+    await handler({
+      Records: [
+        sqsRecord(
+          "msg-1",
+          envelope({
+            author: {
+              actor: "users_api:register",
+              user_id: "usr_1",
+              cognito_sub: "a1b2-c3d4",
+              email: "leak@example.com",
+            },
+          }),
+        ),
+      ],
+    });
+
+    expect(rawLines.join("\n")).not.toContain("leak@example.com");
+    const started = emitted().find((l) => l.line.app_event === "event_processing_started");
+    expect(started?.line.author_cognito_sub).toBe("a1b2-c3d4");
   });
 
   it("does not emit a SUCCESS severity — success is INFO plus app_event", async () => {
     await handler({ Records: [sqsRecord("msg-1", envelope())] });
 
-    for (const { line } of logs) {
-      expect(String(line.severity ?? "")).not.toBe("SUCCESS");
+    // Checked on severity_text/severity_number, the fields pino actually emits:
+    // SUCCESS is not an OTel severity, so inventing one would break severity
+    // coloring and every standard severity filter downstream.
+    for (const { line } of emitted()) {
+      expect(line.severity_text).not.toBe("SUCCESS");
+      expect([5, 9, 13, 17]).toContain(line.severity_number);
     }
-    const succeeded = logs.find((l) => l.line.app_event === "event_processing_succeeded");
+    const succeeded = emitted().find((l) => l.line.app_event === "event_processing_succeeded");
     expect(succeeded).toBeDefined();
+    expect(succeeded?.line.severity_text).toBe("INFO");
   });
 });

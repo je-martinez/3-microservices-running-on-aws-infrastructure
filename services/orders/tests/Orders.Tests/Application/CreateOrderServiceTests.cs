@@ -100,16 +100,18 @@ public class CreateOrderServiceTests : IAsyncLifetime
         public string? UserId { get; private set; }
         public string? Email { get; private set; }
         public long TotalCents { get; private set; }
+        public string? CognitoSub { get; private set; }
 
         public Task PublishOrderCreatedAsync(
             string orderId, string userId, string email, long totalCents,
-            DateTime createdAt, CancellationToken ct = default)
+            DateTime createdAt, string? cognitoSub = null, CancellationToken ct = default)
         {
             Calls++;
             OrderId = orderId;
             UserId = userId;
             Email = email;
             TotalCents = totalCents;
+            CognitoSub = cognitoSub;
             return Task.CompletedTask;
         }
     }
@@ -193,6 +195,10 @@ public class CreateOrderServiceTests : IAsyncLifetime
         Assert.Equal(dto.Id, events.OrderId);
         Assert.Equal("usr_a", events.UserId);
         Assert.Equal(3300, events.TotalCents);
+        // The request's own identity crosses the seam too: it becomes the envelope's
+        // author.cognito_sub. A distinct value from the internal id, so a service that
+        // passed the wrong one of the two cannot pass here.
+        Assert.Equal("sub-a", events.CognitoSub);
     }
 
     [Fact]

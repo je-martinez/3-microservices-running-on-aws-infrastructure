@@ -18,6 +18,7 @@ function envelope(payload: Record<string, unknown>, event_id = "evt_1"): Envelop
     source: "users",
     user_id: "usr_1",
     order_id: null,
+    author: { actor: "users_api:register", user_id: "usr_1", cognito_sub: "sub-1" },
     payload,
   };
 }

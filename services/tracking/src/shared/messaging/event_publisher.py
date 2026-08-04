@@ -28,6 +28,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol
 
+from src.shared.audit.audit_actor import AuditActor
+
 
 class EventPublisher(Protocol):
     """What `update_tracking_status()` depends on.
@@ -40,6 +42,17 @@ class EventPublisher(Protocol):
     carries no caller identity at all (its gateway route has no Cognito
     authorizer and therefore no `x-user-id`), so there is nothing on the request
     to reach for; see `commands/update_status.py`'s module docstring.
+
+    `actor` is the envelope's AUTHOR — what originated the transition — and is a
+    PARAMETER rather than a constant inside the publisher for a specific reason:
+    `update_tracking_status` is the shared write path behind both the carrier
+    webhook and TestMode progression, and it already receives the actor that
+    distinguishes them. Hardcoding `CARRIER_STATUS_UPDATE` here would label every
+    automatic TestMode transition as a real carrier update, which is precisely
+    the confusion the semantic actor exists to prevent.
+
+    Note the asymmetry with `user_id`: that is the event's SUBJECT (the order's
+    owner), while the author of these transitions is never a human at all.
     """
 
     def publish_tracking_status_changed(
@@ -50,6 +63,7 @@ class EventPublisher(Protocol):
         status: str,
         previous_status: str,
         changed_at: datetime,
+        actor: AuditActor,
     ) -> None: ...
 
 
@@ -74,5 +88,6 @@ class NoopEventPublisher:
         status: str,
         previous_status: str,
         changed_at: datetime,
+        actor: AuditActor,
     ) -> None:
         return None
