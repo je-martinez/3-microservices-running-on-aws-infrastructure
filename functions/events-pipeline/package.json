@@ -29,7 +29,8 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "pnpm run typecheck && node scripts/build.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",
@@ -49,6 +50,7 @@
     "@types/aws-lambda": "^8.10.152",
     "@types/node": "^26.0.1",
     "@types/react": "^19.0.0",
+    "esbuild": "^0.28.1",
     "eslint": "^10.6.0",
     "react-email": "^4.0.0",
     "tsx": "^4.23.0",

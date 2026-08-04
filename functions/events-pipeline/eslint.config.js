@@ -23,4 +23,12 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // Build tooling runs on Node, not in the Lambda: it needs Node's globals
+    // (console, URL, process) that the default config does not declare.
+    files: ["scripts/**/*.mjs", "*.config.js", "*.config.ts"],
+    languageOptions: {
+      globals: { console: "readonly", process: "readonly", URL: "readonly" },
+    },
+  },
 );

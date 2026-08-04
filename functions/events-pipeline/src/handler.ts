@@ -98,8 +98,20 @@ function observe(
         try {
           await repository.insertStarted(doc);
         } catch (err) {
-          if (err instanceof DuplicateEventError) outcome.duplicate = true;
-          outcome.reason = errorMessage(err);
+          if (err instanceof DuplicateEventError) {
+            // Synthesized from event_id alone, so it is clean by construction
+            // and safe to surface.
+            outcome.duplicate = true;
+            outcome.reason = err.message;
+          } else {
+            // NEVER the raw driver message. MongoDB write errors
+            // (DocumentValidationFailure, BSONObjectTooLarge, a duplicate key on
+            // a compound index) embed the REJECTED DOCUMENT in their message —
+            // which is the payload, carrying the user's email and whatever else
+            // the producer put there. The error class is enough to diagnose
+            // from; the document itself is already persisted for inspection.
+            outcome.reason = err instanceof Error ? err.name : "insert_failed";
+          }
           throw err;
         }
       },
@@ -115,9 +127,11 @@ function observe(
   };
 }
 
-// Lambda entrypoint — deployed as `dist/handler.handler`, matching
+// Lambda entrypoint — deployed as `handler.handler`, matching
 // infra/modules/lambda's `var.handler` default and the
-// aws_lambda_event_source_mapping that invokes it.
+// aws_lambda_event_source_mapping that invokes it. NOT `dist/handler.handler`:
+// archive_file zips the CONTENTS of dist/, so handler.js sits at the ZIP ROOT
+// and a `dist/` prefix would send the runtime looking for dist/dist/handler.js.
 //
 // Returns partial batch responses rather than throwing: Floci honors
 // `batchItemFailures` correctly (verified empirically — see

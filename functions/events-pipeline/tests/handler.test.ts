@@ -264,6 +264,134 @@ describe("handler — duplicate redeliveries", () => {
   });
 });
 
+describe("handler — a failing insert does not leak the document into the log", () => {
+  it("never logs a driver error message that embeds the offending document", async () => {
+    // MongoDB write errors (DocumentValidationFailure, BSONObjectTooLarge, a
+    // duplicate key on a COMPOUND index) echo the rejected document back in
+    // their message — which is the payload, with the user's email and whatever
+    // else the producer sent. This is the same hazard as the Zod one, arriving
+    // through the insert path instead of the parse path.
+    insertStarted.mockRejectedValueOnce(
+      new Error(
+        'E11000 duplicate key error collection: events.events dup key: { payload: { email: "leak@example.com", password: "hunter2" } }',
+      ),
+    );
+
+    const result = await handler({ Records: [sqsRecord("msg-1", envelope())] });
+
+    // Still reported transient (unclassified) — only the LOG is sanitized.
+    expect(result.batchItemFailures).toEqual([{ itemIdentifier: "msg-1" }]);
+
+    const serialized = JSON.stringify(logs);
+    expect(serialized).not.toContain("leak@example.com");
+    expect(serialized).not.toContain("hunter2");
+
+    // The failure is still reported — sanitizing must not mean going silent.
+    const failed = logs.find((l) => l.line.app_event === "event_processing_failed");
+    expect(failed?.level).toBe("error");
+    expect(failed?.line.reason).toBeDefined();
+  });
+
+  it("still distinguishes a duplicate redelivery from a generic insert failure", async () => {
+    // The sanitization must not flatten DuplicateEventError into the generic
+    // branch: that would turn a benign redelivery back into an ERROR + retry.
+    insertStarted.mockRejectedValueOnce(new DuplicateEventError("evt_1"));
+
+    const result = await handler({ Records: [sqsRecord("msg-dup", envelope())] });
+
+    expect(result.batchItemFailures).toEqual([]);
+    expect(logs.find((l) => l.line.app_event === "event_processing_skipped")?.level).toBe("info");
+  });
+});
+
+describe("handler — a throwing transition", () => {
+  it("reports the record transiently rather than aborting the batch", async () => {
+    // processRecord guards the handler and the insert, but NOT its own
+    // transition calls: if one throws mid-flight the document is persisted with
+    // a now-stale status, and the record must come back for a retry.
+    transition.mockRejectedValueOnce(new Error("connection reset mid-transition"));
+
+    const result = await handler({
+      Records: [
+        sqsRecord("msg-1", envelope({ event_id: "evt_a" })),
+        sqsRecord("msg-2", envelope({ event_id: "evt_b" })),
+      ],
+    });
+
+    expect(result.batchItemFailures).toEqual([{ itemIdentifier: "msg-1" }]);
+    const failed = logs.find((l) => l.line.app_event === "event_processing_failed");
+    expect(failed?.level).toBe("error");
+    expect(failed?.line.transient).toBe(true);
+    // The rest of the batch is still processed.
+    expect(logs.some((l) => l.line.app_event === "event_processing_succeeded")).toBe(true);
+  });
+});
+
+describe("handler — per-record failure isolation", () => {
+  it("gives two failing records in one batch their OWN reason", async () => {
+    // observe() is created INSIDE the loop, so each record gets a fresh
+    // outcome. Hoisting it out of the loop would make the second record report
+    // the first one's reason — the invariant most likely to break under later
+    // edits, and invisible without this test.
+    const result = await handler({
+      Records: [
+        sqsRecord("msg-1", envelope({ event_id: "evt_a", type: "FLAKY" })),
+        sqsRecord("msg-2", envelope({ event_id: "evt_b", type: "BROKEN" })),
+      ],
+    });
+
+    const failures = logs.filter((l) => l.line.app_event === "event_processing_failed");
+    const byEvent = new Map(failures.map((l) => [l.line.event_id, l.line.reason]));
+
+    expect(byEvent.get("evt_a")).toBe("simulated outage");
+    expect(byEvent.get("evt_b")).toBe("unprocessable payload");
+    // FLAKY is transient, BROKEN is permanent — only the former is retried.
+    expect(result.batchItemFailures).toEqual([{ itemIdentifier: "msg-1" }]);
+  });
+
+  it("does not carry a previous record's DUPLICATE flag onto a later failing one", async () => {
+    // The sharpest test of per-record isolation. `outcome.duplicate` latches
+    // true and is never reset, so a single `observe()` shared across the loop
+    // would make this second, genuinely-failing record take the duplicate
+    // branch: logged INFO as "already processed" and CONSUMED, when it should
+    // be an ERROR that comes back for a retry. Silent event loss.
+    insertStarted
+      .mockRejectedValueOnce(new DuplicateEventError("evt_dup"))
+      .mockRejectedValueOnce(new Error("connection reset"));
+
+    const result = await handler({
+      Records: [
+        sqsRecord("msg-dup", envelope({ event_id: "evt_dup" })),
+        sqsRecord("msg-fail", envelope({ event_id: "evt_fail" })),
+      ],
+    });
+
+    expect(result.batchItemFailures).toEqual([{ itemIdentifier: "msg-fail" }]);
+
+    const skipped = logs.filter((l) => l.line.app_event === "event_processing_skipped");
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0]?.line.event_id).toBe("evt_dup");
+
+    const failed = logs.filter((l) => l.line.app_event === "event_processing_failed");
+    expect(failed).toHaveLength(1);
+    expect(failed[0]?.line.event_id).toBe("evt_fail");
+    expect(failed[0]?.level).toBe("error");
+  });
+
+  it("does not carry a previous record's reason onto a later successful one", async () => {
+    await handler({
+      Records: [
+        sqsRecord("msg-1", envelope({ event_id: "evt_a", type: "FLAKY" })),
+        sqsRecord("msg-2", envelope({ event_id: "evt_b" })),
+      ],
+    });
+
+    const succeeded = logs.find((l) => l.line.app_event === "event_processing_succeeded");
+    expect(succeeded?.line.event_id).toBe("evt_b");
+    expect(succeeded?.line).not.toHaveProperty("reason");
+  });
+});
+
 describe("handler — log context", () => {
   it("carries event_id, user_id, order_id and type on the flow logs", async () => {
     await handler({

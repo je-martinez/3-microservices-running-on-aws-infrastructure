@@ -20,7 +20,14 @@ duplicated.
 This repo uses **pnpm**, not npm — a bare `npm install` corrupts the pnpm tree.
 
 - Install: `nvm use && pnpm install`
-- Build: `pnpm run build` (emits `dist/`; the Lambda entrypoint is `dist/handler.handler`)
+- Typecheck: `pnpm run typecheck` (`tsc --noEmit` — esbuild strips types, never checks them)
+- Build: `pnpm run build` (typecheck, then **bundle** with esbuild into a single
+  self-contained `dist/handler.js`). The Lambda entrypoint is `handler.handler`,
+  **not** `dist/handler.handler` — `archive_file` zips the CONTENTS of `dist/`,
+  so the file lands at the zip root. Bundling is required, not cosmetic: plain
+  `tsc` left `#` subpath imports in the output and shipped no `package.json` or
+  `node_modules`, so the function died on its first invocation with
+  `ERR_PACKAGE_IMPORT_NOT_DEFINED`. See `scripts/build.mjs`.
 - Test: `pnpm test`
 - Lint: `pnpm run lint`
 - Run local: `terraform apply` (Block A infra) + `pnpm run build` inside
