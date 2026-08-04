@@ -8,22 +8,27 @@
   },
   "imports": {
     "#shared/*": {
+      "types": "./src/shared/*.ts",
       "development": "./src/shared/*.ts",
       "default": "./dist/shared/*.js"
     },
     "#pipeline/*": {
+      "types": "./src/pipeline/*.ts",
       "development": "./src/pipeline/*.ts",
       "default": "./dist/pipeline/*.js"
     },
     "#domain/*": {
+      "types": "./src/domain/*.ts",
       "development": "./src/domain/*.ts",
       "default": "./dist/domain/*.js"
     },
     "#email/*": {
+      "types": "./src/email/*.ts",
       "development": "./src/email/*.ts",
       "default": "./dist/email/*.js"
     },
     "#handlers/*": {
+      "types": "./src/handlers/*.ts",
       "development": "./src/handlers/*.ts",
       "default": "./dist/handlers/*.js"
     }

@@ -1,0 +1,68 @@
+import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
+import { env } from "#shared/config/env";
+import { TransientError } from "#pipeline/errors";
+
+export interface SendEmailParams {
+  to: string;
+  subject: string;
+  html: string;
+}
+
+// Module-scope singleton, created LAZILY — same shape and same reasons as
+// #shared/db/client's Mongo client: reused across warm invocations, but not
+// constructed at import time. Constructing it eagerly would read `env` (and so
+// require the full env) merely to IMPORT this module, which breaks unit tests
+// that only want the type, and would move a config failure out of the handler's
+// error handling and into module evaluation.
+let client: SESClient | undefined;
+
+function getClient(): SESClient {
+  if (!client) {
+    client = new SESClient({
+      region: env.AWS_REGION,
+      // Set only when present: locally it points at Floci (:4566); in AWS the
+      // variable is absent and the SDK resolves the real regional endpoint.
+      ...(env.AWS_ENDPOINT_URL ? { endpoint: env.AWS_ENDPOINT_URL } : {}),
+    });
+  }
+  return client;
+}
+
+// SES is transport only — the HTML is already rendered by #email/renderer (see
+// the milestone design spec's "Rendering decision": no SES native templates).
+//
+// EVERY failure here is classified TRANSIENT: SES being unreachable, throttled
+// or timing out is exactly the case that must be retried through
+// batchItemFailures. The alternative (letting it fall through unclassified)
+// would still be transient by isTransient()'s safe default, but making it
+// explicit is what keeps a future refactor from turning a send failure into a
+// silently-consumed message — i.e. a user's email lost with no trace.
+export async function sendEmail(params: SendEmailParams): Promise<void> {
+  try {
+    await getClient().send(
+      new SendEmailCommand({
+        Source: env.SES_FROM_ADDRESS,
+        Destination: { ToAddresses: [params.to] },
+        Message: {
+          Subject: { Data: params.subject },
+          Body: { Html: { Data: params.html } },
+        },
+      }),
+    );
+  } catch (err) {
+    // The SDK's message is safe to surface (endpoint, status, throttling
+    // reason) but the RECIPIENT is not — never interpolate params.to here: this
+    // string is persisted on the FAILED document and logged as `reason`, and a
+    // plaintext email address is precisely the PII the logging convention
+    // forbids. The recipient is already recoverable from the event's payload.
+    const message = err instanceof Error ? err.message : String(err);
+    throw new TransientError(`SES send failed: ${message}`);
+  }
+}
+
+// Test seam: the module-scope client would otherwise leak configuration across
+// test cases in the same file (and across an endpoint change in the
+// integration test).
+export function resetSesClientForTests(): void {
+  client = undefined;
+}

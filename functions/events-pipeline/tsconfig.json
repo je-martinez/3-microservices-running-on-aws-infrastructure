@@ -9,8 +9,31 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "outDir": "dist",
-    "rootDir": "src"
+    // react-jsx = the AUTOMATIC JSX runtime: the compiler injects
+    // `import { jsx } from "react/jsx-runtime"` itself. The classic runtime
+    // emits React.createElement and needs every .tsx to import React by hand —
+    // the email templates don't, and the failure mode is a RUNTIME
+    // "React is not defined" that type-checking never catches. The same choice
+    // is mirrored in vitest.config.ts and scripts/build.mjs, because all three
+    // toolchains transpile JSX independently of this file.
+    "jsx": "react-jsx",
+    // Type-check only — esbuild produces the artifact (see scripts/build.mjs).
+    //
+    // `outDir`/`rootDir` were REMOVED when the `emails/` templates arrived, and
+    // the package.json `imports` map gained a "types" condition in the same
+    // change. They go together: TypeScript used to resolve `#domain/envelope`
+    // through the map's "default" branch (./dist/*.js) and map it BACK to a
+    // source file using outDir+rootDir. That trick requires every input to sit
+    // under `rootDir`, which `emails/*.tsx` cannot (react-email's CLI reads the
+    // package-root `emails/` dir, so the templates cannot move into src/).
+    // Dropping rootDir alone broke every `#` import with TS2307/TS2210.
+    // The "types" condition is the supported fix: it points the compiler
+    // straight at the sources, so resolution no longer depends on the output
+    // layout at all. Node and esbuild are unaffected — neither reads "types".
+    "noEmit": true
   },
-  "include": ["src/**/*.ts"]
+  // `emails/**/*.tsx` is listed explicitly, not left to be pulled in as an
+  // import of src/email/catalog.ts: an unreferenced future template would
+  // otherwise never be type-checked until something imported it.
+  "include": ["src/**/*.ts", "emails/**/*.tsx"]
 }

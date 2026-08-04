@@ -49,6 +49,20 @@ await build({
   // extension; CJS is unambiguous for a bare .js.
   format: "cjs",
   sourcemap: true,
+  // The AUTOMATIC JSX runtime, for the `emails/*.tsx` templates that
+  // src/email/catalog.ts imports. esbuild defaults to the CLASSIC runtime
+  // (React.createElement), which needs React in scope in every template — they
+  // don't import it, so a classic-runtime bundle BUILDS FINE and then throws
+  // "React is not defined" on the first render inside the deployed Lambda.
+  // esbuild does not read tsconfig's `jsx` when the option is set here, and
+  // relying on it implicitly would leave three toolchains (tsc, vitest,
+  // esbuild) each free to disagree; all three set it explicitly instead.
+  //
+  // Consequence for the bundle: react/jsx-runtime, react-dom/server and
+  // @react-email/* are pulled in and INLINED (they are plain JS deps, not
+  // native), which is what makes the single-file zip self-contained. They must
+  // NOT be added to `external` below — nothing installs them next to the zip.
+  jsx: "automatic",
   // The package.json `imports` map resolves `#` specifiers to ./src/*.ts under
   // the "development" condition and to ./dist/*.js under "default". We are
   // BUILDING dist/, so the sources are the correct input — without this,
