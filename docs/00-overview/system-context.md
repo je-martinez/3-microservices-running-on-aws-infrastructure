@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-07-12
+updated: 2026-08-04
 tags:
   - type/spec
   - area/shared
@@ -54,11 +54,11 @@ The container diagram zooms into the 3MRAI system and shows the independently de
 |---|---|---|
 | API Gateway | AWS API Gateway | TLS termination, JWT validation, rate limiting |
 | ALB | AWS ALB | Path-based routing to ECS tasks |
-| Users Service | Fastify (Node.js), ECS Fargate | User CRUD, Cognito sync, soft-delete |
-| Orders Service | .NET Core 10 Minimal APIs, ECS Fargate | Order lifecycle, gRPC calls to Tracking |
-| Tracking Service | FastAPI (Python 3.12), ECS Fargate | Shipment events, gRPC receiver |
-| events-pipeline-handler | AWS Lambda (Node.js) | CQRS dispatcher; persists domain events to DocumentDB event store |
-| users-events / orders-events | SQS | Event buffers between services and Lambda handler |
+| Users Service | Fastify (Node.js), ECS Fargate | User CRUD, Cognito sync, soft-delete; publishes `USER_CREATED` |
+| Orders Service | .NET Core 10 Minimal APIs, ECS Fargate | Order lifecycle, gRPC calls to Tracking; publishes `ORDER_CREATED` |
+| Tracking Service | FastAPI (Python 3.12), ECS Fargate | Shipment events, outbound gRPC client to Users; publishes `TRACKING_STATUS_CHANGED` on every delivery-status transition — see [[tracking-service-design]] |
+| events-pipeline-handler | AWS Lambda (Node.js) | CQRS dispatcher; persists domain events to DocumentDB event store; renders and sends notification emails via SES (Mailpit locally) — see [[events-pipeline-design]] |
+| events (shared queue) | SQS + DLQ | **One shared queue**, not one per producer. Users, Orders, and Tracking all publish to it; the Lambda consumes and dispatches by `type`. Adding a producer (Tracking joined as the third) requires no new queue, no new event source mapping, and no new DLQ. |
 | Users DB | Aurora PostgreSQL | Operational data for Users service (read/write replicas) |
 | Orders DB | Aurora MySQL | Operational data for Orders service (read/write replicas) |
 | Tracking DB | Aurora MySQL | Operational data for Tracking service (read/write replicas) |

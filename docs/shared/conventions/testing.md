@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-17
-updated: 2026-08-03
+updated: 2026-08-04
 tags: [type/convention, area/shared, status/active]
 related:
   - "[[ADR-0010-cognito-auth]]"
@@ -12,6 +12,8 @@ related:
   - "[[local-dev]]"
   - "[[2026-07-17-testing-layers-and-e2e-gateway-design]]"
   - "[[2026-07-17-testing-layers-and-e2e-gateway]]"
+  - "[[events-pipeline-design]]"
+  - "[[2026-08-03-events-pipeline-milestone-design]]"
 ---
 
 # Testing
@@ -89,6 +91,62 @@ the checklist for adding a new endpoint:
 - [[users/testing/index|Users Testing]]
 - [[tracking/testing/index|Tracking Testing]]
 
+## Adapting the three layers to a non-HTTP component (events-pipeline)
+
+The three-layer rule above is written for HTTP endpoints — request in, response out, a gateway
+to test against. The events-pipeline Lambda has none of that; it is SQS-triggered. Rather than
+skip testing rigor because the literal layers don't apply, the events-pipeline milestone adapted
+the same **unit → integrated → real production path** progression to its own shape:
+
+1. **Unit, no AWS.** The state machine (`process-record.ts`, all four transitions,
+   append-only `status_history`), error classification (`PermanentError` vs `TransientError`,
+   including the unclassified-is-transient default), Zod schemas (envelope + per-type payload,
+   valid and invalid cases), dispatch (known type → right handler, unknown type → `FAILED`
+   "Unknown event type"), and template rendering (every catalog entry renders without throwing,
+   snapshotted).
+2. **Integration against real DocumentDB and real Mailpit — never mocks.** This is not a
+   preference; it reproduces the repo's own lesson experimentally. Removing `unique: true` from
+   the `event_id` index left the **unit** suite green at 10/10 (nothing there touches a real
+   index) while the **integration** suite, run against a live DocumentDB, failed 3 — the same
+   mocks-hide-schema-bugs failure mode already documented for Prisma in this repo, now reproduced
+   for MongoDB's own driver. SES delivery is asserted via the Mailpit API, not a mock — recipient,
+   subject, and that the body contains the event's data.
+3. **End-to-end, the real path.** The analogue of gateway E2E: `POST /v1/users/register` through
+   the gateway → Users' real publisher puts the message on SQS → the event source mapping invokes
+   the Lambda → the document appears in DocumentDB as `COMPLETED` → the email appears in Mailpit.
+   This is the layer that exercises the event source mapping itself, which nothing below it does,
+   and it is what was actually run to verify the milestone: a real `POST /v1/users/register`
+   produced a document walking `STARTED → IN_PROGRESS → COMPLETED` and a "Welcome to 3MRAI" email
+   in Mailpit.
+
+See [[events-pipeline-design]] and [[2026-08-03-events-pipeline-milestone-design]] for the full
+detail, including the dedicated `batchItemFailures` test (inject one good message and one that
+triggers a transient failure; assert the good one is consumed exactly once and only the bad one
+retries).
+
+### A test must never assert a mock's own configured behaviour
+
+Found three times independently during the events-pipeline milestone, each a false-green test
+that proved nothing about the real system:
+
+- A test configured a mock to reject with `TransientError`, then asserted the result was a
+  rejection with `TransientError`. That is restating the mock's own setup, not testing the
+  classification logic that is supposed to produce that outcome from a real failure.
+- A test invalidated a **non-PII field** while asserting the error did not leak an email address
+  — but the email in that fixture was valid and would never have appeared in the error at all,
+  regardless of whether the leak-prevention logic worked. The assertion passed for a reason
+  unrelated to the thing it claimed to verify.
+- A test verified a bundle under Node 24, which sniffs module syntax and loads an ESM bundle
+  fine — while the actual runtime target is Node 20 (`nodejs20.x`), which does not, and which is
+  exactly why the Lambda is bundled as CommonJS in the first place (see
+  [[events-pipeline-design]]). Testing only on the local Node version reported a false pass for a
+  runtime-specific failure mode.
+
+The common shape: each test's assertion was satisfiable by the test's own setup, independent of
+whether the production code under test was correct. When writing a test, ask what would make it
+fail — if the only thing that can make it fail is changing the test's own fixture or mock
+configuration, it is not testing the system.
+
 ## E2E cleanup by tag
 
 All three services expose a flag-guarded `e2e-cleanup` endpoint (Users `DELETE /v1/users/e2e-cleanup`,
@@ -114,6 +172,10 @@ Every service implements the underlying delete as a soft-delete, per [[soft-dele
 - [[local-dev]]
 - [[2026-07-17-testing-layers-and-e2e-gateway-design]]
 - [[2026-07-17-testing-layers-and-e2e-gateway]] — the implementation plan for the design above.
+- [[events-pipeline-design]] — where the adapted three-layer treatment for a non-HTTP,
+  SQS-triggered component is implemented.
+- [[2026-08-03-events-pipeline-milestone-design]] — full detail on the adapted layers and the
+  `batchItemFailures` test.
 - [[orders/testing/index|Orders Testing]]
 - [[users/testing/index|Users Testing]]
 - [[tracking/testing/index|Tracking Testing]]

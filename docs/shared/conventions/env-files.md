@@ -4,7 +4,7 @@ type: convention
 area: infra
 status: active
 created: 2026-07-20
-updated: 2026-08-03
+updated: 2026-08-04
 tags:
   - type/convention
   - area/infra
@@ -14,6 +14,8 @@ related:
   - "[[scripting-language]]"
   - "[[local-dev]]"
   - "[[testing]]"
+  - "[[events-pipeline-design]]"
+  - "[[2026-08-03-events-pipeline-milestone-design]]"
 ---
 
 # Env Files
@@ -32,9 +34,16 @@ new API id, and reassigns RDS proxy ports by cluster creation order.
 | `.env.local.infra` | Terraform outputs (Cognito ids, API GW url, DB hosts/ports) | the E2E suite, humans |
 | `.env.local.users` | the Users service environment | compose `env_file:` |
 | `.env.local.orders` | the Orders service environment | compose `env_file:` |
-| `.env.local.tracking` | the Tracking service environment (incl. `E2E_TESTING_ENABLED=true` in CUSTOM) | compose `env_file:` |
+| `.env.local.tracking` | the Tracking service environment (incl. `E2E_TESTING_ENABLED=true` in CUSTOM, `EVENTS_QUEUE_URL`) | compose `env_file:` |
+| `.env.local.events-pipeline` | the events-pipeline Lambda environment (DocumentDB connection, `EVENTS_QUEUE_URL`, SES sender) | the Lambda's environment variables, set via Terraform |
 | `.env.local.debug` | HOST-reachable connection strings | a SQL client; **loaded by nothing** |
 | `.env.example` | the committed contract | documentation only |
+
+`EVENTS_QUEUE_URL` (the shared SQS queue the events-pipeline consumes) is generated into **four**
+files as of the events-pipeline milestone: `.env.local.events-pipeline` itself, plus
+`.env.local.users`, `.env.local.orders`, and `.env.local.tracking` — each service's own producer
+reads the same generated queue URL from its own file, never a shared or hardcoded one. See
+[[events-pipeline-design]].
 
 `.env*` is git-ignored except `.env.example`, which needs an explicit `!.env.example` negation.
 
@@ -58,7 +67,8 @@ There is deliberately no shared `.services` file: Users and Orders both define
 `DATABASE_WRITER_URL` with different values AND different formats (a `postgres://` URL versus
 an ADO connection string `Server=…;Port=…;`), so one file per service is what stops them
 colliding. This already applies to `tracking` (`.env.local.tracking` exists, generated the same
-way) and will apply to `events-pipeline` once it lands.
+way) and now also to `events-pipeline` (`.env.local.events-pipeline`), which landed with the
+events-pipeline milestone (2026-08-04).
 
 > [!warning] A new `custom_default` does not reach an existing file
 > `generate_env_files.py`'s CUSTOM box is preserved **verbatim** on regeneration — by design, so a
@@ -106,3 +116,5 @@ When changing env plumbing, verify against a real bring-up, not by inspection:
 - [[scripting-language]]
 - [[local-dev]]
 - [[testing]]
+- [[events-pipeline-design]] — `.env.local.events-pipeline` and `EVENTS_QUEUE_URL`'s propagation into three other services' env files.
+- [[2026-08-03-events-pipeline-milestone-design]]
