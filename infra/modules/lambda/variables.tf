@@ -17,9 +17,17 @@ variable "source_dir" {
 }
 
 variable "handler" {
-  description = "Lambda handler entrypoint."
+  description = <<-DESC
+    Lambda handler entrypoint, resolved relative to the ZIP ROOT — not to the
+    repo. `archive_file` zips the CONTENTS of var.source_dir, and source_dir is
+    already the built `dist/` directory, so `dist/` is NOT a path component
+    inside the package: a "dist/handler.handler" default would make the runtime
+    look for dist/dist/handler.js and fail with "Cannot find module".
+    Same shape as modules/cognito's pre-token Lambda (source_dir =
+    pre-token-lambda/, handler = "index.handler").
+  DESC
   type        = string
-  default     = "dist/handler.handler"
+  default     = "handler.handler"
 }
 
 variable "runtime" {

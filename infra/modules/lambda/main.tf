@@ -52,14 +52,18 @@ resource "aws_iam_role_policy" "lambda_exec" {
         Resource = "*"
       },
       {
+        # Scoped to THIS function's log group only. `logs:CreateLogGroup` is
+        # deliberately absent: the group is created explicitly below, so the
+        # runtime never needs to create it. The `:*` suffix covers the log
+        # STREAMS within the group. Self-referential, so no account id or
+        # region is hardcoded.
         Sid    = "Logs"
         Effect = "Allow"
         Action = [
-          "logs:CreateLogGroup",
           "logs:CreateLogStream",
           "logs:PutLogEvents",
         ]
-        Resource = "arn:aws:logs:*:*:*"
+        Resource = "${aws_cloudwatch_log_group.this.arn}:*"
       },
     ]
   })
@@ -67,7 +71,8 @@ resource "aws_iam_role_policy" "lambda_exec" {
 
 # ─── Log group ────────────────────────────────────────────────────────────────────
 # Declared explicitly (rather than left to Lambda's implicit creation) so
-# retention is managed and the group is destroyed with the function.
+# retention is managed and the group is destroyed with the function. Its ARN is
+# also what scopes the execution role's logs permissions above.
 resource "aws_cloudwatch_log_group" "this" {
   name              = "/aws/lambda/${var.context.id}"
   retention_in_days = var.log_retention_in_days

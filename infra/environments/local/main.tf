@@ -230,15 +230,21 @@ module "messaging" {
 # Same letter-led-id trick as rds_aurora/rds_mysql: module.label_events.id is
 # "3mrai-local-events" (digit-leading), and the database module interpolates
 # context.id into aws_docdb_cluster.cluster_identifier, which AWS rejects unless
-# it starts with a letter — so prefix with "docdb-". The resulting cluster
-# identifier is what derives Floci's backing container name
-# (floci-docdb-<cluster_identifier>), which is how anything on 3mrai-network
-# reaches Mongo — port 27017 is NOT published to the host and the reported IP
-# changes on every recreation. See
+# it starts with a letter — so prefix with "db-". The prefix is NOT decorative;
+# dropping it makes the cluster identifier invalid. It is "db-" rather than
+# "docdb-" because the module already appends its own "-docdb" suffix, so the
+# latter would read docdb-3mrai-local-events-docdb.
+#
+# Resulting cluster identifier: db-3mrai-local-events-docdb. That value derives
+# Floci's backing container name (floci-docdb-<cluster_identifier>), which is
+# how anything on 3mrai-network reaches Mongo — port 27017 is NOT published to
+# the host and the reported IP changes on every recreation. Changing this
+# identifier forces cluster REPLACEMENT and invalidates every consumer of that
+# container name, so treat it as a stable contract from here on. See
 # docs/lessons/floci-sqs-lambda-docdb-support.md.
 module "database" {
   source             = "../../modules/database"
-  context            = { id = "docdb-${module.label_events.id}", tags = module.label_events.tags }
+  context            = { id = "db-${module.label_events.id}", tags = module.label_events.tags }
   subnet_ids         = module.networking.subnet_ids
   security_group_ids = module.networking.security_group_ids
   master_password    = var.docdb_password
@@ -261,6 +267,11 @@ module "lambda_events_pipeline" {
 
   environment_variables = {
     AWS_ENDPOINT_URL = "http://floci:4566"
+    # Set explicitly: real Lambda injects AWS_REGION into every execution
+    # environment, but whether Floci's Lambda container does is unverified. This
+    # function calls SES, and a missing region surfaces there as a confusing
+    # credentials/endpoint error rather than an obvious "no region configured".
+    AWS_REGION       = local.region
     DOCDB_HOST       = "floci-docdb-${module.database.cluster_identifier}"
     DOCDB_PORT       = tostring(module.database.port)
     DOCDB_USERNAME   = module.database.master_username
