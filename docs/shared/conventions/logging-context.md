@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-19
-updated: 2026-07-31
+updated: 2026-08-03
 tags:
   - type/convention
   - area/shared
@@ -124,6 +124,29 @@ could record because none was running to record it.
 
 Non-JSON sources (like nginx's combined log format) need explicit parsing in the collector to
 reach the shared schema.
+
+> [!warning] SQLAlchemy's SQL echo goes to its own OpenObserve stream, never the main `logs` one
+> Tracking runs with SQL echo on outside production (`Settings.echo_sql`), and a single tracking
+> read can emit several `SELECT`s — enough that, mixed into the shared stream, application events
+> were buried among the queries that served them and roughly a third of all records carried no
+> `service_name` at all and could not be filtered by service. The collector now splits SQL
+> statements into a **separate stream**, via two OTel pipelines over the same receivers with
+> complementary filters (each record leaves through exactly one, so the filters must stay exact
+> complements) and two exporters differing only in the destination stream-name header.
+>
+> The activation mechanism is the part worth getting right on a new service: echo must be turned
+> on by **raising the `sqlalchemy.engine` logger's level**
+> (`logging.getLogger("sqlalchemy.engine").setLevel(logging.INFO)`), **never**
+> `create_engine(echo=True)`. `echo=True` makes SQLAlchemy attach its own plain-text
+> `StreamHandler` at engine-construction time — and because engines are `lru_cached` and built on
+> the **first request**, that happens long after `configure_logging()` has already stripped
+> library handlers at startup, so SQLAlchemy silently reinstalls one behind the app's back. The
+> result was every statement logged **twice**: once as JSON with the full shared context, and once
+> as raw text with no `service_name`, with multi-line statements arriving as several unrelated
+> records. Setting the logger's level instead routes the same records through the normal logging
+> tree — the root JSON handler formats them, the context filter enriches them — and is
+> order-independent, since there is no handler left for SQLAlchemy to reinstall. See
+> `services/tracking/src/shared/db/engine.py`.
 
 > [!warning] Do not filter or alert on `cloudwatch_log_stream`
 > Under the local emulator, the `aws_cloudwatch` receiver substitutes the placeholder

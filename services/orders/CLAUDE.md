@@ -184,9 +184,29 @@ services/orders/
     persists Order + OrderDetails with BOTH `user_id` and `cognito_sub`, and emits
     `ORDER_CREATED` (Noop seam). Full rollback on any failure.
   - `[GET] /v1/orders/my-orders`, `[GET] /v1/orders/{order_id}` — ownership by
-    query filter (`cognito_sub` from `x-user-id`); another user's order → 404. No
-    gRPC on reads.
-  - `[DELETE] /v1/orders/e2e-cleanup` — soft-deletes the caller's orders; mapped
-    only when `E2E_TESTING_ENABLED`.
+    query filter (`cognito_sub` from `x-user-id`); another user's order → 404.
+    Both take an optional `includeTracking` query param (default **false**); when
+    true the order carries its tracking, fetched through Tracking's batch read —
+    one call for N orders, never one per order. A typed `TrackingDto` guarded by
+    `TrackingContractTests`, not an opaque passthrough. Tracking being down
+    degrades to `tracking: null` with a 200; it never fails the read.
+    **Reads DO make one gRPC call.** `CallerContextMiddleware` resolves the
+    caller's `usr_` id once per request so every log line carries `user_id` —
+    deliberate, and the cost was accepted explicitly. Read lines previously
+    carried only a sub and could not be joined to Users or Tracking, which key by
+    `user_id`. Do not "optimise" this away; see §4 and the middleware's comment.
+  - `[DELETE] /v1/orders/e2e-cleanup` — soft-deletes every order tagged
+    `"E2E Source"` **by tag, never by caller** (the E2E harness's global teardown
+    runs with no identity at all, so a caller-scoped filter would delete nothing).
+    Also **restores catalogue stock** to `ProductSeed.SeedStock` — orders
+    decrement stock permanently and a soft-delete does not give it back, so
+    without this the catalogue drained ~17 units per run and the suite failed
+    around the sixth. Mapped only when `E2E_TESTING_ENABLED`.
+  - The `"E2E Source"` tag is applied at creation only when the request sent
+    `x-e2e-source: true` **and** `E2E_TESTING_ENABLED` is on. Both halves are
+    required: the conjunction is what stops an untrusted client tagging its own
+    rows for someone else's teardown to delete. `order.tags` is a JSON column
+    (MySQL has no array type), queried with `JSON_CONTAINS`; `OrderDetail`
+    carries no tag of its own and is deleted through its parent.
 - `ORDER_CREATED` is **not** on SQS yet — `NoopEventPublisher` is the emission
   seam; the SQS wiring is deferred.

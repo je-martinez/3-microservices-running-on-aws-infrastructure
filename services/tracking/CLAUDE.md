@@ -18,14 +18,16 @@ this first, every time. Cross-cutting rules are **referenced**, never duplicated
 - Run local (docker-watch): `docker compose up tracking --watch` (from repo root)
 - Migrate: `alembic upgrade head`
 
-> These commands are the intended contract; the project files themselves are
-> created in the Tracking implementation milestone.
-
 ## 3. Folder structure (screaming architecture)
 ```
 services/tracking/
-├── src/features/tracking/{commands,queries,domain,grpc}/
-├── src/shared/{config,db,di,audit}/
+├── src/features/tracking/{api,commands,queries,domain}/
+│     api/       — the REST routers (health, init-tracking, trackings, carrier,
+│                  and the flag-guarded e2e router)
+├── src/shared/{audit,config,db,di,grpc,http,logging}/
+│     grpc/      — the OUTBOUND client to Users. Tracking serves no gRPC, so this
+│                  lives under shared/, not under features/tracking/ (§6).
+│     http/      — caller identity, carrier auth, the x-e2e-source parser
 └── tests/
 ```
 
@@ -97,7 +99,10 @@ implemented. This shipped once and was invisible to 253 tests because they creat
 and read with the same value.
 
 Rules:
-- User-scoped reads scope by `cognito_sub`. The gRPC reads stay **unscoped**.
+- User-scoped reads scope by `cognito_sub`. (There are no gRPC reads to exempt any
+  more — JE-108 removed the served gRPC surface, so every read here is REST. See §6.)
+- The E2E cleanup is the one deletion that scopes by **neither** identity: it selects
+  by the `"E2E Source"` tag, because the harness's teardown has no session at all.
 - The HTTP dependency is `CallerSub` / `require_caller_sub` (`shared/http/identity.py`),
   named so a handler cannot read it as "the user id".
 - `cognito_sub` is **optional on the wire** and nullable in the schema: a caller that
@@ -153,7 +158,7 @@ Implementation notes:
     `shipping_address`; the caller's identity comes from the `x-user-id` header, never
     the body. Guarded for idempotency: an order that already has a tracking or any
     history is rejected with `409`, so a retry cannot duplicate a shipment. Accepts
-    `test_mode`, driving the automatic progression in §5b.
+    `test_mode`, driving the automatic progression in §5c.
   - `[GET] /v1/trackings/{orderId}` and `[GET] /v1/trackings?order_ids=<csv>` —
     user-scoped reads, filtered by `cognito_sub` (see §5a). Both return the tracking
     **together with its history**.

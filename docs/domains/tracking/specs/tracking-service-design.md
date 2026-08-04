@@ -4,7 +4,7 @@ type: spec
 area: tracking
 status: accepted
 created: 2026-06-26
-updated: 2026-07-31
+updated: 2026-08-03
 tags: [type/spec, area/tracking, status/accepted]
 related:
   - "[[soft-delete]]"
@@ -29,18 +29,20 @@ related:
 
 # Tracking Service Design
 
-> [!info] As built — fully wired and verified end to end (2026-07-31)
+> [!info] As built — fully wired and verified end to end (2026-07-31, endpoint table updated 2026-08-03)
 > Every part of the chain this note once listed as missing now exists: a multi-stage
 > `services/tracking/Dockerfile` that installs and starts the app, a `tracking` service in
 > `docker-compose.yml` publishing `3002:8000` with a healthcheck, an nginx upstream
 > (`location /v1/trackings` plus the rewritten `/v1/tracking/health`), and
-> `enable_tracking_routes = true` in `infra/environments/local/main.tf` — so the five gateway
-> routes below are live, not inert.
+> `enable_tracking_routes = true` in `infra/environments/local/main.tf` — so the gateway routes
+> below are live, not inert (the flag-guarded `e2e-cleanup` route is service-local, not a gateway
+> route — see [E2E cleanup](#e2e-cleanup-delete-v1trackingse2e-cleanup)).
 >
 > Verified from a destroyed environment, not incrementally: `make clean` (with `./data`
 > deleted) → `make bootstrap` completed in **one pass** → **70/70 E2E tests pass**, including
-> the full journey through the gateway (user → order → tracking → DELIVERED). 294 unit and
-> integration tests pass against a live MySQL rather than mocks.
+> the full journey through the gateway (user → order → tracking → DELIVERED). See
+> [[tracking/testing/index|Tracking Testing]] for current unit/integration coverage — run against
+> a live MySQL rather than mocks.
 >
 > `infra/modules/messaging/` and `infra/modules/database/` are still empty placeholders, but
 > neither blocks this service — Tracking emits no domain events (see [Events](#events)) and uses
@@ -97,6 +99,7 @@ means adding entries to that module's `local.routes` map, per
 | GET    | `/v1/trackings/{orderId}`           | Cognito JWT (gateway authorizer) | Returns one tracking + its `Tracking_History`, scoped to the caller. Filters by `order_id` **and** the caller's `cognito_sub` (from the gateway-injected `x-user-id` header — see [Ownership & scoping](#ownership--scoping)); a tracking that exists but belongs to another user is indistinguishable from one that does not exist — returns `404`, not `403`. Path param is `{orderId}` (camelCase) at the gateway — see [Gateway path params are camelCase](#gateway-path-params-are-camelcase-not-snake_case) below. |
 | GET    | `/v1/trackings?order_ids=<csv>`     | Cognito JWT (gateway authorizer) | Returns many trackings (+ each one's `Tracking_History`), scoped to the caller. `order_ids` is a comma-separated list of order ids, e.g. `?order_ids=ord_a,ord_b,ord_c` — see [Batch read query shape](#batch-read-query-shape) for why. Filters by `order_id` **and** the caller's `cognito_sub`; ids that exist but belong to another user (or don't exist at all) are silently **omitted** from the results, never reported as an error — see [Ownership & scoping](#ownership--scoping). |
 | PUT    | `/v1/trackings/{orderId}/status`    | Custom API key (service-validated, **not** Cognito) | Simulates a third-party carrier service notifying Tracking of a delivery status change. `status` must be one of the four enum values defined in [Tracking statuses](#tracking-statuses), and is subject to the guards in [State machine & update guards](#state-machine--update-guards). See [Auth schemes](#auth-schemes) — this endpoint has **no `x-user-id`** and is identified by `order_id` alone. Path param is `{orderId}` (camelCase) — see [Gateway path params are camelCase](#gateway-path-params-are-camelcase-not-snake_case). |
+| DELETE | `/v1/trackings/e2e-cleanup`         | None — the route only **exists** under `E2E_TESTING_ENABLED` | The E2E harness's global-teardown route (JE-111). See [E2E cleanup](#e2e-cleanup-delete-v1trackingse2e-cleanup) below. |
 
 > [!warning] Several auth schemes, in both directions
 > Unlike Users/Orders, where "all endpoints require a Cognito JWT except health" was previously
@@ -146,6 +149,42 @@ This is a **gateway-spelling** constraint only — the service reads the param p
 internal handler signature is free to use a different name (e.g. `order_id`). Document the gateway
 spelling accurately here, since that is what a client actually calls; do not assume it matches
 whatever name the service-side handler happens to use.
+
+#### E2E cleanup, `DELETE /v1/trackings/e2e-cleanup`
+
+The E2E harness's global-teardown route (JE-111), the Tracking peer of Orders' and Users' own
+`e2e-cleanup` endpoints — see [[soft-delete]] for how each of the three implements the same
+soft-delete-by-tag shape (Users: Prisma extension; Orders: `ExecuteUpdateAsync`; Tracking: the two
+bulk `UPDATE`s below).
+
+> [!important] No auth at all — the route itself is the guard
+> This endpoint takes **no caller identity** — no Cognito JWT, no `x-user-id` dependency. The
+> harness's teardown runs once, globally, at the end of a suite; there is no user session to run it
+> as, so a route requiring a caller would `401` its only real caller (an earlier version did
+> exactly that). What protects it instead is that the route **does not exist** unless
+> `E2E_TESTING_ENABLED` is on (`src/main.py` only mounts the e2e router under that flag).
+
+- **What it deletes:** every live `Tracking` row tagged `"E2E Source"`, **and its `Tracking_History`
+  in cascade** — children first, then the parent, following the FK direction (mirrors
+  `soft_delete_by_tag` in `src/features/tracking/domain/repository.py`). Never a physical `DELETE` —
+  the audit columns (`deleted_at`, `deleted_by`) are stamped, same as every other soft-delete in this
+  service; `deleted_by` is set to `AuditActor.E2E_CLEANUP` so a row removed by the harness stays
+  distinguishable from one removed by a real flow.
+- **The tag is applied at creation, not here.** A row is tagged `"E2E Source"` only when the
+  `init-tracking` request sent `x-e2e-source: true` **and** `E2E_TESTING_ENABLED` was on at that
+  moment — **both conditions are mandatory** (`src/shared/http/e2e_source.py`). The conjunction is
+  what stops an untrusted client tagging its own rows for someone else's teardown to delete; the
+  header alone must never be sufficient.
+- **Response:** `200 {"deleted": N}` — the count of `Tracking` rows stamped (not history rows).
+  `200` even when `N` is `0`: a teardown that matches nothing has still reached the state it asked
+  for, so a re-run is not a failure.
+- **Flag off → `405`, not `404`.** With `E2E_TESTING_ENABLED` off the route is never registered, and
+  `/v1/trackings/e2e-cleanup` still matches `GET /v1/trackings/{order_id}`'s path — only the method
+  is unsupported, so Starlette answers `405 Method Not Allowed`. A harness (or a future test) that
+  treats "flag off" as a `404` will misdiagnose this endpoint; treat `405` as "flag off; nothing to
+  clean up here."
+- **Caller:** the E2E harness's global teardown (`e2e/support/global-teardown.ts`), which calls the
+  equivalent route on all three services.
 
 ### Auth schemes
 
@@ -330,10 +369,12 @@ All IDs use prefixed nano-IDs ([[nano-id]]). All tables apply soft-delete ([[sof
 | Column       | Type         | Notes                              |
 |--------------|--------------|------------------------------------|
 | `id`         | VARCHAR(21)  | Prefixed nano-ID, PK               |
-| `user_id`    | VARCHAR(21)  | Reference to user                  |
+| `user_id`    | VARCHAR(21)  | The internal `usr_` id, as Orders resolved it from Users. For reporting/joins only — **not** the ownership key reads filter by (see `cognito_sub` below). |
+| `cognito_sub` | VARCHAR(255), nullable | **The ownership key every user-scoped REST read filters by** — see [[user-id-vs-cognito-sub-ownership-key]] and [Ownership & scoping](#ownership--scoping). Nullable: a row created before this field existed, or by a caller that omitted it, is simply unreachable over the user-scoped reads rather than mis-attributed to someone else. |
 | `order_id`   | VARCHAR(21)  | Reference to order, unique         |
 | `status`     | VARCHAR(50)  | Current delivery status — enum: `SHIPPED`, `ON_THE_WAY`, `OUT_FOR_DELIVERY`, `DELIVERED` (see [Tracking statuses](#tracking-statuses)) |
 | `shipping_address` | JSON  | Snapshot of the delivery address, received as-is in the `init-tracking` request body — see [Delivery address snapshot](#delivery-address-snapshot) below. |
+| `tags`       | JSON, `NOT NULL DEFAULT (JSON_ARRAY())` | Free-form labels; today only `"E2E Source"` is ever written, by [`init-tracking`](#api--endpoints) when the request carries `x-e2e-source: true` under `E2E_TESTING_ENABLED` — see [E2E cleanup](#e2e-cleanup-delete-v1trackingse2e-cleanup). MySQL has no array type, so this is a JSON array queried with `JSON_CONTAINS` rather than a Postgres-style `text[]`. |
 | `datetime`   | DATETIME     | Timestamp of the current status    |
 | `created_at` | DATETIME     | Audit — see [[audit-fields]]       |
 | `updated_at` | DATETIME     | Audit — see [[audit-fields]]       |
@@ -367,6 +408,7 @@ Immutable log of every status transition.
 | `tracking_id` | VARCHAR(21)  | FK → `Tracking.id` (part of PK)         |
 | `user_id`     | VARCHAR(21)  | Reference to user                       |
 | `order_id`    | VARCHAR(21)  | Reference to order                      |
+| `cognito_sub` | VARCHAR(255), nullable | Denormalized off the parent `Tracking`, same as `user_id`/`order_id` above — a transition row needs its own ownership context to stay self-describing, and the read-scoping index below keys on it. |
 | `status`      | VARCHAR(50)  | Status at the time of the event — enum: `SHIPPED \| ON_THE_WAY \| OUT_FOR_DELIVERY \| DELIVERED` (part of PK) |
 | `datetime`    | DATETIME     | Timestamp of this status transition     |
 | `created_at`  | DATETIME     | Audit — see [[audit-fields]]            |
@@ -374,6 +416,12 @@ Immutable log of every status transition.
 | `deleted_at`  | DATETIME     | Soft-delete — see [[soft-delete]]       |
 
 **Composite PK:** `(tracking_id, status)`.
+
+> [!note] No `tags` column here — deliberately
+> Unlike `cognito_sub`, `tags` is **not** denormalized onto `Tracking_History`. History rows are
+> reached through their parent's FK, so "the children of every tagged tracking" is already
+> expressible without copying the tag down — see [E2E cleanup](#e2e-cleanup-delete-v1trackingse2e-cleanup).
+> Copying it would give the tag two sources of truth that a partial update could put out of step.
 
 ### Tracking statuses
 

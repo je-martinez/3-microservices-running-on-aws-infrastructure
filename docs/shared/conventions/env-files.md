@@ -4,7 +4,7 @@ type: convention
 area: infra
 status: active
 created: 2026-07-20
-updated: 2026-07-20
+updated: 2026-08-03
 tags:
   - type/convention
   - area/infra
@@ -32,6 +32,7 @@ new API id, and reassigns RDS proxy ports by cluster creation order.
 | `.env.local.infra` | Terraform outputs (Cognito ids, API GW url, DB hosts/ports) | the E2E suite, humans |
 | `.env.local.users` | the Users service environment | compose `env_file:` |
 | `.env.local.orders` | the Orders service environment | compose `env_file:` |
+| `.env.local.tracking` | the Tracking service environment (incl. `E2E_TESTING_ENABLED=true` in CUSTOM) | compose `env_file:` |
 | `.env.local.debug` | HOST-reachable connection strings | a SQL client; **loaded by nothing** |
 | `.env.example` | the committed contract | documentation only |
 
@@ -56,7 +57,16 @@ CUSTOM box rather than scattered around.
 There is deliberately no shared `.services` file: Users and Orders both define
 `DATABASE_WRITER_URL` with different values AND different formats (a `postgres://` URL versus
 an ADO connection string `Server=…;Port=…;`), so one file per service is what stops them
-colliding. Directly relevant to `tracking` and `events-pipeline`.
+colliding. This already applies to `tracking` (`.env.local.tracking` exists, generated the same
+way) and will apply to `events-pipeline` once it lands.
+
+> [!warning] A new `custom_default` does not reach an existing file
+> `generate_env_files.py`'s CUSTOM box is preserved **verbatim** on regeneration — by design, so a
+> developer's local overrides survive a re-run. That means adding a **new** `custom_defaults` key
+> to the generator does not retroactively appear in a file that already exists on disk; only a
+> freshly-generated file gets it. To pick up a new default, either add the line to the existing
+> CUSTOM box by hand, or delete the file so `make env-file` regenerates it from scratch. Seen live
+> when `E2E_TESTING_ENABLED` was added to `.env.local.tracking`'s defaults.
 
 ## Four traps, all silent
 

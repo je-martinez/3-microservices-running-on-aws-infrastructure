@@ -4,7 +4,7 @@ type: runbook
 area: tracking
 status: active
 created: 2026-07-31
-updated: 2026-07-31
+updated: 2026-08-03
 tags: [type/runbook, area/tracking, status/active]
 related:
   - "[[testing]]"
@@ -24,12 +24,17 @@ to follow when adding a new endpoint.
 cd services/tracking && pytest
 ```
 
-294 tests, run against a **live** MySQL instance rather than mocks — the repository,
-migration, state-machine, and TestMode-progression tests all exercise the real Alembic
-schema. Files live under `services/tracking/tests/`, split by concern: `test_repository.py`,
-`test_status_state_machine.py`, `test_test_mode_progression.py`, `test_rest_init_tracking.py`,
-`test_rest_reads.py`, `test_rest_carrier_status.py`, `test_users_client.py`,
-`test_current_caller.py`, plus fixtures in `conftest.py`.
+Run against a **live** MySQL instance rather than mocks — the repository, migration,
+state-machine, and TestMode-progression tests all exercise the real Alembic schema. The count
+grows with the service; check `pytest --collect-only -q | tail -1` for the current total rather
+than trusting a number pinned here (it drifted from 294 to 373 without this note being touched).
+Files live under `services/tracking/tests/`, split by concern — non-exhaustive, but every layer
+of the service has a file: `test_repository.py`, `test_status_state_machine.py`,
+`test_test_mode_progression.py`, `test_rest_init_tracking.py`, `test_rest_reads.py`,
+`test_rest_carrier_status.py`, `test_rest_e2e_cleanup.py`, `test_rest_health.py`,
+`test_users_client.py`, `test_current_caller.py`, `test_app_factory.py`, `test_engine.py`,
+`test_grpc_stubs.py`, `test_migration.py`, `test_log_identity.py`, `test_settings.py`, plus
+fixtures in `conftest.py`.
 
 > [!warning] Ownership tests need two distinct identity values
 > Any test asserting the `cognito_sub`-scoped ownership filter must use **different** values
