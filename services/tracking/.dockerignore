@@ -1,0 +1,38 @@
+# Build-context exclusions for services/tracking (the compose `build:` context).
+#
+# Docker does NOT read .gitignore, so the git-ignored 164 MB `.venv/` here would
+# otherwise be uploaded as build context AND copied into the image by `COPY src`'s
+# sibling copies — a host-built virtualenv whose absolute paths and (on macOS)
+# platform wheels are wrong inside a linux container. The Dockerfile installs
+# dependencies itself; nothing from the host venv belongs in the image.
+#
+# The caches below are excluded for the same reason plus layer-cache stability:
+# a __pycache__ or .ruff_cache touched by a local test run changes the context
+# digest and needlessly invalidates the COPY layer.
+
+# Host virtualenv — never copied, always rebuilt by pip in the builder stage.
+.venv/
+
+# Python / tool caches.
+# NOTE the `**/` prefixes. Docker's ignore syntax is NOT .gitignore's: a bare
+# `__pycache__/` matches only at the CONTEXT ROOT, so without `**/` every nested
+# src/**/__pycache__ was copied in — verified, 47 host .pyc files landed in the
+# image, compiled as cpython-313 by the host's Python 3.13 and therefore not even
+# loadable by this 3.12 runtime.
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+.coverage
+htmlcov/
+
+# Not needed to build or run the image
+tests/
+.claude/
+CLAUDE.md
+
+# Local env files are supplied by compose `env_file:` at RUN time ([[env-files]]),
+# never baked into the image.
+.env
+.env.*

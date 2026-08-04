@@ -23,7 +23,53 @@ public sealed class CallerContextMiddleware(RequestDelegate next)
             return;
         }
 
-        if (sub is not null) caller.SetSub(sub);
+        if (sub is not null)
+        {
+            caller.SetSub(sub);
+            await StampInternalUserIdAsync(caller, ctx.RequestAborted);
+        }
+
         await next(ctx);
+    }
+
+    // Resolve the internal usr_ id ONCE, here, so every log line of the request
+    // carries user_id — not only the ones emitted after some handler happened to
+    // need it. The reads (my-orders, order-by-id) scope by cognito_sub and never
+    // resolved it at all, so their lines carried only a sub and could not be joined
+    // to Users or Tracking on the id those services key by.
+    //
+    // Deliberately NOT done by making the enricher's getter resolve: that getter is
+    // read on EVERY log event, so a resolving getter would turn each line into a
+    // gRPC call. Resolving once here is what keeps ResolvedInternalUserId a cheap,
+    // non-triggering read (services/orders/CLAUDE.md §4).
+    //
+    // The cost is real and accepted: reads now make one Users call they previously
+    // did not. CurrentCaller memoizes it, so a handler needing the id later in the
+    // same request pays nothing more.
+    private static async Task StampInternalUserIdAsync(ICurrentCaller caller, CancellationToken ct)
+    {
+        try
+        {
+            await caller.ResolveInternalUserIdAsync(ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // The client went away. Not a Tracking-of-ours problem, and rethrowing
+            // would be pointless work on a dead request — let the pipeline unwind.
+            throw;
+        }
+        catch (Exception)
+        {
+            // ANY other failure — Users down, an unknown sub, a deadline — leaves the
+            // request untouched and simply without user_id. Enriching a log line must
+            // never be able to fail a request that was going to succeed, and a read
+            // scoped by cognito_sub is answerable with no id at all. The enricher
+            // omits the field rather than emitting null, so an absent id reads as
+            // "not known" instead of "resolved, and it was null".
+            //
+            // Not logged here: a genuine outage would emit one line per request and
+            // bury the signal, and the failure is already visible as user_id being
+            // absent on lines that normally carry it.
+        }
     }
 }

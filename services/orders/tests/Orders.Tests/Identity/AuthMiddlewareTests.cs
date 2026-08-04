@@ -6,7 +6,8 @@ namespace Orders.Tests.Identity;
 // Exercises CallerContextMiddleware end-to-end through the real Program pipeline
 // (OrdersApiFactory): the public allowlist (health) must pass with no header,
 // every other route must 401 without x-user-id, and succeed once it's set.
-public class AuthMiddlewareTests : IClassFixture<OrdersApiFactory>
+[Collection(Orders.Tests.Api.OrdersApiCollection.Name)]
+public class AuthMiddlewareTests
 {
     private readonly OrdersApiFactory _factory;
     public AuthMiddlewareTests(OrdersApiFactory factory) => _factory = factory;

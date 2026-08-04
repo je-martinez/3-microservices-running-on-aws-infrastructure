@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-07-19
+updated: 2026-07-30
 tags: [type/spec, area/shared, status/active]
 related:
   - "[[2026-06-26-implementation-workflow]]"
@@ -37,6 +37,8 @@ related:
   - "[[2026-07-15-two-phase-post-effects]]"
   - "[[2026-07-15-orders-gateway-integration]]"
   - "[[2026-07-16-orders-for-update-interceptor]]"
+  - "[[2026-07-30-post-infra-root-design]]"
+  - "[[2026-07-30-post-infra-root]]"
 ---
 
 # 3MRAI Plans — Index
@@ -75,6 +77,8 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-07-19-scripts-to-python-migration-design]] — design spec for migrating the repo's 5 remaining bash scripts to Python behind a shared `lib3mrai` package, freezing every script's external interface, and introducing the Python-first scripting-language convention. Block 1 of the Developer Experience milestone.
 - [[2026-07-19-scripts-to-python-migration]] — implementation plan for the scripts-to-Python migration: task-by-task port of `discover-db-port`, `wait-for-db`, `bootstrap`, `create-user-pool-client`, and `set-pre-token-trigger`.
 - [[developer-experience-milestone]] — logical execution plan for the Developer Experience milestone: three independent blocks (Scripts to Python, logging context + tracing, env-file auto-generation); task sequence and dependency graph for Block 1 (JE-59 through JE-67).
+- [[2026-07-30-post-infra-root-design]] — design spec splitting `make bootstrap` (ends usable) from a new `make post-infra` (hardens it: moved MySQL provider GRANTs + the existing phase-2 app-user apply), plus a DynamoDB execution log recording — never skipping — the four post-resource provisioning scripts' outcomes.
+- [[2026-07-30-post-infra-root]] — implementation plan for the post-infra split: the `tf-backend` execution-log table, the `lib3mrai.execution_log` wrapper and its three required tests, wiring the four scripts, moving the GRANTs, and splitting the Makefile targets last.
 
 > [!note] No plan note for the AuditActor enum
 > [[2026-07-12-audit-actor-enum-design]] was implemented directly from the spec — there is no separate `writing-plans` plan for it.
@@ -111,3 +115,5 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-07-19-scripts-to-python-migration-design]]
 - [[2026-07-19-scripts-to-python-migration]]
 - [[developer-experience-milestone]]
+- [[2026-07-30-post-infra-root-design]]
+- [[2026-07-30-post-infra-root]]

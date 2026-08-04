@@ -4,7 +4,7 @@ type: runbook
 area: infra
 status: active
 created: 2026-07-12
-updated: 2026-07-28
+updated: 2026-07-31
 integration-status: verified
 verified-on: 2026-07-15
 verified-by: Jose E. Martinez
@@ -63,11 +63,18 @@ This runs, in order:
    below).
 4. **`migrate`** — applies Prisma migrations (`migrate deploy`, never `migrate dev`) against
    Floci's Postgres, run as the cluster superuser so DDL succeeds even though the app DB user
-   deliberately has no elevated privileges (see [[soft-delete]] / ADR-0004).
+   deliberately has no elevated privileges (see [[soft-delete]] / ADR-0004). The same
+   superuser-for-migrations, least-privilege-for-runtime split applies to the MySQL cluster's
+   Alembic/EF Core migrations — see the note in
+   [[two-phase-terraform-apply#Update 2026-07-30 — the MySQL provider no longer hangs]].
 5. **`docker compose up -d --build users`** — builds and starts the Users service container.
 6. **`bootstrap.sh`** (`infra/environments/local/bootstrap.sh`) — creates the least-privilege
    application DB user (no `DELETE` grant — see [[soft-delete]]) and sets up the
    `nginx-stable` Docker alias used by the reverse-proxy path (see [[ADR-0016-local-apigw-nginx-ecs]]).
+   As of 2026-07-30, MySQL app-user creation (`orders_app`, `tracking_app`) has moved to the
+   Terraform phase-2 root (`enabled_app_users` now includes `mysql`) — see
+   [[two-phase-terraform-apply]] — rather than being created here by bash. Phase 2 has not yet
+   been applied, so those users do not exist in the local database yet.
 
 The order matters precisely because of step 3→4→5: infra must exist before `.env` has real
 Cognito ids, `.env` must be correct before the Users container starts (it fails Zod validation
@@ -106,7 +113,47 @@ otherwise), and migrations must run before the service can use the database.
 | Target | Purpose |
 |---|---|
 | `make bootstrap` | Bring the whole local chain up from scratch, in dependency order (see above) |
+| `make bootstrap-provision` | Phase 1 of `bootstrap`: Floci + Terraform apply + env files. **Not** safely re-runnable — see below |
+| `make bootstrap-converge` | Phase 2 of `bootstrap`: migrations + services + nginx alias. **Safe to re-run** — resumes a partial `bootstrap` |
+| `make doctor` | Read-only diagnosis of the local stack — see below |
+| `make post-infra` | Phase 2 Terraform apply: least-privilege DB app-users (see [[two-phase-terraform-apply]]) |
 | `make clean` | Tear down infra + compose; **prompts** before removing `./data` (Floci's persisted state) |
+
+#### `bootstrap-provision` / `bootstrap-converge` — the two halves of `bootstrap`
+
+`make bootstrap` is `bootstrap-provision` followed by `bootstrap-converge`. They exist as
+separate targets because only the first half is irrepeatable: a **second** phase-1
+`terraform apply` against the same Floci state fails on `UpdateTags` (JE-113, see
+[[floci-rds-apigw-limits]] below). So a run that dies partway through `bootstrap` is resumed
+with `bootstrap-converge` alone, never by re-running `bootstrap-provision`'s apply.
+
+- **`bootstrap-provision`** — `docker compose up -d floci` → wait for Floci → `backend-up` →
+  `infra-init` → `infra-up` (Terraform apply, then `env-file`).
+- **`bootstrap-converge`** — starts with `env-file` (safe: it reads existing Terraform
+  outputs, it does not apply, so it cannot hit JE-113) because `migrate-tracking` reads
+  `DATABASE_WRITER_URL` from `.env.local.tracking`, which `env-file` (re)writes. Then:
+  `migrate` → start `users` → start `orders` → `migrate-tracking` → start `tracking` →
+  `bootstrap.py` (the nginx alias, last — see the resolved limitation below for why). Every
+  step here is idempotent, so re-running it costs time and nothing else.
+
+#### `make doctor` — read-only diagnosis
+
+`make doctor` (`infra/scripts/doctor.py`) reports which state the local stack is actually in
+— what ran, what did not, and the command to finish it — without changing anything. Every
+check is a `SELECT`, a `SHOW`, an HTTP `GET`, or a `docker inspect`; it repairs nothing, it
+only prints the fix. This is deliberate: a doctor that repairs is a doctor you can no longer
+trust to diagnose, because you can't tell whether it found the system healthy or made it so.
+
+Its standout check is the one nothing else in this repo surfaces: **a database that exists
+while its tables do not.** Phase-1 Terraform creates the `tracking` (and `orders`) database;
+`make migrate-tracking`, much later in the chain, creates its tables. Everything upstream of
+that gap reports healthy — the container starts, `/v1/health` answers 200, `SHOW DATABASES`
+lists `tracking` — right up until the first real query fails with `Table 'tracking.tracking'
+doesn't exist`. This is exactly the state a bootstrap that died before `migrate-tracking`
+leaves behind (JE-112, see the resolved limitation below).
+
+Run it any time the stack's state is unclear — after a partial `bootstrap`, before filing a
+bug against a service, or as a sanity check before `make post-infra`.
 
 ### Observability (opt-in)
 
@@ -187,6 +234,65 @@ pick up infra changes:
 make clean       # tear down (prompts before removing ./data)
 make bootstrap    # rebuild from scratch
 ```
+
+## Resolved — `bootstrap.py` health check used to have no retry
+
+Between 2026-07-30 and 2026-07-31 `make bootstrap` reproducibly failed at the `bootstrap.py`
+step with the nginx alias already attached correctly:
+
+```
+NO: alias attached but /v1/health did not return the expected body (got: '')
+   the users container may not be ready yet; re-run after it is up.
+make: *** [bootstrap] Error 1
+```
+
+This is recorded here — rather than deleted — because the fix is *why*
+`bootstrap-provision`/`bootstrap-converge` and `make doctor` exist (see below); the failure
+mode explains the tooling.
+
+**Original cause:** the script queried `/v1/health` **once**, after a fixed `time.sleep(1)`,
+and the `users` container was usually not yet responding at that point. The alias
+attachment — the script's actual job — succeeded; only the follow-up health probe failed,
+but it still returned exit 1 and aborted the rest of the `bootstrap` chain. The asymmetry
+that gave it away: the same script **did** retry to locate the nginx container
+(`find_nginx_container(attempts=20, sleep_s=3)`), but the health check right after it was a
+single attempt behind one second of sleep — two waits in the same script, only one of them
+robust.
+
+**Why it mattered more than it looked:** `bootstrap.py` sat mid-chain, before `orders`,
+`migrate-tracking`, and `tracking`. A failure there didn't just abort the alias step — it
+skipped every step after it, which is how a cold bootstrap ended up with Tracking's database
+created but its tables missing (JE-112): `orders` never started, `migrate-tracking` never
+ran, `tracking` never started, and the run still reported healthy everywhere a shallow check
+would look, right up until the first real query.
+
+**Fix, in two parts (commit `cc43ded`, following up on `b43fbd9`'s original record of this as
+a known limitation):**
+
+1. **`bootstrap.py` moved to the END of the chain.** The Makefile comment above it used to
+   claim the services depended on the alias ("and only then the services") — that was false:
+   `grep -rn "nginx-stable" services/ docker-compose.yml` returns nothing. The alias is only
+   what the API Gateway routes *through*; no service reads it. Running it mid-chain meant a
+   failure there took `orders`, `migrate-tracking`, and `tracking` down with it, none of which
+   depend on it. Placed last, its blast radius is itself, and by the time it runs `users` has
+   had the whole `orders`/`tracking` build to finish booting — so the health poll now succeeds
+   on the first attempt instead of racing a container that started seconds ago.
+2. **The health probe became advisory and retries** (`attempts=20, sleep_s=3` — the same
+   budget `find_nginx_container` already used). `attach_alias()` already exits non-zero on its
+   own if `docker network connect` fails, so by the time the probe runs, Docker has already
+   confirmed the alias is attached. The probe only measures whether a *different* container
+   (`users`, which has no compose healthcheck) is answering yet — returning exit 1 for that was
+   reporting someone else's readiness as this script's own failure.
+
+**Verified in a single pass (2026-07-31):** `make clean` (removing `./data`) followed by
+`make bootstrap` completed **in one run**, the alias attaching and verifying on the first
+attempt. `make doctor` then reported everything green, and 70/70 e2e tests passed, including
+the full user → order → tracking → DELIVERED flow.
+
+Re-running `make bootstrap` from a cold or partial state now works. If a run does die
+partway for an unrelated reason, resume with `make bootstrap-converge` (see below) rather
+than re-entering `bootstrap-provision`'s Terraform apply, which still cannot be safely
+re-applied — see the sibling section above ([[floci-rds-apigw-limits]]).
 
 ## Verification
 

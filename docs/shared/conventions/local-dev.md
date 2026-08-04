@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-03
-updated: 2026-07-28
+updated: 2026-07-31
 tags:
   - type/convention
   - area/shared
@@ -39,8 +39,11 @@ list. Key targets:
 - **Database:** `make migrate` — applies Prisma migrations (`migrate deploy`) against Floci's
   Postgres.
 - **Orchestration:** `make bootstrap` (compose up floci → wait for Floci → apply infra →
-  regenerate `.env` → migrate → build/start `users` → `bootstrap.sh`) and `make clean` (tear
-  down, prompts before removing `./data`).
+  regenerate `.env` → migrate → build/start `users`/`orders`/`tracking` → nginx alias), split
+  into a not-safely-repeatable `make bootstrap-provision` and a resumable, idempotent
+  `make bootstrap-converge`; `make doctor` for a read-only diagnosis of the stack's actual
+  state; `make post-infra` for the phase-2 DB app-user apply; and `make clean` (tear down,
+  prompts before removing `./data`). Full detail: [[local-dev-floci]].
 - **Observability:** `make observability-up` / `make observability-down` — opt-in OpenObserve
   + OTel collector stack.
 

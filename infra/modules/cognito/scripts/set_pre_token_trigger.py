@@ -30,6 +30,11 @@ Required env vars (set by the calling local-exec provisioner):
   LAMBDA_ARN    - ARN of the Pre-Token-Generation V2 Lambda
   ENDPOINT_URL  - optional endpoint override (empty = default resolution)
   AWS_REGION    - AWS region
+
+Optional:
+  EXECUTION_LOG_TABLE - DynamoDB table recording this run for traceability
+                        (lib3mrai.execution_log). Unset = record nothing and
+                        behave exactly as before; the log never skips a run.
 """
 
 import os
@@ -42,6 +47,7 @@ if "ENDPOINT_URL" in os.environ:
     os.environ["AWS_ENDPOINT_URL"] = os.environ["ENDPOINT_URL"]
 
 from lib3mrai import aws  # noqa: E402  (must follow the env bridge above)
+from lib3mrai.execution_log import record_execution  # noqa: E402  (same reason)
 
 # Fields describe_user_pool returns that update_user_pool also accepts, so they
 # survive the PUT. `Schema` is absent ON PURPOSE (create-only — see the module
@@ -73,45 +79,70 @@ def require(name: str) -> str:
     return value
 
 
+class TriggerNotWired(RuntimeError):
+    """The post-update verification found the trigger absent.
+
+    Exists so the execution log can observe a verification failure: that path
+    reported failure by RETURNING 1, which the wrapper cannot see (it detects
+    failure only from an exception) and would have recorded as "ok" — a
+    traceability log that says a run succeeded when it did not. main() catches
+    it and restores the original exit code 1.
+    """
+
+
 def main() -> int:
+    # require() exits(1) on a missing var, before the pool id is known — so it
+    # stays outside the execution-log wrapper: there would be no resource
+    # identity to record the run against.
     pool_id = require("USER_POOL_ID")
     lambda_arn = require("LAMBDA_ARN")
-    idp = aws.client("cognito-idp")
 
-    # 1. Read the current pool.
-    pool = idp.describe_user_pool(UserPoolId=pool_id)["UserPool"]
+    try:
+        with record_execution(script="set_pre_token_trigger.py", resource_id=pool_id):
+            idp = aws.client("cognito-idp")
 
-    # 2. Preserve the existing LambdaConfig, add/override the Pre-Token V2 trigger.
-    lambda_config = dict(pool.get("LambdaConfig", {}))
-    lambda_config["PreTokenGenerationConfig"] = {
-        "LambdaVersion": "V2_0",
-        "LambdaArn": lambda_arn,
-    }
+            # 1. Read the current pool.
+            pool = idp.describe_user_pool(UserPoolId=pool_id)["UserPool"]
 
-    # 3. Re-apply: current settings preserved + trigger wired. Empty values are
-    #    dropped rather than sent back, since some of them are rejected as
-    #    explicit empties even though describe returns them that way.
-    preserved = {
-        field: pool[field]
-        for field in PRESERVED_FIELDS
-        if pool.get(field) not in (None, "", {}, [])
-    }
-    idp.update_user_pool(UserPoolId=pool_id, LambdaConfig=lambda_config, **preserved)
+            # 2. Preserve the existing LambdaConfig, add/override the Pre-Token V2 trigger.
+            lambda_config = dict(pool.get("LambdaConfig", {}))
+            lambda_config["PreTokenGenerationConfig"] = {
+                "LambdaVersion": "V2_0",
+                "LambdaArn": lambda_arn,
+            }
 
-    # 4. Verify the trigger landed — independent confirmation by re-reading the
-    #    pool, not merely trusting that the call did not raise.
-    wired = (
-        idp.describe_user_pool(UserPoolId=pool_id)["UserPool"]
-        .get("LambdaConfig", {})
-        .get("PreTokenGenerationConfig", {})
-        .get("LambdaArn", "")
-    )
-    if wired != lambda_arn:
-        print(
-            f"set_pre_token_trigger.py: FAILED — trigger not wired "
-            f"(got '{wired}', want '{lambda_arn}')",
-            file=sys.stderr,
-        )
+            # 3. Re-apply: current settings preserved + trigger wired. Empty values are
+            #    dropped rather than sent back, since some of them are rejected as
+            #    explicit empties even though describe returns them that way.
+            preserved = {
+                field: pool[field]
+                for field in PRESERVED_FIELDS
+                if pool.get(field) not in (None, "", {}, [])
+            }
+            idp.update_user_pool(
+                UserPoolId=pool_id, LambdaConfig=lambda_config, **preserved
+            )
+
+            # 4. Verify the trigger landed — independent confirmation by re-reading the
+            #    pool, not merely trusting that the call did not raise.
+            wired = (
+                idp.describe_user_pool(UserPoolId=pool_id)["UserPool"]
+                .get("LambdaConfig", {})
+                .get("PreTokenGenerationConfig", {})
+                .get("LambdaArn", "")
+            )
+            if wired != lambda_arn:
+                # Printed here, not in the handler, so the operator-facing
+                # message and its stderr stream are exactly what they were.
+                print(
+                    f"set_pre_token_trigger.py: FAILED — trigger not wired "
+                    f"(got '{wired}', want '{lambda_arn}')",
+                    file=sys.stderr,
+                )
+                raise TriggerNotWired(
+                    f"trigger not wired (got '{wired}', want '{lambda_arn}')"
+                )
+    except TriggerNotWired:
         return 1
 
     print(

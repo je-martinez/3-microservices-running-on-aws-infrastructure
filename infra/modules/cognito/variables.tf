@@ -69,3 +69,19 @@ variable "python_bin" {
   DESC
   type        = string
 }
+
+variable "execution_log_table" {
+  description = <<-DESC
+    DynamoDB table where this module's two local-exec provisioning scripts
+    record each run, for TRACEABILITY ONLY — the log never causes a run to be
+    skipped (see infra/scripts/lib3mrai/execution_log.py).
+
+    Empty string (default) disables recording: the scripts treat an unset
+    EXECUTION_LOG_TABLE as a legitimate state and behave exactly as they did
+    before the log existed. That default keeps this shared module usable in
+    environments that have no such table (prod, where the client is managed by
+    the native provider and these provisioners do not run at all).
+  DESC
+  type        = string
+  default     = ""
+}

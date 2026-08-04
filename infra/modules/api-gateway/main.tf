@@ -80,6 +80,70 @@ locals {
     },
     var.enable_e2e_cleanup_route ? {
       e2e_cleanup = { key = "DELETE /v1/users/e2e-cleanup", path = "/v1/users/e2e-cleanup", auth = false }
+    } : {},
+
+    # ─── Tracking routes ──────────────────────────────────────────────────────
+    #
+    # Gated behind var.enable_tracking_routes (default FALSE) because the
+    # Tracking service does not exist yet: `services/tracking/src/` is empty and
+    # its Dockerfile is fully commented out. Creating these routes while nginx
+    # has no `tracking` upstream would publish gateway paths that resolve to the
+    # WRONG backend (nginx's default `location /` sends anything unmatched to
+    # users:3000), which is worse than a 404 — a health probe would return
+    # Users' 200 and look green. Flip the flag on in the same change that adds
+    # the nginx upstream and a running service.
+    #
+    # This differs from enable_e2e_cleanup_route (default true) on purpose: that
+    # route's backend already exists and the service itself 404s when disabled,
+    # so it is safe to leave present. Here the backend is the thing that's
+    # missing, so the gate has to live at the infra level.
+    var.enable_tracking_routes ? {
+      # Unauthenticated liveness probe, PREFIXED at the gateway like the other
+      # services (/v1/users/health, /v1/orders/health). The service still serves
+      # /v1/health unprefixed internally; nginx rewrites the prefixed path to the
+      # bare one, health-only. A bare /v1/health route here would be worse than
+      # wrong: nginx's default `location /` sends anything unmatched to
+      # users:3000, so the probe would return Users' 200 and look green.
+      tracking_health = { key = "GET /v1/tracking/health", path = "/v1/tracking/health", auth = false }
+
+      # User-scoped batch read. API Gateway route keys NEVER contain a query
+      # string, so the key is the bare path; `?order_ids=<csv>` is carried
+      # through by the HTTP_PROXY integration untouched.
+      list_trackings = { key = "GET /v1/trackings", path = "/v1/trackings", auth = true }
+
+      # Tracking creation. Tracking is REST-only and serves no gRPC, so this is
+      # the sole way a tracking record comes into existence. Body carries
+      # `order_id` + `shipping_address`;
+      # the caller's identity comes from the `x-user-id` header nginx injects
+      # from the JWT claims (ADR-0016), so nothing user-scoped is in the path.
+      # auth = true: the caller is Orders propagating the end user's JWT, so the
+      # request always carries a Cognito token and goes through the existing JWT
+      # authorizer — exactly like the read routes below.
+      #
+      # Static path, deliberately placed BEFORE get_tracking in this map for
+      # readability only (map order is irrelevant to APIGW matching). It cannot
+      # be shadowed by `GET /v1/trackings/{orderId}`: route keys include the
+      # method, and POST != GET, so the two keys never compete. If a GET on this
+      # same static path were ever added, APIGW v2 precedence would still favour
+      # the static segment over the `{orderId}` variable one — but that is a
+      # rule to rely on knowingly, not by accident.
+      init_tracking = { key = "POST /v1/trackings/init-tracking", path = "/v1/trackings/init-tracking", auth = true }
+
+      # User-scoped single read. camelCase path param, NOT snake_case: Floci
+      # builds a Java named-capturing group from the param name and Java only
+      # allows [A-Za-z0-9] in group names — `{order_id}` throws
+      # PatternSyntaxException and returns a Floci 500 (same reason as
+      # get_order above). The service reads it positionally, so the gateway-side
+      # spelling is free to differ from the spec's `{order_id}`.
+      get_tracking = { key = "GET /v1/trackings/{orderId}", path = "/v1/trackings/{orderId}", auth = true }
+
+      # Carrier webhook. auth = FALSE deliberately: the caller is an external
+      # carrier, not a Cognito user, so there is no JWT authorizer and therefore
+      # no gateway-injected x-user-id on this request. The Tracking service
+      # validates its own custom API key (a DIFFERENT secret from the internal
+      # gRPC x-api-key). Follows the enable_e2e_cleanup_route precedent for a
+      # no-authorizer route.
+      update_tracking_status = { key = "PUT /v1/trackings/{orderId}/status", path = "/v1/trackings/{orderId}/status", auth = false }
     } : {}
   )
 }

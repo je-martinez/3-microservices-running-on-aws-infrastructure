@@ -17,3 +17,9 @@ variable "table_name" {
   type        = string
   default     = null
 }
+
+variable "execution_log_table_name" {
+  description = "Explicit override for the execution-log DynamoDB table name. Defaults to \"<context.id>-execution-log\" when null."
+  type        = string
+  default     = null
+}

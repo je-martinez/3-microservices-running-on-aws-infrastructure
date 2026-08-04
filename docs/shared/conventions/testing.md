@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-17
-updated: 2026-07-28
+updated: 2026-08-03
 tags: [type/convention, area/shared, status/active]
 related:
   - "[[ADR-0010-cognito-auth]]"
@@ -22,11 +22,12 @@ Every HTTP endpoint MUST have all three test layers before it is considered done
 
 1. **Unit / integration** — the endpoint's logic tested in isolation. Orders uses xUnit with
    Testcontainers-MySQL through the in-process `WebApplicationFactory`; Users uses vitest with a
-   mocked container.
+   mocked container; Tracking uses pytest against a **live** MySQL rather than mocks.
 2. **Internal E2E** — the service's own URL hit directly, bypassing the gateway, with `x-user-id`
    faked. Each service has its own internal Playwright spec running against its own port: orders
-   against `http://localhost:3001`, users against `http://localhost:3000`. Do not assume users'
-   port applies to every service — each service gets its own spec at its own port.
+   against `http://localhost:3001`, users against `http://localhost:3000`, tracking against
+   `http://localhost:3002`. Do not assume users' port applies to every service — each service gets
+   its own spec at its own port.
 3. **Gateway E2E** — the `API_GATEWAY_URL` the end user actually hits, with a real
    `Authorization: Bearer <Cognito JWT>`. This is the only layer that exercises the full
    user-facing path: JWT authorizer → njs sub-extraction → nginx routing → service.
@@ -49,10 +50,10 @@ projects. This requires the local stack to be up via `make bootstrap` (see [[loc
 `pnpm --filter @3mrai/e2e test` run — use whichever is convenient. On-demand commands for the
 three layers:
 
-- `make test-all` — all three layers for both services (unit + internal E2E + gateway E2E);
+- `make test-all` — all three layers for all three services (unit + internal E2E + gateway E2E);
   E2E requires the stack up (`make bootstrap`).
-- `make test-unit` — layer 1 only (orders `dotnet test`, users `vitest`, e2e `typecheck`); no
-  stack needed.
+- `make test-unit` — layer 1 only (orders `dotnet test`, users `vitest`, tracking `pytest`, e2e
+  `typecheck`); no stack needed.
 - `make test-e2e` — layers 2+3 (Playwright internal + gateway); requires the stack up.
 - `pnpm --filter @3mrai/e2e typecheck` (or `pnpm run typecheck` from `e2e/`) — static type-check
   of the E2E specs; also runs as part of `make test-unit`.
@@ -86,6 +87,25 @@ the checklist for adding a new endpoint:
 
 - [[orders/testing/index|Orders Testing]]
 - [[users/testing/index|Users Testing]]
+- [[tracking/testing/index|Tracking Testing]]
+
+## E2E cleanup by tag
+
+All three services expose a flag-guarded `e2e-cleanup` endpoint (Users `DELETE /v1/users/e2e-cleanup`,
+Orders `DELETE /v1/orders/e2e-cleanup`, Tracking `DELETE /v1/trackings/e2e-cleanup`), and the E2E
+harness's global teardown (`e2e/support/global-teardown.ts`) calls all three at the end of a run.
+Each takes **no caller identity** — the harness's teardown runs once, globally, with no user
+session — so ownership-by-caller cannot work here; instead, every service marks the rows a test
+created with a `"E2E Source"` tag at write time, and the cleanup deletes by that tag.
+
+A row is tagged only when the write request sent `x-e2e-source: true` **and** the service's own
+`E2E_TESTING_ENABLED` flag was on — **both conditions are mandatory**. The conjunction is what stops
+an untrusted client tagging its own rows so that someone else's teardown deletes them; the header
+alone is never sufficient. The same two-part rule protects `test_mode`/`x-test-mode` (see
+[[tracking-service-design#TestMode automatic progression]]). With the flag off, neither half of the
+mechanism exists: nothing gets tagged, and (in Orders and Tracking) the cleanup route itself is
+never mounted, so a caller sees `405` on that path rather than a `404` or a silently-empty `200`.
+Every service implements the underlying delete as a soft-delete, per [[soft-delete]].
 
 ## Related
 
@@ -96,3 +116,7 @@ the checklist for adding a new endpoint:
 - [[2026-07-17-testing-layers-and-e2e-gateway]] — the implementation plan for the design above.
 - [[orders/testing/index|Orders Testing]]
 - [[users/testing/index|Users Testing]]
+- [[tracking/testing/index|Tracking Testing]]
+- [[soft-delete]] — the soft-delete-by-tag mechanism each service's `e2e-cleanup` endpoint uses.
+- [[tracking-service-design]] — Tracking's `e2e-cleanup` endpoint and the `x-e2e-source`/
+  `E2E_TESTING_ENABLED` conjunction, documented in full.

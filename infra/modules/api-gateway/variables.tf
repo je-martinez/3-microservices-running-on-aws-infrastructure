@@ -60,6 +60,28 @@ variable "enable_e2e_cleanup_route" {
   default     = true
 }
 
+# ─── Tracking routes ──────────────────────────────────────────────────────────
+variable "enable_tracking_routes" {
+  description = <<-EOT
+    When true, creates the Tracking service's four REST routes:
+      GET  /v1/health                        (auth = false — liveness probe)
+      GET  /v1/trackings                     (auth = true  — batch read, ?order_ids=<csv>)
+      GET  /v1/trackings/{orderId}           (auth = true  — single read)
+      PUT  /v1/trackings/{orderId}/status    (auth = false — carrier webhook)
+
+    Defaults to FALSE: the Tracking service does not exist yet (empty src/,
+    commented-out Dockerfile) and nginx has no `tracking` upstream, so these
+    paths would silently resolve to Users via nginx's default `location /`.
+    Enable this together with the nginx upstream and a running service.
+
+    The PUT route intentionally has NO Cognito authorizer — its caller is an
+    external carrier, and the service validates its own API key. It therefore
+    also receives no gateway-injected x-user-id.
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "local_gateway" {
   type        = bool
   default     = false

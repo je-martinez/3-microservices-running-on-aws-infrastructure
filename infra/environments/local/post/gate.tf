@@ -7,8 +7,10 @@
 resource "terraform_data" "wait_for_db" {
   for_each = toset(var.enabled_app_users)
 
+  # One gate per ENGINE, not per app-user: orders_app and tracking_app share the
+  # same MySQL cluster, so a single "mysql" probe covers both.
   input = {
-    host   = each.key == "postgres" ? "floci" : "floci"
+    host   = "floci"
     port   = each.key == "postgres" ? local.pg_port : local.mysql_port
     engine = each.key
   }
@@ -23,5 +25,11 @@ resource "terraform_data" "wait_for_db" {
   provisioner "local-exec" {
     command     = "${var.python_bin} ${abspath("${path.module}/scripts/wait_for_db.py")} ${self.input.host} ${self.input.port} ${self.input.engine}"
     interpreter = ["/usr/bin/env", "bash", "-c"]
+    environment = {
+      # Traceability only: the gate always probes, and a recorded run never
+      # substitutes for one. Set explicitly rather than relying on the
+      # Makefile's exported value, so a by-hand `terraform apply` records too.
+      EXECUTION_LOG_TABLE = var.execution_log_table
+    }
   }
 }

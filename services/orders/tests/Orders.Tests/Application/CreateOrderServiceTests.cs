@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Orders.Application.Abstractions;
 using Orders.Application.Identity;
 using Orders.Application.Orders;
+using Orders.Application.Tracking;
 using Orders.Domain.Entities;
 using Orders.Infrastructure.Id;
 using Orders.Infrastructure.Messaging;
@@ -31,8 +32,55 @@ public class CreateOrderServiceTests : IAsyncLifetime
     private sealed class FixedDirectory : IUserDirectory
     {
         private readonly string? _id;
-        public FixedDirectory(string? id) => _id = id;
+        private readonly CallerAddress? _address;
+
+        // Address defaults to null — the "user has no address on file" branch. Tests that
+        // exercise the snapshot pass one explicitly.
+        public FixedDirectory(string? id, CallerAddress? address = null)
+        {
+            _id = id;
+            _address = address;
+        }
+
         public Task<string?> ResolveInternalUserIdAsync(string sub, CancellationToken ct = default) => Task.FromResult(_id);
+
+        public Task<CallerProfile?> ResolveCallerAsync(string sub, CancellationToken ct = default) =>
+            Task.FromResult(_id is null ? null : new CallerProfile(_id, _address));
+    }
+
+    // Records what order creation handed to Tracking, and when. Default outcome is
+    // Created; tests that care about the failure path pass a different one.
+    private sealed class SpyTracking : ITrackingInitiator
+    {
+        private readonly TrackingInitOutcome _outcome;
+        private readonly Func<Task>? _onCall;
+
+        public SpyTracking(TrackingInitOutcome outcome = TrackingInitOutcome.Created, Func<Task>? onCall = null)
+        {
+            _outcome = outcome;
+            _onCall = onCall;
+        }
+
+        public int Calls { get; private set; }
+        public string? OrderId { get; private set; }
+        public string? ShippingAddressJson { get; private set; }
+        public string? CognitoSub { get; private set; }
+        public bool TestMode { get; private set; }
+        public bool E2eSource { get; private set; }
+
+        public async Task<TrackingInitResult> InitTrackingAsync(
+            string orderId, string? shippingAddressJson, string cognitoSub, bool testMode,
+            bool e2eSource = false, CancellationToken ct = default)
+        {
+            Calls++;
+            OrderId = orderId;
+            ShippingAddressJson = shippingAddressJson;
+            CognitoSub = cognitoSub;
+            TestMode = testMode;
+            E2eSource = e2eSource;
+            if (_onCall is not null) await _onCall();
+            return new TrackingInitResult(_outcome, _outcome == TrackingInitOutcome.Created ? 201 : 500);
+        }
     }
 
     private sealed class FixedConfig : IConfigurationReader
@@ -57,7 +105,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
     {
         var productId = await SeedProduct(stock: 10, priceCents: 1000);
         await using var db = Ctx();
-        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), NullLogger<CreateOrderService>.Instance);
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), NullLogger<CreateOrderService>.Instance);
 
         var dto = await svc.CreateAsync(
             new CreateOrderCommand(new[] { new CreateOrderLine(productId, 3) }), "sub-a");
@@ -96,7 +144,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
     {
         var productId = await SeedProduct(stock: 10, priceCents: 1000);
         await using var db = Ctx();
-        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), NullLogger<CreateOrderService>.Instance);
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), NullLogger<CreateOrderService>.Instance);
 
         // Two lines for the SAME product (qty 2 and 3) must consolidate into ONE
         // OrderDetail with Quantity 5, and stock must be decremented by 5 total —
@@ -133,7 +181,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
     {
         var productId = await SeedProduct(stock: 4, priceCents: 1000);
         await using var db = Ctx();
-        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), NullLogger<CreateOrderService>.Instance);
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), NullLogger<CreateOrderService>.Instance);
 
         // Stock is 4; individually each line (2, then 3) would look fine against the
         // ORIGINAL stock, but the consolidated total (5) must be validated as a whole.
@@ -154,7 +202,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
     {
         var productId = await SeedProduct(stock: 2, priceCents: 1000);
         await using var db = Ctx();
-        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), NullLogger<CreateOrderService>.Instance);
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), NullLogger<CreateOrderService>.Instance);
 
         await Assert.ThrowsAsync<InsufficientStockException>(() =>
             svc.CreateAsync(new CreateOrderCommand(new[] { new CreateOrderLine(productId, 5) }), "sub-a"));
@@ -169,7 +217,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
     {
         var productId = await SeedProduct(stock: 10, priceCents: 1000);
         await using var db = Ctx();
-        var svc = new CreateOrderService(db, new FixedDirectory(null), new NoopEventPublisher(), new FixedConfig(0.10m), NullLogger<CreateOrderService>.Instance);
+        var svc = new CreateOrderService(db, new FixedDirectory(null), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), NullLogger<CreateOrderService>.Instance);
 
         await Assert.ThrowsAsync<UnknownUserException>(() =>
             svc.CreateAsync(new CreateOrderCommand(new[] { new CreateOrderLine(productId, 1) }), "sub-x"));
@@ -198,7 +246,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
         }
 
         await using var db = Ctx();
-        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), NullLogger<CreateOrderService>.Instance);
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), NullLogger<CreateOrderService>.Instance);
 
         // The soft-deleted product is not orderable: the FOR UPDATE lock returns null
         // (query filter hides it), so the service raises UnknownProductException —

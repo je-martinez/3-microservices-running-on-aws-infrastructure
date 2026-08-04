@@ -27,6 +27,20 @@ export default async function globalSetup() {
   const base = process.env.USERS_BASE_URL ?? "http://localhost:3000";
   await waitForHealthy(`${base}/v1/health`, `Users service is not healthy at ${base}/v1/health.`);
 
+  // Tracking, same fail-fast rationale. Its health route is served UNPREFIXED
+  // internally (`/v1/health`) — the gateway publishes `/v1/tracking/health` and
+  // nginx rewrites, so the prefixed spelling only exists on the gateway side.
+  //
+  // Worth checking separately rather than letting a spec discover it: Tracking's
+  // TestMode progression is an in-process asyncio task, so a container that
+  // restarted is exactly the condition under which the journey spec's poll times
+  // out for a non-bug reason. Failing here names the cause instead.
+  const trackingBase = process.env.TRACKING_BASE_URL ?? "http://localhost:3002";
+  await waitForHealthy(
+    `${trackingBase}/v1/health`,
+    `Tracking service is not healthy at ${trackingBase}/v1/health.`,
+  );
+
   // Also assert the gateway project's target is healthy — same fail-fast
   // rationale as the service check above. Uses a public route (no auth) so
   // this stays a pure connectivity check, independent of the JWT authorizer.

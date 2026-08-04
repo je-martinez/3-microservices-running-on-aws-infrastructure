@@ -107,6 +107,10 @@ resource "terraform_data" "client_via_cli" {
       STATE_FILE   = self.input.state_file
       ENDPOINT_URL = var.aws_cli_endpoint_url
       AWS_REGION   = var.region
+      # Traceability only — the script always runs, whatever this records. Empty
+      # (the variable's default) means "record nothing", which the script treats
+      # as a legitimate state rather than an error.
+      EXECUTION_LOG_TABLE = var.execution_log_table
     }
   }
 }
@@ -178,6 +182,8 @@ resource "terraform_data" "pre_token_trigger" {
       LAMBDA_ARN   = self.input.lambda_arn
       ENDPOINT_URL = var.aws_cli_endpoint_url
       AWS_REGION   = var.region
+      # Traceability only — see terraform_data.client_via_cli above.
+      EXECUTION_LOG_TABLE = var.execution_log_table
     }
   }
 }

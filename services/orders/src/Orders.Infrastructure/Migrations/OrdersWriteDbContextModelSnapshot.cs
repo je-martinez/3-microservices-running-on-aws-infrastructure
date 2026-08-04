@@ -97,9 +97,20 @@ namespace Orders.Infrastructure.Migrations
                         .HasColumnType("varchar(26)")
                         .HasColumnName("deleted_by");
 
+                    b.Property<string>("ShippingAddress")
+                        .HasColumnType("json")
+                        .HasColumnName("shipping_address");
+
                     b.Property<long>("SubtotalCents")
                         .HasColumnType("bigint")
                         .HasColumnName("subtotal_cents");
+
+                    b.Property<string>("Tags")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("json")
+                        .HasDefaultValue("[]")
+                        .HasColumnName("tags");
 
                     b.Property<long>("TaxCents")
                         .HasColumnType("bigint")

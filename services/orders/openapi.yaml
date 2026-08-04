@@ -32,8 +32,14 @@ paths:
     get:
       tags:
         - Orders
-      summary: List the caller's orders (ownership by cognito_sub).
+      summary: List the caller's orders (ownership by cognito_sub); optionally with each order's tracking.
       operationId: GetMyOrders
+      parameters:
+        - name: includeTracking
+          in: query
+          schema:
+            type: boolean
+            default: false
       responses:
         '200':
           description: OK
@@ -42,14 +48,14 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/OrderDto'
+                  $ref: '#/components/schemas/OrderWithTrackingDto'
         '401':
           description: Unauthorized
   '/v1/orders/{orderId}':
     get:
       tags:
         - Orders
-      summary: Get one of the caller's orders by id; another user's order returns 404.
+      summary: Get one of the caller's orders by id; another user's order returns 404. Optionally includes its tracking.
       operationId: GetOrderById
       parameters:
         - name: orderId
@@ -57,13 +63,18 @@ paths:
           required: true
           schema:
             type: string
+        - name: includeTracking
+          in: query
+          schema:
+            type: boolean
+            default: false
       responses:
         '200':
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/OrderDto'
+                $ref: '#/components/schemas/OrderWithTrackingDto'
         '401':
           description: Unauthorized
         '404':
@@ -81,13 +92,15 @@ paths:
     delete:
       tags:
         - Orders
-      summary: Soft-delete the caller's orders (only mapped when E2E_TESTING_ENABLED).
+      summary: Soft-delete every order tagged "E2E Source" and restore seed stock (only mapped when E2E_TESTING_ENABLED).
       operationId: E2eCleanup
       responses:
-        '204':
-          description: No Content
-        '401':
-          description: Unauthorized
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/E2eCleanupResponse'
   /v1/products:
     get:
       tags:
@@ -130,6 +143,31 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/CreateOrderLine'
+    E2eCleanupResponse:
+      required:
+        - deleted
+        - deletedDetails
+        - restocked
+      type: object
+      properties:
+        deleted:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: int32
+        deletedDetails:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: int32
+        restocked:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: int32
     OrderDto:
       required:
         - id
@@ -208,6 +246,18 @@ components:
             - integer
             - string
           format: int64
+    OrderWithTrackingDto:
+      required:
+        - order
+        - tracking
+      type: object
+      properties:
+        order:
+          $ref: '#/components/schemas/OrderDto'
+        tracking:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/TrackingDto'
     ProductDto:
       required:
         - id
@@ -235,6 +285,49 @@ components:
             - integer
             - string
           format: uint32
+    TrackingDto:
+      required:
+        - id
+        - user_id
+        - order_id
+        - status
+        - datetime
+        - history
+      type: object
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        order_id:
+          type: string
+        status:
+          type: string
+        datetime:
+          type: string
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrackingHistoryEntryDto'
+    TrackingHistoryEntryDto:
+      required:
+        - tracking_id
+        - user_id
+        - order_id
+        - status
+        - datetime
+      type: object
+      properties:
+        tracking_id:
+          type: string
+        user_id:
+          type: string
+        order_id:
+          type: string
+        status:
+          type: string
+        datetime:
+          type: string
 tags:
   - name: Orders
   - name: Products

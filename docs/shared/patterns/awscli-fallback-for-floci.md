@@ -4,7 +4,7 @@ type: pattern
 area: infra
 status: active
 created: 2026-07-12
-updated: 2026-07-12
+updated: 2026-07-31
 tags:
   - type/pattern
   - area/infra
@@ -13,6 +13,7 @@ related:
   - "[[ADR-0017-floci-local]]"
   - "[[terraform-modules]]"
   - "[[cognito-pre-token-lambda]]"
+  - "[[execution-log-for-provisioning-scripts]]"
 ---
 
 # awscli fallback for Floci gaps
@@ -107,3 +108,5 @@ direct `terraform apply` failures, not speculation).
   `infra/modules/cognito/scripts/`.
 - [[cognito-pre-token-lambda]] — the Pre-Token-Generation Lambda spec that uses
   `set-pre-token-trigger.sh`.
+- [[execution-log-for-provisioning-scripts]] — traceability layer wrapped around this
+  pattern's scripts so a failure can be traced to a specific script, resource, and attempt.

@@ -10,7 +10,8 @@ namespace Orders.Tests.Logging;
 // redirecting it to an in-memory StringWriter around the request is enough to
 // capture the real request-log pipeline (formatter + middleware) end to end,
 // without a bespoke Serilog test sink registered in the host.
-public class RequestLogTests : IClassFixture<OrdersApiFactory>
+[Collection(Orders.Tests.Api.OrdersApiCollection.Name)]
+public class RequestLogTests
 {
     private readonly OrdersApiFactory _factory;
 
@@ -39,9 +40,27 @@ public class RequestLogTests : IClassFixture<OrdersApiFactory>
 
         Assert.True(response.IsSuccessStatusCode);
 
+        // Skip lines that are not JSON rather than parsing every one. The capture is
+        // the shared console, so anything else writing there lands in it too —
+        // Testcontainers narrates container teardown, and one such line used to fail
+        // this test with a JsonReaderException that pointed at Docker output rather
+        // than at anything about logging. The assertions below still require a real
+        // "request completed" record, so a genuinely missing log line still fails.
         var roots = capture.ToString()
             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-            .Select(line => JsonDocument.Parse(line).RootElement)
+            .Select(line =>
+            {
+                try
+                {
+                    return (JsonElement?)JsonDocument.Parse(line).RootElement;
+                }
+                catch (JsonException)
+                {
+                    return null;
+                }
+            })
+            .Where(root => root is not null)
+            .Select(root => root!.Value)
             .ToList();
         var found = roots.Any(root =>
             root.TryGetProperty("message", out var msg) && msg.GetString() == "request completed");

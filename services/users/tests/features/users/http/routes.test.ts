@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
-import { createContainer, asValue } from "awilix";
+import { createContainer, asValue, asFunction, Lifetime } from "awilix";
 import { buildApp } from "#features/users/http/routes";
+import { UserQueryService } from "#features/users/queries/get-me";
 import { getActor } from "#shared/audit/actor-context";
 import { getLogContext, setLogContext } from "#shared/logging/log-context";
 import { NoMatchingUserError } from "#features/users/webhooks/capture-cognito-identity";
@@ -307,6 +308,85 @@ describe("routes", () => {
 
       expect(res.statusCode).toBe(200);
       expect(observed).toEqual({ cognito_sub: "usr_ctx_2", user_id: "usr_resolved" });
+    });
+
+    // The regression this guards: `user_id` used to be set ONLY by the register
+    // command, so an authenticated request logged its Cognito sub but never the
+    // internal `usr_` id. These two use the REAL UserQueryService over a stubbed
+    // db, because a mocked `getMe` would skip `CurrentUser.resolve()` — the very
+    // place the enrichment happens.
+    it("emits user_id on EVERY log line of an authenticated request, not just register", async () => {
+      const lines: string[] = [];
+      const row = fakeUser({ id: "usr_from_db", cognitoSub: "sub-abc" });
+      const container = testContainer(false);
+      container.register({
+        db: asValue({ user: { findByIdOrCognitoSub: vi.fn(async () => row) } } as any),
+        userQueryService: asFunction(
+          (cradle: any) => new UserQueryService(cradle),
+          { lifetime: Lifetime.SCOPED },
+        ),
+      });
+      const app = buildApp(container, { logStream: { write: (s: string) => lines.push(s) } });
+
+      const res = await app.inject({
+        method: "GET",
+        url: "/v1/users/me",
+        // The caller is identified by their Cognito sub, so the internal id is
+        // NOT derivable from the header — it has to come from the lookup.
+        headers: { "x-user-id": "sub-abc" },
+      });
+
+      expect(res.statusCode).toBe(200);
+
+      const logged = lines.map((l) => JSON.parse(l));
+      // `request completed` is emitted in the onResponse hook, i.e. after the
+      // handler resolved the user — the proof that the enrichment reaches lines
+      // the resolving code never touches.
+      const requestLog = logged.find((entry) => entry.http_route === "/v1/users/me");
+      expect(requestLog).toBeDefined();
+      expect(requestLog.user_id).toBe("usr_from_db");
+      expect(requestLog.cognito_sub).toBe("sub-abc");
+      // No line of this request may leak the plaintext email (only login/
+      // register log a masked form, and only at their own call sites).
+      expect(logged.every((entry) => entry.email === undefined)).toBe(true);
+
+      await app.close();
+    });
+
+    it("still serves the request (without user_id) when the sub resolves to no user", async () => {
+      const lines: string[] = [];
+      const container = testContainer(false);
+      container.register({
+        // A valid token for a deleted account: the lookup finds nothing.
+        db: asValue({ user: { findByIdOrCognitoSub: vi.fn(async () => null) } } as any),
+        userQueryService: asFunction(
+          (cradle: any) => new UserQueryService(cradle),
+          { lifetime: Lifetime.SCOPED },
+        ),
+      });
+      const app = buildApp(container, { logStream: { write: (s: string) => lines.push(s) } });
+
+      const res = await app.inject({
+        method: "GET",
+        url: "/v1/users/me",
+        headers: { "x-user-id": "sub-gone" },
+      });
+
+      // The failed resolution must not break the request — it takes the normal
+      // 404 path.
+      expect(res.statusCode).toBe(404);
+      expect(res.json()).toEqual({ error: "not_found" });
+
+      const requestLog = lines
+        .map((l) => JSON.parse(l))
+        .find((entry) => entry.http_route === "/v1/users/me");
+      expect(requestLog).toBeDefined();
+      // Absent, never `user_id: null` — null would read as "resolved, and the
+      // answer was null" (see log-context.ts).
+      expect(requestLog).not.toHaveProperty("user_id");
+      expect(requestLog.cognito_sub).toBe("sub-gone");
+
+      await app.close();
     });
 
     it("does not gate a public route (GET /v1/health) even without x-user-id", async () => {

@@ -26,6 +26,21 @@ public class EntityMappingTests
     }
 
     [Fact]
+    public void Tags_map_to_a_json_column_via_a_converter()
+    {
+        using var ctx = BuildContext();
+        var property = ctx.Model.FindEntityType(typeof(Order))!.FindProperty(nameof(Order.Tags))!;
+
+        Assert.Equal("tags", property.GetColumnName());
+        // MySQL 8 has no array type, so the list is converted to a JSON string. The
+        // comparer is what makes EF notice a mutation of the list rather than comparing
+        // it by reference.
+        Assert.NotNull(property.GetValueConverter());
+        Assert.NotNull(property.GetValueComparer());
+        Assert.False(property.IsNullable);
+    }
+
+    [Fact]
     public void Computed_dollar_properties_are_not_mapped()
     {
         using var ctx = BuildContext();

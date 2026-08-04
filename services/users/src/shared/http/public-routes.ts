@@ -7,6 +7,17 @@ const EXACT: ReadonlyArray<{ method: string; path: string }> = [
   { method: "POST", path: "/v1/users/login" },
   { method: "POST", path: "/v1/users/register" },
   { method: "POST", path: "/v1/users/refresh" },
+  // The E2E harness's global teardown, which runs once with no user session and
+  // so cannot send an x-user-id. It deletes by TAG ("E2E Source"), never by
+  // caller, so an identity would tell it nothing anyway.
+  //
+  // This entry is what makes the route reachable at all: it 401'd every call
+  // since it was written, and because the old teardown ignored the response,
+  // that failed silently — E2E users were never actually cleaned up. The route
+  // itself only EXISTS under E2E_TESTING_ENABLED (see routes.ts), which is what
+  // keeps it off a production runtime; being on this allowlist does not expose
+  // it anywhere the flag is off.
+  { method: "DELETE", path: "/v1/users/e2e-cleanup" },
 ];
 
 const PREFIX: ReadonlyArray<{ method: string; prefix: string }> = [

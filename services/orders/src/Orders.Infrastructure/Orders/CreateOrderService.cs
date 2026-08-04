@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Orders.Application.Abstractions;
 using Orders.Application.Identity;
 using Orders.Application.Orders;
+using Orders.Application.Tracking;
 using Orders.Domain.Entities;
 using Orders.Domain.Pricing;
 using Orders.Infrastructure.Id;
@@ -27,6 +28,7 @@ public class CreateOrderService
     private readonly IUserDirectory _users;
     private readonly IEventPublisher _events;
     private readonly IConfigurationReader _config;
+    private readonly ITrackingInitiator _tracking;
     private readonly ILogger<CreateOrderService> _logger;
 
     public CreateOrderService(
@@ -34,16 +36,34 @@ public class CreateOrderService
         IUserDirectory users,
         IEventPublisher events,
         IConfigurationReader config,
+        ITrackingInitiator tracking,
         ILogger<CreateOrderService> logger)
     {
         _db = db;
         _users = users;
         _events = events;
         _config = config;
+        _tracking = tracking;
         _logger = logger;
     }
 
-    public async Task<OrderDto> CreateAsync(CreateOrderCommand command, string cognitoSub, CancellationToken ct = default)
+    /// <param name="testMode">
+    /// Forwarded to Tracking as <c>x-test-mode</c>. The Api layer is responsible for the
+    /// <c>E2E_TESTING_ENABLED</c> guard, so a production runtime always passes false here
+    /// regardless of what the client sent.
+    /// </param>
+    /// <param name="e2eSource">
+    /// Tags the order with <c>"E2E Source"</c> so the e2e-cleanup endpoint can find it, and
+    /// is forwarded to Tracking as <c>x-e2e-source</c> so its record is tagged too. Same
+    /// division of responsibility as <paramref name="testMode"/>: the Api layer applies the
+    /// <c>E2E_TESTING_ENABLED</c> guard, so production always passes false.
+    /// </param>
+    public async Task<OrderDto> CreateAsync(
+        CreateOrderCommand command,
+        string cognitoSub,
+        bool testMode = false,
+        bool e2eSource = false,
+        CancellationToken ct = default)
     {
         _logger.LogInformation(
             "Starting order creation {app_event} {line_count}",
@@ -54,14 +74,25 @@ public class CreateOrderService
         // a typed error, and "the caller is unknown" versus "the product is out
         // of stock" are different operational problems. Each rethrows
         // untouched, so the 404/409 HTTP contract is unchanged.
-        var userId = await _users.ResolveInternalUserIdAsync(cognitoSub, ct);
-        if (userId is null)
+        //
+        // ResolveCallerAsync, not ResolveInternalUserIdAsync: order creation needs the
+        // delivery address as well as the id, and both ride on the SAME GetUserById
+        // response — asking twice would spend an extra round trip for data already in hand.
+        var caller = await _users.ResolveCallerAsync(cognitoSub, ct);
+        if (caller is null)
         {
             _logger.LogError(
                 "Order creation failed: the caller is not a known user {app_event} {reason}",
                 "create_order_failed", "unknown_user");
             throw new UnknownUserException(cognitoSub);
         }
+
+        var userId = caller.InternalUserId;
+
+        // Serialized ONCE, here, and then used for two things: persisted on the order and
+        // handed to Tracking after the commit. Serializing separately per destination is
+        // how the two copies would drift. PII — never logged, never put in an exception.
+        var shippingAddressJson = ShippingAddressSnapshot.Serialize(caller.Address);
 
         // Tax rate is read per-request from the configuration table (not an env var).
         var taxRate = await _config.GetTaxRateAsync(ct);
@@ -80,6 +111,11 @@ public class CreateOrderService
                 Id = NanoId.NewId(NanoId.OrderPrefix),
                 UserId = userId,
                 CognitoSub = cognitoSub,
+                // Point-in-time snapshot: a later edit to the user's profile address must
+                // not rewrite where THIS shipment was sent. Null when none is on file.
+                ShippingAddress = shippingAddressJson,
+                // Empty list, not null, when this is an ordinary order (see Order.Tags).
+                Tags = e2eSource ? new List<string> { Order.E2eSourceTag } : new List<string>(),
                 CreatedAt = now,
                 UpdatedAt = now,
             };
@@ -163,6 +199,37 @@ public class CreateOrderService
                 "Order creation completed {app_event} {order_id} {line_count} {total_cents}",
                 "create_order_succeeded", order.Id, order.Details.Count, total);
 
+            // Tracking is initiated AFTER the commit, deliberately, for two reasons.
+            //
+            //   1. Locks. The loop above holds `SELECT ... FOR UPDATE` on every product in
+            //      the order. A network call inside the transaction would hold those row
+            //      locks for the duration of that call (up to the client's 5s timeout),
+            //      blocking every other order touching the same products — one slow
+            //      downstream would serialize the whole catalog's checkout path.
+            //   2. Durability. The client's entire failure design assumes the order already
+            //      exists: it never throws, precisely so a tracking hiccup cannot roll back
+            //      a committed order. Calling it inside the transaction would invert that —
+            //      Tracking could create a record for an order a later rollback erased.
+            //
+            // The outcome therefore only ever affects the log stream: the order is created
+            // and its 201 response is identical regardless of what Tracking answers.
+            var trackingResult = await _tracking.InitTrackingAsync(
+                order.Id, shippingAddressJson, cognitoSub, testMode, e2eSource, ct);
+
+            if (!trackingResult.IsTracked)
+            {
+                // IsTracked (not `== Created`) is the success predicate: a 409 means the
+                // order is already tracked, which is the end state we wanted.
+                //
+                // The order itself succeeded, so this is a WARNING, not an ERROR: the
+                // request did what the customer asked and returns 201. What is degraded is
+                // a downstream side effect — a real, backfillable gap worth alerting on,
+                // but not a failed order. Never log the address here (PII).
+                _logger.LogWarning(
+                    "Tracking initiation did not succeed for a created order {app_event} {reason} {order_id} {status_code}",
+                    "init_tracking_failed", ReasonFor(trackingResult.Outcome), order.Id, trackingResult.StatusCode);
+            }
+
             // Map the in-memory order (order.Details already populated) instead of
             // re-querying — mirrors OrderReadService.Map exactly; keep both in sync.
             return new OrderDto(
@@ -170,4 +237,15 @@ public class CreateOrderService
                 order.Details.Select(d => new OrderLineDto(d.ProductId, d.Quantity, d.SubtotalCents, d.TaxCents, d.TotalCents)).ToList());
         });
     }
+
+    // One `reason` per outcome that can actually reach this branch, per the logging
+    // convention (a reason vocabulary describes real code paths, not speculative ones).
+    // Created/AlreadyTracked are unreachable here — both satisfy IsTracked.
+    private static string ReasonFor(TrackingInitOutcome outcome) => outcome switch
+    {
+        TrackingInitOutcome.UnknownUser => "tracking_unknown_user",
+        TrackingInitOutcome.Unauthorized => "tracking_missing_user_header",
+        TrackingInitOutcome.Unreachable => "tracking_unreachable",
+        _ => "tracking_rejected",
+    };
 }
