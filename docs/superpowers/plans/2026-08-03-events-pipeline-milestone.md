@@ -10,6 +10,7 @@ propagates-to:
   - "[[events-pipeline-design]]"
   - "[[testing]]"
   - "[[env-files]]"
+  - "[[tracking-service-design]]"
 related:
   - "[[2026-08-03-events-pipeline-milestone-design]]"
   - "[[floci-sqs-lambda-docdb-support]]"
@@ -19,6 +20,7 @@ related:
   - "[[nano-id]]"
   - "[[audit-fields]]"
   - "[[cqrs]]"
+  - "[[tracking-service-design]]"
 ---
 
 # Events Pipeline Milestone Implementation Plan
@@ -27,40 +29,46 @@ related:
 
 **Goal:** Take the events-pipeline from design-only to a working SQS → Lambda → DocumentDB
 pipeline that dispatches by event `type`, sends real email via SES/react-email, and is fed by
-real publishers in Users and Orders — so that `POST /v1/users/register` ends up as a
-`COMPLETED` document in DocumentDB and an email in Mailpit.
+real publishers in Users, Orders, and Tracking — so that `POST /v1/users/register` ends up as a
+`COMPLETED` document in DocumentDB and an email in Mailpit, and a tracking delivery-status
+change ends up as a document in DocumentDB and a notification email in Mailpit.
 
 **Architecture:** One shared SQS queue (+ DLQ) feeds a single Lambda with an
 `aws_lambda_event_source_mapping` (`ReportBatchItemFailures`). The Lambda's state machine
 (`process-record.ts`) is AWS-SDK-free and persists an event document (STARTED → IN_PROGRESS →
 COMPLETED/FAILED, append-only `status_history`) before dispatching by `type` to a handler that
-validates the payload, renders a react-email template, and sends it via SES. Users and Orders
-each replace their `NoopEventPublisher` with a real SQS publisher that generates `event_id` and
-publishes to the shared queue.
+validates the payload, renders a react-email template, and sends it via SES. Users, Orders, and
+Tracking each publish to the shared queue: Users and Orders replace their `NoopEventPublisher`
+with a real SQS publisher that generates `event_id`; Tracking — a third, new producer — emits
+`TRACKING_STATUS_CHANGED` from its status-update command via a Python/boto3 publisher.
 
 **Tech Stack:** Terraform (SQS, DocumentDB, Lambda modules), Node.js 24.18.0 (Lambda runtime),
 TypeScript, Zod, MongoDB driver, `@aws-sdk/client-sqs`, `@aws-sdk/client-ses`, react-email,
-vitest, nanoid, Floci (local AWS emulator), Mailpit (local SMTP inbox).
+vitest, nanoid, Floci (local AWS emulator), Mailpit (local SMTP inbox), Python/FastAPI + boto3
+(Tracking's publisher, `pytest`).
 
 ## Global Constraints
 
 - Node is pinned by `.nvmrc` (24.18.0) — run `nvm use` before ANY `node`/`npm`/`npx` command in
   this plan, including every vitest/terraform-adjacent script invocation.
 - New scripts are **Python** for infra (per [[scripting-language]]); this plan's only new
-  scripting is TypeScript inside `functions/events-pipeline/` (Node ecosystem) and Terraform
-  HCL — no new `.sh` or ad-hoc infra scripts.
+  scripting is TypeScript inside `functions/events-pipeline/` (Node ecosystem), Terraform HCL,
+  and Python inside `services/tracking/` (Task 14, the service's own existing stack) — no new
+  `.sh` or ad-hoc infra scripts.
 - Every env value comes from a generated env file (`make env-file` →
-  `.env.local.events-pipeline`, plus updates to `.env.local.users`/`.env.local.orders` for the
-  new queue URL) per [[env-files]] — never hardcoded, never inline `environment:` in
-  `docker-compose.yml`.
-- Commits follow Conventional Commits with scope `events-pipeline` or `infra` (per the module
-  touched).
-- The implementer writes ONLY source code (Terraform/TypeScript/`.tsx`/compose/`CLAUDE.md`
-  prose) and never runs git beyond the per-task commit shown in each step, and never touches
-  Linear.
+  `.env.local.events-pipeline`, plus updates to `.env.local.users`/`.env.local.orders`/
+  `.env.local.tracking` for the new queue URL) per [[env-files]] — never hardcoded, never inline
+  `environment:` in `docker-compose.yml`.
+- Commits follow Conventional Commits with scope `events-pipeline`, `infra`, or `tracking` (per
+  the module/service touched).
+- The implementer writes ONLY source code (Terraform/TypeScript/`.tsx`/Python/compose/
+  `CLAUDE.md` prose) and never runs git beyond the per-task commit shown in each step, and never
+  touches Linear.
 - TypeScript path aliases use `#` subpath imports (NOT `@`), mirroring Users
   (`#shared/*`, `#pipeline/*`, `#domain/*`, `#email/*`, `#handlers/*`).
-- Tests use **vitest** (`npm test` → `vitest run`).
+- Tests use **vitest** (`npm test` → `vitest run`) for `functions/events-pipeline/` and Users;
+  Task 14's Tracking-side tests use Tracking's own tooling, **pytest** (`pytest`, per
+  `services/tracking/CLAUDE.md` §2) — do not port vitest conventions into that service.
 - OTel config lives in env vars, never in code — no `options.endpoint`/`options.protocol` set
   in TypeScript; the Lambda's OTel setup (if added) follows [[logging-context]] and the
   env-vars-only rule already burned three services in this repo.
@@ -1699,7 +1707,7 @@ nvm use && cd functions/events-pipeline && npx vitest run tests/shared/db/events
 
 Expected: 3 passed (requires Block A's `database` module applied and reachable — run from
 inside the Docker network, e.g. `docker compose exec events-pipeline npm test -- events-repository.integration`
-once Task 12's compose reconciliation exists, or a temporary runner container in the interim).
+once Task 13's compose reconciliation exists, or a temporary runner container in the interim).
 
 - [ ] **Step 6: Commit**
 
@@ -2520,13 +2528,318 @@ git commit -m "feat(events-pipeline): add ORDER_CREATED handler and email templa
 
 ---
 
+### Task 12: `TRACKING_STATUS_CHANGED` template family + handler — one type, four variants
+
+**Files:**
+- Create: `functions/events-pipeline/emails/tracking-status-changed.tsx`
+- Create: `functions/events-pipeline/src/handlers/tracking-status-changed.ts`
+- Modify: `functions/events-pipeline/src/email/catalog.ts` (add four entries — one per status —
+  all backed by the SAME `tracking-status-changed.tsx` component)
+- Modify: `functions/events-pipeline/src/handlers/index.ts` (register **one** `TRACKING_STATUS_CHANGED`
+  entry — the fan-out to four templates happens inside the handler, not as four dispatch keys)
+- Test: `functions/events-pipeline/tests/handlers/tracking-status-changed.test.ts` (payload
+  schema valid + invalid, template selection by status, unknown status → `PermanentError`),
+  extend `functions/events-pipeline/tests/email/catalog.test.ts`'s loop (already iterates
+  `Object.entries(catalog)`, so no test-file change needed there — it automatically covers all
+  four new entries)
+
+**Interfaces:**
+- Consumes: `catalog`/`EmailTemplateEntry` (Task 10), `renderTemplate`/`sendEmail` (Task 10),
+  `HandlerMap` (Task 7), `PermanentError` (Task 6), `Envelope` (Task 5).
+- Produces: `trackingStatusChangedHandler(envelope: Envelope): Promise<void>`, registered under
+  a single `TRACKING_STATUS_CHANGED` key in `handlers`.
+
+Contrast with Task 11: Task 11 proved a new **event type** is one dispatch-map entry. This task
+proves the opposite direction of the same claim — one event type can fan out to **several
+rendered templates** (`SHIPPED`, `ON_THE_WAY`, `OUT_FOR_DELIVERY`, `DELIVERED`) without adding
+new dispatch entries, because the variation lives in `catalog.ts`'s keying and the handler's
+template-selection-by-`payload.status`, not in the event taxonomy. See the milestone design
+spec's "Producer wiring → Tracking → One event type, not four" for the rejected
+per-status-type alternative.
+
+- [ ] **Step 1: Write the failing handler test**
+
+`functions/events-pipeline/tests/handlers/tracking-status-changed.test.ts`:
+
+```typescript
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("#email/sender", () => ({ sendEmail: vi.fn(async () => {}) }));
+
+import { trackingStatusChangedHandler } from "#handlers/tracking-status-changed";
+import { sendEmail } from "#email/sender";
+import { renderTemplate } from "#email/renderer";
+import { PermanentError } from "#pipeline/errors";
+import type { Envelope } from "#domain/envelope";
+
+function makeEnvelope(status: string, previousStatus: string): Envelope {
+  return {
+    event_id: `evt_tracking_${status.toLowerCase()}`,
+    type: "TRACKING_STATUS_CHANGED",
+    source: "tracking",
+    user_id: "usr_1",
+    order_id: "ord_1",
+    payload: {
+      status,
+      previous_status: previousStatus,
+      changed_at: "2026-08-03T12:00:00.000Z",
+      email: "ada@example.com",
+    },
+  };
+}
+
+describe("trackingStatusChangedHandler", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it.each([
+    ["SHIPPED", "null"],
+    ["ON_THE_WAY", "SHIPPED"],
+    ["OUT_FOR_DELIVERY", "ON_THE_WAY"],
+    ["DELIVERED", "OUT_FOR_DELIVERY"],
+  ])("selects the %s template variant and sends an email", async (status, previous) => {
+    await trackingStatusChangedHandler(makeEnvelope(status, previous));
+
+    expect(sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "ada@example.com" }),
+    );
+  });
+
+  it("renders the DELIVERED variant distinctly (no transition is exempt from email)", async () => {
+    await trackingStatusChangedHandler(makeEnvelope("DELIVERED", "OUT_FOR_DELIVERY"));
+
+    const html = await renderTemplate("tracking-status-changed-delivered", {
+      orderId: "ord_1",
+      status: "DELIVERED",
+      previousStatus: "OUT_FOR_DELIVERY",
+    });
+    expect(html).toContain("Delivered");
+  });
+
+  it("throws PermanentError on an unknown status", async () => {
+    await expect(
+      trackingStatusChangedHandler(makeEnvelope("LOST_IN_TRANSIT", "SHIPPED")),
+    ).rejects.toThrow(PermanentError);
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("throws PermanentError on a payload missing required fields", async () => {
+    const envelope: Envelope = {
+      event_id: "evt_tracking_bad",
+      type: "TRACKING_STATUS_CHANGED",
+      source: "tracking",
+      user_id: "usr_1",
+      order_id: "ord_1",
+      payload: { status: "SHIPPED" }, // missing previous_status, changed_at, email
+    };
+
+    await expect(trackingStatusChangedHandler(envelope)).rejects.toThrow(PermanentError);
+  });
+});
+```
+
+- [ ] **Step 2: Run it, confirm the expected failure**
+
+```bash
+nvm use && cd functions/events-pipeline && npx vitest run tests/handlers/tracking-status-changed.test.ts
+```
+
+Expected failure: `Cannot find module '#handlers/tracking-status-changed'`.
+
+- [ ] **Step 3: Minimal implementation**
+
+`functions/events-pipeline/emails/tracking-status-changed.tsx` — ONE component, copy varies by
+`status`/`previousStatus` props (not four separate `.tsx` files):
+
+```tsx
+import { Heading, Text } from "@react-email/components";
+import { EmailLayout } from "./components/layout.tsx";
+
+export interface TrackingStatusChangedEmailProps {
+  orderId: string;
+  status: "SHIPPED" | "ON_THE_WAY" | "OUT_FOR_DELIVERY" | "DELIVERED";
+  previousStatus: string;
+}
+
+const COPY: Record<TrackingStatusChangedEmailProps["status"], { heading: string; body: string }> = {
+  SHIPPED: {
+    heading: "Your order has shipped",
+    body: "has left the warehouse and is on its way to the carrier.",
+  },
+  ON_THE_WAY: {
+    heading: "Your order is on the way",
+    body: "is now on the way to you.",
+  },
+  OUT_FOR_DELIVERY: {
+    heading: "Out for delivery",
+    body: "is out for delivery today.",
+  },
+  DELIVERED: {
+    heading: "Delivered",
+    body: "has been delivered.",
+  },
+};
+
+export default function TrackingStatusChangedEmail({
+  orderId,
+  status,
+  previousStatus,
+}: TrackingStatusChangedEmailProps) {
+  const { heading, body } = COPY[status];
+  return (
+    <EmailLayout>
+      <Heading>{heading}</Heading>
+      <Text>
+        Order {orderId} {body} (previously: {previousStatus}).
+      </Text>
+    </EmailLayout>
+  );
+}
+```
+
+`functions/events-pipeline/src/email/catalog.ts` (add, do not replace existing entries — four
+catalog entries, ONE component, per the milestone design spec's "`tracking-status-changed`
+template family" section):
+
+```typescript
+import TrackingStatusChangedEmail, {
+  type TrackingStatusChangedEmailProps,
+} from "../../emails/tracking-status-changed.tsx";
+
+// ... inside the existing `catalog` object, add:
+  "tracking-status-changed-shipped": {
+    component: TrackingStatusChangedEmail,
+    sampleProps: {
+      orderId: "ord_sample1",
+      status: "SHIPPED",
+      previousStatus: "null",
+    } satisfies TrackingStatusChangedEmailProps,
+  },
+  "tracking-status-changed-on-the-way": {
+    component: TrackingStatusChangedEmail,
+    sampleProps: {
+      orderId: "ord_sample1",
+      status: "ON_THE_WAY",
+      previousStatus: "SHIPPED",
+    } satisfies TrackingStatusChangedEmailProps,
+  },
+  "tracking-status-changed-out-for-delivery": {
+    component: TrackingStatusChangedEmail,
+    sampleProps: {
+      orderId: "ord_sample1",
+      status: "OUT_FOR_DELIVERY",
+      previousStatus: "ON_THE_WAY",
+    } satisfies TrackingStatusChangedEmailProps,
+  },
+  "tracking-status-changed-delivered": {
+    component: TrackingStatusChangedEmail,
+    sampleProps: {
+      orderId: "ord_sample1",
+      status: "DELIVERED",
+      previousStatus: "OUT_FOR_DELIVERY",
+    } satisfies TrackingStatusChangedEmailProps,
+  },
+```
+
+`functions/events-pipeline/src/handlers/tracking-status-changed.ts` — the fan-out lives HERE,
+inside the one handler, not as four `HandlerMap` entries:
+
+```typescript
+import { z } from "zod";
+import type { Envelope } from "#domain/envelope";
+import { renderTemplate } from "#email/renderer";
+import { sendEmail } from "#email/sender";
+import { PermanentError } from "#pipeline/errors";
+
+const TrackingStatusChangedPayloadSchema = z.object({
+  status: z.enum(["SHIPPED", "ON_THE_WAY", "OUT_FOR_DELIVERY", "DELIVERED"]),
+  previous_status: z.string().min(1),
+  changed_at: z.string().min(1),
+  email: z.string().email(),
+});
+
+// Maps payload.status -> the catalog key for that variant. All four keys back
+// the SAME tracking-status-changed.tsx component (see the milestone design
+// spec: "one event type, four rendered variants" — the fan-out is here, not
+// in the dispatch map).
+const TEMPLATE_BY_STATUS: Record<string, string> = {
+  SHIPPED: "tracking-status-changed-shipped",
+  ON_THE_WAY: "tracking-status-changed-on-the-way",
+  OUT_FOR_DELIVERY: "tracking-status-changed-out-for-delivery",
+  DELIVERED: "tracking-status-changed-delivered",
+};
+
+export async function trackingStatusChangedHandler(envelope: Envelope): Promise<void> {
+  const result = TrackingStatusChangedPayloadSchema.safeParse(envelope.payload);
+  if (!result.success) {
+    throw new PermanentError(`invalid TRACKING_STATUS_CHANGED payload: ${result.error.message}`);
+  }
+
+  const templateKey = TEMPLATE_BY_STATUS[result.data.status];
+  if (!templateKey) {
+    // Zod's enum already rejects anything but the four known statuses, so
+    // this branch is unreachable in practice — kept as an explicit guard
+    // rather than a silent `undefined` template key reaching renderTemplate.
+    throw new PermanentError(`no template for status: ${result.data.status}`);
+  }
+
+  const html = await renderTemplate(templateKey, {
+    orderId: envelope.order_id,
+    status: result.data.status,
+    previousStatus: result.data.previous_status,
+  });
+
+  await sendEmail({
+    to: result.data.email,
+    subject: `Order ${envelope.order_id}: ${result.data.status.replace(/_/g, " ").toLowerCase()}`,
+    html,
+  });
+}
+```
+
+`functions/events-pipeline/src/handlers/index.ts` (modify — the ONLY dispatch-map change this
+task makes: **one** new key for **four** template variants, contrasted explicitly with Task 11's
+one-key-per-type):
+
+```typescript
+import type { HandlerMap } from "#pipeline/process-record";
+import { userCreatedHandler } from "#handlers/user-created";
+import { orderCreatedHandler } from "#handlers/order-created";
+import { trackingStatusChangedHandler } from "#handlers/tracking-status-changed";
+
+export const handlers: HandlerMap = {
+  USER_CREATED: userCreatedHandler,
+  ORDER_CREATED: orderCreatedHandler,
+  TRACKING_STATUS_CHANGED: trackingStatusChangedHandler,
+};
+```
+
+- [ ] **Step 4: Run tests, confirm PASS**
+
+```bash
+nvm use && cd functions/events-pipeline && npx vitest run tests/handlers/tracking-status-changed.test.ts tests/email/catalog.test.ts
+```
+
+Expected: 7 passed (tracking-status-changed) + 3 passed (catalog, now iterating 6 entries total —
+2 from Tasks 10-11 plus 4 tracking variants — again proving `renderTemplate` needed no change).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add functions/events-pipeline/emails/tracking-status-changed.tsx functions/events-pipeline/src/handlers/tracking-status-changed.ts functions/events-pipeline/src/email/catalog.ts functions/events-pipeline/src/handlers/index.ts functions/events-pipeline/tests/handlers/tracking-status-changed.test.ts
+git commit -m "feat(events-pipeline): add TRACKING_STATUS_CHANGED handler with four template variants"
+```
+
+---
+
 ## Block D — Producers
 
-> **Dependency gate:** depends on Block C (both handlers must exist so an emitted event has
-> somewhere to dispatch to before the real producers go live) — fourth and final stop point per
-> the phase-C review flow.
+> **Dependency gate:** depends on Block C (all three handlers — `USER_CREATED`, `ORDER_CREATED`,
+> `TRACKING_STATUS_CHANGED` — must exist so an emitted event has somewhere to dispatch to before
+> the real producers go live) — fourth and final stop point per the phase-C review flow. Block D
+> covers Tasks 13-14: Task 13 replaces the Users and Orders Noops; Task 14 adds Tracking's new
+> publisher (Tracking has no Noop to replace — it never published before this milestone).
 
-### Task 12: Replace both Noops; end-to-end verification; compose reconciliation
+### Task 13: Replace the Users and Orders Noops; end-to-end verification; compose reconciliation
 
 **Files:**
 - Modify: `services/users/src/shared/messaging/event-publisher.ts` (add `SqsEventPublisher`,
@@ -2539,13 +2852,19 @@ git commit -m "feat(events-pipeline): add ORDER_CREATED handler and email templa
 - Modify: `services/orders/src/Orders.Api/Program.cs:90` (swap the `AddScoped` registration)
 - Modify: `infra/environments/local/scripts/generate_env_files.py` (write `EVENTS_QUEUE_URL`
   into both `.env.local.users` and `.env.local.orders`, and generate
-  `.env.local.events-pipeline` per [[env-files]])
+  `.env.local.events-pipeline` per [[env-files]]; Task 14 adds the matching
+  `.env.local.tracking` entry separately)
 - Modify: `docker-compose.yml` (drop the old build+watch `events-pipeline` worker service
   entirely — see "Reconciliation during implementation" below; Task 10 already removed it if
   done there, otherwise finish it here)
 - Test: `services/users/tests/shared/messaging/sqs-event-publisher.test.ts` (unit, mocked SQS
   client), `services/orders/tests/Orders.Tests/Messaging/SqsEventPublisherTests.cs` (unit),
   plus the dedicated E2E tests below (layer 3)
+
+This task covers Users and Orders only — both already had a `NoopEventPublisher` seam to
+replace. Tracking's publisher is the separate Task 14: it has no existing seam (Tracking never
+published events before this milestone), a different language (Python/boto3, not TypeScript/C#),
+and a different emission point (a command function, not a DI-registered class).
 
 **Interfaces:**
 - Consumes: `EventPublisher` interface (unchanged — `publishUserCreated(payload: { id: string;
@@ -2985,6 +3304,632 @@ git commit -m "feat(events-pipeline): wire real SQS publishers in Users and Orde
 
 ---
 
+### Task 14: Tracking publisher — third producer, emitting `TRACKING_STATUS_CHANGED`
+
+**Files:**
+- Create: `services/tracking/src/shared/messaging/__init__.py`
+- Create: `services/tracking/src/shared/messaging/event_publisher.py` (the port —
+  `EventPublisher` protocol — plus `NoopEventPublisher`, mirroring `NoopEventPublisher` in
+  Users/Orders; the emission model this file follows is `shared/grpc/users_client.py`'s
+  lazy-singleton pattern: a module-level `@lru_cache`d factory keyed on primitives from
+  `Settings`, NOT a DI container — `services/tracking/src/shared/di/` is an empty placeholder
+  package with no framework wiring to hook into)
+- Create: `services/tracking/src/shared/messaging/sqs_event_publisher.py` (the real boto3
+  implementation)
+- Modify: `services/tracking/src/shared/config/settings.py` (add `events_queue_url: str` to
+  `Settings`, following the existing `Field(min_length=1)` style)
+- Modify: `services/tracking/src/features/tracking/commands/update_status.py` (emit after a
+  successful transition — the shared write path for both the carrier webhook and TestMode)
+- Test: `services/tracking/tests/shared/messaging/test_sqs_event_publisher.py` (unit, fake
+  publisher/mocked boto3 client), `services/tracking/tests/features/tracking/commands/test_update_status.py`
+  (extend with emission assertions — unit, using a fake publisher, not a real one), an
+  integration test verifying the message lands on the real Floci queue, and an E2E test via
+  `services/tracking/tests/` E2E layer per `services/tracking/CLAUDE.md` §2
+
+**Interfaces:**
+- Consumes: the persisted `Tracking` entity `update_tracking_status()` already loads and
+  returns (specifically `tracking.user_id` — the internal `usr_` id column, confirmed in
+  `src/features/tracking/domain/models.py`, distinct from `cognito_sub`), `command.order_id`,
+  the transition's `requested`/`current` `TrackingStatus` values, `Settings.events_queue_url`
+  (new field, read from `.env.local.tracking` per [[env-files]]).
+- Produces: `class EventPublisher(Protocol)` with `publish_tracking_status_changed(*, order_id:
+  str, user_id: str, status: str, previous_status: str, changed_at: datetime) -> None`,
+  `class NoopEventPublisher` (implements the protocol, does nothing — retained for tests that
+  must not emit, mirroring Users/Orders), `class SqsEventPublisher` (implements the protocol via
+  boto3 `send_message`), `def shared_event_publisher() -> EventPublisher` (the process-wide
+  lazy singleton, mirroring `shared_users_client()` in `users_client.py`) — consumed by
+  `update_tracking_status()`.
+
+> [!warning] `user_id` MUST come from the persisted tracking record, not the request
+> The carrier webhook (`PUT /v1/trackings/{orderId}/status`) is authenticated by an API key and
+> carries **no** `x-user-id` — its repository lookup in `update_status.py` is unscoped
+> (`user_id=None`) precisely because there is no request-level identity to scope by (see that
+> file's own module docstring, "Why the lookup here is UNSCOPED"). **An implementer who reaches
+> for a request-supplied user id here will produce an envelope with no recipient** — there is no
+> such id to reach for on this path, and reusing `cognito_sub` would be wrong too (it is the
+> ownership key for reads, not the envelope's `user_id`). The ONLY correct source is
+> `tracking.user_id` off the `Tracking` entity that `update_tracking_status()` already loads via
+> `repository.get_by_order_id(...)` and returns — read it from that returned entity, after
+> `repository.update_status(...)` persists the transition, not from any request context.
+
+> [!info] `event_id` derived from `(order_id, status)`, not regenerated per attempt
+> Given the forward-only state machine, `(order_id, status)` is a natural key for a transition:
+> a tracking can be `SHIPPED` at most once, `ON_THE_WAY` at most once, and so on. Derive
+> `event_id` deterministically from this pair (e.g. `f"evt_{order_id}_{status}"`, or a stable
+> hash of the two if the pipeline's `event_id` format requires a fixed shape) — **never** mint a
+> fresh id on every send/retry attempt. This matters specifically because of TestMode: it fires
+> four transitions in ~30 seconds (§5c), and if a transient SQS error caused a retry of the SAME
+> transition, a freshly-generated `event_id` would miss the pipeline's unique-index dedupe
+> (Task 8) and send a duplicate notification email for a transition that already succeeded.
+> Deriving from `(order_id, status)` means a retry of the same transition always collides on the
+> same id, which is exactly the idempotency property Task 8's unique index exists to enforce.
+
+- [ ] **Step 1: Write the failing publisher unit test**
+
+`services/tracking/tests/shared/messaging/test_sqs_event_publisher.py`:
+
+```python
+"""Unit tests for SqsEventPublisher — mocked boto3 client, no network."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from unittest.mock import MagicMock
+
+from src.shared.messaging.sqs_event_publisher import SqsEventPublisher
+
+
+def test_publish_tracking_status_changed_sends_envelope_with_message_attributes() -> None:
+    client = MagicMock()
+    publisher = SqsEventPublisher(client=client, queue_url="http://localhost:4566/000000000000/events")
+
+    publisher.publish_tracking_status_changed(
+        order_id="ord_1",
+        user_id="usr_1",
+        status="ON_THE_WAY",
+        previous_status="SHIPPED",
+        changed_at=datetime(2026, 8, 3, 12, 0, 0, tzinfo=UTC),
+    )
+
+    client.send_message.assert_called_once()
+    call_kwargs = client.send_message.call_args.kwargs
+    assert call_kwargs["QueueUrl"] == "http://localhost:4566/000000000000/events"
+    assert call_kwargs["MessageAttributes"]["type"]["StringValue"] == "TRACKING_STATUS_CHANGED"
+    assert call_kwargs["MessageAttributes"]["source"]["StringValue"] == "tracking"
+
+    import json
+
+    body = json.loads(call_kwargs["MessageBody"])
+    assert body["user_id"] == "usr_1"
+    assert body["order_id"] == "ord_1"
+    assert body["payload"]["status"] == "ON_THE_WAY"
+    assert body["payload"]["previous_status"] == "SHIPPED"
+
+
+def test_event_id_is_stable_for_the_same_order_id_and_status() -> None:
+    """(order_id, status) is the idempotency key — a retry of the same transition
+    must collide on the pipeline's unique index (Task 8), never mint a fresh id."""
+    client = MagicMock()
+    publisher = SqsEventPublisher(client=client, queue_url="http://localhost:4566/000000000000/events")
+
+    publisher.publish_tracking_status_changed(
+        order_id="ord_1", user_id="usr_1", status="SHIPPED",
+        previous_status="null", changed_at=datetime(2026, 8, 3, tzinfo=UTC),
+    )
+    publisher.publish_tracking_status_changed(
+        order_id="ord_1", user_id="usr_1", status="SHIPPED",
+        previous_status="null", changed_at=datetime(2026, 8, 3, 0, 0, 5, tzinfo=UTC),
+    )
+
+    import json
+
+    first_body = json.loads(client.send_message.call_args_list[0].kwargs["MessageBody"])
+    second_body = json.loads(client.send_message.call_args_list[1].kwargs["MessageBody"])
+    assert first_body["event_id"] == second_body["event_id"]
+```
+
+- [ ] **Step 2: Run it, confirm the expected failure**
+
+```bash
+cd services/tracking && pytest tests/shared/messaging/test_sqs_event_publisher.py
+```
+
+Expected failure: `ModuleNotFoundError: No module named 'src.shared.messaging.sqs_event_publisher'`.
+
+- [ ] **Step 3: Minimal implementation — the port, Noop, and SQS publisher**
+
+`services/tracking/src/shared/messaging/__init__.py`: empty (package marker).
+
+`services/tracking/src/shared/messaging/event_publisher.py`:
+
+```python
+"""The event-publishing port for Tracking (JE — events-pipeline milestone).
+
+Mirrors `EventPublisher`/`NoopEventPublisher` in Users
+(`services/users/src/shared/messaging/event-publisher.ts`) and `IEventPublisher`/
+`NoopEventPublisher` in Orders — Tracking's third producer, joining the same shared
+SQS queue per docs/superpowers/specs/2026-08-03-events-pipeline-milestone-design.md.
+
+Unlike Users' Awilix container or Orders' DI, Tracking has no framework container —
+`shared/di/` is an empty placeholder. The wiring pattern this service already uses
+for an outbound dependency is `shared/grpc/users_client.py`'s lazy, `@lru_cache`d
+module-level singleton; `shared_event_publisher()` below follows the same shape.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Protocol
+
+
+class EventPublisher(Protocol):
+    """Port `update_tracking_status()` depends on. Implemented by
+    `SqsEventPublisher` (real) and `NoopEventPublisher` (tests that must not emit).
+    """
+
+    def publish_tracking_status_changed(
+        self,
+        *,
+        order_id: str,
+        user_id: str,
+        status: str,
+        previous_status: str,
+        changed_at: datetime,
+    ) -> None: ...
+
+
+class NoopEventPublisher:
+    """Discards every call. Used by tests that must not emit — mirrors
+    `NoopEventPublisher` in Users and Orders."""
+
+    def publish_tracking_status_changed(
+        self,
+        *,
+        order_id: str,
+        user_id: str,
+        status: str,
+        previous_status: str,
+        changed_at: datetime,
+    ) -> None:
+        return None
+```
+
+`services/tracking/src/shared/messaging/sqs_event_publisher.py`:
+
+```python
+"""Real SQS publisher for Tracking's TRACKING_STATUS_CHANGED events.
+
+Python/boto3 counterpart of Users' SqsEventPublisher (TypeScript) and Orders'
+SqsEventPublisher (C#) — same envelope shape, same `type`/`source` message
+attributes, publishing to the one shared queue
+(docs/superpowers/specs/2026-08-03-events-pipeline-milestone-design.md).
+"""
+
+from __future__ import annotations
+
+import json
+from datetime import datetime
+from typing import Any
+
+from src.shared.messaging.event_publisher import EventPublisher
+
+
+class SqsEventPublisher(EventPublisher):
+    def __init__(self, *, client: Any, queue_url: str) -> None:
+        self._client = client
+        self._queue_url = queue_url
+
+    def publish_tracking_status_changed(
+        self,
+        *,
+        order_id: str,
+        user_id: str,
+        status: str,
+        previous_status: str,
+        changed_at: datetime,
+    ) -> None:
+        # event_id derived from (order_id, status) — NOT regenerated per call.
+        # This is the transition's natural key: a forward-only state machine
+        # visits each status at most once per order, so a retry of the same
+        # transition (e.g. after a transient SQS error) collides on the SAME
+        # id and the pipeline's unique index (Task 8) treats it as
+        # already-processed rather than sending a second notification email.
+        # See this task's "event_id derived from (order_id, status)" warning.
+        event_id = f"evt_{order_id}_{status}"
+
+        envelope = {
+            "event_id": event_id,
+            "type": "TRACKING_STATUS_CHANGED",
+            "source": "tracking",
+            "user_id": user_id,
+            "order_id": order_id,
+            "payload": {
+                "status": status,
+                "previous_status": previous_status,
+                "changed_at": changed_at.isoformat(),
+            },
+        }
+
+        self._client.send_message(
+            QueueUrl=self._queue_url,
+            MessageBody=json.dumps(envelope),
+            MessageAttributes={
+                "type": {"DataType": "String", "StringValue": envelope["type"]},
+                "source": {"DataType": "String", "StringValue": envelope["source"]},
+            },
+        )
+```
+
+Add `events_queue_url: str = Field(min_length=1)` to `services/tracking/src/shared/config/settings.py`'s
+`Settings` class (mirror the existing `database_writer_url` style — required, no default, since
+`generate_env_files.py` will write it into `.env.local.tracking` in this same task).
+
+Add the lazy-singleton factory to `event_publisher.py` (appended, after `NoopEventPublisher`;
+mirrors `shared_users_client()`/`_cached_client()` in `users_client.py` exactly):
+
+```python
+from functools import lru_cache
+
+import boto3
+
+from src.shared.config.settings import get_settings
+from src.shared.messaging.sqs_event_publisher import SqsEventPublisher
+
+
+@lru_cache(maxsize=1)
+def _cached_publisher(queue_url: str, endpoint_url: str | None, region: str) -> EventPublisher:
+    """One publisher (hence one boto3 client) per process, keyed on primitives —
+    same reasoning as `_cached_client()` in `users_client.py`: pydantic's
+    `BaseSettings` is unhashable, so keying on `Settings` directly would raise
+    `TypeError` on first call."""
+    client = boto3.client("sqs", endpoint_url=endpoint_url, region_name=region)
+    return SqsEventPublisher(client=client, queue_url=queue_url)
+
+
+def shared_event_publisher() -> EventPublisher:
+    """The process-wide Tracking event publisher, built lazily from settings.
+
+    Lazy, not module-level, so importing this module does not construct a
+    boto3 client (nor require a valid environment) — the same rule
+    `shared_users_client()` follows.
+    """
+    settings = get_settings()
+    return _cached_publisher(
+        settings.events_queue_url,
+        getattr(settings, "aws_endpoint_url", None),
+        getattr(settings, "aws_region", "us-east-1"),
+    )
+```
+
+- [ ] **Step 4: Run test, confirm PASS**
+
+```bash
+cd services/tracking && pytest tests/shared/messaging/test_sqs_event_publisher.py
+```
+
+Expected: 2 passed.
+
+- [ ] **Step 5: Write the failing test for `update_status.py`'s new emission**
+
+Extend `services/tracking/tests/features/tracking/commands/test_update_status.py` (append; do
+not rewrite the existing transition/guard tests):
+
+```python
+"""Extends the existing update_status test module with emission assertions."""
+
+from src.features.tracking.commands.update_status import (
+    UpdateTrackingStatusCommand,
+    update_tracking_status,
+)
+from src.shared.audit.audit_actor import AuditActor
+
+
+class FakeEventPublisher:
+    """Records calls instead of emitting — the test double for this suite,
+    NOT NoopEventPublisher (which discards silently and cannot be asserted on)."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def publish_tracking_status_changed(self, **kwargs) -> None:
+        self.calls.append(kwargs)
+
+
+def test_update_status_emits_tracking_status_changed_with_user_id_from_the_entity(
+    session, existing_tracking,  # existing_tracking fixture already used by this test file
+) -> None:
+    publisher = FakeEventPublisher()
+    command = UpdateTrackingStatusCommand(order_id=existing_tracking.order_id, status="ON_THE_WAY")
+
+    update_tracking_status(session, command, publisher=publisher)
+
+    assert len(publisher.calls) == 1
+    call = publisher.calls[0]
+    # user_id comes from the PERSISTED entity, never from a request param —
+    # this test's fixture sets tracking.user_id to a DIFFERENT value than any
+    # cognito_sub in scope, so it can only pass if the entity's field was used.
+    assert call["user_id"] == existing_tracking.user_id
+    assert call["order_id"] == existing_tracking.order_id
+    assert call["status"] == "ON_THE_WAY"
+    assert call["previous_status"] == "SHIPPED"
+
+
+def test_update_status_emits_for_every_transition_including_delivered(
+    session, existing_tracking_on_the_way,  # a fixture at ON_THE_WAY, if not already present
+) -> None:
+    publisher = FakeEventPublisher()
+    command = UpdateTrackingStatusCommand(
+        order_id=existing_tracking_on_the_way.order_id, status="OUT_FOR_DELIVERY"
+    )
+    update_tracking_status(session, command, publisher=publisher)
+
+    command_final = UpdateTrackingStatusCommand(
+        order_id=existing_tracking_on_the_way.order_id, status="DELIVERED"
+    )
+    update_tracking_status(session, command_final, publisher=publisher)
+
+    statuses_emitted = [c["status"] for c in publisher.calls]
+    assert statuses_emitted == ["OUT_FOR_DELIVERY", "DELIVERED"]  # no transition exempted
+
+
+def test_event_id_stable_across_repeated_calls_for_the_same_transition(
+    session, existing_tracking,
+) -> None:
+    """A retry of the SAME (order_id, status) must not mint a new event_id —
+    Task 8's unique index is what dedupes it, but only if the id matches."""
+    publisher = FakeEventPublisher()
+    command = UpdateTrackingStatusCommand(order_id=existing_tracking.order_id, status="ON_THE_WAY")
+    update_tracking_status(session, command, publisher=publisher)
+
+    # The publisher itself (Step 3) is what derives event_id from
+    # (order_id, status); this test only confirms update_status.py passes
+    # order_id/status through unchanged so that derivation stays deterministic.
+    assert publisher.calls[0]["order_id"] == existing_tracking.order_id
+    assert publisher.calls[0]["status"] == "ON_THE_WAY"
+```
+
+- [ ] **Step 6: Run it, confirm the expected failure**
+
+```bash
+cd services/tracking && pytest tests/features/tracking/commands/test_update_status.py -k "emit or event_id"
+```
+
+Expected failure: `TypeError: update_tracking_status() got an unexpected keyword argument 'publisher'`.
+
+- [ ] **Step 7: Minimal implementation — wire emission into `update_status.py`**
+
+Modify `services/tracking/src/features/tracking/commands/update_status.py`:
+
+```python
+from src.shared.messaging.event_publisher import EventPublisher, NoopEventPublisher
+from src.shared.messaging.sqs_event_publisher import shared_event_publisher  # noqa: F401  (re-exported for callers that want the default)
+```
+
+(Add these imports near the top, alongside the existing ones.)
+
+Change the function signature to accept the port, defaulting to the real shared publisher so
+existing callers (the carrier router) get real emission with no call-site change, while tests
+inject a fake:
+
+```python
+def update_tracking_status(
+    session: Session,
+    command: UpdateTrackingStatusCommand,
+    *,
+    actor: AuditActor = AuditActor.CARRIER_STATUS_UPDATE,
+    publisher: EventPublisher | None = None,
+) -> Tracking:
+    """...(existing docstring, plus:)
+
+    ## Emission (events-pipeline milestone)
+
+    After a successful transition, emits TRACKING_STATUS_CHANGED to the shared
+    events queue. `user_id` for the envelope comes from `tracking.user_id` —
+    the entity this function already loaded — NEVER from a request parameter,
+    because the carrier webhook path (the majority caller) has no request-level
+    identity at all (see the module docstring's "Why the lookup here is
+    UNSCOPED"). `publisher` defaults to the real shared SQS publisher so
+    production and the carrier/TestMode paths need no change; tests inject a
+    fake or Noop explicitly (never test against the real one — see
+    docs/lessons/mocks-hide-schema-bugs.md's spirit, applied in reverse: this
+    is the one boundary tests SHOULD fake, since asserting against a live SQS
+    send is the integration test's job below, not every unit test's).
+    """
+    requested: TrackingStatus = parse_status(command.status)
+
+    repository = TrackingRepository(session)
+    # user_id is NOT passed: unscoped by design — see the module docstring.
+    tracking = repository.get_by_order_id(command.order_id)
+    if tracking is None:
+        raise TrackingNotFoundError(command.order_id)
+
+    current = parse_status(tracking.status)
+    assert_can_transition(current, requested)
+
+    updated = repository.update_status(
+        tracking=tracking,
+        status=requested,
+        actor=actor,
+    )
+
+    event_publisher = publisher if publisher is not None else shared_event_publisher()
+    event_publisher.publish_tracking_status_changed(
+        order_id=updated.order_id,
+        user_id=updated.user_id,  # the persisted usr_ id — NOT a request param
+        status=requested.value,
+        previous_status=current.value,
+        changed_at=updated.updated_at,
+    )
+
+    return updated
+```
+
+- [ ] **Step 8: Run test, confirm PASS**
+
+```bash
+cd services/tracking && pytest tests/features/tracking/commands/test_update_status.py
+```
+
+Expected: all existing tests still pass, plus the 3 new ones (emission with correct `user_id`,
+all-four-transitions-emit including `DELIVERED`, stable `event_id` inputs).
+
+- [ ] **Step 9: Wire `EVENTS_QUEUE_URL` into Tracking's generated env file**
+
+In `infra/environments/local/scripts/generate_env_files.py`, add `"EVENTS_QUEUE_URL":
+events_queue_url` (the same Terraform output Task 13 Step 9 already reads) to the dict literal
+written for `.env.local.tracking` — find that service's existing dict and add this one key, per
+[[env-files]]; do not restructure the surrounding dict or introduce a second way to read the
+queue URL.
+
+- [ ] **Step 10: Integration test — the message really lands on the shared queue**
+
+`services/tracking/tests/shared/messaging/test_sqs_event_publisher_integration.py`:
+
+```python
+"""Layer 2 — real SQS against Floci, not mocked. Connects using the same
+AWS_ENDPOINT_URL/region the service reads at runtime."""
+
+from __future__ import annotations
+
+import json
+import time
+from datetime import UTC, datetime
+
+import boto3
+
+from src.shared.config.settings import get_settings
+from src.shared.messaging.sqs_event_publisher import SqsEventPublisher
+
+
+def test_publish_lands_a_message_with_correct_attributes_on_the_real_queue() -> None:
+    settings = get_settings()
+    client = boto3.client(
+        "sqs",
+        endpoint_url=getattr(settings, "aws_endpoint_url", None),
+        region_name=getattr(settings, "aws_region", "us-east-1"),
+    )
+    publisher = SqsEventPublisher(client=client, queue_url=settings.events_queue_url)
+
+    marker_order_id = f"ord_e2e_{int(time.time())}"
+    publisher.publish_tracking_status_changed(
+        order_id=marker_order_id,
+        user_id="usr_e2e_test1",
+        status="SHIPPED",
+        previous_status="null",
+        changed_at=datetime.now(UTC),
+    )
+
+    # Poll — never a fixed sleep — measuring over 2-3x the expected delivery
+    # period, per docs/lessons/verify-across-full-cycle.md.
+    deadline = time.monotonic() + 15
+    found = None
+    while time.monotonic() < deadline and found is None:
+        response = client.receive_message(
+            QueueUrl=settings.events_queue_url,
+            MessageAttributeNames=["All"],
+            WaitTimeSeconds=2,
+        )
+        for message in response.get("Messages", []):
+            body = json.loads(message["Body"])
+            if body["order_id"] == marker_order_id:
+                found = message
+            # Not deleting non-matching messages — this test only inspects.
+        time.sleep(0.5)
+
+    assert found is not None, f"no message for {marker_order_id} landed on the queue within 15s"
+    assert found["MessageAttributes"]["type"]["StringValue"] == "TRACKING_STATUS_CHANGED"
+    assert found["MessageAttributes"]["source"]["StringValue"] == "tracking"
+```
+
+```bash
+cd services/tracking && pytest tests/shared/messaging/test_sqs_event_publisher_integration.py
+```
+
+Expected: 1 passed (requires Block A's `messaging` module applied and reachable, and
+`.env.local.tracking` regenerated with `EVENTS_QUEUE_URL` from Step 9).
+
+- [ ] **Step 11: E2E — a real status change produces the email in Mailpit**
+
+`services/tracking/tests/e2e/test_tracking_status_changed_email.py` (layer 3, the real path:
+carrier webhook or TestMode → command → publisher → SQS → Lambda → DocumentDB → SES → Mailpit):
+
+```python
+"""E2E — the real path, gateway-through-Mailpit, per services/tracking/CLAUDE.md §2b
+and the milestone design spec's "Tracking's own three layers" section."""
+
+from __future__ import annotations
+
+import time
+
+import httpx
+
+MAILPIT_API = "http://localhost:8025/api/v1"
+
+
+def _poll_for_email(order_id: str, status: str, timeout_s: float = 30.0) -> dict:
+    """Poll Mailpit for the email matching this order+status specifically —
+    NOT an inbox-count assertion. A TestMode run emits FOUR emails for one
+    tracking in ~30s (see the warning below), so asserting `count == 1` would
+    be flaky-by-design; this polls for the ONE message whose subject names
+    this status, tolerating the other three arriving before or after it."""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        response = httpx.get(f"{MAILPIT_API}/search", params={"query": f'subject:"{order_id}" subject:"{status.lower()}"'})
+        data = response.json()
+        if data["messages"]:
+            return data["messages"][0]
+        time.sleep(1)
+    raise TimeoutError(f"no email for order {order_id} status {status} within {timeout_s}s")
+
+
+def test_carrier_status_update_produces_a_completed_document_and_an_email(
+    carrier_client: httpx.Client,  # fixture: authenticated with TRACKING_CARRIER_API_KEY
+    tracking_order_id: str,  # fixture: an order with a tracking already at SHIPPED
+) -> None:
+    response = carrier_client.put(
+        f"/v1/trackings/{tracking_order_id}/status", json={"status": "ON_THE_WAY"}
+    )
+    assert response.status_code == 200
+
+    message = _poll_for_email(tracking_order_id, "ON_THE_WAY")
+    assert message is not None
+
+
+def test_testmode_progression_produces_four_emails_one_per_status(
+    testmode_tracking_order_id: str,  # fixture: init-tracking with test_mode=true, ~0s interval
+) -> None:
+    """Per the milestone design spec's warning: TestMode emits on every
+    transition with no suppression, so one run produces FOUR emails for one
+    tracking. Polling per-status (not an inbox count) is what makes this
+    assertion reliable rather than a false negative/positive on ordering."""
+    for status in ("SHIPPED", "ON_THE_WAY", "OUT_FOR_DELIVERY", "DELIVERED"):
+        message = _poll_for_email(testmode_tracking_order_id, status, timeout_s=40.0)
+        assert message is not None
+```
+
+```bash
+cd services/tracking && pytest tests/e2e/test_tracking_status_changed_email.py -m e2e
+```
+
+Expected: 2 passed (requires the full local stack up: Block A applied, Block C's
+`TRACKING_STATUS_CHANGED` handler live, Mailpit healthy, `E2E_TESTING_ENABLED=true`).
+
+> [!warning] TestMode E2E produces four emails per run
+> Because TestMode emits on every transition with no suppression (this task's implementation),
+> a single TestMode E2E run that progresses a tracking through all four statuses produces
+> **four emails in Mailpit for that one tracking**, not one. Assert by polling for each
+> status's specific email (as `_poll_for_email` does above), never by asserting an inbox count
+> of one — an inbox-count assertion here is a guaranteed false failure.
+
+- [ ] **Step 12: Commit**
+
+```bash
+git add services/tracking/src/shared/messaging/ services/tracking/src/shared/config/settings.py services/tracking/src/features/tracking/commands/update_status.py services/tracking/tests/shared/messaging/ services/tracking/tests/features/tracking/commands/test_update_status.py services/tracking/tests/e2e/test_tracking_status_changed_email.py infra/environments/local/scripts/generate_env_files.py
+git commit -m "feat(tracking): publish TRACKING_STATUS_CHANGED on every delivery-status transition"
+```
+
+---
+
 ## Reconciliation during implementation
 
 Two artifacts describe a pre-Lambda world and must be fixed as part of this milestone, not left
@@ -2994,7 +3939,7 @@ for later:
    healthcheck — see the block originally at lines 288-313) no longer makes sense once the
    Lambda runs on Floci via Terraform (this plan's Block A + Block D). It is removed in Task 10
    (when Mailpit/preview server are added to the compose file) or, if not done there, finished
-   in Task 12 Step 10. Do not leave it dangling alongside the real Lambda — a developer running
+   in Task 13 Step 10. Do not leave it dangling alongside the real Lambda — a developer running
    `make up` should not see a phantom `events-pipeline` container that never receives traffic.
 2. **`functions/events-pipeline/CLAUDE.md` §1** ("Local: a worker service via docker-watch") is
    corrected in Task 9 Step 5, once the Lambda entrypoint that supersedes the worker model
@@ -3009,29 +3954,42 @@ update:
   "validate and process" (no email) and lists the data model without `event_id`; both are now
   wrong. Update: handlers send email (validate → render → SES → COMPLETED, per Block C); add
   `event_id` as a new field with its own unique index, distinct from `friendlyId`, per Task 5/8.
-  Also correct the "three microservices" framing in the Summary — only **two** producers (Users,
-  Orders) emit events in this milestone; Tracking does not. Bump `updated:` to this milestone's
-  close date.
+  Also correct the producer count in the Summary to **three** (Users, Orders, Tracking) — not
+  two — now that Task 14 lands Tracking's publisher. Bump `updated:` to this milestone's close
+  date.
+- **`docs/domains/tracking/specs/tracking-service-design.md`** — currently states Tracking is a
+  pure consumer/updater that publishes no events; that is now false. Update it to document
+  Tracking as the events-pipeline's third producer: `TRACKING_STATUS_CHANGED`, emitted from
+  `update_tracking_status()` on every transition (including `DELIVERED`), sourced from
+  `tracking.user_id` (never the request), `event_id` derived from `(order_id, status)`. Bump
+  `updated:` to this milestone's close date. Link bidirectionally with the milestone spec (see
+  the "Reversal — Tracking now publishes" callout in
+  [[2026-08-03-events-pipeline-milestone-design]]).
 - **`docs/00-overview/system-context.md`** — currently names two queues (`users-events`,
   `orders-events`); reconcile to the single shared queue this plan's Block A actually builds
-  (`infra/modules/messaging/`, one `aws_sqs_queue.main` + DLQ, both producers publish to it).
+  (`infra/modules/messaging/`, one `aws_sqs_queue.main` + DLQ), and show **three** producers
+  (Users, Orders, Tracking) publishing to it, not two.
 - **`docs/shared/conventions/testing.md`** — add events-pipeline's adapted three-layer mapping
   (unit / integration-against-Floci / real-Lambda-invoke E2E, since it has no HTTP endpoint) as
   a per-service guidance entry, mirroring the existing Orders/Users/Tracking bullets.
 - **`docs/shared/conventions/env-files.md`** — add `.env.local.events-pipeline` to the files
   table (already anticipated in that note's "Adding a service" section, but not yet listed in
-  the table itself) once Task 12 Step 9 lands.
+  the table itself) once Task 13 Step 9 lands, and confirm `.env.local.tracking`'s entry there
+  notes its new `EVENTS_QUEUE_URL` key once Task 14 Step 9 lands.
 
 This is what makes `propagates-to: ["[[events-pipeline-design]]", "[[testing]]",
-"[[env-files]]"]` on this plan's frontmatter true rather than aspirational — the routing table
-in [[doc-propagation]] places "service behaviour/API/data model" changes in the service spec, and
-this milestone changes exactly that (handlers now send email; a new indexed field).
+"[[env-files]]", "[[tracking-service-design]]"]` on this plan's frontmatter true rather than
+aspirational — the routing table in [[doc-propagation]] places "service behaviour/API/data
+model" changes in the service spec, and this milestone changes exactly that (handlers now send
+email; a new indexed field; Tracking gains a publisher it did not have before).
 
 ## Dependency gates
 
 This milestone has four stop points, matching the four blocks — per the phase-C review flow,
 chain issues within a block without per-merge prompts, but stop and batch PRs for review at
-each gate:
+each gate. Block C now ends at Task 12 (`TRACKING_STATUS_CHANGED` joins `USER_CREATED`/
+`ORDER_CREATED` as the third and final handler this milestone adds); Block D covers Tasks
+13-14 (Task 13 wires Users/Orders, Task 14 wires Tracking):
 
 1. **Block A → Block B.** Block B's Task 8 (Mongo repository integration test) and Task 9
    (handler, exercised against a real queue) cannot be verified without Block A's `messaging`
@@ -3040,12 +3998,17 @@ each gate:
 2. **Block B → Block C.** Task 10's `USER_CREATED` handler registers into the `HandlerMap` Task
    9 defines; Block C cannot be end-to-end verified (email landing in Mailpit via the real
    handler dispatch) until Block B's `handler.ts` and `process-record.ts` are merged.
-3. **Block C → Block D.** Task 12's producers publish envelopes that only mean something once
-   both `USER_CREATED` (Task 10) and `ORDER_CREATED` (Task 11) handlers exist — publishing to a
-   queue with no matching handler would dead-end in `FAILED "Unknown event type"`.
-4. **End of Block D.** The milestone's Definition of Done (Task 12 Step 11) is the final
-   checkpoint — batch the last PRs for review once the full `POST /v1/users/register` → Mailpit
-   path is verified.
+3. **Block C → Block D.** Task 13's and Task 14's producers publish envelopes that only mean
+   something once `USER_CREATED` (Task 10), `ORDER_CREATED` (Task 11), and
+   `TRACKING_STATUS_CHANGED` (Task 12) handlers all exist — publishing to a queue with no
+   matching handler would dead-end in `FAILED "Unknown event type"`. This is also why Task 14
+   (Tracking) is sequenced after Task 12 within this same gate, even though Tracking's own code
+   has no dependency on Users'/Orders' publishers (Task 13) — both Block D tasks depend on
+   Block C being complete, not on each other.
+4. **End of Block D.** The milestone's Definition of Done — Task 13 Step 11 (`POST
+   /v1/users/register` → Mailpit) **and** Task 14 Step 11 (a tracking status change → Mailpit,
+   including the four-emails-per-TestMode-run case) — is the final checkpoint. Batch the last
+   PRs for review once both paths are verified.
 
 ## Related
 
@@ -3057,3 +4020,4 @@ each gate:
 - [[nano-id]]
 - [[audit-fields]]
 - [[cqrs]]
+- [[tracking-service-design]]
