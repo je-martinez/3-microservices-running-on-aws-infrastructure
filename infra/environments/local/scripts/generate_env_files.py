@@ -191,6 +191,9 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 "COGNITO_USER_POOL_ID": pool_id,
                 "COGNITO_CLIENT_ID": client_id,
                 "GRPC_API_KEY": GRPC_API_KEY,
+                # Users publishes USER_CREATED here (its Zod env schema requires
+                # this, so the service will not boot without it).
+                "EVENTS_QUEUE_URL": events_queue_url,
                 "OTEL_EXPORTER_OTLP_ENDPOINT": OTLP_ENDPOINT,
                 "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
                 "OTEL_METRICS_EXPORTER": "none",
@@ -222,6 +225,9 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # tracking record, forwarding the x-user-id it received.
                 "TRACKING_BASE_URL": "http://tracking:8000",
                 "GRPC_API_KEY": GRPC_API_KEY,
+                # Orders publishes ORDER_CREATED here — the same shared queue
+                # Users and Tracking write to.
+                "EVENTS_QUEUE_URL": events_queue_url,
                 "OTEL_EXPORTER_OTLP_ENDPOINT": OTLP_ENDPOINT,
                 "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
                 "OTEL_DIAGNOSTICS__LOGLEVEL": "Error",
@@ -263,6 +269,10 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # GRPC_API_KEY on purpose — see the trust-domain note at the top
                 # of this file before touching either.
                 "TRACKING_CARRIER_API_KEY": TRACKING_CARRIER_API_KEY,
+                # Tracking publishes TRACKING_STATUS_CHANGED here on every
+                # delivery-status transition — the same shared queue Users and
+                # Orders write to.
+                "EVENTS_QUEUE_URL": events_queue_url,
                 "OTEL_EXPORTER_OTLP_ENDPOINT": OTLP_ENDPOINT,
                 "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
                 "OTEL_METRICS_EXPORTER": "none",
