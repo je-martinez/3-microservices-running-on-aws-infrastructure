@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { processRecord, type EventsRepositoryPort, type HandlerMap } from "#pipeline/process-record";
 import { PermanentError, TransientError } from "#pipeline/errors";
-import { EVENT_ID_PREFIX, type EventDocument } from "#domain/event";
+import type { EventDocument } from "#domain/event";
 import type { Envelope } from "#domain/envelope";
 
 function makeEnvelope(overrides: Partial<Envelope> = {}): Envelope {
@@ -178,7 +178,7 @@ describe("processRecord", () => {
     expect(kinds).toEqual(["insertStarted", "transition"]);
   });
 
-  it("stamps an evt_-prefixed friendlyId distinct from the producer's event_id", async () => {
+  it("persists the producer's event_id verbatim — the pipeline mints no id of its own", async () => {
     const repository = makeRepository();
     const handlers: HandlerMap = { USER_CREATED: vi.fn(async () => {}) };
 
@@ -186,13 +186,8 @@ describe("processRecord", () => {
     await processRecord(makeEnvelope({ event_id: "producer-key-2" }), { repository, handlers });
 
     const [first, second] = repository.inserted;
-    expect(first?.friendlyId.startsWith(EVENT_ID_PREFIX)).toBe(true);
-    expect(first?.friendlyId.length).toBeGreaterThan(EVENT_ID_PREFIX.length);
-    // friendlyId is the pipeline's own display id, NOT the producer's key.
-    expect(first?.friendlyId).not.toBe("producer-key-1");
     expect(first?.event_id).toBe("producer-key-1");
-    // Freshly generated per record, not a constant.
-    expect(first?.friendlyId).not.toBe(second?.friendlyId);
+    expect(second?.event_id).toBe("producer-key-2");
   });
 
   it("copies the envelope onto the persisted document and stamps audit fields", async () => {
@@ -215,15 +210,15 @@ describe("processRecord", () => {
     expect(doc.user_id).toBe("usr_test1");
     expect(doc.payload).toEqual({ total: 42 });
     expect(doc.error).toBeNull();
-    expect(doc.createdBy).toBe("events-pipeline");
-    expect(doc.updatedBy).toBe("events-pipeline");
-    expect(doc.createdAt).toBeInstanceOf(Date);
-    expect(doc.updatedAt).toBeInstanceOf(Date);
-    expect(doc.deletedBy).toBeNull();
-    expect(doc.deletedAt).toBeNull();
+    expect(doc.created_by).toBe("events-pipeline");
+    expect(doc.updated_by).toBe("events-pipeline");
+    expect(doc.created_at).toBeInstanceOf(Date);
+    expect(doc.updated_at).toBeInstanceOf(Date);
+    expect(doc.deleted_by).toBeNull();
+    expect(doc.deleted_at).toBeNull();
     // Required by docs/shared/conventions/audit-fields.md — a newly created
     // event is not deleted.
-    expect(doc.isDeleted).toBe(false);
+    expect(doc.is_deleted).toBe(false);
   });
 
   it("seeds status_history with the STARTED entry", async () => {

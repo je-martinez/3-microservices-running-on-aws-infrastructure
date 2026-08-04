@@ -1,8 +1,3 @@
-// Prefixed nano-id prefix for this collection's friendlyId — see
-// docs/shared/conventions/nano-id.md. `event_id` (below) is a DIFFERENT field:
-// the producer-generated idempotency key, not the pipeline's own display id.
-export const EVENT_ID_PREFIX = "evt_";
-
 export type EventStatus = "STARTED" | "IN_PROGRESS" | "COMPLETED" | "FAILED";
 
 export interface StatusHistoryEntry {
@@ -12,11 +7,17 @@ export interface StatusHistoryEntry {
 }
 
 // Mirrors docs/domains/events-pipeline/specs/events-pipeline-design.md's Data
-// Model table, PLUS `event_id` — new in this milestone (idempotency key, unique
-// index alongside friendlyId's own unique index; see the milestone design spec's
-// "Idempotency (new field)" section).
+// Model table, PLUS `event_id` — new in this milestone: the producer-generated
+// idempotency key, carrying its own unique index (see the milestone design
+// spec's "Idempotency (new field)" section). It is THE identifier of an event;
+// the pipeline mints no second display id of its own.
+//
+// Every persisted field is snake_case. The other services reach the same shape
+// through an ORM mapping (Prisma's @map("created_by"), SQLAlchemy's
+// Mapped[str], EF Core's HasColumnName) — this repository is hand-written, with
+// no mapping layer, so the TypeScript property name IS the stored field name
+// and must therefore be snake_case itself.
 export interface EventDocument {
-  friendlyId: string;
   event_id: string;
   order_id: string | null;
   user_id: string;
@@ -26,19 +27,19 @@ export interface EventDocument {
   status: EventStatus;
   error: string | null;
   status_history: StatusHistoryEntry[];
-  createdBy: string;
-  createdAt: Date;
-  updatedBy: string;
-  updatedAt: Date;
-  deletedBy: string | null;
-  deletedAt: Date | null;
+  created_by: string;
+  created_at: Date;
+  updated_by: string;
+  updated_at: Date;
+  deleted_by: string | null;
+  deleted_at: Date | null;
   // Computed per docs/shared/conventions/audit-fields.md ("a computed flag,
-  // true when deletedAt is set, false otherwise") and repeated in the
+  // true when deleted_at is set, false otherwise") and repeated in the
   // events-pipeline design spec. Users derives this via a Prisma client
   // extension; this repository is hand-written (Task 8), so there is no
   // extension to derive it implicitly on read. It is materialized here
-  // instead: the repository stamps it alongside deletedAt/deletedBy on
+  // instead: the repository stamps it alongside deleted_at/deleted_by on
   // every write (kept in sync, never computed ad hoc per call site), so
-  // readers can query/filter on `isDeleted` directly.
-  isDeleted: boolean;
+  // readers can query/filter on `is_deleted` directly.
+  is_deleted: boolean;
 }

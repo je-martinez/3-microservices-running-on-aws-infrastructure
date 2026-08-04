@@ -15,8 +15,13 @@ let clientPromise: Promise<MongoClient> | undefined;
 
 export function getMongoClient(): Promise<MongoClient> {
   if (!clientPromise) {
+    // authSource is appended only when configured: without it the driver
+    // authenticates against DOCDB_DATABASE, which is right for Amazon
+    // DocumentDB but fails against Floci's stock mongo:7.0, whose root user
+    // lives in `admin` (see DOCDB_AUTH_SOURCE in #shared/config/env).
+    const authSource = env.DOCDB_AUTH_SOURCE ? `&authSource=${env.DOCDB_AUTH_SOURCE}` : "";
     const client = new MongoClient(
-      `mongodb://${env.DOCDB_USERNAME}:${env.DOCDB_PASSWORD}@${env.DOCDB_HOST}:${env.DOCDB_PORT}/${env.DOCDB_DATABASE}?tls=false`,
+      `mongodb://${env.DOCDB_USERNAME}:${env.DOCDB_PASSWORD}@${env.DOCDB_HOST}:${env.DOCDB_PORT}/${env.DOCDB_DATABASE}?tls=false${authSource}`,
     );
     // If the connection fails, drop the cached rejected promise so the next
     // invocation retries instead of replaying the same failure forever from a

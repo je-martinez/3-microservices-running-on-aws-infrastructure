@@ -14,7 +14,6 @@ import type { EventDocument } from "#domain/event";
 function makeDoc(overrides: Partial<EventDocument> = {}): EventDocument {
   const now = new Date();
   return {
-    friendlyId: "evt_unit1",
     event_id: "evt_producer_unit1",
     order_id: null,
     user_id: "usr_unit1",
@@ -24,13 +23,13 @@ function makeDoc(overrides: Partial<EventDocument> = {}): EventDocument {
     status: "STARTED",
     error: null,
     status_history: [{ status: "STARTED", timestamp: now }],
-    createdBy: "events-pipeline",
-    createdAt: now,
-    updatedBy: "events-pipeline",
-    updatedAt: now,
-    deletedBy: null,
-    deletedAt: null,
-    isDeleted: false,
+    created_by: "events-pipeline",
+    created_at: now,
+    updated_by: "events-pipeline",
+    updated_at: now,
+    deleted_by: null,
+    deleted_at: null,
+    is_deleted: false,
     ...overrides,
   };
 }
@@ -173,7 +172,7 @@ describe("MongoEventsRepository — transition update shape", () => {
     ).toBe("Unknown event type");
   });
 
-  it("stamps updatedAt/updatedBy on every transition (audit-fields convention)", async () => {
+  it("stamps updated_at/updated_by on every transition (audit-fields convention)", async () => {
     let seenUpdate: Record<string, Record<string, unknown>> | undefined;
     const repo = new MongoEventsRepository(
       fakeDb({
@@ -185,8 +184,12 @@ describe("MongoEventsRepository — transition update shape", () => {
 
     await repo.transition("evt_producer_unit1", "IN_PROGRESS");
 
-    expect(seenUpdate?.$set.updatedBy).toBe("events-pipeline");
-    expect(seenUpdate?.$set.updatedAt).toBeInstanceOf(Date);
+    expect(seenUpdate?.$set.updated_by).toBe("events-pipeline");
+    expect(seenUpdate?.$set.updated_at).toBeInstanceOf(Date);
+    // Guard against camelCase drifting back in: there is no ORM mapping layer,
+    // so the $set path IS the stored field name.
+    expect(seenUpdate?.$set).not.toHaveProperty("updatedBy");
+    expect(seenUpdate?.$set).not.toHaveProperty("updatedAt");
   });
 
   it("appends via $push rather than replacing status_history via $set", async () => {

@@ -1,7 +1,5 @@
-import { nanoid } from "nanoid";
 import type { Envelope } from "#domain/envelope";
 import type { EventDocument, EventStatus } from "#domain/event";
-import { EVENT_ID_PREFIX } from "#domain/event";
 import { isTransient } from "#pipeline/errors";
 
 // Actor stamped on the audit fields — this pipeline is the writer, there is no
@@ -23,13 +21,6 @@ export type HandlerMap = Record<string, (envelope: Envelope) => Promise<void>>;
 
 export type ProcessRecordResult = { ok: true } | { ok: false; transient: boolean };
 
-// Mirrors services/users/src/shared/id/nano-id.ts's generateId shape
-// (prefix + nanoid()), reimplemented locally to avoid a cross-package
-// dependency on the Users service. See docs/shared/conventions/nano-id.md.
-function generateFriendlyId(): string {
-  return `${EVENT_ID_PREFIX}${nanoid()}`;
-}
-
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -50,7 +41,6 @@ export async function processRecord(
 ): Promise<ProcessRecordResult> {
   const now = new Date();
   const doc: EventDocument = {
-    friendlyId: generateFriendlyId(),
     event_id: envelope.event_id,
     order_id: envelope.order_id,
     user_id: envelope.user_id,
@@ -60,16 +50,16 @@ export async function processRecord(
     status: "STARTED",
     error: null,
     status_history: [{ status: "STARTED", timestamp: now }],
-    createdBy: PIPELINE_ACTOR,
-    createdAt: now,
-    updatedBy: PIPELINE_ACTOR,
-    updatedAt: now,
-    deletedBy: null,
-    deletedAt: null,
+    created_by: PIPELINE_ACTOR,
+    created_at: now,
+    updated_by: PIPELINE_ACTOR,
+    updated_at: now,
+    deleted_by: null,
+    deleted_at: null,
     // Required by docs/shared/conventions/audit-fields.md — materialized on
     // write (this repository is hand-written, so nothing derives it on read).
     // A newly created event is never deleted.
-    isDeleted: false,
+    is_deleted: false,
   };
 
   try {

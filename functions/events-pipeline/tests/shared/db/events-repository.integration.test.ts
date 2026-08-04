@@ -44,7 +44,6 @@ const E2E_USER = "usr_e2e_task8";
 function makeDoc(overrides: Partial<EventDocument> = {}): EventDocument {
   const now = new Date();
   return {
-    friendlyId: "evt_e2e_task8_a",
     event_id: "evt_producer_e2e_task8_a",
     order_id: null,
     user_id: E2E_USER,
@@ -54,13 +53,13 @@ function makeDoc(overrides: Partial<EventDocument> = {}): EventDocument {
     status: "STARTED",
     error: null,
     status_history: [{ status: "STARTED", timestamp: now }],
-    createdBy: "events-pipeline",
-    createdAt: now,
-    updatedBy: "events-pipeline",
-    updatedAt: now,
-    deletedBy: null,
-    deletedAt: null,
-    isDeleted: false,
+    created_by: "events-pipeline",
+    created_at: now,
+    updated_by: "events-pipeline",
+    updated_at: now,
+    deleted_by: null,
+    deleted_at: null,
+    is_deleted: false,
     ...overrides,
   };
 }
@@ -86,40 +85,74 @@ describe.skipIf(missingEnv)("MongoEventsRepository (integration, real DocumentDB
     if (client) await client.close();
   });
 
-  it("creates the unique indexes on event_id and friendlyId (two DIFFERENT fields)", async () => {
+  it("creates the unique index on event_id and the non-unique query indexes", async () => {
     const indexes = await db.collection("events").indexes();
     const byKey = (field: string) => indexes.find((i) => JSON.stringify(i.key) === JSON.stringify({ [field]: 1 }));
 
     expect(byKey("event_id")?.unique).toBe(true);
-    expect(byKey("friendlyId")?.unique).toBe(true);
     // The design spec's non-unique query indexes must exist but must NOT be unique.
     expect(byKey("order_id")).toBeDefined();
     expect(byKey("order_id")?.unique).toBeUndefined();
     expect(byKey("user_id")).toBeDefined();
     expect(byKey("type")).toBeDefined();
     expect(byKey("status")).toBeDefined();
-    expect(byKey("createdAt")).toBeDefined();
+    expect(byKey("created_at")).toBeDefined();
   });
 
   it("ensureIndexes is idempotent — a second call against the same collection succeeds", async () => {
     await expect(ensureIndexes(db)).resolves.toBeUndefined();
   });
 
-  it("persists a full document including audit fields, isDeleted and friendlyId", async () => {
+  it("persists a full document including snake_case audit fields and is_deleted", async () => {
     await repo.insertStarted(makeDoc());
 
     const found = await db.collection("events").findOne({ event_id: "evt_producer_e2e_task8_a" });
 
     expect(found).not.toBeNull();
-    expect(found?.friendlyId).toBe("evt_e2e_task8_a");
-    expect(found?.createdBy).toBe("events-pipeline");
-    expect(found?.updatedBy).toBe("events-pipeline");
-    expect(found?.deletedAt).toBeNull();
-    expect(found?.deletedBy).toBeNull();
-    // Audit-fields convention: isDeleted is materialized on write by this
+    expect(found?.created_by).toBe("events-pipeline");
+    expect(found?.updated_by).toBe("events-pipeline");
+    expect(found?.created_at).toBeInstanceOf(Date);
+    expect(found?.updated_at).toBeInstanceOf(Date);
+    expect(found?.deleted_at).toBeNull();
+    expect(found?.deleted_by).toBeNull();
+    // Audit-fields convention: is_deleted is materialized on write by this
     // hand-written repository (there is no Prisma-style extension to derive it).
-    expect(found?.isDeleted).toBe(false);
+    expect(found?.is_deleted).toBe(false);
     expect(found?.status).toBe("STARTED");
+  });
+
+  it("stores every field in snake_case — the document has no ORM mapping layer", async () => {
+    // Reading the RAW stored document is the point: with no ORM between the
+    // TypeScript property and the DocumentDB field, only a real round-trip
+    // proves what is actually on disk.
+    const found = await db.collection("events").findOne({ event_id: "evt_producer_e2e_task8_a" });
+
+    const keys = Object.keys(found!).filter((k) => k !== "_id");
+    expect(keys.sort()).toEqual(
+      [
+        "created_at",
+        "created_by",
+        "deleted_at",
+        "deleted_by",
+        "error",
+        "event_id",
+        "is_deleted",
+        "order_id",
+        "payload",
+        "source",
+        "status",
+        "status_history",
+        "type",
+        "updated_at",
+        "updated_by",
+        "user_id",
+      ].sort(),
+    );
+    // No leftover display id and no camelCase survivor.
+    expect(found).not.toHaveProperty("friendlyId");
+    for (const key of keys) {
+      expect(key).toMatch(/^[a-z0-9]+(_[a-z0-9]+)*$/);
+    }
   });
 
   it("$push appends to status_history on transition, without overwriting prior entries", async () => {
@@ -134,9 +167,7 @@ describe.skipIf(missingEnv)("MongoEventsRepository (integration, real DocumentDB
   });
 
   it("records the error on a FAILED transition, in both the field and the history entry", async () => {
-    await repo.insertStarted(
-      makeDoc({ friendlyId: "evt_e2e_task8_f", event_id: "evt_producer_e2e_task8_f" }),
-    );
+    await repo.insertStarted(makeDoc({ event_id: "evt_producer_e2e_task8_f" }));
     await repo.transition("evt_producer_e2e_task8_f", "FAILED", { error: "Unknown event type" });
 
     const found = await db.collection("events").findOne({ event_id: "evt_producer_e2e_task8_f" });
@@ -150,8 +181,8 @@ describe.skipIf(missingEnv)("MongoEventsRepository (integration, real DocumentDB
     // The real unique index is what raises code 11000 here — the whole point of
     // running this against a real server.
     const dup = makeDoc({
-      friendlyId: "evt_e2e_task8_b", // different display id
       event_id: "evt_producer_e2e_task8_a", // SAME idempotency key — must collide
+      payload: { note: "redelivery" }, // otherwise-different document
     });
 
     const caught = await repo.insertStarted(dup).catch((err: unknown) => err);
@@ -168,16 +199,17 @@ describe.skipIf(missingEnv)("MongoEventsRepository (integration, real DocumentDB
     expect(count).toBe(1); // no duplicate row — idempotency confirmed
   });
 
-  it("rejects a second insert with the same friendlyId (its own unique index)", async () => {
-    const dup = makeDoc({
-      friendlyId: "evt_e2e_task8_a", // SAME display id
-      event_id: "evt_producer_e2e_task8_c", // different idempotency key
-    });
+  it("accepts a second insert with a DIFFERENT event_id (only event_id is unique)", async () => {
+    // The complement of the test above: nothing else on the document is
+    // constrained, so an otherwise-identical event with its own idempotency key
+    // must persist. This is what previously would have collided on friendlyId.
+    await expect(
+      repo.insertStarted(makeDoc({ event_id: "evt_producer_e2e_task8_c" })),
+    ).resolves.toBeUndefined();
 
-    const caught = await repo.insertStarted(dup).catch((err: unknown) => err);
-
-    expect(caught).toBeInstanceOf(PermanentError);
-    const count = await db.collection("events").countDocuments({ friendlyId: "evt_e2e_task8_a" });
+    const count = await db
+      .collection("events")
+      .countDocuments({ event_id: "evt_producer_e2e_task8_c" });
     expect(count).toBe(1);
   });
 });

@@ -42,24 +42,20 @@ function isDuplicateKeyError(err: unknown): boolean {
   );
 }
 
-// Both unique indexes are DIFFERENT fields, and both are intentional:
-//   - `event_id`  — the PRODUCER's idempotency key; its uniqueness is what makes
-//                   an SQS redelivery detectable.
-//   - `friendlyId` — the pipeline's OWN evt_-prefixed display id (see
-//                   docs/shared/conventions/nano-id.md).
-// The rest are non-unique query indexes from the design spec's "DocumentDB
-// indexes" list. createIndex is idempotent: re-running it against an existing,
-// identically-specified index is a no-op, so this is safe to call on every cold
-// start.
+// `event_id` — the PRODUCER's idempotency key and the event's only identifier;
+// its uniqueness is what makes an SQS redelivery detectable, so it is the one
+// unique index here. The rest are non-unique query indexes from the design
+// spec's "DocumentDB indexes" list. createIndex is idempotent: re-running it
+// against an existing, identically-specified index is a no-op, so this is safe
+// to call on every cold start.
 export async function ensureIndexes(db: Db): Promise<void> {
   const collection = db.collection<EventDocument>(COLLECTION);
   await collection.createIndex({ event_id: 1 }, { unique: true });
-  await collection.createIndex({ friendlyId: 1 }, { unique: true });
   await collection.createIndex({ order_id: 1 });
   await collection.createIndex({ user_id: 1 });
   await collection.createIndex({ type: 1 });
   await collection.createIndex({ status: 1 });
-  await collection.createIndex({ createdAt: 1 });
+  await collection.createIndex({ created_at: 1 });
 }
 
 export class MongoEventsRepository implements EventsRepositoryPort {
@@ -106,8 +102,8 @@ export class MongoEventsRepository implements EventsRepositoryPort {
       {
         $set: {
           status,
-          updatedAt: now,
-          updatedBy: PIPELINE_ACTOR,
+          updated_at: now,
+          updated_by: PIPELINE_ACTOR,
           ...errorPatch,
         },
         $push: {

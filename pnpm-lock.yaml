@@ -46,9 +46,6 @@ importers:
       mongodb:
         specifier: ^6.12.0
         version: 6.21.0
-      nanoid:
-        specifier: ^5.1.16
-        version: 5.1.16
       react:
         specifier: ^19.0.0
         version: 19.2.7
