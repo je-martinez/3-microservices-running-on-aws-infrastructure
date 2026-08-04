@@ -108,12 +108,18 @@ describe("orderCreatedHandler", () => {
   // plaintext email, and process-record persists this message on the FAILED
   // document and the entrypoint logs it as `reason`.
   it("does not leak the payload's email address in the PermanentError message", async () => {
+    // `email` itself is the field that fails validation here (malformed, not
+    // missing) so the payload FAILS validation while still carrying a real
+    // address — the case where a naive `error.message` would echo the whole
+    // offending input, address included. Mirrors
+    // tests/handlers/user-created.test.ts's equivalent case.
+    const leakyEmail = "leaky-order-recipient@example.com";
     const error = await orderCreatedHandler(
-      envelope({ ...validPayload, order_id: "" }, "evt_order_6"),
+      envelope({ ...validPayload, email: `${leakyEmail}-not-an-email` }, "evt_order_6"),
     ).catch((err: unknown) => err as Error);
 
     expect(error).toBeInstanceOf(PermanentError);
-    expect(error.message).not.toContain(validPayload.email);
+    expect(error.message).not.toContain(leakyEmail);
   });
 });
 
