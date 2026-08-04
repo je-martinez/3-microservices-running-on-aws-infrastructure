@@ -190,7 +190,11 @@ public class CreateOrderService
 
             _db.Orders.Add(order);
             await _db.SaveChangesAsync(ct);
-            await _events.PublishOrderCreatedAsync(order.Id, userId, total, now, ct);
+            // cognitoSub comes from the GetUserById round trip this method
+            // already makes: the pipeline's ORDER_CREATED handler renders the
+            // confirmation mail and needs a recipient, and Orders never stores
+            // one of its own.
+            await _events.PublishOrderCreatedAsync(order.Id, userId, caller.Email, total, now, ct);
             await tx.CommitAsync(ct);
 
             // AFTER the commit: the order genuinely exists at this point, so the

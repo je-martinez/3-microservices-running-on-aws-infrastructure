@@ -1,3 +1,4 @@
+using Amazon.SQS;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Orders.Api.Endpoints;
@@ -86,8 +87,39 @@ builder.Services.AddSingleton(_ =>
 builder.Services.AddScoped<IUserDirectory>(sp =>
     new UserDirectoryGrpcClient(sp.GetRequiredService<Users.V1.Users.UsersClient>(), grpcApiKey));
 
-// ORDER_CREATED emission seam (SQS deferred).
-builder.Services.AddScoped<IEventPublisher, NoopEventPublisher>();
+// ORDER_CREATED emission — real SQS publisher. The queue URL comes from this
+// service's own generated env file (never hardcoded), like every other setting
+// above; see [[env-files]].
+//
+// NoopEventPublisher is deliberately NOT deleted: tests that must not emit
+// register it in place of this.
+var eventsQueueUrl = builder.Configuration["EVENTS_QUEUE_URL"]!;
+// One SQS client per process (Singleton) — it owns an HTTP connection pool, so a
+// per-request client would build and discard one on every order.
+builder.Services.AddSingleton<IAmazonSQS>(_ =>
+{
+    var config = new AmazonSQSConfig
+    {
+        // Region must be set explicitly: locally there is no EC2/ECS metadata to
+        // infer one from, and the SDK throws rather than defaulting.
+        RegionEndpoint = Amazon.RegionEndpoint.GetBySystemName(
+            builder.Configuration["AWS_REGION"] ?? "us-east-1"),
+    };
+
+    // Only set locally (Floci); in AWS the variable is absent and the SDK resolves
+    // the real regional endpoint itself.
+    var endpointUrl = builder.Configuration["AWS_ENDPOINT_URL"];
+    if (!string.IsNullOrWhiteSpace(endpointUrl))
+    {
+        config.ServiceURL = endpointUrl;
+    }
+
+    return new AmazonSQSClient(config);
+});
+builder.Services.AddScoped<IEventPublisher>(sp => new SqsEventPublisher(
+    sp.GetRequiredService<IAmazonSQS>(),
+    eventsQueueUrl,
+    sp.GetRequiredService<ILogger<SqsEventPublisher>>()));
 
 // Tracking HTTP client (POST /v1/trackings/init-tracking). Typed client so the
 // base address and timeout are configured once, in the composition root, and

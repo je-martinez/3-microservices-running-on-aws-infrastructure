@@ -3,9 +3,11 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Orders.Application.Abstractions;
 using Orders.Application.Identity;
 using Orders.Domain.Entities;
 using Orders.Infrastructure.Id;
+using Orders.Infrastructure.Messaging;
 using Orders.Infrastructure.Persistence;
 using Testcontainers.MySql;
 
@@ -21,6 +23,9 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
 
     public const string KnownCognitoSub = "sub-known";
     public const string KnownUserId = "usr_known";
+    // Users returns an email on the same GetUserById response as the id; ORDER_CREATED
+    // carries it to the pipeline, so the stub must supply one.
+    public const string KnownEmail = "known@example.com";
     public string SeededProductId { get; private set; } = string.Empty;
 
     public async Task InitializeAsync()
@@ -69,12 +74,22 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
         // Well-formed placeholder so the typed Tracking client can be constructed.
         // Nothing in these tests calls it, so no request is ever dialed.
         builder.UseSetting("TRACKING_BASE_URL", "http://localhost:8000");
+        // Well-formed placeholder so the SQS client can be constructed. Nothing is
+        // ever sent to it: NoopEventPublisher replaces the real publisher below.
+        builder.UseSetting("EVENTS_QUEUE_URL", "http://localhost:4566/000000000000/events");
 
         builder.ConfigureTestServices(services =>
         {
             var directory = services.Single(d => d.ServiceType == typeof(IUserDirectory));
             services.Remove(directory);
             services.AddScoped<IUserDirectory>(_ => new StubDirectory());
+
+            // These tests must not emit: swap the real SQS publisher for the Noop, which
+            // exists for exactly this. Without it, every order created here would attempt
+            // a real SendMessage against a queue that does not exist.
+            var events = services.Single(d => d.ServiceType == typeof(IEventPublisher));
+            services.Remove(events);
+            services.AddScoped<IEventPublisher, NoopEventPublisher>();
         });
     }
 
@@ -89,6 +104,7 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
             => Task.FromResult(cognitoSub == KnownCognitoSub
                 ? new CallerProfile(
                     KnownUserId,
+                    KnownEmail,
                     new CallerAddress("1 Test St", null, "Testville", null, "Testland", null))
                 : null);
     }
