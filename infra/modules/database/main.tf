@@ -1,5 +1,14 @@
 # ─── DocumentDB Subnet Group ────────────────────────────────────────────────────
+# Optional: Floci's DocumentDB subnet-group creation fails outright with
+# "InvalidClientTokenId: The security token included in the request is
+# invalid" (verified 2026-08-03, `make bootstrap`) — unlike rds-aurora's
+# quirk, this isn't a tag-read side effect, the create call itself never
+# succeeds. Local Floci sets create_subnet_group = false and points the
+# cluster at Floci's pre-existing "default" subnet group instead (see
+# subnet_group_name below), mirroring the rds-aurora module's toggle.
 resource "aws_docdb_subnet_group" "this" {
+  count = var.create_subnet_group ? 1 : 0
+
   name       = "${var.context.id}-docdb-subnet-group"
   subnet_ids = var.subnet_ids
 
@@ -13,7 +22,7 @@ resource "aws_docdb_cluster" "this" {
   engine_version         = var.engine_version
   master_username        = var.master_username
   master_password        = var.master_password
-  db_subnet_group_name   = aws_docdb_subnet_group.this.name
+  db_subnet_group_name   = var.create_subnet_group ? aws_docdb_subnet_group.this[0].name : var.subnet_group_name
   vpc_security_group_ids = var.security_group_ids
   skip_final_snapshot    = var.skip_final_snapshot
 

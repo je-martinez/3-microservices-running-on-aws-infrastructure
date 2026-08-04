@@ -28,6 +28,18 @@ variable "security_group_ids" {
   type        = list(string)
 }
 
+variable "create_subnet_group" {
+  description = "Create a managed DB subnet group. Default true for real AWS. Set false for Floci local (Floci's DocumentDB subnet group creation fails with InvalidClientTokenId), and pass subnet_group_name instead."
+  type        = bool
+  default     = true
+}
+
+variable "subnet_group_name" {
+  description = "Name of a pre-existing DB subnet group to use when create_subnet_group = false (e.g. Floci's 'default')."
+  type        = string
+  default     = null
+}
+
 variable "instance_class" {
   description = "Instance class for the DocumentDB instance."
   type        = string

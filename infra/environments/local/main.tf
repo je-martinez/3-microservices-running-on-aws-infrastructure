@@ -243,11 +243,13 @@ module "messaging" {
 # container name, so treat it as a stable contract from here on. See
 # docs/lessons/floci-sqs-lambda-docdb-support.md.
 module "database" {
-  source             = "../../modules/database"
-  context            = { id = "db-${module.label_events.id}", tags = module.label_events.tags }
-  subnet_ids         = module.networking.subnet_ids
-  security_group_ids = module.networking.security_group_ids
-  master_password    = var.docdb_password
+  source              = "../../modules/database"
+  context             = { id = "db-${module.label_events.id}", tags = module.label_events.tags }
+  subnet_ids          = module.networking.subnet_ids
+  security_group_ids  = module.networking.security_group_ids
+  master_password     = var.docdb_password
+  create_subnet_group = false
+  subnet_group_name   = "default"
 }
 
 # ─── Events Pipeline Lambda ─────────────────────────────────────────────────────
