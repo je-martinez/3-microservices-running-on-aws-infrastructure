@@ -30,13 +30,14 @@ reads by `cognito_sub` for exactly this reason.
 
 Every read goes through `_live()`, which appends `deleted_at IS NULL`. There is no
 path in this class that reads soft-deleted rows, and no method issues a SQL
-`DELETE` — deletion, when it is ever needed, is stamping the audit columns.
+`DELETE` — deletion is stamping the audit columns, which is what
+`soft_delete_by_tag` (the E2E cleanup's write path) does.
 """
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, select, update
 from sqlalchemy.orm import Session
 
 from src.features.tracking.domain.models import Tracking, TrackingHistory
@@ -185,6 +186,7 @@ class TrackingRepository:
         user_id: str,
         cognito_sub: str | None = None,
         shipping_address: dict | None = None,
+        tags: list[str] | None = None,
         status: TrackingStatus = TrackingStatus.SHIPPED,
         actor: AuditActor = AuditActor.CREATE_TRACKING,
         now: datetime | None = None,
@@ -202,6 +204,11 @@ class TrackingRepository:
         `cognito_sub` defaults to None so a caller that does not know it can still
         create — the wire field is optional (see the .proto). The resulting row is
         unreachable over the user-scoped REST reads and fully readable over gRPC.
+
+        `tags` defaults to the empty list, NOT None: the column is NOT NULL and
+        "no tags" has exactly one spelling (see `Tracking.tags`). A caller that
+        does not care about tags — which is every caller except the E2E creation
+        path — writes `[]` by simply not passing it.
         """
         moment = now or _utcnow()
         tracking = Tracking(
@@ -211,6 +218,9 @@ class TrackingRepository:
             cognito_sub=cognito_sub,
             status=status.value,
             shipping_address=shipping_address,
+            # `list(...)` so the row does not alias a list the caller still holds
+            # and may mutate after this returns.
+            tags=list(tags) if tags else [],
             datetime_=moment,
         )
         self._stamp_created(tracking, actor, moment)
@@ -300,6 +310,112 @@ class TrackingRepository:
         self.session.flush()
         self.session.expire(tracking, ["history"])
         return tracking
+
+    @staticmethod
+    def _has_tag(tag: str):
+        """The predicate for "this row's `tags` array contains `tag`".
+
+        `JSON_CONTAINS(tags, JSON_QUOTE(:tag))` — MySQL's array-membership test,
+        since MySQL has no array type and `tags` is a JSON array (see
+        `Tracking.tags`). Verified against the real server, MySQL 8.0.46: it
+        matches `["E2E Source"]` and `["x", "E2E Source"]`, and does not match
+        `[]` or `["other"]`.
+
+        `JSON_QUOTE` rather than interpolating `'"E2E Source"'` into the SQL. The
+        second argument of `JSON_CONTAINS` must be valid JSON, so a bare `:tag`
+        bind fails with "Invalid JSON text" — the wrapping is not optional. Doing
+        it in SQL keeps the value a **bound parameter**: building the JSON string
+        in Python and substituting it would put caller-supplied text into the
+        statement, which is a place a quote character does not belong.
+        """
+        return func.json_contains(Tracking.tags, func.json_quote(tag))
+
+    def soft_delete_by_tag(
+        self,
+        tag: str,
+        *,
+        actor: AuditActor,
+        now: datetime | None = None,
+    ) -> int:
+        """Soft-delete every live tracking tagged `tag`, and its history.
+
+        Returns the number of `tracking` rows stamped (history rows are not
+        counted; there is one per transition and the caller has no use for that
+        number).
+
+        ## Why the tag, and not the caller
+
+        This is the E2E teardown's delete, and the teardown runs globally with no
+        user session — no `x-user-id`, so nothing to scope to. Scoping by
+        `cognito_sub` (which this method used to do) made the endpoint unusable by
+        its only caller. Tagging at creation moves the decision to the one moment
+        an identity is actually present, and leaves this a single unscoped
+        predicate. Users' cleanup is the same shape.
+
+        The safety property that scoping used to provide is not lost, it moved:
+        only a request carrying `x-e2e-source` **while `E2E_TESTING_ENABLED` is
+        on** is ever tagged (`shared/http/e2e_source.py`), and this route is only
+        mounted under that same flag. An untagged row — which is every row any real
+        user ever created — is untouchable through here.
+
+        ## Never a SQL DELETE
+
+        Stamps `deleted_at` / `deleted_by` and nothing else — the rows stay in the
+        table, and every read already excludes them through `_live()`. This is the
+        [[soft-delete]] rule, and here it is not merely a convention to honor: the
+        application database user is granted no `DELETE` privilege, so a hard
+        delete would fail at the server anyway.
+
+        ## Why the history is stamped too, and how it is selected
+
+        `tracking_history` carries its own `deleted_at`, and `get_history` filters
+        on it. Leaving the children live would make a tracking's transitions
+        readable after the tracking itself is gone — an orphaned trail whose parent
+        no read can reach.
+
+        The children are selected **through the FK**, by a subquery over the tagged
+        parents, not by a `tags` column of their own — `tracking_history` has none,
+        deliberately (see its class docstring). That is what keeps the tag single
+        sourced: a history row is an E2E fixture exactly when its tracking is, with
+        no second copy of the fact to drift.
+
+        Both statements are bulk `UPDATE`s issued through the ORM rather than a
+        load-then-mutate loop: a cleanup can span an arbitrary number of rows, and
+        loading them all to stamp two columns each would be N+1 in the worst place.
+        `synchronize_session=False` because nothing in this session goes on to use
+        the affected entities — the caller's next action is to return the count.
+        """
+        moment = now or _utcnow()
+        stamp = {"deleted_at": moment, "deleted_by": actor.value}
+
+        # The tagged parents. Note it is NOT filtered on `deleted_at IS NULL`: an
+        # already-soft-deleted tracking may still have live history under it (a
+        # partial previous run), and those children should still be swept. The
+        # per-statement `deleted_at IS NULL` guards below are what keep the stamps
+        # idempotent.
+        tagged_ids = select(Tracking.id).where(self._has_tag(tag))
+
+        # Children first, mirroring the FK direction, so an interrupted unit of
+        # work can never leave a live history row under a deleted tracking.
+        self.session.execute(
+            update(TrackingHistory)
+            .where(
+                TrackingHistory.tracking_id.in_(tagged_ids),
+                TrackingHistory.deleted_at.is_(None),
+            )
+            .values(**stamp)
+            .execution_options(synchronize_session=False)
+        )
+        result = self.session.execute(
+            update(Tracking)
+            .where(
+                self._has_tag(tag),
+                Tracking.deleted_at.is_(None),
+            )
+            .values(**stamp)
+            .execution_options(synchronize_session=False)
+        )
+        return int(result.rowcount or 0)
 
     # ------------------------------------------------------------ audit stamps
 

@@ -2,6 +2,19 @@ namespace Orders.Domain.Entities;
 
 public class Order : AuditableEntity
 {
+    /// <summary>
+    /// The tag stamped on orders created by an end-to-end test run, and the one the
+    /// cleanup endpoint selects on.
+    /// </summary>
+    /// <remarks>
+    /// Byte-identical to the value the Users service writes — the space and the
+    /// capitalization are part of the contract. Each service's cleanup looks for this
+    /// same literal, so a drift here would leave Orders rows behind after a teardown
+    /// that reported success. Lives on the entity that owns the column, so the write
+    /// path (Infrastructure) and the cleanup (Api) cannot disagree about its value.
+    /// </remarks>
+    public const string E2eSourceTag = "E2E Source";
+
     public string UserId { get; set; } = string.Empty;      // internal usr_ id
     public string CognitoSub { get; set; } = string.Empty;  // from the gateway
     public long SubtotalCents { get; set; }
@@ -34,6 +47,25 @@ public class Order : AuditableEntity
     /// </para>
     /// </remarks>
     public string? ShippingAddress { get; set; }
+
+    /// <summary>
+    /// Free-form labels on the order. Currently only ever holds the E2E marker
+    /// (<c>"E2E Source"</c>), stamped when the order is created by an end-to-end
+    /// test run so the cleanup endpoint can find exactly those rows.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Never null — an order with no labels carries an empty list, so a reader never
+    /// has to distinguish "no tags" from "unknown". The column is a real MySQL
+    /// <c>json</c> array (MySQL 8 has no native array type the way Postgres does),
+    /// mapped by a value converter in <c>OrderConfiguration</c>.
+    /// </para>
+    /// <para>
+    /// Mirrors the Users service's <c>tags</c> column, including the literal tag value,
+    /// so cleanup works identically across services.
+    /// </para>
+    /// </remarks>
+    public List<string> Tags { get; set; } = new();
 
     public List<OrderDetail> Details { get; set; } = new();
 

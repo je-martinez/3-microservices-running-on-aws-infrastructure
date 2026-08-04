@@ -258,6 +258,11 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # Tracking serves HTTP only — it has no gRPC port because it has
                 # no gRPC server.
                 "PORT": "8000",
+                # Gates the flag-guarded E2E cleanup endpoint, the same way it
+                # does for Users and Orders. Without it the route is not mounted
+                # at all, and the harness's teardown gets a 405 rather than a
+                # cleanup. Local-only: never true in a deployed environment.
+                "E2E_TESTING_ENABLED": "true",
             },
         ),
         # --- debug: HOST-reachable, loaded by nothing ------------------------

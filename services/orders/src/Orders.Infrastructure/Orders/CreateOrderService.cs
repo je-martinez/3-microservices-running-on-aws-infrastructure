@@ -52,10 +52,17 @@ public class CreateOrderService
     /// <c>E2E_TESTING_ENABLED</c> guard, so a production runtime always passes false here
     /// regardless of what the client sent.
     /// </param>
+    /// <param name="e2eSource">
+    /// Tags the order with <c>"E2E Source"</c> so the e2e-cleanup endpoint can find it, and
+    /// is forwarded to Tracking as <c>x-e2e-source</c> so its record is tagged too. Same
+    /// division of responsibility as <paramref name="testMode"/>: the Api layer applies the
+    /// <c>E2E_TESTING_ENABLED</c> guard, so production always passes false.
+    /// </param>
     public async Task<OrderDto> CreateAsync(
         CreateOrderCommand command,
         string cognitoSub,
         bool testMode = false,
+        bool e2eSource = false,
         CancellationToken ct = default)
     {
         _logger.LogInformation(
@@ -107,6 +114,8 @@ public class CreateOrderService
                 // Point-in-time snapshot: a later edit to the user's profile address must
                 // not rewrite where THIS shipment was sent. Null when none is on file.
                 ShippingAddress = shippingAddressJson,
+                // Empty list, not null, when this is an ordinary order (see Order.Tags).
+                Tags = e2eSource ? new List<string> { Order.E2eSourceTag } : new List<string>(),
                 CreatedAt = now,
                 UpdatedAt = now,
             };
@@ -205,7 +214,7 @@ public class CreateOrderService
             // The outcome therefore only ever affects the log stream: the order is created
             // and its 201 response is identical regardless of what Tracking answers.
             var trackingResult = await _tracking.InitTrackingAsync(
-                order.Id, shippingAddressJson, cognitoSub, testMode, ct);
+                order.Id, shippingAddressJson, cognitoSub, testMode, e2eSource, ct);
 
             if (!trackingResult.IsTracked)
             {

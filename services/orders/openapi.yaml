@@ -92,13 +92,15 @@ paths:
     delete:
       tags:
         - Orders
-      summary: Soft-delete the caller's orders (only mapped when E2E_TESTING_ENABLED).
+      summary: Soft-delete every order tagged "E2E Source" and restore seed stock (only mapped when E2E_TESTING_ENABLED).
       operationId: E2eCleanup
       responses:
-        '204':
-          description: No Content
-        '401':
-          description: Unauthorized
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/E2eCleanupResponse'
   /v1/products:
     get:
       tags:
@@ -141,6 +143,31 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/CreateOrderLine'
+    E2eCleanupResponse:
+      required:
+        - deleted
+        - deletedDetails
+        - restocked
+      type: object
+      properties:
+        deleted:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: int32
+        deletedDetails:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: int32
+        restocked:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: int32
     OrderDto:
       required:
         - id

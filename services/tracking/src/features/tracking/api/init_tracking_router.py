@@ -42,6 +42,20 @@ its caller was Orders behind an `x-api-key`, asserting an id it had already
 resolved. Here the caller is an end user, so the service resolves it itself; a
 `user_id` the client supplied would be an unauthenticated claim.
 
+## The `x-e2e-source` header
+
+A second harness header alongside `x-test-mode`, and it does something different:
+`x-test-mode` drives a runtime behaviour, this one LABELS the row. A request
+sending `x-e2e-source: true` **to a service with `E2E_TESTING_ENABLED` on** creates
+its tracking tagged `"E2E Source"`, which is the exact predicate `DELETE
+/v1/trackings/e2e-cleanup` deletes by.
+
+The conjunction is the security half and is evaluated inside the dependency, not
+here: without it any client could tag its own rows by sending one header, enlisting
+them for deletion by somebody else's teardown. Orders forwards this header the same
+way it already forwards `x-test-mode`, so a fixture created through the Orders flow
+is tagged too.
+
 ## Status codes
 
 | Outcome | Code | Why |
@@ -131,6 +145,7 @@ from src.features.tracking.commands.test_mode_progression import (
 from src.shared.db.engine import write_session
 from src.shared.http.caller import CurrentCaller, UnknownUserError
 from src.shared.http.dependencies import WriteSession
+from src.shared.http.e2e_source import E2eSource
 from src.shared.http.log_identity import IdentifiedCaller
 from src.shared.http.test_mode import TestMode
 from src.shared.logging import merge_log_context
@@ -199,6 +214,7 @@ async def init_tracking(
     session: WriteSession,
     payload: InitTrackingRequest,
     test_mode: TestMode,
+    e2e_source: E2eSource,
     progression: Progression,
     background: BackgroundTasks,
 ) -> InitTrackingResponse:
@@ -219,7 +235,7 @@ async def init_tracking(
 
     try:
         tracking, user_id = await asyncio.to_thread(
-            _resolve_and_create, caller, session, payload
+            _resolve_and_create, caller, session, payload, e2e_source
         )
         # Merged HERE, after the await, not inside `_resolve_and_create`:
         # asyncio.to_thread COPIES the context, so a merge in that thread would
@@ -294,7 +310,10 @@ async def init_tracking(
 
 
 def _resolve_and_create(
-    caller: CurrentCaller, session: Session, payload: InitTrackingRequest
+    caller: CurrentCaller,
+    session: Session,
+    payload: InitTrackingRequest,
+    e2e_source: bool,
 ) -> tuple[object, str]:
     """The blocking half: resolve the caller, then write. Runs on a worker thread.
 
@@ -323,6 +342,10 @@ def _resolve_and_create(
             # empty string a stray caller could later match on.
             cognito_sub=caller.cognito_sub,
             shipping_address=payload.shipping_address or None,
+            # Already the AND of the header and `E2E_TESTING_ENABLED` — the
+            # dependency evaluates both, so this handler cannot tag a row on the
+            # header alone. See `shared/http/e2e_source.py`.
+            e2e_source=e2e_source,
             # Not consumed here — the handler schedules the progression itself, on
             # the loop it is already running on. Passed so the command's contract
             # is identical on both transports.

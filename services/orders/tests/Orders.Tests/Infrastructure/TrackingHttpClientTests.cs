@@ -32,7 +32,8 @@ public class TrackingHttpClientTests
             "ord_abc",
             """{"street":"1 Main St","city":"Austin"}""",
             "sub-123",
-            testMode: true);
+            testMode: true,
+            e2eSource: true);
 
         Assert.Equal(TrackingInitOutcome.Created, result.Outcome);
 
@@ -43,6 +44,9 @@ public class TrackingHttpClientTests
         // Identity is a header, never the body.
         Assert.Equal("sub-123", request.Headers.GetValues("x-user-id").Single());
         Assert.Equal("true", request.Headers.GetValues("x-test-mode").Single());
+        // Tracking tags its own record from this, so an E2E run's rows are removable by
+        // tag on both sides of the seam.
+        Assert.Equal("true", request.Headers.GetValues("x-e2e-source").Single());
 
         using var body = JsonDocument.Parse(handler.Body!);
         var root = body.RootElement;
@@ -67,6 +71,18 @@ public class TrackingHttpClientTests
         await client.InitTrackingAsync("ord_abc", null, "sub-123", testMode: false);
 
         Assert.Equal("false", handler.Request!.Headers.GetValues("x-test-mode").Single());
+    }
+
+    [Fact]
+    public async Task Sends_e2e_source_false_when_not_requested()
+    {
+        var (client, handler) = Build();
+
+        await client.InitTrackingAsync("ord_abc", null, "sub-123", testMode: false);
+
+        // Explicit "false" rather than an omitted header, same convention as
+        // x-test-mode: the header's meaning stays unambiguous in a traffic capture.
+        Assert.Equal("false", handler.Request!.Headers.GetValues("x-e2e-source").Single());
     }
 
     [Fact]
@@ -189,7 +205,7 @@ public class TrackingHttpClientTests
         // Genuine cancellation is not a Tracking failure; it must not be swallowed
         // into an Unreachable result.
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => client.InitTrackingAsync("ord_abc", null, "sub-123", false, cts.Token));
+            () => client.InitTrackingAsync("ord_abc", null, "sub-123", false, ct: cts.Token));
     }
 
     [Fact]

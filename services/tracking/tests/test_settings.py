@@ -12,7 +12,7 @@ from collections.abc import Iterator
 import pytest
 from pydantic import ValidationError
 
-from src.shared.config.settings import Settings
+from src.shared.config.settings import Settings, e2e_testing_enabled
 
 MINIMAL_ENV = {
     "DATABASE_WRITER_URL": "mysql+pymysql://test:test@floci:7001/tracking",
@@ -30,6 +30,7 @@ MANAGED_KEYS = (
     "USERS_GRPC_URL",
     "ENVIRONMENT",
     "DEPLOYMENT_ENVIRONMENT",
+    "E2E_TESTING_ENABLED",
 )
 
 
@@ -162,6 +163,75 @@ class TestReplicaSplit:
             DATABASE_READER_URL="mysql+pymysql://r/tracking",
         )
         assert settings.database_writer_url != settings.database_reader_url
+
+
+class TestE2eTestingEnabled:
+    """The flag gating `DELETE /v1/trackings/e2e-cleanup` (JE-111).
+
+    The default direction is the safety property: a deployed environment that
+    never sets the variable does not serve a mass soft-delete route.
+    """
+
+    def test_defaults_to_false(self) -> None:
+        assert build().e2e_testing_enabled is False
+
+    @pytest.mark.parametrize("truthy", ["true", "True", "1", "yes", "on"])
+    def test_the_usual_true_spellings_are_accepted(self, truthy: str) -> None:
+        """The same name and value Users and Orders read (`"true"` in the env files)."""
+        assert build(E2E_TESTING_ENABLED=truthy).e2e_testing_enabled is True
+
+    @pytest.mark.parametrize("falsy", ["false", "False", "0", "no", "off"])
+    def test_the_usual_false_spellings_are_rejected(self, falsy: str) -> None:
+        assert build(E2E_TESTING_ENABLED=falsy).e2e_testing_enabled is False
+
+
+class TestE2eTestingEnabledHelper:
+    """`e2e_testing_enabled()` — the mount-time reader used by `create_app`.
+
+    It reads the environment DIRECTLY, and that is the behaviour under test: the
+    app must be constructible without a valid environment (the whole REST suite
+    builds one with no DB/carrier variables), so this must not go through
+    `Settings()` and inherit its validation.
+    """
+
+    def test_absent_is_false(self) -> None:
+        assert e2e_testing_enabled() is False
+
+    def test_empty_is_false(self) -> None:
+        """An env file emitting `E2E_TESTING_ENABLED=` must not mount the route."""
+        os.environ["E2E_TESTING_ENABLED"] = ""
+        assert e2e_testing_enabled() is False
+
+    @pytest.mark.parametrize("truthy", ["true", "True", "1", "yes", "on"])
+    def test_true_spellings_enable_it(self, truthy: str) -> None:
+        os.environ["E2E_TESTING_ENABLED"] = truthy
+        assert e2e_testing_enabled() is True
+
+    @pytest.mark.parametrize("falsy", ["false", "0", "no", "off"])
+    def test_false_spellings_do_not(self, falsy: str) -> None:
+        os.environ["E2E_TESTING_ENABLED"] = falsy
+        assert e2e_testing_enabled() is False
+
+    def test_an_unparseable_value_is_off_rather_than_a_startup_failure(self) -> None:
+        """OFF is the safe direction, and refusing to boot is the worse trade.
+
+        A production runtime must not be taken down by a malformed test-harness
+        flag, and it must not serve the route on one either.
+        """
+        os.environ["E2E_TESTING_ENABLED"] = "maybe"
+        assert e2e_testing_enabled() is False
+
+    def test_it_does_not_require_a_valid_environment(self) -> None:
+        """No DB/gRPC/carrier variables set — the helper still answers.
+
+        `Settings()` would raise here. `create_app()` calls this while building the
+        routing table, so if it validated everything else, constructing an app
+        would start depending on a full environment because of a test-only route.
+        """
+        for key in MINIMAL_ENV:
+            os.environ.pop(key, None)
+        os.environ["E2E_TESTING_ENABLED"] = "true"
+        assert e2e_testing_enabled() is True
 
 
 class TestExtraVars:

@@ -16,6 +16,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     case,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -34,6 +35,18 @@ ID_LENGTH = 26
 
 # The spec's declared width for the status column.
 STATUS_LENGTH = 50
+
+# The one tag value this service ever writes: the label marking a tracking as an
+# E2E fixture, and the exact string `DELETE /v1/trackings/e2e-cleanup` selects on.
+#
+# Shared with Users VERBATIM — space, capitals and all — because both services'
+# teardowns select on this same string and a near-miss ("e2e-source") would clean
+# up nothing while looking correct.
+#
+# It lives HERE, in the domain, rather than beside the HTTP header that requests
+# it: the tag is a value persisted on a row, so the transport-free command layer
+# needs it and must not import a FastAPI module to get it.
+E2E_SOURCE_TAG = "E2E Source"
 
 # Width of the `cognito_sub` column. A Cognito `sub` is a 36-char UUID today, but
 # 255 is what Orders' `order.cognito_sub` uses (verified in
@@ -99,6 +112,30 @@ class Tracking(Base, AuditMixin):
     #: may arrive as an empty message. PII — never log it.
     shipping_address: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
+    #: Free-form labels on the row. Today exactly one value is ever written —
+    #: `"E2E Source"`, the tag `DELETE /v1/trackings/e2e-cleanup` selects on.
+    #:
+    #: **JSON, not an array type.** Users stores the same tags as a Postgres
+    #: `text[]`; MySQL has no array type at all, so the portable equivalent here is
+    #: a JSON array, queried with `JSON_CONTAINS` (verified against MySQL 8.0.46).
+    #: The alternative — a child `tracking_tag` table — would be the right shape
+    #: for tags that are queried, joined and indexed; these are neither, and a
+    #: second table plus a join for a single harness label is a schema nobody would
+    #: choose if the tag were the only requirement.
+    #:
+    #: **NOT NULL with a `[]` default, never NULL.** A nullable tags column would
+    #: give "no tags" two spellings, and `JSON_CONTAINS(NULL, ...)` is NULL rather
+    #: than false — so a NULL row is excluded from the cleanup's predicate for a
+    #: reason that reads like an accident. The default is applied server-side too
+    #: (`server_default`), so a row inserted by anything that does not go through
+    #: this model — a migration backfill, a manual fix — is still `[]`.
+    #:
+    #: `default=list`, not `default=[]`: a mutable default would be ONE list shared
+    #: by every instance that took it.
+    tags: Mapped[list[str]] = mapped_column(
+        JSON, nullable=False, default=list, server_default=text("(JSON_ARRAY())")
+    )
+
     #: Timestamp of the CURRENT status. Distinct from `updated_at`: this moves
     #: only on a status transition, whereas `updated_at` moves on any write.
     datetime_: Mapped[datetime] = mapped_column(
@@ -151,6 +188,21 @@ class TrackingHistory(Base, AuditMixin):
     **at most one row per status**, which is exactly the forward-only state
     machine's guarantee — the same status can never be entered twice. The PK and
     the state machine enforce the same invariant from two directions.
+
+    **No `tags` column, deliberately** — unlike `cognito_sub`, which this table
+    does denormalize. The two are not the same kind of fact. `cognito_sub` is the
+    row's ownership context, and the reads scope by it, so a transition row has to
+    carry it to be self-describing. `tags` is consumed by exactly one query, the
+    E2E cleanup, and that query does not need it here: history rows are reached
+    through their parent's `tracking_id` (the FK), so "the children of every tagged
+    tracking" is already expressible without copying the tag down.
+
+    Copying it would actively make things worse. The tag would then have two
+    sources of truth that a partial update could put out of step, and a history row
+    could end up tagged while its parent is not (or the reverse) — a state with no
+    meaning, since a transition is not independently an "E2E fixture", its shipment
+    is. The cascade in `soft_delete_by_tag` follows the FK for precisely this
+    reason.
     """
 
     __tablename__ = "tracking_history"

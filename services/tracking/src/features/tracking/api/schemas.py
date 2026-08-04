@@ -211,6 +211,21 @@ class UpdateStatusRequest(BaseModel):
     status: str
 
 
+class E2eCleanupResponse(BaseModel):
+    """`200` payload of `DELETE /v1/trackings/e2e-cleanup`.
+
+    One field, and it earns its place: "the suite still sees its fixtures" and
+    "the cleanup matched nothing" look identical from the harness's side, so a
+    bodiless `204` would leave it unable to tell a teardown that worked from one
+    that silently selected zero rows without reading this service's logs. Users'
+    cleanup returns its `count` for the same reason.
+
+    Named `deleted` rather than `count` because it says what was counted.
+    """
+
+    deleted: int
+
+
 class ErrorResponse(BaseModel):
     """Failure payload.
 

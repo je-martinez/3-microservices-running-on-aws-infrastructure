@@ -54,6 +54,7 @@ services/tracking/
 | `GET /v1/trackings/{orderId}`, `GET /v1/trackings?order_ids=` | Cognito JWT at the gateway, then scoped by `x-user-id` | the end user |
 | `POST /v1/trackings/init-tracking` | Cognito JWT at the gateway, identity from `x-user-id` | Orders, forwarding the user's own header |
 | `PUT /v1/trackings/{orderId}/status` | `TRACKING_CARRIER_API_KEY`, validated by the service | an external shipping carrier |
+| `DELETE /v1/trackings/e2e-cleanup` | none — the route only EXISTS under `E2E_TESTING_ENABLED` | the E2E harness's global teardown |
 | outbound `users.v1.Users/GetUserById` | `GRPC_API_KEY`, presented by us | this service, calling Users |
 
 Two things to keep straight:
@@ -65,6 +66,14 @@ Two things to keep straight:
 - **The carrier PUT is the odd one out**: no Cognito JWT, so its gateway route is declared
   `auth = false` and it receives **no `x-user-id`**. It identifies the tracking by
   `order_id` alone and must never reuse the reads' ownership filter — see §5b.
+- **The E2E cleanup has no credential at all**, and that is not an oversight. The
+  harness's teardown runs once, globally, with no user session — so a route requiring
+  `x-user-id` would `401` its only real caller (it did, in the first version). What
+  protects it instead is that it does not exist unless `E2E_TESTING_ENABLED` is on, and
+  that it only deletes rows tagged `"E2E Source"` — a tag applied at creation only when
+  the request sent `x-e2e-source: true` **and** that same flag was on. Both halves are
+  required; the conjunction is what stops an untrusted client tagging its own rows for
+  someone else's teardown to delete. See `src/shared/http/e2e_source.py`.
 
 Nothing inbound authenticates with `GRPC_API_KEY` any more: Tracking serves no gRPC, so
 that key now only travels outward. See §6.
@@ -152,8 +161,17 @@ Implementation notes:
     by its own external API key rather than a Cognito JWT, so it receives no
     `x-user-id`. Guarded: terminal `DELIVERED` rejects any update, and backward or
     same-status transitions are rejected.
+  - `[DELETE] /v1/trackings/e2e-cleanup` — the E2E teardown, mounted **only** under
+    `E2E_TESTING_ENABLED`. Soft-deletes every tracking tagged `"E2E Source"` (and its
+    history, through the FK) and answers `200 {"deleted": N}`. Takes no caller
+    identity — see §5a. With the flag off the route is not registered, and the path
+    then matches `GET /v1/trackings/{order_id}`, so a `DELETE` there answers `405`,
+    not `404`.
 - gRPC (client only): `users.v1.Users/GetUserById`, to resolve the caller's `usr_` id
   from the Cognito sub — the same shape as Orders' `ICurrentCaller`. `NOT_FOUND` means
   the user does not exist; every other status propagates, so a Users outage is never
   mistaken for an unknown caller.
-- Entities: Tracking, Tracking_History.
+- Entities: Tracking, Tracking_History. `tracking.tags` is a JSON array (MySQL has no
+  array type), `NOT NULL DEFAULT (JSON_ARRAY())`, queried with `JSON_CONTAINS`.
+  `tracking_history` deliberately carries **no** `tags` — its rows are reached through
+  the parent's FK, so the tag stays single-sourced.

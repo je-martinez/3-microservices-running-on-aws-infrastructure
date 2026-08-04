@@ -21,3 +21,9 @@ class AuditActor(StrEnum):
     CARRIER_STATUS_UPDATE = "tracking_api:carrier_status_update"
     # Automatic TestMode progression (SHIPPED -> ... -> DELIVERED on a timer).
     TEST_MODE_PROGRESSION = "tracking_api:test_mode_progression"
+    # DELETE /v1/trackings/e2e-cleanup — the flag-guarded E2E teardown. Its own
+    # actor rather than the caller's identity, matching Orders' `E2eCleanup` and
+    # Users' `AuditActor.E2eCleanup`: a row soft-deleted by the test harness must
+    # be distinguishable from one a real flow removed, which is the whole reason
+    # `deleted_by` records a source rather than a user id.
+    E2E_CLEANUP = "tracking_api:e2e_cleanup"

@@ -15,7 +15,7 @@ Every database-touching HTTP handler is a plain `def` rather than `async def`,
 because the database layer is blocking pymysql and FastAPI runs `def` handlers in a
 threadpool. `POST /init-tracking` is the deliberate exception — see its router.
 
-## Four routers, three auth schemes
+## Five routers, three auth schemes — and one of them is conditional
 
 Registered separately and deliberately: `health_router` declares no auth,
 `trackings_router` and `init_tracking_router` both require the gateway-injected
@@ -24,6 +24,14 @@ declares the carrier key at the router level. Nothing is authenticated by a glob
 middleware, so no route can be accidentally exempted by an allowlist — and,
 critically, the carrier PUT cannot inherit an `x-user-id` requirement it must not
 have, nor the outbound call to Users that comes with one.
+
+The fifth, `e2e_router`, is included **only** when `E2E_TESTING_ENABLED` — the same
+flag and the same shape Users and Orders use for their own cleanup routes. In a
+production runtime the route is not registered, so it 404s like any path that was
+never written. It is the one route under `/v1/trackings` that requires **no**
+caller identity, deliberately: the harness's teardown runs globally with no user
+session, and what it deletes is selected by the `"E2E Source"` tag rather than by
+an owner (see that router).
 
 Creation lives in its own router rather than beside the reads because it treats a
 failed resolution differently: for a read the `usr_` id is log enrichment and its
@@ -41,6 +49,7 @@ from fastapi import FastAPI
 
 from src.features.tracking.api import (
     carrier_router,
+    e2e_router,
     health_router,
     init_tracking_router,
     trackings_router,
@@ -49,6 +58,7 @@ from src.features.tracking.api.errors import (
     RejectedStatusUpdate,
     rejected_status_update_handler,
 )
+from src.shared.config.settings import e2e_testing_enabled
 from src.shared.http.log_context_middleware import LogContextMiddleware
 from src.shared.logging import configure_logging
 
@@ -106,6 +116,29 @@ def create_app() -> FastAPI:
     # but Starlette matches in declaration order, and declaring the literal first is
     # the habit that keeps that from mattering if either surface ever grows a method
     # the other already has.
+    # The E2E teardown, BEFORE the reads for the same declaration-order reason as
+    # creation: `/e2e-cleanup` is a literal segment where `/{order_id}` also
+    # matches. Registered here — inside the `if` — rather than always-registered
+    # and guarded per request, because a route that exists and answers 403 is
+    # still a route: it appears in the OpenAPI document, it is probeable, and it
+    # is one edited condition away from being live. Not existing is the stronger
+    # guarantee, and it is what Orders and Users both do.
+    #
+    # The flag is read from the environment rather than through `get_settings()`:
+    # constructing the app must not require a fully-valid environment (see
+    # `e2e_testing_enabled`).
+    if e2e_testing_enabled():
+        # WARNING at startup, not INFO: in a deployed environment this line means
+        # a mass soft-delete surface is live and someone should see it.
+        logger.warning(
+            "e2e_routes_enabled",
+            extra={
+                "app_event": "e2e_routes_enabled",
+                "reason": "E2E_TESTING_ENABLED",
+            },
+        )
+        app.include_router(e2e_router.router)
+
     app.include_router(init_tracking_router.router)
     app.include_router(trackings_router.router)
     app.include_router(carrier_router.router)

@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from src.features.tracking.domain.models import Tracking
+from src.features.tracking.domain.models import E2E_SOURCE_TAG, Tracking
 from src.features.tracking.domain.repository import TrackingRepository
 from src.features.tracking.domain.status import INITIAL_STATUS
 from src.shared.audit.audit_actor import AuditActor
@@ -61,6 +61,20 @@ class CreateTrackingCommand:
     #: it is unreachable over those reads rather than mis-attributed.
     cognito_sub: str | None = None
     shipping_address: dict | None = None
+    #: Whether this tracking is an E2E fixture, and should therefore be tagged
+    #: `"E2E Source"` — the tag `DELETE /v1/trackings/e2e-cleanup` deletes by.
+    #:
+    #: Unlike `test_mode` this one IS persisted, and the difference is what each
+    #: describes. `test_mode` is true for the instant of creation and meaningless
+    #: afterwards, so it is returned rather than stored. Whether a row is a
+    #: harness fixture is a durable fact about the row itself — the teardown asks
+    #: it minutes later, long after the creating request is gone — so it has
+    #: nowhere to live except the row.
+    #:
+    #: A `bool` here, not the tag string: this layer states the fact and
+    #: `_persist` maps it to the literal, so no caller can write a near-miss
+    #: spelling the cleanup would never match.
+    e2e_source: bool = False
     #: Recorded, not acted upon here — see `CreateTrackingResult.test_mode`.
     test_mode: bool = False
 
@@ -171,6 +185,10 @@ def _persist(
         user_id=command.user_id,
         cognito_sub=command.cognito_sub,
         shipping_address=command.shipping_address,
+        # The ONE place the tag literal is written. Everything upstream carries a
+        # boolean, so a spelling the cleanup does not select on cannot be
+        # introduced at a call site.
+        tags=[E2E_SOURCE_TAG] if command.e2e_source else [],
         # The initial status is not a parameter of this flow — every tracking
         # starts at SHIPPED, per the state machine, whether or not TestMode is on.
         status=INITIAL_STATUS,

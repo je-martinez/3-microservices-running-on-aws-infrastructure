@@ -1,11 +1,38 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Orders.Domain.Entities;
 
 namespace Orders.Infrastructure.Persistence.Configurations;
 
 public class OrderConfiguration : IEntityTypeConfiguration<Order>
 {
+    // Tags <-> MySQL `json`. MySQL 8 has no native array type (unlike Postgres, which
+    // is what Users uses), so the list is serialized to a JSON array string. Domain
+    // keeps a plain List<string> and never learns about the storage shape.
+    //
+    // Deliberately serialized here rather than with EF's OwnsMany/ToJson: this is a
+    // scalar column the cleanup query has to filter on with MySQL's JSON_CONTAINS
+    // (see E2eEndpoints), and a JSON-owned collection would model it as a nested
+    // entity type instead.
+    private static readonly ValueConverter<List<string>, string> TagsConverter = new(
+        tags => JsonSerializer.Serialize(tags, (JsonSerializerOptions?)null),
+        // Null/blank -> empty list, never null: Order.Tags is non-nullable, and rows
+        // written before this column existed have SQL NULL in it.
+        json => string.IsNullOrWhiteSpace(json)
+            ? new List<string>()
+            : JsonSerializer.Deserialize<List<string>>(json, (JsonSerializerOptions?)null) ?? new List<string>());
+
+    // Required for any converted MUTABLE reference type. Without it EF compares
+    // List<string> by reference, so it cannot detect that an entry was added to an
+    // existing order's tags and would silently skip the UPDATE.
+    private static readonly ValueComparer<List<string>> TagsComparer = new(
+        (a, b) => a != null && b != null ? a.SequenceEqual(b) : a == b,
+        tags => tags.Aggregate(0, (hash, tag) => HashCode.Combine(hash, tag.GetHashCode())),
+        tags => tags.ToList());
+
     public void Configure(EntityTypeBuilder<Order> b)
     {
         b.ToTable("order");
@@ -21,6 +48,15 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         // Mirrors Tracking's own `shipping_address` JSON column so the two snapshots
         // stay recognisably the same shape. PII: never log it.
         b.Property(o => o.ShippingAddress).HasColumnName("shipping_address").HasColumnType("json");
+        // Labels on the order (see Order.Tags). Stored as a JSON array so the E2E
+        // cleanup can select rows by tag; non-nullable with an empty-array default so
+        // an untagged order reads back as [] rather than null.
+        b.Property(o => o.Tags)
+            .HasColumnName("tags")
+            .HasColumnType("json")
+            .HasConversion(TagsConverter, TagsComparer)
+            .HasDefaultValue(new List<string>())
+            .IsRequired();
         ProductConfiguration.ApplyAudit(b);
         b.Ignore(o => o.Subtotal);
         b.Ignore(o => o.Tax);

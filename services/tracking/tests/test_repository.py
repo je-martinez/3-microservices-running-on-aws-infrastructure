@@ -13,7 +13,11 @@ from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from src.features.tracking.domain.models import Tracking, TrackingHistory
+from src.features.tracking.domain.models import (
+    E2E_SOURCE_TAG,
+    Tracking,
+    TrackingHistory,
+)
 from src.features.tracking.domain.repository import TrackingRepository
 from src.features.tracking.domain.status import TrackingStatus
 from src.shared.audit.audit_actor import AuditActor
@@ -50,6 +54,7 @@ def make_tracking(
     user_id: str = "usr_aaaaaaaaaaaaaaaaaaaaa",
     cognito_sub: str | None | object = _DEFAULT,
     address: dict | None | object = _DEFAULT,
+    tags: list[str] | None = None,
 ) -> Tracking:
     """Create a committed tracking.
 
@@ -57,6 +62,10 @@ def make_tracking(
     constant, so a test that sets only `user_id` still gets two distinct users with
     two distinct subs. A shared constant would make every "another user" test pass
     for the wrong reason — both users would carry the same ownership key.
+
+    `tags` defaults to None -> `[]`: an ORDINARY tracking, not an E2E fixture. The
+    default has to be the untagged one, or a test asserting that the cleanup spares
+    untagged rows would be seeding the very thing it expects to survive.
     """
     tracking = repo.create(
         order_id=order_id,
@@ -65,6 +74,7 @@ def make_tracking(
             f"sub-{user_id}" if cognito_sub is _DEFAULT else cognito_sub  # type: ignore[arg-type]
         ),
         shipping_address=ADDRESS if address is _DEFAULT else address,  # type: ignore[arg-type]
+        tags=tags,
     )
     repo.session.commit()
     return tracking
@@ -742,6 +752,201 @@ class TestSoftDelete:
         assert tracking.is_deleted is False
         tracking.deleted_at = datetime(2026, 7, 29, 12, 0, 0)
         assert tracking.is_deleted is True
+
+
+class TestTagsColumn:
+    """`tracking.tags` is a JSON array — MySQL has no array type."""
+
+    def test_a_tracking_defaults_to_no_tags(
+        self, repo: TrackingRepository
+    ) -> None:
+        """`[]`, never NULL.
+
+        The distinction is load-bearing rather than cosmetic:
+        `JSON_CONTAINS(NULL, …)` evaluates to NULL, not false, so a NULL row would
+        fall out of the cleanup's predicate for a reason indistinguishable from a
+        bug. `[]` gives "no tags" exactly one spelling.
+        """
+        tracking = make_tracking(repo, order_id="ord_tag00000000000000001")
+        assert tracking.tags == []
+
+    def test_the_column_is_not_nullable(self, engine) -> None:
+        """Pinned at the schema, not just in the model.
+
+        The ORM default only applies to rows this code inserts; NOT NULL is what
+        holds for a backfill or a manual fix that never goes through it.
+        """
+        column = next(
+            c for c in inspect(engine).get_columns("tracking") if c["name"] == "tags"
+        )
+        assert column["nullable"] is False
+
+    def test_tags_survive_a_round_trip_through_mysql(
+        self, repo: TrackingRepository, session: Session
+    ) -> None:
+        """A real round trip: JSON is serialized by the driver, not by us.
+
+        Read back on a fresh snapshot rather than off the in-memory entity, which
+        would assert nothing about what MySQL actually stored.
+        """
+        make_tracking(
+            repo, order_id="ord_tag00000000000000002", tags=[E2E_SOURCE_TAG]
+        )
+        session.expire_all()
+
+        stored = repo.get_by_order_id("ord_tag00000000000000002")
+        assert stored is not None
+        assert stored.tags == [E2E_SOURCE_TAG]
+
+
+class TestSoftDeleteByTag:
+    """The E2E teardown's write path — unscoped, and gated only by the tag.
+
+    This is a mass soft-delete with no caller scoping at all, so the tag predicate
+    is the ONLY thing standing between it and real users' data. Every shape of row
+    it must not touch is pinned explicitly.
+    """
+
+    def test_deletes_the_tagged_trackings(
+        self, repo: TrackingRepository, session: Session
+    ) -> None:
+        tracking = make_tracking(
+            repo, order_id="ord_swp00000000000000001", tags=[E2E_SOURCE_TAG]
+        )
+
+        deleted = repo.soft_delete_by_tag(
+            E2E_SOURCE_TAG, actor=AuditActor.E2E_CLEANUP
+        )
+        session.commit()
+        session.expire_all()
+
+        assert deleted == 1
+        assert repo.get_by_order_id("ord_swp00000000000000001") is None
+        assert session.get(Tracking, tracking.id).is_deleted
+
+    def test_leaves_untagged_trackings_alone(
+        self, repo: TrackingRepository, session: Session
+    ) -> None:
+        """The property that replaced caller scoping."""
+        make_tracking(repo, order_id="ord_swp00000000000000002")
+
+        deleted = repo.soft_delete_by_tag(
+            E2E_SOURCE_TAG, actor=AuditActor.E2E_CLEANUP
+        )
+        session.commit()
+
+        assert deleted == 0
+        assert repo.get_by_order_id("ord_swp00000000000000002") is not None
+
+    def test_the_match_is_the_exact_tag_value(
+        self, repo: TrackingRepository, session: Session
+    ) -> None:
+        """`JSON_CONTAINS` compares whole elements — a near miss is not a match.
+
+        Worth pinning because the failure would be silent in the safe direction on
+        one side and the unsafe direction on the other: a spelling drift between
+        the writer and this predicate leaves fixtures accumulating forever, while a
+        prefix/substring match would start sweeping up rows nobody tagged.
+        """
+        make_tracking(
+            repo, order_id="ord_swp00000000000000003", tags=["e2e source"]
+        )
+        make_tracking(
+            repo, order_id="ord_swp00000000000000004", tags=["E2E Source Extra"]
+        )
+
+        deleted = repo.soft_delete_by_tag(
+            E2E_SOURCE_TAG, actor=AuditActor.E2E_CLEANUP
+        )
+        session.commit()
+
+        assert deleted == 0
+
+    def test_matches_the_tag_among_others(
+        self, repo: TrackingRepository, session: Session
+    ) -> None:
+        """Membership, not equality of the whole array."""
+        make_tracking(
+            repo,
+            order_id="ord_swp00000000000000005",
+            tags=["first", E2E_SOURCE_TAG, "last"],
+        )
+
+        deleted = repo.soft_delete_by_tag(
+            E2E_SOURCE_TAG, actor=AuditActor.E2E_CLEANUP
+        )
+        session.commit()
+
+        assert deleted == 1
+
+    def test_stamps_the_cleanup_actor_and_keeps_the_row(
+        self, repo: TrackingRepository, session: Session
+    ) -> None:
+        """Soft delete: the row stays, stamped by the HARNESS, not a user.
+
+        The database user has no `DELETE` privilege, so a hard delete would fail
+        against the real server anyway — but the actor is the part a shortcut would
+        get wrong silently.
+        """
+        tracking = make_tracking(
+            repo, order_id="ord_swp00000000000000006", tags=[E2E_SOURCE_TAG]
+        )
+        repo.soft_delete_by_tag(E2E_SOURCE_TAG, actor=AuditActor.E2E_CLEANUP)
+        session.commit()
+        session.expire_all()
+
+        count = session.execute(
+            text("SELECT COUNT(*) FROM tracking WHERE id = :tid"),
+            {"tid": tracking.id},
+        ).scalar_one()
+        assert count == 1
+
+        stamped = session.get(Tracking, tracking.id)
+        assert stamped.deleted_by == AuditActor.E2E_CLEANUP.value
+        assert stamped.deleted_at is not None
+
+    def test_cascades_to_history_through_the_foreign_key(
+        self, repo: TrackingRepository, session: Session
+    ) -> None:
+        """`tracking_history` has no `tags` of its own — it is reached by FK.
+
+        Leaving the children live would strand a readable transition trail under a
+        parent no read can reach.
+        """
+        tagged = make_tracking(
+            repo, order_id="ord_swp00000000000000007", tags=[E2E_SOURCE_TAG]
+        )
+        untagged = make_tracking(repo, order_id="ord_swp00000000000000008")
+
+        repo.soft_delete_by_tag(E2E_SOURCE_TAG, actor=AuditActor.E2E_CLEANUP)
+        session.commit()
+        session.expire_all()
+
+        assert repo.get_history(tagged.id) == []
+        # …and only the tagged parent's children moved.
+        assert repo.get_history(untagged.id) != []
+
+    def test_a_second_run_stamps_nothing(
+        self, repo: TrackingRepository, session: Session
+    ) -> None:
+        """Idempotent, via the `deleted_at IS NULL` guard on each statement.
+
+        Without it the second run would re-stamp the same rows with a later
+        timestamp, quietly rewriting when they were removed.
+        """
+        make_tracking(
+            repo, order_id="ord_swp00000000000000009", tags=[E2E_SOURCE_TAG]
+        )
+        assert (
+            repo.soft_delete_by_tag(E2E_SOURCE_TAG, actor=AuditActor.E2E_CLEANUP)
+            == 1
+        )
+        session.commit()
+
+        assert (
+            repo.soft_delete_by_tag(E2E_SOURCE_TAG, actor=AuditActor.E2E_CLEANUP)
+            == 0
+        )
 
 
 class TestReprDoesNotLeakPii:

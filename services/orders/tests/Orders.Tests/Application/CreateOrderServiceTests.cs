@@ -66,15 +66,18 @@ public class CreateOrderServiceTests : IAsyncLifetime
         public string? ShippingAddressJson { get; private set; }
         public string? CognitoSub { get; private set; }
         public bool TestMode { get; private set; }
+        public bool E2eSource { get; private set; }
 
         public async Task<TrackingInitResult> InitTrackingAsync(
-            string orderId, string? shippingAddressJson, string cognitoSub, bool testMode, CancellationToken ct = default)
+            string orderId, string? shippingAddressJson, string cognitoSub, bool testMode,
+            bool e2eSource = false, CancellationToken ct = default)
         {
             Calls++;
             OrderId = orderId;
             ShippingAddressJson = shippingAddressJson;
             CognitoSub = cognitoSub;
             TestMode = testMode;
+            E2eSource = e2eSource;
             if (_onCall is not null) await _onCall();
             return new TrackingInitResult(_outcome, _outcome == TrackingInitOutcome.Created ? 201 : 500);
         }

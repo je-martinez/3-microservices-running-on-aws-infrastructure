@@ -63,8 +63,19 @@ class TestRoutingTable:
         """
         assert ("POST", "/v1/trackings") not in routes(create_app())
 
-    def test_no_delete_endpoint_exists(self) -> None:
-        """Soft-delete-only: nothing on this surface removes a tracking."""
+    def test_no_delete_endpoint_exists(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Soft-delete-only: nothing on the DEFAULT surface removes a tracking.
+
+        The flag is explicitly cleared rather than assumed absent — a developer
+        with `E2E_TESTING_ENABLED=true` exported would otherwise see this fail for
+        a reason that has nothing to do with the change under test. The E2E
+        cleanup route's own gating is covered in `test_rest_e2e_cleanup.py`, and
+        it is a soft delete regardless: `DELETE` here is the HTTP method, never a
+        SQL one.
+        """
+        monkeypatch.delenv("E2E_TESTING_ENABLED", raising=False)
         assert not any(
             method == "DELETE" for method, _ in routes(create_app())
         )

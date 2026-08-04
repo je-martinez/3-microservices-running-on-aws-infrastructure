@@ -40,10 +40,17 @@ public interface ITrackingInitiator
     /// Forwarded as the <c>x-test-mode</c> header. The caller is responsible for the
     /// <c>E2E_TESTING_ENABLED</c> guard; this client just transmits the boolean.
     /// </param>
+    /// <param name="e2eSource">
+    /// Forwarded as the <c>x-e2e-source</c> header, so Tracking tags its own record the way
+    /// Orders tags the order and each service's cleanup can find its rows by tag. Same
+    /// guard responsibility as <paramref name="testMode"/>: the caller applies
+    /// <c>E2E_TESTING_ENABLED</c>, this client only transmits.
+    /// </param>
     Task<TrackingInitResult> InitTrackingAsync(
         string orderId,
         string? shippingAddressJson,
         string cognitoSub,
         bool testMode,
+        bool e2eSource = false,
         CancellationToken ct = default);
 }

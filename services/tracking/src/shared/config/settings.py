@@ -8,11 +8,15 @@ at the first query. Every name here is produced by
 — do not rename a field without changing the generator.
 """
 
+import os
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, TypeAdapter, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+#: Coerces an environment string to a bool exactly as a `bool` field would.
+_BOOL = TypeAdapter(bool)
 
 
 class Settings(BaseSettings):
@@ -79,6 +83,23 @@ class Settings(BaseSettings):
     # "Auth schemes" section.
     tracking_carrier_api_key: str = Field(min_length=1)
 
+    # --- E2E test harness ----------------------------------------------------
+    # Gates the flag-guarded cleanup route (`DELETE /v1/trackings/e2e-cleanup`),
+    # the same name and the same meaning Users and Orders already read
+    # (`E2E_TESTING_ENABLED=true` in their `.env.local.*`).
+    #
+    # DEFAULTS TO FALSE, and that direction is the point: a deployed environment
+    # that simply never sets the variable does not serve the route at all, so a
+    # forgotten env value cannot expose a mass-delete surface in production. The
+    # generator does not currently write this key into `.env.local.tracking` —
+    # that is an `infra/**` change, outside this service — so locally it is opted
+    # into explicitly, exactly like `users_grpc_url` above.
+    #
+    # `bool` rather than a string: pydantic-settings parses the usual env
+    # spellings ("true"/"1"/"yes") itself, so nothing here reimplements Users'
+    # Zod `.enum(["true","false"]).transform(...)` by hand.
+    e2e_testing_enabled: bool = False
+
     # --- misc ---------------------------------------------------------------
     deployment_environment: str = "local"
     environment: Literal["development", "test", "production"] = "development"
@@ -97,3 +118,38 @@ def get_settings() -> Settings:
     need a different environment call `get_settings.cache_clear()`.
     """
     return Settings()  # type: ignore[call-arg]
+
+
+def e2e_testing_enabled() -> bool:
+    """Whether the flag-guarded E2E routes should be mounted.
+
+    Read from the environment DIRECTLY rather than through `get_settings()`, for
+    the same reason `create_app` reads `DEPLOYMENT_ENVIRONMENT` that way: this is
+    consulted while the application is being CONSTRUCTED, and `Settings()` raises
+    `ValidationError` on an incomplete environment. The test suite builds the app
+    deliberately without the DB/gRPC/carrier variables, so going through the model
+    here would make constructing an app depend on a fully-valid environment — a
+    dependency the factory does not otherwise have, introduced by a test-only
+    route.
+
+    The field on `Settings` above is still the declaration of the variable (its
+    name, type and default, pinned by `test_settings.py`); this is the one caller
+    that cannot afford to validate everything else to read it.
+
+    Parsing goes through pydantic's `bool` adapter — the same coercion the field
+    above would apply — so the two can never disagree about what counts as "on":
+    `true/1/yes/on`, case-insensitively. Anything unrecognized, including an empty
+    value or an absent variable, is False. The direction of that default is the
+    safety property: a runtime that never sets the variable does not serve the
+    route.
+    """
+    raw = os.environ.get("E2E_TESTING_ENABLED")
+    if not raw:
+        return False
+    try:
+        return _BOOL.validate_python(raw)
+    except ValidationError:
+        # An unparseable value ("maybe") is OFF, not a startup failure: refusing
+        # to boot production over a malformed test-harness flag would be the worse
+        # trade, and OFF is the safe direction.
+        return False

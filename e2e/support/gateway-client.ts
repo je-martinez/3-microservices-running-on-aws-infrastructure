@@ -24,6 +24,17 @@ export async function gatewayClient(token?: string): Promise<APIRequestContext> 
   }
   return request.newContext({
     baseURL: normalizeBaseURL(rawBaseURL),
-    extraHTTPHeaders: token ? { Authorization: `Bearer ${token}` } : {},
+    extraHTTPHeaders: {
+      // Tags every row this suite creates as "E2E Source", which is what global
+      // teardown deletes by. api-client.ts (the direct-to-service contexts) has
+      // always sent this; the gateway contexts did NOT, so rows created through
+      // the gateway — the majority of the suite — were invisible to cleanup.
+      //
+      // Harmless in a production runtime: each service only honors the header
+      // when its own E2E_TESTING_ENABLED is set, so the header alone cannot tag
+      // anything.
+      "X-E2E-Source": "true",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
   });
 }

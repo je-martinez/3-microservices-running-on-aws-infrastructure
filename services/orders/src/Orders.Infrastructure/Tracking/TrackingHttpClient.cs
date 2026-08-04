@@ -68,6 +68,7 @@ public class TrackingHttpClient : ITrackingInitiator, ITrackingReader
         string? shippingAddressJson,
         string cognitoSub,
         bool testMode,
+        bool e2eSource = false,
         CancellationToken ct = default)
     {
         var request = new RestRequest(InitTrackingPath, Method.Post)
@@ -76,6 +77,10 @@ public class TrackingHttpClient : ITrackingInitiator, ITrackingReader
             // Only the literal "true" activates TestMode on the far side; sending the
             // explicit "false" keeps the header's meaning unambiguous in a capture.
             .AddHeader("x-test-mode", testMode ? "true" : "false")
+            // Same wire convention as x-test-mode: Tracking tags its own record when this
+            // is "true", so an E2E run's rows are removable by tag on BOTH sides of the
+            // seam. Tracking applies its own E2E_TESTING_ENABLED guard to it.
+            .AddHeader("x-e2e-source", e2eSource ? "true" : "false")
             .AddJsonBody(new InitTrackingRequest(orderId, ParseAddress(shippingAddressJson)));
 
         // ExecuteAsync, not PostAsync: the Execute* family reports failure on the
