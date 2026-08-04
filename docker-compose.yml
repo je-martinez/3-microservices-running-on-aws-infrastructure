@@ -59,13 +59,20 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     networks: [3mrai-network]
     depends_on:
-      # Not a hard requirement for Floci to boot — SES stores mail locally with
-      # or without the relay — but starting Mailpit first means the very first
-      # email of a session is relayed instead of dropped on a refused
-      # connection. `service_healthy` because a started container is not yet a
-      # listening SMTP server.
+      # `service_started`, NOT `service_healthy`, and the difference matters:
+      # floci gates users, orders, tracking and the nginx ECS task, so a
+      # `service_healthy` gate here would let an unpullable or unhealthy Mailpit
+      # image stop the entire API from booting. An email inbox must not have
+      # that power — SES stores mail locally regardless of the relay, so a
+      # missing Mailpit costs inspectability, not correctness.
+      #
+      # What this still buys: ordering. Mailpit is created before Floci, so the
+      # first email of a session is very likely relayed rather than dropped on a
+      # refused connection. It is a best-effort ordering hint, not a guarantee
+      # (a started container is not yet a listening SMTP server) — which is the
+      # right trade for a non-critical dependency.
       mailpit:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       # The floci image ships curl (Quarkus app on :4566).
       test: ["CMD", "curl", "-fsS", "http://localhost:4566/"]

@@ -285,6 +285,17 @@ module "database" {
 # plan time. Build the function first (Block B produces it) — `terraform
 # validate` does not evaluate data sources and so passes without it.
 #
+# ─── SES sender identity ────────────────────────────────────────────────────────
+# Real AWS refuses SendEmail from an unverified address ("MessageRejected: Email
+# address is not verified"), so the from-address must be verified before the
+# pipeline can mail anyone. Floci does NOT enforce this — verified empirically:
+# `ses list-identities` returned empty and delivery still succeeded — which is
+# exactly why it belongs in Terraform rather than being discovered missing in
+# production. Verification is immediate here; real AWS sends a confirmation mail.
+resource "aws_ses_email_identity" "events_pipeline_sender" {
+  email = var.ses_from_address
+}
+
 # The Lambda runs as a Docker container on 3mrai-network (Floci), so its
 # endpoint/host values are IN-NETWORK names (floci:4566, the docdb container
 # name), never localhost.

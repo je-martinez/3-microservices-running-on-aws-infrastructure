@@ -8,7 +8,7 @@ vi.mock("#email/sender", () => ({ sendEmail: vi.fn(async () => {}) }));
 import { userCreatedHandler } from "#handlers/user-created";
 import { handlers } from "#handlers/index";
 import { sendEmail } from "#email/sender";
-import { PermanentError, TransientError } from "#pipeline/errors";
+import { PermanentError } from "#pipeline/errors";
 import type { Envelope } from "#domain/envelope";
 
 function envelope(payload: Record<string, unknown>, event_id = "evt_1"): Envelope {
@@ -64,15 +64,23 @@ describe("userCreatedHandler", () => {
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
-  // Classification is the whole point of the error split: a SES outage must
-  // stay TRANSIENT so the record is retried, not swallowed as a permanent
-  // failure that consumes the message and loses the user's email.
-  it("propagates a transport failure as TransientError, not PermanentError", async () => {
-    vi.mocked(sendEmail).mockRejectedValue(new TransientError("SES send failed: boom"));
+  // Scope, stated honestly: this covers only that the handler does NOT swallow
+  // a transport failure — it must propagate so process-record can persist
+  // FAILED and classify the record.
+  //
+  // It deliberately rejects with a PLAIN Error. Rejecting with a TransientError
+  // and then asserting TransientError would only prove that the mock returns
+  // what the mock was configured to return: no change to sender.ts could ever
+  // fail it. The actual TransientError-vs-PermanentError classification lives
+  // in sender.ts and is covered against a real failing send in
+  // tests/email/sender.test.ts — which exists precisely because a mutation of
+  // that classification left this file green.
+  it("does not swallow a transport failure — it propagates to the caller", async () => {
+    vi.mocked(sendEmail).mockRejectedValue(new Error("transport exploded"));
 
     await expect(
       userCreatedHandler(envelope({ fullName: "Ada", email: "ada@example.com" }, "evt_4")),
-    ).rejects.toThrow(TransientError);
+    ).rejects.toThrow("transport exploded");
   });
 
   // The validation error must NOT echo the payload: it carries the user's
