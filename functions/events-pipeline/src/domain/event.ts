@@ -32,4 +32,13 @@ export interface EventDocument {
   updatedAt: Date;
   deletedBy: string | null;
   deletedAt: Date | null;
+  // Computed per docs/shared/conventions/audit-fields.md ("a computed flag,
+  // true when deletedAt is set, false otherwise") and repeated in the
+  // events-pipeline design spec. Users derives this via a Prisma client
+  // extension; this repository is hand-written (Task 8), so there is no
+  // extension to derive it implicitly on read. It is materialized here
+  // instead: the repository stamps it alongside deletedAt/deletedBy on
+  // every write (kept in sync, never computed ad hoc per call site), so
+  // readers can query/filter on `isDeleted` directly.
+  isDeleted: boolean;
 }

@@ -24,6 +24,7 @@ describe("event domain constants", () => {
       updatedAt: new Date(),
       deletedBy: null,
       deletedAt: null,
+      isDeleted: false,
     };
     expect(doc.status).toBe("STARTED");
   });
