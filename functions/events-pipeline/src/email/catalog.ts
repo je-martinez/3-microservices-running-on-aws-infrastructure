@@ -1,6 +1,9 @@
 import type { ReactElement } from "react";
 import UserCreatedEmail, { type UserCreatedEmailProps } from "../../emails/user-created.tsx";
 import OrderCreatedEmail, { type OrderCreatedEmailProps } from "../../emails/order-created.tsx";
+import TrackingStatusChangedEmail, {
+  type TrackingStatusChangedEmailProps,
+} from "../../emails/tracking-status-changed.tsx";
 
 // The single registry: template key → component + sample props. Three consumers
 // read THIS object and nothing else — handlers (to render), the preview server
@@ -41,5 +44,34 @@ export const catalog: EmailCatalog = {
   "order-created": defineTemplate<OrderCreatedEmailProps>({
     component: OrderCreatedEmail,
     sampleProps: { orderId: "ord_sample1", totalCents: 4599 },
+  }),
+  // Four entries, ONE component (TrackingStatusChangedEmail) — see
+  // #handlers/tracking-status-changed for where payload.status selects one of
+  // these keys. This is the mirror image of Task 11's claim: a new event type
+  // costs one dispatch entry, and one event type can fan out to several
+  // rendered variants without adding a second one.
+  "tracking-status-changed-shipped": defineTemplate<TrackingStatusChangedEmailProps>({
+    component: TrackingStatusChangedEmail,
+    sampleProps: { orderId: "ord_sample1", status: "SHIPPED", previousStatus: "null" },
+  }),
+  "tracking-status-changed-on-the-way": defineTemplate<TrackingStatusChangedEmailProps>({
+    component: TrackingStatusChangedEmail,
+    sampleProps: { orderId: "ord_sample1", status: "ON_THE_WAY", previousStatus: "SHIPPED" },
+  }),
+  "tracking-status-changed-out-for-delivery": defineTemplate<TrackingStatusChangedEmailProps>({
+    component: TrackingStatusChangedEmail,
+    sampleProps: {
+      orderId: "ord_sample1",
+      status: "OUT_FOR_DELIVERY",
+      previousStatus: "ON_THE_WAY",
+    },
+  }),
+  "tracking-status-changed-delivered": defineTemplate<TrackingStatusChangedEmailProps>({
+    component: TrackingStatusChangedEmail,
+    sampleProps: {
+      orderId: "ord_sample1",
+      status: "DELIVERED",
+      previousStatus: "OUT_FOR_DELIVERY",
+    },
   }),
 };
