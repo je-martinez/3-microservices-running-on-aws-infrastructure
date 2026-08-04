@@ -25,7 +25,7 @@ services:
       # in the 7000-7099 range, BY CREATION ORDER — which is NOT stable across
       # applies, so Postgres/MySQL can flip between 7001/7002. The actual per-
       # engine ports are DISCOVERED from describe-db-clusters (Engine per cluster)
-      # by scripts/discover-db-port.sh and written into .env as USERS_DB_PORT /
+      # by scripts/discover_db_port.py and written into .env as USERS_DB_PORT /
       # ORDERS_DB_PORT — never hardcoded. Published to the host so host-side
       # clients — the phase-2 post-effects Terraform postgresql/mysql providers,
       # and any SQL client — can reach the DBs at localhost:<port>. In-network

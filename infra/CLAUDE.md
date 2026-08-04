@@ -74,10 +74,10 @@ container IP — Floci reassigns those on every recreation. **Proxy ports are
 discovered per-engine, not hardcoded:** Floci assigns them (7000–7099) by cluster
 **creation order**, which is NOT stable across applies, so Postgres/MySQL can flip
 between 7001/7002 (verified). The single discovery mechanism is
-`environments/local/scripts/discover-db-port.sh <engine>`, which reads
+`environments/local/scripts/discover_db_port.py <engine>`, which reads
 `aws rds describe-db-clusters --query "DBClusters[?Engine=='<engine>'].Port"`
 (the `Engine` field is stable); the Makefile (`env-file`, `migrate`,
-`infra-up-post`) and `bootstrap.sh` all call it, and `env-file` writes the results
+`infra-up-post`) and `bootstrap.py` all call it, and `env-file` writes the results
 to `.env` as `USERS_DB_PORT`/`ORDERS_DB_PORT` for docker-compose to interpolate.
 Writer and reader endpoints are the same locally: Floci does not emulate an Aurora
 read replica.

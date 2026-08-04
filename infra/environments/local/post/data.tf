@@ -35,7 +35,7 @@ locals {
   # Floci proxy ports (7000-7099, assigned at apply time BY CREATION ORDER —
   # NOT stable, so Postgres/MySQL can flip between 7001/7002). These come in via
   # var.pg_port/var.mysql_port, which `make infra-up-post` DISCOVERS per-engine
-  # (scripts/discover-db-port.sh, reading describe-db-clusters) and passes as
+  # (scripts/discover_db_port.py, reading describe-db-clusters) and passes as
   # -var; the variable defaults (7001/7002) are only a fallback. These are
   # Floci-local; prod reads host/port from the secret (local.master.host/.port).
   pg_port    = var.pg_port
