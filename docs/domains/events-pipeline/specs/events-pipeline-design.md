@@ -4,7 +4,7 @@ type: spec
 area: events-pipeline
 status: draft
 created: 2026-06-26
-updated: 2026-07-12
+updated: 2026-08-03
 tags: [type/spec, area/events-pipeline, status/draft]
 related:
   - "[[cqrs]]"
@@ -19,10 +19,10 @@ related:
 # Events Pipeline Design
 
 > [!warning] Not implemented yet
-> The events-pipeline service is **design-only** — no source code exists. `services/events-pipeline/src/`
+> The events-pipeline service is **design-only** — no source code exists. `functions/events-pipeline/src/`
 > contains only `.gitkeep` placeholders (no `package.json`, no tests), and
-> `services/events-pipeline/Dockerfile` has every build line commented out. Only a stub
-> [`services/events-pipeline/CLAUDE.md`](../../../../services/events-pipeline/CLAUDE.md) and a
+> `functions/events-pipeline/Dockerfile` has every build line commented out. Only a stub
+> [`functions/events-pipeline/CLAUDE.md`](../../../../functions/events-pipeline/CLAUDE.md) and a
 > placeholder `events-pipeline` service in the root `docker-compose.yml` (build + network wiring
 > only — no ports, no database, no healthcheck) exist so far. Everything below describes the
 > **intended** design, not running behavior.

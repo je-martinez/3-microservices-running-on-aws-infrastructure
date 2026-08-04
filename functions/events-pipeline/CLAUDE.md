@@ -23,7 +23,7 @@ duplicated.
 
 ## 3. Folder structure
 ```
-services/events-pipeline/
+functions/events-pipeline/
 ├── src/handlers/      # type → handler map (e.g. OrderCreatedHandler)
 ├── src/pipeline/      # lifecycle: STARTED → IN_PROGRESS → COMPLETED/FAILED
 ├── src/domain/        # Event schema (friendlyId, status_history, audit fields)

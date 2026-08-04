@@ -286,7 +286,7 @@ services:
           target: /app/src
 
   events-pipeline:
-    build: ./services/events-pipeline
+    build: ./functions/events-pipeline
     networks: [3mrai-network]
     depends_on:
       floci:
@@ -309,5 +309,5 @@ services:
     develop:
       watch:
         - action: sync
-          path: ./services/events-pipeline/src
+          path: ./functions/events-pipeline/src
           target: /app/src
