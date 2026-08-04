@@ -40,6 +40,19 @@ variable "db_password" {
   sensitive   = true
 }
 
+variable "docdb_password" {
+  description = "Master password for the events-pipeline DocumentDB cluster (test default for local Floci; production supplies it out of band, per ADR-0007)."
+  type        = string
+  default     = "test"
+  sensitive   = true
+}
+
+variable "ses_from_address" {
+  description = "Verified SES sender identity for events-pipeline emails."
+  type        = string
+  default     = "no-reply@3mrai.local"
+}
+
 variable "execution_log_table" {
   description = <<-DESC
     DynamoDB table where the local-exec provisioning scripts record each run,

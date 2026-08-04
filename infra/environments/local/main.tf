@@ -36,6 +36,12 @@ module "label_api" {
   environment = var.environment
   name        = "api"
 }
+module "label_events" {
+  source      = "../../modules/label"
+  namespace   = "3mrai"
+  environment = var.environment
+  name        = "events"
+}
 
 # ─── Networking ─────────────────────────────────────────────────────────────────
 # NOTE (reconciliation): the networking module's `subnets` variable is
@@ -210,6 +216,57 @@ module "compute" {
   backend_service_name = "users"
   backend_port         = 3000
   region               = local.region
+}
+
+# ─── Messaging (SQS events queue + DLQ) ─────────────────────────────────────────
+# The single shared events queue: Users/Orders/Tracking publish to it, the
+# events-pipeline Lambda below is its only consumer.
+module "messaging" {
+  source  = "../../modules/messaging"
+  context = { id = module.label_events.id, tags = module.label_events.tags }
+}
+
+# ─── DocumentDB (events-pipeline store) ─────────────────────────────────────────
+# Same letter-led-id trick as rds_aurora/rds_mysql: module.label_events.id is
+# "3mrai-local-events" (digit-leading), and the database module interpolates
+# context.id into aws_docdb_cluster.cluster_identifier, which AWS rejects unless
+# it starts with a letter — so prefix with "docdb-". The resulting cluster
+# identifier is what derives Floci's backing container name
+# (floci-docdb-<cluster_identifier>), which is how anything on 3mrai-network
+# reaches Mongo — port 27017 is NOT published to the host and the reported IP
+# changes on every recreation. See
+# docs/lessons/floci-sqs-lambda-docdb-support.md.
+module "database" {
+  source             = "../../modules/database"
+  context            = { id = "docdb-${module.label_events.id}", tags = module.label_events.tags }
+  subnet_ids         = module.networking.subnet_ids
+  security_group_ids = module.networking.security_group_ids
+  master_password    = var.docdb_password
+}
+
+# ─── Events Pipeline Lambda ─────────────────────────────────────────────────────
+# source_dir points at the BUILT dist/ output of functions/events-pipeline. That
+# directory must exist before plan/apply: archive_file is a data source, read at
+# plan time. Build the function first (Block B produces it) — `terraform
+# validate` does not evaluate data sources and so passes without it.
+#
+# The Lambda runs as a Docker container on 3mrai-network (Floci), so its
+# endpoint/host values are IN-NETWORK names (floci:4566, the docdb container
+# name), never localhost.
+module "lambda_events_pipeline" {
+  source     = "../../modules/lambda"
+  context    = { id = module.label_events.id, tags = module.label_events.tags }
+  queue_arn  = module.messaging.queue_arn
+  source_dir = "${path.module}/../../../functions/events-pipeline/dist"
+
+  environment_variables = {
+    AWS_ENDPOINT_URL = "http://floci:4566"
+    DOCDB_HOST       = "floci-docdb-${module.database.cluster_identifier}"
+    DOCDB_PORT       = tostring(module.database.port)
+    DOCDB_USERNAME   = module.database.master_username
+    DOCDB_PASSWORD   = var.docdb_password
+    SES_FROM_ADDRESS = var.ses_from_address
+  }
 }
 
 # ─── API Gateway ────────────────────────────────────────────────────────────────
