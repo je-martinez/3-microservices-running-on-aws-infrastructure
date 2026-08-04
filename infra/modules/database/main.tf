@@ -149,24 +149,22 @@ data "local_file" "cluster_via_cli" {
   depends_on = [terraform_data.cluster_via_cli]
 }
 
-# ─── Credentials to Parameter Store ──────────────────────────────────────────────
-# Per ADR-0007: non-sensitive config (host/port) in Parameter Store; the password
-# stays a Terraform-managed sensitive value, never written in plaintext elsewhere.
-# Values come from local.endpoint/local.port (outputs.tf), which resolve to the
-# native resource or the fallback descriptor depending on the gate — so these
-# parameters carry the same values on both paths.
-resource "aws_ssm_parameter" "docdb_host" {
-  name  = "/${var.context.id}/docdb/host"
-  type  = "String"
-  value = local.endpoint
-
-  tags = var.context.tags
-}
-
-resource "aws_ssm_parameter" "docdb_port" {
-  name  = "/${var.context.id}/docdb/port"
-  type  = "String"
-  value = tostring(local.port)
-
-  tags = var.context.tags
-}
+# ─── No Parameter Store entries ───────────────────────────────────────────────────
+# This module deliberately publishes NOTHING to Parameter Store. It briefly did,
+# citing ADR-0007, and both `aws_ssm_parameter` resources failed against Floci
+# with `UnrecognizedClientException: The security token included in the request
+# is invalid` — the same provider-signing failure that already forced the
+# awscli-fallback for the cluster itself (the CLI/boto3 call succeeds against the
+# same live Floci).
+#
+# They were removed rather than gated or faked, because nothing read them. This
+# repo has no other `aws_ssm_parameter` anywhere — a fact its own env generator
+# records (`scripts/generate_env_files.py`: "as of today this repo has ZERO
+# aws_ssm_parameter resources") — and every consumer takes host/port from
+# `terraform output` instead. ADR-0007 states the intent for production secrets;
+# it does not describe what is wired today. Keeping two parameters that only ever
+# fail, for readers that do not exist, is cost with no benefit.
+#
+# If production ever needs them, add them behind the same kind of gate the
+# cluster uses (`manage_cluster_via_provider`), so the local path stays clear of
+# the provider bug.
