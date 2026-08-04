@@ -75,6 +75,11 @@ output "docdb_port" {
   value       = module.database.port
 }
 
+output "docdb_master_username" {
+  description = "DocumentDB master username, read by `make env-file` for DOCDB_USERNAME (the module's own default; main.tf never overrides master_username)."
+  value       = module.database.master_username
+}
+
 output "events_lambda_function_name" {
   description = "Name of the events-pipeline Lambda function."
   value       = module.lambda_events_pipeline.function_name

@@ -291,11 +291,14 @@ services:
     depends_on:
       floci:
         condition: service_healthy
-    environment:
-      - AWS_ENDPOINT_URL=http://floci:4566
-      - AWS_REGION=us-east-1
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
+    # Environment comes from the GENERATED .env.local.events-pipeline (see
+    # docs/shared/conventions/env-files.md). Nothing is declared inline on
+    # purpose: compose gives `environment:` precedence over `env_file:`, so a
+    # leftover inline entry would silently override the generated value
+    # (including DOCDB_AUTH_SOURCE) and reintroduce the duplication this
+    # removes. Regenerate with `make env-file`; edit only the CUSTOM box.
+    env_file:
+      - .env.local.events-pipeline
     # stdout → the observability collector's fluent_forward receiver.
     # localhost:24224 because the Docker daemon resolves fluentd-address from the
     # HOST, not this network. fluentd-async so the service still starts when the

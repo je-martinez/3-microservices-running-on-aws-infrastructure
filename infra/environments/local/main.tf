@@ -300,12 +300,20 @@ module "lambda_events_pipeline" {
     # environment, but whether Floci's Lambda container does is unverified. This
     # function calls SES, and a missing region surfaces there as a confusing
     # credentials/endpoint error rather than an obvious "no region configured".
-    AWS_REGION       = local.region
-    DOCDB_HOST       = "floci-docdb-${module.database.cluster_identifier}"
-    DOCDB_PORT       = tostring(module.database.port)
-    DOCDB_USERNAME   = module.database.master_username
-    DOCDB_PASSWORD   = var.docdb_password
-    SES_FROM_ADDRESS = var.ses_from_address
+    AWS_REGION     = local.region
+    DOCDB_HOST     = "floci-docdb-${module.database.cluster_identifier}"
+    DOCDB_PORT     = tostring(module.database.port)
+    DOCDB_USERNAME = module.database.master_username
+    DOCDB_PASSWORD = var.docdb_password
+    # LOCAL ONLY: Floci backs DocumentDB with a stock mongo:7.0 container, whose
+    # MONGO_INITDB_ROOT_* user is created in the `admin` database, not in the
+    # target database. Without authSource=admin on the connection URI the
+    # driver reports "MongoServerError: Authentication failed" (verified both
+    # ways). Real Amazon DocumentDB authenticates the master user against the
+    # target database itself, so this is NOT set for production — see
+    # DOCDB_AUTH_SOURCE in functions/events-pipeline/src/shared/config/env.ts.
+    DOCDB_AUTH_SOURCE = "admin"
+    SES_FROM_ADDRESS  = var.ses_from_address
   }
 }
 

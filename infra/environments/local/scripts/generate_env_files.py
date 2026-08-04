@@ -3,14 +3,15 @@
 
 Usage: generate_env_files.py [--repo-root PATH]
 
-Produces six files, each for one consumer:
+Produces seven files, each for one consumer:
 
-  .env                 the ONLY four vars docker-compose interpolates as ${VAR}
-  .env.local.infra     terraform outputs — read by the E2E suite and by humans
-  .env.local.users     the Users service environment    (compose env_file:)
-  .env.local.orders    the Orders service environment   (compose env_file:)
-  .env.local.tracking  the Tracking service environment (compose env_file:)
-  .env.local.debug     HOST-reachable connection strings for a SQL client
+  .env                        the ONLY four vars docker-compose interpolates as ${VAR}
+  .env.local.infra            terraform outputs — read by the E2E suite and by humans
+  .env.local.users            the Users service environment    (compose env_file:)
+  .env.local.orders           the Orders service environment   (compose env_file:)
+  .env.local.tracking         the Tracking service environment (compose env_file:)
+  .env.local.events-pipeline  the events-pipeline environment  (compose env_file:)
+  .env.local.debug            HOST-reachable connection strings for a SQL client
 
 WHY PER-SERVICE FILES, and not the single `.services` file originally sketched:
 DATABASE_WRITER_URL and DATABASE_READER_URL exist in EVERY service with
@@ -98,6 +99,12 @@ def build(repo_root: Path) -> dict[Path, dict]:
     # Tracking ever moves to its own cluster.
     tracking_db_host = terraform_output(tf_dir, "tracking_db_writer_endpoint")
 
+    # Events pipeline (SQS + DocumentDB).
+    events_queue_url = terraform_output(tf_dir, "events_queue_url")
+    docdb_cluster_identifier = terraform_output(tf_dir, "docdb_cluster_identifier")
+    docdb_port = terraform_output(tf_dir, "docdb_port")
+    docdb_username = terraform_output(tf_dir, "docdb_master_username")
+
     # Discovered per-engine, never assumed: Floci assigns proxy ports 7000-7099
     # by cluster creation order, so postgres and mysql swap across applies.
     pg_port = discover_port("postgres")
@@ -131,6 +138,14 @@ def build(repo_root: Path) -> dict[Path, dict]:
     tracking_db = (
         f"mysql+pymysql://test:test@{FLOCI_HOST}:{my_port}/tracking?charset=utf8mb4"
     )
+
+    # DocumentDB is reached by the backing container name on the Docker
+    # network, NEVER by IP (Floci reassigns it on every recreation) and NEVER
+    # by `localhost` (27017 is not published to the host in our containerized
+    # Floci setup). This mirrors main.tf's `module.lambda_events_pipeline`
+    # exactly — the compose container and the deployed Lambda must resolve the
+    # same Mongo. See docs/lessons/floci-sqs-lambda-docdb-support.md.
+    docdb_host = f"floci-docdb-{docdb_cluster_identifier}"
 
     return {
         # --- root .env: ONLY what compose interpolates -----------------------
@@ -263,6 +278,36 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # at all, and the harness's teardown gets a 405 rather than a
                 # cleanup. Local-only: never true in a deployed environment.
                 "E2E_TESTING_ENABLED": "true",
+            },
+        ),
+        # --- events-pipeline service ------------------------------------------
+        # Node.js (SQS message → Lambda in prod; here a compose container with
+        # hot-reload for local dev — see functions/events-pipeline/CLAUDE.md).
+        # DOCDB_PASSWORD mirrors main.tf's `var.docdb_password` LOCAL default
+        # ("test", set in environments/local/variables.tf) rather than reading
+        # a Terraform output: the password is a sensitive input var, never
+        # exposed as an output, exactly like the AWS_SECRET_ACCESS_KEY/DB
+        # `test` credentials every other service file already embeds this way.
+        repo_root / ".env.local.events-pipeline": dict(
+            header="Events-pipeline environment. Loaded via env_file: in docker-compose.yml.",
+            generated={
+                "AWS_ENDPOINT_URL": AWS_ENDPOINT,
+                "AWS_REGION": AWS_REGION,
+                "AWS_ACCESS_KEY_ID": "test",
+                "AWS_SECRET_ACCESS_KEY": "test",
+                "EVENTS_QUEUE_URL": events_queue_url,
+                "DOCDB_HOST": docdb_host,
+                "DOCDB_PORT": docdb_port,
+                "DOCDB_USERNAME": docdb_username,
+                "DOCDB_PASSWORD": "test",
+                "DOCDB_DATABASE": "events",
+                # LOCAL ONLY: Floci's DocumentDB is a stock mongo:7.0 whose
+                # root user lives in `admin`, not in the target database. Real
+                # Amazon DocumentDB authenticates against the target database
+                # itself, so this stays unset there — see DOCDB_AUTH_SOURCE in
+                # functions/events-pipeline/src/shared/config/env.ts.
+                "DOCDB_AUTH_SOURCE": "admin",
+                "SES_FROM_ADDRESS": "no-reply@3mrai.local",
             },
         ),
         # --- debug: HOST-reachable, loaded by nothing ------------------------
