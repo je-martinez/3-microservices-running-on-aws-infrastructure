@@ -31,6 +31,26 @@ components:
         - email
         - password
         - fullName
+    RegisterPasswordlessInput:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: "#/components/schemas/RegisterPasswordlessInput"
+      type: object
+      properties:
+        email:
+          description: New passwordless user's email
+          type: string
+          format: email
+          pattern: ^(?!\.)(?!.*\.\.)([A-Za-z0-9_'+\-\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$
+        fullName:
+          description: Display name
+          type: string
+        address:
+          description: Free-form structured address (stored as JSON)
+        phoneNumber:
+          type: string
+      required:
+        - email
+        - fullName
     LoginInput:
       $schema: https://json-schema.org/draft/2020-12/schema
       $id: "#/components/schemas/LoginInput"
@@ -45,6 +65,39 @@ components:
       required:
         - email
         - password
+    OtpStartInput:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: "#/components/schemas/OtpStartInput"
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          pattern: ^(?!\.)(?!.*\.\.)([A-Za-z0-9_'+\-\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$
+      required:
+        - email
+    OtpVerifyInput:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: "#/components/schemas/OtpVerifyInput"
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          pattern: ^(?!\.)(?!.*\.\.)([A-Za-z0-9_'+\-\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$
+        session:
+          description: Opaque challenge session returned by /v1/users/otp/start
+          type: string
+          minLength: 1
+        code:
+          type: string
+          minLength: 6
+          maxLength: 6
+          pattern: ^\d{6}$
+      required:
+        - email
+        - session
+        - code
     RefreshInput:
       $schema: https://json-schema.org/draft/2020-12/schema
       $id: "#/components/schemas/RefreshInput"
@@ -91,6 +144,13 @@ components:
           type: array
           items:
             type: string
+        authType:
+          description: Read-only. PASSWORDLESS accounts have no usable password and
+            authenticate via OTP only.
+          type: string
+          enum:
+            - PASSWORD
+            - PASSWORDLESS
         createdBy:
           anyOf:
             - type: string
@@ -120,6 +180,7 @@ components:
         - address
         - phoneNumber
         - tags
+        - authType
         - createdBy
         - createdAt
         - updatedBy
@@ -201,6 +262,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /v1/users/register/passwordless:
+    post:
+      operationId: registerPasswordlessUser
+      summary: Register a new passwordless user (OTP-only login)
+      tags:
+        - users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterPasswordlessInput"
+      responses:
+        "201":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "409":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /v1/users/login:
     post:
       operationId: loginUser
@@ -254,6 +340,63 @@ paths:
                   - idToken
                   - accessToken
                 additionalProperties: false
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /v1/users/otp/start:
+    post:
+      operationId: startOtpChallenge
+      summary: Start an OTP login challenge (password or passwordless users)
+      tags:
+        - users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtpStartInput"
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session:
+                    description: Opaque challenge session to hand back to /v1/users/otp/verify
+                    type: string
+                required:
+                  - session
+                additionalProperties: false
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /v1/users/otp/verify:
+    post:
+      operationId: verifyOtpChallenge
+      summary: Verify an OTP code and obtain tokens
+      tags:
+        - users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtpVerifyInput"
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthTokens"
         "401":
           description: Default Response
           content:

@@ -1,5 +1,6 @@
 import type { Envelope } from "#domain/envelope";
 import type { EventDocument, EventStatus } from "#domain/event";
+import { redactPayload } from "#domain/redact-payload";
 import { isTransient } from "#pipeline/errors";
 import { appLogger } from "#shared/logging/app-logger";
 
@@ -66,7 +67,12 @@ export async function processRecord(
     user_id: envelope.user_id,
     type: envelope.type,
     source: envelope.source,
-    payload: envelope.payload,
+    // The ONLY place redaction happens: this is the copy that reaches
+    // DocumentDB. `envelope` itself is untouched, so the handler dispatched
+    // below still receives the real payload (an OTP handler cannot email a
+    // code it was never given). A no-op for every type without an entry in
+    // #domain/redact-payload.
+    payload: redactPayload(envelope.type, envelope.payload),
     status: "STARTED",
     error: null,
     status_history: [{ status: "STARTED", timestamp: now }],

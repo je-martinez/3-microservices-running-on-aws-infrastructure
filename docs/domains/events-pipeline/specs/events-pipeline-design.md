@@ -21,6 +21,10 @@ related:
   - "[[2026-08-03-events-pipeline-milestone-design]]"
   - "[[2026-08-03-events-pipeline-milestone]]"
   - "[[terraform-modules]]"
+  - "[[2026-08-05-passwordless-otp-auth-design]]"
+  - "[[2026-08-05-passwordless-otp-auth]]"
+  - "[[users-service-design]]"
+  - "[[cognito-custom-auth-triggers]]"
 ---
 
 # Events Pipeline Design
@@ -100,8 +104,16 @@ const handlers: HandlerMap = {
   USER_CREATED: userCreatedHandler,
   ORDER_CREATED: orderCreatedHandler,
   TRACKING_STATUS_CHANGED: trackingStatusChangedHandler,
+  AUTH_OTP_REQUESTED: authOtpRequestedHandler,
 };
 ```
+
+`AUTH_OTP_REQUESTED` (added 2026-08-05) is published by Users' `otp-challenge-lambda`
+(`CreateAuthChallenge` trigger, `infra/modules/cognito/`) rather than by a Users HTTP route —
+the only event type in this pipeline whose producer is a Cognito Lambda, not a microservice. It
+renders the `auth-otp` template (built on the existing plain `EmailLayout`) with the OTP code
+and TTL. See [[users-service-design#Passwordless OTP authentication]] and
+[[cognito-custom-auth-triggers]] for the producer side.
 
 Execution flow per SQS record (`src/pipeline/process-record.ts`, AWS-SDK-free and unit-testable
 without the emulator):
@@ -149,6 +161,21 @@ transient outage from silently dropping an event:
 Partial batch responses (`{ batchItemFailures: [{ itemIdentifier: <messageId> }] }`) are what
 make the per-record retry possible — verified working on Floci, retrying only the failed records
 and never the whole batch.
+
+## Payload redaction — the one exception to "persist verbatim"
+
+Every other event type persists its `payload` to DocumentDB verbatim — that is the audit trail,
+by design (see [Data Model](#data-model)). `AUTH_OTP_REQUESTED` is the **one exception**: its
+payload carries a live, unexpired OTP code, and a copy of that code sitting in the `events`
+collection would be a second, weaker copy of the authentication surface.
+
+`redactPayload(type, payload)` (`src/domain/redact-payload.ts`) is applied **once**, at the exact
+point `process-record.ts` builds the document it persists (`doc.payload = redactPayload(event.type,
+event.payload)`) — never at the envelope the handler receives. The handler still gets the intact
+envelope (with the real code) so it can render the email; only the persisted copy is stripped. A
+per-type field map (`{ AUTH_OTP_REQUESTED: ["code"] }`), not a blanket "strip any field named
+`code`", keeps the redaction explicit and auditable — adding a new event type never accidentally
+redacts a legitimate field just because it happens to share a name.
 
 ## Status Machine
 
@@ -213,7 +240,7 @@ invite disagreement.
 | `event_id` | string | Producer-generated idempotency key; the event's only identifier. Uniquely indexed — a redelivered SQS message collides on this index and is treated as already-processed. Not minted by the pipeline. |
 | `order_id` | string \| null | ID of the related order (null for non-order events such as `USER_CREATED`). |
 | `user_id` | string | ID of the originating user. |
-| `type` | string (enum) | `USER_CREATED`, `ORDER_CREATED`, `TRACKING_STATUS_CHANGED`. |
+| `type` | string (enum) | `USER_CREATED`, `ORDER_CREATED`, `TRACKING_STATUS_CHANGED`, `AUTH_OTP_REQUESTED`. |
 | `source` | string | Which microservice emitted the event (`users`, `orders`, `tracking`). |
 | `payload` | object | Full event payload as-received; structure varies by `type`, validated per-type by Zod. |
 | `status` | string (enum) | Current state: `STARTED` \| `IN_PROGRESS` \| `COMPLETED` \| `FAILED`. |
@@ -283,6 +310,11 @@ Registered templates:
   alternative was a distinct event type per status (`TRACKING_SHIPPED`, `TRACKING_ON_THE_WAY`,
   …), which would have duplicated near-identical dispatch entries and handlers for logic the
   catalog already handles cleanly.
+- `auth-otp` — one component, one entry, added 2026-08-05 for `AUTH_OTP_REQUESTED`. Built on the
+  existing plain `EmailLayout` (no dependency on branding templates). Renders the code as plain
+  visible text, not obfuscated or as an image — deliberately, so E2E can extract it from the
+  message body without OCR or fragile markup scraping. See
+  [[users-service-design#Passwordless OTP authentication]].
 
 ### Preview & local inbox
 
@@ -293,7 +325,7 @@ email the Lambda sends lands in a real, inspectable inbox rather than a mock.
 
 ## Producers and their publish-failure policy
 
-Three producers publish to the one shared queue. Each generates its own `event_id` and builds
+Four producers publish to the one shared queue. Each generates its own `event_id` and builds
 the full envelope; each sets `type` and `source` as SQS message attributes (so the queue can be
 inspected without deserializing the body) in addition to the body itself.
 
@@ -302,10 +334,10 @@ inspected without deserializing the body) in addition to the body itself.
 | Users | `USER_CREATED` | Generated at publish time (one event per registration). |
 | Orders | `ORDER_CREATED` | Generated at publish time (one event per order). |
 | Tracking | `TRACKING_STATUS_CHANGED` | Derived **deterministically** from `(order_id, status)` — see below. |
+| Users' `otp-challenge-lambda` (Cognito `CreateAuthChallenge` trigger) | `AUTH_OTP_REQUESTED` | `otp_<sub>_<timestamp>`, generated once per challenge (a same-session retry reuses the code and does not republish). |
 
-All three producers share the same publish-failure policy — **log and swallow, never
-re-raise** — but for three different reasons, because the consequence of re-raising differs by
-call site:
+All four producers share the same publish-failure policy — **log and swallow, never
+re-raise** — for reasons that differ by call site:
 
 - **Users** logs and swallows because the user row and the Cognito account already exist by the
   time publishing runs; re-raising would leave the client retrying into a permanent `409`
@@ -317,6 +349,9 @@ call site:
   status transition that is **already recorded**; the forward-only guard would then reject that
   retry as `400 not_strictly_forward` for a change that genuinely happened, turning a
   notification failure into a spurious rejection of a legitimate carrier update.
+- The **OTP challenge Lambda** is a Cognito trigger, not an HTTP handler — a publish failure there
+  surfaces as a failed `CreateAuthChallenge` invocation, which Cognito itself retries/fails per its
+  own trigger semantics, outside this pipeline's control. See [[cognito-custom-auth-triggers]].
 
 The Noop implementations (`NoopEventPublisher` in Users and Orders; a Noop-equivalent in
 Tracking) stay in the codebase for tests that must not emit.
@@ -364,3 +399,7 @@ for the event; `_emit_status_changed` reads `updated.user_id` off that persisted
 - [[2026-08-03-events-pipeline-milestone-design]]
 - [[2026-08-03-events-pipeline-milestone]]
 - [[terraform-modules]] — the `docdb`, `messaging`, and `lambda` module inventory backing this service.
+- [[2026-08-05-passwordless-otp-auth-design]] — the passwordless OTP design spec, source of `AUTH_OTP_REQUESTED` and the payload-redaction requirement.
+- [[2026-08-05-passwordless-otp-auth]] — the implementation plan that shipped it.
+- [[users-service-design]] — the fourth producer's home service, and the consumer-facing OTP endpoints.
+- [[cognito-custom-auth-triggers]] — the `otp-challenge-lambda` that publishes `AUTH_OTP_REQUESTED`.

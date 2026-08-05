@@ -38,6 +38,10 @@ related:
   - "[[orders-service-design]]"
   - "[[tracking-service-design]]"
   - "[[events-pipeline-design]]"
+  - "[[2026-08-05-passwordless-otp-auth-design]]"
+  - "[[2026-08-05-passwordless-otp-auth]]"
+  - "[[passwordless-auth-type]]"
+  - "[[cognito-custom-auth-triggers]]"
 ---
 
 # Users Service Design
@@ -69,6 +73,9 @@ All routes are versioned under `/v1` (see [[versioning]]). Source of truth: `ser
 | `POST` | `/v1/users/register` | Creates a user in Cognito and the DB. Reserves the `usr_` id before Cognito `signUp` (see [`custom:app_user_id`](#customapp_user_id-token-claim)). |
 | `POST` | `/v1/users/login` | Authenticates via Cognito; returns tokens. |
 | `POST` | `/v1/users/refresh` | Exchanges a Cognito refresh token for new id/access tokens (`REFRESH_TOKEN_AUTH`). See [[2026-07-11-refresh-token-endpoint-design]]. |
+| `POST` | `/v1/users/otp/start` | Starts a passwordless OTP challenge for the given email; returns `{ session }`. Works for both auth types — the second login path for a `PASSWORD` user and the only path for a `PASSWORDLESS` user. Public route, no JWT authorizer. See [Passwordless OTP authentication](#passwordless-otp-authentication) below. |
+| `POST` | `/v1/users/otp/verify` | Verifies `{ email, session, code }` against the Cognito `CUSTOM_AUTH` challenge; returns the same `AuthTokens` shape as `POST /v1/users/login`. Public route. |
+| `POST` | `/v1/users/register/passwordless` | Creates a `PASSWORDLESS` user: a `User` row with `authType=PASSWORDLESS` plus a backing Cognito user whose password is a random 32-byte value never revealed to the caller. Public route. |
 | `GET` | `/v1/users/me` | Returns the authenticated user's profile, resolved via `findByIdOrCognitoSub`. |
 | `PATCH` | `/v1/users/me` | Updates the authenticated user's profile. |
 | `POST` | `/v1/webhooks/cognito` | Cognito PostConfirmation trigger webhook; shared-secret guarded (`x-webhook-secret`), no JWT authorizer. See [Cognito identity capture](#cognito-identity-capture). |
@@ -83,9 +90,15 @@ A global `app.setErrorHandler` in `routes.ts` maps typed auth-domain errors (`se
 
 | Error | Route | Status | `error` code |
 |---|---|---|---|
-| `EmailAlreadyExistsError` | `POST /v1/users/register` | `409` | `email_exists` |
+| `EmailAlreadyExistsError` | `POST /v1/users/register`, `POST /v1/users/register/passwordless` | `409` | `email_exists` |
 | `InvalidCredentialsError` | `POST /v1/users/login`, `POST /v1/users/refresh` | `401` | `invalid_credentials` |
+| `InvalidOtpError` | `POST /v1/users/otp/verify` | `401` | `invalid_otp` |
 | Not found (no error class — inline `404`) | `GET /v1/users/me`, `PATCH /v1/users/me` | `404` | `not_found` |
+
+`POST /v1/users/login` also returns `401 invalid_credentials` — the same generic code as a wrong
+password — when the looked-up user has `authType=PASSWORDLESS`. This is a deliberate reuse of the
+existing error, not a new one; see [Passwordless OTP authentication](#passwordless-otp-authentication)
+and [[passwordless-auth-type]] for why a distinct code was rejected.
 
 The Cognito webhook route (`POST /v1/webhooks/cognito`) has its own inline responses instead of `AuthError`: `401 unauthorized` (bad/missing shared secret), `422 invalid_payload` (schema validation), `500 no_matching_user` (a confirmed Cognito identity with no matching `users` row — see [Cognito identity capture](#cognito-identity-capture)).
 
@@ -106,6 +119,7 @@ Tables (all columns in `snake_case`; mapped to `camelCase`/`PascalCase` in the a
 | `address` | `jsonb` | Structured address object, nullable |
 | `phone_number` | `varchar` | Nullable |
 | `tags` | `text[]` | Array of labels; default `[]`. `E2E Source` marks records created by the Playwright E2E suite (see [[2026-06-28-users-service-design]]). |
+| `auth_type` | `enum` (`AuthType`: `PASSWORD` \| `PASSWORDLESS`) | Default `PASSWORD`. Exposed **read-only** in the API response (`UserSchema.authType`) — never a writable field on register/update. See [[passwordless-auth-type]]. |
 | `created_by` / `created_at` | `varchar` / `timestamptz` | |
 | `updated_by` / `updated_at` | `varchar` / `timestamptz` | |
 | `deleted_by` / `deleted_at` | `varchar` / `timestamptz` | Null = active; set = soft-deleted |
@@ -144,6 +158,48 @@ See [[cognito-pre-token-lambda]] (infra spec) and [[2026-07-12-app-user-id-token
 Because Floci never invokes Cognito Lambda triggers for PostConfirmation locally (see [[ADR-0017-floci-local]]), `register.ts` calls `CaptureCognitoIdentityCommand` **in-process** whenever `NODE_ENV !== "production"`, synthesizing the same event shape the production webhook receives. In production, the Lambda shim owns this call. The derived `message_id` (see [`users_cognito_events`](#users_cognito_events--event-log)) makes a double capture harmless. Identity capture is best-effort and never a precondition for registration: a failure is logged, not propagated.
 
 See [[2026-07-09-users-cognito-webhook-design]] for the full design.
+
+## Passwordless OTP authentication
+
+> [!info] Implemented and verified live (2026-08-05)
+> `CUSTOM_AUTH` in **both** local and production — never native `USER_AUTH`/`EMAIL_OTP`, which
+> Floci silently accepts and returns tokens for with **no challenge issued at all**. Test
+> counts: 254 unit (Users), 180 (events-pipeline), 11 (Lambda), 80 E2E, all green.
+
+`POST /v1/users/otp/start`, `POST /v1/users/otp/verify`, and `POST
+/v1/users/register/passwordless` add one-time-code-by-email authentication as a second login
+path alongside password login, and as the only path for `PASSWORDLESS` users. All three routes
+are public (listed in `public-routes.ts` and in `openapi.yaml`, no JWT authorizer).
+
+`AuthProvider` gained two methods, implemented in `CognitoAuthProvider`:
+
+- `startOtpChallenge(email)` — `AdminInitiateAuthCommand` with `AuthFlow: "CUSTOM_AUTH"`.
+- `respondToOtpChallenge(email, session, code)` — `RespondToAuthChallengeCommand` with
+  `ChallengeName: "CUSTOM_CHALLENGE"`.
+
+`otp/verify` returns the same `AuthTokens` shape `POST /v1/users/login` returns, so the gateway,
+JWT authorizer, and `app_user_id` claim handling (see [`custom:app_user_id`](#customapp_user_id-token-claim))
+need no change — an OTP-issued token is indistinguishable downstream from a password-issued one.
+
+The three Cognito Lambda triggers (`DefineAuthChallenge`, `CreateAuthChallenge`,
+`VerifyAuthChallengeResponse`) that drive the challenge, the 6-digit code, its 300s TTL, and the
+`AUTH_OTP_REQUESTED` event that emails it are infra-side — see
+[[cognito-custom-auth-triggers]] and [[events-pipeline-design]].
+
+### Login guard — 401, not 403, for a `PASSWORDLESS` user
+
+`LoginUserCommand` now injects `db` and looks the user up by email **before** any Cognito call.
+A `PASSWORDLESS` user is rejected with the same generic `401 invalid_credentials` login already
+returns for a wrong password — deliberately **not** a distinct `403` — because
+[[auth-error-mapping]]'s anti-enumeration rule requires login failures to stay
+indistinguishable from the response alone. The real cause is logged only as `reason:
+"passwordless_user"` on the existing `login_failed` app_event, never in the HTTP status or body.
+Passwordless users get a random 32-byte password that is never revealed, so this service-side
+check is what makes the guarantee structural rather than cosmetic. Full rationale:
+[[passwordless-auth-type]].
+
+Full design and the Floci feasibility evidence that ruled out native `EMAIL_OTP`:
+[[2026-08-05-passwordless-otp-auth-design]] and [[2026-08-05-passwordless-otp-auth]].
 
 ## Events
 
@@ -262,6 +318,7 @@ convention/pattern notes in `shared/`) live in `docs/domains/users/decisions/`:
 | Refresh token endpoint (`POST /v1/users/refresh`) | [[refresh-token-endpoint]] |
 | Cognito identity webhook (shared capture use case, two entry paths) | [[cognito-identity-webhook]] |
 | OpenAPI spec generated from routes (`@fastify/swagger` + Zod) | [[openapi-autogen]] |
+| Passwordless OTP auth: `AuthType` enum, service-side login guard, 401-not-403 | [[passwordless-auth-type]] |
 
 ## Related
 
@@ -303,4 +360,11 @@ convention/pattern notes in `shared/`) live in `docs/domains/users/decisions/`:
 - [[tracking-service-design]] — the address snapshot's final stop, forwarded by Orders via an
   HTTP call to Tracking's `POST /v1/trackings/init-tracking`.
 - [[events-pipeline-design]] — the consumer of `USER_CREATED`, the shared envelope contract, and
-  the `author` object's role in the pipeline's `created_by`/`updated_by` audit split.
+  the `author` object's role in the pipeline's `created_by`/`updated_by` audit split; also the
+  consumer of `AUTH_OTP_REQUESTED` for passwordless OTP email delivery.
+- [[2026-08-05-passwordless-otp-auth-design]] — the passwordless OTP design spec, including the
+  Floci feasibility evidence for `CUSTOM_AUTH` over native `EMAIL_OTP`.
+- [[2026-08-05-passwordless-otp-auth]] — the implementation plan that shipped it.
+- [[passwordless-auth-type]] — the `AuthType` enum, service-side login guard, and 401-not-403
+  decision.
+- [[cognito-custom-auth-triggers]] — the infra side: the OTP challenge Lambda and trigger wiring.

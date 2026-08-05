@@ -10,6 +10,10 @@ export interface UserRow {
   address: unknown | null;
   phoneNumber: string | null;
   tags: string[];
+  // Read-only at the API boundary: exposed in responses, never accepted in a
+  // request body. Set by the registration path (PASSWORD by default), not by
+  // any update.
+  authType: "PASSWORD" | "PASSWORDLESS";
   createdBy: string | null;
   createdAt: Date;
   updatedBy: string | null;

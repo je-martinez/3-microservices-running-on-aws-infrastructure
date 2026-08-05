@@ -1,4 +1,5 @@
 import type { AuthProvider, AuthTokens } from "#shared/auth/auth-provider";
+import type { Db } from "#shared/db/prisma";
 import { InvalidCredentialsError } from "#shared/auth/auth-errors";
 import { appLogger } from "#shared/logging/app-logger";
 import { setLogContext } from "#shared/logging/log-context";
@@ -13,9 +14,11 @@ export interface LoginInput {
 // Constructor-injected from the Awilix cradle (PROXY injection mode).
 export class LoginUserCommand {
   private readonly auth: AuthProvider;
+  private readonly db: Db;
 
-  constructor({ auth }: { auth: AuthProvider }) {
+  constructor({ auth, db }: { auth: AuthProvider; db: Db }) {
     this.auth = auth;
+    this.db = db;
   }
 
   async execute(input: LoginInput): Promise<AuthTokens> {
@@ -28,6 +31,31 @@ export class LoginUserCommand {
       { app_event: "login_started", email: maskEmail(input.email) },
       "Starting user login",
     );
+
+    // The passwordless guard. Cognito still holds a random, never-revealed
+    // password for a PASSWORDLESS user (register-passwordless.ts generates and
+    // discards it), so relying on "nobody knows it" alone would be cosmetic —
+    // this check makes the property structural by rejecting BEFORE any Cognito
+    // call. It costs one DB round-trip on every login; that is accepted.
+    //
+    // DO NOT "fix" this into a 403: the response is deliberately the SAME
+    // generic 401 invalid_credentials a wrong password gets. Per
+    // docs/domains/users/decisions/auth-error-mapping.md's anti-enumeration
+    // rule, a distinct status or code here would let a caller confirm an
+    // account exists AND learn it is passwordless from the response alone. The
+    // real cause is recorded ONLY in the log, as reason: "passwordless_user".
+    const existing = await this.db.user.findUnique({ where: { email: input.email } });
+    if (existing?.authType === "PASSWORDLESS") {
+      appLogger.error(
+        {
+          app_event: "login_failed",
+          email: maskEmail(input.email),
+          reason: "passwordless_user",
+        },
+        "User login failed: account is passwordless",
+      );
+      throw new InvalidCredentialsError();
+    }
 
     try {
       const tokens = await this.auth.login(input.email, input.password);

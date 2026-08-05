@@ -11,6 +11,7 @@
 // appear — never widen it speculatively (YAGNI).
 export enum AuditActor {
   Register = "users_api:register",
+  RegisterPasswordless = "users_api:register_passwordless",
   UpdateProfile = "users_api:update_profile",
   IdentityCapture = "users_api:identity_capture",
   E2eCleanup = "users_api:e2e_cleanup",

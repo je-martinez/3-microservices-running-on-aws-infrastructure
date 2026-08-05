@@ -8,13 +8,14 @@ deciders: ["Jose E. Martinez"]
 supersedes: null
 superseded-by: null
 created: 2026-07-28
-updated: 2026-07-28
+updated: 2026-08-05
 tags: [type/adr, area/users, status/accepted]
 related:
   - "[[users-service-design]]"
   - "[[ADR-0010-cognito-auth]]"
   - "[[2026-07-11-auth-error-mapping-design]]"
   - "[[2026-07-11-auth-error-mapping]]"
+  - "[[passwordless-auth-type]]"
 ---
 
 # Auth error mapping — typed domain errors + global setErrorHandler
@@ -53,6 +54,10 @@ them as a 500, wrongly signaling a server fault for what are normal client outco
   refresh endpoint reuses `InvalidCredentialsError` rather than adding a new error type.
 - `shared/auth` gained a small error module; the HTTP layer depends on `AuthError` (a
   shared type), not on the Cognito SDK — the boundary stays clean.
+- The anti-enumeration rule established here (login stays generic on 401) is what
+  [[passwordless-auth-type]] (2026-08-05) applies to reject a `PASSWORDLESS` user's login
+  attempt with the same generic `401 invalid_credentials` rather than a distinct `403` — the
+  established pattern absorbing a new case, not a new pattern.
 
 ## Related
 
@@ -60,3 +65,4 @@ them as a 500, wrongly signaling a server fault for what are normal client outco
 - [[ADR-0010-cognito-auth]]
 - [[2026-07-11-auth-error-mapping-design]]
 - [[2026-07-11-auth-error-mapping]]
+- [[passwordless-auth-type]]

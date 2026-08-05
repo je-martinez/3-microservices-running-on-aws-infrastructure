@@ -202,6 +202,21 @@ module "cognito" {
   # to "" (record nothing), which is what prod wants — there the client is
   # managed by the native provider and neither script runs.
   execution_log_table = var.execution_log_table
+
+  # The OTP challenge Lambda publishes AUTH_OTP_REQUESTED to the shared events
+  # queue, which the events-pipeline Lambda consumes to mail the code. Declared
+  # AFTER module.messaging in this file but resolved by the dependency graph,
+  # not by file order.
+  events_queue_url = module.messaging.queue_url
+  events_queue_arn = module.messaging.queue_arn
+
+  # The Lambda runs as a Docker container on 3mrai-network, so its endpoint is
+  # the IN-NETWORK name — NOT the localhost:4566 the host-side provisioners use
+  # above. Same distinction the events-pipeline Lambda makes.
+  aws_cli_endpoint_url_in_network = "http://floci:4566"
+  # LOCAL ONLY: real AWS rejects AWS_REGION as a reserved Lambda env key, so the
+  # module omits it when this is "" (its default, i.e. production).
+  lambda_region_env = local.region
 }
 
 # ─── Compute (ECS cluster + nginx reverse proxy) ────────────────────────────────

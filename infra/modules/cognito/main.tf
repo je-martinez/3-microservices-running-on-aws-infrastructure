@@ -60,13 +60,23 @@ resource "aws_cognito_user_pool_client" "this" {
   # generate_secret=false: the service uses the public client flow
   generate_secret = false
 
-  # These three flows are the minimum required for ADMIN_USER_PASSWORD_AUTH
+  # The first three flows are the minimum required for ADMIN_USER_PASSWORD_AUTH
   # (used by CognitoAuthProvider.login) and ALLOW_USER_PASSWORD_AUTH
-  # (used by the smoke test / USER_PASSWORD_AUTH flow).
+  # (used by the smoke test / USER_PASSWORD_AUTH flow). ALLOW_CUSTOM_AUTH enables
+  # the passwordless email-OTP path: AdminInitiateAuth with AuthFlow=CUSTOM_AUTH,
+  # served by the Define/Create/VerifyAuthChallenge triggers below. Native
+  # USER_AUTH/EMAIL_OTP is deliberately NOT used — Floci returns tokens for it
+  # with no challenge issued at all.
+  #
+  # NOTE: this whole resource is dead code locally (count = 0 when
+  # manage_client_via_provider = false); the local client is created by
+  # scripts/create_user_pool_client.py, whose EXPLICIT_AUTH_FLOWS list must stay
+  # identical to this one.
   explicit_auth_flows = [
     "ALLOW_ADMIN_USER_PASSWORD_AUTH",
     "ALLOW_USER_PASSWORD_AUTH",
     "ALLOW_REFRESH_TOKEN_AUTH",
+    "ALLOW_CUSTOM_AUTH",
   ]
 
   allowed_oauth_flows_user_pool_client = false
@@ -182,6 +192,140 @@ resource "terraform_data" "pre_token_trigger" {
       LAMBDA_ARN   = self.input.lambda_arn
       ENDPOINT_URL = var.aws_cli_endpoint_url
       AWS_REGION   = var.region
+      # Traceability only — see terraform_data.client_via_cli above.
+      EXECUTION_LOG_TABLE = var.execution_log_table
+    }
+  }
+}
+
+# ─── OTP Challenge Lambda (CUSTOM_AUTH: Define/Create/VerifyAuthChallenge) ────
+# ONE Lambda serving all three triggers, dispatched on event.triggerSource — see
+# otp-challenge-lambda/index.mjs. Keeping it to one function means one IAM role
+# and one log group, and matches pre-token-lambda as the repo's only precedent
+# for a Cognito trigger Lambda.
+#
+# Unlike pre_token (whose role holds NO policies at all — it only reads
+# attributes off the trigger event), this role needs sqs:SendMessage:
+# CreateAuthChallenge publishes AUTH_OTP_REQUESTED to the shared events queue so
+# the events-pipeline Lambda mails the code.
+#
+# The function has no npm dependencies, so source_dir is zipped as-is (a single
+# index.mjs), exactly like pre-token-lambda. The AWS SDK is deliberately NOT
+# imported — see that file's header for why an SDK import is unsafe here.
+data "archive_file" "otp_challenge" {
+  type        = "zip"
+  source_dir  = "${path.module}/otp-challenge-lambda"
+  output_path = "${path.module}/otp-challenge-lambda.zip"
+}
+
+resource "aws_iam_role" "otp_challenge" {
+  name = "${var.context.id}-otp-challenge-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+  tags = var.context.tags
+}
+
+# Least privilege: SendMessage on exactly the shared events queue, nothing else.
+resource "aws_iam_role_policy" "otp_challenge_sqs" {
+  name = "${var.context.id}-otp-challenge-sqs-policy"
+  role = aws_iam_role.otp_challenge.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid      = "SqsSendOtpEvents"
+      Effect   = "Allow"
+      Action   = ["sqs:SendMessage"]
+      Resource = var.events_queue_arn
+    }]
+  })
+}
+
+resource "aws_lambda_function" "otp_challenge" {
+  function_name    = "${var.context.id}-otp-challenge"
+  runtime          = "nodejs20.x"
+  handler          = "index.handler"
+  role             = aws_iam_role.otp_challenge.arn
+  filename         = data.archive_file.otp_challenge.output_path
+  source_code_hash = data.archive_file.otp_challenge.output_base64sha256
+  # CreateAuthChallenge does a synchronous SQS publish before returning, and
+  # Cognito fails the whole auth attempt if the trigger times out — 10s leaves
+  # room for a cold start plus that call.
+  timeout = 10
+
+  # Empty-valued optional keys are DROPPED rather than sent as "". AWS_REGION is
+  # a RESERVED Lambda environment key in real AWS — including it at all (even
+  # empty) fails a production apply — while locally it must be set, because
+  # whether Floci's Lambda containers inject it is unverified and the SigV4
+  # signer needs a region. Same reasoning the events-pipeline Lambda applies in
+  # environments/local/main.tf. AWS_ENDPOINT_URL is dropped in production so the
+  # function falls back to the queue URL's own origin (the real SQS endpoint).
+  environment {
+    variables = merge(
+      {
+        EVENTS_QUEUE_URL     = var.events_queue_url
+        OTP_CODE_TTL_SECONDS = tostring(var.otp_code_ttl_seconds)
+        OTP_CODE_LENGTH      = tostring(var.otp_code_length)
+      },
+      # Locally the IN-NETWORK name (http://floci:4566): the function runs as a
+      # Docker container on 3mrai-network, where localhost is the container.
+      var.aws_cli_endpoint_url_in_network != "" ? {
+        AWS_ENDPOINT_URL = var.aws_cli_endpoint_url_in_network
+      } : {},
+      var.lambda_region_env != "" ? { AWS_REGION = var.lambda_region_env } : {},
+    )
+  }
+
+  tags = var.context.tags
+}
+
+resource "aws_lambda_permission" "otp_challenge_cognito" {
+  statement_id  = "AllowCognitoInvokeOtpChallenge"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.otp_challenge.function_name
+  principal     = "cognito-idp.amazonaws.com"
+  source_arn    = aws_cognito_user_pool.this.arn
+}
+
+# Registers all three CUSTOM_AUTH trigger keys in ONE update_user_pool call —
+# same awscli-fallback pattern as terraform_data.pre_token_trigger, and for the
+# same reason (the pinned provider cannot express these keys usefully alongside
+# the V2 pre-token config). Three separate calls would each PUT the whole pool
+# and clobber each other's LambdaConfig, which is why one script sets all three.
+# depends_on the permission so Cognito may invoke the function once wired.
+resource "terraform_data" "auth_challenge_triggers" {
+  depends_on = [
+    aws_lambda_permission.otp_challenge_cognito,
+    # Ordering, not data flow: both scripts read-modify-write the SAME
+    # LambdaConfig. Running them concurrently would let one PUT overwrite the
+    # other's key, so this one is forced to run AFTER the pre-token wiring and
+    # carries it through (see set_auth_challenge_triggers.py).
+    terraform_data.pre_token_trigger,
+  ]
+
+  input = {
+    user_pool_id = aws_cognito_user_pool.this.id
+    lambda_arn   = aws_lambda_function.otp_challenge.arn
+  }
+
+  provisioner "local-exec" {
+    command     = "${var.python_bin} ${path.module}/scripts/set_auth_challenge_triggers.py"
+    interpreter = ["/usr/bin/env", "bash", "-c"]
+    environment = {
+      USER_POOL_ID = self.input.user_pool_id
+      # All three keys point at the SAME function — it dispatches internally on
+      # event.triggerSource.
+      DEFINE_AUTH_CHALLENGE_LAMBDA_ARN          = self.input.lambda_arn
+      CREATE_AUTH_CHALLENGE_LAMBDA_ARN          = self.input.lambda_arn
+      VERIFY_AUTH_CHALLENGE_RESPONSE_LAMBDA_ARN = self.input.lambda_arn
+      ENDPOINT_URL                              = var.aws_cli_endpoint_url
+      AWS_REGION                                = var.region
       # Traceability only — see terraform_data.client_via_cli above.
       EXECUTION_LOG_TABLE = var.execution_log_table
     }

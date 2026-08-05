@@ -2,18 +2,20 @@
 title: Passwordless OTP Authentication Design
 type: spec
 area: users
-status: draft
+status: active
 created: 2026-08-05
 updated: 2026-08-05
 tags:
   - type/spec
   - area/users
-  - status/draft
+  - status/active
 propagates-to:
   - "[[users-service-design]]"
   - "[[events-pipeline-design]]"
   - "[[testing]]"
   - "[[logging-context]]"
+  - "[[passwordless-auth-type]]"
+  - "[[cognito-custom-auth-triggers]]"
 related:
   - "[[ADR-0017-floci-local]]"
   - "[[app-user-id-token-claim]]"
@@ -22,9 +24,20 @@ related:
   - "[[testing]]"
   - "[[audit-fields]]"
   - "[[env-files]]"
+  - "[[2026-08-05-passwordless-otp-auth]]"
+  - "[[passwordless-auth-type]]"
+  - "[[cognito-custom-auth-triggers]]"
 ---
 
 # Passwordless OTP Authentication Design
+
+> [!info] Implemented, committed, and verified live (2026-08-05)
+> Ships as designed below, with the route prefix and login-guard status code corrected by
+> [[2026-08-05-passwordless-otp-auth]] before implementation (see the two callouts inline).
+> Verified: 254 unit (Users), 180 (events-pipeline), 11 (Lambda), 80 E2E — all green, including
+> both mandatory anti-false-PASS guards. Propagated into [[users-service-design]],
+> [[events-pipeline-design]], [[testing]], [[logging-context]], and two new decision notes,
+> [[passwordless-auth-type]] and [[cognito-custom-auth-triggers]].
 
 ## Summary
 
@@ -109,6 +122,13 @@ used throughout the `User` model.
 
 ## Endpoints
 
+> [!warning] Superseded by the plan — routes moved under `/v1/users/*`
+> The `/auth/*` routes below were the original proposal. [[2026-08-05-passwordless-otp-auth]]
+> corrected them **before implementation** to `/v1/users/otp/start`, `/v1/users/otp/verify`, and
+> `/v1/users/register/passwordless` — this repo's endpoints are always `/v1/<service>/...`, and
+> `/auth/*` would have broken that convention. This is what shipped; see
+> [[users-service-design#Passwordless OTP authentication]] for the final endpoint table.
+
 - **`POST /auth/otp/start`** — `{ email }` → `{ session }`. Works for both auth types: it is the
   second path for a `PASSWORD` user and the only path for a `PASSWORDLESS` user.
 - **`POST /auth/otp/verify`** — `{ email, session, code }` → returns the same `AuthTokens` shape
@@ -133,6 +153,15 @@ before any Cognito call, returning `403`. This check is what makes "passwordless
 property of the account rather than an incidental effect of nobody knowing the random password.
 Per [[auth-error-mapping]], this joins the existing catalog of service-layer auth rejections
 that must not leak Cognito's own error shape.
+
+> [!warning] Superseded by the plan — 401, not 403
+> [[2026-08-05-passwordless-otp-auth]] overrode the `403` proposed above **before
+> implementation**: per [[auth-error-mapping]]'s anti-user-enumeration rule, a distinct status
+> code for "this account has no password" would let a caller distinguish "wrong password" from
+> "passwordless account" from the response alone — exactly the account-existence leak that rule
+> exists to prevent. What shipped is the generic `401 invalid_credentials`, identical to a wrong
+> password, with the real cause recorded only as `reason: "passwordless_user"` in the log. See
+> [[passwordless-auth-type]] for the full decision record.
 
 ## The three Cognito triggers
 
@@ -241,12 +270,28 @@ Mailpit assertions can't accidentally read mail left over from a previous run.
 - No OTP for anything other than authentication (no OTP-gated password reset, no step-up MFA) —
   out of scope for this design.
 
-## Open items for the plan
+## Open items — resolved by the plan and implementation
 
-- Measure real pipeline latency end-to-end (task #1), then set the code TTL from the
-  measurement rather than the ~10 minute estimate above.
-- Confirm the code length/alphabet — proposal: 6 digits, numeric only.
-- Decide whether `authType` is exposed in the user API response — proposal: yes, read-only.
+All three items originally open here are settled, not left to a future task:
+
+- **TTL: 300 seconds (5 minutes), set from measurement, not the ~10 minute estimate above.**
+  Real pipeline latency on the exact path (register → Mailpit) was measured at 0.5s / 1.0s / 1.8s
+  across three trials (cold Lambda), giving roughly 160x headroom over the slowest observed run.
+  5 minutes is also a conventional, user-legible OTP lifetime.
+- **Code length/alphabet: 6 digits, numeric only** — the original proposal, confirmed and
+  shipped unchanged.
+- **`authType` is exposed read-only in the user API response** — the original proposal,
+  confirmed and shipped unchanged: `UserSchema.authType`, never writable on register/update.
+
+**Error code:** `POST /v1/users/otp/verify` returns `401 invalid_otp` on an incorrect or expired
+code (`InvalidOtpError`, a new typed error) — distinct from `POST /v1/users/login`'s existing
+generic `401 invalid_credentials`, which is what a `PASSWORDLESS` user's login attempt reuses
+(see the login-guard callout above). The two 401s carry different `error` codes because they
+answer different questions and carry different enumeration risk: `invalid_otp` responds to a
+caller who has already proven they can call `otp/start` for that email, while
+`invalid_credentials` must stay indistinguishable from "wrong password" or "unknown user" to
+satisfy the anti-enumeration rule. This distinction is safe precisely because it applies to two
+different endpoints, not two outcomes of the same one. See [[passwordless-auth-type]].
 
 ## Related
 
@@ -259,3 +304,8 @@ Mailpit assertions can't accidentally read mail left over from a previous run.
 - [[env-files]]
 - [[users-service-design]]
 - [[events-pipeline-design]]
+- [[2026-08-05-passwordless-otp-auth]] — the implementation plan, including the route-prefix and
+  401-not-403 corrections applied before implementation.
+- [[passwordless-auth-type]] — the shipped `AuthType`/login-guard/error-code decision record.
+- [[cognito-custom-auth-triggers]] — the shipped infra decision record (Lambda, trigger wiring,
+  `ALLOW_CUSTOM_AUTH`).

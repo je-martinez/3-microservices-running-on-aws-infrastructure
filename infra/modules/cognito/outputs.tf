@@ -12,6 +12,11 @@ output "client_id" {
   )
 }
 
+output "otp_challenge_lambda_arn" {
+  description = "ARN of the OTP challenge Lambda. ONE function serves all three CUSTOM_AUTH triggers (DefineAuthChallenge/CreateAuthChallenge/VerifyAuthChallengeResponse), dispatching internally on event.triggerSource."
+  value       = aws_lambda_function.otp_challenge.arn
+}
+
 output "issuer" {
   description = <<-EOT
     Issuer URL for the JWT authorizer. Style is selected via var.issuer_style:

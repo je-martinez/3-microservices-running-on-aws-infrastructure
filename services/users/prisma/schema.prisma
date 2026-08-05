@@ -7,6 +7,14 @@ datasource db {
   provider = "postgresql"
 }
 
+// How a user authenticates. PASSWORD is the default so every pre-existing row
+// keeps its current behaviour; PASSWORDLESS accounts have no usable password
+// and sign in exclusively through the OTP (CUSTOM_AUTH) flow.
+enum AuthType {
+  PASSWORD
+  PASSWORDLESS
+}
+
 model User {
   id          String    @id
   email       String    @unique
@@ -15,6 +23,7 @@ model User {
   address     Json?
   phoneNumber String?   @map("phone_number")
   tags        String[]  @default([])
+  authType    AuthType  @default(PASSWORD) @map("auth_type")
   createdBy   String?   @map("created_by")
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedBy   String?   @map("updated_by")

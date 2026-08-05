@@ -23,6 +23,10 @@ process.env.COGNITO_CLIENT_ID ??= "generate-openapi";
 process.env.AWS_ENDPOINT_URL ??= "http://localhost:4566";
 process.env.AWS_REGION ??= "us-east-1";
 process.env.WEBHOOK_SECRET ??= "generate-openapi";
+// Added to `env.ts` after this script was written; both are required with no
+// default, so the eager parse above fails without them.
+process.env.GRPC_API_KEY ??= "generate-openapi";
+process.env.EVENTS_QUEUE_URL ??= "http://localhost:4566/000000000000/generate-openapi";
 
 const { buildApp } = await import("./routes.ts");
 
