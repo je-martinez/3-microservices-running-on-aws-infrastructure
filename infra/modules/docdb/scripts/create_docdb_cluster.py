@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Idempotently create the DocumentDB cluster + instance via boto3.
 
-Used ONLY by modules/database/main.tf's terraform_data.cluster_via_cli, which is
+Used ONLY by modules/docdb/main.tf's terraform_data.cluster_via_cli, which is
 gated by var.manage_cluster_via_provider = false (Floci local only).
 
 WHY THIS SCRIPT EXISTS AT ALL

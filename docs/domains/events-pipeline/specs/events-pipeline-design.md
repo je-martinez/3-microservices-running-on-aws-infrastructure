@@ -4,7 +4,7 @@ type: spec
 area: events-pipeline
 status: accepted
 created: 2026-06-26
-updated: 2026-08-04
+updated: 2026-08-05
 tags: [type/spec, area/events-pipeline, status/accepted]
 related:
   - "[[cqrs]]"
@@ -20,6 +20,7 @@ related:
   - "[[tracking-service-design]]"
   - "[[2026-08-03-events-pipeline-milestone-design]]"
   - "[[2026-08-03-events-pipeline-milestone]]"
+  - "[[terraform-modules]]"
 ---
 
 # Events Pipeline Design
@@ -341,3 +342,4 @@ for the event; `_emit_status_changed` reads `updated.user_id` off that persisted
 - [[tracking-service-design]] — the third producer, its deterministic `event_id`, and why `user_id` comes from the persisted row.
 - [[2026-08-03-events-pipeline-milestone-design]]
 - [[2026-08-03-events-pipeline-milestone]]
+- [[terraform-modules]] — the `docdb`, `messaging`, and `lambda` module inventory backing this service.

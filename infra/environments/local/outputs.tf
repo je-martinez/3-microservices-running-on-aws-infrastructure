@@ -67,17 +67,17 @@ output "events_dlq_url" {
 
 output "docdb_cluster_identifier" {
   description = "DocumentDB cluster identifier, used to derive the floci-docdb-<id> container name — the only way to reach Mongo locally (27017 is not published to the host)."
-  value       = module.database.cluster_identifier
+  value       = module.docdb.cluster_identifier
 }
 
 output "docdb_port" {
   description = "DocumentDB port."
-  value       = module.database.port
+  value       = module.docdb.port
 }
 
 output "docdb_master_username" {
   description = "DocumentDB master username, read by `make env-file` for DOCDB_USERNAME (the module's own default; main.tf never overrides master_username)."
-  value       = module.database.master_username
+  value       = module.docdb.master_username
 }
 
 output "events_lambda_function_name" {

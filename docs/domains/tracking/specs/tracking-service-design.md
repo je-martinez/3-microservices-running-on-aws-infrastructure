@@ -4,7 +4,7 @@ type: spec
 area: tracking
 status: accepted
 created: 2026-06-26
-updated: 2026-08-04
+updated: 2026-08-05
 tags: [type/spec, area/tracking, status/accepted]
 related:
   - "[[soft-delete]]"
@@ -47,10 +47,12 @@ related:
 > [[tracking/testing/index|Tracking Testing]] for current unit/integration coverage — run against
 > a live MySQL rather than mocks.
 >
-> `infra/modules/messaging/` and `infra/modules/database/` are no longer empty placeholders — the
-> events-pipeline milestone (2026-08-04) built both, and Tracking itself uses Aurora MySQL, not
-> DocumentDB, so neither ever blocked this service directly. Tracking is now a producer onto the
-> shared queue those modules provision — see [Events](#events) and [[events-pipeline-design]].
+> `infra/modules/messaging/` and `infra/modules/docdb/` (renamed from `database/` on 2026-08-04 —
+> the old name suggested a generic database module when it only ever created DocumentDB) are no
+> longer empty placeholders — the events-pipeline milestone (2026-08-04) built both, and Tracking
+> itself uses Aurora MySQL, not DocumentDB, so neither ever blocked this service directly.
+> Tracking is now a producer onto the shared queue those modules provision — see
+> [Events](#events) and [[events-pipeline-design]].
 
 ## Summary
 

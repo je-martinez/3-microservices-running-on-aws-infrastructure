@@ -258,8 +258,8 @@ module "messaging" {
 # meets the awscli-fallback pattern's bar: proven by a real apply failure, with a
 # proven-working SDK equivalent. Prod keeps the default (true) and the native
 # resources. See docs/shared/patterns/awscli-fallback-for-floci.md.
-module "database" {
-  source                      = "../../modules/database"
+module "docdb" {
+  source                      = "../../modules/docdb"
   context                     = { id = "db-${module.label_events.id}", tags = module.label_events.tags }
   subnet_ids                  = module.networking.subnet_ids
   security_group_ids          = module.networking.security_group_ids
@@ -312,9 +312,9 @@ module "lambda_events_pipeline" {
     # function calls SES, and a missing region surfaces there as a confusing
     # credentials/endpoint error rather than an obvious "no region configured".
     AWS_REGION     = local.region
-    DOCDB_HOST     = "floci-docdb-${module.database.cluster_identifier}"
-    DOCDB_PORT     = tostring(module.database.port)
-    DOCDB_USERNAME = module.database.master_username
+    DOCDB_HOST     = "floci-docdb-${module.docdb.cluster_identifier}"
+    DOCDB_PORT     = tostring(module.docdb.port)
+    DOCDB_USERNAME = module.docdb.master_username
     DOCDB_PASSWORD = var.docdb_password
     # LOCAL ONLY: Floci backs DocumentDB with a stock mongo:7.0 container, whose
     # MONGO_INITDB_ROOT_* user is created in the `admin` database, not in the

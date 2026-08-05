@@ -182,8 +182,17 @@ infra/
 │     api-gateway/  — API GW v2, per-route HTTP_PROXY integrations, JWT authorizer
 │     cognito/      — user pool (+ custom:app_user_id), app client, and the repo's
 │                     first Lambda: Pre-Token-Generation V2 (pre-token-lambda/)
-│     rds-aurora/   — Aurora cluster (writer + reader)
-│     database/, messaging/  — empty placeholders
+│     rds-aurora/   — Aurora cluster (writer + reader), engine-agnostic: one
+│                     instantiation per engine (postgres for users, mysql for orders)
+│     docdb/        — DocumentDB cluster + instance (the events-pipeline event
+│                     store). NOT a generic "database" module — that was its old
+│                     name, and it only ever created DocumentDB. It stays separate
+│                     from rds-aurora on purpose: different AWS resource families,
+│                     providers and lifecycles, so merging them would only produce
+│                     a switch-module with no shared resources.
+│     messaging/    — SQS events queue + DLQ (redrive)
+│     lambda/       — function, IAM role, SQS event source mapping
+│     db-app-user/  — least-privilege application DB user (phase 2; engine-parameterized)
 └── environments/{local,production}/
 ```
 

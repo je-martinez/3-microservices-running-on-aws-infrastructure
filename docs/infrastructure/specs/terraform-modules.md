@@ -4,7 +4,7 @@ type: spec
 area: infra
 status: active
 created: 2026-06-26
-updated: 2026-07-28
+updated: 2026-08-05
 tags: [type/spec, area/infra, status/active]
 related:
   - ADR-0001-terraform-cloudposse-naming
@@ -17,6 +17,7 @@ related:
   - "[[terraform-remote-state-backend]]"
   - "[[local-gateway-per-route-integrations]]"
   - "[[nginx-njs-x-user-id-injection]]"
+  - "[[events-pipeline-design]]"
 ---
 
 # Terraform Modules
@@ -50,12 +51,24 @@ The real module inventory under `infra/modules/`:
 | `infra/modules/compute` | nginx on ECS — the local reverse proxy that injects `x-user-id` via njs (see [[ADR-0016-local-apigw-nginx-ecs]]) |
 | `infra/modules/api-gateway` | API Gateway v2, per-route `HTTP_PROXY` integrations, JWT authorizer |
 | `infra/modules/cognito` | Cognito User Pool (+ `custom:app_user_id` attribute), App Client, and the repo's first Lambda (Pre-Token-Generation V2 — see [[cognito-pre-token-lambda]]) |
-| `infra/modules/rds-aurora` | Aurora cluster (writer + reader endpoints) |
-| `infra/modules/database` | empty placeholder (`.gitkeep` only) — not yet implemented |
-| `infra/modules/messaging` | empty placeholder (`.gitkeep` only) — not yet implemented |
+| `infra/modules/rds-aurora` | Aurora cluster (writer + reader endpoints), engine-agnostic — serves both Aurora Postgres (users) and Aurora MySQL (orders, tracking); see [[rds-aurora-engine-switchable-floci]] |
+| `infra/modules/docdb` | DocumentDB cluster + instance + subnet group, plus the awscli fallback for Floci (`manage_cluster_via_provider = false`); backs the events-pipeline's event store — see [[events-pipeline-design]] |
+| `infra/modules/messaging` | SQS main queue + DLQ + redrive-allow policy for the events-pipeline; see [[events-pipeline-design]] |
+| `infra/modules/lambda` | packages and deploys the events-pipeline Lambda (IAM exec role, log group, SQS event source mapping with `ReportBatchItemFailures`); see [[events-pipeline-design]] |
+| `infra/modules/db-app-user` | engine-parameterized least-privilege DB app-user (Terraform, phase 2) — see [[two-phase-terraform-apply]] |
 
-There is no `ecs-service`, `sqs-lambda`, `documentdb`, `secrets`, or `ecr` module — those are
-not part of the current inventory.
+There is no `ecs-service`, `secrets`, or `ecr` module — those are not part of the current
+inventory.
+
+> [!note] Why `docdb` and `rds-aurora` stay separate
+> Both provision databases, but they are different AWS services with different providers and
+> lifecycles: `rds-aurora` manages `aws_rds_cluster` (writer + reader instances, Secrets Manager
+> credentials, PostgreSQL roles/grants) and is already engine-agnostic across Postgres and MySQL.
+> `docdb` manages `aws_docdb_cluster`/`aws_docdb_cluster_instance` — a distinct resource family
+> with its own subnet group and its own awscli fallback for Floci. Unifying them into one
+> switch-module would produce no shared resources, only a branch on which AWS service to call.
+> The module previously named `database` was renamed to `docdb` (2026-08-04) precisely because
+> the old name suggested a generic/shared database module when it only ever created DocumentDB.
 
 Two Cognito resources are wired against Floci via the **awscli-fallback pattern**
 (`terraform_data` + `local-exec` + an idempotent script, outside Terraform's normal resource
@@ -66,7 +79,8 @@ provider version: the Cognito App Client and the Pre-Token-Generation V2 trigger
 ### Local composition and its follow-on decisions
 
 `infra/environments/local` composes `label`, `networking`, `rds-aurora`, `cognito`, `compute`,
-and `api-gateway` against Floci. Several decisions layered on top of that initial composition:
+`api-gateway`, `messaging`, `docdb`, and `lambda` against Floci. Several decisions layered on top
+of that initial composition:
 
 - **`rds-aurora` has a switchable engine** (`var.engine`, default `aurora-postgresql`) so local
   can instantiate real Floci Postgres/MySQL containers instead of Aurora, which Floci does not
@@ -123,3 +137,4 @@ Resource names are derived via `module.label.id` (e.g. `3mrai-prod-users`). Tags
 - [[terraform-remote-state-backend]]
 - [[local-gateway-per-route-integrations]]
 - [[nginx-njs-x-user-id-injection]]
+- [[events-pipeline-design]]
