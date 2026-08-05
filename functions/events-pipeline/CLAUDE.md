@@ -53,7 +53,10 @@ functions/events-pipeline/
 ├── src/handlers/      # type → handler map (e.g. OrderCreatedHandler)
 ├── src/pipeline/      # lifecycle: STARTED → IN_PROGRESS → COMPLETED/FAILED
 ├── src/domain/        # Event schema (event_id, status_history, audit fields)
-├── src/shared/{config,db,di}/
+├── src/email/         # react-email templates, catalog, renderer, SES sender
+├── src/shared/{config,db,logging}/
+│     logging/     # pino: logger options, app-logger, per-record ALS context,
+│                  # email-hash (the cross-service email_hash contract)
 └── tests/
 ```
 
@@ -111,4 +114,36 @@ Two constraints when writing code:
 - Service spec (vault): [../../docs/domains/events-pipeline/specs/events-pipeline-design.md](../../docs/domains/events-pipeline/specs/events-pipeline-design.md)
 - Local substrate probe (SQS/Lambda/DocumentDB on Floci): [../../docs/lessons/floci-sqs-lambda-docdb-support.md](../../docs/lessons/floci-sqs-lambda-docdb-support.md) — see §3b
 - Lifecycle: message saved as `STARTED` → `IN_PROGRESS` (to handler) → `COMPLETED`, or `FAILED` (error saved).
+- Envelope (producer → pipeline contract, `src/domain/envelope.ts`): `event_id`, `type`, `source`,
+  `user_id`, `order_id`, `payload`, and a **required `author`** object
+  `{ actor, user_id?, cognito_sub? }`. `author` records WHO ORIGINATED the event; the root
+  `user_id` is its SUBJECT. They differ routinely — a `TRACKING_STATUS_CHANGED` from the carrier
+  webhook is ABOUT a user but originated from no human at all, so `author.user_id` /
+  `author.cognito_sub` are **omitted** (never null, never filled with the actor label).
+  `author.actor` is the producer's own `AuditActor`, format `<source>:<action>`.
 - Event fields (all snake_case, persisted as-is — no ORM): `event_id`, `order_id`, `user_id`, `type`, `source`, `payload`, `status`, `error`, `status_history`, `created_by`, `created_at`, `updated_by`, `updated_at`, `deleted_by`, `deleted_at`, `is_deleted`. `event_id` is producer-generated and the event's only identifier (uniquely indexed) — the pipeline mints no `friendlyId` of its own.
+  - `created_by` carries the **producer's** `author.actor` (what ORIGINATED the event, e.g.
+    `tracking_api:carrier_status_update`); `updated_by` is `events-pipeline` (what PROCESSED it)
+    on every later transition. This is the one place in the repo where the two audit columns
+    deliberately name different sources — see [[audit-fields]]. Note `author` itself is NOT a
+    document field: its actor is extracted to `created_by`, its ids go to the log context.
+
+### Logging & tracing in this service
+- **pino**, built from the same options Users uses (`src/shared/logging/logger.ts`), so a line
+  from this Lambda and a line from Users are indistinguishable downstream: `severity_text` /
+  `severity_number` replace pino's numeric level, and `err` is promoted to top-level
+  `error_type` / `error_message`.
+- The AsyncLocalStorage context unit is **one SQS record**, not an HTTP request — that is the only
+  real adaptation of the Users pattern. `runWithLogContext` must `await` INSIDE the callback or the
+  store is lost at the await site (same hazard as [[prisma-lazy-promise-als]]; here it is the
+  mongodb driver's and SES client's promises).
+- Author fields are logged as `author_actor` / `author_user_id` / `author_cognito_sub`. The prefix
+  is load-bearing: the envelope's root `user_id` already occupies `user_id`, and an unprefixed key
+  would silently overwrite one with the other.
+- **PII:** never log `payload` (it carries emails). Never log a Zod parse error — it echoes the raw
+  body. Reduce Mongo driver errors to `err.name`: the driver's message embeds the REJECTED
+  DOCUMENT. Email recipients are logged only as `email_hash`.
+- **No transports.** pino writes to its default synchronous stdout destination. This Lambda is
+  bundled by esbuild into a single CJS file, and a worker-thread transport would break there.
+- `trace_id` / `span_id` are **absent** — this service has no OpenTelemetry SDK yet
+  (JE-138). They will appear once it is instrumented; nothing here synthesizes them.

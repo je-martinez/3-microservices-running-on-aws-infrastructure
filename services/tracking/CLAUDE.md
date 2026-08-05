@@ -147,6 +147,26 @@ Implementation notes:
 - The interval is **injectable** (`progression_interval`); production default 10s,
   tests pass ~0 so the suite never sleeps for 30 seconds.
 
+## 5d. `TRACKING_STATUS_CHANGED` — the third producer
+Tracking publishes to the shared SQS events queue (`EVENTS_QUEUE_URL`) on **every** status
+transition, consumed by the events-pipeline Lambda, which emails the user. See
+`shared/messaging/{event_publisher,sqs_event_publisher}.py`.
+
+- **Best-effort, never raises.** A publish failure is logged with a machine-readable `reason` and
+  swallowed — a notification must not break the write that caused it. `NoopEventPublisher` is the
+  binding for suites that must not emit.
+- **The envelope's `author.actor` is the `actor` the command already received**, not a constant
+  the publisher picks. `update_tracking_status()` takes `actor: AuditActor` (default
+  `CARRIER_STATUS_UPDATE`, with TestMode passing `TEST_MODE_PROGRESSION`) and threads it through.
+  Hardcoding it in the publisher would relabel every automatic progression as a carrier update —
+  the two are only distinguishable because that parameter travels.
+- **Neither write path has a human author**, so `author.user_id` / `author.cognito_sub` are
+  OMITTED (never null): the carrier webhook carries no caller identity at all (§5a) and TestMode
+  runs on a timer. The tracking's own `user_id` is the event's SUBJECT and travels as the
+  envelope's root `user_id` — do not duplicate it into `author`. See [[audit-fields]].
+- The payload's recipient email is resolved from Users over gRPC; the address is never logged in
+  plaintext (only `email_hash`), per [[logging-context]].
+
 ## 6. Design reference
 - Service spec (vault, source of truth): [../../docs/domains/tracking/specs/tracking-service-design.md](../../docs/domains/tracking/specs/tracking-service-design.md)
 - **Tracking is REST-only.** It serves no gRPC; the single gRPC in this service is an

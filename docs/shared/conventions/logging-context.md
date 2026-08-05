@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-19
-updated: 2026-08-03
+updated: 2026-08-05
 tags:
   - type/convention
   - area/shared
@@ -18,6 +18,7 @@ related:
   - "[[2026-07-12-prisma-lazy-promise-als]]"
   - "[[2026-07-31-contextvars-lost-across-task-boundaries]]"
   - "[[2026-07-31-python-logging-extra-silently-dropped]]"
+  - "[[events-pipeline-design]]"
 ---
 
 # Logging Context
@@ -28,7 +29,7 @@ Every log line attaches the following fields, identically defined across service
 
 | Field | Source | Present when |
 |---|---|---|
-| `trace_id` / `span_id` | OpenTelemetry SDK (W3C) | always |
+| `trace_id` / `span_id` | OpenTelemetry SDK (W3C) | always, **except events-pipeline** (see below) |
 | `cognito_sub` | JWT / `x-user-id` | authenticated request |
 | `user_id` | internal resolution (`usr_…`) | once identity resolved |
 | `email_hash` | SHA-256 of the trimmed, lowercased email, first 16 hex chars | whenever the email is known |
@@ -36,11 +37,33 @@ Every log line attaches the following fields, identically defined across service
 | `order_id` | domain operation | Orders operations |
 | `duration_ms` | request log | per response |
 | `tracking_id` | domain operation | Tracking operations, once a tracking exists |
-| `type` | — | **reserved** for `events-pipeline`, emitted by nothing today |
+| `type` | envelope `type` | events-pipeline, every per-record log line |
+| `author_actor` | envelope `author.actor` | events-pipeline, every per-record log line |
+| `author_user_id` | envelope `author.user_id` | events-pipeline, when a human originated the event |
+| `author_cognito_sub` | envelope `author.cognito_sub` | events-pipeline, when a human originated the event and supplied a Cognito sub |
 
 **Rule: unknown fields are OMITTED, never emitted as null.** A `user_id: null` reads as a
 resolved value that happens to be null, not as "not applicable to this line" — that ambiguity is
 worse than the field's absence.
+
+> [!warning] events-pipeline has no `trace_id`/`span_id` today
+> The events-pipeline Lambda carries no OpenTelemetry SDK — zero `@opentelemetry/*` dependencies
+> in `functions/events-pipeline/package.json`, no `OTEL_*` variables in `infra/modules/lambda/`.
+> Every other producer/consumer in the shared context table emits `trace_id`/`span_id` on every
+> line; this is the one exception. Tracked as [JE-138](https://linear.app/je-martinez/issue/JE-138).
+
+> [!note] `author_*` fields — flattened, and prefixed on purpose
+> The events-pipeline derives `author_actor`/`author_user_id`/`author_cognito_sub` from the
+> envelope's `author` object (`functions/events-pipeline/src/handler.ts`, `envelopeContext`) and
+> flattens them into the log context rather than nesting a raw `author` object — a nested object
+> would arrive as a structured sub-document the collector cannot filter on directly. The
+> `author_` prefix is load-bearing, not cosmetic: the envelope's root `user_id` is the event's
+> **subject** (who the event is about); `author_user_id` is **who acted**. An unprefixed
+> `user_id` on the author would silently overwrite the subject's `user_id` in the same context —
+> a line that reads as correct while attributing the event to the wrong user.
+> `author_user_id`/`author_cognito_sub` are **omitted**, never null, when no human originated the
+> event (a carrier webhook, a TestMode timer); `author_actor` is always present — every event has
+> a producing actor, even a non-human one (e.g. `tracking_api:carrier_status_update`).
 
 ## PII rules
 
@@ -184,3 +207,5 @@ reach the shared schema.
   the Prisma/ALS lesson above.
 - [[2026-07-31-python-logging-extra-silently-dropped]] — why Tracking needed a custom
   formatter for `extra=` fields to reach the output at all.
+- [[events-pipeline-design]] — the `type` and `author_*` fields the pipeline emits on every
+  per-record log line, and why it has no `trace_id`/`span_id` yet (JE-138).

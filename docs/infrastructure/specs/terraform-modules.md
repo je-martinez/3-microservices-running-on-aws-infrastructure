@@ -56,6 +56,7 @@ The real module inventory under `infra/modules/`:
 | `infra/modules/messaging` | SQS main queue + DLQ + redrive-allow policy for the events-pipeline; see [[events-pipeline-design]] |
 | `infra/modules/lambda` | packages and deploys the events-pipeline Lambda (IAM exec role, log group, SQS event source mapping with `ReportBatchItemFailures`); see [[events-pipeline-design]] |
 | `infra/modules/db-app-user` | engine-parameterized least-privilege DB app-user (Terraform, phase 2) — see [[two-phase-terraform-apply]] |
+| `infra/modules/tf-backend` | create-once bootstrap: the remote-state S3 bucket + versioning, the state-lock DynamoDB table, and the `execution_log` DynamoDB table every awscli-fallback `local-exec` script records its run to — see [[terraform-remote-state-backend]] |
 
 There is no `ecs-service`, `secrets`, or `ecr` module — those are not part of the current
 inventory.

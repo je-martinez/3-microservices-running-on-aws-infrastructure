@@ -140,5 +140,14 @@ services/users/
     OR Cognito sub; returns `NOT_FOUND` when the user does not exist.
 - Error contract: typed auth errors (`shared/auth/auth-errors.ts`) mapped by a global
   `setErrorHandler` in `routes.ts`.
-- `USER_CREATED` is **not** on SQS yet — `shared/messaging/event-publisher.ts` ships a
-  `NoopEventPublisher`; the emission point exists, the SQS wiring is deferred.
+- `USER_CREATED` is published to the shared SQS events queue by
+  `shared/messaging/event-publisher.ts` (`SqsEventPublisher`, `EVENTS_QUEUE_URL`), consumed by
+  the events-pipeline Lambda. `NoopEventPublisher` is still there, but only as the binding for
+  tests and any environment that must not emit — not the production path.
+  - The publish is deliberately **best-effort**: a failure is logged with
+    `app_event=user_created_publish_failed` and swallowed, never rethrown. The user and the
+    Cognito account already exist by then, so failing the request would report an error for a
+    registration that actually succeeded.
+  - The envelope carries an `author` block — `{ actor: AuditActor.Register, user_id, cognito_sub }`
+    — recording WHO originated the event, as distinct from the root `user_id`, which is who it is
+    ABOUT (the same person here; not on every event). See [[audit-fields]].

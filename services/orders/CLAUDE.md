@@ -182,7 +182,7 @@ services/orders/
     to the internal `usr_` id via the Users gRPC client, then in one transaction
     locks each product `FOR UPDATE`, decrements stock, prices lines in cents,
     persists Order + OrderDetails with BOTH `user_id` and `cognito_sub`, and emits
-    `ORDER_CREATED` (Noop seam). Full rollback on any failure.
+    `ORDER_CREATED` to SQS (see below). Full rollback on any failure.
   - `[GET] /v1/orders/my-orders`, `[GET] /v1/orders/{order_id}` — ownership by
     query filter (`cognito_sub` from `x-user-id`); another user's order → 404.
     Both take an optional `includeTracking` query param (default **false**); when
@@ -213,7 +213,12 @@ services/orders/
   Tracking also write to. `NoopEventPublisher` is kept for tests that must not
   emit. The envelope is snake_case with `type`/`source` also set as message
   attributes, and `event_id` is minted inside the publisher as the pipeline's
-  idempotency key. Its payload carries the caller's **email**, which is why
+  idempotency key. It carries an `author` block —
+  `{ actor: AuditActor.CreateOrder, user_id, cognito_sub }` — recording WHO
+  originated the event, as distinct from the root `user_id` (who it is ABOUT).
+  Serialized with `JsonIgnoreCondition.WhenWritingNull`, **not** `Never`: an
+  identity the author does not have must be OMITTED, and `Never` would emit
+  `"cognito_sub": null`, which the contract forbids. See [[audit-fields]]. Its payload carries the caller's **email**, which is why
   `CallerProfile` maps it off the `GetUserById` response order creation already
   makes. A publish failure is logged and swallowed, never rethrown: the publish
   runs inside the write transaction, so throwing would roll back a paid-for

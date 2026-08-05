@@ -187,6 +187,27 @@ Collection: `events` (DocumentDB)
 > dependency in this package — see [[nano-id]] for why this service no longer participates in
 > that scheme.
 
+### The envelope's `author` object
+
+Every producer sets a required `author` object (`src/domain/envelope.ts`, `AuthorSchema`) on the
+SQS message body, alongside the existing `event_id`/`type`/`source`/`user_id`/`order_id`/
+`payload` fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `author.actor` | string | Required. The producer's semantic `AuditActor` (e.g. `users_api:register`, `tracking_api:carrier_status_update`) — the same value that service already stamps into its own `created_by` column. Becomes this document's `created_by` (see below). |
+| `author.user_id` | string | Optional, omitted (never null) when no human originated the event. |
+| `author.cognito_sub` | string | Optional, omitted (never null) when the human actor supplied no Cognito sub. |
+
+`author` is **required**, not optional: an optional field would silently permit an unattributed
+event with no signal that attribution was missing. There is deliberately no `author.source` —
+the producing service is already the envelope's root `source`, and a second copy would only
+invite disagreement.
+
+`author.actor`/`author.user_id`/`author.cognito_sub` are also what the Lambda flattens into
+`author_actor`/`author_user_id`/`author_cognito_sub` on every per-record log line — see
+[[logging-context]].
+
 | Field | Type | Notes |
 |---|---|---|
 | `event_id` | string | Producer-generated idempotency key; the event's only identifier. Uniquely indexed — a redelivered SQS message collides on this index and is treated as already-processed. Not minted by the pipeline. |
@@ -198,9 +219,9 @@ Collection: `events` (DocumentDB)
 | `status` | string (enum) | Current state: `STARTED` \| `IN_PROGRESS` \| `COMPLETED` \| `FAILED`. |
 | `error` | string \| null | Populated only when `status = FAILED`. |
 | `status_history` | array of objects | Append-only log: `{ status, timestamp, error? }` per transition. |
-| `created_by` | string | See [[audit-fields]]. |
+| `created_by` | string | The envelope's `author.actor` — what ORIGINATED the event. See [[audit-fields]] for the full `created_by`/`updated_by` split rationale. |
 | `created_at` | datetime | See [[audit-fields]]. |
-| `updated_by` | string | See [[audit-fields]]. |
+| `updated_by` | string | Always `"events-pipeline"` — what PROCESSED the event, stamped on every `STARTED`→`IN_PROGRESS`→`COMPLETED`/`FAILED` transition. See [[audit-fields]]. |
 | `updated_at` | datetime | See [[audit-fields]]. |
 | `deleted_by` | string \| null | See [[audit-fields]]. |
 | `deleted_at` | datetime \| null | See [[audit-fields]]. |

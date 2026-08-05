@@ -4,7 +4,7 @@ type: spec
 area: orders
 status: accepted
 created: 2026-06-26
-updated: 2026-07-29
+updated: 2026-08-05
 tags: [type/spec, area/orders, status/accepted]
 related:
   - "[[soft-delete]]"
@@ -27,6 +27,7 @@ related:
   - "[[2026-07-16-orders-list-products-endpoint-design]]"
   - "[[tracking-service-design]]"
   - "[[users-service-design]]"
+  - "[[events-pipeline-design]]"
 ---
 
 # Orders Service Design
@@ -40,9 +41,9 @@ related:
 > service-local decision notes it links to. `services/orders/CLAUDE.md` is the day-to-day
 > reference for stack/commands; this note is the durable service-design record.
 >
-> **Not yet built:** real SQS wiring for `ORDER_CREATED` (still a `NoopEventPublisher` emission
-> seam), Orders' own gRPC **server** surface (`GetOrderById`), and Product CRUD — all explicitly
-> out of scope for the shipped milestone.
+> **Not yet built:** Orders' own gRPC **server** surface (`GetOrderById`) and Product CRUD — both
+> explicitly out of scope for the shipped milestone. `ORDER_CREATED` SQS publish shipped in a
+> later commit (`528153c`) — see [Events](#events) below.
 
 ## Summary
 
@@ -69,7 +70,7 @@ All routes are versioned under the `/v1` prefix. See [[versioning]] for the vers
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/v1/orders` | Create a new order. Emits `ORDER_CREATED` via a `NoopEventPublisher` seam today — real SQS publish is deferred. Accepts an optional `x-test-mode` header, guarded by `E2E_TESTING_ENABLED`, propagated as `test_mode` on the HTTP call to Tracking's `init-tracking` — see [[tracking-service-design#TestMode automatic progression]]. Also resolves the caller's delivery address via `GetUserById` and snapshots it on the order — see [Delivery address flow](#delivery-address-flow-users--orders--tracking) below. |
+| `POST` | `/v1/orders` | Create a new order. Publishes `ORDER_CREATED` to SQS via `SqsEventPublisher` (`Orders.Infrastructure/Messaging/SqsEventPublisher.cs`) — see [Events](#events) below. Accepts an optional `x-test-mode` header, guarded by `E2E_TESTING_ENABLED`, propagated as `test_mode` on the HTTP call to Tracking's `init-tracking` — see [[tracking-service-design#TestMode automatic progression]]. Also resolves the caller's delivery address via `GetUserById` and snapshots it on the order — see [Delivery address flow](#delivery-address-flow-users--orders--tracking) below. |
 | `GET` | `/v1/orders/my-orders` | List all orders belonging to the authenticated user. |
 | `GET` | `/v1/orders/{order_id}` | Fetch a single order. Returns `404` if the order does not belong to the requesting user — see the ownership note below. |
 | `GET` | `/v1/products` | List the active product catalog. Private (requires `x-user-id`), no ownership filtering — products have no owner. See [[2026-07-16-orders-list-products-endpoint-design]]. |
@@ -203,11 +204,21 @@ Line items for each order. One row per product per order.
 
 ## Events
 
+`SqsEventPublisher` publishes `ORDER_CREATED` to the shared SQS queue on every successful
+`POST /v1/orders`, inside the same write transaction as the order itself. `NoopEventPublisher`
+still exists for tests and any environment that must not emit, but is not the production
+binding.
+
 | Event | Trigger | Payload |
 |---|---|---|
-| `ORDER_CREATED` | `POST /orders` succeeds | `{ order_id, user_id, total, created_at }` |
+| `ORDER_CREATED` | `POST /orders` succeeds | `{ order_id, user_id, total, created_at }`, plus the shared envelope's `author` object |
 
 The event is dispatched to SQS. The Events Pipeline Lambda picks it up, saves it with status `STARTED`, dispatches to `OrderCreatedHandler`, and updates status to `COMPLETED` or `FAILED`.
+
+Publish failures are logged and swallowed, never rethrown, because the publish call runs
+**inside** the write transaction — re-raising would roll back a commercially valid, already
+paid-for order over a notification failure. See [[events-pipeline-design]] for the consumer
+side and the full envelope contract.
 
 ## Cross-cutting rules
 
@@ -281,3 +292,5 @@ Full milestone design: [[2026-07-14-orders-service-milestone-design]].
   [[tracking-service-design#Ownership & scoping]].
 - [[users-service-design]] — `GetUserById` is where Orders resolves the delivery address it
   snapshots onto `Order.shipping_address`.
+- [[events-pipeline-design]] — the consumer of `ORDER_CREATED`, the shared envelope contract,
+  and the `author` object carried alongside the order payload.

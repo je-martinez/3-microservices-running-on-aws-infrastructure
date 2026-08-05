@@ -4,7 +4,7 @@ type: convention
 area: infra
 status: active
 created: 2026-07-20
-updated: 2026-08-04
+updated: 2026-08-05
 tags:
   - type/convention
   - area/infra
@@ -31,7 +31,7 @@ new API id, and reassigns RDS proxy ports by cluster creation order.
 | File | Holds | Consumed by |
 |---|---|---|
 | `.env` | ONLY the four vars compose interpolates as `${VAR}` | docker-compose interpolation |
-| `.env.local.infra` | Terraform outputs (Cognito ids, API GW url, DB hosts/ports) | the E2E suite, humans |
+| `.env.local.infra` | Terraform outputs (Cognito ids, API GW url, DB hosts/ports) **plus `MAILPIT_API_URL`** | the E2E suite, humans |
 | `.env.local.users` | the Users service environment | compose `env_file:` |
 | `.env.local.orders` | the Orders service environment | compose `env_file:` |
 | `.env.local.tracking` | the Tracking service environment (incl. `E2E_TESTING_ENABLED=true` in CUSTOM, `EVENTS_QUEUE_URL`) | compose `env_file:` |
@@ -44,6 +44,14 @@ files as of the events-pipeline milestone: `.env.local.events-pipeline` itself, 
 `.env.local.users`, `.env.local.orders`, and `.env.local.tracking` — each service's own producer
 reads the same generated queue URL from its own file, never a shared or hardcoded one. See
 [[events-pipeline-design]].
+
+> [!note] `MAILPIT_API_URL` in `.env.local.infra` is NOT a Terraform output
+> Unlike its neighbours in that file, `MAILPIT_API_URL` is a fixed local constant
+> (`http://localhost:8025/api/v1`, defined in `generate_env_files.py`) rather than something read
+> from `terraform output`. Mailpit's port is published by docker-compose, not provisioned by
+> Terraform, so there is no output to read. The E2E suite reads it to assert that the
+> events-pipeline's emails actually land in the local inbox — see
+> `e2e/support/mailpit-client.ts`.
 
 `.env*` is git-ignored except `.env.example`, which needs an explicit `!.env.example` negation.
 
