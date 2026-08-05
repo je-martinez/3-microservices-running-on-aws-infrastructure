@@ -46,6 +46,28 @@ AWS_REGION = "us-east-1"
 OTLP_ENDPOINT = "http://otel-collector:4318"
 FLOCI_HOST = "floci"
 
+# Mailpit's HTTP API, HOST-facing, including the `/api/v1` prefix its endpoints
+# hang off (`/search`, `/message/{id}`, `/info`).
+#
+# A fixed constant rather than a `terraform_output`, unlike everything else in
+# .env.local.infra: Mailpit is not a Terraform resource at all. It is a
+# docker-compose service whose port is published by docker-compose.yml
+# (`8025:8025`), so the value cannot change per apply the way a Floci-minted
+# Cognito id or a reassigned RDS proxy port does. Reading it from Terraform is
+# not merely unnecessary — there is no output to read.
+#
+# `localhost`, not the compose service name, because the sole consumer is the
+# E2E suite, which runs on the HOST. The same reasoning that makes
+# .env.local.debug host-facing applies: a container-internal `http://mailpit:8025`
+# would not resolve from a Playwright process outside Docker.
+#
+# The NAME is deliberately the one that already exists in
+# functions/events-pipeline/tests/email/sender.integration.test.ts, which reads
+# `process.env.MAILPIT_API_URL` with this exact string as its fallback. One name
+# across the repo means the pipeline's integration suite and the E2E suite can
+# both be pointed at a different Mailpit by setting a single variable.
+MAILPIT_API_URL = "http://localhost:8025/api/v1"
+
 # ─── The two key-based auth schemes — KEEP THEM SEPARATE ─────────────────────
 # These are two different keys for two different TRUST DOMAINS. Do not
 # "simplify" by collapsing them into one constant, and do not point both env
@@ -176,6 +198,10 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # Same cluster as Orders, so the same discovered port. Named
                 # separately so a consumer never has to know they coincide.
                 "TRACKING_DB_PORT": str(my_port),
+                # The E2E suite asserts the pipeline's emails actually LAND in
+                # Mailpit, so it needs the inbox's API. A compose-published
+                # constant rather than a Terraform output — see the definition.
+                "MAILPIT_API_URL": MAILPIT_API_URL,
             },
         ),
         # --- users service ---------------------------------------------------

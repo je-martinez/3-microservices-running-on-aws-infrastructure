@@ -2,6 +2,11 @@ import { test, expect } from "@playwright/test";
 import { request } from "@playwright/test";
 import { makeUser } from "../../support/chance-factory.js";
 import { gatewayClient } from "../../support/gateway-client.js";
+import {
+  assertMailpitReachable,
+  waitForEmailTo,
+  type MailpitMessage,
+} from "../../support/mailpit-client.js";
 
 // The full cross-service journey, through the gateway only, in the order a real
 // client would walk it:
@@ -33,6 +38,12 @@ const DELIVERY_TIMEOUT_MS = 75_000;
 //: Gap between polls. Well under the 10s cadence, so the poller observes each
 // intermediate status rather than skipping straight from SHIPPED to DELIVERED.
 const POLL_INTERVAL_MS = 2_000;
+
+//: How long to wait for the pipeline's emails once the journey is complete.
+// Locally the whole chain (producer → SQS → Lambda → SES → Mailpit) settles in a
+// few seconds; 45s is that with generous room for a cold Lambda, and bounded for
+// the same reason the delivery poll is.
+const EMAIL_TIMEOUT_MS = 45_000;
 
 //: The forward-only progression from the design. Index = position in the chain,
 // which is what makes "is this history in forward order" and "did it overshoot"
@@ -102,12 +113,23 @@ async function registerAndLogin(): Promise<{ token: string; userId: string; emai
 
 test("the full journey through the gateway: user → order → tracking → DELIVERED", async () => {
   // Owns a ~30s progression plus a full register/login/order chain, so it needs
-  // more than Playwright's 30s default. Set from the poll budget rather than a
-  // magic number, so the two cannot drift apart.
-  test.setTimeout(DELIVERY_TIMEOUT_MS + 60_000);
+  // more than Playwright's 30s default. Set from the poll budgets rather than a
+  // magic number, so they cannot drift apart. EMAIL_TIMEOUT_MS is part of the sum
+  // because step 7's inbox wait runs AFTER the progression completes: without it
+  // in the budget, an email that never arrives would abort the test on
+  // Playwright's timeout with a generic message instead of the diagnostic one
+  // waitForEmailTo raises.
+  test.setTimeout(DELIVERY_TIMEOUT_MS + EMAIL_TIMEOUT_MS + 60_000);
+
+  // Fail here, not 90s later inside an email poll, if the inbox is missing.
+  await assertMailpitReachable();
 
   // --- 1. Register, with an address ----------------------------------------
-  const { token, userId } = await registerAndLogin();
+  // `email` is captured because the email assertions at the end must target the
+  // address THIS run generated — never a hardcoded one. That is what keeps them
+  // from matching a previous run's mail in an inbox that is never cleared
+  // (see mailpit-client.ts).
+  const { token, userId, email } = await registerAndLogin();
   const api = await gatewayClient(token);
 
   // --- 3. Pick a product ----------------------------------------------------
@@ -194,7 +216,98 @@ test("the full journey through the gateway: user → order → tracking → DELI
   const settled = await readTracking(api, order.id);
   expect(settled.status).toBe("DELIVERED");
   expect(settled.history).toHaveLength(PROGRESSION.length);
+
+  // --- 7. The emails actually LANDED ---------------------------------------
+  // Asserted here, at the end of this journey, rather than in a suite of their
+  // own: this one test already triggers all three producers that publish an
+  // email-bearing event — Users (USER_CREATED at register), Orders
+  // (ORDER_CREATED at step 4), Tracking (TRACKING_STATUS_CHANGED on each of the
+  // four transitions above) — and they all land at ONE address. A parallel suite
+  // would have to re-walk the same register → order → deliver chain (~40s) to
+  // recreate a state this test has already reached, and would then be asserting
+  // on a second, unrelated journey.
+  //
+  // Everything below is a genuinely NEW hop. Up to this point the spec has only
+  // proven the three services' own HTTP surfaces agree with each other; nothing
+  // has touched the queue. Each of these events crossed SQS into the
+  // events-pipeline Lambda, was dispatched by type, rendered, and relayed
+  // through SES to the inbox — a path on which every previous assertion in this
+  // file stays green while a user receives nothing.
+  //
+  // Waiting for all three at once (minCount) rather than three sequential waits:
+  // they are produced concurrently and arrive in no guaranteed order, so a
+  // sequential wait would just be a slower version of the same assertion.
+  const inbox = await waitForEmailTo(email, {
+    minCount: 3,
+    timeoutMs: EMAIL_TIMEOUT_MS,
+    description: "the welcome, order and tracking emails",
+  });
+
+  // Every message really is addressed to the user this test created. Cheap, and
+  // it is what would catch the search accidentally widening to another run.
+  for (const message of inbox) {
+    expect(message.To.map((t) => t.Address)).toContain(email);
+  }
+
+  // 1. USER_CREATED → the welcome email.
+  const welcome = findBySubject(inbox, "Welcome to 3MRAI");
+  expect(welcome, `no welcome email among: ${subjectsOf(inbox)}`).toBeTruthy();
+  // The rendered body carries the registered address, which is what proves the
+  // template received the event's real payload rather than sample props — the
+  // catalog's sampleProps say "ada@example.com", so a handler that rendered the
+  // sample instead of the event would pass a subject check and fail this one.
+  expect(welcome?.Snippet).toContain(email);
+
+  // 2. ORDER_CREATED → the confirmation, which must name THIS order.
+  const confirmation = findBySubject(inbox, "Order confirmed");
+  expect(confirmation, `no order confirmation among: ${subjectsOf(inbox)}`).toBeTruthy();
+  expect(
+    confirmation?.Snippet,
+    "the order email does not name this order — rendered from sample props?",
+  ).toContain(order.id);
+
+  // 3. TRACKING_STATUS_CHANGED → at least the DELIVERED transition.
+  //
+  // Matched on the DELIVERED subject specifically rather than counting four
+  // tracking emails. Both are true today, but the count is the wrong assertion:
+  // it would fail if the progression's cadence ever changed, while the real
+  // contract this covers is "a status transition produces an email for it".
+  // DELIVERED is the transition this test has already PROVEN happened (the
+  // history assertions above), so it is the one that can be demanded without
+  // racing the progression.
+  //
+  // Subject built exactly as the handler builds it
+  // (functions/events-pipeline/src/handlers/tracking-status-changed.ts):
+  // underscores to spaces, lowercased — so `DELIVERED` renders as "delivered".
+  const deliveredSubject = `Order ${order.id}: delivered`;
+  const deliveredEmail = findBySubject(inbox, deliveredSubject);
+  expect(
+    deliveredEmail,
+    `no "${deliveredSubject}" email among: ${subjectsOf(inbox)}. Tracking publishes ` +
+      "TRACKING_STATUS_CHANGED on every transition, and the tracking above DID reach " +
+      "DELIVERED — so the transition happened and the email for it did not arrive.",
+  ).toBeTruthy();
+
+  // All three came from the pipeline's configured sender, not from some other
+  // producer that happened to mail this address.
+  for (const message of [welcome, confirmation, deliveredEmail]) {
+    expect(message?.From.Address).toBe("no-reply@3mrai.local");
+  }
 });
+
+// Exact-match on subject. A helper so no assertion has to repeat the lookup, and
+// so `undefined` (rather than a throw) reaches the expect() that reports it with
+// the full subject list.
+function findBySubject(messages: MailpitMessage[], subject: string): MailpitMessage | undefined {
+  return messages.find((m) => m.Subject === subject);
+}
+
+// What the inbox actually held, for a failure message. The three assertions
+// above are all "the right email is missing", and the subjects that DID arrive
+// are the fastest way to tell which hop broke.
+function subjectsOf(messages: MailpitMessage[]): string {
+  return messages.length ? messages.map((m) => `"${m.Subject}"`).join(", ") : "(none)";
+}
 
 // Reads the tracking, asserting a 200. Separate from the pollers so a caller that
 // expects the row to exist gets a clean failure if it does not.
