@@ -1,0 +1,1943 @@
+{
+  "version": "2.14",
+  "children": [
+    {
+      "type": "frame",
+      "id": "KAoun",
+      "x": 0,
+      "y": 0,
+      "name": "Email Header",
+      "reusable": true,
+      "width": 600,
+      "fill": "$brand-navy",
+      "padding": [
+        20,
+        32
+      ],
+      "justifyContent": "space_between",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "frame",
+          "id": "Um0nF",
+          "name": "Logo Group",
+          "gap": 10,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "pVieJ",
+              "name": "Logo Image",
+              "width": 42,
+              "height": 42,
+              "fill": [
+                "#FFFFFF",
+                {
+                  "type": "image",
+                  "enabled": true,
+                  "url": "../img/standalone-logo.png",
+                  "mode": "fit"
+                }
+              ],
+              "cornerRadius": 6
+            },
+            {
+              "type": "frame",
+              "id": "vZKep",
+              "name": "Logo Text",
+              "gap": 2,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "IZpmL",
+                  "name": "Logo 3M",
+                  "fill": "$bg-white",
+                  "content": "3M",
+                  "fontFamily": "Inter",
+                  "fontSize": 18,
+                  "fontWeight": "800"
+                },
+                {
+                  "type": "text",
+                  "id": "sFtOy",
+                  "name": "Logo RAI",
+                  "fill": "$brand-orange",
+                  "content": "RAI",
+                  "fontFamily": "Inter",
+                  "fontSize": 18,
+                  "fontWeight": "800"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": "fA8hG",
+          "name": "Company Tag",
+          "fill": "$text-muted",
+          "content": "COMPANY",
+          "fontFamily": "Inter",
+          "fontSize": 11,
+          "fontWeight": "normal",
+          "letterSpacing": 3
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "xcrzY",
+      "x": 0,
+      "y": -240,
+      "name": "Email Footer",
+      "reusable": true,
+      "width": 600,
+      "fill": "$brand-navy",
+      "layout": "vertical",
+      "gap": 16,
+      "padding": [
+        24,
+        32
+      ],
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "frame",
+          "id": "LrvEG",
+          "name": "Footer Logo",
+          "gap": 8,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "HNMaB",
+              "name": "F Logo Image",
+              "width": 32,
+              "height": 32,
+              "fill": [
+                "#FFFFFF",
+                {
+                  "type": "image",
+                  "enabled": true,
+                  "url": "../img/standalone-logo.png",
+                  "mode": "fit"
+                }
+              ],
+              "cornerRadius": 5
+            },
+            {
+              "type": "frame",
+              "id": "yJxpS",
+              "name": "F Logo Text",
+              "gap": 2,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "kPAc2",
+                  "name": "F Logo 3M",
+                  "fill": "$bg-white",
+                  "content": "3M",
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "800"
+                },
+                {
+                  "type": "text",
+                  "id": "ru1QL",
+                  "name": "F Logo RAI",
+                  "fill": "$brand-orange",
+                  "content": "RAI",
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "800"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "KEq2N",
+          "name": "Footer Divider",
+          "width": "fill_container",
+          "height": 1,
+          "fill": "#3D4A5C"
+        },
+        {
+          "type": "text",
+          "id": "fseaw",
+          "name": "Footer Address",
+          "fill": "$text-muted",
+          "textGrowth": "fixed-width",
+          "width": "fill_container",
+          "content": "3MRAI Company · San Juan, PR · support@3mrai.com",
+          "textAlign": "center",
+          "fontFamily": "Inter",
+          "fontSize": 11,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "text",
+          "id": "Rm1Vb",
+          "name": "Footer Legal",
+          "fill": "$text-muted",
+          "textGrowth": "fixed-width",
+          "width": "fill_container",
+          "content": "You received this email because you have an account with 3MRAI. Unsubscribe",
+          "textAlign": "center",
+          "fontFamily": "Inter",
+          "fontSize": 10,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "sGnTJ",
+      "x": 680,
+      "y": -240,
+      "name": "User Created Email",
+      "clip": true,
+      "width": 600,
+      "fill": "$bg-body",
+      "layout": "vertical",
+      "children": [
+        {
+          "id": "m2KDOJ",
+          "type": "ref",
+          "ref": "KAoun",
+          "name": "Header"
+        },
+        {
+          "type": "frame",
+          "id": "AUJtg",
+          "name": "Body Wrapper",
+          "width": "fill_container",
+          "layout": "vertical",
+          "padding": 32,
+          "children": [
+            {
+              "type": "frame",
+              "id": "loGKm",
+              "name": "Content Card",
+              "width": "fill_container",
+              "fill": "$bg-white",
+              "cornerRadius": 8,
+              "layout": "vertical",
+              "gap": 24,
+              "padding": [
+                40,
+                36
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "zM2y2",
+                  "name": "Icon Circle",
+                  "width": 64,
+                  "height": 64,
+                  "fill": "$brand-orange-light",
+                  "cornerRadius": 32,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "NnUUJ",
+                      "name": "User Icon",
+                      "width": 28,
+                      "height": 28,
+                      "icon": "user-check",
+                      "library": "lucide",
+                      "fill": "$brand-orange"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "SmJ2D",
+                  "name": "Heading",
+                  "fill": "$text-primary",
+                  "content": "Welcome to 3MRAI!",
+                  "textAlign": "center",
+                  "fontFamily": "Inter",
+                  "fontSize": 24,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "frame",
+                  "id": "OmZHV",
+                  "name": "Greeting Block",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 12,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "jW1B5",
+                      "name": "Greeting",
+                      "fill": "$text-primary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "Hi {{name}},",
+                      "fontFamily": "Inter",
+                      "fontSize": 15,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "x3Hs2",
+                      "name": "Welcome Text",
+                      "fill": "$text-secondary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "Your account has been successfully created. You're all set to explore the 3MRAI platform and start managing your orders, tracking, and more.",
+                      "lineHeight": 1.5,
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "H2jB9Z",
+                  "name": "Account Details",
+                  "width": "fill_container",
+                  "fill": "#F9FAFB",
+                  "cornerRadius": 8,
+                  "layout": "vertical",
+                  "gap": 12,
+                  "padding": [
+                    20,
+                    24
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "N7tic",
+                      "name": "Details Title",
+                      "fill": "$text-muted",
+                      "content": "YOUR ACCOUNT",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "600",
+                      "letterSpacing": 1.5
+                    },
+                    {
+                      "type": "frame",
+                      "id": "dqeBb",
+                      "name": "Row Email",
+                      "width": "fill_container",
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "MveI2",
+                          "name": "Key Email",
+                          "fill": "$text-secondary",
+                          "content": "Email",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "freo8",
+                          "name": "Val Email",
+                          "fill": "$text-primary",
+                          "content": "{{email}}",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "500"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "koaKk",
+                      "name": "Row Member Since",
+                      "width": "fill_container",
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "aHivn",
+                          "name": "Key Member Since",
+                          "fill": "$text-secondary",
+                          "content": "Member Since",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "Qb6T9",
+                          "name": "Val Member Since",
+                          "fill": "$text-primary",
+                          "content": "August 5, 2026",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "500"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "a3tHli",
+                      "name": "Row Account ID",
+                      "width": "fill_container",
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "fiCgi",
+                          "name": "Key Account ID",
+                          "fill": "$text-secondary",
+                          "content": "Account ID",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "izRZR",
+                          "name": "Val Account ID",
+                          "fill": "$text-primary",
+                          "content": "USR-3MRAI-00482",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "500"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "tTWTG",
+                  "name": "CTA Wrapper",
+                  "width": "fill_container",
+                  "justifyContent": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "izccL",
+                      "name": "Dashboard Button",
+                      "fill": "$brand-orange",
+                      "cornerRadius": 6,
+                      "gap": 8,
+                      "padding": [
+                        14,
+                        40
+                      ],
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "BXeAI",
+                          "name": "CTA Label",
+                          "fill": "$bg-white",
+                          "content": "View My Profile",
+                          "fontFamily": "Inter",
+                          "fontSize": 15,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "SHkFs",
+                  "name": "Help Text",
+                  "fill": "$text-muted",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "Need help getting started? Visit our help center or reply to this email.",
+                  "textAlign": "center",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "qEoUe",
+          "type": "ref",
+          "ref": "xcrzY",
+          "name": "Footer"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "pE8WE",
+      "x": 1360,
+      "y": -240,
+      "name": "Order Created Email",
+      "clip": true,
+      "width": 600,
+      "fill": "$bg-body",
+      "layout": "vertical",
+      "children": [
+        {
+          "id": "uDx6X",
+          "type": "ref",
+          "ref": "KAoun",
+          "name": "Header"
+        },
+        {
+          "type": "frame",
+          "id": "G6wpzB",
+          "name": "Body Wrapper",
+          "width": "fill_container",
+          "layout": "vertical",
+          "padding": 32,
+          "children": [
+            {
+              "type": "frame",
+              "id": "fHQsd",
+              "name": "Content Card",
+              "width": "fill_container",
+              "fill": "$bg-white",
+              "cornerRadius": 8,
+              "layout": "vertical",
+              "gap": 24,
+              "padding": [
+                40,
+                36
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "Hthe8",
+                  "name": "Icon Circle",
+                  "width": 64,
+                  "height": 64,
+                  "fill": "$success-bg",
+                  "cornerRadius": 32,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "jPBfT",
+                      "name": "Package Icon",
+                      "width": 28,
+                      "height": 28,
+                      "icon": "package-check",
+                      "library": "lucide",
+                      "fill": "$success-green"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "OWuSI",
+                  "name": "Heading",
+                  "fill": "$text-primary",
+                  "content": "Order Confirmed!",
+                  "textAlign": "center",
+                  "fontFamily": "Inter",
+                  "fontSize": 24,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "frame",
+                  "id": "LLuPN",
+                  "name": "Greeting Block",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 12,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "agOZl",
+                      "name": "Greeting",
+                      "fill": "$text-primary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "Hi {{name}},",
+                      "fontFamily": "Inter",
+                      "fontSize": 15,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "ilt1I",
+                      "name": "Confirm Text",
+                      "fill": "$text-secondary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "Thank you for your order! We've received your order #ORD-2026-4872 and it's being prepared. Here's a summary of what you ordered:",
+                      "lineHeight": 1.5,
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "N9YZdS",
+                  "name": "Order Items",
+                  "width": "fill_container",
+                  "fill": "#F9FAFB",
+                  "cornerRadius": 8,
+                  "layout": "vertical",
+                  "padding": [
+                    20,
+                    24
+                  ],
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "WUYkf",
+                      "name": "Table Header",
+                      "width": "fill_container",
+                      "padding": [
+                        0,
+                        0,
+                        12,
+                        0
+                      ],
+                      "justifyContent": "space_between",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "njo2P",
+                          "name": "H Item",
+                          "fill": "$text-muted",
+                          "content": "ITEM",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "600",
+                          "letterSpacing": 1
+                        },
+                        {
+                          "type": "frame",
+                          "id": "kvsg9",
+                          "name": "H Right",
+                          "gap": 32,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "D5275",
+                              "name": "H Qty",
+                              "fill": "$text-muted",
+                              "content": "QTY",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "600",
+                              "letterSpacing": 1
+                            },
+                            {
+                              "type": "text",
+                              "id": "uKa4b",
+                              "name": "H Price",
+                              "fill": "$text-muted",
+                              "content": "PRICE",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "600",
+                              "letterSpacing": 1
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "xjt4a",
+                      "name": "Table Divider 1",
+                      "width": "fill_container",
+                      "height": 1,
+                      "fill": "$border-color"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "r7eTR",
+                      "name": "Row Wireless Sensor Module",
+                      "width": "fill_container",
+                      "padding": [
+                        12,
+                        0
+                      ],
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "uDEy7",
+                          "name": "Item Wireless Sensor Module",
+                          "fill": "$text-primary",
+                          "content": "Wireless Sensor Module",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "M1fCxR",
+                          "name": "Row Right Wireless Sensor Module",
+                          "gap": 40,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "vgX1L",
+                              "name": "Qty Wireless Sensor Module",
+                              "fill": "$text-secondary",
+                              "content": "2",
+                              "textAlign": "center",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "U7Y0A",
+                              "name": "Price Wireless Sensor Module",
+                              "fill": "$text-primary",
+                              "content": "$89.00",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "jPiv2",
+                      "name": "Row Div 1",
+                      "width": "fill_container",
+                      "height": 1,
+                      "fill": "$border-color"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "FHuUz",
+                      "name": "Row GPS Tracking Unit Pro",
+                      "width": "fill_container",
+                      "padding": [
+                        12,
+                        0
+                      ],
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "e2pYos",
+                          "name": "Item GPS Tracking Unit Pro",
+                          "fill": "$text-primary",
+                          "content": "GPS Tracking Unit Pro",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "HVxvR",
+                          "name": "Row Right GPS Tracking Unit Pro",
+                          "gap": 40,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "rQUi4",
+                              "name": "Qty GPS Tracking Unit Pro",
+                              "fill": "$text-secondary",
+                              "content": "1",
+                              "textAlign": "center",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "sTSYv",
+                              "name": "Price GPS Tracking Unit Pro",
+                              "fill": "$text-primary",
+                              "content": "$149.00",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "YmFdU",
+                      "name": "Row Div 2",
+                      "width": "fill_container",
+                      "height": 1,
+                      "fill": "$border-color"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "bVAJy",
+                      "name": "Row Battery Pack (Extended)",
+                      "width": "fill_container",
+                      "padding": [
+                        12,
+                        0
+                      ],
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "C0vHFS",
+                          "name": "Item Battery Pack (Extended)",
+                          "fill": "$text-primary",
+                          "content": "Battery Pack (Extended)",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "h1Xkj",
+                          "name": "Row Right Battery Pack (Extended)",
+                          "gap": 40,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "V4e5D",
+                              "name": "Qty Battery Pack (Extended)",
+                              "fill": "$text-secondary",
+                              "content": "3",
+                              "textAlign": "center",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "gm3G9",
+                              "name": "Price Battery Pack (Extended)",
+                              "fill": "$text-primary",
+                              "content": "$45.00",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "FLQMl",
+                  "name": "Totals Divider",
+                  "width": "fill_container",
+                  "height": 1,
+                  "fill": "$border-color"
+                },
+                {
+                  "type": "frame",
+                  "id": "r8AEAR",
+                  "name": "Totals",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 8,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "bNGiJ",
+                      "name": "Total Subtotal",
+                      "width": "fill_container",
+                      "justifyContent": "space_between",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "k4gd0e",
+                          "name": "TK Subtotal",
+                          "fill": "$text-secondary",
+                          "content": "Subtotal",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "Au7hm",
+                          "name": "TV Subtotal",
+                          "fill": "$text-primary",
+                          "content": "$372.00",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Gnajt",
+                      "name": "Total Shipping",
+                      "width": "fill_container",
+                      "justifyContent": "space_between",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "j35XiP",
+                          "name": "TK Shipping",
+                          "fill": "$text-secondary",
+                          "content": "Shipping",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "do09H",
+                          "name": "TV Shipping",
+                          "fill": "$text-primary",
+                          "content": "$12.99",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "eQY9G",
+                      "name": "Total Tax",
+                      "width": "fill_container",
+                      "justifyContent": "space_between",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "wnsw0",
+                          "name": "TK Tax",
+                          "fill": "$text-secondary",
+                          "content": "Tax",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "s2Yfs",
+                          "name": "TV Tax",
+                          "fill": "$text-primary",
+                          "content": "$29.76",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "k1pcYm",
+                      "name": "Total Div",
+                      "width": "fill_container",
+                      "height": 1,
+                      "fill": "$border-color"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "OKvC1",
+                      "name": "Grand Total",
+                      "width": "fill_container",
+                      "justifyContent": "space_between",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "kFblu",
+                          "name": "GT Label",
+                          "fill": "$text-primary",
+                          "content": "Total",
+                          "fontFamily": "Inter",
+                          "fontSize": 16,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "text",
+                          "id": "KhUun",
+                          "name": "GT Value",
+                          "fill": "$text-primary",
+                          "content": "$414.75",
+                          "fontFamily": "Inter",
+                          "fontSize": 16,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "P103r",
+                  "name": "Shipping Info",
+                  "width": "fill_container",
+                  "fill": "$info-bg",
+                  "cornerRadius": 8,
+                  "layout": "vertical",
+                  "gap": 8,
+                  "padding": [
+                    16,
+                    20
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "XwqjP",
+                      "name": "Ship Title",
+                      "fill": "$info-blue",
+                      "content": "SHIPPING TO",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "600",
+                      "letterSpacing": 1
+                    },
+                    {
+                      "type": "text",
+                      "id": "Zp26K",
+                      "name": "Ship Name",
+                      "fill": "$text-primary",
+                      "content": "{{name}}",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "500"
+                    },
+                    {
+                      "type": "text",
+                      "id": "Y5oRJ",
+                      "name": "Ship Address",
+                      "fill": "$text-secondary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "1234 Ocean Drive, Apt 5B\nMiami, FL 33101",
+                      "lineHeight": 1.5,
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "K6MGy",
+                  "name": "CTA Wrapper",
+                  "width": "fill_container",
+                  "justifyContent": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "d5Mok9",
+                      "name": "Track Button",
+                      "fill": "$info-blue",
+                      "cornerRadius": 6,
+                      "gap": 8,
+                      "padding": [
+                        14,
+                        40
+                      ],
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "x6Pwh",
+                          "name": "CTA Icon",
+                          "width": 16,
+                          "height": 16,
+                          "icon": "package-search",
+                          "library": "lucide",
+                          "fill": "$bg-white"
+                        },
+                        {
+                          "type": "text",
+                          "id": "tb2T5",
+                          "name": "CTA Label",
+                          "fill": "$bg-white",
+                          "content": "Track Your Order",
+                          "fontFamily": "Inter",
+                          "fontSize": 15,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "Q6JxCJ",
+                  "name": "Help Text",
+                  "fill": "$text-muted",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "Questions about your order? Contact us at support@3mrai.com",
+                  "textAlign": "center",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "T9BtkU",
+          "type": "ref",
+          "ref": "xcrzY",
+          "name": "Footer"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "L09rH",
+      "x": 2040,
+      "y": -240,
+      "name": "Tracking Status Update Email",
+      "clip": true,
+      "width": 600,
+      "fill": "$bg-body",
+      "layout": "vertical",
+      "children": [
+        {
+          "id": "DJPit",
+          "type": "ref",
+          "ref": "KAoun",
+          "name": "Header"
+        },
+        {
+          "type": "frame",
+          "id": "lT7fk",
+          "name": "Body Wrapper",
+          "width": "fill_container",
+          "layout": "vertical",
+          "padding": 32,
+          "children": [
+            {
+              "type": "frame",
+              "id": "mElge",
+              "name": "Content Card",
+              "width": "fill_container",
+              "fill": "$bg-white",
+              "cornerRadius": 8,
+              "layout": "vertical",
+              "gap": 24,
+              "padding": [
+                40,
+                36
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "Gg7mm",
+                  "name": "Icon Circle",
+                  "width": 64,
+                  "height": 64,
+                  "fill": "$info-bg",
+                  "cornerRadius": 32,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "CzkXS",
+                      "name": "Tracking Icon",
+                      "width": 28,
+                      "height": 28,
+                      "icon": "map-pin",
+                      "library": "lucide",
+                      "fill": "$info-blue"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "k8bjfR",
+                  "name": "Heading",
+                  "fill": "$text-primary",
+                  "content": "Tracking Update",
+                  "textAlign": "center",
+                  "fontFamily": "Inter",
+                  "fontSize": 24,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "frame",
+                  "id": "jwjjr",
+                  "name": "Greeting Block",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 12,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "Q7cdgi",
+                      "name": "Greeting",
+                      "fill": "$text-primary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "Hi {{name}},",
+                      "fontFamily": "Inter",
+                      "fontSize": 15,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "KpciX",
+                      "name": "Intro Text",
+                      "fill": "$text-secondary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "Your order #ORD-2026-4872 has a new status update. Here's the latest on your shipment:",
+                      "lineHeight": 1.5,
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "E5aFh",
+                  "name": "Status Timeline",
+                  "width": "fill_container",
+                  "fill": "#F9FAFB",
+                  "cornerRadius": 8,
+                  "layout": "vertical",
+                  "padding": [
+                    24,
+                    20
+                  ],
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "YIPWS",
+                      "name": "Step Order Placed",
+                      "width": "fill_container",
+                      "gap": 14,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "IPpQC",
+                          "name": "Indicator Col",
+                          "layout": "vertical",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "eN4gh",
+                              "name": "Done Dot",
+                              "width": 22,
+                              "height": 22,
+                              "fill": "$success-green",
+                              "cornerRadius": 11,
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "iPgzj",
+                                  "name": "Check",
+                                  "width": 13,
+                                  "height": 13,
+                                  "icon": "check",
+                                  "library": "lucide",
+                                  "fill": "$bg-white"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "kH7oY",
+                              "name": "Line",
+                              "width": 2,
+                              "height": 28,
+                              "fill": "$success-green"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "YEghW",
+                          "name": "Step Text",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "padding": [
+                            2,
+                            0,
+                            0,
+                            0
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Tnnun",
+                              "name": "Step Label",
+                              "fill": "$text-primary",
+                              "content": "Order Placed",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "u90jy",
+                              "name": "Step Date",
+                              "fill": "$text-muted",
+                              "content": "Jul 28, 2026",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "U3VncY",
+                      "name": "Step Processing",
+                      "width": "fill_container",
+                      "gap": 14,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "OiJ9g",
+                          "name": "Indicator Col",
+                          "layout": "vertical",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "C5dVTZ",
+                              "name": "Done Dot",
+                              "width": 22,
+                              "height": 22,
+                              "fill": "$success-green",
+                              "cornerRadius": 11,
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "zJnEn",
+                                  "name": "Check",
+                                  "width": 13,
+                                  "height": 13,
+                                  "icon": "check",
+                                  "library": "lucide",
+                                  "fill": "$bg-white"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "JwePJ",
+                              "name": "Line",
+                              "width": 2,
+                              "height": 28,
+                              "fill": "$success-green"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "EkfWO",
+                          "name": "Step Text",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "padding": [
+                            2,
+                            0,
+                            0,
+                            0
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "vhXpl",
+                              "name": "Step Label",
+                              "fill": "$text-primary",
+                              "content": "Processing",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "ybEGP",
+                              "name": "Step Date",
+                              "fill": "$text-muted",
+                              "content": "Jul 29, 2026",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "X1J16",
+                      "name": "Step Shipped",
+                      "width": "fill_container",
+                      "gap": 14,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "WBX3q",
+                          "name": "Indicator Col",
+                          "layout": "vertical",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "c67vy7",
+                              "name": "Active Ring",
+                              "width": 22,
+                              "height": 22,
+                              "fill": "$brand-orange",
+                              "cornerRadius": 11,
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "BM08b",
+                                  "name": "Inner Dot",
+                                  "width": 10,
+                                  "height": 10,
+                                  "fill": "$bg-white",
+                                  "cornerRadius": 5
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "rWSYt",
+                              "name": "Line",
+                              "width": 2,
+                              "height": 28,
+                              "fill": "$success-green"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "tVuQ6",
+                          "name": "Step Text",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "padding": [
+                            2,
+                            0,
+                            0,
+                            0
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "PaOqr",
+                              "name": "Step Label",
+                              "fill": "$text-primary",
+                              "content": "Shipped",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "600"
+                            },
+                            {
+                              "type": "text",
+                              "id": "K0OADD",
+                              "name": "Step Date",
+                              "fill": "$text-muted",
+                              "content": "Aug 1, 2026",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "N0lra",
+                      "name": "Step Out for Delivery",
+                      "width": "fill_container",
+                      "gap": 14,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "pvutC",
+                          "name": "Indicator Col",
+                          "layout": "vertical",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "R14Yo",
+                              "name": "Pending Dot",
+                              "width": 22,
+                              "height": 22,
+                              "fill": "$bg-white",
+                              "cornerRadius": 11,
+                              "stroke": "$border-color",
+                              "strokeWidth": 2
+                            },
+                            {
+                              "type": "frame",
+                              "id": "yhj0j",
+                              "name": "Line",
+                              "width": 2,
+                              "height": 28,
+                              "fill": "$border-color"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "U5pbd",
+                          "name": "Step Text",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "padding": [
+                            2,
+                            0,
+                            0,
+                            0
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "ccXC5",
+                              "name": "Step Label",
+                              "fill": "$text-muted",
+                              "content": "Out for Delivery",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "fNnHM",
+                              "name": "Step Date",
+                              "fill": "$text-muted",
+                              "content": "Estimated Aug 5",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "y71kj8",
+                      "name": "Step Delivered",
+                      "width": "fill_container",
+                      "gap": 14,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "f4jQo",
+                          "name": "Indicator Col",
+                          "layout": "vertical",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "zMnto",
+                              "name": "Pending Dot",
+                              "width": 22,
+                              "height": 22,
+                              "fill": "$bg-white",
+                              "cornerRadius": 11,
+                              "stroke": "$border-color",
+                              "strokeWidth": 2
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "KM2cL",
+                          "name": "Step Text",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "padding": [
+                            2,
+                            0,
+                            0,
+                            0
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "nL2vp",
+                              "name": "Step Label",
+                              "fill": "$text-muted",
+                              "content": "Delivered",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "fXDT5",
+                              "name": "Step Date",
+                              "fill": "$text-muted",
+                              "content": "—",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "MQCyC",
+                  "name": "Divider",
+                  "width": "fill_container",
+                  "height": 1,
+                  "fill": "$border-color"
+                },
+                {
+                  "type": "frame",
+                  "id": "Jcvui",
+                  "name": "Shipping Details",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 12,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "aOQle",
+                      "name": "Ship Title",
+                      "fill": "$text-primary",
+                      "content": "Shipment Details",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "i3ERU",
+                      "name": "Details Grid",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 8,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "W1XdQp",
+                          "name": "Row Carrier",
+                          "width": "fill_container",
+                          "justifyContent": "space_between",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "UFtka",
+                              "name": "Key Carrier",
+                              "fill": "$text-secondary",
+                              "content": "Carrier",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "yQg80",
+                              "name": "Val Carrier",
+                              "fill": "$text-primary",
+                              "content": "FedEx Express",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "wsaNb",
+                          "name": "Row Tracking Number",
+                          "width": "fill_container",
+                          "justifyContent": "space_between",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "b2Rjb1",
+                              "name": "Key Tracking Number",
+                              "fill": "$text-secondary",
+                              "content": "Tracking Number",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "k50QC",
+                              "name": "Val Tracking Number",
+                              "fill": "$text-primary",
+                              "content": "7489 2341 0092 3847",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "i1fAvY",
+                          "name": "Row Estimated Delivery",
+                          "width": "fill_container",
+                          "justifyContent": "space_between",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "CAIfh",
+                              "name": "Key Estimated Delivery",
+                              "fill": "$text-secondary",
+                              "content": "Estimated Delivery",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "Gjf5s",
+                              "name": "Val Estimated Delivery",
+                              "fill": "$text-primary",
+                              "content": "August 5, 2026",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "D5Jc3",
+                          "name": "Row Ship From",
+                          "width": "fill_container",
+                          "justifyContent": "space_between",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "wJDSy",
+                              "name": "Key Ship From",
+                              "fill": "$text-secondary",
+                              "content": "Ship From",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "GXNq5",
+                              "name": "Val Ship From",
+                              "fill": "$text-primary",
+                              "content": "San Juan, PR",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "gaXuy",
+                          "name": "Row Ship To",
+                          "width": "fill_container",
+                          "justifyContent": "space_between",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "F5l6ZS",
+                              "name": "Key Ship To",
+                              "fill": "$text-secondary",
+                              "content": "Ship To",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "u5zNrU",
+                              "name": "Val Ship To",
+                              "fill": "$text-primary",
+                              "content": "Miami, FL 33101",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "xAXpn",
+                  "name": "CTA Wrapper",
+                  "width": "fill_container",
+                  "justifyContent": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "j2FyL",
+                      "name": "Track Button",
+                      "fill": "$info-blue",
+                      "cornerRadius": 6,
+                      "gap": 8,
+                      "padding": [
+                        14,
+                        40
+                      ],
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "GjYPH",
+                          "name": "CTA Icon",
+                          "width": 16,
+                          "height": 16,
+                          "icon": "external-link",
+                          "library": "lucide",
+                          "fill": "$bg-white"
+                        },
+                        {
+                          "type": "text",
+                          "id": "zm5YX",
+                          "name": "CTA Label",
+                          "fill": "$bg-white",
+                          "content": "Track Your Shipment",
+                          "fontFamily": "Inter",
+                          "fontSize": 15,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "UQVwh",
+                  "name": "Help Text",
+                  "fill": "$text-muted",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "If you have questions about your delivery, contact our support team.",
+                  "textAlign": "center",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "i0p3HD",
+          "type": "ref",
+          "ref": "xcrzY",
+          "name": "Footer"
+        }
+      ]
+    }
+  ],
+  "variables": {
+    "brand-navy": {
+      "type": "color",
+      "value": "#2D3748"
+    },
+    "brand-orange": {
+      "type": "color",
+      "value": "#F7941D"
+    },
+    "brand-orange-light": {
+      "type": "color",
+      "value": "#FFF4E5"
+    },
+    "bg-body": {
+      "type": "color",
+      "value": "#F4F4F5"
+    },
+    "bg-white": {
+      "type": "color",
+      "value": "#FFFFFF"
+    },
+    "text-primary": {
+      "type": "color",
+      "value": "#1A1A2E"
+    },
+    "text-secondary": {
+      "type": "color",
+      "value": "#6B7280"
+    },
+    "text-muted": {
+      "type": "color",
+      "value": "#9CA3AF"
+    },
+    "border-color": {
+      "type": "color",
+      "value": "#E5E7EB"
+    },
+    "success-green": {
+      "type": "color",
+      "value": "#10B981"
+    },
+    "success-bg": {
+      "type": "color",
+      "value": "#ECFDF5"
+    },
+    "info-blue": {
+      "type": "color",
+      "value": "#3B82F6"
+    },
+    "info-bg": {
+      "type": "color",
+      "value": "#EFF6FF"
+    },
+    "font-heading": {
+      "type": "string",
+      "value": "Inter"
+    },
+    "font-body": {
+      "type": "string",
+      "value": "Inter"
+    }
+  },
+  "fileToken": "19e35231-c49e-4444-86f9-6fec3a96705a"
+}
