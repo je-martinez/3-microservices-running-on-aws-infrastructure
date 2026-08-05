@@ -10,7 +10,10 @@ import { SqsEventPublisher, type EventPublisher } from "../messaging/event-publi
 import { CognitoAuthProvider } from "../auth/cognito-auth-provider.ts";
 import type { AuthProvider } from "../auth/auth-provider.ts";
 import { RegisterUserCommand } from "#features/users/commands/register";
+import { RegisterPasswordlessCommand } from "#features/users/commands/register-passwordless";
 import { LoginUserCommand } from "#features/users/commands/login";
+import { StartOtpChallengeCommand } from "#features/users/commands/start-otp-challenge";
+import { VerifyOtpChallengeCommand } from "#features/users/commands/verify-otp-challenge";
 import { RefreshTokenCommand } from "#features/users/commands/refresh";
 import { UpdateProfileCommand } from "#features/users/commands/update-profile";
 import { UserQueryService } from "#features/users/queries/get-me";
@@ -29,7 +32,10 @@ declare module "@fastify/awilix" {
     auth: AuthProvider;
     events: EventPublisher;
     registerUserCommand: RegisterUserCommand;
+    registerPasswordlessCommand: RegisterPasswordlessCommand;
     loginUserCommand: LoginUserCommand;
+    startOtpChallengeCommand: StartOtpChallengeCommand;
+    verifyOtpChallengeCommand: VerifyOtpChallengeCommand;
     refreshTokenCommand: RefreshTokenCommand;
     updateProfileCommand: UpdateProfileCommand;
     userQueryService: UserQueryService;
@@ -94,7 +100,10 @@ export function registerSingletons(): void {
 export function registerServices(): void {
   diContainer.register({
     registerUserCommand: asClass(RegisterUserCommand, { lifetime: Lifetime.SCOPED }),
+    registerPasswordlessCommand: asClass(RegisterPasswordlessCommand, { lifetime: Lifetime.SCOPED }),
     loginUserCommand: asClass(LoginUserCommand, { lifetime: Lifetime.SCOPED }),
+    startOtpChallengeCommand: asClass(StartOtpChallengeCommand, { lifetime: Lifetime.SCOPED }),
+    verifyOtpChallengeCommand: asClass(VerifyOtpChallengeCommand, { lifetime: Lifetime.SCOPED }),
     refreshTokenCommand: asClass(RefreshTokenCommand, { lifetime: Lifetime.SCOPED }),
     updateProfileCommand: asClass(UpdateProfileCommand, { lifetime: Lifetime.SCOPED }),
     userQueryService: asClass(UserQueryService, { lifetime: Lifetime.SCOPED }),

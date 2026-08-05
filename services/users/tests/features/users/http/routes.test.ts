@@ -5,7 +5,11 @@ import { UserQueryService } from "#features/users/queries/get-me";
 import { getActor } from "#shared/audit/actor-context";
 import { getLogContext, setLogContext } from "#shared/logging/log-context";
 import { NoMatchingUserError } from "#features/users/webhooks/capture-cognito-identity";
-import { InvalidCredentialsError, EmailAlreadyExistsError } from "#shared/auth/auth-errors";
+import {
+  InvalidCredentialsError,
+  EmailAlreadyExistsError,
+  InvalidOtpError,
+} from "#shared/auth/auth-errors";
 
 // Full-shaped fixture matching the domain `User` type (see domain/user.ts):
 // once routes carry a response schema, Fastify's Zod serializer strict-
@@ -24,6 +28,7 @@ function fakeUser(overrides: Record<string, unknown> = {}) {
     address: null,
     phoneNumber: null,
     tags: [] as string[],
+    authType: "PASSWORD" as const,
     createdBy: "usr_1",
     createdAt: FIXED_DATE,
     updatedBy: "usr_1",
@@ -62,7 +67,20 @@ function testContainer(e2eEnabled: boolean) {
         fakeUser({ id: "usr_1", tags: input.e2eSource ? ["E2E Source"] : [] }),
       ),
     } as any),
+    registerPasswordlessCommand: asValue({
+      execute: vi.fn(async (input: any) =>
+        fakeUser({
+          id: "usr_2",
+          authType: "PASSWORDLESS",
+          tags: input.e2eSource ? ["E2E Source"] : [],
+        }),
+      ),
+    } as any),
     loginUserCommand: asValue({ execute: vi.fn() } as any),
+    startOtpChallengeCommand: asValue({ execute: vi.fn(async () => ({ session: "sess_1" })) } as any),
+    verifyOtpChallengeCommand: asValue({
+      execute: vi.fn(async () => ({ idToken: "id1", accessToken: "acc1", refreshToken: "rt1" })),
+    } as any),
     userQueryService: asValue({ getMe: vi.fn(), getUserById: vi.fn() } as any),
     updateProfileCommand: asValue({ execute: vi.fn() } as any),
     e2eCleanupCommand: asValue({ execute: vi.fn(async () => ({ count: 3 })) } as any),
@@ -97,6 +115,19 @@ describe("routes", () => {
       payload: { email: "a@b.co", password: "P!1", fullName: "A" },
     });
     expect(res.json().tags).toEqual([]);
+  });
+
+  // `authType` is READ-ONLY: it is never accepted in a request body, only
+  // surfaced in the response. PASSWORD is the schema default, so a plain
+  // password registration reports it without any route setting it explicitly.
+  it("register response includes authType", async () => {
+    const app = buildApp(testContainer(false));
+    const res = await app.inject({
+      method: "POST", url: "/v1/users/register",
+      payload: { email: "a@b.co", password: "P!1", fullName: "A" },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().authType).toBe("PASSWORD");
   });
 
   it("register rejects a body missing required fields with 400", async () => {
@@ -454,6 +485,181 @@ describe("routes", () => {
     const res = await app.inject({ method: "POST", url: "/v1/users/refresh", payload: {} });
     expect(res.statusCode).toBe(400);
   });
+
+  describe("POST /v1/users/register/passwordless", () => {
+    it("returns 201 with authType PASSWORDLESS", async () => {
+      const app = buildApp(testContainer(false));
+      const res = await app.inject({
+        method: "POST", url: "/v1/users/register/passwordless",
+        payload: { email: "a@b.co", fullName: "A" },
+      });
+      expect(res.statusCode).toBe(201);
+      expect(res.json().authType).toBe("PASSWORDLESS");
+    });
+
+    // Without the tag, global teardown (which deletes by tag) never cleans
+    // these users and they leak — the same logic /v1/users/register uses.
+    it("honors x-e2e-source only when E2E_TESTING_ENABLED is on", async () => {
+      const enabled = buildApp(testContainer(true));
+      const tagged = await enabled.inject({
+        method: "POST", url: "/v1/users/register/passwordless",
+        headers: { "x-e2e-source": "true" },
+        payload: { email: "a@b.co", fullName: "A" },
+      });
+      expect(tagged.json().tags).toContain("E2E Source");
+
+      const disabled = buildApp(testContainer(false));
+      const untagged = await disabled.inject({
+        method: "POST", url: "/v1/users/register/passwordless",
+        headers: { "x-e2e-source": "true" },
+        payload: { email: "a@b.co", fullName: "A" },
+      });
+      expect(untagged.json().tags).toEqual([]);
+    });
+
+    it("returns 409 on duplicate email", async () => {
+      const c = testContainer(false);
+      c.register({
+        registerPasswordlessCommand: asValue({
+          execute: vi.fn(async () => { throw new EmailAlreadyExistsError(); }),
+        } as any),
+      });
+      const app = buildApp(c);
+      const res = await app.inject({
+        method: "POST", url: "/v1/users/register/passwordless",
+        payload: { email: "dup@b.co", fullName: "D" },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toEqual({ error: "email_exists" });
+    });
+
+    it("is reachable without an x-user-id (public route)", async () => {
+      const app = buildApp(testContainer(false));
+      const res = await app.inject({
+        method: "POST", url: "/v1/users/register/passwordless",
+        payload: { email: "a@b.co", fullName: "A" },
+      });
+      expect(res.statusCode).not.toBe(401);
+    });
+
+    it("returns 400 when fullName is missing", async () => {
+      const app = buildApp(testContainer(false));
+      const res = await app.inject({
+        method: "POST", url: "/v1/users/register/passwordless",
+        payload: { email: "a@b.co" },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+  });
+
+  describe("OTP login endpoints", () => {
+    it("POST /v1/users/otp/start returns 200 with a session", async () => {
+      const app = buildApp(testContainer(false));
+      const res = await app.inject({
+        method: "POST", url: "/v1/users/otp/start",
+        payload: { email: "a@b.co" },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ session: "sess_1" });
+    });
+
+    it("POST /v1/users/otp/start returns 401 invalid_credentials for an unknown user", async () => {
+      const c = testContainer(false);
+      c.register({
+        startOtpChallengeCommand: asValue({
+          execute: vi.fn(async () => { throw new InvalidCredentialsError(); }),
+        } as any),
+      });
+      const app = buildApp(c);
+      const res = await app.inject({
+        method: "POST", url: "/v1/users/otp/start",
+        payload: { email: "ghost@b.co" },
+      });
+      expect(res.statusCode).toBe(401);
+      expect(res.json()).toEqual({ error: "invalid_credentials" });
+    });
+
+    // Same AuthTokens shape as /v1/users/login: the gateway/JWT contract does
+    // not change with the authentication path.
+    it("POST /v1/users/otp/verify returns 200 with AuthTokens on a correct code", async () => {
+      const app = buildApp(testContainer(false));
+      const res = await app.inject({
+        method: "POST", url: "/v1/users/otp/verify",
+        payload: { email: "a@b.co", session: "sess_1", code: "042817" },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ idToken: "id1", accessToken: "acc1", refreshToken: "rt1" });
+    });
+
+    it("POST /v1/users/otp/verify returns 401 invalid_otp on an incorrect code", async () => {
+      const c = testContainer(false);
+      c.register({
+        verifyOtpChallengeCommand: asValue({
+          execute: vi.fn(async () => { throw new InvalidOtpError(); }),
+        } as any),
+      });
+      const app = buildApp(c);
+      const res = await app.inject({
+        method: "POST", url: "/v1/users/otp/verify",
+        payload: { email: "a@b.co", session: "sess_1", code: "000000" },
+      });
+      expect(res.statusCode).toBe(401);
+      expect(res.json()).toEqual({ error: "invalid_otp" });
+    });
+
+    it("POST /v1/users/otp/verify returns 400 when code is not 6 digits", async () => {
+      const app = buildApp(testContainer(false));
+      const res = await app.inject({
+        method: "POST", url: "/v1/users/otp/verify",
+        payload: { email: "a@b.co", session: "sess_1", code: "12" },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it("POST /v1/users/otp/verify returns 400 when code is non-numeric", async () => {
+      const app = buildApp(testContainer(false));
+      const res = await app.inject({
+        method: "POST", url: "/v1/users/otp/verify",
+        payload: { email: "a@b.co", session: "sess_1", code: "abcdef" },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    // Both halves are pre-authentication by definition; a missing x-user-id
+    // must not 401 them at the onRequest gate.
+    it("both OTP routes are public (no x-user-id required)", async () => {
+      const app = buildApp(testContainer(false));
+      const start = await app.inject({
+        method: "POST", url: "/v1/users/otp/start", payload: { email: "a@b.co" },
+      });
+      const verify = await app.inject({
+        method: "POST", url: "/v1/users/otp/verify",
+        payload: { email: "a@b.co", session: "sess_1", code: "042817" },
+      });
+      expect(start.statusCode).toBe(200);
+      expect(verify.statusCode).toBe(200);
+    });
+
+    // The single most important constraint of this feature: the submitted code
+    // must not reach ANY log line of the request, including `request completed`.
+    it("never writes the submitted code to any log line of the request", async () => {
+      const lines: string[] = [];
+      const app = buildApp(testContainer(false), {
+        logStream: { write: (s: string) => lines.push(s) },
+      });
+
+      const res = await app.inject({
+        method: "POST", url: "/v1/users/otp/verify",
+        payload: { email: "a@b.co", session: "sess_9", code: "424242" },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(lines.join("\n")).not.toContain("424242");
+      expect(lines.join("\n")).not.toContain("sess_9");
+
+      await app.close();
+    });
+  });
 });
 
 function webhookContainer(capture = vi.fn(async () => ({ status: "captured" as const }))) {
@@ -461,7 +667,10 @@ function webhookContainer(capture = vi.fn(async () => ({ status: "captured" as c
   container.register({
     env: asValue({ E2E_TESTING_ENABLED: false, WEBHOOK_SECRET: "s3cret" } as any),
     registerUserCommand: asValue({ execute: vi.fn() } as any),
+    registerPasswordlessCommand: asValue({ execute: vi.fn() } as any),
     loginUserCommand: asValue({ execute: vi.fn() } as any),
+    startOtpChallengeCommand: asValue({ execute: vi.fn() } as any),
+    verifyOtpChallengeCommand: asValue({ execute: vi.fn() } as any),
     userQueryService: asValue({ getMe: vi.fn(), getUserById: vi.fn() } as any),
     updateProfileCommand: asValue({ execute: vi.fn() } as any),
     e2eCleanupCommand: asValue({ execute: vi.fn() } as any),
@@ -583,11 +792,17 @@ describe("openapi spec generation", () => {
     const spec = app.swagger() as any;
     const paths = Object.keys(spec.paths);
     expect(paths).toEqual(expect.arrayContaining([
-      "/v1/health", "/v1/users/register", "/v1/users/login",
+      "/v1/health", "/v1/users/register", "/v1/users/register/passwordless",
+      "/v1/users/login", "/v1/users/otp/start", "/v1/users/otp/verify",
       "/v1/users/me", "/v1/webhooks/cognito",
       "/v1/users/e2e-cleanup", "/v1/users/e2e-identity",
     ]));
     expect(spec.components.schemas.User).toBeDefined();
+    // Request bodies are named components (GOLDEN RULE §2a), not inline
+    // anonymous schemas — the provider suffixes request variants with "Input".
+    expect(spec.components.schemas.OtpStartInput).toBeDefined();
+    expect(spec.components.schemas.OtpVerifyInput).toBeDefined();
+    expect(spec.components.schemas.RegisterPasswordlessInput).toBeDefined();
     await app.close();
   });
 });

@@ -27,7 +27,7 @@ describe("http schemas", () => {
   it("UserSchema parses a full user row shape", () => {
     const u = {
       id: "usr_x", email: "a@b.co", fullName: "A", address: null, phoneNumber: null,
-      tags: [], createdBy: null, createdAt: "2026-07-10T00:00:00.000Z",
+      tags: [], authType: "PASSWORD", createdBy: null, createdAt: "2026-07-10T00:00:00.000Z",
       updatedBy: null, updatedAt: "2026-07-10T00:00:00.000Z",
       deletedBy: null, deletedAt: null, isDeleted: false,
     };

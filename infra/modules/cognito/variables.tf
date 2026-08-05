@@ -70,6 +70,59 @@ variable "python_bin" {
   type        = string
 }
 
+variable "events_queue_url" {
+  description = "URL of the shared events SQS queue the OTP challenge Lambda publishes AUTH_OTP_REQUESTED to (consumed by the events-pipeline Lambda, which renders and sends the code by email)."
+  type        = string
+}
+
+variable "events_queue_arn" {
+  description = "ARN of the shared events SQS queue, scoping the OTP challenge Lambda's sqs:SendMessage IAM policy."
+  type        = string
+}
+
+variable "aws_cli_endpoint_url_in_network" {
+  description = <<-DESC
+    AWS endpoint override baked into the OTP challenge Lambda's environment.
+
+    Distinct from var.aws_cli_endpoint_url, which is used by the local-exec
+    provisioners running on the HOST (http://localhost:4566). The Lambda runs as
+    a Docker container on 3mrai-network, so it must use the IN-NETWORK name
+    (http://floci:4566) — localhost inside that container is the container
+    itself. Empty (default) = production: the function falls back to the queue
+    URL's own origin, i.e. the real SQS endpoint.
+  DESC
+  type        = string
+  default     = ""
+}
+
+variable "lambda_region_env" {
+  description = <<-DESC
+    Value for the OTP challenge Lambda's AWS_REGION environment variable, needed
+    by its SigV4 signer.
+
+    Empty (default) in PRODUCTION on purpose: real AWS Lambda injects AWS_REGION
+    into every execution environment and REJECTS it as a reserved key in
+    environment.variables, so setting it there would fail the apply. Local
+    (Floci) passes the region explicitly because whether its Lambda containers
+    inject it is unverified — the same reasoning the events-pipeline Lambda
+    already applies in environments/local/main.tf.
+  DESC
+  type        = string
+  default     = ""
+}
+
+variable "otp_code_length" {
+  description = "Number of digits in a generated OTP code."
+  type        = number
+  default     = 6
+}
+
+variable "otp_code_ttl_seconds" {
+  description = "OTP code TTL in seconds, as told to the user in the email. Cognito enforces the challenge session's own expiry independently — this value does not shorten it."
+  type        = number
+  default     = 300
+}
+
 variable "execution_log_table" {
   description = <<-DESC
     DynamoDB table where this module's two local-exec provisioning scripts

@@ -79,10 +79,28 @@ Source of truth with full evidence: [[floci-vs-ministack-spike-findings]]
    *management-plane only* ("actual DNS resolution is not provided"); ECS tasks are not
    registered in Cloud Map. For container-to-container resolution use **Docker's native
    networking** (resolve by `container_name`, or attach a constant network alias).
-7. **Cognito Lambda triggers are stored but NEVER invoked** (PostConfirmation, PreSignUp,
-   etc.) — same as Ministack. To capture user data on sign-up, **emit a domain event from
-   your service** (`events:PutEvents`) → EventBridge → target. **EventBridge DOES deliver
-   to Lambda/SQS targets in Floci** (verified).
+7. **Cognito Lambda triggers: it depends WHICH trigger — the split is the whole point.**
+   - **Sign-up/lifecycle triggers are stored but NEVER invoked** (PostConfirmation,
+     PreSignUp, etc.) — same as Ministack. To capture user data on sign-up, **emit a
+     domain event from your service** (`events:PutEvents`) → EventBridge → target.
+     **EventBridge DOES deliver to Lambda/SQS targets in Floci** (verified).
+   - **The three `CUSTOM_AUTH` challenge triggers ARE genuinely invoked** (verified
+     2026-08-05): `DefineAuthChallenge`, `CreateAuthChallenge`,
+     `VerifyAuthChallengeResponse`. `InitiateAuth --auth-flow CUSTOM_AUTH` returns
+     `ChallengeName: CUSTOM_CHALLENGE` and echoes back the Lambda's own
+     `publicChallengeParameters`; `RespondToAuthChallenge` issues real tokens on the
+     right answer and `NotAuthorizedException: Incorrect challenge answer` on a wrong
+     one. A user created with **no password at all** completes the flow. They also
+     coexist with a `PreTokenGenerationConfig` V2 trigger without breaking its claim.
+     Floci even validates the wiring: with the triggers absent, `CUSTOM_AUTH` fails
+     with `InvalidUserPoolConfigurationException: DefineAuthChallenge trigger is not
+     configured`. So **email-OTP login is implementable locally** — via `CUSTOM_AUTH`.
+   - **⚠️ TRAP — native `USER_AUTH` / `EMAIL_OTP` silently bypasses authentication.**
+     `InitiateAuth --auth-flow USER_AUTH` with `PREFERRED_CHALLENGE=EMAIL_OTP` is
+     ACCEPTED and **returns tokens with no challenge whatsoever** — the parameter is
+     ignored, not rejected. A test written against native `EMAIL_OTP` passes green
+     while auth is entirely skipped. Use `CUSTOM_AUTH`, never native `EMAIL_OTP`, and
+     always assert that a WRONG code is rejected.
 8. **ECS task is recreated on every `terraform apply`** (new container name + IP). Don't
    pin the integration to a discovered IP. Use a **stable Docker-DNS alias** (e.g.
    `nginx-stable`) attached after apply; the API GW integration stays fixed at

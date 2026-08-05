@@ -2,10 +2,11 @@ import {
   AdminCreateUserCommand,
   AdminSetUserPasswordCommand,
   AdminInitiateAuthCommand,
+  RespondToAuthChallengeCommand,
   type CognitoIdentityProviderClient,
 } from "@aws-sdk/client-cognito-identity-provider";
 import type { AuthProvider, AuthTokens, CognitoSignUpResult, RefreshedTokens } from "./auth-provider.ts";
-import { InvalidCredentialsError, EmailAlreadyExistsError } from "./auth-errors.ts";
+import { InvalidCredentialsError, EmailAlreadyExistsError, InvalidOtpError } from "./auth-errors.ts";
 
 export class CognitoAuthProvider implements AuthProvider {
   constructor(
@@ -72,6 +73,63 @@ export class CognitoAuthProvider implements AuthProvider {
       idToken: r?.IdToken ?? "",
       accessToken: r?.AccessToken ?? "",
       refreshToken: r?.RefreshToken ?? "",
+    };
+  }
+
+  // CUSTOM_AUTH, never USER_AUTH/EMAIL_OTP: the local emulator accepts the
+  // native flow and returns tokens WITHOUT issuing a challenge at all, so a
+  // caller who only knows an email would authenticate. CUSTOM_AUTH routes
+  // through our own Define/Create/Verify triggers in both local and prod.
+  async startOtpChallenge(email: string): Promise<{ session: string }> {
+    let res;
+    try {
+      res = await this.client.send(
+        new AdminInitiateAuthCommand({
+          UserPoolId: this.userPoolId,
+          ClientId: this.clientId,
+          AuthFlow: "CUSTOM_AUTH",
+          AuthParameters: { USERNAME: email },
+        }),
+      );
+    } catch (e: any) {
+      if (e?.name === "UserNotFoundException") throw new InvalidCredentialsError();
+      throw e;
+    }
+    if (!res.Session) throw new Error(`CUSTOM_AUTH InitiateAuth returned no session for ${email}`);
+    return { session: res.Session };
+  }
+
+  // RespondToAuthChallenge is the NON-admin call: it takes ClientId and no
+  // UserPoolId, unlike every other method on this class.
+  async respondToOtpChallenge(email: string, session: string, code: string): Promise<AuthTokens> {
+    let res;
+    try {
+      res = await this.client.send(
+        new RespondToAuthChallengeCommand({
+          ClientId: this.clientId,
+          ChallengeName: "CUSTOM_CHALLENGE",
+          Session: session,
+          ChallengeResponses: { USERNAME: email, ANSWER: code },
+        }),
+      );
+    } catch (e: any) {
+      if (e?.name === "NotAuthorizedException" || e?.name === "UserNotFoundException") {
+        throw new InvalidOtpError();
+      }
+      throw e;
+    }
+    if (!res.AuthenticationResult) {
+      // Cognito accepted the answer but the flow is not complete (e.g. it
+      // returned a further challenge) — treated the same as an invalid code:
+      // the caller gets no tokens either way, and this codebase has no
+      // multi-step CUSTOM_AUTH beyond the single code challenge.
+      throw new InvalidOtpError();
+    }
+    const r = res.AuthenticationResult;
+    return {
+      idToken: r.IdToken ?? "",
+      accessToken: r.AccessToken ?? "",
+      refreshToken: r.RefreshToken ?? "",
     };
   }
 

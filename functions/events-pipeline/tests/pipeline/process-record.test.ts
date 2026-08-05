@@ -370,6 +370,67 @@ describe("processRecord", () => {
     expect(statuses).toEqual(["IN_PROGRESS", "FAILED"]);
   });
 
+  it("persists AUTH_OTP_REQUESTED with the code redacted, but hands the handler the real code", async () => {
+    // The two halves are one test on purpose: proving the persisted document is
+    // clean is worthless if the handler was starved of the code too (the email
+    // would go out blank and the assertion would still be green).
+    const repository = makeRepository();
+    let handlerSawCode: unknown;
+    const handlers: HandlerMap = {
+      AUTH_OTP_REQUESTED: vi.fn(async (envelope: Envelope) => {
+        handlerSawCode = (envelope.payload as { code: unknown }).code;
+      }),
+    };
+    const envelope = makeEnvelope({
+      type: "AUTH_OTP_REQUESTED",
+      payload: { email: "user@example.com", code: "042817", ttlSeconds: 300 },
+    });
+
+    const result = await processRecord(envelope, { repository, handlers });
+
+    expect(result).toEqual({ ok: true });
+    const doc = repository.inserted[0]!;
+    expect(doc.payload).not.toHaveProperty("code");
+    expect(doc.payload.email).toBe("user@example.com");
+    expect(doc.payload.ttlSeconds).toBe(300);
+    // Off the SERIALIZED document, not just the payload's own keys: this is
+    // what catches the code surviving in a nested field or in some other
+    // column the state machine copies it into.
+    expect(JSON.stringify(doc)).not.toContain("042817");
+    // ...and the handler still got the real thing.
+    expect(handlerSawCode).toBe("042817");
+  });
+
+  it("does not redact the envelope the caller passed in", async () => {
+    // redactPayload is pure and copies; a mutating implementation would empty
+    // the caller's own object, which is the same object src/handler.ts hands to
+    // the handler.
+    const repository = makeRepository();
+    const handlers: HandlerMap = { AUTH_OTP_REQUESTED: vi.fn(async () => {}) };
+    const envelope = makeEnvelope({
+      type: "AUTH_OTP_REQUESTED",
+      payload: { email: "user@example.com", code: "042817", ttlSeconds: 300 },
+    });
+
+    await processRecord(envelope, { repository, handlers });
+
+    expect(envelope.payload.code).toBe("042817");
+  });
+
+  it("persists every other type's payload verbatim — redaction is not a blanket filter", async () => {
+    // The audit trail is the default; AUTH_OTP_REQUESTED is the one exception.
+    const repository = makeRepository();
+    const handlers: HandlerMap = { ORDER_CREATED: vi.fn(async () => {}) };
+    const payload = { code: "PROMO2026", total: 42 };
+
+    await processRecord(makeEnvelope({ type: "ORDER_CREATED", payload }), {
+      repository,
+      handlers,
+    });
+
+    expect(repository.inserted[0]?.payload).toEqual(payload);
+  });
+
   it("reports transient when insertStarted itself fails (nothing was persisted)", async () => {
     const repository = makeRepository();
     repository.insertStarted = vi.fn(async () => {

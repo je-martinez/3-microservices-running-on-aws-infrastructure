@@ -19,6 +19,9 @@ related:
   - "[[2026-07-31-contextvars-lost-across-task-boundaries]]"
   - "[[2026-07-31-python-logging-extra-silently-dropped]]"
   - "[[events-pipeline-design]]"
+  - "[[2026-08-05-passwordless-otp-auth-design]]"
+  - "[[2026-08-05-passwordless-otp-auth]]"
+  - "[[passwordless-auth-type]]"
 ---
 
 # Logging Context
@@ -77,6 +80,17 @@ worse than the field's absence.
   last 1 character visible), domain fully visible because it carries operational signal (e.g.
   which provider is failing) and identifies nobody on its own.
 - Never log passwords, tokens, or full request bodies.
+- **Never log an OTP code — not masked, not hashed, not truncated.** Email masking
+  (`jo*****e@gmail.com`) works because an email is a high-entropy identifier: knowing the masked
+  form doesn't materially help guess the real one. A 6-digit OTP code has only ~1,000,000
+  possibilities — revealing half (`12****`) collapses the search space to 1,000 candidates, and
+  even a truncated hash of the full code is brute-forceable offline in milliseconds. The code
+  stays valid for its whole TTL, so any log access during that window becomes a live
+  authentication vector for as long as the entry exists. The one OTP-related log line
+  (`otp_challenge_created`, `email_hash` + `challenge_id` + `ttl_seconds`) gives full
+  traceability with none of the risk — the code must never appear in it, nor in a `reason` string
+  or a validation-error message that echoes the offending input. See
+  [[2026-08-05-passwordless-otp-auth-design]] and [[passwordless-auth-type]].
 
 > [!warning] Pitfall — mask at the call site, not in the ambient context
 > The masked email goes on the **log call site**, not in the AsyncLocalStorage context. Putting
@@ -209,3 +223,8 @@ reach the shared schema.
   formatter for `extra=` fields to reach the output at all.
 - [[events-pipeline-design]] — the `type` and `author_*` fields the pipeline emits on every
   per-record log line, and why it has no `trace_id`/`span_id` yet (JE-138).
+- [[2026-08-05-passwordless-otp-auth-design]] — the entropy reasoning behind the never-log-an-OTP
+  rule and the full logging design for `otp_challenge_created`.
+- [[2026-08-05-passwordless-otp-auth]] — the implementation plan that shipped it.
+- [[passwordless-auth-type]] — the `AuthType`/login-guard decision, whose failure reason
+  (`passwordless_user`) is logged but never the credential itself.

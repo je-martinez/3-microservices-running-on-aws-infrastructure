@@ -4,6 +4,7 @@ import OrderCreatedEmail, { type OrderCreatedEmailProps } from "../../emails/ord
 import TrackingStatusChangedEmail, {
   type TrackingStatusChangedEmailProps,
 } from "../../emails/tracking-status-changed.tsx";
+import AuthOtpEmail, { type AuthOtpEmailProps } from "../../emails/auth-otp.tsx";
 
 // The single registry: template key → component + sample props. Three consumers
 // read THIS object and nothing else — handlers (to render), the preview server
@@ -73,5 +74,12 @@ export const catalog: EmailCatalog = {
       status: "DELIVERED",
       previousStatus: "OUT_FOR_DELIVERY",
     },
+  }),
+  // `sampleProps.code` is a made-up constant, never a real credential: this
+  // object is rendered by the preview server and committed to a snapshot, so
+  // anything here is public by construction.
+  "auth-otp": defineTemplate<AuthOtpEmailProps>({
+    component: AuthOtpEmail,
+    sampleProps: { code: "042817", ttlMinutes: 5 },
   }),
 };

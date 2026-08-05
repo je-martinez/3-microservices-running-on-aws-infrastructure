@@ -171,6 +171,59 @@ export async function waitForEmailTo(
   );
 }
 
+//: One message as `GET /message/{ID}` renders it — the FULL shape, which is what
+// the summary from /search is not. The distinction is the whole reason this
+// exists: the search summary carries only `Snippet`, a flattened preview, while
+// this endpoint carries the real `Text` and `HTML` bodies.
+//
+// Only the fields a spec actually reads are declared, same rule as
+// MailpitMessage above: Mailpit returns many more (Attachments, Inline, Cc, Bcc,
+// ReplyTo, ReturnPath, ListUnsubscribe, Size, Tags, MessageID, Date), and typing
+// fields nobody asserts on would invite drift.
+export interface MailpitFullMessage {
+  ID: string;
+  Subject: string;
+  From: { Name: string; Address: string };
+  To: { Name: string; Address: string }[];
+  //: The plain-text alternative part. NOTE it is not raw prose — react-email's
+  // text rendering decorates headings with runs of `*`, so match content with a
+  // tolerant pattern rather than an exact-line equality.
+  Text: string;
+  HTML: string;
+}
+
+// Fetches ONE message in full, by id.
+//
+// ## Why a second request rather than reading the search result
+//
+// `searchByRecipient` returns Mailpit's SUMMARY shape, whose only body field is
+// `Snippet` — a flattened, TRUNCATED preview built for list display. Asserting
+// on a value that must survive that flattening is a latent flake: a code near
+// the end of a longer email, or wrapped in markup, can be cut or mangled, and
+// the resulting failure looks like "the pipeline did not send it" when the mail
+// was delivered perfectly.
+//
+// This matters most for a one-time code, where the test's entire purpose is to
+// read a specific short string back out of the body and then USE it. Verified
+// against the live inbox: `GET /message/{ID}` returns both `Text` and `HTML`
+// populated, so the code can be extracted from a real body.
+//
+// Callers get the id from a `searchByRecipient` / `waitForEmailTo` result, so
+// the flow is: wait for the message → fetch it in full → extract.
+export async function getMessage(id: string): Promise<MailpitFullMessage> {
+  const res = await fetch(`${mailpitApiUrl()}/message/${encodeURIComponent(id)}`);
+
+  if (!res.ok) {
+    throw new Error(
+      `Mailpit returned ${res.status} for message ${id} at ${mailpitApiUrl()}/message/${id}. ` +
+        "The id comes from a prior search, so a 404 here means the inbox was cleared " +
+        "between the search and this fetch.",
+    );
+  }
+
+  return (await res.json()) as MailpitFullMessage;
+}
+
 // Asserts the inbox is reachable before a spec starts asking it questions.
 //
 // ## Hard failure here, unlike the pipeline's integration test, which SKIPS

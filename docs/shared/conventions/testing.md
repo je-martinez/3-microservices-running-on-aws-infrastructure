@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-17
-updated: 2026-08-04
+updated: 2026-08-05
 tags: [type/convention, area/shared, status/active]
 related:
   - "[[ADR-0010-cognito-auth]]"
@@ -14,6 +14,9 @@ related:
   - "[[2026-07-17-testing-layers-and-e2e-gateway]]"
   - "[[events-pipeline-design]]"
   - "[[2026-08-03-events-pipeline-milestone-design]]"
+  - "[[2026-08-05-passwordless-otp-auth-design]]"
+  - "[[2026-08-05-passwordless-otp-auth]]"
+  - "[[passwordless-auth-type]]"
 ---
 
 # Testing
@@ -147,6 +150,35 @@ whether the production code under test was correct. When writing a test, ask wha
 fail — if the only thing that can make it fail is changing the test's own fixture or mock
 configuration, it is not testing the system.
 
+## A rejection test is mandatory wherever a credential is verified
+
+**Rule:** any endpoint or flow that verifies a credential (a password, an OTP code, a token, a
+signature) MUST have a dedicated test asserting the **wrong** credential is rejected, not just a
+test asserting the right one is accepted. A suite that only exercises the happy path cannot
+distinguish a working check from one that always returns true — both pass the same green suite.
+
+This is not hypothetical: it is exactly how native Cognito `USER_AUTH` +
+`PREFERRED_CHALLENGE=EMAIL_OTP` fails on Floci. The emulator accepts the request and **silently
+returns tokens with no challenge issued at all** — a caller who only knows an email
+authenticates as that user, with no code ever generated or checked. An E2E test asserting only
+"tokens were issued" would pass green against that bypass; only a test asserting "a wrong code
+is rejected" catches it. See [[2026-08-05-passwordless-otp-auth-design]] for the full evidence
+and [[passwordless-auth-type]] for the shipped guard.
+
+The passwordless OTP milestone shipped two such guards as mandatory, not optional, test cases —
+both anti-false-PASS, both present at all three test layers (unit, internal E2E, gateway E2E):
+
+- **A wrong OTP code is rejected** — `POST /v1/users/otp/verify` with an incorrect code returns
+  `401 invalid_otp`, never tokens.
+- **A `PASSWORDLESS` user cannot log in with a password** — `POST /v1/users/login` against a
+  passwordless account returns the same generic `401 invalid_credentials` as a wrong password,
+  for any guessed value, proving the service-side guard actually runs rather than the account
+  being reachable because nobody happens to know its random password.
+
+Generalized: wherever a design introduces a new way to prove identity or authorize an action,
+the test suite needs both "the right credential works" and "a wrong credential is refused" — the
+second is what makes the first mean something.
+
 ## E2E cleanup by tag
 
 All three services expose a flag-guarded `e2e-cleanup` endpoint (Users `DELETE /v1/users/e2e-cleanup`,
@@ -182,3 +214,8 @@ Every service implements the underlying delete as a soft-delete, per [[soft-dele
 - [[soft-delete]] — the soft-delete-by-tag mechanism each service's `e2e-cleanup` endpoint uses.
 - [[tracking-service-design]] — Tracking's `e2e-cleanup` endpoint and the `x-e2e-source`/
   `E2E_TESTING_ENABLED` conjunction, documented in full.
+- [[2026-08-05-passwordless-otp-auth-design]] — the Floci `EMAIL_OTP` bypass that motivates the
+  mandatory rejection-test rule above.
+- [[2026-08-05-passwordless-otp-auth]] — the implementation plan that shipped both mandatory
+  anti-false-PASS guards at all three test layers.
+- [[passwordless-auth-type]] — the service-side login guard one of those guards verifies.
