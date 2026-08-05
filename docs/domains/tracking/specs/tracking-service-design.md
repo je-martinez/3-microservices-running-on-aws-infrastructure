@@ -105,7 +105,7 @@ means adding entries to that module's `local.routes` map, per
 | POST   | `/v1/trackings/init-tracking`       | Cognito JWT (gateway authorizer) | Creates a tracking record. Body carries `order_id` and `shipping_address` only — the caller's identity comes from the gateway-injected `x-user-id` header, **not** the body. Rejects with `409 Conflict` when the order already has a tracking or any `Tracking_History`. Also accepts an optional `test_mode`, driving [TestMode automatic progression](#testmode-automatic-progression). |
 | GET    | `/v1/trackings/{orderId}`           | Cognito JWT (gateway authorizer) | Returns one tracking + its `Tracking_History`, scoped to the caller. Filters by `order_id` **and** the caller's `cognito_sub` (from the gateway-injected `x-user-id` header — see [Ownership & scoping](#ownership--scoping)); a tracking that exists but belongs to another user is indistinguishable from one that does not exist — returns `404`, not `403`. Path param is `{orderId}` (camelCase) at the gateway — see [Gateway path params are camelCase](#gateway-path-params-are-camelcase-not-snake_case) below. |
 | GET    | `/v1/trackings?order_ids=<csv>`     | Cognito JWT (gateway authorizer) | Returns many trackings (+ each one's `Tracking_History`), scoped to the caller. `order_ids` is a comma-separated list of order ids, e.g. `?order_ids=ord_a,ord_b,ord_c` — see [Batch read query shape](#batch-read-query-shape) for why. Filters by `order_id` **and** the caller's `cognito_sub`; ids that exist but belong to another user (or don't exist at all) are silently **omitted** from the results, never reported as an error — see [Ownership & scoping](#ownership--scoping). |
-| PUT    | `/v1/trackings/{orderId}/status`    | Custom API key (service-validated, **not** Cognito) | Simulates a third-party carrier service notifying Tracking of a delivery status change. `status` must be one of the four enum values defined in [Tracking statuses](#tracking-statuses), and is subject to the guards in [State machine & update guards](#state-machine--update-guards). See [Auth schemes](#auth-schemes) — this endpoint has **no `x-user-id`** and is identified by `order_id` alone. Path param is `{orderId}` (camelCase) — see [Gateway path params are camelCase](#gateway-path-params-are-camelcase-not-snake_case). |
+| PUT    | `/v1/trackings/{orderId}/status`    | Custom API key (service-validated, **not** Cognito) | Simulates a third-party carrier service notifying Tracking of a delivery status change. `status` must be one of the five enum values defined in [Tracking statuses](#tracking-statuses), and is subject to the guards in [State machine & update guards](#state-machine--update-guards). See [Auth schemes](#auth-schemes) — this endpoint has **no `x-user-id`** and is identified by `order_id` alone. Path param is `{orderId}` (camelCase) — see [Gateway path params are camelCase](#gateway-path-params-are-camelcase-not-snake_case). |
 | DELETE | `/v1/trackings/e2e-cleanup`         | None — the route only **exists** under `E2E_TESTING_ENABLED` | The E2E harness's global-teardown route (JE-111). See [E2E cleanup](#e2e-cleanup-delete-v1trackingse2e-cleanup) below. |
 
 > [!warning] Several auth schemes, in both directions
@@ -389,7 +389,7 @@ All IDs use prefixed nano-IDs ([[nano-id]]). All tables apply soft-delete ([[sof
 | `user_id`    | VARCHAR(21)  | The internal `usr_` id, as Orders resolved it from Users. For reporting/joins only — **not** the ownership key reads filter by (see `cognito_sub` below). |
 | `cognito_sub` | VARCHAR(255), nullable | **The ownership key every user-scoped REST read filters by** — see [[user-id-vs-cognito-sub-ownership-key]] and [Ownership & scoping](#ownership--scoping). Nullable: a row created before this field existed, or by a caller that omitted it, is simply unreachable over the user-scoped reads rather than mis-attributed to someone else. |
 | `order_id`   | VARCHAR(21)  | Reference to order, unique         |
-| `status`     | VARCHAR(50)  | Current delivery status — enum: `SHIPPED`, `ON_THE_WAY`, `OUT_FOR_DELIVERY`, `DELIVERED` (see [Tracking statuses](#tracking-statuses)) |
+| `status`     | VARCHAR(50)  | Current delivery status — enum: `PLACED`, `PROCESSING`, `SHIPPED`, `OUT_FOR_DELIVERY`, `DELIVERED` (see [Tracking statuses](#tracking-statuses)) |
 | `shipping_address` | JSON  | Snapshot of the delivery address, received as-is in the `init-tracking` request body — see [Delivery address snapshot](#delivery-address-snapshot) below. |
 | `tags`       | JSON, `NOT NULL DEFAULT (JSON_ARRAY())` | Free-form labels; today only `"E2E Source"` is ever written, by [`init-tracking`](#api--endpoints) when the request carries `x-e2e-source: true` under `E2E_TESTING_ENABLED` — see [E2E cleanup](#e2e-cleanup-delete-v1trackingse2e-cleanup). MySQL has no array type, so this is a JSON array queried with `JSON_CONTAINS` rather than a Postgres-style `text[]`. |
 | `datetime`   | DATETIME     | Timestamp of the current status    |
@@ -426,7 +426,7 @@ Immutable log of every status transition.
 | `user_id`     | VARCHAR(21)  | Reference to user                       |
 | `order_id`    | VARCHAR(21)  | Reference to order                      |
 | `cognito_sub` | VARCHAR(255), nullable | Denormalized off the parent `Tracking`, same as `user_id`/`order_id` above — a transition row needs its own ownership context to stay self-describing, and the read-scoping index below keys on it. |
-| `status`      | VARCHAR(50)  | Status at the time of the event — enum: `SHIPPED \| ON_THE_WAY \| OUT_FOR_DELIVERY \| DELIVERED` (part of PK) |
+| `status`      | VARCHAR(50)  | Status at the time of the event — enum: `PLACED \| PROCESSING \| SHIPPED \| OUT_FOR_DELIVERY \| DELIVERED` (part of PK) |
 | `datetime`    | DATETIME     | Timestamp of this status transition     |
 | `created_at`  | DATETIME     | Audit — see [[audit-fields]]            |
 | `updated_at`  | DATETIME     | Audit — see [[audit-fields]]            |
@@ -442,19 +442,20 @@ Immutable log of every status transition.
 
 ### Tracking statuses
 
-The `status` field is a fixed enum shared by `Tracking` and `Tracking_History`. Only these four values are valid:
+The `status` field is a fixed enum shared by `Tracking` and `Tracking_History`. Only these five values are valid:
 
 | Value                | Meaning                                           |
 |----------------------|---------------------------------------------------|
-| `SHIPPED`            | The order has been dispatched from the warehouse. |
-| `ON_THE_WAY`         | The shipment is in transit to the destination.    |
+| `PLACED`             | The order has been placed; this is the initial status a tracking is created at. |
+| `PROCESSING`         | The order is being prepared/picked at the warehouse, not yet handed to a carrier. |
+| `SHIPPED`            | Handed to the carrier and on its way to the destination — absorbs what the former `ON_THE_WAY` status meant; there is no separate "in transit" status. |
 | `OUT_FOR_DELIVERY`   | The shipment is out for final-mile delivery.      |
 | `DELIVERED`          | The shipment has been delivered to the recipient. |
 
 **State machine — allowed progression (forward only):**
 
 ```
-SHIPPED → ON_THE_WAY → OUT_FOR_DELIVERY → DELIVERED
+PLACED → PROCESSING → SHIPPED → OUT_FOR_DELIVERY → DELIVERED
 ```
 
 This progression is enforced in two places: automatically, during
@@ -464,17 +465,18 @@ the [State machine & update guards](#state-machine--update-guards) below.
 ### TestMode automatic progression
 
 The `init-tracking` endpoint accepts a `test_mode` boolean. When it is true, the created tracking
-starts at `SHIPPED` and then advances one status automatically every **10 seconds**, following the
+starts at `PLACED` and then advances one status automatically every **10 seconds**, following the
 forward-only progression above, until it reaches `DELIVERED`:
 
 | Elapsed | Status              |
 |---------|----------------------|
-| t=0s    | `SHIPPED` (record created) |
-| t=10s   | `ON_THE_WAY`          |
-| t=20s   | `OUT_FOR_DELIVERY`    |
-| t=30s   | `DELIVERED`           |
+| t=0s    | `PLACED` (record created) |
+| t=10s   | `PROCESSING`          |
+| t=20s   | `SHIPPED`             |
+| t=30s   | `OUT_FOR_DELIVERY`    |
+| t=40s   | `DELIVERED`           |
 
-Each automatic transition writes a `Tracking_History` row, so a completed `TestMode` run leaves 4
+Each automatic transition writes a `Tracking_History` row, so a completed `TestMode` run leaves 5
 history entries in total. When `TestMode` is false or absent, no automatic progression happens —
 status only advances through the `PUT /v1/trackings/{orderId}/status` endpoint below.
 
@@ -509,7 +511,7 @@ client → POST /v1/orders (x-test-mode: true)
        → Orders: E2E_TESTING_ENABLED ? header=="true" : false
        → POST /v1/trackings/init-tracking
            { order_id, shipping_address, test_mode }   x-user-id forwarded
-       → Tracking: SHIPPED, then +10s each → DELIVERED
+       → Tracking: PLACED, then +10s each → DELIVERED
 ```
 
 > [!warning] Orders carries a small but load-bearing responsibility here
@@ -564,9 +566,9 @@ call site, rather than from each caller separately, is what guarantees both path
 way instead of drifting apart.
 
 - **Every successful transition emits, `DELIVERED` included — no suppression.** A TestMode run
-  that walks a tracking through all four statuses in ~30 seconds produces **four emails in
+  that walks a tracking through all five statuses in ~40 seconds produces **five emails in
   Mailpit** for that one tracking. This is expected, not a bug; E2E assertions for Tracking must
-  account for all four transitions, not just the final `DELIVERED` state.
+  account for all five transitions, not just the final `DELIVERED` state.
 - **`user_id` on the envelope comes from the persisted tracking row, not the request.** The
   carrier webhook carries **no** `x-user-id` at all — it is authenticated by an API key, not a
   Cognito JWT, and its repository lookup is deliberately unscoped (see
@@ -599,7 +601,7 @@ Noop-equivalent publisher is retained for tests that must not emit, mirroring
 
 See [[events-pipeline-design]] for the consuming side: the shared queue, the dispatch map, the
 error taxonomy that decides whether a publish-side failure downstream gets retried, and the
-`tracking-status-changed` email template family (one event type, four rendered variants selected
+`tracking-status-changed` email template family (one event type, five rendered variants selected
 by `payload.status`).
 
 ## Cross-cutting rules
@@ -692,7 +694,7 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
   scheduling choice for TestMode and its accepted restart-loses-progress limitation.
 - [[events-pipeline-design]] — the consuming side of `TRACKING_STATUS_CHANGED`: the shared SQS
   queue, the dispatch map, the error taxonomy, and the `tracking-status-changed` email template
-  family (one event type, four rendered variants).
+  family (one event type, five rendered variants).
 - [[env-files]] — `EVENTS_QUEUE_URL` is generated into `.env.local.tracking`, never hardcoded.
 - [[2026-08-03-events-pipeline-milestone-design]] — the full design for Tracking joining as a
   third producer, including the `event_id` derivation and the `user_id`-from-persisted-row trap.

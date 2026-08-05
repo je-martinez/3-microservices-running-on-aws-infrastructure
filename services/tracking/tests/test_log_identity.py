@@ -187,7 +187,7 @@ def seed(session: Session, *, order_id: str, cognito_sub: str = COGNITO_SUB) -> 
         user_id="usr_zzzzzzzzzzzzzzzzzzzzz",
         cognito_sub=cognito_sub,
         shipping_address=ADDRESS,
-        status=TrackingStatus.SHIPPED,
+        status=TrackingStatus.PLACED,
         actor=AuditActor.CREATE_TRACKING,
     )
     session.commit()
@@ -428,7 +428,7 @@ class TestUnauthenticatedSurfacesResolveNothing:
 
         response = read_client.put(
             "/v1/trackings/ord_logid0000000000009/status",
-            json={"status": "ON_THE_WAY"},
+            json={"status": "PROCESSING"},
             headers={"x-api-key": TEST_CARRIER_API_KEY},
         )
 
@@ -452,7 +452,7 @@ class TestUnauthenticatedSurfacesResolveNothing:
 
         response = read_client.put(
             "/v1/trackings/ord_logid0000000000010/status",
-            json={"status": "ON_THE_WAY"},
+            json={"status": "PROCESSING"},
             headers={
                 "x-api-key": TEST_CARRIER_API_KEY,
                 "x-user-id": COGNITO_SUB,

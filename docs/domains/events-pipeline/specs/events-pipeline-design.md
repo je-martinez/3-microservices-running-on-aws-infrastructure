@@ -274,13 +274,13 @@ Registered templates:
 
 - `user-created` — one component, one entry.
 - `order-created` — one component, one entry.
-- `tracking-status-changed-{shipped,on-the-way,out-for-delivery,delivered}` — **one** event type
-  (`TRACKING_STATUS_CHANGED`), **four** catalog entries sharing **one** component
+- `tracking-status-changed-{placed,processing,shipped,out-for-delivery,delivered}` — **one** event
+  type (`TRACKING_STATUS_CHANGED`), **five** catalog entries sharing **one** component
   (`TrackingStatusChangedEmail`). The handler picks the entry key from `payload.status`. This is
   the mirror image of the dispatch-map claim above: a new event type costs one dispatch entry,
   and one event type can fan out to several rendered variants without adding a second dispatch
   entry — the variation belongs in template selection, not in the event taxonomy. A rejected
-  alternative was a distinct event type per status (`TRACKING_SHIPPED`, `TRACKING_ON_THE_WAY`,
+  alternative was a distinct event type per status (`TRACKING_PLACED`, `TRACKING_PROCESSING`,
   …), which would have duplicated near-identical dispatch entries and handlers for logic the
   catalog already handles cleanly.
 
@@ -325,7 +325,7 @@ Tracking) stay in the codebase for tests that must not emit.
 
 Tracking derives `event_id` deterministically from `(order_id, status)` rather than generating a
 fresh id per publish attempt. This matters specifically because of TestMode: it walks a tracking
-through all four statuses in roughly 30 seconds, and if `event_id` were freshly generated on
+through all five statuses in roughly 40 seconds, and if `event_id` were freshly generated on
 every send attempt, a retry of the same transition (e.g. after a transient SQS error) would mint
 a new id, miss the pipeline's unique-index dedupe, and send a **duplicate notification email**
 for a transition that had already succeeded. Deriving from `(order_id, status)` means a retry of
