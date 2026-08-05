@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-07-30
+updated: 2026-08-05
 tags: [type/spec, area/shared, status/active]
 related:
   - "[[2026-06-26-implementation-workflow]]"
@@ -39,6 +39,9 @@ related:
   - "[[2026-07-16-orders-for-update-interceptor]]"
   - "[[2026-07-30-post-infra-root-design]]"
   - "[[2026-07-30-post-infra-root]]"
+  - "[[2026-08-03-events-pipeline-milestone-design]]"
+  - "[[2026-08-03-events-pipeline-milestone]]"
+  - "[[events-pipeline-milestone]]"
 ---
 
 # 3MRAI Plans — Index
@@ -79,6 +82,9 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[developer-experience-milestone]] — logical execution plan for the Developer Experience milestone: three independent blocks (Scripts to Python, logging context + tracing, env-file auto-generation); task sequence and dependency graph for Block 1 (JE-59 through JE-67).
 - [[2026-07-30-post-infra-root-design]] — design spec splitting `make bootstrap` (ends usable) from a new `make post-infra` (hardens it: moved MySQL provider GRANTs + the existing phase-2 app-user apply), plus a DynamoDB execution log recording — never skipping — the four post-resource provisioning scripts' outcomes.
 - [[2026-07-30-post-infra-root]] — implementation plan for the post-infra split: the `tf-backend` execution-log table, the `lib3mrai.execution_log` wrapper and its three required tests, wiring the four scripts, moving the GRANTs, and splitting the Makefile targets last.
+- [[2026-08-03-events-pipeline-milestone-design]] — design spec for the Events Pipeline milestone: SQS + DocumentDB Terraform, the Lambda's CQRS dispatch and error taxonomy, react-email/SES/Mailpit, and wiring all three producers (Users, Orders, Tracking) for real.
+- [[2026-08-03-events-pipeline-milestone]] — implementation plan for the Events Pipeline milestone: Block A (infra), Block B (Lambda core), Block C (email handlers), Block D (real producers).
+- [[events-pipeline-milestone]] — logical execution plan for the Events Pipeline milestone: task sequence, phases, and blocking dependency graph for JE-124 through JE-137.
 
 > [!note] No plan note for the AuditActor enum
 > [[2026-07-12-audit-actor-enum-design]] was implemented directly from the spec — there is no separate `writing-plans` plan for it.
@@ -117,3 +123,6 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[developer-experience-milestone]]
 - [[2026-07-30-post-infra-root-design]]
 - [[2026-07-30-post-infra-root]]
+- [[2026-08-03-events-pipeline-milestone-design]]
+- [[2026-08-03-events-pipeline-milestone]]
+- [[events-pipeline-milestone]]
