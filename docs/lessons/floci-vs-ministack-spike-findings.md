@@ -4,7 +4,7 @@ type: lesson
 area: infra
 status: active
 created: 2026-06-29
-updated: 2026-07-09
+updated: 2026-08-05
 tags:
   - type/lesson
   - area/infra
@@ -15,6 +15,7 @@ related:
   - "[[ADR-0012-ministack-local]]"
   - "[[2026-06-29-floci-local-emulator-spike-design]]"
   - "[[floci-storage-modes-and-tmp-corruption]]"
+  - "[[2026-08-05-passwordless-otp-auth-design]]"
 ---
 
 # Floci vs Ministack spike findings
@@ -77,7 +78,8 @@ Smoke test results on Floci:
 | API GW v2 local invoke URL | `http://<api-id>.execute-api.localhost:4566` | `http://localhost:4566/restapis/<api-id>/$default/_user_request_/<path>` (LocalStack-style; the execute-api host form hits Floci's S3 handler and returns NoSuchBucket) | Different URL form — runbooks must branch |
 | Cognito `iss` claim | `https://cognito-idp.<region>.amazonaws.com/<pool-id>` | `http://localhost:4566/<pool-id>` | Authorizer issuer must match this form on each emulator |
 | Service catalogue | SQS, Lambda, ECS, RDS, S3, DocumentDB… | 65 services incl. apigatewayv2, cloudmap, elbv2, eks, servicediscovery | Floci advantage |
-| Cognito Lambda triggers (PostConfirmation etc.) | ❌ stored, never invoked | ❌ stored, never invoked | tie — use service-emitted EventBridge event instead |
+| Cognito Lambda triggers — sign-up/lifecycle (PostConfirmation, PreSignUp) | ❌ stored, never invoked | ❌ stored, never invoked | tie — use service-emitted EventBridge event instead |
+| Cognito Lambda triggers — `CUSTOM_AUTH` challenge (DefineAuthChallenge, CreateAuthChallenge, VerifyAuthChallengeResponse) | untested | ✅ genuinely invoked, verified 2026-08-05 | Floci validates the wiring and executes the Lambda; do not assume Ministack behaves the same — not tested there |
 | EventBridge → Lambda/SQS target delivery | ✅ delivers (verified) | (not retested here) | Floci verified |
 
 ## Key findings
@@ -177,7 +179,13 @@ docker network connect \
 > integration). No migration decision is implied; ADR-0012 is unchanged; the spike code remains
 > uncommitted.
 
-## Cognito Lambda triggers — not invoked (both emulators)
+## Cognito Lambda triggers — sign-up triggers not invoked, `CUSTOM_AUTH` challenge triggers ARE (amended 2026-08-05)
+
+> [!warning] Amendment, not a rewrite
+> The original finding below (2026-06-29 spike) is **still correct for sign-up/lifecycle
+> triggers** (PostConfirmation, PreSignUp) — it is kept intact. It does **not** generalize to
+> the `CUSTOM_AUTH` challenge triggers, which were re-tested live on 2026-08-05 and found to be
+> genuinely invoked on Floci. See the dated subsection below for the corrected, narrower claim.
 
 ### The problem
 
@@ -228,10 +236,61 @@ target delivery works in Floci, unlike Cognito triggers.
 `cognito-idp ListUsers` is supported on both emulators, so a polling-based fallback is also
 possible as a last resort, though it is not event-driven.
 
+### Correction (2026-08-05) — `CUSTOM_AUTH` challenge triggers ARE invoked on Floci
+
+> [!danger] Narrower than the original finding — read carefully
+> The 2026-06-29 finding above is about **sign-up/lifecycle** triggers (PostConfirmation,
+> PreSignUp) and remains correct: those are still not invoked. This correction covers a
+> **different set of triggers** — the three `CUSTOM_AUTH` challenge triggers — which were
+> re-tested live against a running Floci stack on 2026-08-05 and found to work. **Do not
+> generalize this result to any trigger type that was not tested**, and note that Ministack was
+> not re-tested here — no claim is made about Ministack's `CUSTOM_AUTH` behavior.
+
+Re-tested live against Floci on **2026-08-05**, as part of designing OTP login
+([[2026-08-05-passwordless-otp-auth-design]]): the three `CUSTOM_AUTH` challenge triggers —
+`DefineAuthChallenge`, `CreateAuthChallenge`, `VerifyAuthChallengeResponse` — are **genuinely
+invoked** by Floci, unlike the sign-up triggers above. Evidence:
+
+- **With no triggers configured**, `InitiateAuth --auth-flow CUSTOM_AUTH` fails with
+  `InvalidUserPoolConfigurationException: DefineAuthChallenge trigger is not configured` —
+  proving Floci validates the trigger wiring rather than silently ignoring it.
+- **With the three triggers wired to a probe Lambda**, `InitiateAuth` returned
+  `ChallengeName: CUSTOM_CHALLENGE` and **echoed back the Lambda's own
+  `publicChallengeParameters`** (`email: "masked"`) — proof the Lambda actually executed, not
+  that Floci faked a canned response.
+- **`RespondToAuthChallenge` with the correct answer** issued real Access/Id/Refresh tokens.
+  **With a wrong answer** it returned `NotAuthorizedException: Incorrect challenge answer` — so
+  rejection genuinely works and is not a rubber stamp.
+- **A user created via `AdminCreateUser` with no password at all** reached `CONFIRMED` and
+  completed the entire `CUSTOM_AUTH` flow end to end, issuing tokens — passwordless auth is
+  viable locally on Floci.
+- The three challenge triggers **coexist** with the existing `PreTokenGenerationConfig` V2
+  trigger; the `app_user_id` claim survived through the challenge flow.
+
+**Floci-vs-real-AWS divergence worth recording:** `AdminCreateUser` with no password leaves the
+user `CONFIRMED` in Floci, whereas real AWS would leave the user in `FORCE_CHANGE_PASSWORD`.
+Design and tests targeting real AWS must not assume Floci's `CONFIRMED` shortcut.
+
+> [!danger] Trap — native `USER_AUTH` + `EMAIL_OTP` is silently ignored by Floci
+> Cognito's modern built-in email OTP (native `USER_AUTH` flow with
+> `PREFERRED_CHALLENGE=EMAIL_OTP`) is **accepted by Floci and silently dropped** — `InitiateAuth`
+> returns tokens directly with **no challenge at all**. The parameter is not rejected, just
+> ignored, so a test written against native `EMAIL_OTP` would go green while authentication is
+> completely bypassed. This repo has hit this shape of false-PASS before — a test that looks
+> green but never exercised the failure path — so treat it as the same category of risk: the
+> test looks like it verifies OTP, but verifies nothing.
+>
+> **Mitigation:** use `CUSTOM_AUTH` (verified above), not native `EMAIL_OTP`, for local
+> development against Floci — and always assert that a **wrong** code is **rejected**, not only
+> that a correct code succeeds. A green test that never tries a bad code cannot tell a working
+> challenge from a bypassed one.
+
 ### Decision — chosen capture pattern
 
-Because neither emulator fires Cognito Lambda triggers, the `users` service emits a domain event
-itself after processing a registration request:
+Because neither emulator fires Cognito **sign-up/lifecycle** triggers (`PostConfirmation`,
+`PreSignUp`) — see the 2026-08-05 amendment above, which does not apply here, since `CUSTOM_AUTH`
+challenge triggers are a different trigger set — the `users` service emits a domain event itself
+after processing a registration request:
 
 ```
 PutEvents({
@@ -272,3 +331,4 @@ uncommitted.
 - [[2026-06-29-floci-local-emulator-spike-design]]
 - [[ADR-0011-observability-signoz]]
 - [[floci-storage-modes-and-tmp-corruption]]
+- [[2026-08-05-passwordless-otp-auth-design]]
