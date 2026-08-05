@@ -1,5 +1,5 @@
 {
-  "version": "2.14",
+  "version": "2.15",
   "children": [
     {
       "type": "frame",
@@ -1870,6 +1870,706 @@
         },
         {
           "id": "i0p3HD",
+          "type": "ref",
+          "ref": "xcrzY",
+          "name": "Footer"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "j0GeC",
+      "x": 2720,
+      "y": -240,
+      "name": "OTP Verification Email",
+      "clip": true,
+      "width": 600,
+      "fill": "$bg-body",
+      "layout": "vertical",
+      "children": [
+        {
+          "id": "YOKSA",
+          "type": "ref",
+          "ref": "KAoun",
+          "name": "Header"
+        },
+        {
+          "type": "frame",
+          "id": "s2tZl",
+          "name": "Body Wrapper",
+          "width": "fill_container",
+          "layout": "vertical",
+          "padding": 32,
+          "children": [
+            {
+              "type": "frame",
+              "id": "uQg6b",
+              "name": "Content Card",
+              "width": "fill_container",
+              "fill": "$bg-white",
+              "cornerRadius": 8,
+              "layout": "vertical",
+              "gap": 24,
+              "padding": [
+                40,
+                36
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "B650rR",
+                  "name": "Icon Circle",
+                  "width": 64,
+                  "height": 64,
+                  "fill": "$brand-orange-light",
+                  "cornerRadius": 32,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "y40lEN",
+                      "name": "Lock Icon",
+                      "width": 28,
+                      "height": 28,
+                      "icon": "shield-check",
+                      "library": "lucide",
+                      "fill": "$brand-orange"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "lm37d",
+                  "name": "Heading",
+                  "fill": "$text-primary",
+                  "content": "Verification Code",
+                  "textAlign": "center",
+                  "fontFamily": "Inter",
+                  "fontSize": 24,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "frame",
+                  "id": "p32Mbc",
+                  "name": "Greeting Block",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 12,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "I99kF",
+                      "name": "Greeting",
+                      "fill": "$text-primary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "Hi {{name}},",
+                      "fontFamily": "Inter",
+                      "fontSize": 15,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "k7NNkp",
+                      "name": "Intro Text",
+                      "fill": "$text-secondary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "We received a login request for your 3MRAI account. Use the verification code below to complete your sign-in:",
+                      "lineHeight": 1.5,
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "XKAGc",
+                  "name": "OTP Section",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 16,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "BFFJ4",
+                      "name": "Code Row",
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "eZAzy",
+                          "name": "Digit 4",
+                          "width": 48,
+                          "height": 56,
+                          "fill": "#F9FAFB",
+                          "cornerRadius": 8,
+                          "stroke": "$border-color",
+                          "strokeWidth": 1,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "PNLrD",
+                              "name": "D 4",
+                              "fill": "$brand-navy",
+                              "content": "4",
+                              "fontFamily": "Inter",
+                              "fontSize": 28,
+                              "fontWeight": "700"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "L7osc",
+                          "name": "Digit 8",
+                          "width": 48,
+                          "height": 56,
+                          "fill": "#F9FAFB",
+                          "cornerRadius": 8,
+                          "stroke": "$border-color",
+                          "strokeWidth": 1,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "oEk1z",
+                              "name": "D 8",
+                              "fill": "$brand-navy",
+                              "content": "8",
+                              "fontFamily": "Inter",
+                              "fontSize": 28,
+                              "fontWeight": "700"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "NlL2K",
+                          "name": "Digit 3",
+                          "width": 48,
+                          "height": 56,
+                          "fill": "#F9FAFB",
+                          "cornerRadius": 8,
+                          "stroke": "$border-color",
+                          "strokeWidth": 1,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "gdEDt",
+                              "name": "D 3",
+                              "fill": "$brand-navy",
+                              "content": "3",
+                              "fontFamily": "Inter",
+                              "fontSize": 28,
+                              "fontWeight": "700"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "dVYYU",
+                          "name": "Digit 9",
+                          "width": 48,
+                          "height": 56,
+                          "fill": "#F9FAFB",
+                          "cornerRadius": 8,
+                          "stroke": "$border-color",
+                          "strokeWidth": 1,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "gpSGC",
+                              "name": "D 9",
+                              "fill": "$brand-navy",
+                              "content": "9",
+                              "fontFamily": "Inter",
+                              "fontSize": 28,
+                              "fontWeight": "700"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "IobLb",
+                          "name": "Digit 1",
+                          "width": 48,
+                          "height": 56,
+                          "fill": "#F9FAFB",
+                          "cornerRadius": 8,
+                          "stroke": "$border-color",
+                          "strokeWidth": 1,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "dfYT8",
+                              "name": "D 1",
+                              "fill": "$brand-navy",
+                              "content": "1",
+                              "fontFamily": "Inter",
+                              "fontSize": 28,
+                              "fontWeight": "700"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "itP2K",
+                          "name": "Digit 7",
+                          "width": 48,
+                          "height": 56,
+                          "fill": "#F9FAFB",
+                          "cornerRadius": 8,
+                          "stroke": "$border-color",
+                          "strokeWidth": 1,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "L43595",
+                              "name": "D 7",
+                              "fill": "$brand-navy",
+                              "content": "7",
+                              "fontFamily": "Inter",
+                              "fontSize": 28,
+                              "fontWeight": "700"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "n1piGF",
+                      "name": "Expires Text",
+                      "fill": "$text-muted",
+                      "content": "This code expires in 10 minutes",
+                      "textAlign": "center",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "QGfac",
+                  "name": "Divider",
+                  "width": "fill_container",
+                  "height": 1,
+                  "fill": "$border-color"
+                },
+                {
+                  "type": "frame",
+                  "id": "mKfDR",
+                  "name": "Security Notice",
+                  "width": "fill_container",
+                  "fill": "#FFF8E1",
+                  "cornerRadius": 8,
+                  "gap": 12,
+                  "padding": [
+                    14,
+                    16
+                  ],
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "rCAEu",
+                      "name": "Warning Icon",
+                      "width": 20,
+                      "height": 20,
+                      "icon": "triangle-alert",
+                      "library": "lucide",
+                      "fill": "#F59E0B"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "hkRSt",
+                      "name": "Notice Text",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 4,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "Z5zId3",
+                          "name": "Notice Title",
+                          "fill": "$text-primary",
+                          "content": "Didn't request this?",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "text",
+                          "id": "FhcCz",
+                          "name": "Notice Body",
+                          "fill": "$text-secondary",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "If you didn't try to log in, someone may be trying to access your account. Please change your password immediately.",
+                          "lineHeight": 1.5,
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "JC4qf",
+                  "name": "Help Text",
+                  "fill": "$text-muted",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "If you need assistance, contact us at support@3mrai.com",
+                  "textAlign": "center",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "hDrc8",
+          "type": "ref",
+          "ref": "xcrzY",
+          "name": "Footer"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "pVhk0",
+      "x": 3400,
+      "y": -240,
+      "name": "Forgot Password Email",
+      "clip": true,
+      "width": 600,
+      "fill": "$bg-body",
+      "layout": "vertical",
+      "children": [
+        {
+          "id": "h9H1c",
+          "type": "ref",
+          "ref": "KAoun",
+          "name": "Header"
+        },
+        {
+          "type": "frame",
+          "id": "lPxSG",
+          "name": "Body Wrapper",
+          "width": "fill_container",
+          "layout": "vertical",
+          "padding": 32,
+          "children": [
+            {
+              "type": "frame",
+              "id": "EHc0z",
+              "name": "Content Card",
+              "width": "fill_container",
+              "fill": "$bg-white",
+              "cornerRadius": 8,
+              "layout": "vertical",
+              "gap": 24,
+              "padding": [
+                40,
+                36
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "qDj9I",
+                  "name": "Icon Circle",
+                  "width": 64,
+                  "height": 64,
+                  "fill": "#FEE2E2",
+                  "cornerRadius": 32,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "W6NSnT",
+                      "name": "Key Icon",
+                      "width": 28,
+                      "height": 28,
+                      "icon": "key-round",
+                      "library": "lucide",
+                      "fill": "#EF4444"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "c8I3wh",
+                  "name": "Heading",
+                  "fill": "$text-primary",
+                  "content": "Reset Your Password",
+                  "textAlign": "center",
+                  "fontFamily": "Inter",
+                  "fontSize": 24,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "frame",
+                  "id": "dXEXD",
+                  "name": "Greeting Block",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 12,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "T48fG",
+                      "name": "Greeting",
+                      "fill": "$text-primary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "Hi {{name}},",
+                      "fontFamily": "Inter",
+                      "fontSize": 15,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "Ev2ZQ",
+                      "name": "Intro Text",
+                      "fill": "$text-secondary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "We received a request to reset the password for your 3MRAI account. Click the button below to create a new password:",
+                      "lineHeight": 1.5,
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "IGphr",
+                  "name": "CTA Wrapper",
+                  "width": "fill_container",
+                  "justifyContent": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "ZioCn",
+                      "name": "Reset Button",
+                      "fill": "$brand-orange",
+                      "cornerRadius": 6,
+                      "gap": 8,
+                      "padding": [
+                        14,
+                        40
+                      ],
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "sjGq6",
+                          "name": "CTA Icon",
+                          "width": 16,
+                          "height": 16,
+                          "icon": "lock",
+                          "library": "lucide",
+                          "fill": "$bg-white"
+                        },
+                        {
+                          "type": "text",
+                          "id": "OEapS",
+                          "name": "CTA Label",
+                          "fill": "$bg-white",
+                          "content": "Reset Password",
+                          "fontFamily": "Inter",
+                          "fontSize": 15,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "O4s8L",
+                  "name": "Link Fallback",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "oH4OZ",
+                      "name": "Link Intro",
+                      "fill": "$text-muted",
+                      "content": "Or copy and paste this link into your browser:",
+                      "textAlign": "center",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "uCvvx",
+                      "name": "Link URL",
+                      "fill": "$info-blue",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "https://app.3mrai.com/reset-password?token=eyJhbGciOiJIUz...",
+                      "textAlign": "center",
+                      "fontFamily": "Inter",
+                      "fontSize": 11,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "LU1Qf",
+                  "name": "Divider",
+                  "width": "fill_container",
+                  "height": 1,
+                  "fill": "$border-color"
+                },
+                {
+                  "type": "frame",
+                  "id": "XaoKb",
+                  "name": "Expire Info",
+                  "width": "fill_container",
+                  "fill": "#F9FAFB",
+                  "cornerRadius": 8,
+                  "gap": 12,
+                  "padding": [
+                    14,
+                    16
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "gq6nF",
+                      "name": "Clock Icon",
+                      "width": 18,
+                      "height": 18,
+                      "icon": "timer",
+                      "library": "lucide",
+                      "fill": "$text-muted"
+                    },
+                    {
+                      "type": "text",
+                      "id": "ujLai",
+                      "name": "Expire Text",
+                      "fill": "$text-secondary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "This link will expire in 30 minutes. After that, you'll need to request a new one.",
+                      "lineHeight": 1.4,
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "kM2iQ",
+                  "name": "Security Notice",
+                  "width": "fill_container",
+                  "fill": "#FFF8E1",
+                  "cornerRadius": 8,
+                  "gap": 12,
+                  "padding": [
+                    14,
+                    16
+                  ],
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "gQBEu",
+                      "name": "Warning Icon",
+                      "width": 20,
+                      "height": 20,
+                      "icon": "triangle-alert",
+                      "library": "lucide",
+                      "fill": "#F59E0B"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Vfex0",
+                      "name": "Notice Text",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 4,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "I0AWs",
+                          "name": "Notice Title",
+                          "fill": "$text-primary",
+                          "content": "Didn't request this?",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "text",
+                          "id": "kZ1Io",
+                          "name": "Notice Body",
+                          "fill": "$text-secondary",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "If you didn't request a password reset, you can safely ignore this email. Your password will remain unchanged.",
+                          "lineHeight": 1.5,
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "ia63T",
+                  "name": "Help Text",
+                  "fill": "$text-muted",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "If you need assistance, contact us at support@3mrai.com",
+                  "textAlign": "center",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "FsRCn",
           "type": "ref",
           "ref": "xcrzY",
           "name": "Footer"
