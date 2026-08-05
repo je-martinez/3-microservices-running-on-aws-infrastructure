@@ -20,6 +20,7 @@ export default defineConfig({
       COGNITO_CLIENT_ID: "dummy_client",
       AWS_ENDPOINT_URL: "http://localhost:4566",
       AWS_REGION: "us-east-1",
+      EVENTS_QUEUE_URL: "http://localhost:4566/000000000000/3mrai-local-events",
       NODE_ENV: "test",
       WEBHOOK_SECRET: "test-webhook-secret",
       GRPC_PORT: "50051",

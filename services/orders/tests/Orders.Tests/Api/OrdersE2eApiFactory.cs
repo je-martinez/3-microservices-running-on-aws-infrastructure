@@ -3,10 +3,12 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Orders.Application.Abstractions;
 using Orders.Application.Identity;
 using Orders.Application.Tracking;
 using Orders.Domain.Entities;
 using Orders.Infrastructure.Id;
+using Orders.Infrastructure.Messaging;
 using Orders.Infrastructure.Persistence;
 using Testcontainers.MySql;
 
@@ -104,12 +106,20 @@ public abstract class OrdersE2eApiFactoryBase : WebApplicationFactory<Program>, 
         builder.UseSetting("GRPC_API_KEY", "test-key");
         builder.UseSetting("TRACKING_BASE_URL", "http://localhost:8000");
         builder.UseSetting("E2E_TESTING_ENABLED", E2eTestingEnabled ? "true" : "false");
+        // Well-formed placeholder so the SQS client can be constructed. Nothing is
+        // ever sent to it: NoopEventPublisher replaces the real publisher below.
+        builder.UseSetting("EVENTS_QUEUE_URL", "http://localhost:4566/000000000000/events");
 
         builder.ConfigureTestServices(services =>
         {
             var directory = services.Single(d => d.ServiceType == typeof(IUserDirectory));
             services.Remove(directory);
             services.AddScoped<IUserDirectory>(_ => new StubDirectory());
+
+            // These tests must not emit — swap the real SQS publisher for the Noop.
+            var events = services.Single(d => d.ServiceType == typeof(IEventPublisher));
+            services.Remove(events);
+            services.AddScoped<IEventPublisher, NoopEventPublisher>();
 
             // Replaces the typed HTTP client so nothing is dialed and the forwarded
             // flags can be read back.
@@ -136,8 +146,11 @@ public abstract class OrdersE2eApiFactoryBase : WebApplicationFactory<Program>, 
             var id = IdFor(cognitoSub);
             return Task.FromResult(id is null
                 ? null
+                // Email mirrors the resolved identity so the two users stay
+                // distinguishable, exactly as their ids are.
                 : new CallerProfile(
                     id,
+                    $"{id}@example.com",
                     new CallerAddress("1 Test St", null, "Testville", null, "Testland", null)));
         }
     }

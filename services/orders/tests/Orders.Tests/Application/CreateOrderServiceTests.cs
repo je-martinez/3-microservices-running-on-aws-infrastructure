@@ -29,23 +29,30 @@ public class CreateOrderServiceTests : IAsyncLifetime
             .UseMySql(cs, ServerVersion.AutoDetect(cs)).Options);
     }
 
+    // The email a resolved caller carries unless a test overrides it. Distinctive on
+    // purpose: the publisher-seam test asserts this exact value crossed the seam, so a
+    // regression that dropped or substituted the email could not pass by coincidence.
+    private const string CallerEmail = "buyer@example.com";
+
     private sealed class FixedDirectory : IUserDirectory
     {
         private readonly string? _id;
         private readonly CallerAddress? _address;
+        private readonly string _email;
 
         // Address defaults to null — the "user has no address on file" branch. Tests that
         // exercise the snapshot pass one explicitly.
-        public FixedDirectory(string? id, CallerAddress? address = null)
+        public FixedDirectory(string? id, CallerAddress? address = null, string email = CallerEmail)
         {
             _id = id;
             _address = address;
+            _email = email;
         }
 
         public Task<string?> ResolveInternalUserIdAsync(string sub, CancellationToken ct = default) => Task.FromResult(_id);
 
         public Task<CallerProfile?> ResolveCallerAsync(string sub, CancellationToken ct = default) =>
-            Task.FromResult(_id is null ? null : new CallerProfile(_id, _address));
+            Task.FromResult(_id is null ? null : new CallerProfile(_id, _email, _address));
     }
 
     // Records what order creation handed to Tracking, and when. Default outcome is
@@ -80,6 +87,32 @@ public class CreateOrderServiceTests : IAsyncLifetime
             E2eSource = e2eSource;
             if (_onCall is not null) await _onCall();
             return new TrackingInitResult(_outcome, _outcome == TrackingInitOutcome.Created ? 201 : 500);
+        }
+    }
+
+    // Records what order creation handed the publisher. The real SqsEventPublisher is
+    // covered by SqsEventPublisherTests; what this pins is the SEAM — that the values the
+    // service resolved actually reach it.
+    private sealed class SpyPublisher : IEventPublisher
+    {
+        public int Calls { get; private set; }
+        public string? OrderId { get; private set; }
+        public string? UserId { get; private set; }
+        public string? Email { get; private set; }
+        public long TotalCents { get; private set; }
+        public string? CognitoSub { get; private set; }
+
+        public Task PublishOrderCreatedAsync(
+            string orderId, string userId, string email, long totalCents,
+            DateTime createdAt, string? cognitoSub = null, CancellationToken ct = default)
+        {
+            Calls++;
+            OrderId = orderId;
+            UserId = userId;
+            Email = email;
+            TotalCents = totalCents;
+            CognitoSub = cognitoSub;
+            return Task.CompletedTask;
         }
     }
 
@@ -137,6 +170,35 @@ public class CreateOrderServiceTests : IAsyncLifetime
         Assert.Equal("usr_a", detail.UserId);            // both ids stamped on the line too
         Assert.Equal("sub-a", detail.CognitoSub);
         Assert.Equal(AuditActor.CreateOrder, detail.CreatedBy);
+    }
+
+    [Fact]
+    public async Task Publishes_ORDER_CREATED_with_the_callers_email_from_the_directory()
+    {
+        var productId = await SeedProduct(stock: 10, priceCents: 1000);
+        await using var db = Ctx();
+        var events = new SpyPublisher();
+        // A distinctive email so the assertion cannot pass on a coincidence (an empty
+        // string, the user id, or the sub would all fail).
+        var svc = new CreateOrderService(
+            db, new FixedDirectory("usr_a", email: "distinct-buyer@example.com"), events,
+            new FixedConfig(0.10m), new SpyTracking(), NullLogger<CreateOrderService>.Instance);
+
+        var dto = await svc.CreateAsync(
+            new CreateOrderCommand(new[] { new CreateOrderLine(productId, 3) }), "sub-a");
+
+        Assert.Equal(1, events.Calls);
+        // The email the pipeline sends the confirmation to comes from the SAME GetUserById
+        // response that resolved the internal id — no second round trip, and no
+        // substitution of the sub or the id for it.
+        Assert.Equal("distinct-buyer@example.com", events.Email);
+        Assert.Equal(dto.Id, events.OrderId);
+        Assert.Equal("usr_a", events.UserId);
+        Assert.Equal(3300, events.TotalCents);
+        // The request's own identity crosses the seam too: it becomes the envelope's
+        // author.cognito_sub. A distinct value from the internal id, so a service that
+        // passed the wrong one of the two cannot pass here.
+        Assert.Equal("sub-a", events.CognitoSub);
     }
 
     [Fact]

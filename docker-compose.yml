@@ -25,7 +25,7 @@ services:
       # in the 7000-7099 range, BY CREATION ORDER — which is NOT stable across
       # applies, so Postgres/MySQL can flip between 7001/7002. The actual per-
       # engine ports are DISCOVERED from describe-db-clusters (Engine per cluster)
-      # by scripts/discover-db-port.sh and written into .env as USERS_DB_PORT /
+      # by scripts/discover_db_port.py and written into .env as USERS_DB_PORT /
       # ORDERS_DB_PORT — never hardcoded. Published to the host so host-side
       # clients — the phase-2 post-effects Terraform postgresql/mysql providers,
       # and any SQL client — can reach the DBs at localhost:<port>. In-network
@@ -41,10 +41,38 @@ services:
       # See docs/lessons/floci-storage-modes-and-tmp-corruption.md
       - FLOCI_STORAGE_MODE=persistent
       - FLOCI_STORAGE_PERSISTENT_PATH=/app/data
+      # SES relay → Mailpit, so an email the events-pipeline Lambda sends lands
+      # in a real, inspectable inbox at http://localhost:8025 instead of only
+      # being recorded inside the emulator. `mailpit` resolves through Docker
+      # DNS on 3mrai-network.
+      #
+      # Floci stores every sent email locally REGARDLESS of this relay (its
+      # /_aws/ses endpoint), so the relay is for human/E2E inspection, not for
+      # delivery correctness. The relay also does not preserve arbitrary
+      # headers, attachments, or complex multipart bodies — fine for the simple
+      # HTML this pipeline sends; if attachments ever appear, inspect via
+      # /_aws/ses instead. See the milestone design spec's "Mailpit" section.
+      - FLOCI_SERVICES_SES_SMTP_HOST=mailpit
+      - FLOCI_SERVICES_SES_SMTP_PORT=1025
     volumes:
       - ./data/floci:/app/data
       - /var/run/docker.sock:/var/run/docker.sock
     networks: [3mrai-network]
+    depends_on:
+      # `service_started`, NOT `service_healthy`, and the difference matters:
+      # floci gates users, orders, tracking and the nginx ECS task, so a
+      # `service_healthy` gate here would let an unpullable or unhealthy Mailpit
+      # image stop the entire API from booting. An email inbox must not have
+      # that power — SES stores mail locally regardless of the relay, so a
+      # missing Mailpit costs inspectability, not correctness.
+      #
+      # What this still buys: ordering. Mailpit is created before Floci, so the
+      # first email of a session is very likely relayed rather than dropped on a
+      # refused connection. It is a best-effort ordering hint, not a guarantee
+      # (a started container is not yet a listening SMTP server) — which is the
+      # right trade for a non-critical dependency.
+      mailpit:
+        condition: service_started
     healthcheck:
       # The floci image ships curl (Quarkus app on :4566).
       test: ["CMD", "curl", "-fsS", "http://localhost:4566/"]
@@ -285,29 +313,67 @@ services:
           path: ./services/tracking/src
           target: /app/src
 
-  events-pipeline:
-    build: ./services/events-pipeline
+  # NOTE: there is deliberately NO `events-pipeline` compose service.
+  # The pipeline is a REAL Lambda on Floci, deployed by Terraform together with
+  # its SQS event source mapping (see functions/events-pipeline/CLAUDE.md §1).
+  # The previous build+watch worker here was a skeleton that never ran the
+  # actual trigger: a compose worker polling SQS by hand would have exercised
+  # neither the event source mapping, the batching, nor the partial-batch
+  # responses — the three things most likely to break. Code changes ship via
+  # `pnpm run build` + `terraform apply` (archive_file's hash triggers the
+  # function update), which is why it also has no docker-watch block.
+
+  # Mailpit — the local inbox. Floci's SES relays here (see the floci service's
+  # FLOCI_SERVICES_SES_SMTP_* above), so emails the pipeline sends are readable
+  # at http://localhost:8025 and assertable over its HTTP API from the
+  # layer-2 integration test.
+  #
+  # NOT behind a profile, unlike email-preview: it is part of the running system
+  # (Floci's relay target and the E2E assertion point), not a developer tool.
+  mailpit:
+    # Pinned, like every other image here — `latest` would silently change the
+    # API this project's tests query.
+    image: axllent/mailpit:v1.20
     networks: [3mrai-network]
-    depends_on:
-      floci:
-        condition: service_healthy
-    environment:
-      - AWS_ENDPOINT_URL=http://floci:4566
-      - AWS_REGION=us-east-1
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
-    # stdout → the observability collector's fluent_forward receiver.
-    # localhost:24224 because the Docker daemon resolves fluentd-address from the
-    # HOST, not this network. fluentd-async so the service still starts when the
-    # observability profile (and thus the collector) is not running.
-    logging:
-      driver: fluentd
-      options:
-        fluentd-address: "localhost:24224"
-        fluentd-async: "true"
-        tag: "events-pipeline"
+    ports:
+      - "8025:8025" # web UI + HTTP API (/api/v1/…)
+      - "1025:1025" # SMTP — what Floci's SES relay connects to
+    healthcheck:
+      # busybox wget, verified present in this image (it also ships nc, but no
+      # curl). NOT `mailpit healthcheck`: that subcommand does not exist in
+      # v1.20 — it was added in a later release, and using it here left the
+      # container stuck in `health: starting` forever with
+      # `unknown command "healthcheck"`, which in turn blocks floci (it waits
+      # on service_healthy). Probing the HTTP API is also the stronger check:
+      # it is the endpoint the integration test queries.
+      test: ["CMD", "wget", "-qO-", "http://localhost:8025/api/v1/info"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # react-email preview server (`email dev`, reads ./emails, port 3000).
+  # Behind the `preview` profile so a normal `make up` does NOT start it — it is
+  # a developer tool, and port 3000 is already taken by the Users service on the
+  # host. Start it with:
+  #   docker compose --profile preview up email-preview
+  email-preview:
+    build:
+      # Context is the REPO ROOT (pnpm-lock.yaml / pnpm-workspace.yaml live
+      # there), like the users and orders services — see the Dockerfile header.
+      context: .
+      dockerfile: functions/events-pipeline/Dockerfile
+      target: preview
+    profiles: ["preview"]
+    networks: [3mrai-network]
+    ports:
+      # Host 3003 → container 3000. NOT 3000:3000: the Users service already
+      # publishes host 3000, so that mapping fails to bind whenever the normal
+      # stack is up — which is exactly when a developer wants the preview.
+      - "3003:3000"
     develop:
       watch:
+        # `sync` (not `rebuild`) is enough here: `email dev` is a Next.js dev
+        # server that hot-reloads the .tsx files it watches.
         - action: sync
-          path: ./services/events-pipeline/src
-          target: /app/src
+          path: ./functions/events-pipeline/emails
+          target: /app/emails

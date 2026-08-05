@@ -63,10 +63,33 @@ public class UserDirectoryGrpcClientTests
         Assert.Null(id);
     }
 
+    [Fact]
+    public async Task Maps_the_email_off_the_wire_onto_the_caller_profile()
+    {
+        var impl = new StubUsers();
+        await using var server = BuildServer(impl, out var address);
+
+        using var channel = GrpcChannel.ForAddress(address);
+        var client = new UserDirectoryGrpcClient(new Users.V1.Users.UsersClient(channel), "test-key");
+
+        var caller = await client.ResolveCallerAsync("sub-123");
+
+        // ORDER_CREATED cannot be delivered without this: the pipeline's payload schema
+        // requires `email`, and this adapter is the only place it enters the service. It
+        // rides on the SAME response as the id, so mapping it costs no extra round trip.
+        Assert.NotNull(caller);
+        Assert.Equal(StubUsers.Email, caller!.Email);
+        Assert.Equal("usr_resolved", caller.InternalUserId);
+    }
+
     // Concrete stub resolved from DI by MapGrpcService. Records the api key it
     // observed and can simulate the NOT_FOUND path.
     private sealed class StubUsers : Users.V1.Users.UsersBase
     {
+        // Distinctive, so a mapping that substituted the id or the sub would fail rather
+        // than coincidentally match.
+        public const string Email = "wire-user@example.com";
+
         public string? SeenApiKey { get; private set; }
         public string? SeenId { get; private set; }
         public bool NotFound { get; init; }
@@ -77,7 +100,12 @@ public class UserDirectoryGrpcClientTests
             SeenId = request.Id;
             if (NotFound)
                 throw new RpcException(new Status(StatusCode.NotFound, "user not found"));
-            return Task.FromResult(new UserResponse { Id = "usr_resolved", CognitoSub = request.Id });
+            return Task.FromResult(new UserResponse
+            {
+                Id = "usr_resolved",
+                Email = Email,
+                CognitoSub = request.Id,
+            });
         }
     }
 }

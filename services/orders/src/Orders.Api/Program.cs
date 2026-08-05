@@ -1,3 +1,4 @@
+using Amazon.SQS;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Orders.Api.Endpoints;
@@ -86,8 +87,56 @@ builder.Services.AddSingleton(_ =>
 builder.Services.AddScoped<IUserDirectory>(sp =>
     new UserDirectoryGrpcClient(sp.GetRequiredService<Users.V1.Users.UsersClient>(), grpcApiKey));
 
-// ORDER_CREATED emission seam (SQS deferred).
-builder.Services.AddScoped<IEventPublisher, NoopEventPublisher>();
+// ORDER_CREATED emission — real SQS publisher. The queue URL comes from this
+// service's own generated env file (never hardcoded), like every other setting
+// above; see [[env-files]].
+//
+// NoopEventPublisher is deliberately NOT deleted: tests that must not emit
+// register it in place of this.
+// Fail fast rather than `!`. A null-forgiving assertion would let the service
+// boot with a null queue URL and fail at the first publish — which the
+// publisher swallows by design, so the only symptom would be that no order
+// ever produces a confirmation email, silently. Users does the same with Zod.
+//
+// Exempt during OpenAPI generation: `dotnet build` runs this very Program
+// through GetDocument.Insider to emit openapi.yaml (§2a), with no env file
+// loaded, so throwing there would break the build for every developer rather
+// than catching a misconfigured runtime. Same entry-assembly test the
+// e2e-cleanup route uses below.
+var isDocumentGeneration =
+    System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name == "GetDocument.Insider";
+var eventsQueueUrl = builder.Configuration["EVENTS_QUEUE_URL"]
+    ?? (isDocumentGeneration
+        ? string.Empty
+        : throw new InvalidOperationException(
+            "EVENTS_QUEUE_URL is not set. It is generated into .env.local.orders by "
+            + "`make env-file`; see docs/shared/conventions/env-files.md."));
+// One SQS client per process (Singleton) — it owns an HTTP connection pool, so a
+// per-request client would build and discard one on every order.
+builder.Services.AddSingleton<IAmazonSQS>(_ =>
+{
+    var config = new AmazonSQSConfig
+    {
+        // Region must be set explicitly: locally there is no EC2/ECS metadata to
+        // infer one from, and the SDK throws rather than defaulting.
+        RegionEndpoint = Amazon.RegionEndpoint.GetBySystemName(
+            builder.Configuration["AWS_REGION"] ?? "us-east-1"),
+    };
+
+    // Only set locally (Floci); in AWS the variable is absent and the SDK resolves
+    // the real regional endpoint itself.
+    var endpointUrl = builder.Configuration["AWS_ENDPOINT_URL"];
+    if (!string.IsNullOrWhiteSpace(endpointUrl))
+    {
+        config.ServiceURL = endpointUrl;
+    }
+
+    return new AmazonSQSClient(config);
+});
+builder.Services.AddScoped<IEventPublisher>(sp => new SqsEventPublisher(
+    sp.GetRequiredService<IAmazonSQS>(),
+    eventsQueueUrl,
+    sp.GetRequiredService<ILogger<SqsEventPublisher>>()));
 
 // Tracking HTTP client (POST /v1/trackings/init-tracking). Typed client so the
 // base address and timeout are configured once, in the composition root, and

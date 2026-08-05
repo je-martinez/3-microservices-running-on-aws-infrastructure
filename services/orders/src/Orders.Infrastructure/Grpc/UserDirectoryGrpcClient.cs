@@ -23,7 +23,11 @@ public class UserDirectoryGrpcClient : IUserDirectory
     public async Task<CallerProfile?> ResolveCallerAsync(string cognitoSub, CancellationToken ct = default)
     {
         var response = await LookupAsync(cognitoSub, ct);
-        return response is null ? null : new CallerProfile(response.Id, ToAddress(response.Address));
+        // Email comes off the SAME GetUserById response that resolves the id — see
+        // users.v1.UserResponse.email. ORDER_CREATED needs it (it is who the confirmation
+        // email is sent to), so mapping it here costs nothing: no extra round trip, no new
+        // dependency. PII, like Address: never log it in plaintext.
+        return response is null ? null : new CallerProfile(response.Id, response.Email, ToAddress(response.Address));
     }
 
     private async Task<UserResponse?> LookupAsync(string cognitoSub, CancellationToken ct)

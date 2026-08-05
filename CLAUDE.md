@@ -85,7 +85,7 @@ Two layers of agents (see `docs/superpowers/specs/2026-06-26-implementation-work
 - **C — Implementation (per issue):** parent → `linear-pm` (issue → In Progress) → main session creates the task branch → `<svc>-impl` (implement; reads `services/<svc>/CLAUDE.md` + the vault spec note) → main session commits + opens PR task→feature via the A/B/C/D/E menu (or delegates to `github-ops`) → `linear-pm` (issue → Done after merge).
 - **D — Milestone close:** the main session (or `github-ops`) proposes PR feature→`main`; the user reviews and merges (no auto-merge).
 
-Each service's stack/conventions live in its nested `services/<svc>/CLAUDE.md` (or `infra/CLAUDE.md`), created at the start of that service's milestone — the implementer agents are thin and defer to it.
+Each service's stack/conventions live in its nested `services/<svc>/CLAUDE.md` (or `infra/CLAUDE.md`, or `functions/<name>/CLAUDE.md` for the events-pipeline Lambda), created at the start of that service's milestone — the implementer agents are thin and defer to it.
 
 ### Superpowers output is part of the vault
 Anything brainstorming/writing-plans produces is a first-class vault note:

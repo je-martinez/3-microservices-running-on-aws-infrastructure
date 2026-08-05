@@ -17,14 +17,14 @@ Full verified quirks with evidence: [[floci-vs-ministack-spike-findings]].
 | ECS | [ecs](https://floci.io/floci/services/ecs/) | Nginx reverse proxy task | Real Docker containers via `FLOCI_SERVICES_ECS_DOCKER_NETWORK`; task **recreated each apply** (new IP) → use stable Docker alias. `FLOCI_SERVICES_ECS_MOCK` for CI. |
 | Lambda | [lambda](https://floci.io/floci/services/lambda/) | events-pipeline; EventBridge targets | Runs as real Docker containers; direct `invoke` works; logs to CloudWatch Logs. |
 | EventBridge | [eventbridge](https://floci.io/floci/services/eventbridge/) | Domain events (UserRegistered) | **Delivers to Lambda/SQS targets (verified).** Use as the capture path since Cognito triggers don't fire. |
-| SQS | [sqs](https://floci.io/floci/services/sqs/) | events-pipeline queue | — |
+| SQS | [sqs](https://floci.io/floci/services/sqs/) | events-pipeline queue | **Solid (verified 2026-08-03):** visibility timeout, `ApproximateReceiveCount`, and **automatic DLQ redrive** all behave like real AWS. |
 | IAM | [iam](https://floci.io/floci/services/iam/) | ECS exec / Lambda roles | Roles accepted; emulator does not enforce them. |
 | STS | [sts](https://floci.io/floci/services/sts/) | provider account id | `get-caller-identity` → account `000000000000`. |
 | Secrets Manager | [secrets-manager](https://floci.io/floci/services/secrets-manager/) | DB credentials (ADR-0007) | — |
 | SSM (Parameter Store) | [ssm](https://floci.io/floci/services/ssm/) | params (ADR-0007) | — |
 | CloudWatch | [cloudwatch](https://floci.io/floci/services/cloudwatch/) | Lambda logs / metrics | Lambda logs land in `/aws/lambda/<fn>`. |
 | RDS | [rds](https://floci.io/floci/services/rds/) | Aurora Postgres/MySQL | Runs real DB containers; no writer→reader replication locally (point reader at writer). |
-| DocumentDB | [docdb](https://floci.io/floci/services/docdb/) | events-pipeline store | Real container-backed. |
+| DocumentDB | [docdb](https://floci.io/floci/services/docdb/) | events-pipeline store | Real `mongo:7.0` container, but a **standalone with no replica set** → no multi-document transactions locally (real DocumentDB has them, 4.0+). Not listed by `rds describe-db-clusters`; port 27017 is **not** published to the host. See quirk 12. |
 | ELBv2 | [elb](https://floci.io/floci/services/elb/) | (prod ALB; local uses Nginx) | Docs document instance targets; `ip` target not confirmed — local uses Nginx ECS proxy instead. |
 | Route53 | [route53](https://floci.io/floci/services/route53/) | (not used locally) | **Management-plane only — no DNS resolution.** Do not use for local service discovery. |
 | Cloud Map (servicediscovery) | [cloudmap](https://floci.io/floci/services/cloudmap/) | (attempted, dropped) | API exists but ECS tasks not registered + names not propagated to Docker DNS → not viable. Use Docker alias. |

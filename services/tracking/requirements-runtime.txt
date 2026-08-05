@@ -30,3 +30,8 @@ nanoid==2.0.0
 # two versions must move together.
 grpcio==1.83.0
 protobuf==7.35.1
+# AWS SDK, for the ONE outbound AWS call this service makes: publishing
+# TRACKING_STATUS_CHANGED to the shared SQS events queue
+# (src/shared/messaging/sqs_event_publisher.py). Runtime, not dev: the carrier
+# webhook and TestMode both emit through it in a running container.
+boto3==1.40.41

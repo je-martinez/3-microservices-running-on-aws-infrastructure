@@ -29,6 +29,8 @@ provider "aws" {
     route53          = "http://localhost:4566"
     servicediscovery = "http://localhost:4566"
     secretsmanager   = "http://localhost:4566"
+    ses              = "http://localhost:4566"
+    sqs              = "http://localhost:4566"
     sts              = "http://localhost:4566"
   }
 }

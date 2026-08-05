@@ -4,7 +4,7 @@ type: spec
 area: users
 status: active
 created: 2026-06-26
-updated: 2026-07-29
+updated: 2026-08-05
 tags: [type/spec, area/users, status/active]
 related:
   - "[[soft-delete]]"
@@ -37,6 +37,7 @@ related:
   - "[[2026-07-12-audit-actor-enum-design]]"
   - "[[orders-service-design]]"
   - "[[tracking-service-design]]"
+  - "[[events-pipeline-design]]"
 ---
 
 # Users Service Design
@@ -45,8 +46,8 @@ related:
 
 The Users service is responsible for user registration, authentication, and profile management.
 It integrates with AWS Cognito for auth and resolves identity via a Cognito `sub`-or-`usr_`-id
-lookup. ORM: Prisma. Event emission (`USER_CREATED` → SQS) is scaffolded but **not yet wired** —
-see [Events](#events--aspirational-not-yet-wired) below.
+lookup. ORM: Prisma. It publishes `USER_CREATED` to SQS on every successful registration — see
+[Events](#events) below.
 
 ## Stack & Data Store
 
@@ -144,16 +145,26 @@ Because Floci never invokes Cognito Lambda triggers for PostConfirmation locally
 
 See [[2026-07-09-users-cognito-webhook-design]] for the full design.
 
-## Events — ASPIRATIONAL, not yet wired
+## Events
 
-> [!warning] Not implemented
-> The table below describes **intended** future behavior. Today, `services/users/src/shared/messaging/event-publisher.ts` only implements a **`NoopEventPublisher`** — the emission call site exists (`register.ts` calls `this.events.publishUserCreated(...)`), but nothing is actually published. SQS wiring is deferred to a future milestone.
+`services/users/src/shared/messaging/event-publisher.ts` implements `SqsEventPublisher`, which
+sends the envelope via `SendMessageCommand`. `register.ts` calls
+`this.events.publishUserCreated(...)` after the user and Cognito account are created.
+`NoopEventPublisher` still exists in the same file, but only as the binding used by tests and
+any environment that must not emit — it is not the production path.
 
 | Event | Trigger | Queue |
 |---|---|---|
-| `USER_CREATED` | `POST /v1/users/register` success | SQS *(not yet wired — currently a no-op)* |
+| `USER_CREATED` | `POST /v1/users/register` success | SQS, real publish via `SqsEventPublisher` |
 
-The event payload, when wired, is intended to carry the new user ID and email. See [[cqrs]] for the target pattern.
+The envelope carries `event_id` (generated in the publisher, the pipeline's idempotency key),
+`type`, `source`, `user_id`, `order_id: null`, an `author` object (`{ actor: AuditActor.Register,
+user_id, cognito_sub? }` — the same semantic actor already stamped into `createdBy`/`updatedBy`
+for this write, distinguishing WHO originated the event from `user_id`, which is its subject),
+and `payload: { email, fullName }`. A publish failure is logged (`user_created_publish_failed`)
+and swallowed, never rethrown: the user row and Cognito account already exist by the time
+publishing runs, so failing the request would return an error for a registration that actually
+succeeded. See [[events-pipeline-design]] for the consumer side and the full envelope contract.
 
 ## OpenAPI autogen
 
@@ -291,3 +302,5 @@ convention/pattern notes in `shared/`) live in `docs/domains/users/decisions/`:
   order creation.
 - [[tracking-service-design]] — the address snapshot's final stop, forwarded by Orders via an
   HTTP call to Tracking's `POST /v1/trackings/init-tracking`.
+- [[events-pipeline-design]] — the consumer of `USER_CREATED`, the shared envelope contract, and
+  the `author` object's role in the pipeline's `created_by`/`updated_by` audit split.

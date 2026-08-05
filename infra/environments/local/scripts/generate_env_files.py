@@ -3,14 +3,15 @@
 
 Usage: generate_env_files.py [--repo-root PATH]
 
-Produces six files, each for one consumer:
+Produces seven files, each for one consumer:
 
-  .env                 the ONLY four vars docker-compose interpolates as ${VAR}
-  .env.local.infra     terraform outputs — read by the E2E suite and by humans
-  .env.local.users     the Users service environment    (compose env_file:)
-  .env.local.orders    the Orders service environment   (compose env_file:)
-  .env.local.tracking  the Tracking service environment (compose env_file:)
-  .env.local.debug     HOST-reachable connection strings for a SQL client
+  .env                        the ONLY four vars docker-compose interpolates as ${VAR}
+  .env.local.infra            terraform outputs — read by the E2E suite and by humans
+  .env.local.users            the Users service environment    (compose env_file:)
+  .env.local.orders           the Orders service environment   (compose env_file:)
+  .env.local.tracking         the Tracking service environment (compose env_file:)
+  .env.local.events-pipeline  the events-pipeline environment  (compose env_file:)
+  .env.local.debug            HOST-reachable connection strings for a SQL client
 
 WHY PER-SERVICE FILES, and not the single `.services` file originally sketched:
 DATABASE_WRITER_URL and DATABASE_READER_URL exist in EVERY service with
@@ -44,6 +45,28 @@ AWS_ENDPOINT = "http://floci:4566"
 AWS_REGION = "us-east-1"
 OTLP_ENDPOINT = "http://otel-collector:4318"
 FLOCI_HOST = "floci"
+
+# Mailpit's HTTP API, HOST-facing, including the `/api/v1` prefix its endpoints
+# hang off (`/search`, `/message/{id}`, `/info`).
+#
+# A fixed constant rather than a `terraform_output`, unlike everything else in
+# .env.local.infra: Mailpit is not a Terraform resource at all. It is a
+# docker-compose service whose port is published by docker-compose.yml
+# (`8025:8025`), so the value cannot change per apply the way a Floci-minted
+# Cognito id or a reassigned RDS proxy port does. Reading it from Terraform is
+# not merely unnecessary — there is no output to read.
+#
+# `localhost`, not the compose service name, because the sole consumer is the
+# E2E suite, which runs on the HOST. The same reasoning that makes
+# .env.local.debug host-facing applies: a container-internal `http://mailpit:8025`
+# would not resolve from a Playwright process outside Docker.
+#
+# The NAME is deliberately the one that already exists in
+# functions/events-pipeline/tests/email/sender.integration.test.ts, which reads
+# `process.env.MAILPIT_API_URL` with this exact string as its fallback. One name
+# across the repo means the pipeline's integration suite and the E2E suite can
+# both be pointed at a different Mailpit by setting a single variable.
+MAILPIT_API_URL = "http://localhost:8025/api/v1"
 
 # ─── The two key-based auth schemes — KEEP THEM SEPARATE ─────────────────────
 # These are two different keys for two different TRUST DOMAINS. Do not
@@ -98,6 +121,12 @@ def build(repo_root: Path) -> dict[Path, dict]:
     # Tracking ever moves to its own cluster.
     tracking_db_host = terraform_output(tf_dir, "tracking_db_writer_endpoint")
 
+    # Events pipeline (SQS + DocumentDB).
+    events_queue_url = terraform_output(tf_dir, "events_queue_url")
+    docdb_cluster_identifier = terraform_output(tf_dir, "docdb_cluster_identifier")
+    docdb_port = terraform_output(tf_dir, "docdb_port")
+    docdb_username = terraform_output(tf_dir, "docdb_master_username")
+
     # Discovered per-engine, never assumed: Floci assigns proxy ports 7000-7099
     # by cluster creation order, so postgres and mysql swap across applies.
     pg_port = discover_port("postgres")
@@ -132,6 +161,14 @@ def build(repo_root: Path) -> dict[Path, dict]:
         f"mysql+pymysql://test:test@{FLOCI_HOST}:{my_port}/tracking?charset=utf8mb4"
     )
 
+    # DocumentDB is reached by the backing container name on the Docker
+    # network, NEVER by IP (Floci reassigns it on every recreation) and NEVER
+    # by `localhost` (27017 is not published to the host in our containerized
+    # Floci setup). This mirrors main.tf's `module.lambda_events_pipeline`
+    # exactly — the compose container and the deployed Lambda must resolve the
+    # same Mongo. See docs/lessons/floci-sqs-lambda-docdb-support.md.
+    docdb_host = f"floci-docdb-{docdb_cluster_identifier}"
+
     return {
         # --- root .env: ONLY what compose interpolates -----------------------
         # Anything else here would be dead weight; anything MISSING here breaks
@@ -161,6 +198,10 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # Same cluster as Orders, so the same discovered port. Named
                 # separately so a consumer never has to know they coincide.
                 "TRACKING_DB_PORT": str(my_port),
+                # The E2E suite asserts the pipeline's emails actually LAND in
+                # Mailpit, so it needs the inbox's API. A compose-published
+                # constant rather than a Terraform output — see the definition.
+                "MAILPIT_API_URL": MAILPIT_API_URL,
             },
         ),
         # --- users service ---------------------------------------------------
@@ -176,6 +217,9 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 "COGNITO_USER_POOL_ID": pool_id,
                 "COGNITO_CLIENT_ID": client_id,
                 "GRPC_API_KEY": GRPC_API_KEY,
+                # Users publishes USER_CREATED here (its Zod env schema requires
+                # this, so the service will not boot without it).
+                "EVENTS_QUEUE_URL": events_queue_url,
                 "OTEL_EXPORTER_OTLP_ENDPOINT": OTLP_ENDPOINT,
                 "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
                 "OTEL_METRICS_EXPORTER": "none",
@@ -207,6 +251,9 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # tracking record, forwarding the x-user-id it received.
                 "TRACKING_BASE_URL": "http://tracking:8000",
                 "GRPC_API_KEY": GRPC_API_KEY,
+                # Orders publishes ORDER_CREATED here — the same shared queue
+                # Users and Tracking write to.
+                "EVENTS_QUEUE_URL": events_queue_url,
                 "OTEL_EXPORTER_OTLP_ENDPOINT": OTLP_ENDPOINT,
                 "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
                 "OTEL_DIAGNOSTICS__LOGLEVEL": "Error",
@@ -248,6 +295,10 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # GRPC_API_KEY on purpose — see the trust-domain note at the top
                 # of this file before touching either.
                 "TRACKING_CARRIER_API_KEY": TRACKING_CARRIER_API_KEY,
+                # Tracking publishes TRACKING_STATUS_CHANGED here on every
+                # delivery-status transition — the same shared queue Users and
+                # Orders write to.
+                "EVENTS_QUEUE_URL": events_queue_url,
                 "OTEL_EXPORTER_OTLP_ENDPOINT": OTLP_ENDPOINT,
                 "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
                 "OTEL_METRICS_EXPORTER": "none",
@@ -263,6 +314,36 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # at all, and the harness's teardown gets a 405 rather than a
                 # cleanup. Local-only: never true in a deployed environment.
                 "E2E_TESTING_ENABLED": "true",
+            },
+        ),
+        # --- events-pipeline service ------------------------------------------
+        # Node.js (SQS message → Lambda in prod; here a compose container with
+        # hot-reload for local dev — see functions/events-pipeline/CLAUDE.md).
+        # DOCDB_PASSWORD mirrors main.tf's `var.docdb_password` LOCAL default
+        # ("test", set in environments/local/variables.tf) rather than reading
+        # a Terraform output: the password is a sensitive input var, never
+        # exposed as an output, exactly like the AWS_SECRET_ACCESS_KEY/DB
+        # `test` credentials every other service file already embeds this way.
+        repo_root / ".env.local.events-pipeline": dict(
+            header="Events-pipeline environment. Loaded via env_file: in docker-compose.yml.",
+            generated={
+                "AWS_ENDPOINT_URL": AWS_ENDPOINT,
+                "AWS_REGION": AWS_REGION,
+                "AWS_ACCESS_KEY_ID": "test",
+                "AWS_SECRET_ACCESS_KEY": "test",
+                "EVENTS_QUEUE_URL": events_queue_url,
+                "DOCDB_HOST": docdb_host,
+                "DOCDB_PORT": docdb_port,
+                "DOCDB_USERNAME": docdb_username,
+                "DOCDB_PASSWORD": "test",
+                "DOCDB_DATABASE": "events",
+                # LOCAL ONLY: Floci's DocumentDB is a stock mongo:7.0 whose
+                # root user lives in `admin`, not in the target database. Real
+                # Amazon DocumentDB authenticates against the target database
+                # itself, so this stays unset there — see DOCDB_AUTH_SOURCE in
+                # functions/events-pipeline/src/shared/config/env.ts.
+                "DOCDB_AUTH_SOURCE": "admin",
+                "SES_FROM_ADDRESS": "no-reply@3mrai.local",
             },
         ),
         # --- debug: HOST-reachable, loaded by nothing ------------------------

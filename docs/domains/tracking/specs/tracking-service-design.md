@@ -4,7 +4,7 @@ type: spec
 area: tracking
 status: accepted
 created: 2026-06-26
-updated: 2026-08-03
+updated: 2026-08-05
 tags: [type/spec, area/tracking, status/accepted]
 related:
   - "[[soft-delete]]"
@@ -25,6 +25,9 @@ related:
   - "[[user-id-vs-cognito-sub-ownership-key]]"
   - "[[two-api-keys-two-trust-domains]]"
   - "[[testmode-in-process-asyncio-task]]"
+  - "[[events-pipeline-design]]"
+  - "[[env-files]]"
+  - "[[2026-08-03-events-pipeline-milestone-design]]"
 ---
 
 # Tracking Service Design
@@ -44,9 +47,12 @@ related:
 > [[tracking/testing/index|Tracking Testing]] for current unit/integration coverage — run against
 > a live MySQL rather than mocks.
 >
-> `infra/modules/messaging/` and `infra/modules/database/` are still empty placeholders, but
-> neither blocks this service — Tracking emits no domain events (see [Events](#events)) and uses
-> Aurora MySQL, not DocumentDB.
+> `infra/modules/messaging/` and `infra/modules/docdb/` (renamed from `database/` on 2026-08-04 —
+> the old name suggested a generic database module when it only ever created DocumentDB) are no
+> longer empty placeholders — the events-pipeline milestone (2026-08-04) built both, and Tracking
+> itself uses Aurora MySQL, not DocumentDB, so neither ever blocked this service directly.
+> Tracking is now a producer onto the shared queue those modules provision — see
+> [Events](#events) and [[events-pipeline-design]].
 
 ## Summary
 
@@ -57,8 +63,9 @@ identity comes from the gateway-injected `x-user-id` header, and Tracking resolv
 internal `usr_` id itself via an **outbound** gRPC call to Users. Reads are also REST, user-scoped —
 a caller only ever sees their own trackings (see [Ownership & scoping](#ownership--scoping)). The
 REST surface otherwise stays narrow: a status-update endpoint that simulates a third-party carrier
-notifying the system of a delivery status change, plus the standard health check. The service acts
-exclusively as a consumer/updater — it does not emit any domain events.
+notifying the system of a delivery status change, plus the standard health check. As of the
+events-pipeline milestone, Tracking is **also a producer**: every successful status transition
+emits `TRACKING_STATUS_CHANGED` — see [Events](#events).
 
 > [!note] This design was not the original one
 > Creation and both reads originally shipped over gRPC (JE-90, JE-91). See
@@ -345,10 +352,20 @@ carries the internal `x-api-key` the Users surface expects.
 |-------------------------------|--------------------------|-------------------------------------------------------|
 | `users.v1.Users/GetUserById`  | `{ id: <cognito sub> }`  | `{ id, email, full_name, cognito_sub, address }`      |
 
-Only `id` is consumed. The response also carries the user's `address`, which Tracking
-deliberately ignores: `init-tracking` receives `shipping_address` in its body, so nothing here
-reads the profile address, and carrying PII through a path that never uses it is a liability
-([[logging-context]]).
+Only `id` is consumed by the identity-resolution path. The response also carries the user's
+`address`, which Tracking deliberately ignores there: `init-tracking` receives `shipping_address`
+in its body, so nothing on that path reads the profile address, and carrying PII through a path
+that never uses it is a liability ([[logging-context]]).
+
+> [!note] `ResolvedUser` was widened to carry `email` (events-pipeline milestone)
+> `email` is now carried on the `ResolvedUser` domain value, alongside `address` — the exception
+> to "no caller needs it" the original docstring reserved. The `TRACKING_STATUS_CHANGED`
+> publisher must put the recipient's email address in the event payload: the pipeline's
+> `tracking-status-changed` handler rejects a payload missing `email` as a `PermanentError`, so
+> without it the notification would never send. Tracking persists no email of its own — Users is
+> the only place that holds one — so this RPC's response is where it has to come from. `email` is
+> PII exactly like `address`: never log a `ResolvedUser`; log `email_hash` instead, per
+> [[logging-context]].
 
 **`NOT_FOUND` means the user does not exist. Every other status propagates** — a Users outage,
 a deadline, a rejected key. Collapsing them into "unknown user" would turn an infrastructure
@@ -532,8 +549,58 @@ notifying Tracking of a delivery status change. It is subject to the following g
 
 ## Events
 
-> [!info] No events emitted
-> The Tracking service does **not** produce any domain events. It is a pure consumer/updater: it receives tracking creation and status-update requests (via REST — `POST /v1/trackings/init-tracking` and `PUT /v1/trackings/{orderId}/status`, including the automatic `TestMode` transitions) and persists them — it does not publish to SQS or any event bus.
+> [!info] Reversal — Tracking now publishes (events-pipeline milestone, 2026-08-04)
+> This note previously stated Tracking emits no domain events and is a pure consumer/updater.
+> That was accurate before the events-pipeline milestone; it is no longer true. Tracking is now
+> a **third producer** alongside Users and Orders, publishing to the same shared SQS queue
+> [[events-pipeline-design]] consumes. See [[2026-08-03-events-pipeline-milestone-design]] for the
+> full design.
+
+Tracking publishes `TRACKING_STATUS_CHANGED` from `update_tracking_status`
+(`src/features/tracking/commands/update_status.py`) — the **single write path** shared by both
+the carrier webhook (`PUT /v1/trackings/{orderId}/status`) and TestMode's automatic progression
+(see [TestMode automatic progression](#testmode-automatic-progression)). Emitting from this one
+call site, rather than from each caller separately, is what guarantees both paths notify the same
+way instead of drifting apart.
+
+- **Every successful transition emits, `DELIVERED` included — no suppression.** A TestMode run
+  that walks a tracking through all four statuses in ~30 seconds produces **four emails in
+  Mailpit** for that one tracking. This is expected, not a bug; E2E assertions for Tracking must
+  account for all four transitions, not just the final `DELIVERED` state.
+- **`user_id` on the envelope comes from the persisted tracking row, not the request.** The
+  carrier webhook carries **no** `x-user-id` at all — it is authenticated by an API key, not a
+  Cognito JWT, and its repository lookup is deliberately unscoped (see
+  [State machine & update guards](#state-machine--update-guards)). `_emit_status_changed` reads
+  `updated.user_id` off the entity `update_tracking_status` already loaded and returned — the
+  only source of an owner for this event. `cognito_sub` is deliberately **not** used here; it is
+  the ownership key the REST reads filter by, not the envelope's `user_id`.
+- **`event_id` is derived from `(order_id, status)`, not generated fresh per attempt.** Given the
+  forward-only state machine, this pair is a natural key for a transition. This matters because
+  of TestMode: if `event_id` were regenerated on every send attempt, a retry of the same
+  transition (e.g. after a transient SQS error) would mint a new id, miss the events-pipeline's
+  unique-index dedupe, and send a duplicate notification email for a transition that had already
+  succeeded. Deriving from `(order_id, status)` means a retry of the same transition always
+  collides on the same id.
+- **Publish failures are logged and swallowed, never re-raised.** A `500` here would make the
+  carrier's webhook retry a status change that is **already recorded**; the forward-only guard
+  would then reject that retry as `400 not_strictly_forward` for a transition that genuinely
+  happened — turning a notification failure into a spurious rejection of a legitimate carrier
+  update. `SqsEventPublisher`/the publisher-resolution path swallows both send failures and
+  publisher-construction failures for this reason; see `_emit_status_changed`'s docstring in
+  `update_status.py`.
+- **The queue URL is generated, never hardcoded** — `EVENTS_QUEUE_URL` is written into
+  `.env.local.tracking` by `make env-file`, the same generated-env-file pattern Users and Orders
+  use. See [[env-files]].
+
+Tracking's publisher is a Python/boto3 SQS client (`send_message`), setting `type` and `source`
+(`"tracking"`) as message attributes, matching the shape of the Users and Orders publishers. A
+Noop-equivalent publisher is retained for tests that must not emit, mirroring
+`NoopEventPublisher` in Users and Orders.
+
+See [[events-pipeline-design]] for the consuming side: the shared queue, the dispatch map, the
+error taxonomy that decides whether a publish-side failure downstream gets retried, and the
+`tracking-status-changed` email template family (one event type, four rendered variants selected
+by `payload.status`).
 
 ## Cross-cutting rules
 
@@ -549,6 +616,7 @@ notifying Tracking of a delivery status change. It is subject to the following g
 | Endpoint test coverage | [[testing]]       |
 | Secrets (carrier API key, gRPC `x-api-key`) | [[ADR-0007-secrets-parameter-store]] |
 | Gateway routing (existing module, per-route local integrations) | [[local-gateway-per-route-integrations]] |
+| Event publishing (SQS, generated queue URL) | [[env-files]], [[events-pipeline-design]] |
 | `x-user-id` injection (local) | [[nginx-njs-x-user-id-injection]] |
 
 ## Deltas from the original design (superseded)
@@ -622,3 +690,9 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
   `TRACKING_CARRIER_API_KEY` must never collapse into one secret.
 - [[testmode-in-process-asyncio-task]] — the ADR formalizing the in-process `asyncio`
   scheduling choice for TestMode and its accepted restart-loses-progress limitation.
+- [[events-pipeline-design]] — the consuming side of `TRACKING_STATUS_CHANGED`: the shared SQS
+  queue, the dispatch map, the error taxonomy, and the `tracking-status-changed` email template
+  family (one event type, four rendered variants).
+- [[env-files]] — `EVENTS_QUEUE_URL` is generated into `.env.local.tracking`, never hardcoded.
+- [[2026-08-03-events-pipeline-milestone-design]] — the full design for Tracking joining as a
+  third producer, including the `event_id` derivation and the `user_id`-from-persisted-row trap.

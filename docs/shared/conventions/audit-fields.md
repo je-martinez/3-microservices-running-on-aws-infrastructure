@@ -4,9 +4,9 @@ type: convention
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-07-12
+updated: 2026-08-05
 tags: [type/convention, area/shared, status/active, issue/JE-39]
-related: ["[[soft-delete]]", "[[nano-id]]", "[[2026-07-12-audit-actor-enum-design]]"]
+related: ["[[soft-delete]]", "[[nano-id]]", "[[2026-07-12-audit-actor-enum-design]]", "[[events-pipeline-design]]"]
 ---
 
 # Audit fields
@@ -61,9 +61,32 @@ The Users service populates these fields automatically via the same **single Pri
 > the laziness with a real lazy thenable; persistence behavior must be verified against a real
 > Postgres. See [[2026-07-12-prisma-lazy-promise-als]] for the full lesson.
 
+## Implementation (events-pipeline) — `created_by` and `updated_by` intentionally carry different sources
+
+This is the first place in the repo where the two audit columns are stamped from **different**
+origins on the same document, rather than both tracking the same actor over the entity's
+lifetime (`functions/events-pipeline/src/pipeline/process-record.ts:73-84`):
+
+- `created_by` = what **ORIGINATED** the event — the producer's semantic `AuditActor`, carried
+  over from the envelope's `author.actor` (e.g. `users_api:register`,
+  `tracking_api:carrier_status_update`). It is set once, at `insertStarted`, and never touched
+  again.
+- `updated_by` = what **PROCESSED** it — the literal string `"events-pipeline"`
+  (`PIPELINE_ACTOR`), stamped by the repository on every subsequent transition
+  (`STARTED` → `IN_PROGRESS` → `COMPLETED`/`FAILED`).
+
+Stamping `"events-pipeline"` into `created_by` was rejected: it would make every event claim the
+pipeline as its cause, which is true of the *row* (the pipeline did insert it) but never true of
+the *event* (something else — a producer's write path — caused it to exist). The split keeps
+"what caused this to happen" and "what wrote this record" separately answerable. See
+[[events-pipeline-design]] for the full event document schema and the `author` envelope object
+this reads from.
+
 ## Related
 
 - [[soft-delete]] — deletion sets `deletedAt`/`deletedBy` instead of removing rows; `isDeleted` is derived from them.
 - [[nano-id]] — stamped by the same Prisma client extension.
 - [[2026-07-12-audit-actor-enum-design]] — design of the semantic `AuditActor` enum used for self-service audit stamping.
 - [[2026-07-12-prisma-lazy-promise-als]] — lesson on the lazy-`PrismaPromise`/ALS pitfall and its fix.
+- [[events-pipeline-design]] — the `created_by`/`updated_by` split described above, and the
+  `author` envelope object it reads `created_by` from.

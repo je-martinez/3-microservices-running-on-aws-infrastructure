@@ -36,6 +36,32 @@ describe("RegisterUserCommand", () => {
     expect(d.events.publishUserCreated).toHaveBeenCalledOnce();
   });
 
+  it("publishes USER_CREATED with the id, email AND fullName the pipeline handler requires", async () => {
+    const d = deps();
+    const command = new RegisterUserCommand(d);
+    const user = await command.execute({ email: "a@b.c", password: "P!1", fullName: "Ada L", e2eSource: false });
+    // Asserted as the WHOLE object, not with objectContaining: an extra field
+    // reaching the publisher is a wire-contract change and should fail here.
+    expect(d.events.publishUserCreated).toHaveBeenCalledWith({
+      id: user.id,
+      email: "a@b.c",
+      fullName: "Ada L",
+      cognitoSub: "7904d681-f590-4b4d-bbce-15348a898873",
+    });
+  });
+
+  it("hands the publisher the Cognito sub it already has, so the envelope's author can carry it", async () => {
+    const d = deps();
+    const command = new RegisterUserCommand(d);
+    await command.execute({ email: "a@b.c", password: "P!1", fullName: "Ada L", e2eSource: false });
+
+    // The SAME value signUp returned and the row was stamped with — not a
+    // second lookup, and not the internal usr_ id wearing the wrong name.
+    const published = d.events.publishUserCreated.mock.calls[0][0];
+    expect(published.cognitoSub).toBe(d._created.cognitoSub);
+    expect(published.cognitoSub).toBe("7904d681-f590-4b4d-bbce-15348a898873");
+  });
+
   it("leaves tags empty when e2eSource is false", async () => {
     const d = deps();
     const command = new RegisterUserCommand(d);

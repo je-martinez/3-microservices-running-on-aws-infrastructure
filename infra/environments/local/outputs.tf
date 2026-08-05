@@ -54,6 +54,37 @@ output "tracking_db_reader_endpoint" {
   value       = module.rds_mysql.reader_endpoint
 }
 
+# ─── Events pipeline (SQS + DocumentDB + Lambda) ────────────────────────────────
+output "events_queue_url" {
+  description = "URL of the shared events SQS queue (consumed by the Users/Orders/Tracking publishers)."
+  value       = module.messaging.queue_url
+}
+
+output "events_dlq_url" {
+  description = "URL of the events dead-letter queue (messages land here after max_receive_count deliveries)."
+  value       = module.messaging.dlq_url
+}
+
+output "docdb_cluster_identifier" {
+  description = "DocumentDB cluster identifier, used to derive the floci-docdb-<id> container name — the only way to reach Mongo locally (27017 is not published to the host)."
+  value       = module.docdb.cluster_identifier
+}
+
+output "docdb_port" {
+  description = "DocumentDB port."
+  value       = module.docdb.port
+}
+
+output "docdb_master_username" {
+  description = "DocumentDB master username, read by `make env-file` for DOCDB_USERNAME (the module's own default; main.tf never overrides master_username)."
+  value       = module.docdb.master_username
+}
+
+output "events_lambda_function_name" {
+  description = "Name of the events-pipeline Lambda function."
+  value       = module.lambda_events_pipeline.function_name
+}
+
 output "app_secret_arn" {
   description = "ARN of the least-privilege app-user credentials secret."
   value       = module.rds_aurora.app_secret_arn

@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-07-12
+updated: 2026-08-03
 tags:
   - type/spec
   - area/shared
@@ -81,6 +81,11 @@ See [[dependency-injection]] and [[ADR-0008-screaming-arch-di]].
 A human-readable, URL-safe identifier derived from an entity's name or title. Distinct from the internal [[#nano-id]] used as primary key. Used in URLs and display contexts where a meaningful slug is preferable to an opaque ID.
 
 Example: an order with nano-id `ord_V1StGXR8_Z5jdHi6B-myT` might have `friendlyId: "order-for-jose-2026-06"`.
+
+> [!warning] Not used by the events-pipeline
+> The events-pipeline previously minted its own `evt_`-prefixed `friendlyId`. That field was
+> removed (commit `5fd6e0d`) — `event_id`, the producer-generated idempotency key, is now the
+> event's only identifier. See [[events-pipeline-design]] and [[nano-id]].
 
 ---
 

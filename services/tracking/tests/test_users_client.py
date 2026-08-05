@@ -34,17 +34,23 @@ USER_ID = "usr_bbbbbbbbbbbbbbbbbbbbb"
 #: and a test reusing one value could not fail on a mix-up.
 COGNITO_SUB = "22222222-2222-4222-8222-222222222222"
 
+#: The same person's email. PII on the wire, carried by `ResolvedUser` as of the
+#: events-pipeline milestone because the notification payload requires it.
+USER_EMAIL = "user@example.com"
+
 
 def known_user() -> users_pb2.UserResponse:
-    """A `UserResponse` shaped like the real one, address included.
+    """A `UserResponse` shaped like the real one, address and email included.
 
-    The address is populated even though `ResolvedUser` drops it — that is the
-    point: the client must not blow up on, or start carrying, a field it has no
-    use for.
+    The address is populated even though `ResolvedUser` still drops it — that is
+    the point: the client must not blow up on, or start carrying, a field it has
+    no use for. `email` IS carried now (the events publisher consumes it), so
+    the two together prove the narrowing is deliberate per-field rather than
+    "whatever the mapping happened to copy".
     """
     return users_pb2.UserResponse(
         id=USER_ID,
-        email="user@example.com",
+        email=USER_EMAIL,
         full_name="Test User",
         cognito_sub=COGNITO_SUB,
         address=users_pb2.Address(
@@ -64,8 +70,45 @@ class TestResolve:
         resolved = users_client.resolve(COGNITO_SUB)
 
         assert resolved == ResolvedUser(
-            internal_id=USER_ID, cognito_sub=COGNITO_SUB
+            internal_id=USER_ID, cognito_sub=COGNITO_SUB, email=USER_EMAIL
         )
+
+    def test_carries_the_email_the_events_publisher_needs(
+        self, users_client: UsersGrpcClient, users_servicer: StubUsersServicer
+    ) -> None:
+        """`email` is threaded out of the response, not dropped like `address`.
+
+        Tracking persists no email of its own, and the events-pipeline handler
+        rejects a `TRACKING_STATUS_CHANGED` payload without one as a PERMANENT
+        error — silently, consuming the message and never sending the mail. So
+        this RPC is the only source, and a mapping that dropped the field would
+        break the notification with nothing failing loudly anywhere.
+        """
+        users_servicer.users[COGNITO_SUB] = known_user()
+
+        resolved = users_client.resolve(COGNITO_SUB)
+
+        assert resolved is not None
+        assert resolved.email == USER_EMAIL
+
+    def test_an_absent_email_becomes_none_rather_than_an_empty_string(
+        self, users_client: UsersGrpcClient, users_servicer: StubUsersServicer
+    ) -> None:
+        """proto3 has no null: an unset string arrives as `""`.
+
+        Normalized to None so "Users holds no email" has ONE spelling. An empty
+        string would travel into the payload looking like a value and be
+        rejected downstream by the handler's `z.string().email()`, whereas None
+        lets the publisher stop and log a `reason` before anything is queued.
+        """
+        users_servicer.users[COGNITO_SUB] = users_pb2.UserResponse(
+            id=USER_ID, cognito_sub=COGNITO_SUB, full_name="No Email User"
+        )
+
+        resolved = users_client.resolve(COGNITO_SUB)
+
+        assert resolved is not None
+        assert resolved.email is None
 
     def test_unknown_sub_is_none_not_an_exception(
         self, users_client: UsersGrpcClient

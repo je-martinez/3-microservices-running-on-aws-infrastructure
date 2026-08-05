@@ -27,7 +27,9 @@ progression (Phase E), which has no request and no HTTP status code to map to.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 
@@ -39,6 +41,9 @@ from src.features.tracking.domain.status import (
     parse_status,
 )
 from src.shared.audit.audit_actor import AuditActor
+from src.shared.messaging.event_publisher import EventPublisher
+
+logger = logging.getLogger(__name__)
 
 
 class TrackingNotFoundError(Exception):
@@ -72,6 +77,7 @@ def update_tracking_status(
     command: UpdateTrackingStatusCommand,
     *,
     actor: AuditActor = AuditActor.CARRIER_STATUS_UPDATE,
+    publisher: EventPublisher | None = None,
 ) -> Tracking:
     """Advance a tracking to `command.status`, appending a history row.
 
@@ -97,6 +103,47 @@ def update_tracking_status(
     Steps 2 and 3 are separate so a rejected transition on an existing tracking
     cannot be confused with a missing one — different status codes, different
     causes.
+
+    ## 5. Emit `TRACKING_STATUS_CHANGED` (events-pipeline milestone)
+
+    Every successful transition publishes one event, `DELIVERED` included —
+    there is no suppression, so a TestMode run produces four.
+
+    Emission lives HERE, and only here, for the same reason the guards do: this
+    is the single write path behind BOTH the carrier PUT and TestMode
+    progression, so one call site covers both callers. A second emission point
+    beside either of them is how the two would start disagreeing about which
+    transitions notify.
+
+    **The envelope's `user_id` is `updated.user_id` — the persisted internal
+    `usr_` id — and it could not come from anywhere else.** This request has no
+    caller identity at all (see "Why the lookup here is UNSCOPED" above): the
+    carrier presents an API key, its gateway route has no Cognito authorizer,
+    and no `x-user-id` reaches the service. The entity this function already
+    loaded is the only source of an owner for the event, and `cognito_sub` would
+    be the wrong one — that is the ownership key the REST reads filter by, not
+    the envelope's `user_id`.
+
+    **The envelope's `author` is this function's `actor`, and carries no human.**
+    `user_id` above says who the event is ABOUT; `author` says what ORIGINATED
+    it, and on both of this command's paths that is a system: an external carrier
+    or a TestMode timer. So the author's own `user_id`/`cognito_sub` are omitted
+    rather than backfilled with the order's owner — attributing a carrier's
+    status update to the buyer would be plainly false, and it is the reason the
+    two fields are separate. `actor` is passed down (never fixed in the
+    publisher) so the two paths stay distinguishable on the wire exactly as they
+    already are in `tracking_history.created_by`.
+
+    `publisher` defaults to the real shared SQS publisher, so the carrier and
+    TestMode paths need no call-site change; tests inject a recording fake, or
+    `NoopEventPublisher` when they must not emit. The default is resolved
+    LAZILY, inside the call rather than in the signature, so importing this
+    module never constructs a boto3 client nor requires a valid environment.
+
+    Publishing cannot fail this command: `SqsEventPublisher` logs and swallows
+    its own failures (the reasoning is in its class docstring — the transition is
+    already committed, and a 500 would make the carrier retry a status change we
+    actually recorded, which the forward-only guard then rejects as a 400).
     """
     requested: TrackingStatus = parse_status(command.status)
 
@@ -109,8 +156,97 @@ def update_tracking_status(
     current = parse_status(tracking.status)
     assert_can_transition(current, requested)
 
-    return repository.update_status(
+    updated = repository.update_status(
         tracking=tracking,
         status=requested,
         actor=actor,
     )
+
+    _emit_status_changed(
+        publisher,
+        order_id=updated.order_id,
+        # The PERSISTED usr_ id off the entity — never a request value. See the
+        # docstring's section 5.
+        user_id=updated.user_id,
+        status=requested.value,
+        previous_status=current.value,
+        # The transition's own timestamp, which `update_status` just stamped —
+        # not `updated_at`, which moves on any write.
+        changed_at=updated.datetime_,
+        # THIS function's `actor` — the one already distinguishing the carrier
+        # PUT from TestMode progression — travels onto the envelope as its
+        # author. Passed down rather than fixed in the publisher, or a TestMode
+        # run would be published as a carrier update; see the docstring's
+        # section 5.
+        actor=actor,
+    )
+
+    return updated
+
+
+def _emit_status_changed(
+    publisher: EventPublisher | None,
+    *,
+    order_id: str,
+    user_id: str,
+    status: str,
+    previous_status: str,
+    changed_at: datetime,
+    actor: AuditActor,
+) -> None:
+    """Publish the transition, and never let doing so break the transition.
+
+    ## Why building the publisher is inside the try, not just publishing
+
+    `shared_event_publisher()` calls `get_settings()`, which constructs a
+    pydantic `Settings` and raises `ValidationError` on an incomplete
+    environment. **`ValidationError` is a subclass of `ValueError`** — and the
+    carrier router catches `ValueError` to mean "`parse_status` rejected the
+    status", mapping it to `400 invalid_status`.
+
+    So a misconfigured environment (or a test app built without a full one, which
+    is exactly how this suite builds its app) would surface as *"the carrier sent
+    an invalid status"*: a 400 blaming the caller for a transition that was
+    already written to the database, with a `reason` naming the wrong cause
+    entirely. That is a genuinely misleading failure, and it is not
+    hypothetical — it is what this function was written in response to.
+
+    Catching here rather than widening the router's `except` keeps the rule where
+    it belongs: publishing is a secondary effect, so NOTHING about it — not the
+    send, not the client construction, not reading settings — may change the
+    outcome of a transition that already succeeded.
+
+    `SqsEventPublisher` swallows its own send/resolution failures (see its class
+    docstring). This guard covers the layer beneath that: obtaining the publisher
+    at all.
+    """
+    try:
+        if publisher is None:
+            # Imported here, not at module scope: the import itself pulls in
+            # boto3 and the call reads settings, so a test injecting a fake
+            # publisher touches neither.
+            from src.shared.messaging.sqs_event_publisher import (
+                shared_event_publisher,
+            )
+
+            publisher = shared_event_publisher()
+
+        publisher.publish_tracking_status_changed(
+            order_id=order_id,
+            user_id=user_id,
+            status=status,
+            previous_status=previous_status,
+            changed_at=changed_at,
+            actor=actor,
+        )
+    except Exception:  # noqa: BLE001 - a notification must not fail a write
+        logger.exception(
+            "tracking_status_changed_publish_failed",
+            extra={
+                "app_event": "tracking_status_changed_publish_failed",
+                "reason": "publisher_unavailable",
+                "order_id": order_id,
+                "user_id": user_id,
+                "status": status,
+            },
+        )

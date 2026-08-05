@@ -190,7 +190,16 @@ public class CreateOrderService
 
             _db.Orders.Add(order);
             await _db.SaveChangesAsync(ct);
-            await _events.PublishOrderCreatedAsync(order.Id, userId, total, now, ct);
+            // caller.Email comes from the GetUserById round trip this method
+            // already makes: the pipeline's ORDER_CREATED handler renders the
+            // confirmation mail and needs a recipient, and Orders never stores
+            // one of its own.
+            //
+            // cognitoSub is the request's own identity, already in hand and already
+            // stamped onto the order above. It lands in the envelope's `author` block —
+            // WHO originated the event, alongside the userId that says who it is about
+            // (the same person here; not on every event).
+            await _events.PublishOrderCreatedAsync(order.Id, userId, caller.Email, total, now, cognitoSub, ct);
             await tx.CommitAsync(ct);
 
             // AFTER the commit: the order genuinely exists at this point, so the

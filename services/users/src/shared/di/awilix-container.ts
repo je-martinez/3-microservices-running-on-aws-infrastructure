@@ -1,9 +1,12 @@
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
+import { SQSClient } from "@aws-sdk/client-sqs";
 import { diContainer } from "@fastify/awilix";
 import { asValue, asFunction, asClass, Lifetime } from "awilix";
 import { env, type Env } from "../config/env.ts";
 import { db, type Db } from "../db/prisma.ts";
-import { NoopEventPublisher, type EventPublisher } from "../messaging/event-publisher.ts";
+// `NoopEventPublisher` stays imported and exported from that module — it is
+// still registered by tests that must not emit.
+import { SqsEventPublisher, type EventPublisher } from "../messaging/event-publisher.ts";
 import { CognitoAuthProvider } from "../auth/cognito-auth-provider.ts";
 import type { AuthProvider } from "../auth/auth-provider.ts";
 import { RegisterUserCommand } from "#features/users/commands/register";
@@ -22,6 +25,7 @@ declare module "@fastify/awilix" {
     env: Env;
     db: Db;
     cognitoClient: CognitoIdentityProviderClient;
+    sqsClient: SQSClient;
     auth: AuthProvider;
     events: EventPublisher;
     registerUserCommand: RegisterUserCommand;
@@ -68,7 +72,19 @@ export function registerSingletons(): void {
         new CognitoAuthProvider(cognitoClient, cradleEnv.COGNITO_USER_POOL_ID, cradleEnv.COGNITO_CLIENT_ID),
       { lifetime: Lifetime.SINGLETON },
     ),
-    events: asFunction(() => new NoopEventPublisher(), { lifetime: Lifetime.SINGLETON }),
+    sqsClient: asFunction(
+      ({ env: cradleEnv }: { env: Env }) =>
+        new SQSClient({
+          region: cradleEnv.AWS_REGION,
+          endpoint: cradleEnv.AWS_ENDPOINT_URL,
+        }),
+      { lifetime: Lifetime.SINGLETON },
+    ),
+    events: asFunction(
+      ({ sqsClient, env: cradleEnv }: { sqsClient: SQSClient; env: Env }) =>
+        new SqsEventPublisher(sqsClient, cradleEnv.EVENTS_QUEUE_URL),
+      { lifetime: Lifetime.SINGLETON },
+    ),
   });
 }
 

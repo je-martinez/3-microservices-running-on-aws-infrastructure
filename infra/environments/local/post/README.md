@@ -83,7 +83,7 @@ unreachable table warns on stderr and the script runs anyway.
 reaches Floci's published proxy ports. Those ports are **discovered per-engine**,
 not fixed: Floci assigns them (7000-7099) by cluster creation order, which is not
 stable across applies, so Postgres/MySQL can flip between 7001/7002. `make
-post-infra` discovers the Postgres port (via `../scripts/discover-db-port.sh`,
+post-infra` discovers the Postgres port (via `../scripts/discover_db_port.py`,
 which reads `describe-db-clusters` per `Engine`) and passes it as `-var pg_port`;
 the `pg_port`/`mysql_port` variables keep 7001/7002 defaults only as a fallback.
 The gate uses `floci` because it runs a probe container **on** the compose

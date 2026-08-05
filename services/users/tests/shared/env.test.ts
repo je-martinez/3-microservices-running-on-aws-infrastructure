@@ -10,6 +10,7 @@ const base = {
   AWS_REGION: "us-east-1",
   WEBHOOK_SECRET: "s3cret",
   GRPC_API_KEY: "local-dev-grpc-key",
+  EVENTS_QUEUE_URL: "http://localhost:4566/000000000000/3mrai-local-events",
 };
 
 describe("parseEnv", () => {
@@ -65,5 +66,18 @@ describe("parseEnv", () => {
   it("requires GRPC_API_KEY", () => {
     const { GRPC_API_KEY: _omit, ...without } = base;
     expect(() => parseEnv(without)).toThrow();
+  });
+
+  it("requires EVENTS_QUEUE_URL", () => {
+    const { EVENTS_QUEUE_URL: _omit, ...without } = base;
+    expect(() => parseEnv(without)).toThrow();
+  });
+
+  it("rejects a non-URL EVENTS_QUEUE_URL", () => {
+    expect(() => parseEnv({ ...base, EVENTS_QUEUE_URL: "not-a-url" })).toThrow();
+  });
+
+  it("parses EVENTS_QUEUE_URL", () => {
+    expect(parseEnv(base).EVENTS_QUEUE_URL).toBe("http://localhost:4566/000000000000/3mrai-local-events");
   });
 });

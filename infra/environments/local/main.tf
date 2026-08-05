@@ -36,6 +36,12 @@ module "label_api" {
   environment = var.environment
   name        = "api"
 }
+module "label_events" {
+  source      = "../../modules/label"
+  namespace   = "3mrai"
+  environment = var.environment
+  name        = "events"
+}
 
 # ─── Networking ─────────────────────────────────────────────────────────────────
 # NOTE (reconciliation): the networking module's `subnets` variable is
@@ -210,6 +216,116 @@ module "compute" {
   backend_service_name = "users"
   backend_port         = 3000
   region               = local.region
+}
+
+# ─── Messaging (SQS events queue + DLQ) ─────────────────────────────────────────
+# The single shared events queue: Users/Orders/Tracking publish to it, the
+# events-pipeline Lambda below is its only consumer.
+module "messaging" {
+  source  = "../../modules/messaging"
+  context = { id = module.label_events.id, tags = module.label_events.tags }
+}
+
+# ─── DocumentDB (events-pipeline store) ─────────────────────────────────────────
+# Same letter-led-id trick as rds_aurora/rds_mysql: module.label_events.id is
+# "3mrai-local-events" (digit-leading), and the database module interpolates
+# context.id into aws_docdb_cluster.cluster_identifier, which AWS rejects unless
+# it starts with a letter — so prefix with "db-". The prefix is NOT decorative;
+# dropping it makes the cluster identifier invalid. It is "db-" rather than
+# "docdb-" because the module already appends its own "-docdb" suffix, so the
+# latter would read docdb-3mrai-local-events-docdb.
+#
+# Resulting cluster identifier: db-3mrai-local-events-docdb. That value derives
+# Floci's backing container name (floci-docdb-<cluster_identifier>), which is
+# how anything on 3mrai-network reaches Mongo — port 27017 is NOT published to
+# the host and the reported IP changes on every recreation. Changing this
+# identifier forces cluster REPLACEMENT and invalidates every consumer of that
+# container name, so treat it as a stable contract from here on. See
+# docs/lessons/floci-sqs-lambda-docdb-support.md.
+#
+# manage_cluster_via_provider = false (LOCAL ONLY): the native aws_docdb_cluster
+# resource cannot apply against Floci — it fails with
+#   creating DocumentDB Cluster (db-3mrai-local-events-docdb):
+#   InvalidClientTokenId: The security token included in the request is invalid.
+#   status code: 403
+# while the IDENTICAL CreateDBCluster call through the AWS CLI / boto3 succeeds
+# against the same live Floci (verified 2026-08-03: the cluster comes back
+# Status "available" on port 27017, with its floci-docdb-<id> container running).
+# So Floci implements DocumentDB fine and the pinned provider (`= 5.31.0`,
+# non-negotiable — newer versions break aws_cognito_user_pool_client here) signs
+# this request in a way Floci's docdb handler rejects. That is the same class of
+# failure create_subnet_group already works around one resource earlier, and it
+# meets the awscli-fallback pattern's bar: proven by a real apply failure, with a
+# proven-working SDK equivalent. Prod keeps the default (true) and the native
+# resources. See docs/shared/patterns/awscli-fallback-for-floci.md.
+module "docdb" {
+  source                      = "../../modules/docdb"
+  context                     = { id = "db-${module.label_events.id}", tags = module.label_events.tags }
+  subnet_ids                  = module.networking.subnet_ids
+  security_group_ids          = module.networking.security_group_ids
+  master_password             = var.docdb_password
+  create_subnet_group         = false
+  subnet_group_name           = "default"
+  manage_cluster_via_provider = false
+  aws_cli_endpoint_url        = "http://localhost:4566"
+  region                      = local.region
+  # Same reasoning as the cognito module's python_bin: resolved from THIS root
+  # (path.root = environments/local), because the shared module cannot know its
+  # distance to the repo root. `make scripts-setup` — a prerequisite of every
+  # apply target — guarantees it exists.
+  python_bin = abspath("${path.root}/../../../.venv/bin/python")
+  # Traceability log for the fallback provisioner. The module defaults this to
+  # "" (record nothing), which is what prod wants — there the script never runs.
+  execution_log_table = var.execution_log_table
+}
+
+# ─── Events Pipeline Lambda ─────────────────────────────────────────────────────
+# source_dir points at the BUILT dist/ output of functions/events-pipeline. That
+# directory must exist before plan/apply: archive_file is a data source, read at
+# plan time. Build the function first (Block B produces it) — `terraform
+# validate` does not evaluate data sources and so passes without it.
+#
+# ─── SES sender identity ────────────────────────────────────────────────────────
+# Real AWS refuses SendEmail from an unverified address ("MessageRejected: Email
+# address is not verified"), so the from-address must be verified before the
+# pipeline can mail anyone. Floci does NOT enforce this — verified empirically:
+# `ses list-identities` returned empty and delivery still succeeded — which is
+# exactly why it belongs in Terraform rather than being discovered missing in
+# production. Verification is immediate here; real AWS sends a confirmation mail.
+resource "aws_ses_email_identity" "events_pipeline_sender" {
+  email = var.ses_from_address
+}
+
+# The Lambda runs as a Docker container on 3mrai-network (Floci), so its
+# endpoint/host values are IN-NETWORK names (floci:4566, the docdb container
+# name), never localhost.
+module "lambda_events_pipeline" {
+  source     = "../../modules/lambda"
+  context    = { id = module.label_events.id, tags = module.label_events.tags }
+  queue_arn  = module.messaging.queue_arn
+  source_dir = "${path.module}/../../../functions/events-pipeline/dist"
+
+  environment_variables = {
+    AWS_ENDPOINT_URL = "http://floci:4566"
+    # Set explicitly: real Lambda injects AWS_REGION into every execution
+    # environment, but whether Floci's Lambda container does is unverified. This
+    # function calls SES, and a missing region surfaces there as a confusing
+    # credentials/endpoint error rather than an obvious "no region configured".
+    AWS_REGION     = local.region
+    DOCDB_HOST     = "floci-docdb-${module.docdb.cluster_identifier}"
+    DOCDB_PORT     = tostring(module.docdb.port)
+    DOCDB_USERNAME = module.docdb.master_username
+    DOCDB_PASSWORD = var.docdb_password
+    # LOCAL ONLY: Floci backs DocumentDB with a stock mongo:7.0 container, whose
+    # MONGO_INITDB_ROOT_* user is created in the `admin` database, not in the
+    # target database. Without authSource=admin on the connection URI the
+    # driver reports "MongoServerError: Authentication failed" (verified both
+    # ways). Real Amazon DocumentDB authenticates the master user against the
+    # target database itself, so this is NOT set for production — see
+    # DOCDB_AUTH_SOURCE in functions/events-pipeline/src/shared/config/env.ts.
+    DOCDB_AUTH_SOURCE = "admin"
+    SES_FROM_ADDRESS  = var.ses_from_address
+  }
 }
 
 # ─── API Gateway ────────────────────────────────────────────────────────────────

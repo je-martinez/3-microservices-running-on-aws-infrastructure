@@ -101,7 +101,26 @@ Source of truth with full evidence: [[floci-vs-ministack-spike-findings]]
     See [[floci-storage-modes-and-tmp-corruption]].
 11. **Postgres is reached at `floci:7001`** (Floci's RDS proxy), not at `:4566` and never by
     container IP — Floci reassigns those on every recreation. Writer and reader endpoints
-    are identical locally: no read-replica emulation.
+    are identical locally: no read-replica emulation. **Caveat:** the proxy port is NOT
+    deterministic — Floci assigns 7000–7099 by cluster **creation order**, so postgres/mysql
+    can flip between 7001/7002 (verified). Discover per-engine via
+    `aws rds describe-db-clusters` (`infra/environments/local/scripts/discover_db_port.py`).
+12. **SQS → Lambda → DocumentDB all really work** (verified 2026-08-03, Floci v1.5.28) —
+    full evidence in [[floci-sqs-lambda-docdb-support]]. **Every limitation below is
+    local-only and does NOT constrain the production design.**
+    - Works like real AWS: SQS visibility timeout, `ApproximateReceiveCount`, **automatic
+      DLQ redrive**, real batching in the event source mapping, and **partial batch
+      responses** (`batchItemFailures` retries only the failed record).
+    - **`update-event-source-mapping` silently drops `FunctionResponseTypes`** (returns
+      `[]`); `create` persists it. To add `ReportBatchItemFailures` to an existing mapping,
+      **recreate it** — updating looks like it worked and silently retries whole batches.
+    - **DocumentDB is a standalone `mongo:7.0`, no replica set** → no multi-document
+      transactions locally. Real Amazon DocumentDB supports them (engine 4.0+); single-doc
+      writes are atomic either way. Fails even with `retryWrites=false` — don't chase that flag.
+    - **DocumentDB is not discovered like RDS:** absent from `rds describe-db-clusters`, and
+      27017 is **not** published to the host. `aws docdb describe-db-clusters` returns a Docker
+      network IP that changes on recreation — connect by the backing container name
+      **`floci-docdb-<db-cluster-identifier>`** via Docker DNS instead.
 
 ## Per-service knowledge
 

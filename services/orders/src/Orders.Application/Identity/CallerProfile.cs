@@ -2,14 +2,23 @@ namespace Orders.Application.Identity;
 
 /// <summary>
 /// The caller as Users knows them, resolved in a single <c>GetUserById</c> round trip:
-/// the internal id order creation must stamp, plus the delivery address it snapshots.
+/// the internal id order creation must stamp, the email the ORDER_CREATED consumer needs,
+/// plus the delivery address it snapshots.
 /// </summary>
 /// <param name="InternalUserId">The internal <c>usr_</c> id.</param>
+/// <param name="Email">
+/// The caller's email address. Carried because the events-pipeline's ORDER_CREATED handler
+/// requires it in the payload (it is who the confirmation email is sent to), and it already
+/// rides on the SAME <c>GetUserById</c> response that resolves the id — see
+/// <c>users.v1.UserResponse.email</c>. No extra round trip, no new dependency.
+/// PII — never log it in plaintext; log <c>EmailHash.Compute</c> instead (see the
+/// logging-context convention).
+/// </param>
 /// <param name="Address">
 /// The caller's delivery address, or <c>null</c> when they have none on file. PII —
 /// never log it (see the logging-context convention).
 /// </param>
-public sealed record CallerProfile(string InternalUserId, CallerAddress? Address);
+public sealed record CallerProfile(string InternalUserId, string Email, CallerAddress? Address);
 
 /// <summary>
 /// A delivery address as it crosses the Users boundary, with the wire encoding already
