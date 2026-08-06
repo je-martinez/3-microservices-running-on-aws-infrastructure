@@ -313,6 +313,35 @@ becomes a primary provider.
 `.claude/` half symlinks and half real files — `.claude/agents/` can never be symlinked since
 lnai does not model it — which is exactly the confusing state that invites drift.
 
+## Operational findings from the first end-to-end run
+
+Four things surfaced only once the pipeline ran against this repo. They are recorded
+here because each is a trap the next person would otherwise re-discover.
+
+**Rule globs must never name a root directory literally.** lnai's Codex and Gemini
+plugins turn a glob's first literal segment into a directory and write an `AGENTS.md`
+/ `GEMINI.md` inside it. A `docs/**` glob therefore wrote a file **into the Obsidian
+vault**, and `scripts/validate-vault.mjs` failed on it — the validator walks the
+filesystem with `readdirSync`, so `.gitignore` does not hide anything from it. Use
+`**/`-prefixed patterns (`**/*.md`, `**/*.py`) or extension globs instead. A
+`**/.env*` glob likewise created a root `.env/` **directory**, which would have broken
+`make env-file`.
+
+**lnai's rule schema requires `paths`, not `name`/`description`.** `paths` must be a
+non-empty glob array; a rule without it fails validation outright.
+
+**Windsurf exports every rule as `trigger: manual`.** They are present but not
+ambient, so a rule that only lives in `.ai/rules/` is effectively inert there. This
+is why safety-critical policy — chiefly "never commit without explicit confirmation" —
+must also appear in the body of `AGENTS.md`, which Windsurf reads ambiently. Treat
+`.ai/rules/` as reference material and `AGENTS.md` as the load-bearing surface.
+
+**Frontmatter that Claude Code tolerates can be invalid to stricter parsers.** The
+`floci` skill's description contains an unquoted `": "` (in `:4566` and
+`Knowledge layer:`), which lnai's js-yaml rejects. Fix the **copy** under `.ai/skills/`
+and never the source under `.claude/skills/`; the projection manifest records that the
+fix must be re-applied after each re-copy.
+
 ## Risks
 
 - **Subagents reach other providers as prose only.** This is the largest fidelity loss and it

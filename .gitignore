@@ -80,12 +80,6 @@ infra/modules/cognito/pre-token-lambda.zip
 __pycache__/
 *.egg-info/
 
-# lnai-generated
-.ai/.lnai-manifest.json
-.gemini/settings.json
-/AGENTS.md
-/opencode.json
-# end lnai-generated
 
 # lnai — .ai/ is DERIVED from .claude/ (the source of truth). See
 # docs/superpowers/specs/2026-08-06-multi-provider-agent-config-sync-design.md
@@ -106,3 +100,46 @@ __pycache__/
 .agents/
 .github/instructions/
 .github/skills/
+
+# lnai-generated
+.agents/skills/floci
+.agents/skills/terraform-skill
+.ai/.lnai-manifest.json
+.codex/config.toml
+.cursor/mcp.json
+.cursor/rules/documentation-vault.mdc
+.cursor/rules/env-files.mdc
+.cursor/rules/git-and-commits.mdc
+.cursor/rules/language-and-scope.mdc
+.cursor/rules/logging-and-pii.mdc
+.cursor/rules/scripting-language.mdc
+.cursor/rules/testing.mdc
+.cursor/skills/floci
+.cursor/skills/terraform-skill
+.gemini/settings.json
+.gemini/skills/floci
+.gemini/skills/terraform-skill
+.github/instructions/documentation-vault.instructions.md
+.github/instructions/env-files.instructions.md
+.github/instructions/git-and-commits.instructions.md
+.github/instructions/language-and-scope.instructions.md
+.github/instructions/logging-and-pii.instructions.md
+.github/instructions/scripting-language.instructions.md
+.github/instructions/testing.instructions.md
+.github/skills/floci
+.github/skills/terraform-skill
+.opencode/rules
+.vscode/mcp.json
+.windsurf/rules/documentation-vault.md
+.windsurf/rules/env-files.md
+.windsurf/rules/git-and-commits.md
+.windsurf/rules/language-and-scope.md
+.windsurf/rules/logging-and-pii.md
+.windsurf/rules/scripting-language.md
+.windsurf/rules/testing.md
+.windsurf/skills/floci
+.windsurf/skills/terraform-skill
+/AGENTS.md
+/GEMINI.md
+/opencode.json
+# end lnai-generated
