@@ -1,16 +1,34 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// #shared/config/env parses process.env at MODULE LOAD (ADR-0014). This file
+// imports #handlers/index, which now (since the realtime fan-out landed in
+// tracking-status-changed.ts) transitively pulls in
+// #shared/realtime/websocket-publisher -> #shared/logging/app-logger ->
+// #shared/config/env, so the schema must be satisfied even though this
+// suite never exercises tracking-status-changed itself. Mirrors
+// tests/handler.test.ts.
+vi.stubEnv("DOCDB_HOST", "docdb-test");
+vi.stubEnv("DOCDB_USERNAME", "root");
+vi.stubEnv("DOCDB_PASSWORD", "secret");
+vi.stubEnv("SES_FROM_ADDRESS", "noreply@example.com");
+
 // The sender is the ONLY mocked collaborator: it is the process boundary (SES
 // over the network). The renderer and the catalog run for real, so the
 // assertion that the rendered HTML carries the code actually proves the
 // template surfaces it, rather than passing against a stub.
 vi.mock("#email/sender", () => ({ sendEmail: vi.fn(async () => {}) }));
 
-import { authOtpRequestedHandler } from "#handlers/auth-otp-requested";
-import { handlers } from "#handlers/index";
 import { sendEmail } from "#email/sender";
 import { PermanentError } from "#pipeline/errors";
 import type { Envelope } from "#domain/envelope";
+
+// Dynamic import, AFTER the vi.stubEnv calls above: static imports are
+// hoisted above all other module code (including vi.stubEnv), so importing
+// #handlers/auth-otp-requested or #handlers/index at the top of the file
+// would evaluate #shared/config/env before the stubs exist. Mirrors
+// tests/handler.test.ts.
+const { authOtpRequestedHandler } = await import("#handlers/auth-otp-requested");
+const { handlers } = await import("#handlers/index");
 
 function envelope(payload: Record<string, unknown>, event_id = "evt_otp1"): Envelope {
   return {
