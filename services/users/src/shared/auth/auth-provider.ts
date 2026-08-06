@@ -18,7 +18,19 @@ export interface RefreshedTokens {
 }
 
 export interface AuthProvider {
-  signUp(email: string, password: string, appUserId: string): Promise<CognitoSignUpResult>;
+  // `fullName` is written to Cognito's standard `name` attribute, NOT because
+  // this service needs it there — it has the name in Postgres — but because the
+  // OTP challenge Lambda does. That trigger runs inside Cognito with zero
+  // dependencies (no AWS SDK, no database), so the only user data it can read is
+  // what Cognito itself stores. Without this the login-code email greets every
+  // recipient namelessly, and no amount of work in this service can fix it from
+  // the outside. See infra/modules/cognito/otp-challenge-lambda/index.mjs.
+  signUp(
+    email: string,
+    password: string,
+    appUserId: string,
+    fullName: string,
+  ): Promise<CognitoSignUpResult>;
   login(email: string, password: string): Promise<AuthTokens>;
   refresh(refreshToken: string): Promise<RefreshedTokens>;
   // Cognito CUSTOM_AUTH, used for the one-time-code login path. `session` is the

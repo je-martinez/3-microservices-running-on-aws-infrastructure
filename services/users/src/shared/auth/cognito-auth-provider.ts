@@ -15,7 +15,12 @@ export class CognitoAuthProvider implements AuthProvider {
     private readonly clientId: string,
   ) {}
 
-  async signUp(email: string, password: string, appUserId: string): Promise<CognitoSignUpResult> {
+  async signUp(
+    email: string,
+    password: string,
+    appUserId: string,
+    fullName: string,
+  ): Promise<CognitoSignUpResult> {
     let created;
     try {
       created = await this.client.send(
@@ -27,6 +32,12 @@ export class CognitoAuthProvider implements AuthProvider {
             { Name: "email", Value: email },
             { Name: "email_verified", Value: "true" },
             { Name: "custom:app_user_id", Value: appUserId },
+            // The standard OIDC `name` claim. Written for ONE consumer: the OTP
+            // challenge Lambda, which greets the user in the login-code email
+            // and can read nothing but Cognito's own attributes (see the port's
+            // note in auth-provider.ts). This service reads the name from
+            // Postgres, never from here.
+            { Name: "name", Value: fullName },
           ],
         }),
       );

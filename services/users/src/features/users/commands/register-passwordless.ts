@@ -81,7 +81,7 @@ export class RegisterPasswordlessCommand {
 
     let signUp;
     try {
-      signUp = await this.auth.signUp(input.email, randomPassword, id);
+      signUp = await this.auth.signUp(input.email, randomPassword, id, input.fullName);
     } catch (err) {
       appLogger.error(
         {

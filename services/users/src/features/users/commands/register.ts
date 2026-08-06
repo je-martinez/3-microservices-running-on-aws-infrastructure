@@ -81,7 +81,7 @@ export class RegisterUserCommand {
     // contract (409 email_exists, etc.) is unchanged.
     let signUp;
     try {
-      signUp = await this.auth.signUp(input.email, input.password, id);
+      signUp = await this.auth.signUp(input.email, input.password, id, input.fullName);
     } catch (err) {
       appLogger.error(
         {

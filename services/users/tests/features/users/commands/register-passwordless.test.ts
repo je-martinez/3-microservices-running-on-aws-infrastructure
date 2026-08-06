@@ -59,6 +59,19 @@ describe("RegisterPasswordlessCommand", () => {
     expect(d.db.user.create.mock.calls[0][0].data.authType).toBe("PASSWORDLESS");
   });
 
+  // This path matters more than the password one for the name: a passwordless
+  // user signs in ONLY through the OTP flow, so they are guaranteed to receive
+  // the login-code email that greets them. Losing the name here means every
+  // such user is greeted namelessly, forever, on every sign-in.
+  it("forwards the full name to signUp, so Cognito can carry it to the OTP email", async () => {
+    const d = deps();
+
+    await new RegisterPasswordlessCommand(d).execute(input);
+
+    const [, , , fullName] = d.auth.signUp.mock.calls[0];
+    expect(fullName).toBe(input.fullName);
+  });
+
   it("calls auth.signUp with a random password never exposed on the returned user", async () => {
     const d = deps();
     const user = await new RegisterPasswordlessCommand(d).execute(input);
