@@ -19,6 +19,9 @@ importers:
       '@types/node':
         specifier: ^26.0.1
         version: 26.0.1
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
       chance:
         specifier: ^1.1.12
         version: 1.1.13
@@ -28,6 +31,9 @@ importers:
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
+      ws:
+        specifier: ^8.21.2
+        version: 8.21.2
 
   functions/events-pipeline:
     dependencies:
