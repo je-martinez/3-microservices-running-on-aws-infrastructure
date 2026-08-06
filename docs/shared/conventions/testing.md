@@ -29,7 +29,12 @@ Every HTTP endpoint MUST have all three test layers before it is considered done
 
 1. **Unit / integration** — the endpoint's logic tested in isolation. Orders uses xUnit with
    Testcontainers-MySQL through the in-process `WebApplicationFactory`; Users uses vitest with a
-   mocked container; Tracking uses pytest against a **live** MySQL rather than mocks.
+   mocked container; Tracking uses pytest against a **live** MySQL rather than mocks — specifically
+   the **shared local `tracking` database** (Floci grants the `test` user no `CREATE DATABASE`
+   privilege, so a throwaway per-run database is not an option), which means any fixture touching
+   the schema must restore it exactly as found. See
+   [[tracking/testing/index#Layer 1 — unit / integration]] and
+   `services/tracking/CLAUDE.md` §5c-bis for the full mechanics.
 2. **Internal E2E** — the service's own URL hit directly, bypassing the gateway, with `x-user-id`
    faked. Each service has its own internal Playwright spec running against its own port: orders
    against `http://localhost:3001`, users against `http://localhost:3000`, tracking against

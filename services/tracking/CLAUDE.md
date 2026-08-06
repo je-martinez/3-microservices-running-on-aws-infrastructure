@@ -174,6 +174,11 @@ Rules for anything that touches the schema from a test:
   `migrate-tracking` try to reapply every revision over existing tables; the stamp
   without tables makes it a silent no-op. `test_migration.py` restores via
   `alembic upgrade head` for exactly this reason, not via `create_all`.
+  - If that restore itself fails, the fixture falls back to `create_all` (so a later
+    repository test still finds tables) and then `pytest.fail`s with the alembic error.
+    That leaves the half-restored state this section warns about — tables present, no
+    stamp — but **loudly**, not silently. If you see that failure, run
+    `DROP TABLE tracking.alembic_version` and `make migrate-tracking` to resync.
 - The session `engine` fixture drops at **setup** (a clean shape for that run) and
   leaves the schema in place at teardown. `create_all` is idempotent and the per-test
   `session` fixture already truncates rows, so this costs nothing.
