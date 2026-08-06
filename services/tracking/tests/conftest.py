@@ -131,7 +131,24 @@ def engine(database_url: str) -> Iterator[Engine]:
     Base.metadata.drop_all(eng)
     Base.metadata.create_all(eng)
     yield eng
-    Base.metadata.drop_all(eng)
+    # Deliberately NOT dropping on teardown.
+    #
+    # This suite runs against the SHARED local `tracking` database — the same one
+    # the running service and the gateway E2E suite use — because a mocked
+    # repository test cannot catch a schema or driver bug (see `database_url`).
+    # A teardown `drop_all` therefore left the local environment with no tables:
+    # `init-tracking` answered 500, the E2E suite went red, and the failure
+    # looked like a broken feature rather than a test side effect.
+    #
+    # Worse, it was not self-healing. `drop_all` removes the model tables but not
+    # `alembic_version`, which Alembic owns and no model declares — so Alembic
+    # still reported the schema as up to date and `make migrate-tracking` became
+    # a silent no-op ("applied", nothing applied). Recovery needed dropping
+    # `alembic_version` by hand first, which nobody would guess from the symptom.
+    #
+    # Leaving the schema in place costs nothing: `create_all` is idempotent, the
+    # opening `drop_all` above still guarantees a clean shape for THIS run, and
+    # the per-test `session` fixture already truncates rows between tests.
     eng.dispose()
 
 

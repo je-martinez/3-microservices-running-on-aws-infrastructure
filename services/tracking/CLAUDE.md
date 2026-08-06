@@ -147,6 +147,40 @@ Implementation notes:
 - The interval is **injectable** (`progression_interval`); production default 10s,
   tests pass ~0 so the suite never sleeps for 30 seconds.
 
+## 5c-bis. The test suite shares the local database — leave it as you found it
+
+`tests/conftest.py`'s `engine` fixture runs against the **shared local `tracking`
+database**, the same one the running service and the gateway E2E suite use. That is
+deliberate (`database_url`'s skip message explains it: a mocked repository test cannot
+catch a schema or driver bug), but it makes the suite's teardown load-bearing for
+everyone else's environment.
+
+It used to `drop_all` on teardown. Running `pytest` therefore left the local stack with
+**no tracking tables**: `init-tracking` answered 500, the gateway E2E went red, and the
+symptom pointed at the feature under test rather than at a test side effect.
+
+It also did not self-heal, which is what made it expensive:
+
+- `drop_all` removes the model tables but **not** `alembic_version` — no model declares
+  it, Alembic owns it.
+- With the stamp intact and the tables gone, `alembic upgrade head` is a **no-op**. So
+  `make migrate-tracking` printed *"Alembic migrations applied"* and applied nothing.
+- Recovery meant dropping `alembic_version` by hand first — not something the symptom
+  suggests.
+
+Rules for anything that touches the schema from a test:
+
+- **Restore both halves, together.** Tables without the stamp make the next
+  `migrate-tracking` try to reapply every revision over existing tables; the stamp
+  without tables makes it a silent no-op. `test_migration.py` restores via
+  `alembic upgrade head` for exactly this reason, not via `create_all`.
+- The session `engine` fixture drops at **setup** (a clean shape for that run) and
+  leaves the schema in place at teardown. `create_all` is idempotent and the per-test
+  `session` fixture already truncates rows, so this costs nothing.
+- **Symptom → cause shortcut:** a gateway E2E failing with
+  `[teardown] tracking: cleanup failed with 500` almost always means
+  `Table 'tracking.tracking' doesn't exist`. Check that before suspecting the code.
+
 ## 5d. `TRACKING_STATUS_CHANGED` — the third producer
 Tracking publishes to the shared SQS events queue (`EVENTS_QUEUE_URL`) on **every** status
 transition, consumed by the events-pipeline Lambda, which emails the user. See
