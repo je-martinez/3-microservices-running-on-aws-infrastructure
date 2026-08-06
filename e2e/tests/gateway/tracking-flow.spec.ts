@@ -4,6 +4,7 @@ import { makeUser } from "../../support/chance-factory.js";
 import { gatewayClient } from "../../support/gateway-client.js";
 import {
   assertMailpitReachable,
+  getMessage,
   waitForEmailTo,
   type MailpitMessage,
 } from "../../support/mailpit-client.js";
@@ -262,7 +263,13 @@ test("the full journey through the gateway: user → order → tracking → DELI
   // template received the event's real payload rather than sample props — the
   // catalog's sampleProps say "ada@example.com", so a handler that rendered the
   // sample instead of the event would pass a subject check and fail this one.
-  expect(welcome?.Snippet).toContain(email);
+  // Read the FULL body, not `Snippet`. Mailpit truncates the snippet to ~150
+  // characters, and the rebranded template opens with the header chrome
+  // ("3MRAI COMPANY ✓ Welcome to 3MRAI! Hi <name>, …"), which pushed the
+  // address past that cut-off. The address is still in the message — asserting
+  // on the snippet was measuring how much of the body Mailpit chose to preview.
+  const welcomeBody = await getMessage(welcome!.ID);
+  expect(welcomeBody.HTML).toContain(email);
 
   // 2. ORDER_CREATED → the confirmation, which must name THIS order.
   const confirmation = findBySubject(inbox, "Order confirmed");

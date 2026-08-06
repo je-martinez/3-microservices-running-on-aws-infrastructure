@@ -35,6 +35,6 @@ public class OrderReadService
     }
 
     private static OrderDto Map(Domain.Entities.Order o) => new(
-        o.Id, o.UserId, o.CognitoSub, o.SubtotalCents, o.TaxCents, o.TotalCents, o.CreatedAt,
+        o.Id, o.UserId, o.CognitoSub, o.SubtotalCents, o.TaxCents, o.ShippingCents, o.TotalCents, o.CreatedAt,
         o.Details.Select(d => new OrderLineDto(d.ProductId, d.Quantity, d.SubtotalCents, d.TaxCents, d.TotalCents)).ToList());
 }

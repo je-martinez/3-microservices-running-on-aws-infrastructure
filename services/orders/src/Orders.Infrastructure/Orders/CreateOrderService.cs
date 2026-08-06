@@ -289,7 +289,7 @@ public class CreateOrderService
             // Map the in-memory order (order.Details already populated) instead of
             // re-querying — mirrors OrderReadService.Map exactly; keep both in sync.
             return new OrderDto(
-                order.Id, order.UserId, order.CognitoSub, order.SubtotalCents, order.TaxCents, order.TotalCents, order.CreatedAt,
+                order.Id, order.UserId, order.CognitoSub, order.SubtotalCents, order.TaxCents, order.ShippingCents, order.TotalCents, order.CreatedAt,
                 order.Details.Select(d => new OrderLineDto(d.ProductId, d.Quantity, d.SubtotalCents, d.TaxCents, d.TotalCents)).ToList());
         });
     }
