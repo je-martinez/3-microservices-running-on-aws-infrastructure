@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-06-28
-updated: 2026-07-29
+updated: 2026-08-06
 tags:
   - type/convention
   - area/shared
@@ -16,6 +16,7 @@ related:
   - "[[2026-06-28-services-infra-scaffold]]"
   - "[[linear-references]]"
   - "[[scripting-language]]"
+  - "[[2026-08-06-multi-provider-agent-config-sync-design]]"
 ---
 
 # Skills Catalog
@@ -131,6 +132,37 @@ The following ship with the Claude Code harness itself and require no install st
 
 ---
 
+## Multi-provider sync
+
+`.claude/` is the source of truth; the `ai-config-sync` subagent propagates instructions,
+rules, skills, and MCP servers to six other AI coding providers (Codex, Cursor, Copilot,
+Gemini CLI, OpenCode, Windsurf) via [lnai](https://lnai.sh/), run through `make ai-sync` /
+`make ai-sync-check`. Full design: [[2026-08-06-multi-provider-agent-config-sync-design]].
+
+**Shared vs excluded.** Skill sharing across providers is an explicit allowlist, not a
+wholesale mirror, recorded in `.ai/.lnai-projection.yml`:
+
+- **Shared:** `floci` (local AWS emulator knowledge) and `terraform-skill` — both portable,
+  no dependency on tooling specific to Claude Code.
+- **Excluded:** `obsidian-bases`, `obsidian-cli`, `obsidian-markdown`, `json-canvas`,
+  `defuddle` — each depends on Obsidian tooling other providers do not have, so shipping them
+  elsewhere would only produce dead references.
+
+**Copies, not symlinks.** `.ai/skills/` holds **copies** of the shared subset rather than
+symlinks back into `.claude/skills/`. `skills-lock.json` already governs `.claude/skills/`
+with pinned source hashes; a `skills update` run must not rewrite a directory another
+provider is reading mid-run — this matters specifically because Orca runs agents in parallel
+across worktrees, so a symlinked target could change underneath a concurrent reader.
+
+**`floci`'s description needs quoting in the copy.** The skill's `description` field contains
+an unquoted `": "` (from `:4566` and `Knowledge layer:`), which Claude Code's frontmatter
+parser tolerates but lnai's stricter YAML parser (js-yaml) rejects outright. The fix is
+applied to the **copy** under `.ai/skills/floci/SKILL.md` only, never to the source under
+`.claude/skills/floci/` — and must be re-applied after every re-copy, since the copy is
+disposable and regenerated from source on each sync.
+
+---
+
 ## Where to find more skills
 
 See the appendix "Where to search for skills" in [[2026-06-28-services-infra-scaffold-design]] for the full source list: official vendor registries, marketplace aggregators (including skillsmp.com), and community awesome lists.
@@ -149,3 +181,4 @@ SkillsMP is a massive aggregator (~1.8 M entries) with low signal-to-noise ratio
 - [[2026-06-28-services-infra-scaffold]] — the implementation plan that includes this catalog as Task 7.
 - [[linear-references]] — Linear reference convention (tags + inline links, no mirroring).
 - [[scripting-language]] — Python-first scripting convention that justifies `python-pro` on `infra-impl`.
+- [[2026-08-06-multi-provider-agent-config-sync-design]] — Design of the `ai-config-sync` subagent and the skill-sharing allowlist referenced above.

@@ -2,10 +2,10 @@
 title: Multi-Provider Agent Config Sync — Implementation Plan
 type: plan
 area: shared
-status: draft
+status: active
 created: 2026-08-06
 updated: 2026-08-06
-tags: [type/plan, area/shared, status/draft]
+tags: [type/plan, area/shared, status/active]
 related: ["[[2026-08-06-multi-provider-agent-config-sync-design]]", "[[scripting-language]]", "[[skills-catalog]]"]
 propagates-to:
   - "[[skills-catalog]]"
