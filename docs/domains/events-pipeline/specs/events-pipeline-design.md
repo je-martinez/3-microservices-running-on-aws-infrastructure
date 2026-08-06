@@ -472,12 +472,13 @@ hardcoded):
 
 ### The pushed message deliberately carries no email address
 
-The frame `publishToUser` sends carries `type`, `order_id`, and `status` only — no PII, no email
-address, matching [[logging-context]]'s stance that a plaintext email never travels further than
-it has to. The email address is exactly what the **email** side of this same handler needs (via
-Tracking's gRPC-resolved `ResolvedUser.email`, see [[tracking-service-design#gRPC — outbound client to Users]])
-and exactly what the WebSocket side does not: the client that opened the socket already knows who
-it authenticated as.
+The frame `publishToUser` sends carries `type`, `order_id`, `status`, `previous_status`, and
+`changed_at` — none of the five is PII, and none of them is the recipient's email address, matching
+[[logging-context]]'s stance that a plaintext email never travels further than it has to. The email
+address is exactly what the **email** side of this same handler needs (via Tracking's gRPC-resolved
+`ResolvedUser.email`, see [[tracking-service-design#gRPC — outbound client to Users]]) and exactly
+what the WebSocket side does not: the client that opened the socket already knows who it
+authenticated as, so including it would add exposure with no benefit.
 
 ### Floci facts (WebSocket API Gateway + DynamoDB)
 
@@ -512,7 +513,7 @@ for the full evidence trail.
   over plain HTTP and `aws-jwt-verify`'s default fetcher rejects non-HTTPS URIs.
 
 > [!success] Resolved (2026-08-06) — the outstanding issue below was an incorrect assertion
-> `e2e/tests/gateway/realtime-events.spec.ts` has three tests. The invalid-token rejection test
+> `e2e/tests/gateway/realtime-tracking.spec.ts` has three tests. The invalid-token rejection test
 > always passed. The two positive tests ("delivers all status transitions", "does not deliver one
 > user's events to another user") were previously reported red, failing with **0 frames
 > received**. The root cause was the tests' own expectation, not the delivery path: they waited

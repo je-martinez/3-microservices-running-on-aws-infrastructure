@@ -137,7 +137,7 @@ test.describe("realtime tracking events over websocket", () => {
     // (publishToUser queries the connections GSI by author.cognito_sub — see
     // functions/events-pipeline/src/handlers/tracking-status-changed.ts). If
     // the pipeline pushed to every open connection instead of the owner's,
-    // bob's socket would have received all four messages here too.
+    // bob's socket would have received all three messages here too.
     expect(bobSocket.messages).toHaveLength(0);
     expect(
       (aliceSocket.messages as Array<{ order_id: string }>).every((m) => m.order_id === orderId),

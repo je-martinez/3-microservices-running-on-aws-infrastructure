@@ -4,7 +4,7 @@ type: plan
 area: events-pipeline
 status: draft
 created: 2026-08-03
-updated: 2026-08-03
+updated: 2026-08-06
 tags: [type/plan, area/events-pipeline, status/draft]
 propagates-to:
   - "[[events-pipeline-design]]"
@@ -3914,12 +3914,13 @@ cd services/tracking && pytest tests/e2e/test_tracking_status_changed_email.py -
 Expected: 2 passed (requires the full local stack up: Block A applied, Block C's
 `TRACKING_STATUS_CHANGED` handler live, Mailpit healthy, `E2E_TESTING_ENABLED=true`).
 
-> [!warning] TestMode E2E produces four emails per run
+> [!warning] TestMode E2E produces three emails per run
 > Because TestMode emits on every transition with no suppression (this task's implementation),
 > a single TestMode E2E run that progresses a tracking through all four statuses produces
-> **four emails in Mailpit for that one tracking**, not one. Assert by polling for each
-> status's specific email (as `_poll_for_email` does above), never by asserting an inbox count
-> of one — an inbox-count assertion here is a guaranteed false failure.
+> **three emails in Mailpit for that one tracking**, not one — three, not the four this note
+> originally said, because `SHIPPED` is the creation state, not a transition, so it never emits.
+> Assert by polling for each status's specific email (as `_poll_for_email` does above), never by
+> asserting an inbox count of one — an inbox-count assertion here is a guaranteed false failure.
 
 - [ ] **Step 12: Commit**
 

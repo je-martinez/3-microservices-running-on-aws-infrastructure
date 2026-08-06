@@ -1,3 +1,16 @@
+// EVERY function in this module THROWS on failure — deliberately, and this is
+// the one thing to know before calling it.
+//
+// The realtime push is contractually not allowed to fail an event (a
+// propagating error would make SQS retry the record and send the user a second
+// email for a transition they were already notified about). That guarantee is
+// NOT implemented here: it lives entirely in `websocket-publisher.ts`, whose
+// `publishToUser` wraps every call into this module in try/catch.
+//
+// So: reach this module THROUGH `publishToUser`. Calling `queryByCognitoSub` or
+// `deleteConnection` directly from a handler re-introduces a throw path into
+// the pipeline with nothing to catch it, and the failure would look like a
+// broken event rather than a failed notification.
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,

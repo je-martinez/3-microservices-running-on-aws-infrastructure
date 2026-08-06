@@ -39,9 +39,10 @@ The realtime design (WebSocket API + REQUEST authorizer + DynamoDB, per
 [[2026-08-05-realtime-tracking-events-websocket-design]]) is **viable on Floci as designed**. Every
 piece the design depends on — the WebSocket data plane, `@connections` management calls, the
 REQUEST authorizer's context propagation, and DynamoDB with a GSI — is genuinely implemented, not
-stubbed. Two open issues remain, both scoped below: an undocumented local-only URL shape (harmless
-once known) and an unexplained gateway E2E failure specific to the Playwright-driven test path
-(a real gap, not yet root-caused).
+stubbed. One local-only quirk remains scoped below (an undocumented URL shape, harmless once
+known); the gateway E2E failure once reported here turned out to be an incorrect test assertion,
+not a gap in the feature — see [Resolved: the gateway E2E "failure" was the assertion, not the
+feature](#resolved-2026-08-06--the-gateway-e2e-failure-was-the-assertion-not-the-feature) below.
 
 ## What WORKS (verified, with the evidence)
 
@@ -154,17 +155,19 @@ container; only the in-network `http://floci:4566` (`AWS_ENDPOINT_URL`) does. Fe
 from the issuer URL directly fails with a bare `fetch failed`, independent of whether the
 issuer/signature are otherwise valid.
 
-## Open issue: two of three gateway E2E tests are red, root cause unexplained
+## Resolved (2026-08-06) — the gateway E2E "failure" was the assertion, not the feature
 
-Not a Floci-only finding — flagged here because it sits squarely in the WebSocket surface this
-note documents, and because ruling out Floci-emulator causes was part of the diagnostic work.
+Not a Floci-only finding — kept here because it sits squarely in the WebSocket surface this note
+documents, and because ruling out Floci-emulator causes was part of the diagnostic work.
 
-`e2e/tests/gateway/realtime-events.spec.ts`: the invalid-token rejection test passes. The two
-positive tests ("delivers all four status transitions", "does not deliver one user's events to
-another user") fail with **0 frames received**. A controller-run direct-Lambda probe verified the
-full chain works end to end (authenticated socket → GSI row present → pipeline invoked for that
-sub → frame delivered with the correct payload), and the `410 Gone` cleanup path was independently
-confirmed live by watching a seeded row get deleted. Four hypotheses were measured and ruled out:
+`e2e/tests/gateway/realtime-tracking.spec.ts` has three tests. The invalid-token rejection test
+always passed. The two positive tests ("delivers all status transitions", "does not deliver one
+user's events to another user") were previously reported red, failing with **0 frames received**.
+A controller-run direct-Lambda probe had already verified the full chain works end to end
+(authenticated socket → GSI row present → pipeline invoked for that sub → frame delivered with the
+correct payload), and the `410 Gone` cleanup path was independently confirmed live by watching a
+seeded row get deleted — so the delivery path itself was never the problem. Four hypotheses were
+measured and ruled out along the way:
 
 - Premature socket close — the socket survived the **full 75.3s** `waitForCount` timeout and
   closed only when the test gave up, not before.
@@ -175,12 +178,17 @@ confirmed live by watching a seeded row get deleted. Four hypotheses were measur
 - Stale env in Playwright — `playwright.config.ts` loads `.env.local.debug` explicitly, and its
   `WS_URL` matches the live API id for that run.
 
-So: socket alive, row indexed, events flowing, same sub, right endpoint — yet 0 frames via the
-Playwright-driven path, while the identical chain driven by a direct Lambda invoke delivers.
-Current suspicion is client-side, in the Node `ws` usage inside `e2e/support/ws-client.ts`, since
-the server side is independently and repeatedly confirmed to deliver. Not yet resolved as of
-2026-08-06 — see [[2026-08-05-realtime-tracking-events-websocket-design]] (status intentionally
-left `active`, not `accepted`, because of this) and
+The real root cause was the tests' own expectation: they waited for **four** messages including
+`SHIPPED`, but `TRACKING_STATUS_CHANGED` is published only from `update_tracking_status` (the
+transition path) — `SHIPPED` is the status a tracking is *created* at (`create_tracking.py`), which
+never calls it, so it is never pushed. A TestMode run therefore produces exactly **three**
+transitions (`ON_THE_WAY`, `OUT_FOR_DELIVERY`, `DELIVERED`) and three pushes; see
+[[tracking-service-design#Events]]. With the assertion corrected to three, both positive tests pass
+and the full E2E suite is 83/83. The count-only assertion (`expected 4, got 3`) is what hid this —
+it could not distinguish a dropped message from a wrong expectation, which is why the four
+hypotheses above had to be ruled out one at a time before the real cause was visible. See
+[[2026-08-05-realtime-tracking-events-websocket-design#Debugging lesson — a count-only assertion
+hides which system is wrong]] and
 [[events-pipeline-design#Realtime WebSocket fan-out (second output of TRACKING_STATUS_CHANGED)]].
 
 ## Probe hygiene

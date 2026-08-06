@@ -4,7 +4,7 @@ type: spec
 area: events-pipeline
 status: draft
 created: 2026-08-03
-updated: 2026-08-03
+updated: 2026-08-06
 tags:
   - type/spec
   - area/events-pipeline
@@ -371,8 +371,10 @@ the real email flow end-to-end rather than a stubbed one. Rationale for not addi
 TestMode-only suppression: it would leave the email path untested in exactly the test meant to
 cover it, and it would add a conditional branch to the one shared command that this design
 otherwise keeps simple. Consequence: a TestMode E2E run progresses one tracking through all
-four statuses in ~30 seconds and produces **four emails in Mailpit for that one tracking** —
-this is expected, not a bug, and E2E assertions must account for it (see Testing).
+four statuses in ~30 seconds and produces **three emails in Mailpit for that one tracking**
+(three, not the four this note originally said — `SHIPPED` is the creation state, not a
+transition, so it never reaches `update_status.py` and never emits) — this is expected, not a
+bug, and E2E assertions must account for it (see Testing).
 
 > [!warning] Easy-to-miss trap — `user_id` comes from the tracking record, not the request
 > The carrier webhook is authenticated by an API key and carries **no** `x-user-id` — its
@@ -459,11 +461,14 @@ Tracking's producer role gets the same three-layer treatment as the pipeline sid
    produces a `COMPLETED` document in DocumentDB and the corresponding email in Mailpit, for
    each of the four statuses.
 
-> [!warning] TestMode E2E produces four emails per run
+> [!warning] TestMode E2E produces three emails per run
 > Because TestMode emits on every transition with no suppression (see Producer wiring →
 > Tracking), a single TestMode E2E run that progresses a tracking through all four statuses
-> produces **four emails in Mailpit for that one tracking**, not one. E2E assertions for
-> Tracking must expect and check all four, not just the final `DELIVERED` state.
+> produces **three emails in Mailpit for that one tracking**, not one — three, not the four
+> this note originally said, because `SHIPPED` is the creation state (written by
+> `create_tracking.py`), not a transition, and `update_status.py` is the only place that
+> emits. E2E assertions for Tracking must expect and check the three emitted transitions
+> (`ON_THE_WAY`, `OUT_FOR_DELIVERY`, `DELIVERED`), not just the final `DELIVERED` state.
 
 ### Async assertions
 

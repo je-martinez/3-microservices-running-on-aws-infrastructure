@@ -145,7 +145,7 @@ producer, `functions/realtime-events/`, adapted from. See
 2. **Pipeline-side** (`functions/events-pipeline/tests/websocket-publisher.test.ts`) — the fan-out
    logic with a simulated `410 Gone` response, asserting the dead connection's row is deleted and
    the rest of the batch is unaffected.
-3. **Gateway E2E** (`e2e/tests/gateway/realtime-events.spec.ts`) — the only test that crosses
+3. **Gateway E2E** (`e2e/tests/gateway/realtime-tracking.spec.ts`) — the only test that crosses
    Floci's WebSocket data plane end to end: real Cognito login → open the socket at
    `ws://localhost:4566/ws/{apiId}/{stage}?token=<jwt>` → create an order with
    `x-test-mode: true` → assert the **three** TestMode transitions arrive as WebSocket frames
