@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-08-05
+updated: 2026-08-06
 tags: [type/spec, area/shared, status/active]
 related:
   - "[[2026-06-26-implementation-workflow]]"
@@ -42,6 +42,8 @@ related:
   - "[[2026-08-03-events-pipeline-milestone-design]]"
   - "[[2026-08-03-events-pipeline-milestone]]"
   - "[[events-pipeline-milestone]]"
+  - "[[2026-08-05-realtime-tracking-events-websocket-design]]"
+  - "[[2026-08-05-realtime-tracking-events-websocket]]"
 ---
 
 # 3MRAI Plans — Index
@@ -85,6 +87,8 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-08-03-events-pipeline-milestone-design]] — design spec for the Events Pipeline milestone: SQS + DocumentDB Terraform, the Lambda's CQRS dispatch and error taxonomy, react-email/SES/Mailpit, and wiring all three producers (Users, Orders, Tracking) for real.
 - [[2026-08-03-events-pipeline-milestone]] — implementation plan for the Events Pipeline milestone: Block A (infra), Block B (Lambda core), Block C (email handlers), Block D (real producers).
 - [[events-pipeline-milestone]] — logical execution plan for the Events Pipeline milestone: task sequence, phases, and blocking dependency graph for JE-124 through JE-137.
+- [[2026-08-05-realtime-tracking-events-websocket-design]] — design spec for pushing `TRACKING_STATUS_CHANGED` to connected clients over a new AWS API Gateway WebSocket API (Cognito-authenticated `$connect`, DynamoDB connection registry keyed by `cognito_sub`) alongside the existing email notification, fanning out from the existing events-pipeline Lambda.
+- [[2026-08-05-realtime-tracking-events-websocket]] — implementation plan for the realtime WebSocket feature: the `dynamodb` and `api-gateway-ws` Terraform modules, the new `functions/realtime-events/` package, the events-pipeline publisher, Tracking's `author.cognito_sub` propagation, and the gateway E2E suite. **In progress** — two of three gateway E2E tests are still red with an unexplained root cause (see [[events-pipeline-design#Realtime WebSocket fan-out (second output of TRACKING_STATUS_CHANGED)]] and [[floci-websocket-apigw-dynamodb-support]]).
 
 > [!note] No plan note for the AuditActor enum
 > [[2026-07-12-audit-actor-enum-design]] was implemented directly from the spec — there is no separate `writing-plans` plan for it.
@@ -126,3 +130,5 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-08-03-events-pipeline-milestone-design]]
 - [[2026-08-03-events-pipeline-milestone]]
 - [[events-pipeline-milestone]]
+- [[2026-08-05-realtime-tracking-events-websocket-design]]
+- [[2026-08-05-realtime-tracking-events-websocket]]

@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-07-31
+updated: 2026-08-06
 tags:
   - type/spec
   - area/shared
@@ -67,6 +67,10 @@ related:
   - "[[cognito-pre-token-lambda]]"
   - "[[awscli-fallback-for-floci]]"
   - "[[execution-log-for-provisioning-scripts]]"
+  - "[[2026-08-05-realtime-tracking-events-websocket-design]]"
+  - "[[2026-08-05-realtime-tracking-events-websocket]]"
+  - "[[floci-sqs-lambda-docdb-support]]"
+  - "[[floci-websocket-apigw-dynamodb-support]]"
 ---
 
 # 3MRAI — Index
@@ -253,6 +257,8 @@ Durable empirical findings from spikes, incidents, and experiments.
 - [[signoz-selfhost-migrator-blocker]] — Task 3 of the SigNoz logs plan is blocked: the self-hosted SigNoz schema-migrator hangs and never creates the `signoz_*` ClickHouse database. Diagnosis and resume options recorded for the next session.
 - [[2026-07-12-prisma-lazy-promise-als]] — Prisma's lazy `PrismaPromise` silently broke `AsyncLocalStorage`-scoped audit actors: a non-awaited wrapper exited the ALS scope before the query (and its actor read) ran, stamping the wrong `createdBy`/`updatedBy`. Mocked tests could not catch it.
 - [[drawio-diagram-legibility]] — draw.io diagrams must use verified text/fill contrast and a canvas-fitting layout, checked by rendering to PNG — XML validity alone does not guarantee a legible diagram.
+- [[floci-sqs-lambda-docdb-support]] — Empirical probe of Floci's SQS, Lambda (SQS event source mapping), and DocumentDB support ahead of the events-pipeline milestone: all viable as designed, with three local-only findings (no multi-document DocumentDB transactions, a non-stable DocumentDB endpoint, and a silently-dropped `update-event-source-mapping` field).
+- [[floci-websocket-apigw-dynamodb-support]] — Empirical probe of Floci's WebSocket API Gateway + DynamoDB support for the realtime-events feature: the REQUEST authorizer's context genuinely propagates (unlike the HTTP API's claim-mapping gap), two undocumented local-only URL shapes, a Cognito JWT verifier issuer-from-configuration requirement, and an unresolved gateway E2E gap.
 
 ---
 
@@ -323,3 +329,8 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[drawio-diagram-legibility]]
 - [[cognito-pre-token-lambda]]
 - [[awscli-fallback-for-floci]]
+- [[execution-log-for-provisioning-scripts]]
+- [[2026-08-05-realtime-tracking-events-websocket-design]]
+- [[2026-08-05-realtime-tracking-events-websocket]]
+- [[floci-sqs-lambda-docdb-support]]
+- [[floci-websocket-apigw-dynamodb-support]]

@@ -2,13 +2,13 @@
 title: Realtime Tracking Events over WebSocket — Implementation Plan
 type: plan
 area: events-pipeline
-status: draft
+status: active
 created: 2026-08-05
-updated: 2026-08-05
+updated: 2026-08-06
 tags:
   - type/plan
   - area/events-pipeline
-  - status/draft
+  - status/active
 propagates-to:
   - "[[events-pipeline-design]]"
   - "[[tracking-service-design]]"
