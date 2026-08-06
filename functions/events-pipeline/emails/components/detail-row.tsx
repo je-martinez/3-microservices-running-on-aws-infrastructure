@@ -1,6 +1,5 @@
 import { Row, Column, Text } from "@react-email/components";
 import type { ReactNode } from "react";
-import { theme } from "../theme.ts";
 
 // The label/value line that repeats across the `.pen` frames ("Row Email", "Row
 // Member Since", "Row Account ID", "Row Carrier", "Row Tracking Number", …):
@@ -12,32 +11,12 @@ import { theme } from "../theme.ts";
 // `align` doing the work.
 export function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <Row style={{ marginBottom: "10px" }}>
+    <Row className="mb-[10px]">
       <Column align="left">
-        <Text
-          style={{
-            margin: "0",
-            fontFamily: theme.fontBody,
-            fontSize: "13px",
-            fontWeight: 400,
-            color: theme.textSecondary,
-          }}
-        >
-          {label}
-        </Text>
+        <Text className="m-0 font-body text-[13px] font-normal text-text-secondary">{label}</Text>
       </Column>
       <Column align="right">
-        <Text
-          style={{
-            margin: "0",
-            fontFamily: theme.fontBody,
-            fontSize: "13px",
-            fontWeight: 500,
-            color: theme.textPrimary,
-          }}
-        >
-          {value}
-        </Text>
+        <Text className="m-0 font-body text-[13px] font-medium text-text-primary">{value}</Text>
       </Column>
     </Row>
   );

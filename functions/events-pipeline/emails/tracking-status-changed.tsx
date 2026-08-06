@@ -193,24 +193,25 @@ function StepIndicator({ state, isLast }: { state: StepState; isLast: boolean })
 
   return (
     <>
-      <table cellPadding="0" cellSpacing="0" role="presentation" style={{ borderCollapse: "collapse" }}>
+      <table cellPadding="0" cellSpacing="0" role="presentation" className="border-collapse">
         <tbody>
           <tr>
+            {/* STOP POINT — this cell keeps an inline `style`. Its background,
+                border and font size are all DERIVED AT RUNTIME from
+                `done`/`active`/`pending` (see `dotFill`/`lineFill` above), and a
+                class built by interpolating a computed colour
+                (`bg-[${dotFill}]`) is not something Tailwind can compile: the
+                fill would silently disappear and every dot would render
+                transparent. Only the truly static parts move to `className`. */}
             <td
               align="center"
+              className="w-[22px] h-[22px] rounded-[11px] font-body leading-[22px] text-bg-white text-center"
               style={{
-                width: "22px",
-                height: "22px",
                 backgroundColor: dotFill,
-                borderRadius: "11px",
                 // The pending dot is a hollow ring; done/active are filled, and
                 // the active one gets a white centre from the "●" glyph below.
                 border: state === "pending" ? `2px solid ${theme.borderColor}` : "none",
-                fontFamily: theme.fontBody,
                 fontSize: state === "done" ? "13px" : "10px",
-                lineHeight: "22px",
-                color: theme.bgWhite,
-                textAlign: "center",
               }}
             >
               {/* Text glyphs, not icons — see the ICONS note at the top of the
@@ -222,20 +223,19 @@ function StepIndicator({ state, isLast }: { state: StepState; isLast: boolean })
           </tr>
           {!isLast && (
             <tr>
-              <td align="center" style={{ padding: "0" }}>
-                <table cellPadding="0" cellSpacing="0" role="presentation" style={{ borderCollapse: "collapse" }}>
+              <td align="center" className="p-0">
+                <table cellPadding="0" cellSpacing="0" role="presentation" className="border-collapse">
                   <tbody>
                     <tr>
+                      {/* `backgroundColor` is again runtime-derived (green once
+                          the step above is reached, grey ahead of it), so it
+                          stays inline for the same reason as the dot. */}
                       <td
-                        style={{
-                          width: "2px",
-                          height: "28px",
-                          backgroundColor: lineFill,
-                          // Some clients collapse a cell with no content to zero
-                          // height; a zero-width space keeps the line drawn.
-                          fontSize: "1px",
-                          lineHeight: "28px",
-                        }}
+                        // Some clients collapse a cell with no content to zero
+                        // height; the 1px font-size plus the zero-width space
+                        // below keep the line drawn.
+                        className="w-[2px] h-[28px] text-[1px] leading-[28px]"
+                        style={{ backgroundColor: lineFill }}
                       >
                         &#8203;
                       </td>
@@ -273,14 +273,7 @@ function StatusTimeline({
   const estimate = estimatedDelivery(history);
 
   return (
-    <Section
-      style={{
-        backgroundColor: TIMELINE_BG,
-        borderRadius: "8px",
-        padding: "24px 20px",
-        marginBottom: "24px",
-      }}
-    >
+    <Section className={`bg-[${TIMELINE_BG}] rounded-[8px] px-[20px] py-[24px] mb-[24px]`}>
       {STEPS.map((step, index) => {
         const state: StepState =
           index < currentIndex ? "done" : index === currentIndex ? "active" : "pending";
@@ -302,31 +295,22 @@ function StatusTimeline({
             {/* Two columns, not flex: an indicator column of fixed width and a
                 text column that takes the rest. `verticalAlign: top` keeps the
                 label level with its dot once the connector stretches the row. */}
-            <Column style={{ width: "36px", verticalAlign: "top" }}>
+            <Column className="w-[36px] align-top">
               <StepIndicator state={state} isLast={index === STEPS.length - 1} />
             </Column>
-            <Column style={{ verticalAlign: "top", paddingTop: "2px" }}>
+            <Column className="align-top pt-[2px]">
+              {/* The `.pen` bolds ONLY the active step's label and mutes the
+                  ones not yet reached. `state` is runtime, but it has three
+                  known values, so each branch picks a COMPLETE static class —
+                  never an interpolated one Tailwind could not compile. */}
               <Text
-                style={{
-                  margin: "0",
-                  fontFamily: theme.fontBody,
-                  fontSize: "14px",
-                  // The `.pen` bolds ONLY the active step's label and mutes the
-                  // ones not yet reached.
-                  fontWeight: state === "active" ? 600 : 400,
-                  color: state === "pending" ? theme.textMuted : theme.textPrimary,
-                }}
+                className={`m-0 font-body text-[14px] ${state === "active" ? "font-semibold" : "font-normal"} ${
+                  state === "pending" ? "text-text-muted" : "text-text-primary"
+                }`}
               >
                 {step.label}
               </Text>
-              <Text
-                style={{
-                  margin: "2px 0 0",
-                  fontFamily: theme.fontBody,
-                  fontSize: "12px",
-                  color: theme.textMuted,
-                }}
-              >
+              <Text className="mt-[2px] mb-0 mx-0 font-body text-[12px] text-text-muted">
                 {dateLabel}
               </Text>
             </Column>
@@ -360,22 +344,12 @@ export default function TrackingStatusChangedEmail({
           ICONS note): a shape that always draws beats a glyph that may not. */}
       <Row>
         <Column align="center">
-          <table cellPadding="0" cellSpacing="0" role="presentation" style={{ borderCollapse: "collapse" }}>
+          <table cellPadding="0" cellSpacing="0" role="presentation" className="border-collapse">
             <tbody>
               <tr>
                 <td
                   align="center"
-                  style={{
-                    width: "64px",
-                    height: "64px",
-                    backgroundColor: theme.infoBg,
-                    borderRadius: "32px",
-                    fontFamily: theme.fontBody,
-                    fontSize: "26px",
-                    lineHeight: "64px",
-                    color: theme.infoBlue,
-                    textAlign: "center",
-                  }}
+                  className="w-[64px] h-[64px] bg-info-bg rounded-[32px] font-body text-[26px] leading-[64px] text-info text-center"
                 >
                   {/* U+25CE — a ring around a dot, which reads as a map pin /
                       location marker and exists in the default font stacks. */}
@@ -387,16 +361,7 @@ export default function TrackingStatusChangedEmail({
         </Column>
       </Row>
 
-      <Heading
-        style={{
-          margin: "24px 0 0",
-          fontFamily: theme.fontHeading,
-          fontSize: "24px",
-          fontWeight: 700,
-          color: theme.textPrimary,
-          textAlign: "center",
-        }}
-      >
+      <Heading className="mt-[24px] mb-0 mx-0 font-heading text-[24px] font-bold text-text-primary text-center">
         Tracking Update
       </Heading>
 
@@ -404,46 +369,29 @@ export default function TrackingStatusChangedEmail({
           template placeholders; the real props fill them. `previousStatus` keeps
           its sentence here so each of the five variants states the transition it
           is actually reporting. */}
-      <Text
-        style={{
-          margin: "24px 0 0",
-          fontFamily: theme.fontBody,
-          fontSize: "15px",
-          color: theme.textPrimary,
-        }}
-      >
+      <Text className="mt-[24px] mb-0 mx-0 font-body text-[15px] text-text-primary">
         Hi {fullName},
       </Text>
-      <Text
-        style={{
-          margin: "12px 0 24px",
-          fontFamily: theme.fontBody,
-          fontSize: "14px",
-          lineHeight: "1.5",
-          color: theme.textSecondary,
-        }}
-      >
+      <Text className="mt-[12px] mb-[24px] mx-0 font-body text-[14px] leading-[1.5] text-text-secondary">
         {heading}: your order {orderId} {body} (previously: {previousStatus}). Here&apos;s the latest
         on your shipment:
       </Text>
 
       <StatusTimeline status={status} history={history} />
 
-      <Hr style={{ borderColor: theme.borderColor, borderTopWidth: "1px", margin: "0 0 24px" }} />
+      {/* STOP POINT — `Hr`'s border colour stays inline; its own default style
+          is emitted after Tailwind's classes and would win. See the same note
+          in `components/layout.tsx`. */}
+      <Hr
+        className="mt-0 mb-[24px] mx-0"
+        style={{ borderColor: theme.borderColor, borderTopWidth: "1px" }}
+      />
 
       {/* "Shipping Details". Carrier and Ship From are the placeholder constants
           declared above; the other three come from the event, and the two that
           can be missing (estimate, address) omit their ROW rather than printing
           a blank or a wrong value. */}
-      <Text
-        style={{
-          margin: "0 0 12px",
-          fontFamily: theme.fontBody,
-          fontSize: "14px",
-          fontWeight: 600,
-          color: theme.textPrimary,
-        }}
-      >
+      <Text className="mt-0 mb-[12px] mx-0 font-body text-[14px] font-semibold text-text-primary">
         Shipment Details
       </Text>
       <DetailRow label="Carrier" value={PLACEHOLDER_CARRIER} />
@@ -455,21 +403,13 @@ export default function TrackingStatusChangedEmail({
       {/* "Track Button" — info-blue in this frame, not brand orange, which is
           why `Button` takes an overridable background. No web app exists yet, so
           the href is a placeholder under app.3mrai.com. */}
-      <Section style={{ textAlign: "center", padding: "24px 0 0" }}>
+      <Section className="text-center pt-[24px] px-0 pb-0">
         <Button href={`https://app.3mrai.com/orders/${orderId}/tracking`} backgroundColor={theme.infoBlue}>
           Track Your Shipment
         </Button>
       </Section>
 
-      <Text
-        style={{
-          margin: "24px 0 0",
-          fontFamily: theme.fontBody,
-          fontSize: "12px",
-          color: theme.textMuted,
-          textAlign: "center",
-        }}
-      >
+      <Text className="mt-[24px] mb-0 mx-0 font-body text-[12px] text-text-muted text-center">
         If you have questions about your delivery, contact our support team.
       </Text>
     </EmailLayout>

@@ -2,7 +2,6 @@ import { Heading, Section, Row, Column, Text } from "@react-email/components";
 import { EmailLayout } from "./components/layout.tsx";
 import { Button } from "./components/button.tsx";
 import { DetailRow } from "./components/detail-row.tsx";
-import { theme } from "./theme.ts";
 
 // `createdAt` is the ISO-8601 string the producer serialized (Users'
 // SqsEventPublisher calls `.toISOString()`), not a Date: it crossed a JSON
@@ -18,6 +17,14 @@ export interface UserCreatedEmailProps {
 // The "Account Details" panel fill (`#F9FAFB`) is a one-off in the `.pen` rather
 // than a named variable, so it is not in `theme.ts` — same treatment as the
 // footer divider in `components/layout.tsx`.
+//
+// It is NOT promoted into the Tailwind config either, even though the same tint
+// appears in three templates (here, the OTP digit boxes, the order items panel
+// and the tracking timeline). Each is a local panel fill the `.pen` treats as an
+// unnamed one-off; naming it in the shared config would invent a brand token the
+// design does not have, and the next `.pen` change would have to decide whether
+// all four move together. It stays an arbitrary value at its call site, where
+// the hex is visible.
 const DETAILS_PANEL_BG = "#F9FAFB";
 
 // The `.pen`'s "Member Since" row shows a human date ("August 5, 2026"), not the
@@ -64,25 +71,9 @@ function IconCircle() {
             <tr>
               <td
                 align="center"
-                style={{
-                  width: "64px",
-                  height: "64px",
-                  backgroundColor: theme.brandOrangeLight,
-                  borderRadius: "32px",
-                  textAlign: "center",
-                  verticalAlign: "middle",
-                }}
+                className="w-[64px] h-[64px] bg-brand-orange-light rounded-[32px] text-center align-middle"
               >
-                <Text
-                  style={{
-                    margin: "0",
-                    fontFamily: theme.fontHeading,
-                    fontSize: "28px",
-                    lineHeight: "1",
-                    fontWeight: 700,
-                    color: theme.brandOrange,
-                  }}
-                >
+                <Text className="m-0 font-heading text-[28px] leading-[1] font-bold text-brand-orange">
                   ✓
                 </Text>
               </td>
@@ -120,64 +111,26 @@ export default function UserCreatedEmail({ fullName, email, userId, createdAt }:
 
       <Heading
         as="h1"
-        style={{
-          margin: "24px 0 0",
-          fontFamily: theme.fontHeading,
-          fontSize: "24px",
-          fontWeight: 700,
-          lineHeight: "1.3",
-          color: theme.textPrimary,
-          textAlign: "center",
-        }}
+        className="mt-[24px] mb-0 mx-0 font-heading text-[24px] font-bold leading-[1.3] text-text-primary text-center"
       >
         Welcome to 3MRAI!
       </Heading>
 
       {/* "Greeting Block": greeting + welcome paragraph, 12px apart. */}
-      <Text
-        style={{
-          margin: "24px 0 0",
-          fontFamily: theme.fontBody,
-          fontSize: "15px",
-          fontWeight: 400,
-          color: theme.textPrimary,
-        }}
-      >
+      <Text className="mt-[24px] mb-0 mx-0 font-body text-[15px] font-normal text-text-primary">
         Hi {fullName},
       </Text>
-      <Text
-        style={{
-          margin: "12px 0 0",
-          fontFamily: theme.fontBody,
-          fontSize: "14px",
-          fontWeight: 400,
-          lineHeight: "1.5",
-          color: theme.textSecondary,
-        }}
-      >
+      <Text className="mt-[12px] mb-0 mx-0 font-body text-[14px] font-normal leading-[1.5] text-text-secondary">
         Your account has been successfully created. You&apos;re all set to explore the 3MRAI
         platform and start managing your orders, tracking, and more.
       </Text>
 
-      {/* "Account Details" panel. */}
+      {/* "Account Details" panel. The one-off tint is an arbitrary class rather
+          than a config token — see DETAILS_PANEL_BG. */}
       <Section
-        style={{
-          margin: "24px 0 0",
-          backgroundColor: DETAILS_PANEL_BG,
-          borderRadius: "8px",
-          padding: "20px 24px",
-        }}
+        className={`mt-[24px] mb-0 mx-0 bg-[${DETAILS_PANEL_BG}] rounded-[8px] px-[24px] py-[20px]`}
       >
-        <Text
-          style={{
-            margin: "0 0 12px",
-            fontFamily: theme.fontBody,
-            fontSize: "13px",
-            fontWeight: 600,
-            letterSpacing: "1.5px",
-            color: theme.textMuted,
-          }}
-        >
+        <Text className="mt-0 mb-[12px] mx-0 font-body text-[13px] font-semibold tracking-[1.5px] text-text-muted">
           YOUR ACCOUNT
         </Text>
 
@@ -189,7 +142,7 @@ export default function UserCreatedEmail({ fullName, email, userId, createdAt }:
       {/* "CTA Wrapper": the `.pen` centres the button with `justifyContent:
           center`; a centred table cell is the email-safe equivalent. No web app
           exists yet, so the href is a placeholder under app.3mrai.com. */}
-      <Section style={{ margin: "24px 0 0" }}>
+      <Section className="mt-[24px] mb-0 mx-0">
         <Row>
           <Column align="center">
             <Button href="https://app.3mrai.com/profile">View My Profile</Button>
@@ -197,16 +150,7 @@ export default function UserCreatedEmail({ fullName, email, userId, createdAt }:
         </Row>
       </Section>
 
-      <Text
-        style={{
-          margin: "24px 0 0",
-          fontFamily: theme.fontBody,
-          fontSize: "12px",
-          fontWeight: 400,
-          color: theme.textMuted,
-          textAlign: "center",
-        }}
-      >
+      <Text className="mt-[24px] mb-0 mx-0 font-body text-[12px] font-normal text-text-muted text-center">
         Need help getting started? Visit our help center or reply to this email.
       </Text>
     </EmailLayout>

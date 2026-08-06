@@ -73,40 +73,23 @@ const PRICE_COLUMN_WIDTH = "88px";
 // than a named variable, so it is not in `theme.ts`.
 const ITEMS_PANEL_BG = "#F9FAFB";
 
-const cellStyle = {
-  margin: "0",
-  fontFamily: theme.fontBody,
-  fontSize: "14px",
-  fontWeight: 400,
-  color: theme.textPrimary,
-} as const;
-
-const headerCellStyle = {
-  margin: "0",
-  fontFamily: theme.fontBody,
-  fontSize: "12px",
-  fontWeight: 600,
-  letterSpacing: "1px",
-  color: theme.textMuted,
-} as const;
-
-const totalsLabelStyle = {
-  margin: "0",
-  fontFamily: theme.fontBody,
-  fontSize: "14px",
-  fontWeight: 400,
-  color: theme.textSecondary,
-} as const;
-
-const totalsValueStyle = {
-  margin: "0",
-  fontFamily: theme.fontBody,
-  fontSize: "14px",
-  fontWeight: 400,
-  color: theme.textPrimary,
-} as const;
+// The repeated cell recipes, now as class strings instead of style objects.
+// Composed by interpolation at the call sites that need a variant (a different
+// weight or colour), which is the `className` equivalent of the old object
+// spread — Tailwind resolves the LAST conflicting utility, so an appended
+// `text-text-secondary` beats the `text-text-primary` in the base string.
+const CELL = "m-0 font-body text-[14px] font-normal text-text-primary";
+const HEADER_CELL = "m-0 font-body text-[12px] font-semibold tracking-[1px] text-text-muted";
 
 // A hairline rule matching the `.pen`'s 1px `$border-color` divider frames.
+//
+// STOP POINT — the border stays an inline `style`. `Hr` emits its own default
+// ("border:none;border-top:1px solid #eaeaea") AFTER the styles compiled from
+// `className`, so a `border-line` class loses the cascade and the rule renders
+// grey instead of the brand line colour. Nothing fails loudly when that happens,
+// which is exactly why it is called out here. `margin` is also a runtime prop
+// (callers pass "0", "8px 0", "24px 0"), so it could not be a static class
+// anyway.
 function Divider({ margin }: { margin: string }) {
   return <Hr style={{ borderColor: theme.borderColor, borderTopWidth: "1px", margin }} />;
 }
@@ -117,15 +100,19 @@ function Divider({ margin }: { margin: string }) {
 // worse than one that repeats the unit price.
 function ItemRow({ item }: { item: OrderCreatedEmailItem }) {
   return (
-    <Row style={{ padding: "12px 0" }}>
+    <Row className="px-0 py-[12px]">
       <Column align="left">
-        <Text style={cellStyle}>{item.name}</Text>
+        <Text className={CELL}>{item.name}</Text>
       </Column>
+      {/* The fixed column widths stay inline: they are shared constants that
+          must match the header row and the totals block exactly (that is what
+          makes the decimal points stack), so they read from one declaration
+          rather than being restated as a class in four places. */}
       <Column align="center" style={{ width: QTY_COLUMN_WIDTH }}>
-        <Text style={{ ...cellStyle, color: theme.textSecondary }}>{item.quantity}</Text>
+        <Text className={`${CELL} text-text-secondary`}>{item.quantity}</Text>
       </Column>
       <Column align="right" style={{ width: PRICE_COLUMN_WIDTH }}>
-        <Text style={{ ...cellStyle, fontWeight: 500 }}>
+        <Text className={`${CELL} font-medium`}>
           {formatCents(item.quantity * item.unitPriceCents)}
         </Text>
       </Column>
@@ -136,24 +123,20 @@ function ItemRow({ item }: { item: OrderCreatedEmailItem }) {
 // A totals line: muted label left, figure right. Right-aligned so Subtotal /
 // Shipping / Tax / Total line up under each other.
 function TotalRow({ label, value, emphasis = false }: { label: string; value: string; emphasis?: boolean }) {
-  const weight = emphasis ? 700 : 400;
-  const size = emphasis ? "16px" : "14px";
+  // `emphasis` is a runtime prop, but it has only TWO outcomes, so each branch
+  // selects a COMPLETE static class string. That keeps every class literal and
+  // visible to Tailwind — unlike interpolating a computed value into a class
+  // (`text-[${size}]`), which would produce a rule Tailwind never generates.
+  const emphasisClasses = emphasis ? "text-[16px] font-bold" : "text-[14px] font-normal";
+  const labelColor = emphasis ? "text-text-primary" : "text-text-secondary";
+
   return (
-    <Row style={{ marginBottom: "8px" }}>
+    <Row className="mb-[8px]">
       <Column align="left">
-        <Text
-          style={{
-            ...totalsLabelStyle,
-            fontSize: size,
-            fontWeight: weight,
-            color: emphasis ? theme.textPrimary : theme.textSecondary,
-          }}
-        >
-          {label}
-        </Text>
+        <Text className={`m-0 font-body ${emphasisClasses} ${labelColor}`}>{label}</Text>
       </Column>
       <Column align="right" style={{ width: PRICE_COLUMN_WIDTH }}>
-        <Text style={{ ...totalsValueStyle, fontSize: size, fontWeight: weight }}>{value}</Text>
+        <Text className={`m-0 font-body ${emphasisClasses} text-text-primary`}>{value}</Text>
       </Column>
     </Row>
   );
@@ -210,20 +193,7 @@ export default function OrderCreatedEmail({
       <Section>
         <Row>
           <Column align="center">
-            <Text
-              style={{
-                margin: "0 auto",
-                width: "64px",
-                height: "64px",
-                borderRadius: "32px",
-                backgroundColor: theme.successBg,
-                color: theme.successGreen,
-                fontFamily: theme.fontHeading,
-                fontSize: "28px",
-                lineHeight: "64px",
-                textAlign: "center",
-              }}
-            >
+            <Text className="mx-auto my-0 w-[64px] h-[64px] rounded-[32px] bg-success-bg text-success font-heading text-[28px] leading-[64px] text-center">
               {ICON_GLYPH}
             </Text>
           </Column>
@@ -232,38 +202,16 @@ export default function OrderCreatedEmail({
 
       <Heading
         as="h1"
-        style={{
-          margin: "24px 0 0",
-          fontFamily: theme.fontHeading,
-          fontSize: "24px",
-          fontWeight: 700,
-          color: theme.textPrimary,
-          textAlign: "center",
-        }}
+        className="mt-[24px] mb-0 mx-0 font-heading text-[24px] font-bold text-text-primary text-center"
       >
         Order Confirmed!
       </Heading>
 
-      <Text
-        style={{
-          margin: "24px 0 0",
-          fontFamily: theme.fontBody,
-          fontSize: "15px",
-          color: theme.textPrimary,
-        }}
-      >
+      <Text className="mt-[24px] mb-0 mx-0 font-body text-[15px] text-text-primary">
         Hi {fullName},
       </Text>
 
-      <Text
-        style={{
-          margin: "12px 0 0",
-          fontFamily: theme.fontBody,
-          fontSize: "14px",
-          lineHeight: "1.5",
-          color: theme.textSecondary,
-        }}
-      >
+      <Text className="mt-[12px] mb-0 mx-0 font-body text-[14px] leading-[1.5] text-text-secondary">
         Thank you for your order! We&apos;ve received your order {orderId} and it&apos;s being
         prepared. Here&apos;s a summary of what you ordered:
       </Text>
@@ -272,22 +220,17 @@ export default function OrderCreatedEmail({
           `justifyContent: space_between`; email clients do not support flex, so
           the INTENT (a three-column row) is a Row/Column table here. */}
       <Section
-        style={{
-          backgroundColor: ITEMS_PANEL_BG,
-          borderRadius: "8px",
-          padding: "20px 24px",
-          margin: "24px 0 0",
-        }}
+        className={`bg-[${ITEMS_PANEL_BG}] rounded-[8px] px-[24px] py-[20px] mt-[24px] mb-0 mx-0`}
       >
-        <Row style={{ paddingBottom: "12px" }}>
+        <Row className="pb-[12px]">
           <Column align="left">
-            <Text style={headerCellStyle}>ITEM</Text>
+            <Text className={HEADER_CELL}>ITEM</Text>
           </Column>
           <Column align="center" style={{ width: QTY_COLUMN_WIDTH }}>
-            <Text style={headerCellStyle}>QTY</Text>
+            <Text className={HEADER_CELL}>QTY</Text>
           </Column>
           <Column align="right" style={{ width: PRICE_COLUMN_WIDTH }}>
-            <Text style={headerCellStyle}>PRICE</Text>
+            <Text className={HEADER_CELL}>PRICE</Text>
           </Column>
         </Row>
 
@@ -318,47 +261,17 @@ export default function OrderCreatedEmail({
 
       {/* "Shipping Info": omitted entirely when there is no address to show. */}
       {hasShippingPanel ? (
-        <Section
-          style={{
-            backgroundColor: theme.infoBg,
-            borderRadius: "8px",
-            padding: "16px 20px",
-            margin: "24px 0 0",
-          }}
-        >
-          <Text
-            style={{
-              margin: "0",
-              fontFamily: theme.fontBody,
-              fontSize: "13px",
-              fontWeight: 600,
-              letterSpacing: "1px",
-              color: theme.infoBlue,
-            }}
-          >
+        <Section className="bg-info-bg rounded-[8px] px-[20px] py-[16px] mt-[24px] mb-0 mx-0">
+          <Text className="m-0 font-body text-[13px] font-semibold tracking-[1px] text-info">
             SHIPPING TO
           </Text>
-          <Text
-            style={{
-              margin: "8px 0 0",
-              fontFamily: theme.fontBody,
-              fontSize: "14px",
-              fontWeight: 500,
-              color: theme.textPrimary,
-            }}
-          >
+          <Text className="mt-[8px] mb-0 mx-0 font-body text-[14px] font-medium text-text-primary">
             {fullName}
           </Text>
           {addressLines.map((line) => (
             <Text
               key={line}
-              style={{
-                margin: "4px 0 0",
-                fontFamily: theme.fontBody,
-                fontSize: "13px",
-                lineHeight: "1.5",
-                color: theme.textSecondary,
-              }}
+              className="mt-[4px] mb-0 mx-0 font-body text-[13px] leading-[1.5] text-text-secondary"
             >
               {line}
             </Text>
@@ -369,7 +282,7 @@ export default function OrderCreatedEmail({
       {/* "Track Button" — info-blue in this frame, not brand orange. Its lucide
           `package-search` icon is dropped for the same reason as the header
           glyph: the label alone must carry the CTA with no images loaded. */}
-      <Section style={{ margin: "24px 0 0" }}>
+      <Section className="mt-[24px] mb-0 mx-0">
         <Row>
           <Column align="center">
             <Button
@@ -382,15 +295,7 @@ export default function OrderCreatedEmail({
         </Row>
       </Section>
 
-      <Text
-        style={{
-          margin: "24px 0 0",
-          fontFamily: theme.fontBody,
-          fontSize: "12px",
-          color: theme.textMuted,
-          textAlign: "center",
-        }}
-      >
+      <Text className="mt-[24px] mb-0 mx-0 font-body text-[12px] text-text-muted text-center">
         Questions about your order? Contact us at support@3mrai.com
       </Text>
     </EmailLayout>

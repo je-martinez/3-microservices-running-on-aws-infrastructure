@@ -24,17 +24,12 @@ export function Button({
   return (
     <ReactEmailButton
       href={href}
-      style={{
-        backgroundColor,
-        borderRadius: "6px",
-        color: theme.bgWhite,
-        fontFamily: theme.fontBody,
-        fontSize: "15px",
-        fontWeight: 600,
-        textDecoration: "none",
-        textAlign: "center",
-        padding: "14px 40px",
-      }}
+      className="rounded-[6px] text-bg-white font-body text-[15px] font-semibold no-underline text-center px-[40px] py-[14px]"
+      // STOP POINT — `backgroundColor` stays inline. It is a runtime PROP (brand
+      // orange by default, info-blue for the tracking CTAs), so there is no
+      // static class Tailwind could compile it from. Everything that is fixed
+      // for every button moved to `className` above.
+      style={{ backgroundColor }}
     >
       {children}
     </ReactEmailButton>
