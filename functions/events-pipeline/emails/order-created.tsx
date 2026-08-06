@@ -1,8 +1,9 @@
-import { Heading, Section, Row, Column, Text, Hr } from "@react-email/components";
+import { Heading, Section, Row, Column, Text, Hr, Img } from "@react-email/components";
 import { EmailLayout } from "./components/layout.tsx";
 import { greeting } from "./components/greeting.ts";
 import { Button } from "./components/button.tsx";
 import { theme } from "./theme.ts";
+import { packageCheck, packageSearch } from "./icons.generated.ts";
 
 // Ported from the "Order Created Email" frame of `assets/email/emails.pen`: a
 // success circle, "Order Confirmed!", a greeting, an ITEM/QTY/PRICE line-items
@@ -54,14 +55,23 @@ function formatCents(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-// The mockup's `package-check` lucide icon cannot ship as-is. An icon font
-// needs @font-face (a <style> block, which clients strip), an SVG sprite or
-// inline <svg> is unsupported in Outlook and several webmail clients, and a
-// remote <img> is blocked by default for most readers — all three degrade to a
-// broken box or nothing. So the circle is kept (it carries the "success" colour
-// cue on its own) and the glyph inside it is TEXT: a check mark, which every
-// client renders with no assets loaded at all.
-const ICON_GLYPH = "✓";
+// ICONS: the mockup's two lucide glyphs (`package-check` in the header circle,
+// `package-search` on the CTA) are now REAL icons — base64 PNG `data:` URIs from
+// `icons.generated.ts`, replacing the "✓" text glyph and the dropped CTA icon
+// this template used to have.
+//
+// The alternatives still fail: an icon font needs @font-face (a <style> block,
+// which Gmail and Outlook strip), inline <svg> has 40.48% support and renders in
+// NO version of Outlook on Windows (caniemail.com/features/html-svg), and a
+// remote <img> is blocked by default for most readers. base64 `data:` URIs are
+// the exception — 80.95% support, working in BOTH Gmail and Outlook on Windows
+// (caniemail.com/features/image-base64). PNG, not GIF: Outlook Windows does not
+// render a base64 GIF.
+//
+// The ~20% that still shows nothing is why the SUCCESS-TINTED CIRCLE STAYS and
+// why the CTA's label ("Track Your Order") carries the button on its own. Both
+// icons are an enhancement layered on a design that is already complete without
+// them, and each <Img> carries a meaningful `alt`.
 
 // The `.pen` sizes the right-hand QTY/PRICE columns by flex `gap`, which email
 // clients do not support. Fixed pixel widths inside the table are the portable
@@ -189,14 +199,35 @@ export default function OrderCreatedEmail({
 
   return (
     <EmailLayout>
-      {/* "Icon Circle": 64px, success-tinted, centred. Rendered as a table cell
-          with a fixed line-height rather than flex centring. */}
+      {/* "Icon Circle": 64px, success-tinted, centred, now holding the
+          `package-check` PNG. It is a TABLE CELL with `align`/`valign` rather
+          than the old `<Text>` with a 64px line-height: line-height centres a
+          text glyph, but an <Img> is a replaced element that Outlook aligns from
+          the cell's own attributes. `width`/`height` are HTML ATTRIBUTES on the
+          image for the same reason — Outlook sizes images from the attributes
+          and ignores CSS dimensions, so the 56px raster would otherwise display
+          at full size and burst the circle. */}
       <Section>
         <Row>
           <Column align="center">
-            <Text className="mx-auto my-0 w-[64px] h-[64px] rounded-[32px] bg-success-bg text-success font-heading text-[28px] leading-[64px] text-center">
-              {ICON_GLYPH}
-            </Text>
+            <table role="presentation" border={0} cellPadding={0} cellSpacing={0} align="center">
+              <tbody>
+                <tr>
+                  <td
+                    align="center"
+                    className="w-[64px] h-[64px] rounded-[32px] bg-success-bg text-center align-middle"
+                  >
+                    <Img
+                      src={packageCheck}
+                      alt="Order confirmed"
+                      width="28"
+                      height="28"
+                      className="inline-block align-middle"
+                    />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </Column>
         </Row>
       </Section>
@@ -280,9 +311,15 @@ export default function OrderCreatedEmail({
         </Section>
       ) : null}
 
-      {/* "Track Button" — info-blue in this frame, not brand orange. Its lucide
-          `package-search` icon is dropped for the same reason as the header
-          glyph: the label alone must carry the CTA with no images loaded. */}
+      {/* "Track Button" — info-blue in this frame, not brand orange. It now
+          carries the `.pen`'s 16px `package-search` icon, in white so it reads
+          against the filled button (see DESIGN.md § CTA Button: "optional 16x16
+          icon + 15px bold white text").
+          The icon is an ENHANCEMENT: with images blocked the button still reads
+          "Track Your Order" and loses nothing but the glyph. `align="middle"`
+          plus the 6px right margin is what keeps it on the label's baseline —
+          an <Img> defaults to `vertical-align: baseline`, which drops it below
+          the text in several clients. */}
       <Section className="mt-[24px] mb-0 mx-0">
         <Row>
           <Column align="center">
@@ -290,7 +327,14 @@ export default function OrderCreatedEmail({
               href={`https://app.3mrai.com/orders/${orderId}/tracking`}
               backgroundColor={theme.infoBlue}
             >
-              Track Your Order
+              <Img
+                src={packageSearch}
+                alt="Track"
+                width="16"
+                height="16"
+                className="inline-block align-middle mr-[6px]"
+              />
+              <span className="align-middle">Track Your Order</span>
             </Button>
           </Column>
         </Row>

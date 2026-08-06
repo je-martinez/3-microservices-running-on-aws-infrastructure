@@ -1,8 +1,9 @@
-import { Heading, Section, Row, Column, Text } from "@react-email/components";
+import { Heading, Section, Row, Column, Text, Img } from "@react-email/components";
 import { EmailLayout } from "./components/layout.tsx";
 import { greeting } from "./components/greeting.ts";
 import { Button } from "./components/button.tsx";
 import { DetailRow } from "./components/detail-row.tsx";
+import { userCheck } from "./icons.generated.ts";
 
 // `createdAt` is the ISO-8601 string the producer serialized (Users'
 // SqsEventPublisher calls `.toISOString()`), not a Date: it crossed a JSON
@@ -49,16 +50,22 @@ function formatMemberSince(createdAt: string | undefined): string | null {
   });
 }
 
-// The `.pen`'s "Icon Circle" holds a 28px lucide `user-check`. NONE of the ways
-// to ship a real icon survive email: an icon font needs @font-face (a <style>
-// block, which clients strip), an SVG sprite needs an external reference, inline
-// SVG is unsupported in Outlook and Gmail, and a remote <img> is blocked by
-// default in many clients — leaving a broken-image box as the first thing above
-// the heading.
+// The `.pen`'s "Icon Circle" holds a 28px lucide `user-check`, and it is now a
+// REAL icon — a base64 PNG `data:` URI from `icons.generated.ts`, replacing the
+// "✓" text glyph this template used to print.
 //
-// So the circle is kept and the glyph is TEXT: "✓" is in WGL4/basic Unicode and
-// renders in every mail client without a webfont. The email therefore looks
-// deliberate with zero images loaded, which is the state most readers see first.
+// The three obvious ways to ship an icon still do not work: an icon font needs
+// @font-face (a <style> block, which Gmail and Outlook strip), inline SVG has
+// 40.48% support and renders in NO version of Outlook on Windows
+// (caniemail.com/features/html-svg), and a remote <img> is blocked by default in
+// many clients. base64 `data:` URIs are the one path that works: 80.95% support,
+// including BOTH Gmail (since 2020) and Outlook on Windows
+// (caniemail.com/features/image-base64). PNG specifically — Outlook Windows does
+// not render base64 GIF.
+//
+// The ~20% where it does not load is why the ORANGE CIRCLE STAYS. With the image
+// missing the reader still sees a deliberate brand-tinted disc above the
+// heading, not a broken-image box, and the `alt` carries the meaning.
 //
 // The circle itself is a fixed-width table cell with a 32px radius, not a flex
 // box: `borderRadius` on a <td> is honoured by every client that matters, and
@@ -74,9 +81,17 @@ function IconCircle() {
                 align="center"
                 className="w-[64px] h-[64px] bg-brand-orange-light rounded-[32px] text-center align-middle"
               >
-                <Text className="m-0 font-heading text-[28px] leading-[1] font-bold text-brand-orange">
-                  ✓
-                </Text>
+                {/* `width`/`height` are ATTRIBUTES, not just classes: Outlook
+                    sizes an image from the HTML attributes and ignores CSS
+                    dimensions, so the PNG rendered at 56px would otherwise
+                    display at its natural size and burst the circle. */}
+                <Img
+                  src={userCheck}
+                  alt="Account created"
+                  width="28"
+                  height="28"
+                  className="inline-block align-middle"
+                />
               </td>
             </tr>
           </tbody>

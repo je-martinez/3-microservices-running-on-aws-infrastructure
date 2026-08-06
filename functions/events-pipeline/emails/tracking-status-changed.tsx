@@ -1,9 +1,10 @@
-import { Heading, Section, Row, Column, Text, Hr } from "@react-email/components";
+import { Heading, Section, Row, Column, Text, Hr, Img } from "@react-email/components";
 import { EmailLayout } from "./components/layout.tsx";
 import { greeting } from "./components/greeting.ts";
 import { Button } from "./components/button.tsx";
 import { DetailRow } from "./components/detail-row.tsx";
 import { theme } from "./theme.ts";
+import { mapPin, check, externalLink } from "./icons.generated.ts";
 
 // Ported from the "Tracking Status Update Email" frame of
 // `assets/email/emails.pen`. The `.pen` expresses its layout with flexbox
@@ -13,20 +14,29 @@ import { theme } from "./theme.ts";
 // render as tables.
 //
 // ICONS: the `.pen` uses three lucide glyphs (`map-pin` in the header circle,
-// `check` inside each completed timeline dot, `external-link` on the CTA). NONE
-// of them is rendered as an icon here. An icon font never loads in email, inline
-// SVG is unsupported by Outlook/Gmail's HTML sanitizers, and a remote <img> is
-// blocked by default in many clients — all three roads end in a blank box. So:
-//   - the header circle and the timeline dots are COLOURED SHAPES (a
-//     background-filled, border-radiused table cell), which need no assets at
-//     all, and
-//   - the completed dots carry a "✓" TEXT GLYPH (U+2713), which is in every
-//     mail-client font stack.
-//   - the CTA's `external-link` is dropped entirely; a button labelled "Track
-//     Your Shipment" already reads as a link, and a stray glyph would look like
-//     a rendering artefact.
-// The email therefore looks deliberate with zero images loaded, which is the
-// state most recipients see on first open.
+// `check` inside each completed timeline dot, `external-link` on the CTA). All
+// three are now REAL icons — base64 PNG `data:` URIs from `icons.generated.ts`,
+// replacing the "◎"/"✓" text glyphs and the dropped CTA icon this template used
+// to have.
+//
+// The three obvious alternatives still fail: an icon font needs @font-face (a
+// <style> block Gmail and Outlook strip), inline SVG has 40.48% support and
+// renders in NO version of Outlook on Windows (caniemail.com/features/html-svg),
+// and a remote <img> is blocked by default in many clients. base64 `data:` URIs
+// are the one that works — 80.95% support, covering BOTH Gmail (since 2020) and
+// Outlook on Windows (caniemail.com/features/image-base64). PNG, never GIF:
+// Outlook Windows does not render a base64 GIF.
+//
+// The remaining ~20% of recipients see NO image, so the COLOURED SHAPES STAY and
+// keep carrying the design on their own:
+//   - the header circle is still a filled, border-radiused table cell — an
+//     info-blue disc with or without the pin inside it;
+//   - the timeline dots are still filled/hollow coloured circles, so done,
+//     active and pending remain distinguishable by COLOUR AND FILL alone, with
+//     the check mark as a second, redundant cue;
+//   - the CTA still reads "Track Your Shipment" without its glyph.
+// Every <Img> carries a meaningful `alt`. The email therefore looks deliberate
+// with zero images loaded, which is the state many recipients see on first open.
 
 // One entry per transition the shipment has already made, oldest first. Carried
 // on the event rather than re-derived here: the pipeline stores its own event
@@ -231,15 +241,32 @@ function StepIndicator({ state, isLast }: { state: StepState; isLast: boolean })
                   boxSizing: "border-box",
                   borderRadius: "50%",
                   lineHeight: "22px",
-                  fontSize: state === "done" ? "13px" : "10px",
+                  fontSize: "10px",
                 }}
               >
-                {/* Text glyphs, not icons — see the ICONS note at the top of
-                    the file. "✓" replaces lucide's `check`; "●" is the `.pen`'s
-                    white 10px "Inner Dot" inside the orange active ring. A
-                    pending step is an empty ring, exactly as designed — the
-                    span holds its own 22px box, so nothing collapses. */}
-                {state === "done" ? "✓" : state === "active" ? "●" : ""}
+                {/* The done step carries lucide's `check` as a 13px white PNG
+                    (see the ICONS note at the top of the file); the active step
+                    keeps the `.pen`'s white 10px "Inner Dot" as the "●" TEXT
+                    glyph, which has no lucide equivalent and is a pure shape.
+                    A pending step is an empty ring, exactly as designed — the
+                    span holds its own 22px box, so nothing collapses.
+
+                    If the check PNG does not load, the dot is still a FILLED
+                    GREEN circle and still reads as completed: the icon is the
+                    second cue, never the only one. */}
+                {state === "done" ? (
+                  <Img
+                    src={check}
+                    alt="Completed"
+                    width="13"
+                    height="13"
+                    className="inline-block align-middle"
+                  />
+                ) : state === "active" ? (
+                  "●"
+                ) : (
+                  ""
+                )}
               </span>
             </td>
           </tr>
@@ -361,9 +388,24 @@ export default function TrackingStatusChangedEmail({
 
   return (
     <EmailLayout>
-      {/* "Icon Circle" — the `.pen`'s 64px info-blue disc holding a `map-pin`.
-          Rendered as a filled, border-radiused cell with no icon at all (see the
-          ICONS note): a shape that always draws beats a glyph that may not. */}
+      {/* "Icon Circle" — the `.pen`'s 64px info-blue disc, now holding the real
+          `map-pin` as a base64 PNG instead of the "◎" text glyph it used to
+          approximate one with (see the ICONS note). The DISC itself is unchanged
+          and still drawn by the cell, so it survives the ~20% of clients that
+          show no image.
+          `align`/`align-middle` on the cell rather than a 64px line-height: an
+          <Img> is a replaced element Outlook positions from the cell's own
+          attributes, and `width`/`height` are HTML attributes because Outlook
+          sizes images from those and ignores CSS dimensions — the 56px raster
+          would otherwise display full-size and burst the circle.
+
+          CLASS ORDER IS LOAD-BEARING HERE — do not "tidy" it. With `bg-info-bg`
+          written BEFORE `rounded-[32px]` this cell compiled to NO
+          `background-color` at all and the disc rendered transparent, silently:
+          the email still looked plausible, so nothing failed. `rounded-[32px]`
+          first, then the fill, is the order the other two templates use and the
+          one that emits `background-color:rgb(239,246,255)`. Verified in the
+          rendered HTML, not assumed. */}
       <Row>
         <Column align="center">
           <table cellPadding="0" cellSpacing="0" role="presentation" className="border-collapse">
@@ -371,11 +413,15 @@ export default function TrackingStatusChangedEmail({
               <tr>
                 <td
                   align="center"
-                  className="w-[64px] h-[64px] bg-info-bg rounded-[32px] font-body text-[26px] leading-[64px] text-info text-center"
+                  className="w-[64px] h-[64px] rounded-[32px] bg-info-bg text-center align-middle"
                 >
-                  {/* U+25CE — a ring around a dot, which reads as a map pin /
-                      location marker and exists in the default font stacks. */}
-                  ◎
+                  <Img
+                    src={mapPin}
+                    alt="Shipment location update"
+                    width="28"
+                    height="28"
+                    className="inline-block align-middle"
+                  />
                 </td>
               </tr>
             </tbody>
@@ -424,10 +470,23 @@ export default function TrackingStatusChangedEmail({
 
       {/* "Track Button" — info-blue in this frame, not brand orange, which is
           why `Button` takes an overridable background. No web app exists yet, so
-          the href is a placeholder under app.3mrai.com. */}
+          the href is a placeholder under app.3mrai.com.
+          It now carries the `.pen`'s 16px `external-link` icon, white so it
+          reads against the filled button. Purely an ENHANCEMENT: with images
+          blocked the button still reads "Track Your Shipment". `align="middle"`
+          plus the 6px right margin keeps it on the label's baseline — an <Img>
+          defaults to `vertical-align: baseline`, which drops it below the text
+          in several clients. */}
       <Section className="text-center pt-[24px] px-0 pb-0">
         <Button href={`https://app.3mrai.com/orders/${orderId}/tracking`} backgroundColor={theme.infoBlue}>
-          Track Your Shipment
+          <Img
+            src={externalLink}
+            alt="Opens in your browser"
+            width="16"
+            height="16"
+            className="inline-block align-middle mr-[6px]"
+          />
+          <span className="align-middle">Track Your Shipment</span>
         </Button>
       </Section>
 

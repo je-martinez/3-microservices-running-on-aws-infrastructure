@@ -1,7 +1,8 @@
-import { Section, Row, Column, Heading, Text, Hr } from "@react-email/components";
+import { Section, Row, Column, Heading, Text, Hr, Img } from "@react-email/components";
 import { EmailLayout } from "./components/layout.tsx";
 import { greeting } from "./components/greeting.ts";
 import { theme } from "./theme.ts";
+import { logIn, triangleAlert } from "./icons.generated.ts";
 
 export interface AuthOtpEmailProps {
   code: string;
@@ -24,13 +25,24 @@ export interface AuthOtpEmailProps {
 // throughout. Never reword it to "verify your account" — that would describe a
 // flow this service does not have.
 //
-// Icon treatment: the `.pen` puts a lucide `log-in` glyph inside a 64px
-// info-blue circle. Neither an icon font nor an SVG sprite survives email
-// clients, inline SVG has poor support (Gmail strips it), and a remote <img> is
-// blocked by default in most clients — any of those leaves a broken box.
-// So the circle is rendered as a bordered, info-tinted round table cell
-// containing a TEXT glyph ("→", the log-in arrow), which needs no images and
-// looks deliberate with images disabled.
+// Icon treatment: the `.pen`'s two lucide glyphs (`log-in` inside the 64px
+// info-blue circle, `triangle-alert` in the security notice) are now REAL icons
+// — base64 PNG `data:` URIs from `icons.generated.ts`, replacing the "→" and "!"
+// text glyphs this template used to substitute for them.
+//
+// The alternatives still do not survive email: an icon font or an SVG sprite
+// needs @font-face / an external reference, inline SVG has 40.48% support and
+// renders in NO version of Outlook on Windows (caniemail.com/features/html-svg),
+// and a remote <img> is blocked by default in most clients. base64 `data:` URIs
+// are the one that works — 80.95% support, including BOTH Gmail (since 2020) and
+// Outlook on Windows (caniemail.com/features/image-base64). PNG rather than GIF:
+// Outlook Windows renders base64 PNG but not base64 GIF.
+//
+// Both COLOURED SHAPES STAY, because ~20% of recipients still see no image: the
+// info-tinted round cell above the heading and the amber badge beside the
+// warning both draw with zero assets loaded, and each <Img> carries a meaningful
+// `alt`. The security notice in particular must never depend on its icon — its
+// heading and body text state the warning in full.
 //
 // Default export, because react-email's `email dev` previews the default export
 // of each file under `emails/`. The catalog imports the same symbol, so preview
@@ -56,12 +68,34 @@ export default function AuthOtpEmail({ code, ttlMinutes, fullName }: AuthOtpEmai
 
   return (
     <EmailLayout>
-      {/* Icon Circle — a text glyph, not an image. See the note above. */}
+      {/* Icon Circle — the real `log-in` icon as a base64 PNG inside the
+          unchanged info-tinted disc. See the note above.
+          A table cell with `align`/`align-middle` rather than the old `<Text>`
+          with a 64px line-height: line-height centres a text glyph, but an <Img>
+          is a replaced element Outlook positions from the cell's attributes.
+          `width`/`height` are HTML attributes because Outlook sizes images from
+          those and ignores CSS dimensions — the 56px raster would otherwise
+          display full-size and burst the circle. */}
       <Row>
         <Column align="center">
-          <Text className="mx-auto my-0 w-[64px] h-[64px] leading-[64px] rounded-[32px] bg-info-bg text-info font-heading text-[28px] font-bold text-center">
-            &#8594;
-          </Text>
+          <table role="presentation" border={0} cellPadding={0} cellSpacing={0} align="center">
+            <tbody>
+              <tr>
+                <td
+                  align="center"
+                  className="w-[64px] h-[64px] rounded-[32px] bg-info-bg text-center align-middle"
+                >
+                  <Img
+                    src={logIn}
+                    alt="Sign in"
+                    width="28"
+                    height="28"
+                    className="inline-block align-middle"
+                  />
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </Column>
       </Row>
 
@@ -131,16 +165,36 @@ export default function AuthOtpEmail({ code, ttlMinutes, fullName }: AuthOtpEmai
 
       {/* Security Notice — the `.pen` lays the warning glyph beside the text
           with flex; two Columns render the same intent as a table. The glyph is
-          again a text character ("!") in a tinted circle, for the same
-          no-images reason as the header icon. */}
+          now the real lucide `triangle-alert` as a base64 PNG.
+          NOTE THE COLOUR INVERSION vs the header icon. `triangle-alert` is
+          rasterised IN the warning amber (see `icons.generated.ts`), so the
+          circle behind it CANNOT stay amber-FILLED the way it was under the
+          white "!" — amber on amber is invisible. The circle is kept and
+          inverted instead: a pale disc with a 1px amber ring, which is still a
+          deliberate 20px marker in the gutter for the ~20% of readers whose
+          client shows no image. The notice's heading and body state the warning
+          in full either way; the icon is never the thing carrying it. */}
       <Section className={`bg-[${NOTICE_BG}] rounded-[8px] px-[16px] py-[14px]`}>
         <Row>
           <Column width="32" valign="top">
-            <Text
-              className={`m-0 w-[20px] h-[20px] leading-[20px] rounded-[10px] bg-[${NOTICE_ACCENT}] text-bg-white font-heading text-[13px] font-bold text-center`}
-            >
-              !
-            </Text>
+            <table role="presentation" border={0} cellPadding={0} cellSpacing={0} align="left">
+              <tbody>
+                <tr>
+                  <td
+                    align="center"
+                    className={`w-[20px] h-[20px] rounded-[10px] bg-bg-white border border-solid border-[${NOTICE_ACCENT}] text-center align-middle`}
+                  >
+                    <Img
+                      src={triangleAlert}
+                      alt="Security notice"
+                      width="13"
+                      height="13"
+                      className="inline-block align-middle"
+                    />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </Column>
           <Column valign="top">
             <Text className="m-0 font-body text-[13px] font-semibold text-text-primary">
