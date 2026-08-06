@@ -1,5 +1,6 @@
 import { Section, Row, Column, Heading, Text, Hr } from "@react-email/components";
 import { EmailLayout } from "./components/layout.tsx";
+import { greeting } from "./components/greeting.ts";
 import { theme } from "./theme.ts";
 
 export interface AuthOtpEmailProps {
@@ -46,11 +47,6 @@ const NOTICE_BG = "#FFF8E1";
 const NOTICE_ACCENT = "#F59E0B";
 
 export default function AuthOtpEmail({ code, ttlMinutes, fullName }: AuthOtpEmailProps) {
-  // `fullName` is routinely "" (see the prop comment). Greeting with a trailing
-  // name would print "Hi ," with a dangling comma and a gap, so the nameless
-  // case gets its own complete string rather than an interpolated empty value.
-  const greeting = fullName.trim().length > 0 ? `Hi ${fullName.trim()},` : "Hi,";
-
   // Split for the six-box display ONLY. The code is a STRING and is never
   // parsed as a number anywhere here: it is zero-padded to six digits
   // (e.g. "042817") and `Number("042817")` would render "42817" — a code that
@@ -78,7 +74,7 @@ export default function AuthOtpEmail({ code, ttlMinutes, fullName }: AuthOtpEmai
 
       {/* Greeting Block */}
       <Text className="mt-[24px] mb-0 mx-0 font-body text-[15px] font-normal text-text-primary">
-        {greeting}
+        {greeting(fullName)}
       </Text>
 
       {/*

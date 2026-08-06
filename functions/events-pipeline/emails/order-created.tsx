@@ -1,5 +1,6 @@
 import { Heading, Section, Row, Column, Text, Hr } from "@react-email/components";
 import { EmailLayout } from "./components/layout.tsx";
+import { greeting } from "./components/greeting.ts";
 import { Button } from "./components/button.tsx";
 import { theme } from "./theme.ts";
 
@@ -208,7 +209,7 @@ export default function OrderCreatedEmail({
       </Heading>
 
       <Text className="mt-[24px] mb-0 mx-0 font-body text-[15px] text-text-primary">
-        Hi {fullName},
+        {greeting(fullName)}
       </Text>
 
       <Text className="mt-[12px] mb-0 mx-0 font-body text-[14px] leading-[1.5] text-text-secondary">

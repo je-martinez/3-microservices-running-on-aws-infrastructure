@@ -1,5 +1,6 @@
 import { Heading, Section, Row, Column, Text } from "@react-email/components";
 import { EmailLayout } from "./components/layout.tsx";
+import { greeting } from "./components/greeting.ts";
 import { Button } from "./components/button.tsx";
 import { DetailRow } from "./components/detail-row.tsx";
 
@@ -118,7 +119,7 @@ export default function UserCreatedEmail({ fullName, email, userId, createdAt }:
 
       {/* "Greeting Block": greeting + welcome paragraph, 12px apart. */}
       <Text className="mt-[24px] mb-0 mx-0 font-body text-[15px] font-normal text-text-primary">
-        Hi {fullName},
+        {greeting(fullName)}
       </Text>
       <Text className="mt-[12px] mb-0 mx-0 font-body text-[14px] font-normal leading-[1.5] text-text-secondary">
         Your account has been successfully created. You&apos;re all set to explore the 3MRAI

@@ -1,5 +1,6 @@
 import { Heading, Section, Row, Column, Text, Hr } from "@react-email/components";
 import { EmailLayout } from "./components/layout.tsx";
+import { greeting } from "./components/greeting.ts";
 import { Button } from "./components/button.tsx";
 import { DetailRow } from "./components/detail-row.tsx";
 import { theme } from "./theme.ts";
@@ -186,39 +187,60 @@ type StepState = "done" | "active" | "pending";
 function StepIndicator({ state, isLast }: { state: StepState; isLast: boolean }) {
   const dotFill =
     state === "done" ? theme.successGreen : state === "active" ? theme.brandOrange : theme.bgWhite;
-  // The connector takes the colour of the step ABOVE it: green once that step is
-  // reached (the `.pen` draws the line under the active "Shipped" step green
-  // too), grey for everything still ahead.
-  const lineFill = state === "pending" ? theme.borderColor : theme.successGreen;
+  // The connector spans the step above it to the step below, so it is only
+  // TRAVELLED once the step above is COMPLETE. Under the active step the journey
+  // has not been made yet, so that segment is grey like the ones ahead of it.
+  //
+  // Colouring it green (which is what the `.pen` appears to draw) put a green
+  // run under "Shipped" followed by grey, which read as the line breaking off
+  // mid-timeline rather than as progress. Only `done` earns green.
+  const lineFill = state === "done" ? theme.successGreen : theme.borderColor;
 
   return (
     <>
       <table cellPadding="0" cellSpacing="0" role="presentation" className="border-collapse">
         <tbody>
           <tr>
-            {/* STOP POINT — this cell keeps an inline `style`. Its background,
-                border and font size are all DERIVED AT RUNTIME from
-                `done`/`active`/`pending` (see `dotFill`/`lineFill` above), and a
-                class built by interpolating a computed colour
-                (`bg-[${dotFill}]`) is not something Tailwind can compile: the
-                fill would silently disappear and every dot would render
-                transparent. Only the truly static parts move to `className`. */}
-            <td
-              align="center"
-              className="w-[22px] h-[22px] rounded-[11px] font-body leading-[22px] text-bg-white text-center"
-              style={{
-                backgroundColor: dotFill,
-                // The pending dot is a hollow ring; done/active are filled, and
-                // the active one gets a white centre from the "●" glyph below.
-                border: state === "pending" ? `2px solid ${theme.borderColor}` : "none",
-                fontSize: state === "done" ? "13px" : "10px",
-              }}
-            >
-              {/* Text glyphs, not icons — see the ICONS note at the top of the
-                  file. "✓" replaces lucide's `check`; "●" is the `.pen`'s white
-                  10px "Inner Dot" inside the orange active ring. A pending step
-                  has an empty ring, exactly as designed. */}
-              {state === "done" ? "✓" : state === "active" ? "●" : ""}
+            {/* The dot is a SPAN inside the cell, not the cell itself.
+                `border-radius` on a `<td>` is unreliable: it is a
+                `display: table-cell` whose box the table's own layout resolves
+                after the radius is computed, so the corners survive. That is
+                exactly how the pending steps came out as visible SQUARES beside
+                perfectly round done/active ones — the borderless states had no
+                edge to reveal the shape, the 2px-bordered pending one did. An
+                inline-block span is an ordinary box and rounds reliably.
+
+                `box-sizing: border-box` keeps the bordered pending dot the same
+                22px across as the borderless ones; without it the border is
+                added OUTSIDE the width and the indicator column misaligns. */}
+            <td align="center" className="p-0 leading-[0]">
+              {/* STOP POINT — this span keeps an inline `style`. Its background,
+                  border and font size are all DERIVED AT RUNTIME from
+                  `done`/`active`/`pending` (see `dotFill`/`lineFill` above), and
+                  a class built by interpolating a computed colour
+                  (`bg-[${dotFill}]`) is not something Tailwind can compile: the
+                  fill would silently disappear and every dot would render
+                  transparent. Only the truly static parts move to `className`. */}
+              <span
+                className="inline-block w-[22px] h-[22px] font-body text-bg-white text-center align-middle"
+                style={{
+                  backgroundColor: dotFill,
+                  // The pending dot is a hollow ring; done/active are filled, and
+                  // the active one gets a white centre from the "●" glyph below.
+                  border: state === "pending" ? `2px solid ${theme.borderColor}` : "none",
+                  boxSizing: "border-box",
+                  borderRadius: "50%",
+                  lineHeight: "22px",
+                  fontSize: state === "done" ? "13px" : "10px",
+                }}
+              >
+                {/* Text glyphs, not icons — see the ICONS note at the top of
+                    the file. "✓" replaces lucide's `check`; "●" is the `.pen`'s
+                    white 10px "Inner Dot" inside the orange active ring. A
+                    pending step is an empty ring, exactly as designed — the
+                    span holds its own 22px box, so nothing collapses. */}
+                {state === "done" ? "✓" : state === "active" ? "●" : ""}
+              </span>
             </td>
           </tr>
           {!isLast && (
@@ -370,7 +392,7 @@ export default function TrackingStatusChangedEmail({
           its sentence here so each of the five variants states the transition it
           is actually reporting. */}
       <Text className="mt-[24px] mb-0 mx-0 font-body text-[15px] text-text-primary">
-        Hi {fullName},
+        {greeting(fullName)}
       </Text>
       <Text className="mt-[12px] mb-[24px] mx-0 font-body text-[14px] leading-[1.5] text-text-secondary">
         {heading}: your order {orderId} {body} (previously: {previousStatus}). Here&apos;s the latest

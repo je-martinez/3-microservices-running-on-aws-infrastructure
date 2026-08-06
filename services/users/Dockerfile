@@ -52,9 +52,23 @@ RUN node node_modules/prisma/build/index.js generate --schema=./prisma/schema.pr
 # ── builder stage: compile TypeScript (tsc) to dist/ ──────────────────────────
 FROM deps AS builder
 WORKDIR /app/services/users
-# Full service source, including the src/generated/prisma client from deps stage
 COPY services/users/src ./src
 COPY services/users/tsconfig.json ./
+# Regenerate AFTER copying src, not before.
+#
+# `deps` already generated the client into src/generated/prisma, but the COPY
+# above lands the HOST's src/ on top of it — and src/generated/ is gitignored,
+# so what arrives is whatever that developer's working tree happens to hold: a
+# stale client, or nothing at all. A stale one is the dangerous case, because it
+# type-checks against an older schema and fails the build with errors that name
+# columns the schema does have (this cost a session to diagnose: `authType` did
+# not exist on the copied client while being present in schema.prisma).
+#
+# CI and fresh clones never saw it — with no generated/ on disk, the COPY brings
+# nothing and deps' client survives — which is exactly why it stayed hidden.
+# Regenerating here makes the client a function of the schema alone, on every
+# machine.
+RUN node node_modules/prisma/build/index.js generate --schema=./prisma/schema.prisma
 RUN node_modules/.bin/tsc -p tsconfig.json
 
 # ── prod-deps stage: prune devDependencies (prisma CLI, typescript, @types/*, tsx, vitest, eslint) ──
