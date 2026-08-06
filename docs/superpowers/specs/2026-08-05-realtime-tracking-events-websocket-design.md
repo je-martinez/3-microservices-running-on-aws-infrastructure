@@ -2,13 +2,13 @@
 title: Realtime Tracking Events over WebSocket Design
 type: spec
 area: events-pipeline
-status: active
+status: accepted
 created: 2026-08-05
 updated: 2026-08-06
 tags:
   - type/spec
   - area/events-pipeline
-  - status/active
+  - status/accepted
 propagates-to:
   - "[[events-pipeline-design]]"
   - "[[tracking-service-design]]"
