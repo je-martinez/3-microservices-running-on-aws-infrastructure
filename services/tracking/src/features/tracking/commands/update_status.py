@@ -124,15 +124,26 @@ def update_tracking_status(
     be the wrong one — that is the ownership key the REST reads filter by, not
     the envelope's `user_id`.
 
-    **The envelope's `author` is this function's `actor`, and carries no human.**
+    **The envelope's `author` is this function's `actor`, and names no human.**
     `user_id` above says who the event is ABOUT; `author` says what ORIGINATED
     it, and on both of this command's paths that is a system: an external carrier
-    or a TestMode timer. So the author's own `user_id`/`cognito_sub` are omitted
-    rather than backfilled with the order's owner — attributing a carrier's
-    status update to the buyer would be plainly false, and it is the reason the
-    two fields are separate. `actor` is passed down (never fixed in the
-    publisher) so the two paths stay distinguishable on the wire exactly as they
-    already are in `tracking_history.created_by`.
+    or a TestMode timer. So `author.user_id` is omitted rather than backfilled
+    with the order's owner — attributing a carrier's status update to the buyer
+    would be plainly false, and it is the reason the two fields are separate.
+    `actor` is passed down (never fixed in the publisher) so the two paths stay
+    distinguishable on the wire exactly as they already are in
+    `tracking_history.created_by`.
+
+    **`author.cognito_sub` is the exception, and it is not an author claim.** It
+    is the key the events-pipeline routes the realtime WebSocket push by: the
+    pipeline looks up the owner's open connections in a DynamoDB index keyed on
+    the Cognito sub, and the envelope's root `user_id` is the internal `usr_`
+    id — a different value that would match nothing there, with no error, so the
+    push would silently reach nobody. Like `user_id`, it comes off the PERSISTED
+    entity (`updated.cognito_sub`) because this request has no identity to read.
+    The column is NULLABLE, so it may be None; the publisher then OMITS the field
+    rather than sending null, which the consumer's optional-field schema would
+    reject outright — losing the email as well as the push.
 
     `publisher` defaults to the real shared SQS publisher, so the carrier and
     TestMode paths need no call-site change; tests inject a recording fake, or
@@ -179,6 +190,11 @@ def update_tracking_status(
         # run would be published as a carrier update; see the docstring's
         # section 5.
         actor=actor,
+        # Off the PERSISTED entity, same as `user_id` above — the carrier
+        # webhook has no `x-user-id` to read, and anything it did send there
+        # would be unverified. NULLABLE column, so this may be None; the
+        # publisher then omits the field rather than nulling it.
+        cognito_sub=updated.cognito_sub,
     )
 
     return updated
@@ -193,6 +209,7 @@ def _emit_status_changed(
     previous_status: str,
     changed_at: datetime,
     actor: AuditActor,
+    cognito_sub: str | None,
 ) -> None:
     """Publish the transition, and never let doing so break the transition.
 
@@ -238,6 +255,7 @@ def _emit_status_changed(
             previous_status=previous_status,
             changed_at=changed_at,
             actor=actor,
+            cognito_sub=cognito_sub,
         )
     except Exception:  # noqa: BLE001 - a notification must not fail a write
         logger.exception(

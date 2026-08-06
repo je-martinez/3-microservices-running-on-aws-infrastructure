@@ -160,10 +160,18 @@ transition, consumed by the events-pipeline Lambda, which emails the user. See
   `CARRIER_STATUS_UPDATE`, with TestMode passing `TEST_MODE_PROGRESSION`) and threads it through.
   Hardcoding it in the publisher would relabel every automatic progression as a carrier update —
   the two are only distinguishable because that parameter travels.
-- **Neither write path has a human author**, so `author.user_id` / `author.cognito_sub` are
-  OMITTED (never null): the carrier webhook carries no caller identity at all (§5a) and TestMode
-  runs on a timer. The tracking's own `user_id` is the event's SUBJECT and travels as the
-  envelope's root `user_id` — do not duplicate it into `author`. See [[audit-fields]].
+- **Neither write path has a human author**, so `author.user_id` is OMITTED (never null): the
+  carrier webhook carries no caller identity at all (§5a) and TestMode runs on a timer. The
+  tracking's own `user_id` is the event's SUBJECT and travels as the envelope's root `user_id` —
+  do not duplicate it into `author`. See [[audit-fields]].
+- **`author.cognito_sub` IS carried, and it is not an author claim** — it is the key the
+  events-pipeline routes the realtime WebSocket push by (it queries a DynamoDB index keyed on the
+  Cognito sub for the owner's open connections; the root `user_id` is the `usr_` id, which matches
+  nothing there and returns an empty list with NO error). Like `user_id` it comes off the
+  PERSISTED row (`updated.cognito_sub`), never the request. The column is nullable, and a NULL is
+  **omitted, never null on the wire**: `AuthorSchema` declares the field `.optional()` with
+  `.min(1)`, so both an explicit `null` and `""` fail Zod — a `PermanentError` that would lose the
+  notification EMAIL as well as the push.
 - The payload's recipient email is resolved from Users over gRPC; the address is never logged in
   plaintext (only `email_hash`), per [[logging-context]].
 
