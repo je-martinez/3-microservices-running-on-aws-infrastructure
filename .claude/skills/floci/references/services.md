@@ -52,7 +52,7 @@ Not currently used by 3MRAI; listed for discovery. Pattern: `https://floci.io/fl
 | Elastic Beanstalk | `elastic-beanstalk` | CodeBuild | `codebuild` |
 | Batch | `batch` | CodeDeploy | `codedeploy` |
 | CodePipeline | `codepipeline` | Backup | `backup` |
-| CloudFront | `cloudfront` | Resource Groups Tagging | `resource-groups-tagging` |
+| CloudFront | [cloudfront](https://floci.io/floci/services/cloudfront/) — **management-plane only**, "actual content delivery is not emulated" (see quirk 13) | Resource Groups Tagging | `resource-groups-tagging` |
 | Transfer | `transfer` | Config | `config` |
 | CloudTrail | `cloudtrail` | EMR | `emr` |
 | WAFv2 | `wafv2` | Textract | `textract` |

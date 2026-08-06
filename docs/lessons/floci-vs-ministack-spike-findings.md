@@ -4,7 +4,7 @@ type: lesson
 area: infra
 status: active
 created: 2026-06-29
-updated: 2026-08-05
+updated: 2026-08-06
 tags:
   - type/lesson
   - area/infra
@@ -16,6 +16,7 @@ related:
   - "[[2026-06-29-floci-local-emulator-spike-design]]"
   - "[[floci-storage-modes-and-tmp-corruption]]"
   - "[[2026-08-05-passwordless-otp-auth-design]]"
+  - "[[2026-08-05-email-payload-enrichment-design]]"
 ---
 
 # Floci vs Ministack spike findings
@@ -81,6 +82,7 @@ Smoke test results on Floci:
 | Cognito Lambda triggers — sign-up/lifecycle (PostConfirmation, PreSignUp) | ❌ stored, never invoked | ❌ stored, never invoked | tie — use service-emitted EventBridge event instead |
 | Cognito Lambda triggers — `CUSTOM_AUTH` challenge (DefineAuthChallenge, CreateAuthChallenge, VerifyAuthChallengeResponse) | untested | ✅ genuinely invoked, verified 2026-08-05 | Floci validates the wiring and executes the Lambda; do not assume Ministack behaves the same — not tested there |
 | EventBridge → Lambda/SQS target delivery | ✅ delivers (verified) | (not retested here) | Floci verified |
+| CloudFront distribution serving | untested | ❌ management-plane only — apply succeeds, `<id>.cloudfront.net` does not resolve/serve (`curl` → `000`), verified 2026-08-06 | Same shape as the Route53 finding above; S3 origin behind it works fully |
 
 ## Key findings
 
@@ -324,6 +326,41 @@ An EventBridge rule routes the event to a target — a Lambda function or the ex
 (`users` and `events-pipeline`). No service code is written now — the spike stays code-free and
 uncommitted.
 
+## CloudFront is management-plane only — same shape as Route53 (verified 2026-08-06)
+
+> [!warning] Category limitation, not a defect
+> Like the Route53 finding above ("actual DNS resolution is not provided"), this is Floci
+> being honest about a management-plane-only emulation, not a bug to work around. Anyone
+> designing CDN-fronted infra for local dev needs to know Floci cannot validate it.
+
+Verified empirically against a running local stack (`http://localhost:4566`) on 2026-08-06:
+
+- `aws cloudfront create-distribution` **succeeds**: returns a real `Id`
+  (`E1CN4VOV3IMH3T`), a valid ARN, a `DomainName` in the `<id>.cloudfront.net` form, and
+  `Status: "Deployed"`.
+- The returned domain **does not resolve and serves nothing** — `curl` against it returns
+  HTTP code `000` (no connection at all, not even a DNS-level or TLS-level failure).
+- `aws cloudfront delete-distribution` **refuses** with `DistributionNotDisabled` — a
+  distribution must be disabled first, or probe distributions created while testing this
+  linger in the emulator's state indefinitely.
+- **By contrast, S3 works fully as an origin:** `mb`, `cp`, and a plain
+  `GET http://localhost:4566/<bucket>/<key>` all work, returning `200` with the real object
+  body. The gap is specific to CloudFront's edge/serving layer, not to the origin behind it.
+- **Floci's own documentation says so explicitly**
+  ([services/cloudfront](https://floci.io/floci/services/cloudfront/)): *"Actual content
+  delivery is not emulated — this is a management-plane-only implementation."* The same page
+  notes distributions reach `Deployed` with no async delay, invalidations are marked
+  `Completed` instantly, and — unlike API Gateway's `/restapis/...` — **no local invoke URL
+  pattern exists** for reaching a distribution at all.
+
+**Implication:** Terraform will apply a `aws_cloudfront_distribution` cleanly against Floci
+and the state will look healthy — `Status: "Deployed"`, a real ARN and domain — while the
+asset behind it is completely unreachable locally. This is indistinguishable from a working
+distribution by reading Terraform state alone; it only shows up by actually curling the
+domain. Anyone standing up CDN-backed infra (e.g. hosting a static asset behind CloudFront)
+must know it can only be functionally validated against real AWS — local apply proves
+config validity, not reachability.
+
 ## Related
 
 - [[ministack-auth-chain-spike-findings]]
@@ -332,3 +369,4 @@ uncommitted.
 - [[ADR-0011-observability-signoz]]
 - [[floci-storage-modes-and-tmp-corruption]]
 - [[2026-08-05-passwordless-otp-auth-design]]
+- [[2026-08-05-email-payload-enrichment-design]]

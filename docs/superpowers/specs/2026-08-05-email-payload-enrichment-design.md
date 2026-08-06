@@ -4,7 +4,7 @@ type: spec
 area: events-pipeline
 status: draft
 created: 2026-08-05
-updated: 2026-08-05
+updated: 2026-08-06
 tags:
   - area/events-pipeline
   - area/orders
@@ -20,6 +20,8 @@ related:
   - "[[events-pipeline-design]]"
   - "[[orders-service-design]]"
   - "[[tracking-service-design]]"
+  - "[[floci-vs-ministack-spike-findings]]"
+  - "[[env-files]]"
 ---
 
 # Email payload enrichment
@@ -180,18 +182,29 @@ Current: `email`, `code`, `ttlSeconds` — camelCase.
 
 Add `full_name` from `event.request.userAttributes`.
 
-**The attribute is not populated today.** Users' `AdminCreateUser` writes only
-`email`, `email_verified` and `custom:app_user_id` — `signUp()` never receives a
-name, and the user pool declares no `given_name`/`family_name`. So the Lambda
-reads Cognito's standard `name` attribute and falls back to an empty string,
-which is the normal path rather than an edge case until Users starts setting it.
+**The attribute was not populated when this spec was first written**, and the
+consequence was a login-code email that greeted everyone as "Hello,". Users'
+`AdminCreateUser` wrote only `email`, `email_verified` and
+`custom:app_user_id`: `register.ts` had the name, persisted it and published it
+on `USER_CREATED`, but the `AuthProvider` port's `signUp(email, password,
+appUserId)` had no parameter to carry it.
 
-The fallback is `""` rather than `undefined`: `JSON.stringify` drops undefined
-keys, the key would vanish from the wire, and the consumer's schema would reject
-the whole envelope — costing the user their login code, not just a greeting.
+That was an ordering artefact rather than an oversight — `signUp` predates the
+OTP flow, and until that Lambda existed nothing outside Users needed the name in
+Cognito. The Lambda is the first consumer that cannot reach Postgres: it runs
+inside Cognito with no SDK and no database, so it sees only what Cognito stores.
 
-Populating the attribute is follow-up work in Users, out of scope here. Until
-then the OTP email greets without a name.
+**Now fixed.** `signUp` takes a fourth `fullName` argument, `AdminCreateUser`
+writes the standard `name` attribute, and both registration paths forward it —
+`register-passwordless` most of all, since those users sign in exclusively
+through OTP and receive that email every time.
+
+Two caveats stand. Existing users have no `name` attribute, so the fallback is
+still load-bearing for them; backfilling would need
+`AdminUpdateUserAttributes`. And the fallback remains `""` rather than
+`undefined`, because `JSON.stringify` drops undefined keys, the key would vanish
+from the wire, and the consumer's schema would reject the whole envelope —
+costing the user their login code, not just a greeting.
 
 The code itself is unchanged and stays subject to its existing handling: never
 logged, never persisted, redacted before the event document is written.
@@ -208,6 +221,28 @@ than in code:
   `CUSTOM_AUTH` flow issues tokens on success), not account verification. The
   frame was renamed to "OTP Login Email" and its copy now says sign in;
   no account-verification flow exists in the repo.
+
+## Deferred — logo hosting (not in scope here)
+
+Every template renders the brand as a text lockup ("3M" white + "RAI" orange) rather than an
+image. This is deliberate: icon fonts, inline SVG, and remote images all fail or are blocked
+across mail clients, so `assets/img/standalone-logo.png` is not referenced by any template
+and no image work is part of this spec.
+
+Hosting the logo was considered and **deferred**, with the shape of the decision recorded now
+so it is not lost:
+
+- **When it happens: S3 private + CloudFront with OAC, never a public bucket.** The logo must
+  stay an *enhancement* — a client that blocks remote images must still see the brand via the
+  existing text lockup, never a broken-image gap where the wordmark used to be.
+- **Locally it degrades to the S3 bucket URL directly** (no CloudFront available to validate
+  locally — see the CloudFront finding in [[floci-vs-ministack-spike-findings]]), with the
+  base URL supplied via a generated env var, the same mechanism as every other
+  environment-specific value (see [[env-files]]).
+- **Trigger condition: build it when the web app exists**, not before. The web app will need
+  its own CloudFront distribution regardless, so standing one up solely to serve a 42px logo
+  that many clients block anyway is disproportionate before that distribution exists for
+  another reason.
 
 ## Testing
 
@@ -228,3 +263,6 @@ shipping, and that update is the signal the domain change landed.
 - [[tracking-service-design]]
 - [[audit-fields]]
 - [[testing]]
+- [[floci-vs-ministack-spike-findings]] — CloudFront management-plane-only finding behind the
+  local-degradation decision above
+- [[env-files]] — mechanism for the generated base-URL env var when logo hosting is built
