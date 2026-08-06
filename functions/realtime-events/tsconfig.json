@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "rewriteRelativeImportExtensions": true,
+    "allowImportingTsExtensions": true,
+    "resolvePackageJsonImports": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    // Type-check only — esbuild produces the artifact (see scripts/build.mjs).
+    // The package.json `imports` map's "types" condition points `#shared/*`
+    // straight at the .ts sources, so resolution does not depend on outDir/
+    // rootDir at all (see events-pipeline/tsconfig.json for the fuller
+    // history of why that condition exists).
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts"]
+}
