@@ -34,31 +34,32 @@ NON_TERMINAL = [s for s in STATUS_ORDER if s is not TERMINAL_STATUS]
 class TestProgressionShape:
     """The progression itself, before any guard."""
 
-    def test_exactly_four_statuses(self) -> None:
-        assert len(STATUS_ORDER) == 4
+    def test_exactly_five_statuses(self) -> None:
+        assert len(STATUS_ORDER) == 5
 
     def test_order_is_the_documented_progression(self) -> None:
         assert STATUS_ORDER == (
+            TrackingStatus.PLACED,
+            TrackingStatus.PROCESSING,
             TrackingStatus.SHIPPED,
-            TrackingStatus.ON_THE_WAY,
             TrackingStatus.OUT_FOR_DELIVERY,
             TrackingStatus.DELIVERED,
         )
 
-    def test_initial_is_shipped_and_terminal_is_delivered(self) -> None:
-        assert INITIAL_STATUS is TrackingStatus.SHIPPED
+    def test_initial_is_placed_and_terminal_is_delivered(self) -> None:
+        assert INITIAL_STATUS is TrackingStatus.PLACED
         assert TERMINAL_STATUS is TrackingStatus.DELIVERED
 
     def test_alphabetical_ordering_would_be_wrong(self) -> None:
         """Guards the trap that `StrEnum` members sort alphabetically.
 
-        `DELIVERED` < `SHIPPED` as strings, so any implementation that ordered
+        `DELIVERED` < `PLACED` as strings, so any implementation that ordered
         statuses by comparing the enum members directly — rather than by position
         in STATUS_ORDER — would treat the terminal status as the earliest one.
         """
-        assert TrackingStatus.DELIVERED < TrackingStatus.SHIPPED  # string compare
+        assert TrackingStatus.DELIVERED < TrackingStatus.PLACED  # string compare
         assert status_index(TrackingStatus.DELIVERED) > status_index(
-            TrackingStatus.SHIPPED
+            TrackingStatus.PLACED
         )
 
 
@@ -78,7 +79,7 @@ class TestGuardOneDeliveredIsTerminal:
     ) -> None:
         """Terminality outranks the ordering guards.
 
-        `DELIVERED -> SHIPPED` also violates guard 2 and `DELIVERED -> DELIVERED`
+        `DELIVERED -> PLACED` also violates guard 2 and `DELIVERED -> DELIVERED`
         also violates guard 3; the terminal fact is the more specific one and is
         what gets reported.
         """
@@ -114,7 +115,7 @@ class TestGuardTwoNoBackwardTransitions:
 
     def test_a_multi_step_jump_backwards_is_rejected(self) -> None:
         result = check_transition(
-            TrackingStatus.OUT_FOR_DELIVERY, TrackingStatus.SHIPPED
+            TrackingStatus.OUT_FOR_DELIVERY, TrackingStatus.PLACED
         )
         assert result.reason is TransitionRejectionReason.BACKWARD_TRANSITION
 
@@ -134,9 +135,9 @@ class TestGuardThreeStrictlyForward:
         This is the assertion a naive `new > current` implementation fails: it
         would reject both cases, but be unable to tell them apart.
         """
-        same = check_transition(TrackingStatus.ON_THE_WAY, TrackingStatus.ON_THE_WAY)
+        same = check_transition(TrackingStatus.PROCESSING, TrackingStatus.PROCESSING)
         backward = check_transition(
-            TrackingStatus.ON_THE_WAY, TrackingStatus.SHIPPED
+            TrackingStatus.PROCESSING, TrackingStatus.PLACED
         )
         assert same.reason is not backward.reason
 
@@ -144,13 +145,13 @@ class TestGuardThreeStrictlyForward:
         """End-to-end proof the three guards are three separate cases."""
         reasons = {
             check_transition(
-                TrackingStatus.DELIVERED, TrackingStatus.SHIPPED
+                TrackingStatus.DELIVERED, TrackingStatus.PLACED
             ).reason,
             check_transition(
-                TrackingStatus.ON_THE_WAY, TrackingStatus.SHIPPED
+                TrackingStatus.PROCESSING, TrackingStatus.PLACED
             ).reason,
             check_transition(
-                TrackingStatus.ON_THE_WAY, TrackingStatus.ON_THE_WAY
+                TrackingStatus.PROCESSING, TrackingStatus.PROCESSING
             ).reason,
         }
         assert reasons == {
@@ -178,13 +179,13 @@ class TestAllowedTransitions:
         assert can_transition(current, requested) is True
 
     def test_skipping_a_status_is_allowed(self) -> None:
-        """SHIPPED -> DELIVERED skips two steps but is still forward.
+        """PLACED -> DELIVERED skips three steps but is still forward.
 
         The spec's guards reject backward and equal moves; nothing requires a
         transition to be adjacent. A carrier reporting a delivery without having
         reported the intermediate scans is realistic, not a violation.
         """
-        assert can_transition(TrackingStatus.SHIPPED, TrackingStatus.DELIVERED)
+        assert can_transition(TrackingStatus.PLACED, TrackingStatus.DELIVERED)
 
     def test_the_full_happy_path_walks_end_to_end(self) -> None:
         current = INITIAL_STATUS
@@ -201,19 +202,19 @@ class TestAssertCanTransition:
     """The raising form used by the PUT handler."""
 
     def test_allowed_transition_does_not_raise(self) -> None:
-        assert_can_transition(TrackingStatus.SHIPPED, TrackingStatus.ON_THE_WAY)
+        assert_can_transition(TrackingStatus.PLACED, TrackingStatus.PROCESSING)
 
     @pytest.mark.parametrize(
         ("current", "requested", "expected_reason"),
         [
             (
                 TrackingStatus.DELIVERED,
-                TrackingStatus.SHIPPED,
+                TrackingStatus.PLACED,
                 TransitionRejectionReason.ALREADY_DELIVERED,
             ),
             (
                 TrackingStatus.OUT_FOR_DELIVERY,
-                TrackingStatus.ON_THE_WAY,
+                TrackingStatus.PROCESSING,
                 TransitionRejectionReason.BACKWARD_TRANSITION,
             ),
             (
@@ -242,8 +243,9 @@ class TestNextStatus:
     @pytest.mark.parametrize(
         ("current", "expected"),
         [
-            (TrackingStatus.SHIPPED, TrackingStatus.ON_THE_WAY),
-            (TrackingStatus.ON_THE_WAY, TrackingStatus.OUT_FOR_DELIVERY),
+            (TrackingStatus.PLACED, TrackingStatus.PROCESSING),
+            (TrackingStatus.PROCESSING, TrackingStatus.SHIPPED),
+            (TrackingStatus.SHIPPED, TrackingStatus.OUT_FOR_DELIVERY),
             (TrackingStatus.OUT_FOR_DELIVERY, TrackingStatus.DELIVERED),
             (TrackingStatus.DELIVERED, None),
         ],
@@ -253,14 +255,14 @@ class TestNextStatus:
     ) -> None:
         assert next_status(current) is expected
 
-    def test_progression_reaches_delivered_in_three_steps(self) -> None:
-        """Matches the design's TestMode table: t=0 SHIPPED … t=30s DELIVERED."""
+    def test_progression_reaches_delivered_in_four_steps(self) -> None:
+        """Matches the design's TestMode table: t=0 PLACED … t=40s DELIVERED."""
         steps = 0
         current = INITIAL_STATUS
         while (upcoming := next_status(current)) is not None:
             current = upcoming
             steps += 1
-        assert steps == 3
+        assert steps == 4
 
 
 class TestParseStatus:

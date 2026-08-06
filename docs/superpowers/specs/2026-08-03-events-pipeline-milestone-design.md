@@ -28,6 +28,18 @@ related:
 
 # Events Pipeline Milestone Design
 
+> [!warning] Status vocabulary below is historical — superseded 2026-08-06
+> This spec was written when Tracking's delivery progression had **four** statuses
+> (`SHIPPED → ON_THE_WAY → OUT_FOR_DELIVERY → DELIVERED`), with `SHIPPED` as the non-emitting
+> creation status. That progression was refactored to **five** statuses
+> (`PLACED → PROCESSING → SHIPPED → OUT_FOR_DELIVERY → DELIVERED`), `PLACED` now the
+> non-emitting creation status and `SHIPPED` absorbing what `ON_THE_WAY` used to mean —
+> `ON_THE_WAY` no longer exists. Every status name, transition count, and email/event count
+> below (four transitions, three emitted) reflects the **four-status** system as it stood on
+> 2026-08-03 and is kept as-is for historical accuracy. Current behavior (five statuses, four
+> emitted transitions) is documented in [[tracking-service-design#Events]] and
+> [[events-pipeline-design#Realtime WebSocket fan-out (second output of TRACKING_STATUS_CHANGED)]].
+
 ## Summary
 
 Full end-to-end design for the events-pipeline milestone: SQS + DocumentDB Terraform, the
@@ -506,4 +518,5 @@ the cost of re-deploying the zip on code changes — losing docker-watch hot-rel
 - [[ADR-0007-secrets-parameter-store]]
 - [[ADR-0014-env-validation-zod]]
 - [[events-pipeline-design]]
-- [[tracking-service-design]]
+- [[tracking-service-design]] — current (five-status) delivery progression and event count; see
+  its `## Events` section for what supersedes the four-status narrative above.

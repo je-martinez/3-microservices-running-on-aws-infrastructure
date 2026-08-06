@@ -116,7 +116,7 @@ class CreateTrackingResult:
 def create_tracking(
     session: Session, command: CreateTrackingCommand
 ) -> CreateTrackingResult:
-    """Persist a new tracking at `SHIPPED` plus its first history row.
+    """Persist a new tracking at `PLACED` plus its first history row.
 
     Both rows are written through `TrackingRepository.create`, which adds them to
     the SAME session without committing — the caller's `write_session` owns the
@@ -190,7 +190,7 @@ def _persist(
         # introduced at a call site.
         tags=[E2E_SOURCE_TAG] if command.e2e_source else [],
         # The initial status is not a parameter of this flow — every tracking
-        # starts at SHIPPED, per the state machine, whether or not TestMode is on.
+        # starts at PLACED, per the state machine, whether or not TestMode is on.
         status=INITIAL_STATUS,
         actor=AuditActor.CREATE_TRACKING,
     )

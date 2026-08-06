@@ -25,6 +25,19 @@ related:
 
 # Events Pipeline Milestone Implementation Plan
 
+> [!warning] Status vocabulary below is historical — superseded 2026-08-06
+> This plan was written when Tracking's delivery progression had **four** statuses
+> (`SHIPPED → ON_THE_WAY → OUT_FOR_DELIVERY → DELIVERED`), with `SHIPPED` as the non-emitting
+> creation status. That progression was refactored to **five** statuses
+> (`PLACED → PROCESSING → SHIPPED → OUT_FOR_DELIVERY → DELIVERED`), `PLACED` now the
+> non-emitting creation status and `SHIPPED` absorbing what `ON_THE_WAY` used to mean —
+> `ON_THE_WAY` no longer exists. Status names, code snippets, and transition/email counts below
+> (four transitions, three emitted) reflect the **four-status** system as it stood on
+> 2026-08-03 and are kept as-is for historical accuracy — do not copy them into new code.
+> Current behavior (five statuses, four emitted transitions) is documented in
+> [[tracking-service-design#Events]] and
+> [[events-pipeline-design#Realtime WebSocket fan-out (second output of TRACKING_STATUS_CHANGED)]].
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Take the events-pipeline from design-only to a working SQS → Lambda → DocumentDB

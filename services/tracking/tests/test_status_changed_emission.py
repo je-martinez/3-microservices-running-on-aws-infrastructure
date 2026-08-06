@@ -111,7 +111,7 @@ def seed(
     order_id: str,
     user_id: str = OWNER,
     cognito_sub: str | None = COGNITO_SUB,
-    status: TrackingStatus = TrackingStatus.SHIPPED,
+    status: TrackingStatus = TrackingStatus.PLACED,
 ) -> str:
     """A committed tracking owned by `user_id`, at `status`.
 
@@ -169,7 +169,7 @@ class TestItPublishesOnEverySuccessfulTransition:
         advance(
             session,
             "ord_emit00000000000001",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             publisher=publisher,
         )
 
@@ -183,7 +183,7 @@ class TestItPublishesOnEverySuccessfulTransition:
         seed(
             session,
             order_id="ord_emit00000000000002",
-            status=TrackingStatus.ON_THE_WAY,
+            status=TrackingStatus.PROCESSING,
         )
         publisher = RecordingPublisher()
 
@@ -196,7 +196,7 @@ class TestItPublishesOnEverySuccessfulTransition:
         event = publisher.published[0]
 
         assert event["status"] == TrackingStatus.OUT_FOR_DELIVERY
-        assert event["previous_status"] == TrackingStatus.ON_THE_WAY
+        assert event["previous_status"] == TrackingStatus.PROCESSING
 
     def test_it_publishes_the_order_id(self, session: Session) -> None:
         seed(session, order_id="ord_emit00000000000003")
@@ -205,7 +205,7 @@ class TestItPublishesOnEverySuccessfulTransition:
         advance(
             session,
             "ord_emit00000000000003",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             publisher=publisher,
         )
 
@@ -223,7 +223,7 @@ class TestItPublishesOnEverySuccessfulTransition:
         advance(
             session,
             "ord_emit00000000000004",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             publisher=publisher,
         )
         persisted = reload(session, "ord_emit00000000000004")
@@ -256,13 +256,15 @@ class TestItPublishesOnEverySuccessfulTransition:
     def test_a_full_progression_publishes_four_events(
         self, session: Session
     ) -> None:
-        """The count a completed TestMode run produces. Asserted as the ordered
-        sequence, so a duplicate or a skipped step fails too."""
+        """The count a completed TestMode run produces: creation writes `PLACED`
+        without emitting, and the four steps after it each emit one. Asserted as
+        the ordered sequence, so a duplicate or a skipped step fails too."""
         seed(session, order_id="ord_emit00000000000006")
         publisher = RecordingPublisher()
 
         for status in (
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
+            TrackingStatus.SHIPPED,
             TrackingStatus.OUT_FOR_DELIVERY,
             TrackingStatus.DELIVERED,
         ):
@@ -274,7 +276,8 @@ class TestItPublishesOnEverySuccessfulTransition:
             )
 
         assert [event["status"] for event in publisher.published] == [
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
+            TrackingStatus.SHIPPED,
             TrackingStatus.OUT_FOR_DELIVERY,
             TrackingStatus.DELIVERED,
         ]
@@ -291,7 +294,7 @@ class TestItPublishesOnEverySuccessfulTransition:
         advance(
             session,
             "ord_emit00000000000007",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             publisher=publisher,
             actor=AuditActor.TEST_MODE_PROGRESSION,
         )
@@ -319,7 +322,7 @@ class TestTheActorReachesThePublisher:
         advance(
             session,
             "ord_auth00000000000001",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             publisher=publisher,
             actor=AuditActor.CARRIER_STATUS_UPDATE,
         )
@@ -341,7 +344,7 @@ class TestTheActorReachesThePublisher:
         advance(
             session,
             "ord_auth00000000000002",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             publisher=publisher,
             actor=AuditActor.TEST_MODE_PROGRESSION,
         )
@@ -365,14 +368,14 @@ class TestTheActorReachesThePublisher:
         advance(
             session,
             "ord_auth00000000000003",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             publisher=publisher,
             actor=AuditActor.CARRIER_STATUS_UPDATE,
         )
         advance(
             session,
             "ord_auth00000000000004",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             publisher=publisher,
             actor=AuditActor.TEST_MODE_PROGRESSION,
         )
@@ -400,7 +403,7 @@ class TestNothingIsPublishedForANonTransition:
             advance(
                 session,
                 "ord_norm00000000000001",
-                TrackingStatus.SHIPPED,
+                TrackingStatus.PLACED,
                 publisher=publisher,
             )
 
@@ -413,7 +416,7 @@ class TestNothingIsPublishedForANonTransition:
             advance(
                 session,
                 "ord_norm00000000000002",
-                TrackingStatus.ON_THE_WAY,
+                TrackingStatus.PROCESSING,
                 publisher=publisher,
             )
 
@@ -453,7 +456,7 @@ class TestUserIdComesFromThePersistedRow:
         advance(
             session,
             "ord_uid00000000000001",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             publisher=publisher,
         )
 
@@ -471,7 +474,7 @@ class TestUserIdComesFromThePersistedRow:
         advance(
             session,
             "ord_uid00000000000002",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             publisher=publisher,
         )
 
@@ -490,7 +493,7 @@ class TestUserIdComesFromThePersistedRow:
         advance(
             session,
             "ord_uid00000000000003",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             publisher=publisher,
         )
         published = publisher.published[0]["user_id"]
@@ -515,7 +518,7 @@ class TestUserIdComesFromThePersistedRow:
         with _bound_publisher(publisher):
             response = client.put(
                 "/v1/trackings/ord_uid00000000000004/status",
-                json={"status": TrackingStatus.ON_THE_WAY},
+                json={"status": TrackingStatus.PROCESSING},
                 headers={**carrier(), "x-user-id": IMPOSTOR},
             )
 
@@ -534,7 +537,7 @@ class TestUserIdComesFromThePersistedRow:
         with _bound_publisher(publisher):
             response = client.put(
                 "/v1/trackings/ord_uid00000000000005/status",
-                json={"status": TrackingStatus.ON_THE_WAY},
+                json={"status": TrackingStatus.PROCESSING},
                 headers=carrier(),
             )
 
@@ -726,11 +729,11 @@ class TestAPublishFailureNeverFailsTheTransition:
         updated = advance(
             session,
             "ord_fail0000000000001",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             publisher=ExplodingPublisher(),
         )
 
-        assert updated.status == TrackingStatus.ON_THE_WAY
+        assert updated.status == TrackingStatus.PROCESSING
 
     def test_the_transition_is_still_persisted(self, session: Session) -> None:
         """Asserted against MySQL: the write happens before emission, so a
@@ -742,13 +745,13 @@ class TestAPublishFailureNeverFailsTheTransition:
         advance(
             session,
             "ord_fail0000000000002",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             publisher=ExplodingPublisher(),
         )
         session.commit()
 
         assert reload(session, "ord_fail0000000000002").status == (
-            TrackingStatus.ON_THE_WAY
+            TrackingStatus.PROCESSING
         )
 
     def test_the_history_row_still_lands(self, session: Session) -> None:
@@ -757,7 +760,7 @@ class TestAPublishFailureNeverFailsTheTransition:
         advance(
             session,
             "ord_fail0000000000003",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             publisher=ExplodingPublisher(),
         )
         session.commit()
@@ -765,8 +768,8 @@ class TestAPublishFailureNeverFailsTheTransition:
         tracking = reload(session, "ord_fail0000000000003")
         history = TrackingRepository(session).get_history(tracking.id)
         assert [entry.status for entry in history] == [
-            TrackingStatus.SHIPPED,
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PLACED,
+            TrackingStatus.PROCESSING,
         ]
 
     def test_the_publisher_really_was_called(self, session: Session) -> None:
@@ -778,7 +781,7 @@ class TestAPublishFailureNeverFailsTheTransition:
         advance(
             session,
             "ord_fail0000000000004",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             publisher=publisher,
         )
 
@@ -795,7 +798,7 @@ class TestAPublishFailureNeverFailsTheTransition:
             advance(
                 session,
                 "ord_fail0000000000005",
-                TrackingStatus.ON_THE_WAY,
+                TrackingStatus.PROCESSING,
                 publisher=ExplodingPublisher(),
             )
 
@@ -816,12 +819,12 @@ class TestAPublishFailureNeverFailsTheTransition:
         with _bound_publisher(ExplodingPublisher()):
             response = client.put(
                 "/v1/trackings/ord_fail0000000000006/status",
-                json={"status": TrackingStatus.ON_THE_WAY},
+                json={"status": TrackingStatus.PROCESSING},
                 headers=carrier(),
             )
 
         assert response.status_code == 200
-        assert response.json()["status"] == TrackingStatus.ON_THE_WAY
+        assert response.json()["status"] == TrackingStatus.PROCESSING
 
     def test_the_row_is_updated_even_though_publishing_exploded(
         self, client: TestClient, session: Session
@@ -833,12 +836,12 @@ class TestAPublishFailureNeverFailsTheTransition:
         with _bound_publisher(ExplodingPublisher()):
             client.put(
                 "/v1/trackings/ord_fail0000000000007/status",
-                json={"status": TrackingStatus.ON_THE_WAY},
+                json={"status": TrackingStatus.PROCESSING},
                 headers=carrier(),
             )
 
         assert reload(session, "ord_fail0000000000007").status == (
-            TrackingStatus.ON_THE_WAY
+            TrackingStatus.PROCESSING
         )
 
     def test_a_retry_after_a_failed_publish_is_rejected_as_not_forward(
@@ -852,12 +855,12 @@ class TestAPublishFailureNeverFailsTheTransition:
         with _bound_publisher(ExplodingPublisher()):
             first = client.put(
                 "/v1/trackings/ord_fail0000000000008/status",
-                json={"status": TrackingStatus.ON_THE_WAY},
+                json={"status": TrackingStatus.PROCESSING},
                 headers=carrier(),
             )
             retry = client.put(
                 "/v1/trackings/ord_fail0000000000008/status",
-                json={"status": TrackingStatus.ON_THE_WAY},
+                json={"status": TrackingStatus.PROCESSING},
                 headers=carrier(),
             )
 
@@ -948,11 +951,11 @@ class TestSettingsFailureDoesNotBecomeInvalidStatus:
         updated = advance(
             session,
             "ord_cfg00000000000001",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             publisher=ExplodingPublisher(self._real_validation_error()),
         )
 
-        assert updated.status == TrackingStatus.ON_THE_WAY
+        assert updated.status == TrackingStatus.PROCESSING
 
     def test_a_validation_error_does_not_escape_as_a_value_error(
         self, session: Session
@@ -964,7 +967,7 @@ class TestSettingsFailureDoesNotBecomeInvalidStatus:
         advance(  # would raise if the guard caught something narrower
             session,
             "ord_cfg00000000000002",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             publisher=ExplodingPublisher(self._real_validation_error()),
         )
 
@@ -987,7 +990,7 @@ class TestSettingsFailureDoesNotBecomeInvalidStatus:
         with _broken_settings(error):
             response = client.put(
                 "/v1/trackings/ord_cfg00000000000003/status",
-                json={"status": TrackingStatus.ON_THE_WAY},
+                json={"status": TrackingStatus.PROCESSING},
                 headers=carrier(),
             )
 
@@ -1003,7 +1006,7 @@ class TestSettingsFailureDoesNotBecomeInvalidStatus:
         with _broken_settings(self._real_validation_error()):
             response = client.put(
                 "/v1/trackings/ord_cfg00000000000004/status",
-                json={"status": TrackingStatus.ON_THE_WAY},
+                json={"status": TrackingStatus.PROCESSING},
                 headers=carrier(),
             )
 
@@ -1020,12 +1023,12 @@ class TestSettingsFailureDoesNotBecomeInvalidStatus:
         with _broken_settings(self._real_validation_error()):
             client.put(
                 "/v1/trackings/ord_cfg00000000000005/status",
-                json={"status": TrackingStatus.ON_THE_WAY},
+                json={"status": TrackingStatus.PROCESSING},
                 headers=carrier(),
             )
 
         assert reload(session, "ord_cfg00000000000005").status == (
-            TrackingStatus.ON_THE_WAY
+            TrackingStatus.PROCESSING
         )
 
     def test_the_broken_settings_are_logged_as_publisher_unavailable(
@@ -1040,7 +1043,7 @@ class TestSettingsFailureDoesNotBecomeInvalidStatus:
         ):
             client.put(
                 "/v1/trackings/ord_cfg00000000000006/status",
-                json={"status": TrackingStatus.ON_THE_WAY},
+                json={"status": TrackingStatus.PROCESSING},
                 headers=carrier(),
             )
 
@@ -1097,7 +1100,7 @@ class TestTheDefaultPublisherIsResolvedLazily:
             advance(
                 session,
                 "ord_lazy0000000000001",
-                TrackingStatus.ON_THE_WAY,
+                TrackingStatus.PROCESSING,
                 publisher=publisher,
             )
         finally:
@@ -1117,19 +1120,19 @@ class TestNoopPublisher:
         updated = advance(
             session,
             "ord_noop0000000000001",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             publisher=NoopEventPublisher(),
         )
 
-        assert updated.status == TrackingStatus.ON_THE_WAY
+        assert updated.status == TrackingStatus.PROCESSING
 
     def test_it_returns_none(self) -> None:
         assert (
             NoopEventPublisher().publish_tracking_status_changed(
                 order_id="ord_x",
                 user_id="usr_x",
-                status="SHIPPED",
-                previous_status="SHIPPED",
+                status="PLACED",
+                previous_status="PLACED",
                 changed_at=datetime(2026, 8, 3),
                 actor=AuditActor.CARRIER_STATUS_UPDATE,
                 cognito_sub="sub-x",

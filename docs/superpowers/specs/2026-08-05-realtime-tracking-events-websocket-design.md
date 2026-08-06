@@ -320,19 +320,19 @@ The only test that crosses Floci's WebSocket data plane end to end:
 1. Real Cognito login to obtain a JWT.
 2. Open the socket at `ws://localhost:4566/ws/{apiId}/{stage}?token=<jwt>`.
 3. Create an order with `x-test-mode: true`.
-4. Assert **three** messages arrive: `ON_THE_WAY`, `OUT_FOR_DELIVERY`, `DELIVERED`.
+4. Assert **four** messages arrive: `PROCESSING`, `SHIPPED`, `OUT_FOR_DELIVERY`, `DELIVERED`.
 
-Three, not four, and **not one**, because [[tracking-service-design#Events]] is explicit that
+Four, not five, and **not one**, because [[tracking-service-design#Events]] is explicit that
 there is no suppression — every successful *transition* emits, `DELIVERED` included. But
-`SHIPPED` is not a transition: it is the status a tracking is *created* at (see
-[[tracking-service-design#TestMode automatic progression]]'s table, `t=0s SHIPPED (record
+`PLACED` is not a transition: it is the status a tracking is *created* at (see
+[[tracking-service-design#TestMode automatic progression]]'s table, `t=0s PLACED (record
 created)`). `TRACKING_STATUS_CHANGED` is published only from `update_tracking_status`
 (`services/tracking/src/features/tracking/commands/update_status.py`), the transition path — the
-creation path (`create_tracking.py`) never calls it. TestMode's three automatic advances
-(`ON_THE_WAY`, `OUT_FOR_DELIVERY`, `DELIVERED`) each go through `update_tracking_status`, so each
-produces one event and one push; the initial `SHIPPED` write does not. Verified empirically by a
-live gateway E2E run: the client received exactly `ON_THE_WAY`, `OUT_FOR_DELIVERY`, `DELIVERED`
-— never `SHIPPED`.
+creation path (`create_tracking.py`) never calls it. TestMode's four automatic advances
+(`PROCESSING`, `SHIPPED`, `OUT_FOR_DELIVERY`, `DELIVERED`) each go through `update_tracking_status`,
+so each produces one event and one push; the initial `PLACED` write does not. Verified empirically
+by a live gateway E2E run: the client received exactly `PROCESSING`, `SHIPPED`,
+`OUT_FOR_DELIVERY`, `DELIVERED` — never `PLACED`.
 
 ### Two mandatory negative tests
 
@@ -352,30 +352,31 @@ A false green here would be invisible without them:
 
 Messages are ordered per connection, since WebSocket runs over TCP. But the events-pipeline
 processes SQS records in batches with no cross-record ordering guarantee (see
-[[events-pipeline-design#Dispatch]]). Tests must assert the **set** of the three transitions
-received (`ON_THE_WAY`, `OUT_FOR_DELIVERY`, `DELIVERED` — `SHIPPED` is never one of them, see
-[Gateway E2E — the test that matters](#gateway-e2e--the-test-that-matters) above), not a specific
-sequence — a test that demands strict order will be flaky independent of whether the feature
-works.
+[[events-pipeline-design#Dispatch]]). Tests must assert the **set** of the four transitions
+received (`PROCESSING`, `SHIPPED`, `OUT_FOR_DELIVERY`, `DELIVERED` — `PLACED` is never one of
+them, see [Gateway E2E — the test that matters](#gateway-e2e--the-test-that-matters) above), not a
+specific sequence — a test that demands strict order will be flaky independent of whether the
+feature works.
 
 ### Debugging lesson — a count-only assertion hides which system is wrong
 
-While the four-transition assertion above was still in the spec, the gateway E2E test failed with
-only `expected 4 messages, got 3`. That failure is **indistinguishable** between two very
-different root causes: the fan-out silently dropping one of four legitimate pushes (a real bug in
+While the five-transition assertion above was still in the spec, the gateway E2E test failed with
+only `expected 5 messages, got 4`. That failure is **indistinguishable** between two very
+different root causes: the fan-out silently dropping one of five legitimate pushes (a real bug in
 `functions/realtime-events/` or the pipeline's WebSocket publisher), or the expectation itself
-being wrong (this note's original four-transition error). A count-only assertion cannot tell you
+being wrong (this note's original five-transition error). A count-only assertion cannot tell you
 which.
 
 The test helper now reports **which** messages arrived, not just how many —
 `e2e/support/ws-client.ts`'s collector surfaces the actual set of statuses received, so a failure
-reads as `expected {ON_THE_WAY, OUT_FOR_DELIVERY, DELIVERED}, got {ON_THE_WAY, OUT_FOR_DELIVERY,
-DELIVERED, SHIPPED}` (or a genuine drop) instead of a bare number. That is what made this error
-diagnosable at all: the set showed `SHIPPED` never arriving, which is what led to checking
-[[tracking-service-design#Events]]'s own TestMode table and finding the assertion, not the system,
-was wrong. **Generalized rule: any test asserting "N things happened" should assert or at least
-log *which* N, not only the count** — a count-only failure collapses two unrelated failure modes
-(the system under test, and the test's own expectation) into one indistinguishable signal.
+reads as `expected {PROCESSING, SHIPPED, OUT_FOR_DELIVERY, DELIVERED}, got {PROCESSING, SHIPPED,
+OUT_FOR_DELIVERY, DELIVERED, PLACED}` (or a genuine drop) instead of a bare number. That is what
+made this error diagnosable at all: the set showed `PLACED` arriving where it never should, which
+is what led to checking [[tracking-service-design#Events]]'s own TestMode table and finding the
+assertion, not the system, was wrong. **Generalized rule: any test asserting "N things happened"
+should assert or at least log *which* N, not only the count** — a count-only failure collapses two
+unrelated failure modes (the system under test, and the test's own expectation) into one
+indistinguishable signal.
 
 ## Verification results (POC, 2026-08-05)
 
@@ -472,7 +473,7 @@ so the full call is `POST /execute-api/{apiId}/{stage}/@connections/{connectionI
   (`author.cognito_sub`), and producer publish-failure policy this design extends with the
   WebSocket fan-out.
 - [[tracking-service-design]] — the `TRACKING_STATUS_CHANGED` producer, its `Tracking.cognito_sub`
-  column, and TestMode's three-transition progression the gateway E2E test relies on (`SHIPPED` is
+  column, and TestMode's four-transition progression the gateway E2E test relies on (`PLACED` is
   the creation state, not a transition — see
   [Gateway E2E — the test that matters](#gateway-e2e--the-test-that-matters)).
 - [[user-id-vs-cognito-sub-ownership-key]] — the ADR this design's `cognito_sub`-not-`user_id`

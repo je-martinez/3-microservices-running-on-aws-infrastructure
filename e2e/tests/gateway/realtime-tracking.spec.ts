@@ -61,26 +61,27 @@ test.describe("realtime tracking events over websocket", () => {
     const { token, api } = await newGatewayUser();
     const socket = await openSocket(WS_URL!, token);
 
-    // x-test-mode drives the four-step progression — every transition emits,
-    // DELIVERED included, with no suppression.
+    // x-test-mode drives the progression — every transition emits, DELIVERED
+    // included, with no suppression.
     const orderId = await createTestModeOrder(api);
 
-    // THREE messages, not four — SHIPPED is the state the record is CREATED
-    // in, not a transition. The spec's own TestMode table says so:
-    // "t=0s SHIPPED (record created)", then ON_THE_WAY, OUT_FOR_DELIVERY and
-    // DELIVERED at ~10s intervals. Events are emitted from
-    // update_tracking_status, the transition path, which creation never takes,
-    // so a TestMode run yields exactly three pushes.
+    // FOUR messages for FIVE statuses. `PLACED` is the state the record is
+    // CREATED in, not a transition: the progression is
+    // PLACED → PROCESSING → SHIPPED → OUT_FOR_DELIVERY → DELIVERED at ~10s
+    // intervals, and events are emitted from update_tracking_status — the
+    // transition path, which creation never takes. So four pushes, not five.
     //
-    // This test asked for four for a long time and reported "got 3", which
-    // reads exactly like a fan-out dropping one message. It was the assertion
-    // that was wrong, not the feature.
+    // The off-by-one is the whole trap here. An earlier version of this test
+    // asked for one message per status and failed with "got N of N+1", which
+    // reads exactly like a fan-out dropping a message; it was the assertion
+    // that was wrong, not the feature. `waitForCount` now reports WHICH
+    // messages arrived so the next person sees the difference immediately.
     //
     // 120s is measured, not guessed: Tracking's logs put the progression at
-    // ~40s wall-clock (started 14:55:06 -> succeeded 14:55:46), and this clock
-    // starts BEFORE it — user creation, auth, the catalogue read and order
-    // creation all run first, then three SQS deliveries and Lambda invocations.
-    await socket.waitForCount(3, 120_000);
+    // ~40s wall-clock, and this clock starts BEFORE it — user creation, auth,
+    // the catalogue read and order creation all run first, then four SQS
+    // deliveries and Lambda invocations.
+    await socket.waitForCount(4, 120_000);
     socket.close();
 
     // Assert the SET, not the sequence: the pipeline processes SQS records in
@@ -88,11 +89,13 @@ test.describe("realtime tracking events over websocket", () => {
     // CLAUDE.md — "partial batch responses"), so demanding strict order would
     // be flaky independent of whether the feature works.
     //
-    // SHIPPED is deliberately absent: it is the creation state, never a
+    // PLACED is deliberately absent: it is the creation state, never a
     // transition, so it is never emitted. Asserting it here would be asserting
     // a message the system is not designed to send.
     const statuses = (socket.messages as Array<{ status: string }>).map((m) => m.status).sort();
-    expect(statuses).toEqual(["DELIVERED", "ON_THE_WAY", "OUT_FOR_DELIVERY"].sort());
+    expect(statuses).toEqual(
+      ["DELIVERED", "OUT_FOR_DELIVERY", "PROCESSING", "SHIPPED"].sort(),
+    );
 
     for (const message of socket.messages as Array<{ type: string; order_id: string }>) {
       expect(message.type).toBe("TRACKING_STATUS_CHANGED");
@@ -127,9 +130,9 @@ test.describe("realtime tracking events over websocket", () => {
 
     const orderId = await createTestModeOrder(alice.api);
 
-    // Three, not four — see the delivery test above: SHIPPED is the creation
+    // Four, not five — see the delivery test above: PLACED is the creation
     // state and is never emitted as a transition.
-    await aliceSocket.waitForCount(3, 120_000);
+    await aliceSocket.waitForCount(4, 120_000);
     aliceSocket.close();
     bobSocket.close();
 

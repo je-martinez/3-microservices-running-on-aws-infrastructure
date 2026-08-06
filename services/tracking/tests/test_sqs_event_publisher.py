@@ -124,8 +124,8 @@ def publish(
     *,
     order_id: str = ORDER_ID,
     user_id: str = USER_ID,
-    status: str = "ON_THE_WAY",
-    previous_status: str = "SHIPPED",
+    status: str = "PROCESSING",
+    previous_status: str = "PLACED",
     changed_at: datetime = CHANGED_AT,
     actor: AuditActor = AuditActor.CARRIER_STATUS_UPDATE,
     cognito_sub: str | None = None,
@@ -459,21 +459,21 @@ class TestThePayloadItBuilds:
     def test_status_and_previous_status_are_the_transition(self) -> None:
         client = RecordingSqsClient()
         publish(
-            build(client), status="OUT_FOR_DELIVERY", previous_status="ON_THE_WAY"
+            build(client), status="OUT_FOR_DELIVERY", previous_status="PROCESSING"
         )
         payload = sent_body(client)["payload"]
 
         assert payload["status"] == "OUT_FOR_DELIVERY"
-        assert payload["previous_status"] == "ON_THE_WAY"
+        assert payload["previous_status"] == "PROCESSING"
 
     @pytest.mark.parametrize(
         "status",
-        ["SHIPPED", "ON_THE_WAY", "OUT_FOR_DELIVERY", "DELIVERED"],
+        ["PLACED", "PROCESSING", "SHIPPED", "OUT_FOR_DELIVERY", "DELIVERED"],
     )
     def test_every_progression_status_passes_the_handlers_enum(
         self, status: str
     ) -> None:
-        """The handler's `z.enum` accepts exactly these four. A publisher that
+        """The handler's `z.enum` accepts exactly these five. A publisher that
         lowercased or prettified the value would be rejected downstream as a
         PermanentError and no email would ever be sent."""
         client = RecordingSqsClient()
@@ -552,13 +552,13 @@ class TestDeriveEventId:
 
     The pipeline dedupes on a unique index over `event_id`. A randomly generated
     id would slip past that index and send a SECOND notification for a transition
-    that already succeeded — which matters most under TestMode, walking four
-    statuses in ~30 seconds.
+    that already succeeded — which matters most under TestMode, walking five
+    statuses in ~40 seconds.
     """
 
     def test_the_same_pair_yields_the_same_id(self) -> None:
-        assert derive_event_id(ORDER_ID, "ON_THE_WAY") == derive_event_id(
-            ORDER_ID, "ON_THE_WAY"
+        assert derive_event_id(ORDER_ID, "PROCESSING") == derive_event_id(
+            ORDER_ID, "PROCESSING"
         )
 
     def test_it_is_stable_across_many_calls(self) -> None:
@@ -569,25 +569,26 @@ class TestDeriveEventId:
         assert len(ids) == 1
 
     def test_a_different_status_yields_a_different_id(self) -> None:
-        """Four transitions of one order are four distinct events — an id keyed
-        on the order alone would make the pipeline dedupe away three of the four
+        """Five statuses of one order are five distinct events — an id keyed
+        on the order alone would make the pipeline dedupe away four of the five
         emails."""
         ids = {
             derive_event_id(ORDER_ID, status)
             for status in (
+                "PLACED",
+                "PROCESSING",
                 "SHIPPED",
-                "ON_THE_WAY",
                 "OUT_FOR_DELIVERY",
                 "DELIVERED",
             )
         }
-        assert len(ids) == 4
+        assert len(ids) == 5
 
     def test_a_different_order_yields_a_different_id(self) -> None:
-        """Otherwise every order's ON_THE_WAY event would collide and only the
+        """Otherwise every order's PROCESSING event would collide and only the
         first customer would be told."""
-        assert derive_event_id("ord_one", "ON_THE_WAY") != derive_event_id(
-            "ord_two", "ON_THE_WAY"
+        assert derive_event_id("ord_one", "PROCESSING") != derive_event_id(
+            "ord_two", "PROCESSING"
         )
 
     def test_the_pair_is_hashed_not_interpolated(self) -> None:
@@ -609,20 +610,26 @@ class TestDeriveEventId:
 
     def test_every_real_pair_in_a_progression_is_distinct(self) -> None:
         """The property that actually has to hold: across several orders each
-        walking all four statuses, no two transitions share an id.
+        walking all five statuses, no two transitions share an id.
 
         Stated over the REAL domain rather than as separator-injection
         resistance, because the latter does not hold and does not need to:
         `f"{order_id}|{status}"` is the classic ambiguous concatenation, so
         `("a|b", "c")` and `("a", "b|c")` do collide. Unreachable here — `status`
-        is always one of four literals from a closed `StrEnum` (`parse_status`
+        is always one of five literals from a closed `StrEnum` (`parse_status`
         rejects everything else before this is ever called), none containing a
         `|` — so the only way to forge a collision is to supply a status that
         cannot exist. Recorded rather than asserted away: if `status` ever became
         free-form, this comment is the reason to revisit the separator.
         """
         orders = [f"ord_{index:017d}" for index in range(25)]
-        statuses = ("SHIPPED", "ON_THE_WAY", "OUT_FOR_DELIVERY", "DELIVERED")
+        statuses = (
+            "PLACED",
+            "PROCESSING",
+            "SHIPPED",
+            "OUT_FOR_DELIVERY",
+            "DELIVERED",
+        )
         ids = {
             derive_event_id(order, status)
             for order in orders
@@ -717,7 +724,7 @@ class TestSendFailureIsLoggedAndSwallowed:
 
         assert record.order_id == ORDER_ID
         assert record.user_id == USER_ID
-        assert record.status == "ON_THE_WAY"
+        assert record.status == "PROCESSING"
 
     def test_the_failure_line_carries_the_email_hash_not_the_address(
         self, caplog: pytest.LogCaptureFixture

@@ -304,13 +304,13 @@ Registered templates:
 
 - `user-created` — one component, one entry.
 - `order-created` — one component, one entry.
-- `tracking-status-changed-{shipped,on-the-way,out-for-delivery,delivered}` — **one** event type
-  (`TRACKING_STATUS_CHANGED`), **four** catalog entries sharing **one** component
+- `tracking-status-changed-{placed,processing,shipped,out-for-delivery,delivered}` — **one** event
+  type (`TRACKING_STATUS_CHANGED`), **five** catalog entries sharing **one** component
   (`TrackingStatusChangedEmail`). The handler picks the entry key from `payload.status`. This is
   the mirror image of the dispatch-map claim above: a new event type costs one dispatch entry,
   and one event type can fan out to several rendered variants without adding a second dispatch
   entry — the variation belongs in template selection, not in the event taxonomy. A rejected
-  alternative was a distinct event type per status (`TRACKING_SHIPPED`, `TRACKING_ON_THE_WAY`,
+  alternative was a distinct event type per status (`TRACKING_PLACED`, `TRACKING_PROCESSING`,
   …), which would have duplicated near-identical dispatch entries and handlers for logic the
   catalog already handles cleanly.
 - `auth-otp` — one component, one entry, added 2026-08-05 for `AUTH_OTP_REQUESTED`. Built on the
@@ -363,7 +363,7 @@ Tracking) stay in the codebase for tests that must not emit.
 
 Tracking derives `event_id` deterministically from `(order_id, status)` rather than generating a
 fresh id per publish attempt. This matters specifically because of TestMode: it walks a tracking
-through all four statuses in roughly 30 seconds, and if `event_id` were freshly generated on
+through all five statuses in roughly 40 seconds, and if `event_id` were freshly generated on
 every send attempt, a retry of the same transition (e.g. after a transient SQS error) would mint
 a new id, miss the pipeline's unique-index dedupe, and send a **duplicate notification email**
 for a transition that had already succeeded. Deriving from `(order_id, status)` means a retry of
@@ -379,9 +379,9 @@ for the event; `_emit_status_changed` reads `updated.user_id` off that persisted
 ## Realtime WebSocket fan-out (second output of `TRACKING_STATUS_CHANGED`)
 
 > [!info] Shipped 2026-08-06, on `feature/realtime-events` (not yet merged)
-> Full design: [[2026-08-05-realtime-tracking-events-websocket-design]]. **One gateway E2E gap is
-> still open** (see the callout below) — this section documents what shipped, not a closed
-> milestone.
+> Full design: [[2026-08-05-realtime-tracking-events-websocket-design]]. The gateway E2E gap once
+> open here was resolved the same day — an incorrect test assertion, not a delivery bug (see the
+> resolved callout below) — so this section documents a closed, verified feature, not an open gap.
 
 The `TRACKING_STATUS_CHANGED` handler (`src/handlers/tracking-status-changed.ts`) gained a
 **second output**, called after `sendEmail`: a push to every WebSocket connection the event's
@@ -517,17 +517,17 @@ for the full evidence trail.
 > always passed. The two positive tests ("delivers all status transitions", "does not deliver one
 > user's events to another user") were previously reported red, failing with **0 frames
 > received**. The root cause was the tests' own expectation, not the delivery path: they waited
-> for **four** messages including `SHIPPED`, but `TRACKING_STATUS_CHANGED` is published only from
-> `update_tracking_status` (the transition path) — `SHIPPED` is the status a tracking is *created*
+> for **five** messages including `PLACED`, but `TRACKING_STATUS_CHANGED` is published only from
+> `update_tracking_status` (the transition path) — `PLACED` is the status a tracking is *created*
 > at (`create_tracking.py`), which never calls it, so it is never pushed. A TestMode run therefore
-> produces exactly **three** transitions (`ON_THE_WAY`, `OUT_FOR_DELIVERY`, `DELIVERED`) and three
-> pushes; see [[tracking-service-design#Events]] and
+> produces exactly **four** transitions (`PROCESSING`, `SHIPPED`, `OUT_FOR_DELIVERY`, `DELIVERED`)
+> and four pushes; see [[tracking-service-design#Events]] and
 > [[2026-08-05-realtime-tracking-events-websocket-design#Gateway E2E — the test that matters]].
-> With the assertion corrected to three, both positive tests pass and the full E2E suite is
+> With the assertion corrected to four, both positive tests pass and the full E2E suite is
 > 83/83. The direct-Lambda controller probe below, and the four ruled-out hypotheses, remain
 > useful evidence that the delivery path itself was never the problem — kept here as the
-> diagnostic trail that led to finding the real cause, a count-only assertion (`expected 4, got
-> 3`) that could not distinguish a dropped message from a wrong expectation. A controller-run
+> diagnostic trail that led to finding the real cause, a count-only assertion (`expected 5, got
+> 4`) that could not distinguish a dropped message from a wrong expectation. A controller-run
 > direct-Lambda probe verified the full chain works end to end (authenticated socket → GSI row →
 > event published for that sub → frame delivered with the correct payload), and `410 Gone`
 > cleanup was independently confirmed live. Four hypotheses were measured and ruled out along the
@@ -568,7 +568,7 @@ for the full evidence trail.
 - [[cognito-custom-auth-triggers]] — the `otp-challenge-lambda` that publishes `AUTH_OTP_REQUESTED`.
 - [[2026-08-05-realtime-tracking-events-websocket-design]] — the design for the WebSocket fan-out
   documented above: the connections table, the `by-cognito-sub` GSI, the three new env vars, and
-  the outstanding gateway E2E gap.
+  the gateway E2E resolution.
 - [[2026-08-05-realtime-tracking-events-websocket]] — the implementation plan that shipped it.
 - [[user-id-vs-cognito-sub-ownership-key]] — why the fan-out keys the GSI lookup by
   `author.cognito_sub`, never `envelope.user_id`.

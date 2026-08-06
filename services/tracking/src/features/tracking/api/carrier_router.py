@@ -63,7 +63,7 @@ router = APIRouter(
     dependencies=[CarrierAuth],
 )
 
-#: `reason` for a status string outside the four valid values. Sits alongside the
+#: `reason` for a status string outside the five valid values. Sits alongside the
 #: three `TransitionRejectionReason` members in the same response field, so a
 #: client handles one vocabulary of rejection codes, not two.
 INVALID_STATUS_REASON = "invalid_status"
@@ -102,7 +102,7 @@ def update_status(
     try:
         tracking = update_tracking_status(session, command)
     except ValueError as exc:
-        # `parse_status` rejected the value: not one of the four. Raised before
+        # `parse_status` rejected the value: not one of the five. Raised before
         # anything was read, so nothing was written.
         _log_failure(order_id, INVALID_STATUS_REASON)
         raise _rejected(str(exc), INVALID_STATUS_REASON) from exc

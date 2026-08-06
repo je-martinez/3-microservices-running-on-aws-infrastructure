@@ -1624,12 +1624,12 @@ def test_emits_cognito_sub_from_the_persisted_row(session, fake_publisher):
     API key, not a Cognito JWT — so the persisted row is the only source.
     """
     tracking = make_tracking(
-        session, order_id="ord_1", status="SHIPPED", cognito_sub="sub-abc"
+        session, order_id="ord_1", status="PROCESSING", cognito_sub="sub-abc"
     )
 
     update_tracking_status(
         session,
-        UpdateStatusCommand(order_id="ord_1", status="ON_THE_WAY"),
+        UpdateStatusCommand(order_id="ord_1", status="SHIPPED"),
         actor=AuditActor.TRACKING_CARRIER,
         publisher=fake_publisher,
     )
@@ -1640,11 +1640,11 @@ def test_emits_cognito_sub_from_the_persisted_row(session, fake_publisher):
 def test_emits_none_when_the_row_has_no_cognito_sub(session, fake_publisher):
     """A legacy row with a NULL cognito_sub still publishes — it just cannot be
     routed to a websocket. The email path is unaffected."""
-    make_tracking(session, order_id="ord_2", status="SHIPPED", cognito_sub=None)
+    make_tracking(session, order_id="ord_2", status="PROCESSING", cognito_sub=None)
 
     update_tracking_status(
         session,
-        UpdateStatusCommand(order_id="ord_2", status="ON_THE_WAY"),
+        UpdateStatusCommand(order_id="ord_2", status="SHIPPED"),
         actor=AuditActor.TRACKING_CARRIER,
         publisher=fake_publisher,
     )
@@ -1952,12 +1952,14 @@ test.describe("realtime tracking events over websocket", () => {
     const { token } = await loginAsNewUser();      // existing helper
     const socket = await openSocket(WS_URL, token);
 
-    // x-test-mode drives the four-step progression (~30s total), so every
-    // transition emits — there is no suppression, DELIVERED included.
+    // x-test-mode drives the five-status progression (~40s total: PLACED at
+    // creation, then four automatic advances), so every transition emits —
+    // there is no suppression, DELIVERED included. PLACED is the creation
+    // status, not a transition, so it never publishes.
     const orderId = await createOrder({ token, testMode: true });
 
-    // 45s: the progression takes ~30s, with headroom for SQS + Lambda.
-    await socket.waitForCount(4, 45_000);
+    // 55s: the progression takes ~40s, with headroom for SQS + Lambda.
+    await socket.waitForCount(4, 55_000);
     socket.close();
 
     // Assert the SET, not the sequence: the pipeline processes SQS records in
@@ -1965,7 +1967,7 @@ test.describe("realtime tracking events over websocket", () => {
     // order would be flaky independent of whether the feature works.
     const statuses = socket.messages.map((m: any) => m.status).sort();
     expect(statuses).toEqual(
-      ["DELIVERED", "ON_THE_WAY", "OUT_FOR_DELIVERY", "SHIPPED"].sort(),
+      ["DELIVERED", "OUT_FOR_DELIVERY", "PROCESSING", "SHIPPED"].sort(),
     );
     for (const message of socket.messages as any[]) {
       expect(message.type).toBe("TRACKING_STATUS_CHANGED");

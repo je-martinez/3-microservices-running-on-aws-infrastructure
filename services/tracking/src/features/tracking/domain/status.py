@@ -17,26 +17,28 @@ from typing import Final
 
 
 class TrackingStatus(StrEnum):
-    """The four valid delivery statuses.
+    """The five valid delivery statuses.
 
     A `StrEnum` so the member compares and serializes as its own name — matching
     both the `VARCHAR(50)` storage and the REST surface, which takes and returns it
     as a string. One representation across wire, storage and HTTP.
     """
 
+    PLACED = "PLACED"
+    PROCESSING = "PROCESSING"
     SHIPPED = "SHIPPED"
-    ON_THE_WAY = "ON_THE_WAY"
     OUT_FOR_DELIVERY = "OUT_FOR_DELIVERY"
     DELIVERED = "DELIVERED"
 
 
 # The allowed progression, in order. Position in this tuple IS the ordering the
 # guards below compare against — `TrackingStatus` is a StrEnum, so its members
-# compare alphabetically, NOT in delivery order (`DELIVERED` < `SHIPPED`
+# compare alphabetically, NOT in delivery order (`DELIVERED` < `PLACED`
 # alphabetically). Never order statuses by comparing the enum members directly.
 STATUS_ORDER: Final[tuple[TrackingStatus, ...]] = (
+    TrackingStatus.PLACED,
+    TrackingStatus.PROCESSING,
     TrackingStatus.SHIPPED,
-    TrackingStatus.ON_THE_WAY,
     TrackingStatus.OUT_FOR_DELIVERY,
     TrackingStatus.DELIVERED,
 )
@@ -107,7 +109,7 @@ def check_transition(
     """Evaluate `current -> requested` against the three guards.
 
     The guards are checked in this order, and the order is load-bearing: a
-    `DELIVERED -> SHIPPED` request violates guards 1 and 2 simultaneously, and
+    `DELIVERED -> PLACED` request violates guards 1 and 2 simultaneously, and
     `DELIVERED -> DELIVERED` violates 1 and 3. Terminality is the more specific
     fact about the tracking, so it is reported first.
 
@@ -175,8 +177,8 @@ def next_status(current: TrackingStatus) -> TrackingStatus | None:
 def parse_status(value: str) -> TrackingStatus:
     """Parse an external string into a `TrackingStatus`.
 
-    Raises `ValueError` for anything outside the four valid values — the REST
-    handler turns that into a `400`. Case-sensitive on purpose: the four values
+    Raises `ValueError` for anything outside the five valid values — the REST
+    handler turns that into a `400`. Case-sensitive on purpose: the five values
     are a fixed wire contract shared with the proto, not free-form input.
     """
     try:

@@ -158,7 +158,7 @@ def seed(
     user_id: str = USER_A,
     cognito_sub: str | None = SUB_A,
     tags: list[str] | None = None,
-    status: TrackingStatus = TrackingStatus.SHIPPED,
+    status: TrackingStatus = TrackingStatus.PLACED,
 ) -> str:
     """Create a COMMITTED tracking (plus its first history row); return its id.
 
@@ -675,7 +675,7 @@ class TestSoftDeleteIsReal:
         assert deleted.order_id == "ord_e2esoft0000000000002"
         assert deleted.user_id == USER_A
         assert deleted.cognito_sub == SUB_A
-        assert deleted.status == TrackingStatus.SHIPPED.value
+        assert deleted.status == TrackingStatus.PLACED.value
         assert deleted.tags == [E2E_SOURCE_TAG]
 
     def test_the_history_rows_are_soft_deleted_too(

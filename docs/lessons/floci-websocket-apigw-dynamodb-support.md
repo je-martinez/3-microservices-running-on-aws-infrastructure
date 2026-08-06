@@ -178,13 +178,13 @@ measured and ruled out along the way:
 - Stale env in Playwright — `playwright.config.ts` loads `.env.local.debug` explicitly, and its
   `WS_URL` matches the live API id for that run.
 
-The real root cause was the tests' own expectation: they waited for **four** messages including
-`SHIPPED`, but `TRACKING_STATUS_CHANGED` is published only from `update_tracking_status` (the
-transition path) — `SHIPPED` is the status a tracking is *created* at (`create_tracking.py`), which
-never calls it, so it is never pushed. A TestMode run therefore produces exactly **three**
-transitions (`ON_THE_WAY`, `OUT_FOR_DELIVERY`, `DELIVERED`) and three pushes; see
-[[tracking-service-design#Events]]. With the assertion corrected to three, both positive tests pass
-and the full E2E suite is 83/83. The count-only assertion (`expected 4, got 3`) is what hid this —
+The real root cause was the tests' own expectation: they waited for **five** messages including
+`PLACED`, but `TRACKING_STATUS_CHANGED` is published only from `update_tracking_status` (the
+transition path) — `PLACED` is the status a tracking is *created* at (`create_tracking.py`), which
+never calls it, so it is never pushed. A TestMode run therefore produces exactly **four**
+transitions (`PROCESSING`, `SHIPPED`, `OUT_FOR_DELIVERY`, `DELIVERED`) and four pushes; see
+[[tracking-service-design#Events]]. With the assertion corrected to four, both positive tests pass
+and the full E2E suite is 83/83. The count-only assertion (`expected 5, got 4`) is what hid this —
 it could not distinguish a dropped message from a wrong expectation, which is why the four
 hypotheses above had to be ruled out one at a time before the real cause was visible. See
 [[2026-08-05-realtime-tracking-events-websocket-design#Debugging lesson — a count-only assertion
