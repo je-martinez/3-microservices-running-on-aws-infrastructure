@@ -40,11 +40,32 @@ def scratch_database_url(database_url: str, engine) -> str:
 
     yield database_url
 
-    # Restore the models' schema for the rest of the session.
+    # Restore the database the way we found it — schema AND Alembic's stamp.
+    #
+    # `alembic upgrade head` rather than `Base.metadata.create_all`, because
+    # this suite runs against the SHARED local database and `alembic_version` is
+    # in MANAGED_TABLES above: recreating only the model tables leaves Alembic
+    # with no stamp, so the next `make migrate-tracking` would try to reapply
+    # every revision against tables that already exist.
+    #
+    # The inverse asymmetry is what made this expensive to diagnose once before:
+    # tables gone but the stamp left behind makes `migrate-tracking` a silent
+    # no-op — it prints "applied" and applies nothing, because Alembic believes
+    # the schema is current. Whichever half is left behind, the recovery is
+    # non-obvious, so restore both together.
     _drop_managed_tables(scratch)
-    from src.shared.db.base import Base
+    restored = run_alembic("upgrade", "head", url=database_url)
+    if restored.returncode != 0:
+        # Fall back to the models' shape so a later repository test still finds
+        # tables, but say so loudly: the environment is now un-stamped.
+        from src.shared.db.base import Base
 
-    Base.metadata.create_all(scratch)
+        Base.metadata.create_all(scratch)
+        pytest.fail(
+            "could not restore the schema via alembic after the migration test; "
+            "the local database has tables but no alembic_version stamp. "
+            f"alembic said: {restored.stderr.strip()[:300]}"
+        )
     scratch.dispose()
 
 

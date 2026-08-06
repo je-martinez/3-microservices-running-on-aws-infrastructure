@@ -6,6 +6,16 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // reasoning as tests/handlers/user-created.test.ts.
 vi.mock("#email/sender", () => ({ sendEmail: vi.fn(async () => {}) }));
 
+// The websocket publisher is mocked too: it is its own process boundary
+// (DynamoDB query + API Gateway Management API), and its own unit tests
+// already cover its internals. Mocked here via the SAME `#` alias the module
+// is imported by (not a relative path), matching every other vi.mock in this
+// suite. `vi.hoisted` is required (not a plain top-level const) because
+// `vi.mock` factories are hoisted above all other module code, including
+// normal top-level declarations.
+const { publishToUser } = vi.hoisted(() => ({ publishToUser: vi.fn(async () => {}) }));
+vi.mock("#shared/realtime/websocket-publisher", () => ({ publishToUser }));
+
 import { trackingStatusChangedHandler } from "#handlers/tracking-status-changed";
 import { handlers } from "#handlers/index";
 import { sendEmail } from "#email/sender";
@@ -34,6 +44,7 @@ describe("trackingStatusChangedHandler", () => {
   beforeEach(() => {
     vi.mocked(sendEmail).mockReset();
     vi.mocked(sendEmail).mockResolvedValue(undefined);
+    publishToUser.mockClear();
   });
 
   it.each([
@@ -199,6 +210,46 @@ describe("trackingStatusChangedHandler", () => {
     await expect(
       trackingStatusChangedHandler(makeEnvelope("SHIPPED", "PROCESSING", "evt_transport")),
     ).rejects.toThrow("transport exploded");
+  });
+});
+
+describe("trackingStatusChangedHandler realtime fan-out", () => {
+  beforeEach(() => {
+    vi.mocked(sendEmail).mockReset();
+    vi.mocked(sendEmail).mockResolvedValue(undefined);
+    publishToUser.mockClear();
+  });
+
+  it("pushes to the websocket using author.cognito_sub, not user_id", async () => {
+    const envelope: Envelope = {
+      ...makeEnvelope("DELIVERED", "OUT_FOR_DELIVERY"),
+      order_id: "ord_xyz",
+      user_id: "usr_abc",
+      author: { actor: "tracking_api:carrier_status_update", cognito_sub: "sub-1" },
+    };
+
+    await trackingStatusChangedHandler(envelope);
+
+    expect(publishToUser).toHaveBeenCalledTimes(1);
+    const [sub, message] = publishToUser.mock.calls[0];
+    // The internal usr_ id would silently match nothing on the GSI.
+    expect(sub).toBe("sub-1");
+    expect(sub).not.toBe("usr_abc");
+    expect(message).toMatchObject({
+      type: "TRACKING_STATUS_CHANGED",
+      order_id: "ord_xyz",
+      status: "DELIVERED",
+    });
+  });
+
+  it("skips the push when author.cognito_sub is absent, without failing", async () => {
+    const envelope: Envelope = {
+      ...makeEnvelope("DELIVERED", "OUT_FOR_DELIVERY"),
+      author: { actor: "tracking_api:carrier_status_update" },
+    };
+
+    await expect(trackingStatusChangedHandler(envelope)).resolves.toBeUndefined();
+    expect(publishToUser).not.toHaveBeenCalled();
   });
 });
 

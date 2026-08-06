@@ -4,7 +4,7 @@ type: spec
 area: events-pipeline
 status: accepted
 created: 2026-06-26
-updated: 2026-08-05
+updated: 2026-08-06
 tags: [type/spec, area/events-pipeline, status/accepted]
 related:
   - "[[cqrs]]"
@@ -25,6 +25,9 @@ related:
   - "[[2026-08-05-passwordless-otp-auth]]"
   - "[[users-service-design]]"
   - "[[cognito-custom-auth-triggers]]"
+  - "[[2026-08-05-realtime-tracking-events-websocket-design]]"
+  - "[[2026-08-05-realtime-tracking-events-websocket]]"
+  - "[[user-id-vs-cognito-sub-ownership-key]]"
 ---
 
 # Events Pipeline Design
@@ -373,6 +376,166 @@ unscoped. The entity `update_status` already loaded and returned is the only sou
 for the event; `_emit_status_changed` reads `updated.user_id` off that persisted entity. See
 [[tracking-service-design]] for the full mechanics of this emission.
 
+## Realtime WebSocket fan-out (second output of `TRACKING_STATUS_CHANGED`)
+
+> [!info] Shipped 2026-08-06, on `feature/realtime-events` (not yet merged)
+> Full design: [[2026-08-05-realtime-tracking-events-websocket-design]]. The gateway E2E gap once
+> open here was resolved the same day — an incorrect test assertion, not a delivery bug (see the
+> resolved callout below) — so this section documents a closed, verified feature, not an open gap.
+
+The `TRACKING_STATUS_CHANGED` handler (`src/handlers/tracking-status-changed.ts`) gained a
+**second output**, called after `sendEmail`: a push to every WebSocket connection the event's
+owner currently has open. The email remains the durable, primary notification; the WebSocket
+push is a strictly additive, opportunistic enhancement layered on top of it — nothing about the
+existing dispatch, status machine, or error taxonomy above changed to add it.
+
+### Governing rule: the fan-out never changes event outcome
+
+`publishToUser` (`src/shared/realtime/websocket-publisher.ts`) **never throws**. This is not an
+implementation detail, it is the load-bearing constraint the whole feature is built around: if a
+WebSocket-push failure were allowed to fail the SQS record, [Error taxonomy](#error-taxonomy-load-bearing)
+above would treat it as retryable, SQS would redeliver the record, and the handler would call
+`sendEmail` a **second time** for a transition the user was already notified about — trading a
+realtime-delivery failure for a duplicate email. That is exactly the trade every one of this
+pipeline's four producers already rejects (see
+[Producers and their publish-failure policy](#producers-and-their-publish-failure-policy)); the
+WebSocket fan-out inherits the same policy rather than introducing a new one.
+
+Concretely: a `PostToConnection` `410 Gone` deletes that one connection row and continues with
+the rest of the batch (not an error); any other `PostToConnection` failure is logged and
+swallowed; a total failure (e.g. the DynamoDB query itself fails) is logged and swallowed, and
+the event still reaches `COMPLETED` if the email sent. A user with no open connections is the
+normal case — the GSI query returns empty and nothing else happens.
+
+### Keyed by `author.cognito_sub`, not `envelope.user_id`
+
+The handler reads `envelope.author.cognito_sub` — **not** `envelope.user_id` — to key the
+connections lookup:
+
+```typescript
+// Keyed by `author.cognito_sub`, NOT `envelope.user_id`. The latter is the
+// internal usr_ id; the connections GSI is keyed by the Cognito sub, so
+// querying with user_id returns an empty list indistinguishable from "no open
+// connections". See the user-id-vs-cognito-sub-ownership-key ADR.
+const cognitoSub = envelope.author.cognito_sub;
+if (cognitoSub) {
+  await publishToUser(cognitoSub, { ... });
+}
+```
+
+`author.cognito_sub` is the same optional envelope field documented in
+[The envelope's `author` object](#the-envelopes-author-object) above — omitted, never null, when
+absent. For `TRACKING_STATUS_CHANGED` specifically, Tracking's publisher now populates it off the
+persisted tracking row; see [[tracking-service-design#Events]] for why it comes from the row and
+not the request, and why it is `None`/omitted rather than an empty string when the row predates
+the column. If it is absent, the fan-out is skipped entirely (no lookup, no push) — a
+`cognito_sub`-less event only ever gets the email.
+
+Querying the `by-cognito-sub` GSI (below) with the internal `usr_` id instead of the Cognito sub
+would **return an empty list with no error at all** — indistinguishable from "user has no open
+connections." Keying explicitly by `cognito_sub`, with a name that visibly does not match a
+`usr_`-shaped value, turns that mismatch into a question an implementer notices rather than a
+silent zero-result query. See [[user-id-vs-cognito-sub-ownership-key]] for the same trap
+documented on Tracking's own REST reads.
+
+### The connections table and its `by-cognito-sub` GSI
+
+`infra/modules/dynamodb/` provisions `websocket_connections`, written and deleted by a **sibling**
+package, `functions/realtime-events/` (its own `$connect`/`$disconnect`/authorizer/`$default`
+Lambdas — a different domain and trigger from this SQS-triggered pipeline, so it is not folded
+into this package; see [[2026-08-05-realtime-tracking-events-websocket-design#5-new-functionsrealtime-events-package]]).
+
+| Attribute | Role |
+|---|---|
+| `connection_id` | Partition key. The API Gateway `connectionId`. |
+| `cognito_sub` | GSI partition key (`by-cognito-sub`). The `sub` claim from the JWT presented on `$connect`. |
+| `connected_at` | Epoch timestamp, diagnostics only. |
+| `ttl` | Epoch expiry — a **safety net**, not the cleanup mechanism. Real cleanup is reactive: this pipeline's `connections-reader.ts` deletes a row the instant `PostToConnection` answers `410 Gone`. |
+
+This pipeline only **reads** the table (`src/shared/realtime/connections-reader.ts`: `Query` on
+`by-cognito-sub`, `DeleteItem` on a `410`) — it never writes a connection row. Two logical writers
+exist across the two packages (connect/disconnect handlers write; this pipeline deletes dead rows
+on 410), and the schema is documented in exactly one place, the design spec's
+[Data model](../../../superpowers/specs/2026-08-05-realtime-tracking-events-websocket-design.md#data-model--websocket_connections-table)
+section — not duplicated here.
+
+### Three new env vars
+
+Generated by `make env-file` into `.env.local.events-pipeline` (per [[env-files]]; never
+hardcoded):
+
+| Var | Purpose |
+|---|---|
+| `WS_CONNECTIONS_TABLE` | The DynamoDB table name (`connections-reader.ts`'s `Query`/`DeleteItem` target). |
+| `WS_CONNECTIONS_GSI` | The GSI name to query; defaults to `by-cognito-sub` if unset. |
+| `WS_MANAGEMENT_ENDPOINT` | The `@connections` management API endpoint `PostToConnectionCommand` targets. Locally this is Floci's **undocumented** `http://floci:4566/execute-api/{apiId}/{stage}` shape — see [Floci facts](#floci-facts-websocket-api-gateway--dynamodb) below; production uses the real AWS-generated endpoint. |
+
+### The pushed message deliberately carries no email address
+
+The frame `publishToUser` sends carries `type`, `order_id`, `status`, `previous_status`, and
+`changed_at` — none of the five is PII, and none of them is the recipient's email address, matching
+[[logging-context]]'s stance that a plaintext email never travels further than it has to. The email
+address is exactly what the **email** side of this same handler needs (via Tracking's gRPC-resolved
+`ResolvedUser.email`, see [[tracking-service-design#gRPC — outbound client to Users]]) and exactly
+what the WebSocket side does not: the client that opened the socket already knows who it
+authenticated as, so including it would add exposure with no benefit.
+
+### Floci facts (WebSocket API Gateway + DynamoDB)
+
+Verified empirically during the design POC and again during implementation; see
+[[2026-08-05-realtime-tracking-events-websocket-design#Verification results (POC, 2026-08-05)]]
+for the full evidence trail.
+
+- **WebSocket data plane:** `ws://localhost:4566/ws/{apiId}/{stage}` — not the
+  `restapis/<id>/$default/_user_request_/<path>` shape the HTTP API uses locally.
+- **`@connections` management API:** `http://localhost:4566/execute-api/{apiId}/{stage}` — an
+  **undocumented** prefix that differs from real AWS's
+  `https://{apiId}.execute-api.{region}.amazonaws.com/{stage}`. A wrong shape does **not** fail
+  obviously: it returns HTTP 400 with an **S3 XML error body**
+  (`<Error><Code>InvalidArgument</Code>`), because unrouted paths on `:4566` fall through to
+  Floci's S3 handler — the same root cause behind the already-known quirk that odd API Gateway
+  404s come back as `NoSuchBucket`. This reads exactly like a credentials problem and is not one.
+- **The REQUEST authorizer on `$connect` is genuinely invoked**, and its returned `context`
+  propagates intact to the `$connect` handler. This does **not** inherit the HTTP API's
+  claim-to-header limitation (see [[nginx-njs-x-user-id-injection]]) — the two gateway types use
+  different mechanisms (a propagated authorizer context vs. gateway-side claim-to-header mapping),
+  and the WebSocket one genuinely works on Floci.
+- **`update-function-code` genuinely replaces code** on this emulator — verified with a marker
+  function during Task 10's fix — it is not one of Floci's silently-dropped update APIs.
+- **A Cognito JWT verifier must take its issuer from configuration**, never derive it from the pool
+  id alone. Floci stamps `iss` as `http://localhost:4566/<pool-id>`; a verifier that derives the
+  issuer purely from `userPoolId` (as `aws-jwt-verify`'s top-level `CognitoJwtVerifier` does)
+  unconditionally points at real AWS Cognito instead, and every token — valid or garbage — fails
+  identically. `functions/realtime-events/src/shared/jwt.ts` uses the library's low-level
+  `JwtRsaVerifier` with an explicit `issuer`/`jwksUri` sourced from `COGNITO_ISSUER`
+  (`module.cognito.issuer` in Terraform — the same value the REST API Gateway's native JWT
+  authorizer already consumes), plus a custom JWKS fetcher because Floci serves its JWKS endpoint
+  over plain HTTP and `aws-jwt-verify`'s default fetcher rejects non-HTTPS URIs.
+
+> [!success] Resolved (2026-08-06) — the outstanding issue below was an incorrect assertion
+> `e2e/tests/gateway/realtime-tracking.spec.ts` has three tests. The invalid-token rejection test
+> always passed. The two positive tests ("delivers all status transitions", "does not deliver one
+> user's events to another user") were previously reported red, failing with **0 frames
+> received**. The root cause was the tests' own expectation, not the delivery path: they waited
+> for **five** messages including `PLACED`, but `TRACKING_STATUS_CHANGED` is published only from
+> `update_tracking_status` (the transition path) — `PLACED` is the status a tracking is *created*
+> at (`create_tracking.py`), which never calls it, so it is never pushed. A TestMode run therefore
+> produces exactly **four** transitions (`PROCESSING`, `SHIPPED`, `OUT_FOR_DELIVERY`, `DELIVERED`)
+> and four pushes; see [[tracking-service-design#Events]] and
+> [[2026-08-05-realtime-tracking-events-websocket-design#Gateway E2E — the test that matters]].
+> With the assertion corrected to four, both positive tests pass and the full E2E suite is
+> 83/83. The direct-Lambda controller probe below, and the four ruled-out hypotheses, remain
+> useful evidence that the delivery path itself was never the problem — kept here as the
+> diagnostic trail that led to finding the real cause, a count-only assertion (`expected 5, got
+> 4`) that could not distinguish a dropped message from a wrong expectation. A controller-run
+> direct-Lambda probe verified the full chain works end to end (authenticated socket → GSI row →
+> event published for that sub → frame delivered with the correct payload), and `410 Gone`
+> cleanup was independently confirmed live. Four hypotheses were measured and ruled out along the
+> way: premature socket close (the socket survived the full 75s timeout), sub mismatch (identical
+> in the same run), GSI indexing lag (visible at t=0.0s), and stale env in Playwright
+> (`.env.local.debug` matches the live API id) — none of them was the cause; the assertion was.
+> See [[2026-08-05-realtime-tracking-events-websocket-design]] for the full diagnostic trail.
+
 ## Cross-cutting rules
 
 - **Soft delete only:** documents are never hard-deleted. See [[soft-delete]] and [[ADR-0004-soft-delete-only]].
@@ -403,3 +566,9 @@ for the event; `_emit_status_changed` reads `updated.user_id` off that persisted
 - [[2026-08-05-passwordless-otp-auth]] — the implementation plan that shipped it.
 - [[users-service-design]] — the fourth producer's home service, and the consumer-facing OTP endpoints.
 - [[cognito-custom-auth-triggers]] — the `otp-challenge-lambda` that publishes `AUTH_OTP_REQUESTED`.
+- [[2026-08-05-realtime-tracking-events-websocket-design]] — the design for the WebSocket fan-out
+  documented above: the connections table, the `by-cognito-sub` GSI, the three new env vars, and
+  the gateway E2E resolution.
+- [[2026-08-05-realtime-tracking-events-websocket]] — the implementation plan that shipped it.
+- [[user-id-vs-cognito-sub-ownership-key]] — why the fan-out keys the GSI lookup by
+  `author.cognito_sub`, never `envelope.user_id`.

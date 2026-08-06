@@ -4,7 +4,7 @@ type: spec
 area: infra
 status: active
 created: 2026-06-26
-updated: 2026-08-05
+updated: 2026-08-06
 tags: [type/spec, area/infra, status/active]
 related:
   - ADR-0001-terraform-cloudposse-naming
@@ -18,6 +18,8 @@ related:
   - "[[local-gateway-per-route-integrations]]"
   - "[[nginx-njs-x-user-id-injection]]"
   - "[[events-pipeline-design]]"
+  - "[[2026-08-05-realtime-tracking-events-websocket-design]]"
+  - "[[2026-08-05-realtime-tracking-events-websocket]]"
 ---
 
 # Terraform Modules
@@ -57,9 +59,35 @@ The real module inventory under `infra/modules/`:
 | `infra/modules/lambda` | packages and deploys the events-pipeline Lambda (IAM exec role, log group, SQS event source mapping with `ReportBatchItemFailures`); see [[events-pipeline-design]] |
 | `infra/modules/db-app-user` | engine-parameterized least-privilege DB app-user (Terraform, phase 2) — see [[two-phase-terraform-apply]] |
 | `infra/modules/tf-backend` | create-once bootstrap: the remote-state S3 bucket + versioning, the state-lock DynamoDB table, and the `execution_log` DynamoDB table every awscli-fallback `local-exec` script records its run to — see [[terraform-remote-state-backend]] |
+| `infra/modules/dynamodb` | the `websocket_connections` table backing the realtime fan-out: PK `connection_id`, GSI `by-cognito-sub`, TTL on `ttl` as a safety net (not the cleanup mechanism); see [[events-pipeline-design#Realtime WebSocket fan-out (second output of TRACKING_STATUS_CHANGED)]] |
+| `infra/modules/api-gateway-ws` | a **separate** WebSocket API (`aws_apigatewayv2_api`, `protocol_type = "WEBSOCKET"`), its stage, a REQUEST authorizer on `$connect` only, and the four `realtime-events` Lambda functions declared directly inside this module — see [Why `api-gateway-ws` is a new module, and why `lambda/` was not reused](#why-api-gateway-ws-is-a-new-module-and-why-lambda-was-not-reused) below |
 
 There is no `ecs-service`, `secrets`, or `ecr` module — those are not part of the current
 inventory.
+
+### Why `api-gateway-ws` is a new module, and why `lambda/` was not reused
+
+Two separate decisions, both from [[2026-08-05-realtime-tracking-events-websocket-design]]:
+
+**A new API Gateway module, not a flag on the existing `api-gateway` module.** AWS does not allow
+a single `aws_apigatewayv2_api` to mix protocols — a WebSocket API (`protocol_type = "WEBSOCKET"`)
+is a genuinely separate resource from the existing HTTP API, sharing no resources, variables, or
+locals with it. The existing `api-gateway` module is built entirely around HTTP-API shapes that
+don't apply here: a `local.routes` map with a per-route `auth` boolean, per-route `HTTP_PROXY`
+integrations (the Floci workaround in
+[[local-gateway-per-route-integrations]]), and a native Cognito JWT authorizer. A WebSocket API's
+integrations are `AWS_PROXY` to Lambda, and its only usable authorizer type is REQUEST — neither
+shape exists in `api-gateway` today.
+
+**`infra/modules/lambda/` was not reused for the four `realtime-events` functions.** That module
+is coupled to SQS by design: it exposes `queue_arn`/`batch_size` as inputs and creates an
+`aws_lambda_event_source_mapping` (see its row above and [[events-pipeline-design]]). The
+`realtime-events` functions are invoked by API Gateway, not by a queue — there is no event source
+mapping to create for any of them. Rather than making the event source mapping optional inside
+`lambda/` (a generic Lambda wrapper with conditional branches for a shape it was never designed
+for), the four Lambda resources are declared **directly inside** `api-gateway-ws`, colocated with
+the routes and REQUEST authorizer whose lifecycle they share exactly. This keeps `lambda/`
+meaning "SQS-consumer Lambda," a single well-defined shape, rather than a generic wrapper.
 
 > [!note] Why `docdb` and `rds-aurora` stay separate
 > Both provision databases, but they are different AWS services with different providers and
@@ -80,8 +108,8 @@ provider version: the Cognito App Client and the Pre-Token-Generation V2 trigger
 ### Local composition and its follow-on decisions
 
 `infra/environments/local` composes `label`, `networking`, `rds-aurora`, `cognito`, `compute`,
-`api-gateway`, `messaging`, `docdb`, and `lambda` against Floci. Several decisions layered on top
-of that initial composition:
+`api-gateway`, `messaging`, `docdb`, `lambda`, `dynamodb`, and `api-gateway-ws` against Floci.
+Several decisions layered on top of that initial composition:
 
 - **`rds-aurora` has a switchable engine** (`var.engine`, default `aurora-postgresql`) so local
   can instantiate real Floci Postgres/MySQL containers instead of Aurora, which Floci does not
@@ -139,3 +167,7 @@ Resource names are derived via `module.label.id` (e.g. `3mrai-prod-users`). Tags
 - [[local-gateway-per-route-integrations]]
 - [[nginx-njs-x-user-id-injection]]
 - [[events-pipeline-design]]
+- [[2026-08-05-realtime-tracking-events-websocket-design]] — the design for `dynamodb` and
+  `api-gateway-ws`, including why the latter is a new module and why `lambda/` was not reused.
+- [[2026-08-05-realtime-tracking-events-websocket]] — the implementation plan that shipped both
+  modules.

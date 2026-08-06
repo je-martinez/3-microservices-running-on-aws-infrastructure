@@ -9,10 +9,12 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.48.0",
-    "chance": "^1.1.12",
     "@types/chance": "^1.1.6",
     "@types/node": "^26.0.1",
+    "@types/ws": "^8.18.1",
+    "chance": "^1.1.12",
     "dotenv": "^16.4.5",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "ws": "^8.21.2"
   }
 }

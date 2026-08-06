@@ -42,6 +42,12 @@ module "label_events" {
   environment = var.environment
   name        = "events"
 }
+module "label_realtime" {
+  source      = "../../modules/label"
+  namespace   = "3mrai"
+  environment = var.environment
+  name        = "realtime"
+}
 
 # ─── Networking ─────────────────────────────────────────────────────────────────
 # NOTE (reconciliation): the networking module's `subnets` variable is
@@ -294,6 +300,48 @@ module "docdb" {
   execution_log_table = var.execution_log_table
 }
 
+# ─── Realtime WebSocket (connections registry + WS API) ─────────────────────────
+# The connection registry: one row per open socket, written by the $connect /
+# $disconnect handlers and read by the events-pipeline's fan-out.
+module "ws_connections" {
+  source  = "../../modules/dynamodb"
+  context = { id = module.label_realtime.id, tags = module.label_realtime.tags }
+}
+
+# The WebSocket API and its four Lambdas (authorizer, $connect, $disconnect,
+# $default). source_dir points at the BUILT dist/ of functions/realtime-events —
+# archive_file is a data source read at PLAN time, so that directory must exist
+# before plan/apply (`pnpm run build` there first). `terraform validate` does not
+# evaluate data sources and so passes without it, same as the events-pipeline
+# Lambda below.
+module "api_gateway_ws" {
+  source     = "../../modules/api-gateway-ws"
+  context    = { id = module.label_realtime.id, tags = module.label_realtime.tags }
+  source_dir = "${path.root}/../../../functions/realtime-events/dist"
+
+  connections_table_name = module.ws_connections.table_name
+  connections_table_arn  = module.ws_connections.table_arn
+
+  # `client_id`, NOT `user_pool_client_id` — that is the name modules/cognito
+  # actually exports (see its outputs.tf).
+  cognito_user_pool_id = module.cognito.user_pool_id
+  cognito_client_id    = module.cognito.client_id
+  # SAME value the REST API Gateway's native JWT authorizer already consumes
+  # below (module.api_gateway.cognito_issuer) — module.cognito.issuer is
+  # "floci"-styled here (issuer_style = "floci" above), i.e.
+  # http://localhost:4566/<pool-id>, which is what Floci actually stamps as
+  # `iss` on every token it mints. See modules/cognito/outputs.tf and
+  # api-gateway-ws/variables.tf's cognito_issuer description for why this
+  # must be passed as configuration rather than derived inside the Lambda.
+  cognito_issuer = module.cognito.issuer
+
+  # IN-NETWORK name: these four Lambdas run as Docker containers on
+  # 3mrai-network, so the SDK inside them reaches the emulator as `floci`, never
+  # `localhost`. Same distinction the events-pipeline Lambda and the cognito
+  # module's OTP Lambda already make.
+  aws_endpoint_url = "http://floci:4566"
+}
+
 # ─── Events Pipeline Lambda ─────────────────────────────────────────────────────
 # source_dir points at the BUILT dist/ output of functions/events-pipeline. That
 # directory must exist before plan/apply: archive_file is a data source, read at
@@ -320,6 +368,13 @@ module "lambda_events_pipeline" {
   queue_arn  = module.messaging.queue_arn
   source_dir = "${path.module}/../../../functions/events-pipeline/dist"
 
+  # Realtime fan-out grants: Query on the by-cognito-sub GSI + DeleteItem for the
+  # 410-Gone pruning path, and ManageConnections to push a frame. Both default to
+  # "" in the module, so a consumer that does not fan out gets the same policy it
+  # always had.
+  ws_connections_table_arn  = module.ws_connections.table_arn
+  ws_manage_connections_arn = module.api_gateway_ws.manage_connections_arn
+
   environment_variables = {
     AWS_ENDPOINT_URL = "http://floci:4566"
     # Set explicitly: real Lambda injects AWS_REGION into every execution
@@ -340,6 +395,16 @@ module "lambda_events_pipeline" {
     # DOCDB_AUTH_SOURCE in functions/events-pipeline/src/shared/config/env.ts.
     DOCDB_AUTH_SOURCE = "admin"
     SES_FROM_ADDRESS  = var.ses_from_address
+
+    # ─── Realtime WebSocket fan-out ─────────────────────────────────────────
+    WS_CONNECTIONS_TABLE = module.ws_connections.table_name
+    WS_CONNECTIONS_GSI   = module.ws_connections.gsi_name
+    # LOCAL: Floci's @connections endpoint carries an UNDOCUMENTED
+    # /execute-api/{apiId}/{stage} prefix and differs from real AWS's
+    # https://{apiId}.execute-api.{region}.amazonaws.com/{stage}. A wrong shape
+    # answers HTTP 400 with an S3 XML body — unrouted :4566 paths fall through
+    # to Floci's S3 handler — which looks nothing like an endpoint error.
+    WS_MANAGEMENT_ENDPOINT = module.api_gateway_ws.management_endpoint_local
   }
 }
 

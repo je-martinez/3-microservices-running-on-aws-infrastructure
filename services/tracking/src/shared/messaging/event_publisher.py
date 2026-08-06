@@ -53,6 +53,22 @@ class EventPublisher(Protocol):
 
     Note the asymmetry with `user_id`: that is the event's SUBJECT (the order's
     owner), while the author of these transitions is never a human at all.
+
+    `cognito_sub` is the tracking row's persisted Cognito subject, or None for a
+    legacy row that predates the column. It becomes the envelope's optional
+    `author.cognito_sub`, which the events-pipeline uses to route the realtime
+    WebSocket push. Omitted (never null) from the envelope when None — the
+    envelope's AuthorSchema declares the field optional, so writing an explicit
+    null would fail validation downstream.
+
+    It travels alongside `user_id` rather than instead of it because the two are
+    different values for the same person, and the pipeline needs BOTH: the
+    internal `usr_` id to resolve the email, and the sub to query the DynamoDB
+    connection index. Handing the index a `usr_` id returns an empty list with no
+    error, so the push would silently reach nobody.
+
+    Like `user_id`, it comes off the PERSISTED entity and never off the request:
+    the carrier webhook has no caller identity to read.
     """
 
     def publish_tracking_status_changed(
@@ -64,6 +80,7 @@ class EventPublisher(Protocol):
         previous_status: str,
         changed_at: datetime,
         actor: AuditActor,
+        cognito_sub: str | None,
     ) -> None: ...
 
 
@@ -89,5 +106,6 @@ class NoopEventPublisher:
         previous_status: str,
         changed_at: datetime,
         actor: AuditActor,
+        cognito_sub: str | None,
     ) -> None:
         return None

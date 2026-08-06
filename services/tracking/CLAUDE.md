@@ -147,6 +147,45 @@ Implementation notes:
 - The interval is **injectable** (`progression_interval`); production default 10s,
   tests pass ~0 so the suite never sleeps for 40 seconds.
 
+## 5c-bis. The test suite shares the local database — leave it as you found it
+
+`tests/conftest.py`'s `engine` fixture runs against the **shared local `tracking`
+database**, the same one the running service and the gateway E2E suite use. That is
+deliberate (`database_url`'s skip message explains it: a mocked repository test cannot
+catch a schema or driver bug), but it makes the suite's teardown load-bearing for
+everyone else's environment.
+
+It used to `drop_all` on teardown. Running `pytest` therefore left the local stack with
+**no tracking tables**: `init-tracking` answered 500, the gateway E2E went red, and the
+symptom pointed at the feature under test rather than at a test side effect.
+
+It also did not self-heal, which is what made it expensive:
+
+- `drop_all` removes the model tables but **not** `alembic_version` — no model declares
+  it, Alembic owns it.
+- With the stamp intact and the tables gone, `alembic upgrade head` is a **no-op**. So
+  `make migrate-tracking` printed *"Alembic migrations applied"* and applied nothing.
+- Recovery meant dropping `alembic_version` by hand first — not something the symptom
+  suggests.
+
+Rules for anything that touches the schema from a test:
+
+- **Restore both halves, together.** Tables without the stamp make the next
+  `migrate-tracking` try to reapply every revision over existing tables; the stamp
+  without tables makes it a silent no-op. `test_migration.py` restores via
+  `alembic upgrade head` for exactly this reason, not via `create_all`.
+  - If that restore itself fails, the fixture falls back to `create_all` (so a later
+    repository test still finds tables) and then `pytest.fail`s with the alembic error.
+    That leaves the half-restored state this section warns about — tables present, no
+    stamp — but **loudly**, not silently. If you see that failure, run
+    `DROP TABLE tracking.alembic_version` and `make migrate-tracking` to resync.
+- The session `engine` fixture drops at **setup** (a clean shape for that run) and
+  leaves the schema in place at teardown. `create_all` is idempotent and the per-test
+  `session` fixture already truncates rows, so this costs nothing.
+- **Symptom → cause shortcut:** a gateway E2E failing with
+  `[teardown] tracking: cleanup failed with 500` almost always means
+  `Table 'tracking.tracking' doesn't exist`. Check that before suspecting the code.
+
 ## 5d. `TRACKING_STATUS_CHANGED` — the third producer
 Tracking publishes to the shared SQS events queue (`EVENTS_QUEUE_URL`) on **every** status
 transition, consumed by the events-pipeline Lambda, which emails the user. See
@@ -160,10 +199,18 @@ transition, consumed by the events-pipeline Lambda, which emails the user. See
   `CARRIER_STATUS_UPDATE`, with TestMode passing `TEST_MODE_PROGRESSION`) and threads it through.
   Hardcoding it in the publisher would relabel every automatic progression as a carrier update —
   the two are only distinguishable because that parameter travels.
-- **Neither write path has a human author**, so `author.user_id` / `author.cognito_sub` are
-  OMITTED (never null): the carrier webhook carries no caller identity at all (§5a) and TestMode
-  runs on a timer. The tracking's own `user_id` is the event's SUBJECT and travels as the
-  envelope's root `user_id` — do not duplicate it into `author`. See [[audit-fields]].
+- **Neither write path has a human author**, so `author.user_id` is OMITTED (never null): the
+  carrier webhook carries no caller identity at all (§5a) and TestMode runs on a timer. The
+  tracking's own `user_id` is the event's SUBJECT and travels as the envelope's root `user_id` —
+  do not duplicate it into `author`. See [[audit-fields]].
+- **`author.cognito_sub` IS carried, and it is not an author claim** — it is the key the
+  events-pipeline routes the realtime WebSocket push by (it queries a DynamoDB index keyed on the
+  Cognito sub for the owner's open connections; the root `user_id` is the `usr_` id, which matches
+  nothing there and returns an empty list with NO error). Like `user_id` it comes off the
+  PERSISTED row (`updated.cognito_sub`), never the request. The column is nullable, and a NULL is
+  **omitted, never null on the wire**: `AuthorSchema` declares the field `.optional()` with
+  `.min(1)`, so both an explicit `null` and `""` fail Zod — a `PermanentError` that would lose the
+  notification EMAIL as well as the push.
 - The payload's recipient email is resolved from Users over gRPC; the address is never logged in
   plaintext (only `email_hash`), per [[logging-context]].
 

@@ -11,10 +11,12 @@ The AUTHORITY is the consumer, not this file:
 * envelope — `functions/events-pipeline/src/domain/envelope.ts`:
   `{ event_id, type, source, user_id, order_id, author, payload }`, all
   snake_case, **every key present** (`order_id` is nullable, not optional; here
-  it is always a real order). Inside `author`, only `actor` is required;
-  `user_id`/`cognito_sub` are OMITTED when there is no human author — which, on
-  this event, is always. There is no `author.source`: the root `source` already
-  names the producer.
+  it is always a real order). Inside `author`, only `actor` is required.
+  `author.user_id` is OMITTED — there is no human author on this event, ever.
+  `author.cognito_sub` is present when the tracking row has one, because the
+  pipeline routes the realtime WebSocket push by it; it is OMITTED (never null)
+  when the row's nullable column holds NULL. There is no `author.source`: the
+  root `source` already names the producer.
 * payload — `functions/events-pipeline/src/handlers/tracking-status-changed.ts`:
   `{ status, previous_status, changed_at, email }`. `status` is an enum of the
   five progression values.
@@ -177,6 +179,7 @@ class SqsEventPublisher:
         previous_status: str,
         changed_at: datetime,
         actor: AuditActor,
+        cognito_sub: str | None,
     ) -> None:
         """Emit one transition. Never raises — see the class docstring.
 
@@ -184,6 +187,9 @@ class SqsEventPublisher:
         `update_tracking_status` rather than fixed here: the carrier PUT and
         TestMode progression share this publisher, and a constant would mislabel
         one of them (see the port's docstring).
+
+        `cognito_sub` becomes the OPTIONAL `author.cognito_sub`, and is omitted
+        rather than nulled when absent — see where the author is built below.
         """
         try:
             email = self._resolve_email(user_id)
@@ -220,6 +226,44 @@ class SqsEventPublisher:
             )
             return
 
+        # WHO originated this transition, as opposed to the root `user_id`
+        # below, which is WHO it is about. Neither of this command's two paths
+        # has a human author — the carrier is an external system authenticated
+        # by an API key, and TestMode progression is a timer with no request
+        # behind it — so `author.user_id` is OMITTED entirely.
+        #
+        # Omitted, not null and not filled in with the order owner: the owner is
+        # the subject and already travels as the envelope's root `user_id`.
+        # Repeating it here would assert that they made the change, which is
+        # exactly false for a carrier update.
+        #
+        # `actor` is the same semantic value stamped into
+        # `tracking_history.created_by` for this transition, so an event and its
+        # history row agree about what produced them.
+        #
+        # There is no `author.source`: the producing service is already the
+        # envelope's root `source` below (see AuthorSchema in
+        # functions/events-pipeline/src/domain/envelope.ts).
+        author: dict[str, str] = {"actor": actor.value}
+
+        if cognito_sub:
+            # The one identity that DOES belong here, and it is not an author
+            # claim — it is the realtime ROUTING key. The pipeline queries a
+            # DynamoDB index keyed on the Cognito sub to find this user's open
+            # WebSocket connections; the root `user_id` is the internal `usr_`
+            # id, a different value, and querying the index with it returns an
+            # empty list with NO error, silently pushing to nobody.
+            #
+            # Set only when truthy, so the key is OMITTED and never null (an
+            # empty sub is treated as absent: `""` is normalized to NULL in the
+            # schema, and it could match no connection anyway). AuthorSchema
+            # declares this field optional, and Zod rejects an explicit null for
+            # an optional string — which the handler turns into a
+            # PermanentError, consuming the record without retry. A null here
+            # would therefore lose the EMAIL too, not merely the socket push, so
+            # it is strictly worse than sending nothing.
+            author["cognito_sub"] = cognito_sub
+
         envelope = {
             "event_id": derive_event_id(order_id, status),
             "type": EVENT_TYPE,
@@ -228,30 +272,8 @@ class SqsEventPublisher:
             # `update_tracking_status`. Never a request value: this path has none.
             "user_id": user_id,
             "order_id": order_id,
-            # WHO originated this transition, as opposed to `user_id` above,
-            # which is WHO it is about. This event is the reason the distinction
-            # exists at all: neither of its two paths has a human author. The
-            # carrier is an external system authenticated by an API key, and
-            # TestMode progression is a timer with no request behind it — so
-            # `user_id` and `cognito_sub` are OMITTED from the author entirely.
-            #
-            # Omitted, not null and not filled in with the order owner: the
-            # owner is the subject and already travels as the envelope's root
-            # `user_id`. Repeating it here would assert that they made the
-            # change, which is exactly false for a carrier update.
-            #
-            # `actor` is the same semantic value stamped into
-            # `tracking_history.created_by` for this transition, so an event and
-            # its history row agree about what produced them.
-            #
-            # There is no `author.source`: the producing service is already the
-            # envelope's root `source` above (see AuthorSchema in
-            # functions/events-pipeline/src/domain/envelope.ts). On THIS event
-            # that leaves `actor` alone — which is the whole point of the block,
-            # since a carrier update has no human to name.
-            "author": {
-                "actor": actor.value,
-            },
+            # `actor`, plus `cognito_sub` when the row has one. Built above.
+            "author": author,
             "payload": {
                 "status": status,
                 "previous_status": previous_status,

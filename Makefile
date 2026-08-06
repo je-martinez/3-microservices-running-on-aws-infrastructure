@@ -147,6 +147,16 @@ migrate: ## Apply Prisma migrations (users) against Floci's Postgres (idempotent
 	@# can reset data — unsuitable for bootstrap). It must run as the cluster
 	@# SUPERUSER (test/test), because migrations run DDL and users_app
 	@# deliberately has none (ADR-0004: soft-delete enforced at grant level).
+	@#
+	@# Note on "idempotent", by analogy with migrate-tracking below: Prisma also
+	@# decides what to apply from a bookkeeping table (`_prisma_migrations`), not
+	@# by introspecting whether the tables still exist. UNVERIFIED here, but the
+	@# same shape as Alembic's stamp check, so a database whose bookkeeping is
+	@# current but whose tables are gone would plausibly get the same silent
+	@# no-op. Users' tests do NOT drop the shared schema (they mock the Prisma
+	@# client), so nothing in this repo is known to produce that state — noted
+	@# so that a future live-database test suite for Users starts from the
+	@# lesson rather than rediscovering it.
 	@# It must ALSO be the same role the post-effects apply's ALTER DEFAULT
 	@# PRIVILEGES runs as, so users_app correctly inherits SELECT/INSERT/UPDATE
 	@# on the tables this step creates — do not change to a different DB user.
@@ -174,6 +184,18 @@ migrate: ## Apply Prisma migrations (users) against Floci's Postgres (idempotent
 migrate-tracking: ## Apply Alembic migrations (tracking) against Floci's MySQL (idempotent)
 	@# `alembic upgrade head` (services/tracking/CLAUDE.md §2). Idempotent: on an
 	@# up-to-date database it is a no-op, so bootstrap and a manual re-run are both safe.
+	@#
+	@# CAVEAT — "up-to-date" is decided by the STAMP, not by the tables. Alembic
+	@# compares `alembic_version` against head and does nothing if they match, so a
+	@# database whose stamp is current but whose TABLES are missing gets a no-op
+	@# that prints "Alembic migrations applied" and applies nothing. The recovery
+	@# command reports success while leaving the environment broken.
+	@# Symptom: the service 500s with `Table 'tracking.tracking' doesn't exist`.
+	@# Recovery: `DROP TABLE tracking.alembic_version` first, then re-run this.
+	@# The one local path that used to produce that state (the pytest suite's
+	@# teardown dropping the shared database) is fixed — see
+	@# services/tracking/CLAUDE.md §5c-bis — but a manual DROP or a restored
+	@# backup can still get there.
 	@#
 	@# Runs INSIDE a one-off tracking container, not on the host. Three reasons:
 	@#   1. Dependencies. alembic/SQLAlchemy/pymysql live in the per-service venv

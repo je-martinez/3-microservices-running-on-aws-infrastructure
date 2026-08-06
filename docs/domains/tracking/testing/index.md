@@ -4,7 +4,7 @@ type: runbook
 area: tracking
 status: active
 created: 2026-07-31
-updated: 2026-08-03
+updated: 2026-08-06
 tags: [type/runbook, area/tracking, status/active]
 related:
   - "[[testing]]"
@@ -41,6 +41,20 @@ fixtures in `conftest.py`.
 > for `user_id` and `cognito_sub`. A test that creates and reads with the same value for both
 > cannot fail on the bug described in [[user-id-vs-cognito-sub-ownership-key]] — this is how
 > the original regression passed 253 tests before this ADR's fix.
+
+> [!warning] The suite runs against the SHARED local database — leave the schema as you found it
+> "Live MySQL" above means the same local `tracking` database the running service and the
+> gateway E2E suite use, not a throwaway one — Floci's MySQL grants the `test` user no
+> `CREATE DATABASE` privilege, so a per-run database is not an option, and running against the
+> real one (then restoring it) is the only way to exercise the schema for real. Any fixture that
+> manipulates schema must leave it exactly as it found it: a teardown `drop_all` once left the
+> local stack with no tracking tables, surfacing as `init-tracking` returning 500 and the
+> gateway E2E going red — a failure that looked like broken application code, not a test side
+> effect. Dropping the model tables does **not** drop `alembic_version` (no model declares it),
+> and with the stamp intact `alembic upgrade head` becomes a no-op that reports success — so
+> `make migrate-tracking` prints "applied" while applying nothing. Tables and migration stamp
+> must always be restored together. Full mechanics: `services/tracking/CLAUDE.md` §5c-bis.
+> Fixed 2026-08-06.
 
 ## Layer 2 — internal E2E
 
