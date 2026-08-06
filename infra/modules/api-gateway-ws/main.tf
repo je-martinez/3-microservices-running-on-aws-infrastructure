@@ -88,6 +88,12 @@ resource "aws_lambda_function" "fn" {
     variables = {
       COGNITO_USER_POOL_ID = var.cognito_user_pool_id
       COGNITO_CLIENT_ID    = var.cognito_client_id
+      # CONFIGURATION, not derived — see the variable's own description for
+      # why deriving this from COGNITO_USER_POOL_ID inside the Lambda is
+      # wrong both locally (Floci's fixed http://localhost:4566/<pool-id>
+      # issuer) and in spirit (it duplicates a value Terraform already knows
+      # and the REST API Gateway's JWT authorizer already consumes).
+      COGNITO_ISSUER       = var.cognito_issuer
       WS_CONNECTIONS_TABLE = var.connections_table_name
       WS_CONNECTIONS_GSI   = "by-cognito-sub"
       AWS_ENDPOINT_URL     = var.aws_endpoint_url

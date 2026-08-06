@@ -17,6 +17,12 @@ describe("connections repository", () => {
     send.mockResolvedValue({});
     process.env.COGNITO_USER_POOL_ID = "us-east-1_test";
     process.env.COGNITO_CLIENT_ID = "testclient";
+    // getEnv() is a single shared bag validated in full regardless of which
+    // fields a given caller actually reads (this suite already set the two
+    // COGNITO_* vars above for the same reason before COGNITO_ISSUER
+    // existed) — connections-repository.ts never reads `issuer`, but getEnv()
+    // still requires it to be present.
+    process.env.COGNITO_ISSUER = "http://localhost:4566/us-east-1_test";
     process.env.WS_CONNECTIONS_TABLE = "conns";
   });
 

@@ -326,6 +326,14 @@ module "api_gateway_ws" {
   # actually exports (see its outputs.tf).
   cognito_user_pool_id = module.cognito.user_pool_id
   cognito_client_id    = module.cognito.client_id
+  # SAME value the REST API Gateway's native JWT authorizer already consumes
+  # below (module.api_gateway.cognito_issuer) — module.cognito.issuer is
+  # "floci"-styled here (issuer_style = "floci" above), i.e.
+  # http://localhost:4566/<pool-id>, which is what Floci actually stamps as
+  # `iss` on every token it mints. See modules/cognito/outputs.tf and
+  # api-gateway-ws/variables.tf's cognito_issuer description for why this
+  # must be passed as configuration rather than derived inside the Lambda.
+  cognito_issuer = module.cognito.issuer
 
   # IN-NETWORK name: these four Lambdas run as Docker containers on
   # 3mrai-network, so the SDK inside them reaches the emulator as `floci`, never

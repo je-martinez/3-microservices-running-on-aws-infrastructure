@@ -39,6 +39,23 @@ variable "cognito_client_id" {
   type        = string
 }
 
+variable "cognito_issuer" {
+  description = <<-EOT
+    JWT issuer URL the $connect authorizer verifies tokens against, and the
+    base of the JWKS URI it fetches (<issuer>/.well-known/jwks.json). Must be
+    CONFIGURATION, not derived from cognito_user_pool_id/region inside the
+    Lambda: real AWS Cognito's issuer shape
+    (https://cognito-idp.<region>.amazonaws.com/<pool-id>) does not hold
+    locally — Floci stamps a fixed http://localhost:4566/<pool-id> `iss`
+    claim on every token it mints, regardless of which host the calling SDK
+    used to reach it. Pass module.cognito.issuer (modules/cognito/outputs.tf)
+    — the SAME value the REST API Gateway's native JWT authorizer already
+    consumes (modules/api-gateway/main.tf's cognito_issuer), so both
+    surfaces agree on one source of truth per environment.
+  EOT
+  type        = string
+}
+
 variable "aws_endpoint_url" {
   description = "Local emulator endpoint for the AWS SDK inside the Lambdas. Empty in production so the SDK resolves the real endpoint."
   type        = string

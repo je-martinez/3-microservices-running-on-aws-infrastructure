@@ -55,7 +55,7 @@ test.describe("realtime tracking events over websocket", () => {
   test("delivers all four status transitions to the owner", async () => {
     // TestMode progression is ~30s (four transitions at ~10s cadence), plus
     // headroom for SQS + Lambda per record. Not the whole suite's default 30s.
-    test.setTimeout(90_000);
+    test.setTimeout(105_000);
 
     const { token, api } = await newGatewayUser();
     const socket = await openSocket(WS_URL!, token);
@@ -64,10 +64,13 @@ test.describe("realtime tracking events over websocket", () => {
     // DELIVERED included, with no suppression.
     const orderId = await createTestModeOrder(api);
 
-    // 60s: the progression takes ~30s; the rest is headroom for SQS + Lambda,
-    // matching the budget the internal tracking-flow spec already uses for the
-    // slower email path. Bounded, not generous enough to make the suite crawl.
-    await socket.waitForCount(4, 60_000);
+    // 75s: the progression takes ~30s; the rest is headroom for SQS + Lambda,
+    // matching DELIVERY_TIMEOUT_MS in tests/gateway/tracking-flow.spec.ts (the
+    // internal suite's own proven budget for the same progression, there
+    // observed via polling rather than a push). A tighter 60s measured 3/4
+    // messages landing on a real run — real, but short by enough margin that
+    // it would be flaky rather than reliably red on a working feature.
+    await socket.waitForCount(4, 75_000);
     socket.close();
 
     // Assert the SET, not the sequence: the pipeline processes SQS records in
@@ -98,7 +101,7 @@ test.describe("realtime tracking events over websocket", () => {
   });
 
   test("does not deliver one user's events to another user", async () => {
-    test.setTimeout(90_000);
+    test.setTimeout(105_000);
 
     const alice = await newGatewayUser();
     const bob = await newGatewayUser();
@@ -108,7 +111,7 @@ test.describe("realtime tracking events over websocket", () => {
 
     const orderId = await createTestModeOrder(alice.api);
 
-    await aliceSocket.waitForCount(4, 60_000);
+    await aliceSocket.waitForCount(4, 75_000);
     aliceSocket.close();
     bobSocket.close();
 
