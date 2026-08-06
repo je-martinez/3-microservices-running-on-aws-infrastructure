@@ -18,6 +18,7 @@ related:
   - "[[events-pipeline-design]]"
   - "[[testing]]"
   - "[[floci-rds-apigw-limits]]"
+  - "[[email-templates]]"
 ---
 
 # Tightened schemas across a producer/consumer boundary need producer-first deploys
@@ -140,3 +141,5 @@ Floci environment is unreliable in general.
   unit/snapshot from source) is required.
 - [[floci-rds-apigw-limits]] — prior, related finding on Floci re-apply
   unreliability.
+- [[email-templates]] — the template authoring convention whose checklist cites this lesson's
+  deploy-order rule for the "widen the schema" step.

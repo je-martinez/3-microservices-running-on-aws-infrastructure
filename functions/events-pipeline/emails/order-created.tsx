@@ -206,28 +206,31 @@ export default function OrderCreatedEmail({
           the cell's own attributes. `width`/`height` are HTML ATTRIBUTES on the
           image for the same reason — Outlook sizes images from the attributes
           and ignores CSS dimensions, so the 56px raster would otherwise display
-          at full size and burst the circle. */}
+          at full size and burst the circle.
+
+          The cell is a `Column`, which IS a <td>, so the circle styling lands on
+          the cell. `Section` would not do: its props go on its <table> and its
+          inner <td> is left bare. The inner `Row` is `width="auto"` because
+          `Row` defaults to `width="100%"`, which would stretch the shrink-to-fit
+          wrapper this 64px cell needs; `align="center"` is already `Row`'s
+          default and is what centres the disc. */}
       <Section>
         <Row>
           <Column align="center">
-            <table role="presentation" border={0} cellPadding={0} cellSpacing={0} align="center">
-              <tbody>
-                <tr>
-                  <td
-                    align="center"
-                    className="w-[64px] h-[64px] rounded-[32px] bg-success-bg text-center align-middle"
-                  >
-                    <Img
-                      src={packageCheck}
-                      alt="Order confirmed"
-                      width="28"
-                      height="28"
-                      className="inline-block align-middle"
-                    />
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            <Row width="auto">
+              <Column
+                align="center"
+                className="w-[64px] h-[64px] rounded-[32px] bg-success-bg text-center align-middle"
+              >
+                <Img
+                  src={packageCheck}
+                  alt="Order confirmed"
+                  width="28"
+                  height="28"
+                  className="inline-block align-middle"
+                />
+              </Column>
+            </Row>
           </Column>
         </Row>
       </Section>

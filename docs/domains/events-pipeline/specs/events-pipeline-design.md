@@ -4,7 +4,7 @@ type: spec
 area: events-pipeline
 status: accepted
 created: 2026-06-26
-updated: 2026-08-05
+updated: 2026-08-06
 tags: [type/spec, area/events-pipeline, status/accepted]
 related:
   - "[[cqrs]]"
@@ -281,6 +281,11 @@ Handlers do not just record events — they render an email from the event's pay
 Validation remains the precondition for rendering: `validate payload (Zod) → render react-email
 template to HTML → SES SendEmail → COMPLETED`.
 
+Template authoring rules, the client-support constraints that shape them (icon fonts, inline SVG
+and remote `<img>` are unusable; base64 PNG `data:` URIs are the one that survives Gmail and
+Outlook Windows), and the checklist for adding a new template are in [[email-templates]] — read
+it before adding a fifth template.
+
 ### `src/email/catalog.ts` — the registry
 
 A single registry (`EmailCatalog`, `Record<string, EmailTemplateEntry<unknown>>`) mapping a
@@ -403,3 +408,5 @@ for the event; `_emit_status_changed` reads `updated.user_id` off that persisted
 - [[2026-08-05-passwordless-otp-auth]] — the implementation plan that shipped it.
 - [[users-service-design]] — the fourth producer's home service, and the consumer-facing OTP endpoints.
 - [[cognito-custom-auth-triggers]] — the `otp-challenge-lambda` that publishes `AUTH_OTP_REQUESTED`.
+- [[email-templates]] — how to build a template: client-support constraints, authoring rules,
+  and the checklist for adding a new one.

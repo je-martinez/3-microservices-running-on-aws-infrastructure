@@ -75,27 +75,30 @@ export default function AuthOtpEmail({ code, ttlMinutes, fullName }: AuthOtpEmai
           is a replaced element Outlook positions from the cell's attributes.
           `width`/`height` are HTML attributes because Outlook sizes images from
           those and ignores CSS dimensions — the 56px raster would otherwise
-          display full-size and burst the circle. */}
+          display full-size and burst the circle.
+
+          The cell is a `Column` (which IS a <td>), so the disc styling lands on
+          the cell itself — `Section` puts its props on its <table> and leaves
+          the inner <td> bare, so it cannot express this. The inner `Row` is
+          `width="auto"`: `Row` defaults to `width="100%"`, which would stretch
+          the shrink-to-fit wrapper the 64px cell needs. `align="center"` is
+          already `Row`'s default and is what centres the disc. */}
       <Row>
         <Column align="center">
-          <table role="presentation" border={0} cellPadding={0} cellSpacing={0} align="center">
-            <tbody>
-              <tr>
-                <td
-                  align="center"
-                  className="w-[64px] h-[64px] rounded-[32px] bg-info-bg text-center align-middle"
-                >
-                  <Img
-                    src={logIn}
-                    alt="Sign in"
-                    width="28"
-                    height="28"
-                    className="inline-block align-middle"
-                  />
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <Row width="auto">
+            <Column
+              align="center"
+              className="w-[64px] h-[64px] rounded-[32px] bg-info-bg text-center align-middle"
+            >
+              <Img
+                src={logIn}
+                alt="Sign in"
+                width="28"
+                height="28"
+                className="inline-block align-middle"
+              />
+            </Column>
+          </Row>
         </Column>
       </Row>
 
@@ -176,25 +179,27 @@ export default function AuthOtpEmail({ code, ttlMinutes, fullName }: AuthOtpEmai
           in full either way; the icon is never the thing carrying it. */}
       <Section className={`bg-[${NOTICE_BG}] rounded-[8px] px-[16px] py-[14px]`}>
         <Row>
+          {/* The badge is the same shape as the header disc, so it is built the
+              same way: a `Column` (a <td>) carries the ring, wrapped in a
+              `width="auto"` `Row` so the table shrinks to the 20px cell instead
+              of `Row`'s default full width. `align="left"` is passed EXPLICITLY
+              here — `Row` defaults to `align="center"`, and the badge sits in
+              the notice's left gutter, not centred in it. */}
           <Column width="32" valign="top">
-            <table role="presentation" border={0} cellPadding={0} cellSpacing={0} align="left">
-              <tbody>
-                <tr>
-                  <td
-                    align="center"
-                    className={`w-[20px] h-[20px] rounded-[10px] bg-bg-white border border-solid border-[${NOTICE_ACCENT}] text-center align-middle`}
-                  >
-                    <Img
-                      src={triangleAlert}
-                      alt="Security notice"
-                      width="13"
-                      height="13"
-                      className="inline-block align-middle"
-                    />
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            <Row width="auto" align="left">
+              <Column
+                align="center"
+                className={`w-[20px] h-[20px] rounded-[10px] bg-bg-white border border-solid border-[${NOTICE_ACCENT}] text-center align-middle`}
+              >
+                <Img
+                  src={triangleAlert}
+                  alt="Security notice"
+                  width="13"
+                  height="13"
+                  className="inline-block align-middle"
+                />
+              </Column>
+            </Row>
           </Column>
           <Column valign="top">
             <Text className="m-0 font-body text-[13px] font-semibold text-text-primary">

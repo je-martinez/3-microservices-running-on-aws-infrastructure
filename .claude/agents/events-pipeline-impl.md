@@ -47,6 +47,17 @@ first, every time.
    the cross-cutting rules it links (`[[cqrs]]`, `[[nano-id]]`,
    `[[audit-fields]]`, `[[soft-delete]]`). CQRS dispatch maps event `type` to a
    handler (e.g. `ORDER_CREATED => OrderCreatedHandler`).
+
+   **If the task touches anything under `emails/`, read
+   `docs/shared/conventions/email-templates.md` (`[[email-templates]]`) FIRST.**
+   Email rendering is not web rendering and the rules are not guessable from the
+   code: flexbox and grid do not work, inline SVG renders in no version of
+   Outlook on Windows, icon fonts are stripped, and table markup comes from
+   react-email's `Row`/`Column` rather than hand-written `<table>`/`<td>`. That
+   note carries the client-support numbers behind each rule, the traps that fail
+   SILENTLY (a `<td>` that will not round, an `Hr` border losing the cascade, an
+   `<Img>` without width/height attributes bursting its circle in Outlook), and
+   the checklist for adding a new template.
 2. **Implement the task** following the established patterns and the plan's TDD
    steps where the plan defines them.
 3. **Run the service's tests/build** as defined in

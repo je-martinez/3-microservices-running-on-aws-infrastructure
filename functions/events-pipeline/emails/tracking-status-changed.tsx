@@ -206,12 +206,17 @@ function StepIndicator({ state, isLast }: { state: StepState; isLast: boolean })
   // mid-timeline rather than as progress. Only `done` earns green.
   const lineFill = state === "done" ? theme.successGreen : theme.borderColor;
 
+  // The dot and the connector are two STACKED `Row`s rather than two <tr>s of
+  // one hand-written table. Each `Row` is its own <table>, and a table is a
+  // block-level box, so they stack in the same order and with the same result —
+  // while `align="center"` (already `Row`'s default) centres each one in the
+  // 36px indicator column exactly as the single table's own `align` did.
+  // `width="auto"` on both: `Row` defaults to `width="100%"`, which would
+  // stretch these shrink-to-fit wrappers past the dot and the 2px line.
   return (
     <>
-      <table cellPadding="0" cellSpacing="0" role="presentation" className="border-collapse">
-        <tbody>
-          <tr>
-            {/* The dot is a SPAN inside the cell, not the cell itself.
+      <Row width="auto" className="border-collapse">
+        {/* The dot is a SPAN inside the cell, not the cell itself.
                 `border-radius` on a `<td>` is unreliable: it is a
                 `display: table-cell` whose box the table's own layout resolves
                 after the radius is computed, so the corners survive. That is
@@ -223,79 +228,76 @@ function StepIndicator({ state, isLast }: { state: StepState; isLast: boolean })
                 `box-sizing: border-box` keeps the bordered pending dot the same
                 22px across as the borderless ones; without it the border is
                 added OUTSIDE the width and the indicator column misaligns. */}
-            <td align="center" className="p-0 leading-[0]">
-              {/* STOP POINT — this span keeps an inline `style`. Its background,
-                  border and font size are all DERIVED AT RUNTIME from
-                  `done`/`active`/`pending` (see `dotFill`/`lineFill` above), and
-                  a class built by interpolating a computed colour
-                  (`bg-[${dotFill}]`) is not something Tailwind can compile: the
-                  fill would silently disappear and every dot would render
-                  transparent. Only the truly static parts move to `className`. */}
-              <span
-                className="inline-block w-[22px] h-[22px] font-body text-bg-white text-center align-middle"
-                style={{
-                  backgroundColor: dotFill,
-                  // The pending dot is a hollow ring; done/active are filled, and
-                  // the active one gets a white centre from the "●" glyph below.
-                  border: state === "pending" ? `2px solid ${theme.borderColor}` : "none",
-                  boxSizing: "border-box",
-                  borderRadius: "50%",
-                  lineHeight: "22px",
-                  fontSize: "10px",
-                }}
-              >
-                {/* The done step carries lucide's `check` as a 13px white PNG
-                    (see the ICONS note at the top of the file); the active step
-                    keeps the `.pen`'s white 10px "Inner Dot" as the "●" TEXT
-                    glyph, which has no lucide equivalent and is a pure shape.
-                    A pending step is an empty ring, exactly as designed — the
-                    span holds its own 22px box, so nothing collapses.
+        <Column align="center" className="p-0 leading-[0]">
+          {/* STOP POINT — this span keeps an inline `style`. Its background,
+              border and font size are all DERIVED AT RUNTIME from
+              `done`/`active`/`pending` (see `dotFill`/`lineFill` above), and
+              a class built by interpolating a computed colour
+              (`bg-[${dotFill}]`) is not something Tailwind can compile: the
+              fill would silently disappear and every dot would render
+              transparent. Only the truly static parts move to `className`. */}
+          <span
+            className="inline-block w-[22px] h-[22px] font-body text-bg-white text-center align-middle"
+            style={{
+              backgroundColor: dotFill,
+              // The pending dot is a hollow ring; done/active are filled, and
+              // the active one gets a white centre from the "●" glyph below.
+              border: state === "pending" ? `2px solid ${theme.borderColor}` : "none",
+              boxSizing: "border-box",
+              borderRadius: "50%",
+              lineHeight: "22px",
+              fontSize: "10px",
+            }}
+          >
+            {/* The done step carries lucide's `check` as a 13px white PNG
+                (see the ICONS note at the top of the file); the active step
+                keeps the `.pen`'s white 10px "Inner Dot" as the "●" TEXT
+                glyph, which has no lucide equivalent and is a pure shape.
+                A pending step is an empty ring, exactly as designed — the
+                span holds its own 22px box, so nothing collapses.
 
-                    If the check PNG does not load, the dot is still a FILLED
-                    GREEN circle and still reads as completed: the icon is the
-                    second cue, never the only one. */}
-                {state === "done" ? (
-                  <Img
-                    src={check}
-                    alt="Completed"
-                    width="13"
-                    height="13"
-                    className="inline-block align-middle"
-                  />
-                ) : state === "active" ? (
-                  "●"
-                ) : (
-                  ""
-                )}
-              </span>
-            </td>
-          </tr>
-          {!isLast && (
-            <tr>
-              <td align="center" className="p-0">
-                <table cellPadding="0" cellSpacing="0" role="presentation" className="border-collapse">
-                  <tbody>
-                    <tr>
-                      {/* `backgroundColor` is again runtime-derived (green once
-                          the step above is reached, grey ahead of it), so it
-                          stays inline for the same reason as the dot. */}
-                      <td
-                        // Some clients collapse a cell with no content to zero
-                        // height; the 1px font-size plus the zero-width space
-                        // below keep the line drawn.
-                        className="w-[2px] h-[28px] text-[1px] leading-[28px]"
-                        style={{ backgroundColor: lineFill }}
-                      >
-                        &#8203;
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+                If the check PNG does not load, the dot is still a FILLED
+                GREEN circle and still reads as completed: the icon is the
+                second cue, never the only one. */}
+            {state === "done" ? (
+              <Img
+                src={check}
+                alt="Completed"
+                width="13"
+                height="13"
+                className="inline-block align-middle"
+              />
+            ) : state === "active" ? (
+              "●"
+            ) : (
+              ""
+            )}
+          </span>
+        </Column>
+      </Row>
+      {!isLast && (
+        <Row width="auto" className="border-collapse">
+          {/* `backgroundColor` is again runtime-derived (green once the step
+              above is reached, grey ahead of it), so it stays inline for the
+              same reason as the dot.
+
+              The line is drawn by the CELL itself, so it is a `Column`: a
+              `Section` would put the width/height/fill on its <table> and leave
+              the <td> that actually paints the 2px band unstyled. One `Row` is
+              enough here — the extra wrapper table the hand-written version had
+              between the outer cell and the line cell carried no styling of its
+              own and produced nothing the single Row does not. */}
+          <Column
+            align="center"
+            // Some clients collapse a cell with no content to zero height; the
+            // 1px font-size plus the zero-width space below keep the line drawn.
+            className="w-[2px] h-[28px] text-[1px] leading-[28px]"
+            style={{ backgroundColor: lineFill }}
+          >
+            &#8203;
+          </Column>
+        </Row>
+      )}
     </>
   );
 }
@@ -405,27 +407,30 @@ export default function TrackingStatusChangedEmail({
           the email still looked plausible, so nothing failed. `rounded-[32px]`
           first, then the fill, is the order the other two templates use and the
           one that emits `background-color:rgb(239,246,255)`. Verified in the
-          rendered HTML, not assumed. */}
+          rendered HTML, not assumed.
+
+          The disc is drawn by a `Column`, which IS a <td> — the fill and radius
+          must land on the cell, and `Section` puts its props on its <table>
+          while leaving the inner <td> bare, so it cannot express this. The inner
+          `Row` is `width="auto"` because `Row` defaults to `width="100%"`, which
+          would stretch the shrink-to-fit wrapper the 64px cell needs;
+          `align="center"` is already `Row`'s default. */}
       <Row>
         <Column align="center">
-          <table cellPadding="0" cellSpacing="0" role="presentation" className="border-collapse">
-            <tbody>
-              <tr>
-                <td
-                  align="center"
-                  className="w-[64px] h-[64px] rounded-[32px] bg-info-bg text-center align-middle"
-                >
-                  <Img
-                    src={mapPin}
-                    alt="Shipment location update"
-                    width="28"
-                    height="28"
-                    className="inline-block align-middle"
-                  />
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <Row width="auto" className="border-collapse">
+            <Column
+              align="center"
+              className="w-[64px] h-[64px] rounded-[32px] bg-info-bg text-center align-middle"
+            >
+              <Img
+                src={mapPin}
+                alt="Shipment location update"
+                width="28"
+                height="28"
+                className="inline-block align-middle"
+              />
+            </Column>
+          </Row>
         </Column>
       </Row>
 

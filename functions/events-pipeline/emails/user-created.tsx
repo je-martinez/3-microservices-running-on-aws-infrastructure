@@ -70,32 +70,35 @@ function formatMemberSince(createdAt: string | undefined): string | null {
 // The circle itself is a fixed-width table cell with a 32px radius, not a flex
 // box: `borderRadius` on a <td> is honoured by every client that matters, and
 // the ones that ignore it degrade to an orange square — still deliberate.
+//
+// That cell is a `Column`, which IS a <td> — the circle styling has to land on
+// the cell itself, so `Section` (whose props go on its <table>, leaving the
+// inner <td> bare) would not express this. The inner `Row` carries
+// `width="auto"` because `Row` defaults to `width="100%"`: a full-width table
+// would stretch the shrink-to-fit wrapper the 64px cell needs. `Row` already
+// defaults to `align="center"`, which is what centres the disc.
 function IconCircle() {
   return (
     <Row>
       <Column align="center">
-        <table role="presentation" border={0} cellPadding={0} cellSpacing={0} align="center">
-          <tbody>
-            <tr>
-              <td
-                align="center"
-                className="w-[64px] h-[64px] bg-brand-orange-light rounded-[32px] text-center align-middle"
-              >
-                {/* `width`/`height` are ATTRIBUTES, not just classes: Outlook
-                    sizes an image from the HTML attributes and ignores CSS
-                    dimensions, so the PNG rendered at 56px would otherwise
-                    display at its natural size and burst the circle. */}
-                <Img
-                  src={userCheck}
-                  alt="Account created"
-                  width="28"
-                  height="28"
-                  className="inline-block align-middle"
-                />
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <Row width="auto">
+          <Column
+            align="center"
+            className="w-[64px] h-[64px] bg-brand-orange-light rounded-[32px] text-center align-middle"
+          >
+            {/* `width`/`height` are ATTRIBUTES, not just classes: Outlook
+                sizes an image from the HTML attributes and ignores CSS
+                dimensions, so the PNG rendered at 56px would otherwise
+                display at its natural size and burst the circle. */}
+            <Img
+              src={userCheck}
+              alt="Account created"
+              width="28"
+              height="28"
+              className="inline-block align-middle"
+            />
+          </Column>
+        </Row>
       </Column>
     </Row>
   );
