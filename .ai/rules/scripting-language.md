@@ -1,0 +1,40 @@
+---
+name: scripting-language
+description: New scripts are Python by default; JavaScript only where the task already lives in the Node ecosystem; Bash only with a documented limitation. Infra Python runs from the repo venv by absolute path.
+paths:
+  - "**/*.py"
+  - "**/*.mjs"
+  - "**/*.js"
+  - "**/*.sh"
+  - "**/Makefile"
+---
+
+# Scripting language — Python first
+
+- **Python by default** for new scripts: infra scripting, Terraform pre/post
+  effects, and anything touching AWS, JSON, or non-trivial control flow.
+- **JavaScript** only when the task already lives in the Node ecosystem present
+  here (vault tooling, the pnpm workspace, npm dependencies). That is why
+  `scripts/*.mjs` stay JS.
+- **Bash** only with an explicitly documented limitation, recorded in a comment
+  inside the script itself. The repo currently has **zero `.sh` files** — keep it
+  that way unless you can write down why Bash was unavoidable.
+
+## Running Python
+
+Infra Python scripts run from the repo venv. `make scripts-setup` creates it
+(idempotent, and a prerequisite of every apply target). Terraform and the
+Makefile invoke `.venv/bin/python` by **absolute path** — never plain `python3`
+off `PATH`, which may resolve into an unrelated venv.
+
+## Shared helpers
+
+Shared helpers live in `infra/scripts/lib3mrai/` (`aws.py`, `console.py`,
+`db.py`). Do not duplicate boto3 client setup or console helpers. Scripts stay
+**colocated** with the Terraform module that invokes them.
+
+## Node.js version
+
+The repo pins Node via `.nvmrc` (currently **24.18.0**). Activate the pinned
+version before running any Node command (`node`, `npm`, `npx`, global installs).
+With nvm: `nvm use && node scripts/validate-vault.mjs`.

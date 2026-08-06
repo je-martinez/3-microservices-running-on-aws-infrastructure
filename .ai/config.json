@@ -6,27 +6,27 @@
     },
     "opencode": {
       "enabled": true,
-      "versionControl": false
+      "versionControl": true
     },
     "cursor": {
       "enabled": true,
-      "versionControl": false
+      "versionControl": true
     },
     "copilot": {
       "enabled": true,
-      "versionControl": false
+      "versionControl": true
     },
     "windsurf": {
       "enabled": true,
-      "versionControl": false
+      "versionControl": true
     },
     "gemini": {
       "enabled": true,
-      "versionControl": false
+      "versionControl": true
     },
     "codex": {
       "enabled": true,
-      "versionControl": false
+      "versionControl": true
     }
   }
 }

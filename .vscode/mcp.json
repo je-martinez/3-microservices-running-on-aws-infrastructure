@@ -1,0 +1,21 @@
+{
+  "inputs": [],
+  "servers": {
+    "drawio": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@drawio/mcp"
+      ]
+    },
+    "apidog": {
+      "type": "stdio",
+      "command": "sh",
+      "args": [
+        "-c",
+        "set -a && [ -f .env ] && . ./.env; set +a; exec npx -y apidog-mcp-server@latest --project-id=\"$APIDOG_PROJECT_ID\""
+      ]
+    }
+  }
+}

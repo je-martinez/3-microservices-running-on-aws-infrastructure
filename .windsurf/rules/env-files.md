@@ -1,0 +1,40 @@
+---
+trigger: manual
+---
+
+# Env files — generated, never hand-edited
+
+`make env-file` generates **every** env file from Terraform outputs:
+
+- `.env` — only the four variables docker compose interpolates
+- `.env.local.infra`
+- `.env.local.users`
+- `.env.local.orders`
+- `.env.local.debug`
+
+None of them is hand-maintained. The local AWS emulator remints resource ids and
+reassigns database ports on every apply, so a hand-edited value goes stale
+silently.
+
+## The two boxes
+
+Each generated file has:
+
+- an **AUTO-GENERATED** box — rewritten from scratch on every run. Never edit it;
+  your change will be gone after the next `make env-file`.
+- a **CUSTOM** box — preserved across runs. Put overrides and personal tokens
+  here.
+
+## How services consume them
+
+Services read their file through the compose `env_file:` key and declare
+**nothing** inline. An inline `environment:` entry silently beats `env_file:`,
+which produces a value that ignores the generated one.
+
+Adding a service means adding one env file and one `env_file:` line — nothing
+inline.
+
+## Version control
+
+`.env.example` is the committed contract. Everything else matching `.env*` is
+git-ignored.
