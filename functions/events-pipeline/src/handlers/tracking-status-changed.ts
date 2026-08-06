@@ -9,9 +9,11 @@ import { PermanentError } from "#pipeline/errors";
 // and this service's CLAUDE.md §6): `status`, `previous_status`,
 // `changed_at`, `email`. `status` is a forward-only progression per
 // `docs/domains/tracking/specs/tracking-service-design.md`
-// (SHIPPED -> ON_THE_WAY -> OUT_FOR_DELIVERY -> DELIVERED); an unknown value
-// is a PERMANENT error below, never transient — retrying can't make a status
-// string valid.
+// (PLACED -> PROCESSING -> SHIPPED -> OUT_FOR_DELIVERY -> DELIVERED); an
+// unknown value is a PERMANENT error below, never transient — retrying can't
+// make a status string valid. PLACED is the INITIAL status, emitted when
+// Tracking creates the tracking, so its `previous_status` carries the
+// "no previous status" marker rather than a real status.
 //
 // ANTICIPATED CONTRACT, not yet emitted by Tracking: as of this task,
 // Tracking has no publisher at all for TRACKING_STATUS_CHANGED — Task 14
@@ -48,19 +50,20 @@ import { PermanentError } from "#pipeline/errors";
 //    proto field onto this schema's `email`. Until then this handler cannot
 //    be exercised against Tracking's real output.
 const TrackingStatusChangedPayloadSchema = z.object({
-  status: z.enum(["SHIPPED", "ON_THE_WAY", "OUT_FOR_DELIVERY", "DELIVERED"]),
+  status: z.enum(["PLACED", "PROCESSING", "SHIPPED", "OUT_FOR_DELIVERY", "DELIVERED"]),
   previous_status: z.string().min(1),
   changed_at: z.string().min(1),
   email: z.string().email(),
 });
 
-// Maps payload.status -> the catalog key for that variant. All four keys
+// Maps payload.status -> the catalog key for that variant. All five keys
 // back the SAME tracking-status-changed.tsx component (see the milestone
-// design spec: "one event type, four rendered variants" — the fan-out is
+// design spec: "one event type, five rendered variants" — the fan-out is
 // here, inside the handler, not in the dispatch map in #handlers/index).
 const TEMPLATE_BY_STATUS: Record<string, string> = {
+  PLACED: "tracking-status-changed-placed",
+  PROCESSING: "tracking-status-changed-processing",
   SHIPPED: "tracking-status-changed-shipped",
-  ON_THE_WAY: "tracking-status-changed-on-the-way",
   OUT_FOR_DELIVERY: "tracking-status-changed-out-for-delivery",
   DELIVERED: "tracking-status-changed-delivered",
 };
@@ -85,7 +88,7 @@ export async function trackingStatusChangedHandler(envelope: Envelope): Promise<
     throw new PermanentError(`invalid TRACKING_STATUS_CHANGED payload: invalid fields: ${fields}`);
   }
 
-  // Zod's enum already rejects anything outside the four known statuses, so
+  // Zod's enum already rejects anything outside the five known statuses, so
   // this lookup can never miss in practice. The explicit guard below keeps a
   // future change to the enum (or a refactor that loosens it) from silently
   // sending `undefined` into renderTemplate instead of failing loudly.

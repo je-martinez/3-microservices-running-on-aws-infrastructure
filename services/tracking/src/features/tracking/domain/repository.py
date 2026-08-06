@@ -41,7 +41,7 @@ from sqlalchemy import Select, func, select, update
 from sqlalchemy.orm import Session
 
 from src.features.tracking.domain.models import Tracking, TrackingHistory
-from src.features.tracking.domain.status import TrackingStatus
+from src.features.tracking.domain.status import INITIAL_STATUS, TrackingStatus
 from src.shared.audit.audit_actor import AuditActor
 from src.shared.db.nano_id import new_tracking_id
 
@@ -187,7 +187,7 @@ class TrackingRepository:
         cognito_sub: str | None = None,
         shipping_address: dict | None = None,
         tags: list[str] | None = None,
-        status: TrackingStatus = TrackingStatus.SHIPPED,
+        status: TrackingStatus = INITIAL_STATUS,
         actor: AuditActor = AuditActor.CREATE_TRACKING,
         now: datetime | None = None,
     ) -> Tracking:
@@ -195,7 +195,7 @@ class TrackingRepository:
 
         A tracking is never created without the matching history row: the record's
         initial status IS a transition, and the design's TestMode table counts it
-        as one of the four entries a completed run leaves behind. Emitting both
+        as one of the five entries a completed run leaves behind. Emitting both
         here makes that impossible to forget at a call site.
 
         Does NOT commit — the caller's `write_session` owns the transaction

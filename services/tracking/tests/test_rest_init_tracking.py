@@ -19,8 +19,8 @@ the sub into `user_id`.
 ## The interval is injected, never slept through
 
 `TestModeProgression` overrides `get_progression_config` with a near-zero interval,
-so a full four-step run finishes in milliseconds while production keeps the design's
-10s cadence. The timing is the only thing compressed.
+so a full five-status run finishes in milliseconds while production keeps the
+design's 10s cadence. The timing is the only thing compressed.
 """
 
 from __future__ import annotations
@@ -60,12 +60,13 @@ ADDRESS = {
     "postal_code": "97477",
 }
 
-#: Small enough that four steps are instant, non-zero so the loop still yields.
+#: Small enough that the steps are instant, non-zero so the loop still yields.
 FAST = 0.001
 
 FULL_PROGRESSION = [
+    TrackingStatus.PLACED,
+    TrackingStatus.PROCESSING,
     TrackingStatus.SHIPPED,
-    TrackingStatus.ON_THE_WAY,
     TrackingStatus.OUT_FOR_DELIVERY,
     TrackingStatus.DELIVERED,
 ]
@@ -89,7 +90,7 @@ def init_app(
       is a real gRPC round trip against a server whose call log a test can inspect;
     * `get_settings` -> a settings object needing no generated env file;
     * `get_progression_config` -> the compressed interval plus a writer bound to the
-      test engine, so a TestMode run neither sleeps for 30 seconds nor writes to the
+      test engine, so a TestMode run neither sleeps for 40 seconds nor writes to the
       real database.
 
     `users_servicer` is requested (though unused here) so a test can take the
@@ -216,7 +217,7 @@ class TestSuccessfulCreation:
         assert response.status_code == 201
         tracking = response.json()["tracking"]
         assert tracking["order_id"] == "ord_init00000000000001"
-        assert tracking["status"] == TrackingStatus.SHIPPED
+        assert tracking["status"] == TrackingStatus.PLACED
         assert tracking["id"].startswith("trk_")
 
     def test_the_response_carries_exactly_one_history_row(
@@ -227,7 +228,7 @@ class TestSuccessfulCreation:
         response = create(init_client, "ord_init00000000000002")
 
         history = response.json()["tracking"]["history"]
-        assert [entry["status"] for entry in history] == [TrackingStatus.SHIPPED]
+        assert [entry["status"] for entry in history] == [TrackingStatus.PLACED]
 
     def test_the_row_is_committed_not_merely_returned(
         self, init_client: TestClient, known_caller: StubUsersServicer, session: Session
@@ -238,7 +239,7 @@ class TestSuccessfulCreation:
 
         tracking = stored(session, "ord_init00000000000003")
         assert tracking is not None
-        assert tracking.status == TrackingStatus.SHIPPED
+        assert tracking.status == TrackingStatus.PLACED
 
     def test_the_history_row_is_committed_too(
         self, init_client: TestClient, known_caller: StubUsersServicer, session: Session
@@ -253,7 +254,7 @@ class TestSuccessfulCreation:
             entry.status for entry in TrackingRepository(session).get_history(
                 tracking.id
             )
-        ] == [TrackingStatus.SHIPPED]
+        ] == [TrackingStatus.PLACED]
 
     def test_the_shipping_address_is_persisted(
         self, init_client: TestClient, known_caller: StubUsersServicer, session: Session
@@ -553,7 +554,7 @@ class TestIdempotencyGuard:
         tracking = stored(session, "ord_dupe00000000000003")
         assert tracking is not None
         assert tracking.id == first["id"]
-        assert tracking.status == TrackingStatus.SHIPPED
+        assert tracking.status == TrackingStatus.PLACED
         assert tracking.shipping_address == ADDRESS
 
     def test_no_second_tracking_row_appears(
@@ -574,7 +575,7 @@ class TestIdempotencyGuard:
         self, init_client: TestClient, known_caller: StubUsersServicer, session: Session
     ) -> None:
         """"NO existing tracking and NO tracking history" — the rejected call must
-        not append a second SHIPPED transition to the existing tracking either."""
+        not append a second PLACED transition to the existing tracking either."""
         create(init_client, "ord_dupe00000000000005")
         create(init_client, "ord_dupe00000000000005")
 
@@ -583,7 +584,7 @@ class TestIdempotencyGuard:
         assert [
             entry.status
             for entry in TrackingRepository(session).get_history(tracking.id)
-        ] == [TrackingStatus.SHIPPED]
+        ] == [TrackingStatus.PLACED]
 
     def test_another_user_cannot_create_over_an_existing_tracking(
         self,
@@ -700,18 +701,18 @@ class TestTestModeProgression:
             init_client, "ord_tmod00000000000001", headers={"x-test-mode": "true"}
         )
 
-        # The POST must RETURN promptly at SHIPPED — it schedules, it does not wait
+        # The POST must RETURN promptly at PLACED — it schedules, it does not wait
         # for the shipment to be "delivered".
         assert response.status_code == 201
-        assert response.json()["tracking"]["status"] == TrackingStatus.SHIPPED
+        assert response.json()["tracking"]["status"] == TrackingStatus.PLACED
 
         _wait_for_delivered(session, "ord_tmod00000000000001")
 
-    def test_a_completed_run_leaves_four_history_rows_in_order(
+    def test_a_completed_run_leaves_five_history_rows_in_order(
         self, init_client: TestClient, known_caller: StubUsersServicer, session: Session
     ) -> None:
         """The design's table. Order matters as much as the count — a shipment
-        delivered before it shipped would be four rows too."""
+        delivered before it was placed would be five rows too."""
         create(init_client, "ord_tmod00000000000002", headers={"x-test-mode": "true"})
 
         _wait_for_delivered(session, "ord_tmod00000000000002")
@@ -736,9 +737,10 @@ class TestTestModeProgression:
             entry.status: entry.created_by
             for entry in TrackingRepository(session).get_history(tracking.id)
         }
-        assert actors[TrackingStatus.SHIPPED] == AuditActor.CREATE_TRACKING
+        assert actors[TrackingStatus.PLACED] == AuditActor.CREATE_TRACKING
         for status in (
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
+            TrackingStatus.SHIPPED,
             TrackingStatus.OUT_FOR_DELIVERY,
             TrackingStatus.DELIVERED,
         ):
@@ -754,7 +756,7 @@ class TestTestModeProgression:
 
         tracking = stored(session, "ord_tmod00000000000004")
         assert tracking is not None
-        assert tracking.status == TrackingStatus.SHIPPED
+        assert tracking.status == TrackingStatus.PLACED
 
     @pytest.mark.parametrize("value", ["false", "", "1", "yes", "TRUEISH"])
     def test_only_the_exact_value_true_activates_it(
@@ -773,7 +775,7 @@ class TestTestModeProgression:
 
         tracking = stored(session, order_id)
         assert tracking is not None
-        assert tracking.status == TrackingStatus.SHIPPED
+        assert tracking.status == TrackingStatus.PLACED
 
     def test_an_unrecognized_value_still_creates_the_tracking(
         self, init_client: TestClient, known_caller: StubUsersServicer

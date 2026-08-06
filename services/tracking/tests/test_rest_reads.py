@@ -62,7 +62,7 @@ def seed(
     order_id: str,
     user_id: str = USER_A,
     cognito_sub: str | None = SUB_A,
-    status: TrackingStatus = TrackingStatus.SHIPPED,
+    status: TrackingStatus = TrackingStatus.PLACED,
 ) -> str:
     """Create a committed tracking and return its id.
 
@@ -133,7 +133,7 @@ class TestSingleRead:
         assert body["id"] == tracking_id
         assert body["order_id"] == "ord_read00000000000001"
         assert body["user_id"] == USER_A
-        assert body["status"] == TrackingStatus.SHIPPED
+        assert body["status"] == TrackingStatus.PLACED
 
     def test_includes_the_history(
         self, client: TestClient, session: Session
@@ -145,7 +145,7 @@ class TestSingleRead:
             "/v1/trackings/ord_read00000000000002", headers=as_user(SUB_A)
         ).json()
         assert [entry["status"] for entry in body["history"]] == [
-            TrackingStatus.SHIPPED
+            TrackingStatus.PLACED
         ]
 
     def test_datetime_is_iso_8601_with_an_explicit_z(

@@ -2,18 +2,19 @@
 
 The design's table is the contract:
 
-    t=0s   SHIPPED           (written at creation)
-    t=10s  ON_THE_WAY
-    t=20s  OUT_FOR_DELIVERY
-    t=30s  DELIVERED         -> 4 history rows, in that order
+    t=0s   PLACED            (written at creation)
+    t=10s  PROCESSING
+    t=20s  SHIPPED
+    t=30s  OUT_FOR_DELIVERY
+    t=40s  DELIVERED         -> 5 history rows, in that order
 
 ## The interval is INJECTED, never slept through
 
-Nothing here waits 30 real seconds. `run_progression` takes `interval`, and these
-tests pass a value near zero, so a complete four-step run finishes in milliseconds
-while production keeps the design's 10s cadence. Making the suite actually sleep
-would have meant a 30-second test that a future reader deletes, or an
-`@pytest.mark.skip` that hides the whole feature.
+Nothing here waits 40 real seconds. `run_progression` takes `interval`, and these
+tests pass a value near zero, so a complete five-status run finishes in
+milliseconds while production keeps the design's 10s cadence. Making the suite
+actually sleep would have meant a 40-second test that a future reader deletes, or
+an `@pytest.mark.skip` that hides the whole feature.
 
 What is NOT faked: the database, the state machine and the session-per-transition.
 The timing is the only thing compressed, because it is the only thing that is
@@ -50,20 +51,21 @@ pytestmark = pytest.mark.integration
 USER_ID = "usr_aaaaaaaaaaaaaaaaaaaaa"
 COGNITO_SUB = "11111111-1111-4111-8111-111111111111"
 
-#: Small enough that four steps are instant, non-zero so the loop still yields.
+#: Small enough that the steps are instant, non-zero so the loop still yields.
 FAST = 0.001
 
-#: The full expected run, including the SHIPPED row written at creation.
+#: The full expected run, including the PLACED row written at creation.
 FULL_PROGRESSION = [
+    TrackingStatus.PLACED,
+    TrackingStatus.PROCESSING,
     TrackingStatus.SHIPPED,
-    TrackingStatus.ON_THE_WAY,
     TrackingStatus.OUT_FOR_DELIVERY,
     TrackingStatus.DELIVERED,
 ]
 
 
 def seed(session: Session, *, order_id: str) -> str:
-    """A committed tracking at SHIPPED, as creation would leave it."""
+    """A committed tracking at PLACED, as creation would leave it."""
     tracking = TrackingRepository(session).create(
         order_id=order_id,
         user_id=USER_ID,
@@ -81,7 +83,7 @@ def _refresh(session: Session) -> None:
     the identity map, but the session is still inside the same transaction, and
     MySQL's default REPEATABLE READ pins a consistent snapshot for its whole
     duration. Re-reading therefore returned the tracking exactly as it looked before
-    the progression started — SHIPPED — while the progression's own log line said it
+    the progression started — PLACED — while the progression's own log line said it
     had reached DELIVERED. Both were true, of different snapshots.
 
     This matters here and not in the other suites because the progression commits
@@ -123,15 +125,15 @@ class TestTheProductionIntervalIsTenSeconds:
 class TestAdvanceOnce:
     """One step, synchronous — the unit the async loop drives."""
 
-    def test_moves_shipped_to_on_the_way(self, session: Session) -> None:
+    def test_moves_placed_to_processing(self, session: Session) -> None:
         seed(session, order_id="ord_step00000000000001")
         assert (
             advance_once(session, "ord_step00000000000001")
-            == TrackingStatus.ON_THE_WAY
+            == TrackingStatus.PROCESSING
         )
         session.commit()
         assert current_status(session, "ord_step00000000000001") == (
-            TrackingStatus.ON_THE_WAY
+            TrackingStatus.PROCESSING
         )
 
     def test_stamps_the_test_mode_actor_not_the_carrier_one(
@@ -146,7 +148,7 @@ class TestAdvanceOnce:
         entry = next(
             e
             for e in TrackingRepository(session).get_history(tracking_id)
-            if e.status == TrackingStatus.ON_THE_WAY
+            if e.status == TrackingStatus.PROCESSING
         )
         assert entry.created_by == AuditActor.TEST_MODE_PROGRESSION
         assert entry.created_by != AuditActor.CARRIER_STATUS_UPDATE
@@ -155,7 +157,7 @@ class TestAdvanceOnce:
         """None is the signal to stop, not an error. Reaching DELIVERED is how a
         run is SUPPOSED to end."""
         seed(session, order_id="ord_step00000000000003")
-        for _ in range(3):
+        for _ in range(4):
             advance_once(session, "ord_step00000000000003")
             session.commit()
 
@@ -188,12 +190,12 @@ class TestFullProgression:
         )
 
     @pytest.mark.anyio
-    async def test_it_leaves_exactly_four_history_rows_in_order(
+    async def test_it_leaves_exactly_five_history_rows_in_order(
         self, session: Session, session_factory
     ) -> None:
-        """"a completed TestMode run leaves 4 history entries in total" — and the
-        order matters as much as the count: a shipment delivered before it shipped
-        would be four rows too."""
+        """"a completed TestMode run leaves 5 history entries in total" — and the
+        order matters as much as the count: a shipment delivered before it was
+        placed would be five rows too."""
         seed(session, order_id="ord_prog00000000000002")
 
         await run_progression(
@@ -247,8 +249,8 @@ class TestFullProgression:
             "ord_prog00000000000004", interval=FAST, writer=counting_writer
         )
 
-        # Three advancing steps plus the final one that finds DELIVERED and stops.
-        assert len(opened) == 4
+        # Four advancing steps plus the final one that finds DELIVERED and stops.
+        assert len(opened) == 5
 
 
 class TestMidProgressionConflicts:
@@ -298,10 +300,10 @@ class TestMidProgressionConflicts:
         assert current_status(session, "ord_conf00000000000001") == (
             TrackingStatus.DELIVERED
         )
-        # The carrier's DELIVERED landed; the progression added no ON_THE_WAY after
+        # The carrier's DELIVERED landed; the progression added no PROCESSING after
         # it and did not loop.
         assert history_of(session, "ord_conf00000000000001") == [
-            TrackingStatus.SHIPPED,
+            TrackingStatus.PLACED,
             TrackingStatus.DELIVERED,
         ]
 
@@ -370,7 +372,7 @@ class TestMidProgressionConflicts:
         assert [
             entry.status
             for entry in TrackingRepository(session).get_history(tracking_id)
-        ] == [TrackingStatus.SHIPPED]
+        ] == [TrackingStatus.PLACED]
 
     @pytest.mark.anyio
     async def test_an_unexpected_error_is_swallowed_and_logged(
@@ -408,7 +410,7 @@ class TestMidProgressionConflicts:
         """`CancelledError` must NOT be swallowed by the catch-all.
 
         If it were, the event loop could not cancel this task at shutdown and would
-        hang waiting for a 30-second fixture to finish.
+        hang waiting for a 40-second fixture to finish.
         """
         seed(session, order_id="ord_conf00000000000005")
 
@@ -426,6 +428,6 @@ class TestMidProgressionConflicts:
 
         # The documented limitation, observed: the tracking stays where it was.
         assert current_status(session, "ord_conf00000000000005") == (
-            TrackingStatus.SHIPPED
+            TrackingStatus.PLACED
         )
 

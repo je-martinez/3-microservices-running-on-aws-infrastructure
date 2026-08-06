@@ -3,12 +3,13 @@
 When `POST /v1/trackings/init-tracking` is called with `x-test-mode: true`, the new
 tracking advances one status every 10 seconds until it is `DELIVERED`:
 
-    t=0s   SHIPPED           (written by the create itself)
-    t=10s  ON_THE_WAY
-    t=20s  OUT_FOR_DELIVERY
-    t=30s  DELIVERED
+    t=0s   PLACED            (written by the create itself)
+    t=10s  PROCESSING
+    t=20s  SHIPPED
+    t=30s  OUT_FOR_DELIVERY
+    t=40s  DELIVERED
 
-leaving four `tracking_history` rows in total, per the design's table.
+leaving five `tracking_history` rows in total, per the design's table.
 
 ## !! KNOWN LIMITATION — progression does NOT survive a process restart !!
 
@@ -21,16 +22,16 @@ explicitly, and it is this:
     frozen at whatever status it had reached, forever. Nothing retries it, nothing
     resumes it, and no error is reported anywhere.
 
-A tracking stuck at `ON_THE_WAY` after a rebuild is therefore **expected
+A tracking stuck at `PROCESSING` after a rebuild is therefore **expected
 behaviour**, not a bug to investigate. The only recovery is to create a new
 TestMode tracking, or to drive the remaining transitions by hand through
 `PUT /v1/trackings/{orderId}/status`.
 
 This is acceptable because TestMode exists solely to exercise the delivery flow in
-E2E tests: the whole progression lasts 30 seconds, nothing downstream depends on it
+E2E tests: the whole progression lasts 40 seconds, nothing downstream depends on it
 completing, and a real carrier's updates arrive through the PUT endpoint, which is
 persistent. Paying for a durable scheduler — a new dependency, a new table, a
-poller, its own failure modes — to make a 30-second test fixture restart-proof is
+poller, its own failure modes — to make a 40-second test fixture restart-proof is
 not a trade this service wants.
 
 ## Who starts it, and from where
@@ -44,7 +45,7 @@ That directness is recent. Creation used to be a gRPC RPC running on a
 `grpc.server` **thread pool** (threads, not `grpc.aio`, because pymysql blocks), and
 a thread-pool worker has no running event loop: `asyncio.create_task` there raised
 `RuntimeError: no running event loop`, and `asyncio.run()` would have blocked the
-RPC for the full 30 seconds. That needed a bridge —
+RPC for the full 40 seconds. That needed a bridge —
 `asyncio.run_coroutine_threadsafe` onto a loop published at FastAPI startup — plus
 the "no loop registered" failure mode that came with it. JE-108 removed the gRPC
 server, and the bridge went with it: there is now exactly one caller, and it is
@@ -62,7 +63,7 @@ automatic run identifiable from `tracking_history.created_by` after the fact.
 
 Each step opens its **own** write session. The creating request's session was
 committed and closed long before t=10s, so it cannot be reused; holding one open
-across 30 seconds of sleeping would pin a pooled connection for the whole run.
+across 40 seconds of sleeping would pin a pooled connection for the whole run.
 
 `advance_once` reads the tracking **unscoped** — no `cognito_sub`. That is correct
 here and only here: there is no caller to scope by, and the order id came from a
@@ -95,7 +96,7 @@ from src.shared.db.engine import write_session
 logger = logging.getLogger(__name__)
 
 #: Seconds between automatic transitions. The design's table is explicit: t=10s,
-#: t=20s, t=30s. Tests override it via the `interval` parameter rather than
+#: t=20s, t=30s, t=40s. Tests override it via the `interval` parameter rather than
 #: monkeypatching this, so the suite runs in milliseconds while production keeps
 #: the real cadence.
 DEFAULT_INTERVAL_SECONDS = 10.0

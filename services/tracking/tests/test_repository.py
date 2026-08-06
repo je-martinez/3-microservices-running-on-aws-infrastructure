@@ -202,15 +202,15 @@ class TestCreate:
         ).scalar_one()
         assert stored == tracking.id
 
-    def test_starts_at_shipped(self, repo: TrackingRepository) -> None:
+    def test_starts_at_placed(self, repo: TrackingRepository) -> None:
         tracking = make_tracking(repo, order_id="ord_create0000000000003")
-        assert tracking.status == TrackingStatus.SHIPPED
+        assert tracking.status == TrackingStatus.PLACED
 
     def test_writes_the_first_history_entry(self, repo: TrackingRepository) -> None:
         """A tracking is never created without its opening transition."""
         tracking = make_tracking(repo, order_id="ord_create0000000000004")
         history = repo.get_history(tracking.id)
-        assert [h.status for h in history] == [TrackingStatus.SHIPPED]
+        assert [h.status for h in history] == [TrackingStatus.PLACED]
 
     def test_shipping_address_round_trips_as_a_dict(
         self, repo: TrackingRepository, session: Session
@@ -374,7 +374,7 @@ class TestGetByOrderId:
         tracking = make_tracking(repo, order_id="ord_get00000000000000005")
         repo.update_status(
             tracking=tracking,
-            status=TrackingStatus.ON_THE_WAY,
+            status=TrackingStatus.PROCESSING,
             actor=AuditActor.CARRIER_STATUS_UPDATE,
         )
         session.commit()
@@ -383,8 +383,8 @@ class TestGetByOrderId:
         found = repo.get_by_order_id("ord_get00000000000000005")
         assert found is not None
         assert [h.status for h in found.history] == [
-            TrackingStatus.SHIPPED,
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PLACED,
+            TrackingStatus.PROCESSING,
         ]
 
 
@@ -483,7 +483,7 @@ class TestUpdateStatus:
         tracking = make_tracking(repo, order_id="ord_upd00000000000000001")
         repo.update_status(
             tracking=tracking,
-            status=TrackingStatus.ON_THE_WAY,
+            status=TrackingStatus.PROCESSING,
             actor=AuditActor.CARRIER_STATUS_UPDATE,
         )
         session.commit()
@@ -491,14 +491,15 @@ class TestUpdateStatus:
 
         reloaded = session.get(Tracking, tracking.id)
         assert reloaded is not None
-        assert reloaded.status == TrackingStatus.ON_THE_WAY
+        assert reloaded.status == TrackingStatus.PROCESSING
 
     def test_appends_a_history_row_per_transition(
         self, repo: TrackingRepository, session: Session
     ) -> None:
         tracking = make_tracking(repo, order_id="ord_upd00000000000000002")
         for status in (
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
+            TrackingStatus.SHIPPED,
             TrackingStatus.OUT_FOR_DELIVERY,
             TrackingStatus.DELIVERED,
         ):
@@ -510,10 +511,11 @@ class TestUpdateStatus:
         session.commit()
 
         history = repo.get_history(tracking.id)
-        # A completed TestMode run leaves exactly 4 entries (the design's table).
+        # A completed TestMode run leaves exactly 5 entries (the design's table).
         assert [h.status for h in history] == [
+            TrackingStatus.PLACED,
+            TrackingStatus.PROCESSING,
             TrackingStatus.SHIPPED,
-            TrackingStatus.ON_THE_WAY,
             TrackingStatus.OUT_FOR_DELIVERY,
             TrackingStatus.DELIVERED,
         ]
@@ -542,17 +544,17 @@ class TestUpdateStatus:
         session.commit()
         fetched = repo.get_by_order_id("ord_upd00000000000000009")
         assert fetched is not None
-        assert [h.status for h in fetched.history] == [TrackingStatus.SHIPPED]
+        assert [h.status for h in fetched.history] == [TrackingStatus.PLACED]
 
         updated = repo.update_status(
             tracking=fetched,
-            status=TrackingStatus.ON_THE_WAY,
+            status=TrackingStatus.PROCESSING,
             actor=AuditActor.CARRIER_STATUS_UPDATE,
         )
 
         assert [h.status for h in updated.history] == [
-            TrackingStatus.SHIPPED,
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PLACED,
+            TrackingStatus.PROCESSING,
         ]
 
     def test_history_is_ordered_by_time_not_alphabetically(
@@ -560,16 +562,17 @@ class TestUpdateStatus:
     ) -> None:
         """`DELIVERED` sorts first alphabetically; it must come last here."""
         tracking = make_tracking(repo, order_id="ord_upd00000000000000003")
-        # Anchored to the tracking's own SHIPPED row, not to a wall-clock literal.
-        # `make_tracking` stamps SHIPPED with the real current time, so a fixed
+        # Anchored to the tracking's own PLACED row, not to a wall-clock literal.
+        # `make_tracking` stamps PLACED with the real current time, so a fixed
         # base like 2026-07-29 12:00 puts every later transition BEFORE the
-        # creation whenever the suite runs after midday — SHIPPED then sorts last
+        # creation whenever the suite runs after midday — PLACED then sorts last
         # by timestamp, correctly, and the assertion fails for a reason that has
         # nothing to do with alphabetical ordering.
         base = tracking.datetime_
         for offset, status in enumerate(
             (
-                TrackingStatus.ON_THE_WAY,
+                TrackingStatus.PROCESSING,
+                TrackingStatus.SHIPPED,
                 TrackingStatus.OUT_FOR_DELIVERY,
                 TrackingStatus.DELIVERED,
             ),
@@ -591,13 +594,14 @@ class TestUpdateStatus:
     ) -> None:
         """Regression: a bare `datetime` sort is not deterministic.
 
-        All four transitions are written at the SAME instant here — which is what
+        All five transitions are written at the SAME instant here — which is what
         happens when several transitions land in one unit of work, or when a
         carrier sends two updates inside the same second. With only `datetime` in
         the ORDER BY, MySQL fell back to primary-key order, which for
         `(tracking_id, status)` is alphabetical: DELIVERED came back first and
-        SHIPPED last, exactly reversed at both ends. Caught by this suite running
-        against real MySQL; a mock would have returned insertion order and passed.
+        SHIPPED last, with the terminal status ahead of the initial one. Caught by
+        this suite running against real MySQL; a mock would have returned insertion
+        order and passed.
         """
         frozen = datetime(2026, 7, 29, 12, 0, 0)
         tracking = repo.create(
@@ -606,7 +610,8 @@ class TestUpdateStatus:
             now=frozen,
         )
         for status in (
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
+            TrackingStatus.SHIPPED,
             TrackingStatus.OUT_FOR_DELIVERY,
             TrackingStatus.DELIVERED,
         ):
@@ -624,8 +629,9 @@ class TestUpdateStatus:
         assert {h.datetime_ for h in history} == {frozen}
         # ...and the progression order still holds, via the tiebreaker.
         assert [h.status for h in history] == [
+            TrackingStatus.PLACED,
+            TrackingStatus.PROCESSING,
             TrackingStatus.SHIPPED,
-            TrackingStatus.ON_THE_WAY,
             TrackingStatus.OUT_FOR_DELIVERY,
             TrackingStatus.DELIVERED,
         ]
@@ -651,7 +657,7 @@ class TestUpdateStatus:
         later = created_at_moment + timedelta(minutes=5)
         repo.update_status(
             tracking=tracking,
-            status=TrackingStatus.ON_THE_WAY,
+            status=TrackingStatus.PROCESSING,
             actor=AuditActor.CARRIER_STATUS_UPDATE,
             now=later,
         )
@@ -688,7 +694,7 @@ class TestUpdateStatus:
         tracking = make_tracking(repo, order_id="ord_upd00000000000000006")
         repo.append_history_entry(
             tracking=tracking,
-            status=TrackingStatus.SHIPPED,
+            status=TrackingStatus.PLACED,
             actor=AuditActor.CARRIER_STATUS_UPDATE,
         )
         with pytest.raises(IntegrityError):
@@ -973,10 +979,10 @@ class TestHistoryModel:
         b = make_tracking(repo, order_id="ord_hist0000000000000002")
         session.commit()
         assert (
-            session.get(TrackingHistory, (a.id, TrackingStatus.SHIPPED.value))
+            session.get(TrackingHistory, (a.id, TrackingStatus.PLACED.value))
             is not None
         )
         assert (
-            session.get(TrackingHistory, (b.id, TrackingStatus.SHIPPED.value))
+            session.get(TrackingHistory, (b.id, TrackingStatus.PLACED.value))
             is not None
         )

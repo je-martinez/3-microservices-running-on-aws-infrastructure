@@ -10,8 +10,9 @@ import { authOtpRequestedHandler } from "#handlers/auth-otp-requested";
 // Task 11, which is what proves that claim rather than assuming it.
 //
 // TRACKING_STATUS_CHANGED (Task 12) is still just ONE entry, even though it
-// fans out to four rendered templates (SHIPPED, ON_THE_WAY, OUT_FOR_DELIVERY,
-// DELIVERED) — that fan-out lives inside trackingStatusChangedHandler, keyed
+// fans out to five rendered templates (PLACED, PROCESSING, SHIPPED,
+// OUT_FOR_DELIVERY, DELIVERED) — that fan-out lives inside
+// trackingStatusChangedHandler, keyed
 // by payload.status, not here. This is the mirror image of the Task 11
 // claim above: the event taxonomy and the template catalog vary
 // independently.

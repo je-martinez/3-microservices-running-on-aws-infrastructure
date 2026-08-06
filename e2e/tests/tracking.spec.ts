@@ -47,7 +47,13 @@ import { makeUser } from "../support/chance-factory.js";
 // real fix, and it is a service-side change, not a test-side one.
 
 //: The forward-only progression from the design.
-const PROGRESSION = ["SHIPPED", "ON_THE_WAY", "OUT_FOR_DELIVERY", "DELIVERED"] as const;
+const PROGRESSION = [
+  "PLACED",
+  "PROCESSING",
+  "SHIPPED",
+  "OUT_FOR_DELIVERY",
+  "DELIVERED",
+] as const;
 
 type TrackingPayload = {
   id: string;
@@ -81,9 +87,9 @@ function syntheticOrderId(): string {
   return `ord_e2e${suffix}`.slice(0, 21);
 }
 
-// Creates a tracking with progression OFF, so it sits at SHIPPED until a test moves
+// Creates a tracking with progression OFF, so it sits at PLACED until a test moves
 // it. Everything below depends on that: a tracking advancing in the background would
-// make every guard assertion racy (a PUT to ON_THE_WAY is legitimately rejected as
+// make every guard assertion racy (a PUT to PROCESSING is legitimately rejected as
 // `not_strictly_forward` once the progression already got there).
 //
 // TestMode is off because `x-test-mode` is simply not sent — only the exact string
@@ -146,7 +152,7 @@ test("POST /v1/trackings/init-tracking without x-user-id returns 401", async () 
   expect(res.status()).toBe(401);
 });
 
-test("POST /v1/trackings/init-tracking creates the tracking at SHIPPED and the read round-trips it", async () => {
+test("POST /v1/trackings/init-tracking creates the tracking at PLACED and the read round-trips it", async () => {
   const api = await trackingClient();
   const userId = await registerCaller();
   const { orderId, tracking } = await createTracking(api, userId);
@@ -157,14 +163,14 @@ test("POST /v1/trackings/init-tracking creates the tracking at SHIPPED and the r
   // header value echoed back (which happens to be the same string at this layer;
   // the gateway spec is where that distinction is testable).
   expect(tracking.user_id).toBe(userId);
-  expect(tracking.status).toBe("SHIPPED");
+  expect(tracking.status).toBe("PLACED");
   // One history row at creation: the design's t=0 entry.
   expect(tracking.history).toHaveLength(1);
   expect(tracking.history[0]).toMatchObject({
     tracking_id: tracking.id,
     order_id: orderId,
     user_id: userId,
-    status: "SHIPPED",
+    status: "PLACED",
   });
 
   const fetched = await api.get(`/v1/trackings/${orderId}`, {
@@ -173,7 +179,7 @@ test("POST /v1/trackings/init-tracking creates the tracking at SHIPPED and the r
   expect(fetched.status()).toBe(200);
   const reread = (await fetched.json()) as TrackingPayload;
   expect(reread.id).toBe(tracking.id);
-  expect(reread.status).toBe("SHIPPED");
+  expect(reread.status).toBe("PLACED");
   expect(reread.history).toHaveLength(1);
 
   // The shipping address is stored but exposed on NO surface — it is PII, and the
@@ -240,7 +246,7 @@ test("GET /v1/trackings (batch) returns the caller's trackings and omits unknown
   // Each entry carries its own history, same shape as the single read.
   for (const item of body.trackings as TrackingPayload[]) {
     expect(item.history).toHaveLength(1);
-    expect(item.history[0].status).toBe("SHIPPED");
+    expect(item.history[0].status).toBe("PLACED");
   }
 });
 
@@ -326,13 +332,13 @@ test("PUT /v1/trackings/{orderId}/status advances one step and appends to histor
   const userId = await registerCaller();
   const { orderId, tracking } = await createTracking(api, userId);
 
-  const res = await carrierPut(api, orderId, "ON_THE_WAY");
+  const res = await carrierPut(api, orderId, "PROCESSING");
   expect(res.status(), `carrier PUT failed: ${await res.text()}`).toBe(200);
   const updated = (await res.json()) as TrackingPayload;
   expect(updated.id).toBe(tracking.id);
-  expect(updated.status).toBe("ON_THE_WAY");
+  expect(updated.status).toBe("PROCESSING");
   // Appended, not replaced — Tracking_History is immutable.
-  expect(updated.history.map((h) => h.status)).toEqual(["SHIPPED", "ON_THE_WAY"]);
+  expect(updated.history.map((h) => h.status)).toEqual(["PLACED", "PROCESSING"]);
 });
 
 test("PUT /v1/trackings/{orderId}/status may skip ahead, as long as it moves forward", async () => {
@@ -340,14 +346,14 @@ test("PUT /v1/trackings/{orderId}/status may skip ahead, as long as it moves for
   const userId = await registerCaller();
   const { orderId } = await createTracking(api, userId);
 
-  // SHIPPED → DELIVERED skips two statuses. The guard is "strictly forward", not
+  // PLACED → DELIVERED skips three statuses. The guard is "strictly forward", not
   // "exactly the next one" — a carrier that only reports the final delivery is a
   // legitimate caller, so skipping is allowed and only backward/equal is rejected.
   const res = await carrierPut(api, orderId, "DELIVERED");
   expect(res.status()).toBe(200);
   const updated = (await res.json()) as TrackingPayload;
   expect(updated.status).toBe("DELIVERED");
-  expect(updated.history.map((h) => h.status)).toEqual(["SHIPPED", "DELIVERED"]);
+  expect(updated.history.map((h) => h.status)).toEqual(["PLACED", "DELIVERED"]);
 });
 
 test("PUT /v1/trackings/{orderId}/status rejects the SAME status with 400 not_strictly_forward", async () => {
@@ -355,16 +361,16 @@ test("PUT /v1/trackings/{orderId}/status rejects the SAME status with 400 not_st
   const userId = await registerCaller();
   const { orderId } = await createTracking(api, userId);
 
-  // SHIPPED → SHIPPED. Rejected because a repeat writes a duplicate history row for
+  // PLACED → PLACED. Rejected because a repeat writes a duplicate history row for
   // a transition that did not happen — and the (tracking_id, status) composite PK
   // could not hold it anyway.
-  const res = await carrierPut(api, orderId, "SHIPPED");
+  const res = await carrierPut(api, orderId, "PLACED");
   expect(res.status()).toBe(400);
   const body = await res.json();
   // Flat `reason`, top-level — the carrier PUT uses RejectedStatusUpdate with its
   // own handler precisely so a client does not have to reach into `detail`.
   expect(body.reason).toBe("not_strictly_forward");
-  expect(body.detail).toContain("SHIPPED");
+  expect(body.detail).toContain("PLACED");
 });
 
 test("PUT /v1/trackings/{orderId}/status rejects a BACKWARD move with 400 backward_transition", async () => {
@@ -374,10 +380,10 @@ test("PUT /v1/trackings/{orderId}/status rejects a BACKWARD move with 400 backwa
 
   expect((await carrierPut(api, orderId, "OUT_FOR_DELIVERY")).status()).toBe(200);
 
-  // OUT_FOR_DELIVERY → ON_THE_WAY. A distinct reason from `not_strictly_forward`:
+  // OUT_FOR_DELIVERY → PROCESSING. A distinct reason from `not_strictly_forward`:
   // "you went backwards" and "you did not move" are different carrier mistakes and
   // a client should be able to tell them apart without parsing prose.
-  const res = await carrierPut(api, orderId, "ON_THE_WAY");
+  const res = await carrierPut(api, orderId, "PROCESSING");
   expect(res.status()).toBe(400);
   expect((await res.json()).reason).toBe("backward_transition");
 });
@@ -419,6 +425,7 @@ test("PUT /v1/trackings/{orderId}/status with a status outside the enum is 400 i
   // 400, not 422: `status` is typed as a plain string on UpdateStatusRequest
   // precisely so Pydantic does not reject it first — all four rejection reasons
   // (unknown value + the three guards) answer with the same code and shape.
+  // Note ON_THE_WAY is no longer part of the enum, so it too would land here.
   const res = await carrierPut(api, orderId, "LOST_IN_SPACE");
   expect(res.status()).toBe(400);
   const body = await res.json();
@@ -443,20 +450,22 @@ test("PUT /v1/trackings/{orderId}/status with a wrong or missing API key is 401"
 
   const wrong = await api.put(`/v1/trackings/${orderId}/status`, {
     headers: { "x-api-key": "definitely-not-the-carrier-key" },
-    data: { status: "ON_THE_WAY" },
+    data: { status: "PROCESSING" },
   });
   expect(wrong.status()).toBe(401);
 
   const missing = await api.put(`/v1/trackings/${orderId}/status`, {
-    data: { status: "ON_THE_WAY" },
+    data: { status: "PROCESSING" },
   });
   expect(missing.status()).toBe(401);
 
-  // Authenticated before anything is read, so neither attempt touched the tracking.
+  // Authenticated before anything is read, so neither attempt touched the tracking:
+  // a body that WOULD have been accepted was rejected before the handler saw it, so
+  // the tracking is still at the status creation left it.
   const after = await api.get(`/v1/trackings/${orderId}`, {
     headers: { "x-user-id": userId },
   });
-  expect((await after.json()).status).toBe("SHIPPED");
+  expect((await after.json()).status).toBe("PLACED");
 });
 
 test("the carrier PUT needs NO x-user-id — an unrelated caller's key still works", async () => {
@@ -468,9 +477,9 @@ test("the carrier PUT needs NO x-user-id — an unrelated caller's key still wor
   // still succeed: the endpoint identifies the tracking by order_id ALONE and must
   // never reuse the reads' ownership filter — doing so would 404 every real carrier
   // call while looking correctly implemented (carrier_router.py).
-  const res = await carrierPut(api, orderId, "ON_THE_WAY");
+  const res = await carrierPut(api, orderId, "PROCESSING");
   expect(res.status(), `carrier PUT failed: ${await res.text()}`).toBe(200);
-  expect((await res.json()).status).toBe("ON_THE_WAY");
+  expect((await res.json()).status).toBe("PROCESSING");
 
   // The owner sees the carrier's update on their own scoped read — one record, two
   // surfaces, no drift.
@@ -478,5 +487,5 @@ test("the carrier PUT needs NO x-user-id — an unrelated caller's key still wor
     headers: { "x-user-id": owner },
   });
   expect(asOwner.status()).toBe(200);
-  expect((await asOwner.json()).status).toBe("ON_THE_WAY");
+  expect((await asOwner.json()).status).toBe("PROCESSING");
 });

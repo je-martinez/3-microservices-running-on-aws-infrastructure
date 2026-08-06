@@ -107,7 +107,8 @@ def update_tracking_status(
     ## 5. Emit `TRACKING_STATUS_CHANGED` (events-pipeline milestone)
 
     Every successful transition publishes one event, `DELIVERED` included —
-    there is no suppression, so a TestMode run produces four.
+    there is no suppression, so a TestMode run produces four: creation writes
+    `PLACED` without emitting, and the four steps that follow each emit one.
 
     Emission lives HERE, and only here, for the same reason the guards do: this
     is the single write path behind BOTH the carrier PUT and TestMode

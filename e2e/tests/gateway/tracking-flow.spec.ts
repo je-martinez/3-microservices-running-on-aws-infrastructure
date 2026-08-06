@@ -28,15 +28,15 @@ import {
 
 //: How long to wait for TestMode progression to reach DELIVERED.
 //
-// The design specifies one transition every 10s over four statuses
-// (SHIPPED → ON_THE_WAY → OUT_FOR_DELIVERY → DELIVERED), so ~30s from creation.
-// 75s is that budget with room for a slow local stack, and it is BOUNDED on
-// purpose: an unbounded poll on a progression that can legitimately never finish
+// The design specifies one transition every 10s over five statuses
+// (PLACED → PROCESSING → SHIPPED → OUT_FOR_DELIVERY → DELIVERED), so ~40s from
+// creation. 90s is that budget with room for a slow local stack, and it is BOUNDED
+// on purpose: an unbounded poll on a progression that can legitimately never finish
 // (see the restart caveat below) would hang the suite instead of failing it.
-const DELIVERY_TIMEOUT_MS = 75_000;
+const DELIVERY_TIMEOUT_MS = 90_000;
 
 //: Gap between polls. Well under the 10s cadence, so the poller observes each
-// intermediate status rather than skipping straight from SHIPPED to DELIVERED.
+// intermediate status rather than skipping straight from PLACED to DELIVERED.
 const POLL_INTERVAL_MS = 2_000;
 
 //: How long to wait for the pipeline's emails once the journey is complete.
@@ -48,7 +48,13 @@ const EMAIL_TIMEOUT_MS = 45_000;
 //: The forward-only progression from the design. Index = position in the chain,
 // which is what makes "is this history in forward order" and "did it overshoot"
 // checkable as integer comparisons rather than string juggling.
-const PROGRESSION = ["SHIPPED", "ON_THE_WAY", "OUT_FOR_DELIVERY", "DELIVERED"] as const;
+const PROGRESSION = [
+  "PLACED",
+  "PROCESSING",
+  "SHIPPED",
+  "OUT_FOR_DELIVERY",
+  "DELIVERED",
+] as const;
 
 type TrackingHistoryEntry = {
   tracking_id: string;
@@ -112,7 +118,7 @@ async function registerAndLogin(): Promise<{ token: string; userId: string; emai
 }
 
 test("the full journey through the gateway: user → order → tracking → DELIVERED", async () => {
-  // Owns a ~30s progression plus a full register/login/order chain, so it needs
+  // Owns a ~40s progression plus a full register/login/order chain, so it needs
   // more than Playwright's 30s default. Set from the poll budgets rather than a
   // magic number, so they cannot drift apart. EMAIL_TIMEOUT_MS is part of the sum
   // because step 7's inbox wait runs AFTER the progression completes: without it
@@ -161,10 +167,10 @@ test("the full journey through the gateway: user → order → tracking → DELI
 
   expect(tracking.order_id).toBe(order.id);
   expect(tracking.id).toMatch(/^trk_/);
-  // Starts at SHIPPED, per the design's t=0 row.
-  expect(tracking.status).toBe("SHIPPED");
+  // Starts at PLACED, per the design's t=0 row.
+  expect(tracking.status).toBe("PLACED");
   expect(tracking.history.length).toBeGreaterThanOrEqual(1);
-  expect(tracking.history[0].status).toBe("SHIPPED");
+  expect(tracking.history[0].status).toBe("PLACED");
 
   // The sub → `usr_` resolution, and the single most valuable assertion in this
   // file. The gateway injects `x-user-id` as the JWT's **sub**, never a `usr_` id
@@ -186,7 +192,7 @@ test("the full journey through the gateway: user → order → tracking → DELI
   const delivered = await pollUntilDelivered(api, order.id);
 
   expect(delivered.status).toBe("DELIVERED");
-  // Four statuses, one history row each — the design's completed-run count.
+  // Five statuses, one history row each — the design's completed-run count.
   expect(delivered.history).toHaveLength(PROGRESSION.length);
   expect(delivered.history.map((h) => h.status)).toEqual([...PROGRESSION]);
 
@@ -196,7 +202,7 @@ test("the full journey through the gateway: user → order → tracking → DELI
   // same-second transitions tie on a bare timestamp sort and MySQL falls back to
   // PK order, which is alphabetical and would put DELIVERED first.
   const positions = delivered.history.map((h) => PROGRESSION.indexOf(h.status as never));
-  expect(positions).not.toContain(-1); // no status outside the four valid values
+  expect(positions).not.toContain(-1); // no status outside the five valid values
   for (let i = 1; i < positions.length; i += 1) {
     expect(
       positions[i],
@@ -205,12 +211,12 @@ test("the full journey through the gateway: user → order → tracking → DELI
   }
 
   // No overshoot past the terminal state. DELIVERED is the last status and there is
-  // nothing beyond it, so a fifth transition — or any repeat of DELIVERED — would
+  // nothing beyond it, so a sixth transition — or any repeat of DELIVERED — would
   // mean the progression kept running after it should have stopped.
   const deliveredRows = delivered.history.filter((h) => h.status === "DELIVERED");
   expect(deliveredRows).toHaveLength(1);
 
-  // Terminal means terminal: it must still be DELIVERED with the same four rows a
+  // Terminal means terminal: it must still be DELIVERED with the same five rows a
   // moment later, not have advanced or grown.
   await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS * 2));
   const settled = await readTracking(api, order.id);
@@ -222,8 +228,8 @@ test("the full journey through the gateway: user → order → tracking → DELI
   // own: this one test already triggers all three producers that publish an
   // email-bearing event — Users (USER_CREATED at register), Orders
   // (ORDER_CREATED at step 4), Tracking (TRACKING_STATUS_CHANGED on each of the
-  // four transitions above) — and they all land at ONE address. A parallel suite
-  // would have to re-walk the same register → order → deliver chain (~40s) to
+  // five transitions above) — and they all land at ONE address. A parallel suite
+  // would have to re-walk the same register → order → deliver chain (~50s) to
   // recreate a state this test has already reached, and would then be asserting
   // on a second, unrelated journey.
   //
@@ -268,7 +274,7 @@ test("the full journey through the gateway: user → order → tracking → DELI
 
   // 3. TRACKING_STATUS_CHANGED → at least the DELIVERED transition.
   //
-  // Matched on the DELIVERED subject specifically rather than counting four
+  // Matched on the DELIVERED subject specifically rather than counting five
   // tracking emails. Both are true today, but the count is the wrong assertion:
   // it would fail if the progression's cadence ever changed, while the real
   // contract this covers is "a status transition produces an email for it".

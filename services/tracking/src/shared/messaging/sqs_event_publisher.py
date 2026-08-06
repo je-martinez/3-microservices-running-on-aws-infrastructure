@@ -17,7 +17,7 @@ The AUTHORITY is the consumer, not this file:
   names the producer.
 * payload — `functions/events-pipeline/src/handlers/tracking-status-changed.ts`:
   `{ status, previous_status, changed_at, email }`. `status` is an enum of the
-  four progression values.
+  five progression values.
 
 A missing or misnamed field is NOT a loud failure: the handler rejects it as a
 `PermanentError`, the record is consumed rather than retried, and the user never
@@ -98,7 +98,7 @@ def derive_event_id(order_id: str, status: str) -> str:
     `(tracking_id, status)`, so a given order enters each status at most once.
     Two events with this id are therefore, by construction, the same transition.
 
-    This matters most under TestMode, which walks all four statuses in ~30
+    This matters most under TestMode, which walks all five statuses in ~40
     seconds: a transient SQS error anywhere in that burst retries into the same
     id rather than into a duplicate email.
 

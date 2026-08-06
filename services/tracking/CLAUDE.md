@@ -117,18 +117,18 @@ carry `user_id` + `cognito_sub`; reads filter by `cognito_sub`).
 ## 5c. TestMode progression — KNOWN LIMITATION, accepted
 
 `POST /v1/trackings/init-tracking` with `x-test-mode: true` advances the tracking one status every 10s
-(`SHIPPED → ON_THE_WAY → OUT_FOR_DELIVERY → DELIVERED`, 4 history rows) using an
+(`PLACED → PROCESSING → SHIPPED → OUT_FOR_DELIVERY → DELIVERED`, 5 history rows) using an
 **in-process `asyncio` task** — deliberately chosen over APScheduler/Celery/a
 durable queue. Do not "fix" this by adding a persistent scheduler.
 
 > **If the process restarts mid-progression — docker-watch rebuild, redeploy, crash
 > — the pending task is LOST and the tracking stays frozen at whatever status it
 > reached.** There is no recovery, no retry, and no error logged anywhere. A TestMode
-> tracking stuck at `ON_THE_WAY` after a rebuild is **expected**, not a bug to
+> tracking stuck at `PROCESSING` after a rebuild is **expected**, not a bug to
 > investigate. Recover by creating a new TestMode tracking, or by driving the
 > remaining transitions through `PUT /v1/trackings/{orderId}/status`.
 
-This is acceptable because TestMode is a 30-second E2E fixture: nothing downstream
+This is acceptable because TestMode is a 40-second E2E fixture: nothing downstream
 depends on it completing, and real carrier updates arrive through the (persistent)
 PUT endpoint.
 
@@ -145,7 +145,7 @@ Implementation notes:
 - A rejected transition (a carrier delivered it first) or a deleted tracking **ends
   the run cleanly** — never retried, never raised out of the background task.
 - The interval is **injectable** (`progression_interval`); production default 10s,
-  tests pass ~0 so the suite never sleeps for 30 seconds.
+  tests pass ~0 so the suite never sleeps for 40 seconds.
 
 ## 5d. `TRACKING_STATUS_CHANGED` — the third producer
 Tracking publishes to the shared SQS events queue (`EVENTS_QUEUE_URL`) on **every** status
