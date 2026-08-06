@@ -440,4 +440,12 @@ ai-sync-check: ## Verify provider configs are valid and the guard is in place (C
 	  || { echo "ERROR: .claude/CLAUDE.md exists — lnai's claudeCode target is enabled"; exit 1; }
 	@grep -A1 '"claudeCode"' .ai/config.json | grep -q '"enabled": false' \
 	  || { echo "ERROR: claudeCode is not disabled in .ai/config.json"; exit 1; }
-	@echo "OK: providers valid, guard in place"
+	@# The provider outputs are committed, so they can go stale when someone edits
+	@# .claude/ and forgets to sync. Re-run the sync and fail if it changed
+	@# anything: the output is deterministic, so a diff here means the committed
+	@# config no longer matches its source.
+	@npx -y lnai@latest sync >/dev/null 2>&1
+	@test -z "$$(git status --porcelain .ai/ .cursor/ .windsurf/ .gemini/ .codex/ .agents/ .github/ .opencode/ .vscode/ AGENTS.md GEMINI.md opencode.json)" \
+	  || { echo "ERROR: provider config is stale — run 'make ai-sync' and commit the result"; \
+	       git status --porcelain .ai/ .cursor/ .windsurf/ .gemini/ .codex/ .agents/ .github/ .opencode/ .vscode/ AGENTS.md GEMINI.md opencode.json; exit 1; }
+	@echo "OK: providers valid, guard in place, committed output up to date"
