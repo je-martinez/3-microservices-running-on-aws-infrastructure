@@ -511,20 +511,29 @@ for the full evidence trail.
   authorizer already consumes), plus a custom JWKS fetcher because Floci serves its JWKS endpoint
   over plain HTTP and `aws-jwt-verify`'s default fetcher rejects non-HTTPS URIs.
 
-> [!warning] Known outstanding issue — two of three gateway E2E tests are red
+> [!success] Resolved (2026-08-06) — the outstanding issue below was an incorrect assertion
 > `e2e/tests/gateway/realtime-events.spec.ts` has three tests. The invalid-token rejection test
-> passes. The two positive tests ("delivers all four status transitions", "does not deliver one
-> user's events to another user") fail with **0 frames received**, root cause unexplained as of
-> 2026-08-06. A controller-run direct-Lambda probe verified the full chain works end to end
-> (authenticated socket → GSI row → event published for that sub → frame delivered with the
-> correct payload), and `410 Gone` cleanup was independently confirmed live. Four hypotheses were
-> measured and ruled out: premature socket close (the socket survived the full 75s timeout), sub
-> mismatch (identical in the same run), GSI indexing lag (visible at t=0.0s), and stale env in
-> Playwright (`.env.local.debug` matches the live API id). The chain driven by a direct Lambda
-> invoke delivers; the Playwright-driven path does not. Current suspicion is client-side, in the
-> Node `ws` usage inside `e2e/support/ws-client.ts`, since the server demonstrably delivers. See
-> [[2026-08-05-realtime-tracking-events-websocket-design]] (status: `active`, not `accepted`,
-> specifically because of this) for the full diagnostic trail.
+> always passed. The two positive tests ("delivers all status transitions", "does not deliver one
+> user's events to another user") were previously reported red, failing with **0 frames
+> received**. The root cause was the tests' own expectation, not the delivery path: they waited
+> for **four** messages including `SHIPPED`, but `TRACKING_STATUS_CHANGED` is published only from
+> `update_tracking_status` (the transition path) — `SHIPPED` is the status a tracking is *created*
+> at (`create_tracking.py`), which never calls it, so it is never pushed. A TestMode run therefore
+> produces exactly **three** transitions (`ON_THE_WAY`, `OUT_FOR_DELIVERY`, `DELIVERED`) and three
+> pushes; see [[tracking-service-design#Events]] and
+> [[2026-08-05-realtime-tracking-events-websocket-design#Gateway E2E — the test that matters]].
+> With the assertion corrected to three, both positive tests pass and the full E2E suite is
+> 83/83. The direct-Lambda controller probe below, and the four ruled-out hypotheses, remain
+> useful evidence that the delivery path itself was never the problem — kept here as the
+> diagnostic trail that led to finding the real cause, a count-only assertion (`expected 4, got
+> 3`) that could not distinguish a dropped message from a wrong expectation. A controller-run
+> direct-Lambda probe verified the full chain works end to end (authenticated socket → GSI row →
+> event published for that sub → frame delivered with the correct payload), and `410 Gone`
+> cleanup was independently confirmed live. Four hypotheses were measured and ruled out along the
+> way: premature socket close (the socket survived the full 75s timeout), sub mismatch (identical
+> in the same run), GSI indexing lag (visible at t=0.0s), and stale env in Playwright
+> (`.env.local.debug` matches the live API id) — none of them was the cause; the assertion was.
+> See [[2026-08-05-realtime-tracking-events-websocket-design]] for the full diagnostic trail.
 
 ## Cross-cutting rules
 

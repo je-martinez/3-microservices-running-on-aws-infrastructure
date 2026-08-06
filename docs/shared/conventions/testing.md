@@ -148,7 +148,10 @@ producer, `functions/realtime-events/`, adapted from. See
 3. **Gateway E2E** (`e2e/tests/gateway/realtime-events.spec.ts`) — the only test that crosses
    Floci's WebSocket data plane end to end: real Cognito login → open the socket at
    `ws://localhost:4566/ws/{apiId}/{stage}?token=<jwt>` → create an order with
-   `x-test-mode: true` → assert the four TestMode transitions arrive as WebSocket frames.
+   `x-test-mode: true` → assert the **three** TestMode transitions arrive as WebSocket frames
+   (`ON_THE_WAY`, `OUT_FOR_DELIVERY`, `DELIVERED` — `SHIPPED` is the status the tracking is
+   *created* at, not a transition, and `TRACKING_STATUS_CHANGED` only fires from the transition
+   path; see [[tracking-service-design#Events]]).
 
 ### Two mandatory negative tests for a WebSocket surface
 
@@ -170,19 +173,25 @@ above, generalized to a connection handshake instead of a login/verify endpoint:
 
 Messages are ordered per WebSocket connection (it runs over TCP), but the events-pipeline
 processes SQS records in **batches with no cross-record ordering guarantee** (see
-[[events-pipeline-design#Dispatch]]). A gateway E2E test for the four TestMode transitions must
-assert the **set** of `{SHIPPED, ON_THE_WAY, OUT_FOR_DELIVERY, DELIVERED}` received, never a
-specific sequence — a test that demands strict order is flaky independent of whether the feature
-itself works.
+[[events-pipeline-design#Dispatch]]). A gateway E2E test for the TestMode transitions must
+assert the **set** of `{ON_THE_WAY, OUT_FOR_DELIVERY, DELIVERED}` received — `SHIPPED` is never
+in that set, since it is the tracking's creation status, not a transition — never a specific
+sequence: a test that demands strict order is flaky independent of whether the feature itself
+works.
 
-> [!warning] Known gap, documented rather than hidden — two of three gateway E2E tests are red
-> As of 2026-08-06, the invalid-token rejection test passes, but the two positive gateway E2E
-> tests ("delivers all four status transitions", "does not deliver one user's events to another
-> user") both fail with 0 frames received, root cause unexplained. The feature was independently
-> verified working end to end by a direct-Lambda controller probe (authenticated socket → GSI row
-> → event published for that sub → frame delivered with the correct payload); the gap is specific
-> to the Playwright-driven path, current suspicion being the client-side `ws` usage in
-> `e2e/support/ws-client.ts`. See
+> [!success] Resolved (2026-08-06) — the gap above was the assertion, not the feature
+> The gap once documented here (two of three positive gateway E2E tests red, 0 frames received)
+> turned out to be an incorrect assertion, not a delivery bug: the tests waited for **four**
+> messages including `SHIPPED`, which `TRACKING_STATUS_CHANGED` never emits (`SHIPPED` is the
+> tracking's creation status, not a transition — see the corrected count above). With the
+> assertion corrected to the three real transitions, all three realtime gateway E2E tests pass
+> and the full E2E suite is 83/83. The direct-Lambda controller probe mentioned in earlier
+> versions of this note (authenticated socket → GSI row → event published for that sub → frame
+> delivered with the correct payload) had already shown the feature itself worked; the count-only
+> failure (`expected 4, got 3`) hid that the test helper needed to report *which* messages
+> arrived, not just how many, before the real cause was visible — see
+> [[2026-08-05-realtime-tracking-events-websocket-design#Debugging lesson — a count-only
+> assertion hides which system is wrong]]. See also
 > [[2026-08-05-realtime-tracking-events-websocket-design#Verification results (POC, 2026-08-05)]]
 > and [[events-pipeline-design#Realtime WebSocket fan-out (second output of TRACKING_STATUS_CHANGED)]].
 > Recorded here as a concrete instance of this convention's own rule: an unexplained red test is

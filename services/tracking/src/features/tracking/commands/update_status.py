@@ -107,7 +107,14 @@ def update_tracking_status(
     ## 5. Emit `TRACKING_STATUS_CHANGED` (events-pipeline milestone)
 
     Every successful transition publishes one event, `DELIVERED` included —
-    there is no suppression, so a TestMode run produces four.
+    there is no suppression, so a TestMode run produces THREE.
+
+    Three, not four, and the difference matters to anyone writing assertions:
+    `SHIPPED` is the status a tracking is CREATED in, not a transition.
+    `create_tracking` never calls this function, and emission lives only here,
+    so creation publishes nothing. A TestMode run therefore leaves four
+    `Tracking_History` rows but sends three events (and three emails). An E2E
+    test asserting four waits forever for a message the system never sends.
 
     Emission lives HERE, and only here, for the same reason the guards do: this
     is the single write path behind BOTH the carrier PUT and TestMode

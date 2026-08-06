@@ -565,10 +565,22 @@ the carrier webhook (`PUT /v1/trackings/{orderId}/status`) and TestMode's automa
 call site, rather than from each caller separately, is what guarantees both paths notify the same
 way instead of drifting apart.
 
-- **Every successful transition emits, `DELIVERED` included — no suppression.** A TestMode run
-  that walks a tracking through all four statuses in ~30 seconds produces **four emails in
-  Mailpit** for that one tracking. This is expected, not a bug; E2E assertions for Tracking must
-  account for all four transitions, not just the final `DELIVERED` state.
+- **Every successful transition emits, `DELIVERED` included — no suppression.** But `SHIPPED` is
+  not a transition: it is the status written by `create_tracking` at the moment the tracking is
+  created (see [TestMode automatic progression](#testmode-automatic-progression), `t=0s SHIPPED
+  (record created)`), and `create_tracking.py` never calls `_emit_status_changed` — only
+  `update_tracking_status` does. A TestMode run that walks a tracking through `SHIPPED →
+  ON_THE_WAY → OUT_FOR_DELIVERY → DELIVERED` therefore makes exactly **three** calls into
+  `update_tracking_status` (the three automatic advances) and produces **three emails in
+  Mailpit** for that one tracking, not four. This is expected, not a bug; E2E assertions for
+  Tracking must account for all three *transitions* (`ON_THE_WAY`, `OUT_FOR_DELIVERY`,
+  `DELIVERED`), not the four *statuses* — and not just the final `DELIVERED` state either.
+  >
+  > This corrects an earlier version of this note, which claimed four emails per TestMode run.
+  > Verified empirically (2026-08-06) by a live gateway E2E run for the realtime WebSocket fan-out
+  > (see [[2026-08-05-realtime-tracking-events-websocket-design#Gateway E2E — the test that matters]]):
+  > the client received exactly three pushes, `SHIPPED` never among them, matching
+  > `TRACKING_STATUS_CHANGED` firing from `update_status.py` alone.
 - **`user_id` on the envelope comes from the persisted tracking row, not the request.** The
   carrier webhook carries **no** `x-user-id` at all — it is authenticated by an API key, not a
   Cognito JWT, and its repository lookup is deliberately unscoped (see
