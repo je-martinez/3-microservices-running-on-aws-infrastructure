@@ -34,7 +34,11 @@ resource "aws_iam_role_policy" "lambda_exec" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
+    # `concat` with a 0-or-1 element list, not a statement carrying a
+    # conditional Resource: an IAM statement with an empty Resource is invalid,
+    # so the statement has to be absent rather than neutered when the consumer
+    # does not fan out to WebSocket clients.
+    Statement = concat([
       {
         Sid    = "SqsConsume"
         Effect = "Allow"
@@ -65,7 +69,25 @@ resource "aws_iam_role_policy" "lambda_exec" {
         ]
         Resource = "${aws_cloudwatch_log_group.this.arn}:*"
       },
-    ]
+      ],
+      # Read the connection registry and prune dead rows. Query needs the INDEX
+      # ARN (the by-cognito-sub GSI), which is a distinct resource from the
+      # table itself — granting only the table ARN makes the Query fail with
+      # AccessDenied on the index, not on the table, which reads as a table
+      # permission problem and is not.
+      var.ws_connections_table_arn == "" ? [] : [{
+        Sid      = "WsConnectionsRegistry"
+        Effect   = "Allow"
+        Action   = ["dynamodb:Query", "dynamodb:DeleteItem"]
+        Resource = [var.ws_connections_table_arn, "${var.ws_connections_table_arn}/index/*"]
+      }],
+      # Push a frame to an open socket through the @connections management API.
+      var.ws_manage_connections_arn == "" ? [] : [{
+        Sid      = "WsManageConnections"
+        Effect   = "Allow"
+        Action   = ["execute-api:ManageConnections"]
+        Resource = var.ws_manage_connections_arn
+    }])
   })
 }
 
