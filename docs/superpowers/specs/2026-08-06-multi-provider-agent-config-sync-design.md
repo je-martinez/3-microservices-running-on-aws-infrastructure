@@ -2,10 +2,10 @@
 title: Multi-Provider Agent Config Sync — Design
 type: spec
 area: shared
-status: draft
+status: active
 created: 2026-08-06
 updated: 2026-08-06
-tags: [type/spec, area/shared, status/draft]
+tags: [type/spec, area/shared, status/active]
 related: ["[[2026-06-26-implementation-workflow-design]]", "[[git-workflow]]", "[[doc-propagation]]"]
 propagates-to:
   - "[[skills-catalog]]"
@@ -57,7 +57,7 @@ subagents; the rest were assessed from source and repository metadata.
 |---|---|---|---|---|---|
 | Providers | 7 | 13 | 11 | 11 | N (aliases) |
 | Subagents | ❌ not modeled | ✅ first-class | ❌ | ✅ 5 providers | ❌ |
-| Antigravity | ❌ | ✅ | ✅ | ❌ | ➖ |
+| Antigravity | ✅ via Gemini plugin | ✅ | ✅ | ❌ | ➖ |
 | Skills | ✅ symlink | ✅ + index fallback | ✅ symlink | ✅ | ❌ |
 | MCP | ✅ 4 formats | ✅ | ✅ 11 targets | ❌ | ❌ |
 | Reverse ingest | ❌ `import()` is a stub | ✅ `adopt` | ➖ | ✅ | ➖ |
@@ -109,7 +109,14 @@ files.
 
 1. **Subagents are not modeled.** `UnifiedState.agents` is the *`AGENTS.md` string*, not a
    collection of agent definitions. This repo's nine subagents have no representation.
-2. **Antigravity and Cursor CLI are not supported tools.** Orca launches both.
+2. **Cursor CLI is not a supported tool.** Orca launches it.
+
+   **Antigravity, however, IS covered** — corrected during implementation. lnai's Gemini
+   plugin is documented as the "Gemini CLI / Antigravity plugin": it emits the root
+   `AGENTS.md` symlink, `.gemini/settings.json` (MCP servers plus
+   `context.fileName: ["AGENTS.md"]`), skills, and a per-directory `GEMINI.md` built from
+   the rules. So Antigravity receives instructions, rules, skills, and MCP — everything
+   except subagents, which lnai does not model for anyone.
 
 **A finding that shaped the design:** every plugin's `import()` returns `null` and every
 `detect()` returns `false` — unimplemented stubs. lnai is **export-only** in practice, so the
@@ -352,8 +359,9 @@ fix must be re-applied after each re-copy.
 
 ## Open questions
 
-- **Antigravity and Cursor CLI** are unsupported by lnai but launchable by Orca. Deferred: ship
-  for the seven supported providers first, measure whether the gap hurts in practice.
+- **Cursor CLI** is unsupported by lnai but launchable by Orca. Deferred: measure whether the
+  gap hurts in practice before writing a plugin. (Antigravity turned out to be covered by the
+  Gemini plugin — see the Background section.)
 - **`.ai/` in `.gitignore`** assumes every environment can run `lnai sync`. If an Orca worker
   starts without it, that worker gets no config. Revisit if it occurs.
 

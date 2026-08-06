@@ -178,7 +178,11 @@ Not portable (Claude Code only):
   · Plugins (superpowers, linear, aws-dev-toolkit) → no equivalent
   · Skills excluded by decision: obsidian-bases, obsidian-cli,
     obsidian-markdown, json-canvas, defuddle
-  · Antigravity and Cursor CLI are not lnai targets — they receive nothing
+  · Cursor CLI is not an lnai target — it receives nothing
 ```
+
+Note: **Antigravity IS covered** — lnai's Gemini plugin serves both. It gets
+`AGENTS.md`, rules (as per-directory `GEMINI.md`), skills, and MCP. Do not report it
+as a loss.
 
 Then list what synced: the providers, and counts of rules, skills, and roles.
