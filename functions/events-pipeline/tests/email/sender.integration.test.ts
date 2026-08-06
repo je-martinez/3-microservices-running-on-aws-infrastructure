@@ -111,7 +111,12 @@ describe.skipIf(!reachable)("USER_CREATED email (integration: SES → Floci rela
       source: "users",
       user_id: "usr_integration",
       order_id: null,
-      payload: { fullName: "Ada Lovelace", email: recipient },
+      payload: {
+        fullName: "Ada Lovelace",
+        email: recipient,
+        userId: "usr_1",
+        createdAt: "2026-08-03T12:00:00.000Z",
+      },
     });
 
     // Search by RECIPIENT, not subject: the subject is fixed copy shared by

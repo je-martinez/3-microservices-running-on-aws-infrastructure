@@ -4,8 +4,24 @@ import { renderTemplate } from "#email/renderer";
 import { sendEmail } from "#email/sender";
 import { PermanentError } from "#pipeline/errors";
 
+// Payload contract — camelCase (`ttlSeconds`), like USER_CREATED and unlike the
+// two snake_case payloads. `full_name` joins it in the producer's own snake_case
+// spelling: that is literally what
+// `infra/modules/cognito/otp-challenge-lambda/index.mjs` puts on the wire
+// (`payload: { email, full_name: fullName, code, ttlSeconds }`), and this schema
+// validates the wire, not a preference. Renaming it here would reject every OTP
+// envelope.
+//
+// `full_name` is a plain `z.string()` — NOT `.min(1)`. Cognito has no `name`
+// attribute populated today (Users' AdminCreateUser writes only `email`,
+// `email_verified` and `custom:app_user_id`), so the producer falls back to `""`
+// and the EMPTY STRING IS THE NORMAL PATH, not an edge case. A `.min(1)` here
+// would reject the whole envelope and cost the user their login code over a
+// missing greeting — the exact failure the producer's `?? ""` fallback exists to
+// avoid.
 const AuthOtpRequestedPayloadSchema = z.object({
   email: z.string().email(),
+  full_name: z.string(),
   code: z.string().min(1),
   ttlSeconds: z.number().positive(),
 });
@@ -36,7 +52,14 @@ export async function authOtpRequestedHandler(envelope: Envelope): Promise<void>
   }
 
   const ttlMinutes = Math.round(result.data.ttlSeconds / 60);
-  const html = await renderTemplate("auth-otp", { code: result.data.code, ttlMinutes });
+  const html = await renderTemplate("auth-otp", {
+    code: result.data.code,
+    ttlMinutes,
+    // Possibly `""` — see the schema comment. The template must degrade to a
+    // nameless greeting rather than printing an empty gap, so the prop is
+    // always PRESENT and the template decides what to do with an empty value.
+    fullName: result.data.full_name,
+  });
 
   // sendEmail classifies its own failures as TransientError, so a SES outage
   // propagates as transient and the record is retried rather than consumed.

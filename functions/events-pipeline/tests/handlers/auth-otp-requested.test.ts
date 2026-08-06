@@ -12,6 +12,25 @@ import { sendEmail } from "#email/sender";
 import { PermanentError } from "#pipeline/errors";
 import type { Envelope } from "#domain/envelope";
 
+// The payload EXACTLY as `infra/modules/cognito/otp-challenge-lambda/index.mjs`
+// puts it on the wire: `{ email, full_name, code, ttlSeconds }` — `full_name` in
+// the producer's snake_case spelling next to camelCase `ttlSeconds`, because that
+// is literally what is published (see the handler's schema comment).
+//
+// `full_name` defaults to a real name here so the ordinary cases read naturally;
+// the `""` case Cognito actually produces today has its own test below.
+//
+// A factory with defaults so each test overrides only the field it is about.
+function validPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    email: "ada@example.com",
+    full_name: "Ada Lovelace",
+    code: "042817",
+    ttlSeconds: 300,
+    ...overrides,
+  };
+}
+
 function envelope(payload: Record<string, unknown>, event_id = "evt_otp1"): Envelope {
   return {
     event_id,
@@ -31,9 +50,34 @@ describe("authOtpRequestedHandler", () => {
   });
 
   it("validates, renders, and sends the email to the payload's address", async () => {
-    await authOtpRequestedHandler(
-      envelope({ email: "ada@example.com", code: "042817", ttlSeconds: 300 }),
-    );
+    await authOtpRequestedHandler(envelope(validPayload()));
+
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: "ada@example.com" }));
+  });
+
+  // `full_name` is REQUIRED (a plain `z.string()`), so an omitted key is a
+  // PermanentError even though an EMPTY one is fine. Both halves matter and are
+  // asserted separately: the producer always sends the key and falls back to `""`
+  // precisely so a nameless user still gets their login code.
+  it("rejects a payload missing only full_name as a PermanentError, and sends nothing", async () => {
+    const payload = validPayload();
+    delete payload.full_name;
+
+    const error = await authOtpRequestedHandler(
+      envelope(payload, "evt_otp_missing_name"),
+    ).catch((err: unknown) => err as Error);
+
+    expect(error).toBeInstanceOf(PermanentError);
+    expect(error.message).toContain("full_name");
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("accepts an EMPTY full_name — the producer's normal path — and still sends", async () => {
+    // Cognito populates no `name` attribute today, so `""` is what the OTP
+    // Lambda actually publishes. A schema that rejected it would cost the user
+    // their login code over a missing greeting.
+    await authOtpRequestedHandler(envelope(validPayload({ full_name: "" }), "evt_otp_noname"));
 
     expect(sendEmail).toHaveBeenCalledTimes(1);
     expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: "ada@example.com" }));
@@ -45,9 +89,7 @@ describe("authOtpRequestedHandler", () => {
   // surfacing it (an image, an obfuscated span, a dropped prop), this fails
   // here instead of in a flaky browser test.
   it("renders the OTP code into the html body", async () => {
-    await authOtpRequestedHandler(
-      envelope({ email: "ada@example.com", code: "042817", ttlSeconds: 300 }),
-    );
+    await authOtpRequestedHandler(envelope(validPayload()));
 
     const [params] = vi.mocked(sendEmail).mock.calls[0];
     expect(params.html).toContain("<html");
@@ -56,9 +98,7 @@ describe("authOtpRequestedHandler", () => {
   });
 
   it("renders the TTL in minutes, converted from the payload's seconds", async () => {
-    await authOtpRequestedHandler(
-      envelope({ email: "ada@example.com", code: "042817", ttlSeconds: 300 }),
-    );
+    await authOtpRequestedHandler(envelope(validPayload()));
 
     const [params] = vi.mocked(sendEmail).mock.calls[0];
     expect(params.html).toContain("5");
@@ -73,9 +113,7 @@ describe("authOtpRequestedHandler", () => {
 
   it("throws PermanentError on a malformed email address, and sends nothing", async () => {
     await expect(
-      authOtpRequestedHandler(
-        envelope({ email: "not-an-email", code: "042817", ttlSeconds: 300 }, "evt_otp3"),
-      ),
+      authOtpRequestedHandler(envelope(validPayload({ email: "not-an-email" }), "evt_otp3")),
     ).rejects.toThrow(PermanentError);
     expect(sendEmail).not.toHaveBeenCalled();
   });
@@ -89,7 +127,7 @@ describe("authOtpRequestedHandler", () => {
     // a well-formed code — the case where a naive `error.message` would echo
     // the whole offending input, code included.
     const error = await authOtpRequestedHandler(
-      envelope({ email: "not-an-email", code: "042817", ttlSeconds: 300 }, "evt_otp4"),
+      envelope(validPayload({ email: "not-an-email" }), "evt_otp4"),
     ).catch((err: unknown) => err as Error);
 
     expect(error).toBeInstanceOf(PermanentError);
@@ -98,7 +136,7 @@ describe("authOtpRequestedHandler", () => {
 
   it("does not leak the recipient's email address in the PermanentError message", async () => {
     const error = await authOtpRequestedHandler(
-      envelope({ email: "leaky@example.com", code: "", ttlSeconds: 300 }, "evt_otp5"),
+      envelope(validPayload({ email: "leaky@example.com", code: "" }), "evt_otp5"),
     ).catch((err: unknown) => err as Error);
 
     expect(error).toBeInstanceOf(PermanentError);
@@ -113,9 +151,7 @@ describe("authOtpRequestedHandler", () => {
     vi.mocked(sendEmail).mockRejectedValue(new Error("transport exploded"));
 
     await expect(
-      authOtpRequestedHandler(
-        envelope({ email: "ada@example.com", code: "042817", ttlSeconds: 300 }, "evt_otp6"),
-      ),
+      authOtpRequestedHandler(envelope(validPayload(), "evt_otp6")),
     ).rejects.toThrow("transport exploded");
   });
 });

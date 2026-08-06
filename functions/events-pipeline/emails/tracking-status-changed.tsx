@@ -1,10 +1,27 @@
 import { Heading, Text } from "@react-email/components";
 import { EmailLayout } from "./components/layout.tsx";
 
+// One entry per transition the shipment has already made, oldest first. Carried
+// on the event rather than re-derived here: the pipeline stores its own event
+// documents but has no view of a tracking's history, and the timeline the
+// rebranded template draws needs every prior step, not just this transition.
+export interface TrackingStatusChangedHistoryEntry {
+  status: string;
+  datetime: string;
+}
+
 export interface TrackingStatusChangedEmailProps {
   orderId: string;
   status: "PLACED" | "PROCESSING" | "SHIPPED" | "OUT_FOR_DELIVERY" | "DELIVERED";
   previousStatus: string;
+  changedAt: string;
+  fullName: string;
+  trackingNumber: string;
+  // Optional because the producer OMITS the key when the shipment has no address
+  // on file — never sends it as null. See the payload schema in
+  // #handlers/tracking-status-changed.
+  shippingAddress?: Record<string, unknown>;
+  history: TrackingStatusChangedHistoryEntry[];
 }
 
 // ONE component, five rendered variants — the copy varies by `status`, not

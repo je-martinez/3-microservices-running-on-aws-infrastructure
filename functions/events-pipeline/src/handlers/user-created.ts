@@ -4,9 +4,27 @@ import { renderTemplate } from "#email/renderer";
 import { sendEmail } from "#email/sender";
 import { PermanentError } from "#pipeline/errors";
 
+// Payload contract — camelCase, unlike ORDER_CREATED and
+// TRACKING_STATUS_CHANGED. That is the producer's shape and it is deliberate:
+// `fullName` has been on the wire since this handler existed, so the enrichment
+// fields joined the payload's OWN convention rather than mixing `fullName` with
+// `created_at` in one object. See the enrichment spec's "Payload changes"
+// section. (The ENVELOPE around it is snake_case for every producer.)
+//
+// Verified against the producer, `services/users/src/shared/messaging/
+// event-publisher.ts`, which emits exactly
+// `{ email, fullName, userId, createdAt }` — `createdAt` already serialized to
+// ISO-8601 by the publisher, hence a string here and not a coerced date.
+//
+// `userId` duplicates the envelope's root `user_id` on purpose: the renderer is
+// handed the PAYLOAD, not the envelope, so a template that prints the account id
+// has to read it from here. `createdAt` feeds the welcome email's "Member Since"
+// row.
 const UserCreatedPayloadSchema = z.object({
   fullName: z.string().min(1),
   email: z.string().email(),
+  userId: z.string().min(1),
+  createdAt: z.string().min(1),
 });
 
 // The flow from the milestone design spec's "Email" section:

@@ -4,6 +4,12 @@ import { EmailLayout } from "./components/layout.tsx";
 export interface AuthOtpEmailProps {
   code: string;
   ttlMinutes: number;
+  // MAY BE THE EMPTY STRING, and that is the normal path today: Cognito has no
+  // `name` attribute populated (Users' AdminCreateUser writes only `email`,
+  // `email_verified` and `custom:app_user_id`), so the producer falls back to
+  // "". Required rather than optional precisely so the template cannot forget
+  // the case — it must degrade to a nameless greeting, never print an empty gap.
+  fullName: string;
 }
 
 // Default export, because react-email's `email dev` previews the default

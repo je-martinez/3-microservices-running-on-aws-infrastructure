@@ -24,11 +24,30 @@ function envelope(payload: Record<string, unknown>, event_id = "evt_order_1"): E
   };
 }
 
+// The shape SqsEventPublisher actually puts on the wire — the receipt the
+// confirmation email renders, not just the acknowledgement it used to be.
+// Figures balance: 2×1200 + 1×599 = 2999 subtotal, +240 tax +1500 shipping =
+// 4739. A fixture whose arithmetic did not add up would let a handler that
+// crossed two of the four figures pass.
 const validPayload = {
   order_id: "ord_1",
   user_id: "usr_1",
   email: "ada@example.com",
-  total_cents: 4599,
+  full_name: "Ada Lovelace",
+  subtotal_cents: 2999,
+  tax_cents: 240,
+  shipping_cents: 1500,
+  total_cents: 4739,
+  shipping_address: {
+    line1: "1 Ada Way",
+    city: "San Juan",
+    country: "PR",
+    postal_code: "00901",
+  },
+  items: [
+    { name: "Mechanical Keyboard", quantity: 2, unit_price_cents: 1200 },
+    { name: "USB-C Cable", quantity: 1, unit_price_cents: 599 },
+  ],
   created_at: "2026-08-03T12:00:00.000Z",
 };
 
@@ -57,15 +76,15 @@ describe("orderCreatedHandler", () => {
     expect(params.subject.length).toBeGreaterThan(0);
   });
 
-  // total_cents is an integer of cents (4599 = $45.99). Pinning the exact
+  // total_cents is an integer of cents (4739 = $47.39). Pinning the exact
   // formatted string means a future change to the conversion (e.g. dropping
   // the divide-by-100, or a locale change) fails this test loudly instead of
-  // silently mailing "$4599" for forty-five dollars and ninety-nine cents.
+  // silently mailing "$4739" for forty-seven dollars and thirty-nine cents.
   it("renders total_cents as a human-readable dollar amount", async () => {
     await orderCreatedHandler(envelope(validPayload));
 
     const [params] = vi.mocked(sendEmail).mock.calls[0];
-    expect(params.html).toContain("$45.99");
+    expect(params.html).toContain("$47.39");
   });
 
   it("throws PermanentError on a payload missing required fields, and sends nothing", async () => {
