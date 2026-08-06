@@ -16,9 +16,32 @@ export const RegisterInputSchema = z.object({
   phoneNumber: z.string().optional(),
 });
 
+// No `password` field: the account is created with a random one the caller
+// never sees, and `authType` is read-only (set to PASSWORDLESS by the route's
+// command, never accepted from a request body).
+export const RegisterPasswordlessInputSchema = z.object({
+  email: z.string().email().describe("New passwordless user's email"),
+  fullName: z.string().describe("Display name"),
+  address: z.unknown().optional().describe("Free-form structured address (stored as JSON)"),
+  phoneNumber: z.string().optional(),
+});
+
 export const LoginInputSchema = z.object({
   email: z.string().email(),
   password: z.string(),
+});
+
+export const OtpStartInputSchema = z.object({
+  email: z.string().email(),
+});
+
+export const OtpVerifyInputSchema = z.object({
+  email: z.string().email(),
+  session: z.string().min(1).describe("Opaque challenge session returned by /v1/users/otp/start"),
+  // Length + shape are validated, but the value NEVER reaches a log line — not
+  // even through a Zod error message, which is why the regex message is a fixed
+  // string that does not echo the input.
+  code: z.string().length(6).regex(/^\d{6}$/, "code must be 6 digits"),
 });
 
 export const RefreshInputSchema = z.object({
@@ -40,6 +63,11 @@ export const UserSchema = z
     address: z.unknown().nullable(),
     phoneNumber: z.string().nullable(),
     tags: z.array(z.string()),
+    authType: z
+      .enum(["PASSWORD", "PASSWORDLESS"])
+      .describe(
+        "Read-only. PASSWORDLESS accounts have no usable password and authenticate via OTP only.",
+      ),
     createdBy: z.string().nullable(),
     createdAt: z.string(),
     updatedBy: z.string().nullable(),
@@ -59,6 +87,12 @@ export const AuthTokensSchema = z.object({
 export const RefreshedTokensSchema = z.object({
   idToken: z.string(),
   accessToken: z.string(),
+});
+
+// The verify step returns the SAME AuthTokensSchema as password login, so the
+// gateway/JWT contract is identical whichever path issued the tokens.
+export const OtpStartResponseSchema = z.object({
+  session: z.string().describe("Opaque challenge session to hand back to /v1/users/otp/verify"),
 });
 
 export const ErrorSchema = z.object({
@@ -105,6 +139,9 @@ z.globalRegistry.add(ErrorSchema, { id: "Error" });
 // the bodies (instead of leaving them inline/anonymous) makes them show as
 // proper, named models when the spec is imported into Apidog.
 z.globalRegistry.add(RegisterInputSchema, { id: "Register" });
+z.globalRegistry.add(RegisterPasswordlessInputSchema, { id: "RegisterPasswordless" });
 z.globalRegistry.add(LoginInputSchema, { id: "Login" });
+z.globalRegistry.add(OtpStartInputSchema, { id: "OtpStart" });
+z.globalRegistry.add(OtpVerifyInputSchema, { id: "OtpVerify" });
 z.globalRegistry.add(RefreshInputSchema, { id: "Refresh" });
 z.globalRegistry.add(UpdateProfileInputSchema, { id: "UpdateProfile" });

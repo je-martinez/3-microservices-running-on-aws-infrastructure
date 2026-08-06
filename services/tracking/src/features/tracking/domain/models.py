@@ -100,7 +100,7 @@ class Tracking(Base, AuditMixin):
     #: application, so a duplicate creation cannot race past a pre-check.
     order_id: Mapped[str] = mapped_column(String(ID_LENGTH), nullable=False)
 
-    #: One of the four TrackingStatus values. Stored as a plain VARCHAR rather
+    #: One of the five TrackingStatus values. Stored as a plain VARCHAR rather
     #: than a MySQL ENUM: the lookup/enum trade-off aside, the REST surface carries
     #: it as a string, and widening a native ENUM is a DDL change.
     status: Mapped[str] = mapped_column(String(STATUS_LENGTH), nullable=False)
@@ -264,8 +264,9 @@ class TrackingHistory(Base, AuditMixin):
         that writes several transitions in one unit of work stamps them all with
         one `now`. When the timestamps tie, MySQL is free to return rows in
         primary-key order, which for `(tracking_id, status)` is ALPHABETICAL:
-        DELIVERED, ON_THE_WAY, OUT_FOR_DELIVERY, SHIPPED — precisely reversed at
-        the ends, so a caller would see a shipment delivered before it shipped.
+        DELIVERED, OUT_FOR_DELIVERY, PLACED, PROCESSING, SHIPPED — the terminal
+        status first, so a caller would see a shipment delivered before it was
+        even placed.
 
         The tiebreaker maps each status to its index in the forward-only
         progression, so ties resolve into the only order that can be correct.

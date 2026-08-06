@@ -40,7 +40,7 @@ def seed(
     *,
     order_id: str,
     user_id: str = USER_A,
-    status: TrackingStatus = TrackingStatus.SHIPPED,
+    status: TrackingStatus = TrackingStatus.PLACED,
 ) -> str:
     """Create a committed tracking at `status` and return its id."""
     tracking = TrackingRepository(session).create(
@@ -86,7 +86,7 @@ class TestCarrierAuth:
     ) -> None:
         seed(session, order_id="ord_auth10000000000001")
         assert put(
-            client, "ord_auth10000000000001", TrackingStatus.ON_THE_WAY
+            client, "ord_auth10000000000001", TrackingStatus.PROCESSING
         ).status_code == 200
 
     def test_missing_key_is_401(
@@ -94,7 +94,7 @@ class TestCarrierAuth:
     ) -> None:
         seed(session, order_id="ord_auth10000000000002")
         response = put(
-            client, "ord_auth10000000000002", TrackingStatus.ON_THE_WAY, headers={}
+            client, "ord_auth10000000000002", TrackingStatus.PROCESSING, headers={}
         )
         assert response.status_code == 401
 
@@ -107,7 +107,7 @@ class TestCarrierAuth:
         response = put(
             client,
             "ord_auth10000000000003",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             headers={"x-api-key": "not-the-carrier-key"},
         )
         assert response.status_code == 401
@@ -123,7 +123,7 @@ class TestCarrierAuth:
         response = put(
             client,
             "ord_auth10000000000004",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             headers={"x-api-key": "unused-grpc-key"},
         )
         assert response.status_code == 401
@@ -140,7 +140,7 @@ class TestCarrierAuth:
             headers={"x-api-key": "wrong"},
         )
         tracking = reload(session, "ord_auth10000000000005")
-        assert tracking.status == TrackingStatus.SHIPPED
+        assert tracking.status == TrackingStatus.PLACED
         assert len(tracking.history) == 1
 
     def test_the_key_is_never_echoed_back(
@@ -152,7 +152,7 @@ class TestCarrierAuth:
         response = put(
             client,
             "ord_auth10000000000006",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             headers={"x-api-key": "guessed-key-abc123"},
         )
         assert "guessed-key-abc123" not in response.text
@@ -174,11 +174,11 @@ class TestNoUserIdentity:
         # Only the carrier key — deliberately no x-user-id, matching a real
         # request through the `auth = false` gateway route.
         response = put(
-            client, "ord_noid00000000000001", TrackingStatus.ON_THE_WAY
+            client, "ord_noid00000000000001", TrackingStatus.PROCESSING
         )
 
         assert response.status_code == 200
-        assert response.json()["status"] == TrackingStatus.ON_THE_WAY
+        assert response.json()["status"] == TrackingStatus.PROCESSING
 
     def test_is_not_scoped_by_any_user(
         self, client: TestClient, session: Session
@@ -193,7 +193,7 @@ class TestNoUserIdentity:
 
         response = client.put(
             "/v1/trackings/ord_noid00000000000002/status",
-            json={"status": TrackingStatus.ON_THE_WAY},
+            json={"status": TrackingStatus.PROCESSING},
             headers={**carrier(), "x-user-id": USER_B},
         )
 
@@ -206,7 +206,7 @@ class TestNoUserIdentity:
         does not become the owner by updating it."""
         seed(session, order_id="ord_noid00000000000003", user_id=USER_A)
         body = put(
-            client, "ord_noid00000000000003", TrackingStatus.ON_THE_WAY
+            client, "ord_noid00000000000003", TrackingStatus.PROCESSING
         ).json()
         assert body["user_id"] == USER_A
 
@@ -218,9 +218,9 @@ class TestSuccessfulUpdate:
         """Asserted against the DATABASE, not the response — a handler that only
         rendered the new status would pass a response-only check."""
         seed(session, order_id="ord_ok0000000000000001")
-        put(client, "ord_ok0000000000000001", TrackingStatus.ON_THE_WAY)
+        put(client, "ord_ok0000000000000001", TrackingStatus.PROCESSING)
         assert reload(session, "ord_ok0000000000000001").status == (
-            TrackingStatus.ON_THE_WAY
+            TrackingStatus.PROCESSING
         )
 
     def test_appends_a_history_row(
@@ -229,14 +229,14 @@ class TestSuccessfulUpdate:
         """The transition log is the point of the endpoint: the tracking's current
         status is derivable, the sequence of transitions is not."""
         seed(session, order_id="ord_ok0000000000000002")
-        put(client, "ord_ok0000000000000002", TrackingStatus.ON_THE_WAY)
+        put(client, "ord_ok0000000000000002", TrackingStatus.PROCESSING)
 
         history = TrackingRepository(session).get_history(
             reload(session, "ord_ok0000000000000002").id
         )
         assert [entry.status for entry in history] == [
-            TrackingStatus.SHIPPED,
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PLACED,
+            TrackingStatus.PROCESSING,
         ]
 
     def test_returns_the_updated_tracking_with_its_history(
@@ -244,13 +244,13 @@ class TestSuccessfulUpdate:
     ) -> None:
         seed(session, order_id="ord_ok0000000000000003")
         body = put(
-            client, "ord_ok0000000000000003", TrackingStatus.ON_THE_WAY
+            client, "ord_ok0000000000000003", TrackingStatus.PROCESSING
         ).json()
 
-        assert body["status"] == TrackingStatus.ON_THE_WAY
+        assert body["status"] == TrackingStatus.PROCESSING
         assert [entry["status"] for entry in body["history"]] == [
-            TrackingStatus.SHIPPED,
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PLACED,
+            TrackingStatus.PROCESSING,
         ]
 
     def test_stamps_the_carrier_audit_actor(
@@ -259,7 +259,7 @@ class TestSuccessfulUpdate:
         """`updated_by` records WHAT produced the write — there is no user id to
         stamp on this path, which is exactly why the actor is semantic."""
         seed(session, order_id="ord_ok0000000000000004")
-        put(client, "ord_ok0000000000000004", TrackingStatus.ON_THE_WAY)
+        put(client, "ord_ok0000000000000004", TrackingStatus.PROCESSING)
         assert reload(session, "ord_ok0000000000000004").updated_by == (
             AuditActor.CARRIER_STATUS_UPDATE
         )
@@ -267,11 +267,12 @@ class TestSuccessfulUpdate:
     def test_can_walk_the_whole_progression(
         self, client: TestClient, session: Session
     ) -> None:
-        """Four statuses, four history rows — the same total a completed TestMode
+        """Five statuses, five history rows — the same total a completed TestMode
         run leaves behind."""
         seed(session, order_id="ord_ok0000000000000005")
         for status in (
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
+            TrackingStatus.SHIPPED,
             TrackingStatus.OUT_FOR_DELIVERY,
             TrackingStatus.DELIVERED,
         ):
@@ -279,7 +280,7 @@ class TestSuccessfulUpdate:
 
         tracking = reload(session, "ord_ok0000000000000005")
         assert tracking.status == TrackingStatus.DELIVERED
-        assert len(tracking.history) == 4
+        assert len(tracking.history) == 5
 
     def test_can_skip_a_status_forward(
         self, client: TestClient, session: Session
@@ -303,7 +304,7 @@ class TestRejectedTransitions:
             order_id="ord_bad00000000000001",
             status=TrackingStatus.OUT_FOR_DELIVERY,
         )
-        response = put(client, "ord_bad00000000000001", TrackingStatus.SHIPPED)
+        response = put(client, "ord_bad00000000000001", TrackingStatus.PLACED)
 
         assert response.status_code == 400
         assert response.json()["reason"] == (
@@ -318,9 +319,9 @@ class TestRejectedTransitions:
         seed(
             session,
             order_id="ord_bad00000000000002",
-            status=TrackingStatus.ON_THE_WAY,
+            status=TrackingStatus.PROCESSING,
         )
-        response = put(client, "ord_bad00000000000002", TrackingStatus.ON_THE_WAY)
+        response = put(client, "ord_bad00000000000002", TrackingStatus.PROCESSING)
 
         assert response.status_code == 400
         assert response.json()["reason"] == (
@@ -347,14 +348,14 @@ class TestRejectedTransitions:
     def test_terminal_beats_backward_when_both_apply(
         self, client: TestClient, session: Session
     ) -> None:
-        """`DELIVERED -> SHIPPED` violates two guards; terminality is the more
+        """`DELIVERED -> PLACED` violates two guards; terminality is the more
         specific fact about the tracking, so it is the reported one."""
         seed(
             session,
             order_id="ord_bad00000000000004",
             status=TrackingStatus.DELIVERED,
         )
-        response = put(client, "ord_bad00000000000004", TrackingStatus.SHIPPED)
+        response = put(client, "ord_bad00000000000004", TrackingStatus.PLACED)
 
         assert response.json()["reason"] == (
             TransitionRejectionReason.ALREADY_DELIVERED
@@ -370,7 +371,7 @@ class TestRejectedTransitions:
             order_id="ord_bad00000000000005",
             status=TrackingStatus.DELIVERED,
         )
-        put(client, "ord_bad00000000000005", TrackingStatus.SHIPPED)
+        put(client, "ord_bad00000000000005", TrackingStatus.PLACED)
 
         tracking = reload(session, "ord_bad00000000000005")
         assert tracking.status == TrackingStatus.DELIVERED
@@ -379,7 +380,7 @@ class TestRejectedTransitions:
     def test_unknown_status_value_is_400(
         self, client: TestClient, session: Session
     ) -> None:
-        """Not one of the four. 400 with a reason, not a 422 — the four rejection
+        """Not one of the five. 400 with a reason, not a 422 — the four rejection
         cases share one vocabulary so a carrier handles one shape."""
         seed(session, order_id="ord_bad00000000000006")
         response = put(client, "ord_bad00000000000006", "LOST_IN_SPACE")
@@ -390,11 +391,11 @@ class TestRejectedTransitions:
     def test_status_matching_is_case_sensitive(
         self, client: TestClient, session: Session
     ) -> None:
-        """The four values are a fixed contract, matching the stored column
+        """The five values are a fixed contract, matching the stored column
         exactly, not free-form input."""
         seed(session, order_id="ord_bad00000000000007")
         assert put(
-            client, "ord_bad00000000000007", "on_the_way"
+            client, "ord_bad00000000000007", "processing"
         ).status_code == 400
 
     def test_the_400_carries_both_a_detail_and_a_flat_reason(
@@ -407,7 +408,7 @@ class TestRejectedTransitions:
             order_id="ord_bad00000000000008",
             status=TrackingStatus.DELIVERED,
         )
-        body = put(client, "ord_bad00000000000008", TrackingStatus.SHIPPED).json()
+        body = put(client, "ord_bad00000000000008", TrackingStatus.PLACED).json()
 
         assert set(body) == {"detail", "reason"}
         assert isinstance(body["detail"], str)
@@ -416,7 +417,7 @@ class TestRejectedTransitions:
 class TestNotFound:
     def test_unknown_order_id_is_404(self, client: TestClient) -> None:
         response = put(
-            client, "ord_missing00000000001", TrackingStatus.ON_THE_WAY
+            client, "ord_missing00000000001", TrackingStatus.PROCESSING
         )
         assert response.status_code == 404
 
@@ -424,7 +425,7 @@ class TestNotFound:
         """An unauthenticated probe for a non-existent order gets 401, not 404 —
         the endpoint tells an unauthenticated caller nothing about what exists."""
         response = put(
-            client, "ord_missing00000000002", TrackingStatus.ON_THE_WAY, headers={}
+            client, "ord_missing00000000002", TrackingStatus.PROCESSING, headers={}
         )
         assert response.status_code == 401
 
@@ -441,7 +442,7 @@ class TestNotFound:
         session.commit()
 
         assert put(
-            client, "ord_missing00000000003", TrackingStatus.ON_THE_WAY
+            client, "ord_missing00000000003", TrackingStatus.PROCESSING
         ).status_code == 404
 
 

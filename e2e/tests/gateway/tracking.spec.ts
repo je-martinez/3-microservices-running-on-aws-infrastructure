@@ -29,9 +29,9 @@ type TrackingPayload = {
   history: { status: string }[];
 };
 
-// Creates an order with `x-test-mode` OFF, so the tracking stays parked at SHIPPED
+// Creates an order with `x-test-mode` OFF, so the tracking stays parked at PLACED
 // for the whole test. Deliberate: a tracking that is quietly advancing in the
-// background would make the carrier-PUT assertions racy — a PUT to ON_THE_WAY can
+// background would make the carrier-PUT assertions racy — a PUT to PROCESSING can
 // legitimately be rejected as `not_strictly_forward` if the progression got there
 // first. Without the header, nothing moves except what the test moves.
 async function createOrderWithTracking(
@@ -232,27 +232,27 @@ test("the carrier PUT advances the status with only an API key and NO JWT", asyn
   const { token } = await getGatewayToken();
   const authedApi = await gatewayClient(token);
   const { orderId, tracking } = await createOrderWithTracking(authedApi);
-  expect(tracking.status).toBe("SHIPPED");
+  expect(tracking.status).toBe("PLACED");
 
   // No token on this context — deliberately. If this ever needs one, the route's
   // `auth = false` declaration has been changed and every real carrier is broken.
   const carrierApi = await gatewayClient(NO_TOKEN);
   const res = await carrierApi.put(`v1/trackings/${orderId}/status`, {
     headers: carrierHeaders(),
-    data: { status: "ON_THE_WAY" },
+    data: { status: "PROCESSING" },
   });
   expect(res.status(), `carrier PUT failed: ${await res.text()}`).toBe(200);
   const updated = (await res.json()) as TrackingPayload;
-  expect(updated.status).toBe("ON_THE_WAY");
+  expect(updated.status).toBe("PROCESSING");
   expect(updated.id).toBe(tracking.id);
   // The transition is appended to the immutable history, not swapped in place.
-  expect(updated.history.map((h) => h.status)).toEqual(["SHIPPED", "ON_THE_WAY"]);
+  expect(updated.history.map((h) => h.status)).toEqual(["PLACED", "PROCESSING"]);
 
   // And the owner sees the carrier's update on their own read — the two surfaces
   // are the same record, not two views that could drift.
   const asOwner = await authedApi.get(`v1/trackings/${orderId}`);
   expect(asOwner.status()).toBe(200);
-  expect((await asOwner.json()).status).toBe("ON_THE_WAY");
+  expect((await asOwner.json()).status).toBe("PROCESSING");
 });
 
 test("the carrier PUT with a wrong API key is 401", async () => {

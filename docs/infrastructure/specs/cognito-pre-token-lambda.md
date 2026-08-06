@@ -4,7 +4,7 @@ type: spec
 area: infra
 status: active
 created: 2026-07-12
-updated: 2026-07-12
+updated: 2026-08-05
 tags:
   - type/spec
   - area/infra
@@ -19,6 +19,7 @@ related:
   - "[[2026-07-12-app-user-id-token-claim-design]]"
   - "[[users-service-design]]"
   - "[[nano-id]]"
+  - "[[cognito-custom-auth-triggers]]"
 ---
 
 # Cognito app_user_id attribute + Pre-Token-Generation Lambda
@@ -133,6 +134,13 @@ intentionally relaxed local password policy. `set-pre-token-trigger.sh` is there
 4. Verifies the trigger landed by re-reading the pool and comparing the resulting
    `LambdaConfig.PreTokenGenerationConfig.LambdaArn` to the expected ARN — failing loudly if not.
 
+> [!note] The same settings-preserving read-modify-write pattern, reused for CUSTOM_AUTH
+> [[cognito-custom-auth-triggers]] (2026-08-05) wires the three `CUSTOM_AUTH` challenge triggers
+> (`DefineAuthChallenge`/`CreateAuthChallenge`/`VerifyAuthChallengeResponse`) via the identical
+> pattern — one settings-preserving `update_user_pool` call, verified after writing — and its
+> `terraform_data` resource `depends_on` this one's, to serialize the two scripts and avoid a
+> `LambdaConfig` read-modify-write race between them.
+
 Schema/custom attributes are **not** re-passed by the script (they are create-only via
 `add-custom-attributes`, never part of `update-user-pool`), so `custom:app_user_id` is untouched
 by this wiring step.
@@ -152,3 +160,5 @@ by this wiring step.
   normalized from.
 - [[users-service-design]] — Users service, where `register` sets the attribute.
 - [[nano-id]] — the `usr_`-prefixed id format stored in `custom:app_user_id`.
+- [[cognito-custom-auth-triggers]] — the CUSTOM_AUTH challenge triggers added to the same
+  Cognito module, wired via the same settings-preserving script pattern.

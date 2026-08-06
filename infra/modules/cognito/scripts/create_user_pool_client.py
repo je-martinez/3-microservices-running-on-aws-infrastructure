@@ -39,10 +39,17 @@ from lib3mrai.execution_log import record_execution  # noqa: E402  (same reason)
 
 # Must match what the native resource sets (modules/cognito/main.tf,
 # aws_cognito_user_pool_client.this) so the CLI and provider paths agree.
+#
+# This is the list that actually takes effect LOCALLY: the native resource is
+# count = 0 under Floci (manage_client_via_provider = false), so adding a flow
+# only there would leave CUSTOM_AUTH rejected on every local login attempt.
 EXPLICIT_AUTH_FLOWS = [
     "ALLOW_ADMIN_USER_PASSWORD_AUTH",
     "ALLOW_USER_PASSWORD_AUTH",
     "ALLOW_REFRESH_TOKEN_AUTH",
+    # Passwordless email-OTP: AdminInitiateAuth(AuthFlow="CUSTOM_AUTH") ->
+    # DefineAuthChallenge/CreateAuthChallenge/VerifyAuthChallengeResponse.
+    "ALLOW_CUSTOM_AUTH",
 ]
 
 
@@ -60,6 +67,46 @@ def write_state(state_file: pathlib.Path, client_id: str, pool_id: str) -> None:
     The shape is a contract: output.client_id is parsed out of this file.
     """
     state_file.write_text(json.dumps({"ClientId": client_id, "UserPoolId": pool_id}))
+
+
+def reconcile_auth_flows(idp, pool_id: str, client_id: str) -> bool:
+    """Bring a REUSED client's ExplicitAuthFlows up to EXPLICIT_AUTH_FLOWS.
+
+    The reuse branch used to return the existing client untouched, which meant a
+    flow added to EXPLICIT_AUTH_FLOWS only took effect on a pool created from
+    scratch — on an existing pool the client kept the old flow set and the new
+    flow was rejected at auth time with no sign of why. Adding ALLOW_CUSTOM_AUTH
+    is exactly that case.
+
+    UpdateUserPoolClient is a PUT, so the current client description is read and
+    re-sent with only ExplicitAuthFlows replaced. Read-only/create-only fields
+    the API rejects on update are dropped. Returns True when an update was sent.
+    """
+    described = idp.describe_user_pool_client(UserPoolId=pool_id, ClientId=client_id)[
+        "UserPoolClient"
+    ]
+
+    if set(described.get("ExplicitAuthFlows", [])) >= set(EXPLICIT_AUTH_FLOWS):
+        return False
+
+    # Fields describe returns that update does NOT accept (create-only or
+    # server-computed). Everything else is passed straight back so the PUT does
+    # not reset it.
+    read_only = {
+        "UserPoolId",
+        "ClientId",
+        "ClientName",
+        "ClientSecret",
+        "LastModifiedDate",
+        "CreationDate",
+    }
+    payload = {k: v for k, v in described.items() if k not in read_only}
+    payload["ExplicitAuthFlows"] = EXPLICIT_AUTH_FLOWS
+
+    idp.update_user_pool_client(
+        UserPoolId=pool_id, ClientId=client_id, ClientName=described["ClientName"], **payload
+    )
+    return True
 
 
 def main() -> int:
@@ -83,10 +130,12 @@ def main() -> int:
         for candidate in existing.get("UserPoolClients", []):
             if candidate.get("ClientName") == client_name:
                 client_id = candidate["ClientId"]
+                reconciled = reconcile_auth_flows(idp, pool_id, client_id)
                 write_state(state_file, client_id, pool_id)
                 print(
                     f"create_user_pool_client.py: reused existing client "
                     f"'{client_name}' ({client_id})"
+                    + (" (auth flows reconciled)" if reconciled else "")
                 )
                 return 0
 

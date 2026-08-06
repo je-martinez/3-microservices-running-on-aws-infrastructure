@@ -186,7 +186,7 @@ class InitTrackingRequest(BaseModel):
 
 
 class InitTrackingResponse(BaseModel):
-    """`201` payload: the created tracking, at `SHIPPED`, with its first history row.
+    """`201` payload: the created tracking, at `PLACED`, with its first history row.
 
     Reuses `TrackingResponse`'s shape rather than declaring a leaner one, so the
     body a client gets from creating a tracking is identical to the one it gets

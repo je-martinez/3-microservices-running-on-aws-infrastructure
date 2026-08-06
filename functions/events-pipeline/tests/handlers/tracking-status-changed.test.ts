@@ -37,9 +37,10 @@ describe("trackingStatusChangedHandler", () => {
   });
 
   it.each([
-    ["SHIPPED", "null"],
-    ["ON_THE_WAY", "SHIPPED"],
-    ["OUT_FOR_DELIVERY", "ON_THE_WAY"],
+    ["PLACED", "null"],
+    ["PROCESSING", "PLACED"],
+    ["SHIPPED", "PROCESSING"],
+    ["OUT_FOR_DELIVERY", "SHIPPED"],
     ["DELIVERED", "OUT_FOR_DELIVERY"],
   ])("selects the %s template variant and sends an email", async (status, previous) => {
     await trackingStatusChangedHandler(makeEnvelope(status, previous));
@@ -52,15 +53,16 @@ describe("trackingStatusChangedHandler", () => {
   // nothing about the render actually reaching the transport, nor that each
   // status maps to ITS OWN copy rather than one shared/generic string.
   //
-  // Comparing every pair (not just SHIPPED vs DELIVERED) matters: a handler
-  // that collapses ON_THE_WAY/OUT_FOR_DELIVERY onto the SHIPPED template
+  // Comparing every pair (not just PLACED vs DELIVERED) matters: a handler
+  // that collapses PROCESSING/OUT_FOR_DELIVERY onto the SHIPPED template
   // still passes a two-variant check as long as DELIVERED stays distinct.
-  it("renders status-specific copy into the html body for each of the four variants", async () => {
+  it("renders status-specific copy into the html body for each of the five variants", async () => {
     const bodies: Record<string, string> = {};
     for (const [status, previous] of [
-      ["SHIPPED", "null"],
-      ["ON_THE_WAY", "SHIPPED"],
-      ["OUT_FOR_DELIVERY", "ON_THE_WAY"],
+      ["PLACED", "null"],
+      ["PROCESSING", "PLACED"],
+      ["SHIPPED", "PROCESSING"],
+      ["OUT_FOR_DELIVERY", "SHIPPED"],
       ["DELIVERED", "OUT_FOR_DELIVERY"],
     ] as const) {
       vi.mocked(sendEmail).mockClear();
@@ -109,7 +111,7 @@ describe("trackingStatusChangedHandler", () => {
       user_id: "usr_1",
       order_id: "ord_1",
       author: { actor: "tracking_api:carrier_status_update" },
-      payload: { status: "SHIPPED" }, // missing previous_status, changed_at, email
+      payload: { status: "PROCESSING" }, // missing previous_status, changed_at, email
     };
 
     const error = await trackingStatusChangedHandler(envelope).catch((err: unknown) => err as Error);
@@ -133,7 +135,7 @@ describe("trackingStatusChangedHandler", () => {
     async (missingField) => {
       const fullPayload: Record<string, unknown> = {
         status: "SHIPPED",
-        previous_status: "null",
+        previous_status: "PROCESSING",
         changed_at: "2026-08-03T12:00:00.000Z",
         email: "ada@example.com",
       };
@@ -195,16 +197,16 @@ describe("trackingStatusChangedHandler", () => {
     vi.mocked(sendEmail).mockRejectedValue(new Error("transport exploded"));
 
     await expect(
-      trackingStatusChangedHandler(makeEnvelope("SHIPPED", "null", "evt_transport")),
+      trackingStatusChangedHandler(makeEnvelope("SHIPPED", "PROCESSING", "evt_transport")),
     ).rejects.toThrow("transport exploded");
   });
 });
 
 describe("handler registry", () => {
   // The dispatch-map claim from the design spec, mirror image of Task 11:
-  // ONE event type fans out to FOUR rendered variants without a second
+  // ONE event type fans out to FIVE rendered variants without a second
   // dispatch entry — the fan-out lives inside the handler (by payload.status),
-  // not as four HandlerMap keys.
+  // not as five HandlerMap keys.
   it("registers TRACKING_STATUS_CHANGED against the tracking-status-changed handler", () => {
     expect(handlers.TRACKING_STATUS_CHANGED).toBe(trackingStatusChangedHandler);
   });

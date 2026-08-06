@@ -6,7 +6,12 @@ const EXACT: ReadonlyArray<{ method: string; path: string }> = [
   { method: "GET", path: "/v1/health" },
   { method: "POST", path: "/v1/users/login" },
   { method: "POST", path: "/v1/users/register" },
+  { method: "POST", path: "/v1/users/register/passwordless" },
   { method: "POST", path: "/v1/users/refresh" },
+  // Both halves of the OTP login flow are pre-authentication by definition —
+  // the caller has no token yet, which is the whole point of the flow.
+  { method: "POST", path: "/v1/users/otp/start" },
+  { method: "POST", path: "/v1/users/otp/verify" },
   // The E2E harness's global teardown, which runs once with no user session and
   // so cannot send an x-user-id. It deletes by TAG ("E2E Source"), never by
   // caller, so an identity would tell it nothing anyway.

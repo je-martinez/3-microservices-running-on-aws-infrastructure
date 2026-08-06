@@ -8,7 +8,7 @@ deciders: ["Jose E. Martinez"]
 supersedes: null
 superseded-by: null
 created: 2026-07-31
-updated: 2026-07-31
+updated: 2026-08-05
 tags: [type/adr, area/tracking, status/accepted]
 related:
   - "[[tracking-service-design]]"
@@ -21,8 +21,8 @@ related:
 ## Context
 
 [[tracking-service-design#TestMode automatic progression]] needs a tracking created with
-`test_mode: true` to advance automatically — `SHIPPED → ON_THE_WAY → OUT_FOR_DELIVERY →
-DELIVERED`, one step every 10 seconds, 4 `Tracking_History` rows total — so that a gateway E2E
+`test_mode: true` to advance automatically — `PLACED → PROCESSING → SHIPPED → OUT_FOR_DELIVERY →
+DELIVERED`, one step every 10 seconds, 5 `Tracking_History` rows total — so that a gateway E2E
 test with a real Cognito JWT can poll `GET /v1/trackings/{orderId}` and observe the full
 lifecycle without a real carrier. The candidates for scheduling that progression were an
 in-process `asyncio` task, APScheduler, Celery, or a durable queue-backed job.
@@ -47,10 +47,10 @@ durable queue:
 rebuild, a redeploy, a crash — the pending `asyncio` task is lost entirely. The tracking stays
 frozen at whatever status it last reached. There is no persistence of the schedule, no
 recovery on restart, and no error logged anywhere marking the tracking as stuck. A TestMode
-tracking found stuck at `ON_THE_WAY` after a rebuild is **expected**, not a defect to
+tracking found stuck at `SHIPPED` after a rebuild is **expected**, not a defect to
 investigate.
 
-This is acceptable because TestMode exists solely as a ~30-second E2E fixture
+This is acceptable because TestMode exists solely as a ~40-second E2E fixture
 ([[testing]]) — nothing downstream depends on a TestMode run completing, and every **real**
 carrier update arrives through the persistent `PUT /v1/trackings/{orderId}/status` endpoint,
 which is unaffected by process restarts because it isn't scheduled at all, it's driven by an

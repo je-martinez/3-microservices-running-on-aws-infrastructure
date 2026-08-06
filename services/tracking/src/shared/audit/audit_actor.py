@@ -19,7 +19,7 @@ class AuditActor(StrEnum):
     CREATE_TRACKING = "tracking_api:create_tracking"
     # PUT /v1/trackings/{orderId}/status — the third-party carrier webhook.
     CARRIER_STATUS_UPDATE = "tracking_api:carrier_status_update"
-    # Automatic TestMode progression (SHIPPED -> ... -> DELIVERED on a timer).
+    # Automatic TestMode progression (PLACED -> ... -> DELIVERED on a timer).
     TEST_MODE_PROGRESSION = "tracking_api:test_mode_progression"
     # DELETE /v1/trackings/e2e-cleanup — the flag-guarded E2E teardown. Its own
     # actor rather than the caller's identity, matching Orders' `E2eCleanup` and

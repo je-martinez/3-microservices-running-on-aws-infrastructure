@@ -60,7 +60,7 @@ is tagged too.
 
 | Outcome | Code | Why |
 |---|---|---|
-| Created | 201 | With the tracking at `SHIPPED` and its one history row |
+| Created | 201 | With the tracking at `PLACED` and its one history row |
 | Missing/empty `x-user-id` | 401 | No credential at all — inherited from `CallerSub` |
 | Users does not know the sub | 404 | See below |
 | Already has a tracking | 409 | One tracking per order; the existing one is untouched |
@@ -162,9 +162,9 @@ class ProgressionConfig:
     Two reasons this is injectable at all:
 
     * **The interval must be injectable.** Production runs the design's 10s cadence;
-      a test that actually waited 30 seconds for a four-step run would be deleted or
-      skipped, and either way the feature would stop being covered. Tests override
-      this with a near-zero value.
+      a test that actually waited 40 seconds for a five-status run would be deleted
+      or skipped, and either way the feature would stop being covered. Tests
+      override this with a near-zero value.
     * **The progression needs its OWN session factory.** Each transition fires long
       after the creating request's session is closed, so it opens a session per step
       — which means the test suite has to be able to point those at the test engine,
@@ -218,7 +218,7 @@ async def init_tracking(
     progression: Progression,
     background: BackgroundTasks,
 ) -> InitTrackingResponse:
-    """Create a tracking at `SHIPPED` with its first history row, in one transaction.
+    """Create a tracking at `PLACED` with its first history row, in one transaction.
 
     The whole blocking part — the Users gRPC resolution and both INSERTs — runs in
     one `asyncio.to_thread` call rather than two. Splitting them would hop threads
@@ -290,7 +290,7 @@ async def init_tracking(
         # the progression would lose: its first step opens its OWN session, and a
         # session that begins before the creating transaction commits sees no
         # tracking, so `advance_once` returns None and the run ends immediately at
-        # SHIPPED. Verified, not theoretical — it is exactly what happened while this
+        # PLACED. Verified, not theoretical — it is exactly what happened while this
         # endpoint scheduled with a bare `create_task`, and it is invisible unless a
         # test asserts the tracking actually advanced.
         #
@@ -373,7 +373,7 @@ async def _schedule_progression(order_id: str, config: ProgressionConfig) -> Non
 
     And it must not `await run_progression` itself: Starlette runs background tasks
     *before* the connection is released, so awaiting would hold that connection open
-    for the whole 30-second run. `create_task` hands the coroutine to the loop and
+    for the whole 40-second run. `create_task` hands the coroutine to the loop and
     returns immediately, which is the behaviour a fixture that outlives its request
     needs.
 

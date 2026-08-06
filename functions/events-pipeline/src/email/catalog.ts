@@ -4,6 +4,7 @@ import OrderCreatedEmail, { type OrderCreatedEmailProps } from "../../emails/ord
 import TrackingStatusChangedEmail, {
   type TrackingStatusChangedEmailProps,
 } from "../../emails/tracking-status-changed.tsx";
+import AuthOtpEmail, { type AuthOtpEmailProps } from "../../emails/auth-otp.tsx";
 
 // The single registry: template key → component + sample props. Three consumers
 // read THIS object and nothing else — handlers (to render), the preview server
@@ -45,25 +46,35 @@ export const catalog: EmailCatalog = {
     component: OrderCreatedEmail,
     sampleProps: { orderId: "ord_sample1", totalCents: 4599 },
   }),
-  // Four entries, ONE component (TrackingStatusChangedEmail) — see
+  // Five entries, ONE component (TrackingStatusChangedEmail) — see
   // #handlers/tracking-status-changed for where payload.status selects one of
   // these keys. This is the mirror image of Task 11's claim: a new event type
   // costs one dispatch entry, and one event type can fan out to several
   // rendered variants without adding a second one.
+  //
+  // Each `previousStatus` sample is the status that ACTUALLY precedes it in
+  // the progression (PLACED -> PROCESSING -> SHIPPED -> OUT_FOR_DELIVERY ->
+  // DELIVERED), so a preview shows a transition the pipeline can really
+  // receive. PLACED is the initial status and therefore has no predecessor —
+  // it carries the "no previous status" marker.
+  "tracking-status-changed-placed": defineTemplate<TrackingStatusChangedEmailProps>({
+    component: TrackingStatusChangedEmail,
+    sampleProps: { orderId: "ord_sample1", status: "PLACED", previousStatus: "null" },
+  }),
+  "tracking-status-changed-processing": defineTemplate<TrackingStatusChangedEmailProps>({
+    component: TrackingStatusChangedEmail,
+    sampleProps: { orderId: "ord_sample1", status: "PROCESSING", previousStatus: "PLACED" },
+  }),
   "tracking-status-changed-shipped": defineTemplate<TrackingStatusChangedEmailProps>({
     component: TrackingStatusChangedEmail,
-    sampleProps: { orderId: "ord_sample1", status: "SHIPPED", previousStatus: "null" },
-  }),
-  "tracking-status-changed-on-the-way": defineTemplate<TrackingStatusChangedEmailProps>({
-    component: TrackingStatusChangedEmail,
-    sampleProps: { orderId: "ord_sample1", status: "ON_THE_WAY", previousStatus: "SHIPPED" },
+    sampleProps: { orderId: "ord_sample1", status: "SHIPPED", previousStatus: "PROCESSING" },
   }),
   "tracking-status-changed-out-for-delivery": defineTemplate<TrackingStatusChangedEmailProps>({
     component: TrackingStatusChangedEmail,
     sampleProps: {
       orderId: "ord_sample1",
       status: "OUT_FOR_DELIVERY",
-      previousStatus: "ON_THE_WAY",
+      previousStatus: "SHIPPED",
     },
   }),
   "tracking-status-changed-delivered": defineTemplate<TrackingStatusChangedEmailProps>({
@@ -73,5 +84,12 @@ export const catalog: EmailCatalog = {
       status: "DELIVERED",
       previousStatus: "OUT_FOR_DELIVERY",
     },
+  }),
+  // `sampleProps.code` is a made-up constant, never a real credential: this
+  // object is rendered by the preview server and committed to a snapshot, so
+  // anything here is public by construction.
+  "auth-otp": defineTemplate<AuthOtpEmailProps>({
+    component: AuthOtpEmail,
+    sampleProps: { code: "042817", ttlMinutes: 5 },
   }),
 };

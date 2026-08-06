@@ -56,8 +56,9 @@ const transformObjectPruned: typeof jsonSchemaTransformObject = (input) =>
 // `components/schemas` in the generated OpenAPI doc.
 import "./schemas.ts";
 import {
-  RegisterInputSchema, LoginInputSchema, UpdateProfileInputSchema,
+  RegisterInputSchema, RegisterPasswordlessInputSchema, LoginInputSchema, UpdateProfileInputSchema,
   RefreshInputSchema, RefreshedTokensSchema,
+  OtpStartInputSchema, OtpStartResponseSchema, OtpVerifyInputSchema,
   UserSchema, AuthTokensSchema, ErrorSchema,
   HealthResponseSchema, E2ECleanupResponseSchema,
   UserIdHeader, WebhookSecretHeader,
@@ -258,6 +259,25 @@ export function buildApp(
       return reply.code(201).send(serializeUser(user));
     });
 
+    // Same `x-e2e-source` tag logic as /v1/users/register above — without it
+    // these users carry no "E2E Source" tag and the global teardown (which
+    // deletes by tag) never cleans them, so they leak.
+    r.post("/v1/users/register/passwordless", {
+      schema: {
+        tags: ["users"], operationId: "registerPasswordlessUser",
+        summary: "Register a new passwordless user (OTP-only login)",
+        body: RegisterPasswordlessInputSchema,
+        response: { 201: UserSchema, 409: ErrorSchema },
+      },
+    }, async (req, reply) => {
+      const body = req.body; // typed from RegisterPasswordlessInputSchema
+      const headerFlag = req.headers["x-e2e-source"] === "true";
+      const { env, registerPasswordlessCommand } = req.diScope.cradle;
+      const e2eSource = headerFlag && env.E2E_TESTING_ENABLED;
+      const user = await registerPasswordlessCommand.execute({ ...body, e2eSource });
+      return reply.code(201).send(serializeUser(user));
+    });
+
     r.post("/v1/users/login", {
       schema: {
         tags: ["users"], operationId: "loginUser", summary: "Log in and obtain tokens",
@@ -280,6 +300,38 @@ export function buildApp(
     }, async (req, reply) => {
       const { refreshTokenCommand } = req.diScope.cradle;
       const tokens = await refreshTokenCommand.execute(req.body);
+      return reply.send(tokens);
+    });
+
+    // OTP login, step 1 of 2. Cognito CUSTOM_AUTH: the challenge Lambda mints
+    // the code and hands it to the events pipeline for emailing — it is never
+    // in this response, and never in a log line.
+    r.post("/v1/users/otp/start", {
+      schema: {
+        tags: ["users"], operationId: "startOtpChallenge",
+        summary: "Start an OTP login challenge (password or passwordless users)",
+        body: OtpStartInputSchema,
+        response: { 200: OtpStartResponseSchema, 401: ErrorSchema },
+      },
+    }, async (req, reply) => {
+      const { startOtpChallengeCommand } = req.diScope.cradle;
+      const result = await startOtpChallengeCommand.execute(req.body);
+      return reply.send(result);
+    });
+
+    // OTP login, step 2 of 2. Returns the SAME AuthTokensSchema as
+    // /v1/users/login, so the gateway/JWT contract is unchanged regardless of
+    // which path issued the tokens.
+    r.post("/v1/users/otp/verify", {
+      schema: {
+        tags: ["users"], operationId: "verifyOtpChallenge",
+        summary: "Verify an OTP code and obtain tokens",
+        body: OtpVerifyInputSchema,
+        response: { 200: AuthTokensSchema, 401: ErrorSchema },
+      },
+    }, async (req, reply) => {
+      const { verifyOtpChallengeCommand } = req.diScope.cradle;
+      const tokens = await verifyOtpChallengeCommand.execute(req.body);
       return reply.send(tokens);
     });
 

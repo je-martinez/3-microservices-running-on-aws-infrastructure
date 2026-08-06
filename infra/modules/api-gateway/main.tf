@@ -49,6 +49,20 @@ locals {
       get_me   = { key = "GET /v1/users/me", path = "/v1/users/me", auth = true }
       patch_me = { key = "PATCH /v1/users/me", path = "/v1/users/me", auth = true }
 
+      # Passwordless email-OTP auth. `auth = false` on all three for the same
+      # reason login and register carry it: these are the routes a caller uses to
+      # OBTAIN a token, so requiring one would make them unreachable.
+      #
+      # otp/verify returns the identical AuthTokens shape as login, so nothing
+      # downstream of the gateway (the JWT authorizer, the app_user_id claim)
+      # distinguishes a session started by password from one started by OTP.
+      #
+      # No path params here, so the camelCase rule documented on get_order below
+      # does not apply — but note it if these ever gain one.
+      otp_start             = { key = "POST /v1/users/otp/start", path = "/v1/users/otp/start", auth = false }
+      otp_verify            = { key = "POST /v1/users/otp/verify", path = "/v1/users/otp/verify", auth = false }
+      register_passwordless = { key = "POST /v1/users/register/passwordless", path = "/v1/users/register/passwordless", auth = false }
+
       # Per-service health (replaces the bare GET /v1/health, which used to hit
       # Users only). nginx rewrites each to the service's unprefixed /v1/health.
       users_health  = { key = "GET /v1/users/health", path = "/v1/users/health", auth = false }
