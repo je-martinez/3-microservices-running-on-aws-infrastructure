@@ -21,8 +21,12 @@ files — so consistency has to come from this repo.
 
 - **Never write to `.claude/` or `CLAUDE.md`.** They are the source. Read only.
 - **Never run git.** Leave your work in the working tree; the main session commits.
-- `.ai/` is derived and disposable — **except** `config.json` and
-  `.lnai-projection.yml`, which are committed decisions. Never delete those two.
+- `.ai/` is derived — but **committed**, along with every per-provider output, so a
+  fresh clone or Orca worktree works without syncing first. Regenerating it is always
+  safe; deleting it is not. `config.json` and `.lnai-projection.yml` are decisions
+  rather than output — never delete or rewrite those two wholesale.
+- Your changes land in the working tree as a reviewable diff. That is intended: the
+  diff is the evidence of what each provider actually receives.
 - `claudeCode` stays `"enabled": false` in `.ai/config.json`. If you find it `true`,
   **stop and report**: a sync would write `.claude/CLAUDE.md` as a symlink and
   destroy source content.
@@ -156,23 +160,31 @@ are not projectable: they belong in the loss report, not in settings.
 ### 7. Sync
 
 ```bash
-npx -y lnai@latest sync
+make ai-sync
 ```
+
+Use the Make target, not a bare `npx -y lnai@latest sync`. The target brackets the sync
+with a `CLAUDE.md` checksum compare and aborts if the source changed — the one failure
+this whole design exists to prevent. A bare sync skips that guard.
 
 ### 8. Verify — all five checks
 
-1. `npx -y lnai@latest validate` passes.
-2. **Source is byte-identical.** Capture `shasum CLAUDE.md` before the sync and
-   compare after.
-3. **Source is unmodified:** `git status --porcelain .claude/ CLAUDE.md` prints
-   nothing, and `.claude/CLAUDE.md` does not exist (lnai would create it as a symlink
-   only if the guard failed).
-4. **Roles appendix is populated:** `grep -c '^### ' .ai/AGENTS.md` matches the number
-   of `role` entries in the manifest, and the phrase `not tool-enforceable` appears.
-5. **Idempotent:** a second `lnai sync` reports only `=` (unchanged) for every file.
+1. **`make ai-sync-check` passes.** It runs `lnai validate`, asserts
+   `.claude/CLAUDE.md` does not exist, asserts `claudeCode` is still disabled, and
+   re-runs the sync to prove the committed output is not stale. Checks 1, 2, and 5 of
+   the old manual list are all folded into this one command.
+2. **Source is unmodified:** `git status --porcelain .claude/ CLAUDE.md` prints
+   nothing. Note that a legitimately edited `.claude/agents/*.md` will also show here —
+   read the diff before concluding a sync wrote to the source.
+3. **Roles appendix is populated:** the `###` entries under `## Roles` in
+   `.ai/AGENTS.md` match the `role` entries in the manifest, and the phrase
+   `not tool-enforceable` appears.
+4. **Prohibitions are present, not projected as roles:** `linear-pm`,
+   `obsidian-vault`, and `github-ops` appear under `## Prohibitions`, never under
+   `## Roles`.
 
-If check 2 or 3 fails, **stop immediately and report** — something wrote to the
-source, which is the one failure this design exists to prevent.
+If check 1 or 2 fails in a way you did not cause, **stop immediately and report** —
+something wrote to the source, which is the one failure this design exists to prevent.
 
 ### 9. Report what did not travel
 
@@ -180,7 +192,7 @@ End with an explicit loss report. Never imply parity:
 
 ```
 Not portable (Claude Code only):
-  · tools: allowlist on 9 subagents → prose norm, not enforceable
+  · tools: allowlist on every projected subagent → prose norm, not enforceable
   · Context isolation per subagent → no equivalent anywhere
   · A/B/C/D/E menu via AskUserQuestion → described as a convention
   · Plugins (superpowers, linear, aws-dev-toolkit) → no equivalent
