@@ -52,10 +52,11 @@ async function createTestModeOrder(api: Awaited<ReturnType<typeof gatewayClient>
 test.describe("realtime tracking events over websocket", () => {
   test.skip(!WS_URL, "WS_URL is not set — run `make bootstrap` (Task 9's realtime infra).");
 
-  test("delivers all four status transitions to the owner", async () => {
-    // TestMode progression is ~30s (four transitions at ~10s cadence), plus
-    // headroom for SQS + Lambda per record. Not the whole suite's default 30s.
-    test.setTimeout(105_000);
+  test("delivers every status transition to the owner", async () => {
+    // TestMode progression is ~40s end to end (measured), plus headroom for
+    // SQS + Lambda per record and for the setup that runs before the
+    // progression even starts. Not the whole suite's default 30s.
+    test.setTimeout(180_000);
 
     const { token, api } = await newGatewayUser();
     const socket = await openSocket(WS_URL!, token);
@@ -64,21 +65,34 @@ test.describe("realtime tracking events over websocket", () => {
     // DELIVERED included, with no suppression.
     const orderId = await createTestModeOrder(api);
 
-    // 75s: the progression takes ~30s; the rest is headroom for SQS + Lambda,
-    // matching DELIVERY_TIMEOUT_MS in tests/gateway/tracking-flow.spec.ts (the
-    // internal suite's own proven budget for the same progression, there
-    // observed via polling rather than a push). A tighter 60s measured 3/4
-    // messages landing on a real run — real, but short by enough margin that
-    // it would be flaky rather than reliably red on a working feature.
-    await socket.waitForCount(4, 75_000);
+    // THREE messages, not four — SHIPPED is the state the record is CREATED
+    // in, not a transition. The spec's own TestMode table says so:
+    // "t=0s SHIPPED (record created)", then ON_THE_WAY, OUT_FOR_DELIVERY and
+    // DELIVERED at ~10s intervals. Events are emitted from
+    // update_tracking_status, the transition path, which creation never takes,
+    // so a TestMode run yields exactly three pushes.
+    //
+    // This test asked for four for a long time and reported "got 3", which
+    // reads exactly like a fan-out dropping one message. It was the assertion
+    // that was wrong, not the feature.
+    //
+    // 120s is measured, not guessed: Tracking's logs put the progression at
+    // ~40s wall-clock (started 14:55:06 -> succeeded 14:55:46), and this clock
+    // starts BEFORE it — user creation, auth, the catalogue read and order
+    // creation all run first, then three SQS deliveries and Lambda invocations.
+    await socket.waitForCount(3, 120_000);
     socket.close();
 
     // Assert the SET, not the sequence: the pipeline processes SQS records in
     // batches with no cross-record ordering guarantee (see the events-pipeline
     // CLAUDE.md — "partial batch responses"), so demanding strict order would
     // be flaky independent of whether the feature works.
+    //
+    // SHIPPED is deliberately absent: it is the creation state, never a
+    // transition, so it is never emitted. Asserting it here would be asserting
+    // a message the system is not designed to send.
     const statuses = (socket.messages as Array<{ status: string }>).map((m) => m.status).sort();
-    expect(statuses).toEqual(["DELIVERED", "ON_THE_WAY", "OUT_FOR_DELIVERY", "SHIPPED"].sort());
+    expect(statuses).toEqual(["DELIVERED", "ON_THE_WAY", "OUT_FOR_DELIVERY"].sort());
 
     for (const message of socket.messages as Array<{ type: string; order_id: string }>) {
       expect(message.type).toBe("TRACKING_STATUS_CHANGED");
@@ -101,7 +115,9 @@ test.describe("realtime tracking events over websocket", () => {
   });
 
   test("does not deliver one user's events to another user", async () => {
-    test.setTimeout(105_000);
+    // Same measured budget as the delivery test above, and this one has even
+    // more setup ahead of the progression: two users, two tokens, two sockets.
+    test.setTimeout(180_000);
 
     const alice = await newGatewayUser();
     const bob = await newGatewayUser();
@@ -111,7 +127,9 @@ test.describe("realtime tracking events over websocket", () => {
 
     const orderId = await createTestModeOrder(alice.api);
 
-    await aliceSocket.waitForCount(4, 75_000);
+    // Three, not four — see the delivery test above: SHIPPED is the creation
+    // state and is never emitted as a transition.
+    await aliceSocket.waitForCount(3, 120_000);
     aliceSocket.close();
     bobSocket.close();
 

@@ -39,7 +39,14 @@ export async function openSocket(wsUrl: string, token: string): Promise<Collecte
       const deadline = Date.now() + timeoutMs;
       while (messages.length < n) {
         if (Date.now() > deadline) {
-          throw new Error(`timed out waiting for ${n} messages; got ${messages.length}`);
+          // Report WHAT arrived, not just how many. "got 3" is the same
+          // message whether the fan-out is broken or the clock is short, and
+          // that ambiguity cost real debugging time — the statuses tell you
+          // immediately which transition went missing.
+          const detail = JSON.stringify(messages);
+          throw new Error(
+            `timed out waiting for ${n} messages; got ${messages.length}: ${detail}`,
+          );
         }
         await new Promise((r) => setTimeout(r, 250));
       }
