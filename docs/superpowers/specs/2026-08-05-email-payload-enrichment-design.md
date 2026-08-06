@@ -119,15 +119,26 @@ would mean re-adding them to five templates later.
 
 ## Payload changes
 
-All additions are `snake_case`, matching the existing wire contract.
+The **envelope** is `snake_case` everywhere — that is the contract shared by all
+producers. Payloads are not uniform: `ORDER_CREATED` and
+`TRACKING_STATUS_CHANGED` are `snake_case`, while `USER_CREATED` and
+`AUTH_OTP_REQUESTED` have always been camelCase (`fullName`, `ttlSeconds`).
+
+Each payload keeps its own existing casing. Mixing both inside one object would
+leave it permanently inconsistent, and renaming the established keys would break
+every consumer schema in flight for no gain.
 
 ### `USER_CREATED` (Users)
 
-Current: `fullName`, `email`.
+Current: `fullName`, `email` — camelCase.
 
-Add `user_id` and `created_at`. Both are already in hand in `register.ts` —
-`id` is minted there and `createdAt` is the row's own timestamp. Feeds the
+Add `userId` and `createdAt`. Both are already in hand in `register.ts` — `id`
+is minted there and `createdAt` comes off the row `create` returned. Feeds the
 mockup's "Account ID" and "Member Since" rows.
+
+Both registration paths publish it: `register.ts` and
+`register-passwordless.ts` must emit the identical shape, since both produce
+the same welcome email.
 
 ### `ORDER_CREATED` (Orders)
 
@@ -165,9 +176,22 @@ invent the rest.
 
 ### `AUTH_OTP_REQUESTED` (Cognito challenge Lambda)
 
-Current: `email`, `code`, `ttl_seconds`.
+Current: `email`, `code`, `ttlSeconds` — camelCase.
 
-Add `full_name`, available on `event.request.userAttributes`.
+Add `full_name` from `event.request.userAttributes`.
+
+**The attribute is not populated today.** Users' `AdminCreateUser` writes only
+`email`, `email_verified` and `custom:app_user_id` — `signUp()` never receives a
+name, and the user pool declares no `given_name`/`family_name`. So the Lambda
+reads Cognito's standard `name` attribute and falls back to an empty string,
+which is the normal path rather than an edge case until Users starts setting it.
+
+The fallback is `""` rather than `undefined`: `JSON.stringify` drops undefined
+keys, the key would vanish from the wire, and the consumer's schema would reject
+the whole envelope — costing the user their login code, not just a greeting.
+
+Populating the attribute is follow-up work in Users, out of scope here. Until
+then the OTP email greets without a name.
 
 The code itself is unchanged and stays subject to its existing handling: never
 logged, never persisted, redacted before the event document is written.

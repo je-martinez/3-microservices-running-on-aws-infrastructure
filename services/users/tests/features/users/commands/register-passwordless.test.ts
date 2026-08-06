@@ -4,6 +4,11 @@ import { AuditActor } from "#shared/audit/audit-actor";
 import { getActor } from "#shared/audit/actor-context";
 import { EmailAlreadyExistsError } from "#shared/auth/auth-errors";
 
+// The row timestamp the fake `create` returns — the same value the publish
+// payload must carry, since the welcome email's "Member Since" row is rendered
+// from it.
+const CREATED_AT = new Date("2026-01-01");
+
 function deps(overrides: Record<string, unknown> = {}) {
   const created: any = {};
   return {
@@ -17,9 +22,9 @@ function deps(overrides: Record<string, unknown> = {}) {
           return {
             ...data,
             createdBy: AuditActor.RegisterPasswordless,
-            createdAt: new Date("2026-01-01"),
+            createdAt: CREATED_AT,
             updatedBy: AuditActor.RegisterPasswordless,
-            updatedAt: new Date("2026-01-01"),
+            updatedAt: CREATED_AT,
             deletedBy: null,
             deletedAt: null,
           };
@@ -104,12 +109,26 @@ describe("RegisterPasswordlessCommand", () => {
   it("publishes USER_CREATED the same way register() does", async () => {
     const d = deps();
     const user = await new RegisterPasswordlessCommand(d).execute(input);
+    // Same payload shape as the password path, createdAt included: a
+    // passwordless signup gets the same welcome email, so it cannot carry less
+    // than what that email renders.
     expect(d.events.publishUserCreated).toHaveBeenCalledWith({
       id: user.id,
       email: "a@b.co",
       fullName: "Ada",
+      createdAt: CREATED_AT,
       cognitoSub: "7904d681-f590-4b4d-bbce-15348a898873",
     });
+  });
+
+  it("takes createdAt off the created row rather than re-reading the user", async () => {
+    const d = deps();
+    await new RegisterPasswordlessCommand(d).execute(input);
+
+    const published = d.events.publishUserCreated.mock.calls[0][0];
+    expect(published.createdAt).toEqual(CREATED_AT);
+    expect(d.db.user.create).toHaveBeenCalledOnce();
+    expect(Object.keys(d.db.user)).toEqual(["create"]);
   });
 
   it("propagates EmailAlreadyExistsError from Cognito without writing a row", async () => {

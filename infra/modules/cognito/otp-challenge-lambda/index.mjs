@@ -196,6 +196,19 @@ async function publishOtpRequested(event, code, challengeId) {
   const email = event.request.userAttributes.email;
   const sub = event.request.userAttributes.sub;
 
+  // Cognito's standard `name` attribute is the only one that could carry a full
+  // name here: the Users service's AdminCreateUser sets email, email_verified
+  // and custom:app_user_id only (services/users/src/shared/auth/
+  // cognito-auth-provider.ts), and the pool declares no given_name/family_name
+  // population. So `name` is read, and its ABSENCE is the normal case today.
+  //
+  // Absent → "" rather than undefined or an omitted key. The payload's fields
+  // are all REQUIRED by the pipeline's schema: an omitted key (or an undefined
+  // one, which JSON.stringify drops) would make the consumer reject the whole
+  // envelope, so a missing name would cost the user their login code rather
+  // than just the greeting. An empty string degrades to a nameless greeting.
+  const fullName = event.request.userAttributes.name ?? "";
+
   // snake_case throughout — this is the wire contract validated by the
   // pipeline's EnvelopeSchema (functions/events-pipeline/src/domain/envelope.ts).
   // `order_id` is NULLABLE, not optional, there: the key must be PRESENT with a
@@ -214,7 +227,9 @@ async function publishOtpRequested(event, code, challengeId) {
     // `code` travels ONLY here, inside the SQS message body the events pipeline
     // consumes to render the email. It is NEVER logged, and the pipeline
     // redacts it before persisting this payload as its audit trail.
-    payload: { email, code, ttlSeconds: CODE_TTL_SECONDS },
+    // `full_name` lets the OTP login email greet the user by name; it is always
+    // PRESENT (possibly empty) — see the fallback above.
+    payload: { email, full_name: fullName, code, ttlSeconds: CODE_TTL_SECONDS },
   };
 
   await sendMessage({

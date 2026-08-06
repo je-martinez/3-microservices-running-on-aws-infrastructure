@@ -34,25 +34,36 @@ public class CreateOrderServiceTests : IAsyncLifetime
     // regression that dropped or substituted the email could not pass by coincidence.
     private const string CallerEmail = "buyer@example.com";
 
+    // The display name a resolved caller carries unless a test overrides it. Distinctive for
+    // the same reason as CallerEmail: the publisher-seam test asserts this exact value
+    // crossed the seam, so a regression that dropped it cannot pass by coincidence.
+    private const string CallerFullName = "Ada Lovelace";
+
     private sealed class FixedDirectory : IUserDirectory
     {
         private readonly string? _id;
         private readonly CallerAddress? _address;
         private readonly string _email;
+        private readonly string _fullName;
 
         // Address defaults to null — the "user has no address on file" branch. Tests that
         // exercise the snapshot pass one explicitly.
-        public FixedDirectory(string? id, CallerAddress? address = null, string email = CallerEmail)
+        public FixedDirectory(
+            string? id,
+            CallerAddress? address = null,
+            string email = CallerEmail,
+            string fullName = CallerFullName)
         {
             _id = id;
             _address = address;
             _email = email;
+            _fullName = fullName;
         }
 
         public Task<string?> ResolveInternalUserIdAsync(string sub, CancellationToken ct = default) => Task.FromResult(_id);
 
         public Task<CallerProfile?> ResolveCallerAsync(string sub, CancellationToken ct = default) =>
-            Task.FromResult(_id is null ? null : new CallerProfile(_id, _email, _address));
+            Task.FromResult(_id is null ? null : new CallerProfile(_id, _email, _fullName, _address));
     }
 
     // Records what order creation handed to Tracking, and when. Default outcome is
@@ -99,18 +110,32 @@ public class CreateOrderServiceTests : IAsyncLifetime
         public string? OrderId { get; private set; }
         public string? UserId { get; private set; }
         public string? Email { get; private set; }
+        public string? FullName { get; private set; }
+        public long SubtotalCents { get; private set; }
+        public long TaxCents { get; private set; }
+        public long ShippingCents { get; private set; }
         public long TotalCents { get; private set; }
+        public string? ShippingAddress { get; private set; }
+        public IReadOnlyList<OrderCreatedItem> Items { get; private set; } = Array.Empty<OrderCreatedItem>();
         public string? CognitoSub { get; private set; }
 
         public Task PublishOrderCreatedAsync(
-            string orderId, string userId, string email, long totalCents,
+            string orderId, string userId, string email, string fullName,
+            long subtotalCents, long taxCents, long shippingCents, long totalCents,
+            string? shippingAddress, IReadOnlyList<OrderCreatedItem> items,
             DateTime createdAt, string? cognitoSub = null, CancellationToken ct = default)
         {
             Calls++;
             OrderId = orderId;
             UserId = userId;
             Email = email;
+            FullName = fullName;
+            SubtotalCents = subtotalCents;
+            TaxCents = taxCents;
+            ShippingCents = shippingCents;
             TotalCents = totalCents;
+            ShippingAddress = shippingAddress;
+            Items = items;
             CognitoSub = cognitoSub;
             return Task.CompletedTask;
         }

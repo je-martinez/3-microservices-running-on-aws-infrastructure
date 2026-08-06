@@ -17,10 +17,13 @@ function sentCommand(client: ReturnType<typeof fakeClient>): SendMessageCommand 
   return client.send.mock.calls[0]![0] as SendMessageCommand;
 }
 
+const CREATED_AT = new Date("2026-01-15T10:30:00.000Z");
+
 const PAYLOAD = {
   id: "usr_1",
   email: "a@example.com",
   fullName: "Ada Lovelace",
+  createdAt: CREATED_AT,
   cognitoSub: "a1b2-c3d4",
 };
 
@@ -58,12 +61,52 @@ describe("SqsEventPublisher", () => {
     expect(body.order_id).toBeNull();
   });
 
-  it("carries the fullName and email the USER_CREATED handler's payload schema requires", async () => {
+  it("carries everything the welcome email renders: email, fullName, userId and createdAt", async () => {
     const client = fakeClient();
     await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
 
     const body = JSON.parse(sentCommand(client).input.MessageBody!);
-    expect(body.payload).toEqual({ email: "a@example.com", fullName: "Ada Lovelace" });
+    // The WHOLE payload, so both a missing field (blank row in the email) and a
+    // stray extra one (an unannounced wire change) fail here.
+    expect(body.payload).toEqual({
+      email: "a@example.com",
+      fullName: "Ada Lovelace",
+      userId: "usr_1",
+      createdAt: "2026-01-15T10:30:00.000Z",
+    });
+  });
+
+  it("keeps the payload camelCase — the casing of the field it joins, not the envelope's", async () => {
+    const client = fakeClient();
+    await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+
+    const body = JSON.parse(sentCommand(client).input.MessageBody!);
+    // This payload has always been camelCase (`fullName`), while the envelope
+    // around it is snake_case. New fields follow the payload so it stays
+    // internally consistent; the snake_case forms must NOT appear.
+    expect(Object.keys(body.payload).sort()).toEqual(["createdAt", "email", "fullName", "userId"]);
+    expect(body.payload).not.toHaveProperty("user_id");
+    expect(body.payload).not.toHaveProperty("created_at");
+  });
+
+  it("serializes createdAt as an ISO-8601 string, not a raw Date or an epoch number", async () => {
+    const client = fakeClient();
+    await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+
+    const body = JSON.parse(sentCommand(client).input.MessageBody!);
+    expect(typeof body.payload.createdAt).toBe("string");
+    expect(body.payload.createdAt).toBe(CREATED_AT.toISOString());
+  });
+
+  it("puts the same usr_ id in the payload as on the envelope, so 'Account ID' matches the subject", async () => {
+    const client = fakeClient();
+    await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+
+    const body = JSON.parse(sentCommand(client).input.MessageBody!);
+    // The renderer reads the payload, never the envelope — but the two must
+    // still agree, or the email prints an id for a different account.
+    expect(body.payload.userId).toBe(body.user_id);
+    expect(body.payload.userId).toMatch(/^usr_/);
   });
 
   it("stamps the author block naming WHO originated the event, not just who it is about", async () => {
@@ -119,12 +162,15 @@ describe("SqsEventPublisher", () => {
     expect(body.author.user_id).not.toContain(":");
   });
 
-  it("does not leak the user's id into the payload the pipeline emails from", async () => {
+  it("names the payload's id field `userId`, not the seam's bare `id`", async () => {
     const client = fakeClient();
     await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
 
     const body = JSON.parse(sentCommand(client).input.MessageBody!);
+    // The id DOES travel now (the email prints it), but under an unambiguous
+    // name: a bare `id` inside a payload would read as the event's own id.
     expect(body.payload).not.toHaveProperty("id");
+    expect(body.payload.userId).toBe("usr_1");
   });
 
   it("generates the event_id itself, prefixed evt_, so the caller's signature stays unchanged", async () => {

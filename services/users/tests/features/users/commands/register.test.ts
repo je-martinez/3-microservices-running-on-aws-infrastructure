@@ -3,12 +3,18 @@ import { RegisterUserCommand } from "#features/users/commands/register";
 import { AuditActor } from "#shared/audit/audit-actor";
 import { getActor } from "#shared/audit/actor-context";
 
+// The timestamp the fake `create` stamps on the returned row. A real Prisma row
+// always carries `createdAt`, so the double has to as well — the publish payload
+// reads it off the created row, and a mock that omitted it would let a broken
+// "Member Since" field pass (see [[mocks-hide-schema-bugs]]).
+const CREATED_AT = new Date("2026-01-15T10:30:00.000Z");
+
 function deps(overrides: Record<string, unknown> = {}) {
   const created: any = {};
   return {
     // Capture the audit actor the extension would read (getActor) at the moment
     // of the create call — register wraps it in runAsActor(AuditActor.Register).
-    db: { user: { create: vi.fn(async ({ data }: any) => { Object.assign(created, data); created._actor = getActor(); return data; }) } },
+    db: { user: { create: vi.fn(async ({ data }: any) => { Object.assign(created, data); created._actor = getActor(); return { ...data, createdAt: CREATED_AT }; }) } },
     auth: {
       signUp: vi.fn(async () => ({
         sub: "7904d681-f590-4b4d-bbce-15348a898873",
@@ -36,7 +42,7 @@ describe("RegisterUserCommand", () => {
     expect(d.events.publishUserCreated).toHaveBeenCalledOnce();
   });
 
-  it("publishes USER_CREATED with the id, email AND fullName the pipeline handler requires", async () => {
+  it("publishes USER_CREATED with the id, email, fullName AND createdAt the welcome email renders", async () => {
     const d = deps();
     const command = new RegisterUserCommand(d);
     const user = await command.execute({ email: "a@b.c", password: "P!1", fullName: "Ada L", e2eSource: false });
@@ -46,8 +52,23 @@ describe("RegisterUserCommand", () => {
       id: user.id,
       email: "a@b.c",
       fullName: "Ada L",
+      createdAt: CREATED_AT,
       cognitoSub: "7904d681-f590-4b4d-bbce-15348a898873",
     });
+  });
+
+  it("takes createdAt off the row the create returned, without a second database read", async () => {
+    const d = deps();
+    const command = new RegisterUserCommand(d);
+    await command.execute({ email: "a@b.c", password: "P!1", fullName: "Ada L", e2eSource: false });
+
+    // The value must come from the created row (the email's "Member Since"
+    // row), and `create` must be the ONLY call made — no findUnique/findFirst
+    // was added to fetch a timestamp the command already had.
+    const published = d.events.publishUserCreated.mock.calls[0][0];
+    expect(published.createdAt).toBe(CREATED_AT);
+    expect(d.db.user.create).toHaveBeenCalledOnce();
+    expect(Object.keys(d.db.user)).toEqual(["create"]);
   });
 
   it("hands the publisher the Cognito sub it already has, so the envelope's author can carry it", async () => {
@@ -103,7 +124,7 @@ describe("RegisterUserCommand", () => {
 
 function identityDeps(nodeEnv: "development" | "production", capture = vi.fn(async () => ({ status: "captured" as const }))) {
   return {
-    db: { user: { create: vi.fn(async (a: any) => ({ ...a.data, tags: a.data.tags })) } } as any,
+    db: { user: { create: vi.fn(async (a: any) => ({ ...a.data, tags: a.data.tags, createdAt: CREATED_AT })) } } as any,
     auth: {
       signUp: vi.fn(async () => ({
         sub: "7904d681-f590-4b4d-bbce-15348a898873",

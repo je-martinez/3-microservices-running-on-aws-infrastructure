@@ -3,6 +3,7 @@ using Amazon.SQS;
 using Amazon.SQS.Model;
 using Microsoft.Extensions.Logging;
 using Moq;
+using Orders.Application.Abstractions;
 using Orders.Infrastructure.Messaging;
 
 namespace Orders.Tests.Messaging;
@@ -30,13 +31,48 @@ public class SqsEventPublisherTests
     private const string OrderId = "ord_abc123";
     private const string UserId = "usr_xyz789";
     private const string Email = "buyer@example.com";
-    private const long TotalCents = 4599;
+    private const string FullName = "Ada Lovelace";
+
+    // A breakdown whose four figures are mutually DISTINCT and genuinely add up
+    // (2999 + 240 + 1500 = 4739). Distinct values are what make a publisher that wired
+    // subtotal into tax_cents — or derived one figure from another — fail here instead of
+    // coinciding; and a sum that balances is the arithmetic the receipt itself prints.
+    private const long SubtotalCents = 2999;
+    private const long TaxCents = 240;
+    private const long ShippingCents = 1500;
+    private const long TotalCents = 4739;
+
+    // The address as it is persisted on the order: already JSON, which is why the payload
+    // must embed it as an object rather than as a string-of-JSON.
+    private const string ShippingAddressJson =
+        """{"line1":"1 Ada Way","city":"San Juan","country":"PR","postal_code":"00901"}""";
+
+    // Two lines with different names, quantities and prices, so a publisher that emitted
+    // the same item twice, dropped one, or crossed quantity with price cannot pass.
+    private static readonly IReadOnlyList<OrderCreatedItem> Items = new[]
+    {
+        new OrderCreatedItem("Mechanical Keyboard", 2, 1200),
+        new OrderCreatedItem("USB-C Cable", 1, 599),
+    };
+
     // Deliberately unlike UserId: an implementation that put the internal id in
     // author.cognito_sub (or vice versa) must fail rather than coincide.
     private const string CognitoSub = "a1b2-c3d4";
 
     private static readonly DateTime CreatedAt =
         new(2026, 8, 3, 14, 30, 15, DateTimeKind.Utc);
+
+    // One place to build a full-fat publish call, so a future parameter is added once here
+    // instead of in every test — and so each test names ONLY the argument it is about.
+    private static Task Publish(
+        SqsEventPublisher publisher,
+        string? cognitoSub = CognitoSub,
+        string? shippingAddress = ShippingAddressJson,
+        IReadOnlyList<OrderCreatedItem>? items = null)
+        => publisher.PublishOrderCreatedAsync(
+            OrderId, UserId, Email, FullName,
+            SubtotalCents, TaxCents, ShippingCents, TotalCents,
+            shippingAddress, items ?? Items, CreatedAt, cognitoSub);
 
     private static (SqsEventPublisher Publisher, RecordingSqs Sqs, CapturingLogger Logger) Build(
         Exception? sendFailure = null)
@@ -46,9 +82,12 @@ public class SqsEventPublisherTests
         return (new SqsEventPublisher(sqs.Object, QueueUrl, logger), sqs, logger);
     }
 
-    private static async Task<JsonElement> PublishAndReadBody(RecordingSqs sqs, SqsEventPublisher publisher)
+    private static async Task<JsonElement> PublishAndReadBody(
+        RecordingSqs sqs,
+        SqsEventPublisher publisher,
+        string? shippingAddress = ShippingAddressJson)
     {
-        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt, CognitoSub);
+        await Publish(publisher, shippingAddress: shippingAddress);
         return JsonDocument.Parse(sqs.Requests.Single().MessageBody).RootElement;
     }
 
@@ -57,7 +96,7 @@ public class SqsEventPublisherTests
     {
         var (publisher, sqs, _) = Build();
 
-        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt, CognitoSub);
+        await Publish(publisher);
 
         var request = Assert.Single(sqs.Requests);
         // The queue URL is injected, never hardcoded — this pins that the injected value
@@ -94,11 +133,18 @@ public class SqsEventPublisherTests
         var body = await PublishAndReadBody(sqs, publisher);
         var payload = body.GetProperty("payload");
 
-        // The five fields OrderCreatedPayloadSchema requires — exactly, and snake_case.
+        // Every field OrderCreatedPayloadSchema requires — exactly, and snake_case. The
+        // payload grew from a bare confirmation into a RECEIPT: the consumer holds no
+        // connection to the Orders database, so the greeting, the money breakdown and the
+        // line items all have to travel here or the email cannot print them.
         // `email` is the one the original plan omitted: without it every ORDER_CREATED
         // would be rejected as a PermanentError and no confirmation email ever sent.
         Assert.Equal(
-            new[] { "created_at", "email", "order_id", "total_cents", "user_id" },
+            new[]
+            {
+                "created_at", "email", "full_name", "items", "order_id", "shipping_address",
+                "shipping_cents", "subtotal_cents", "tax_cents", "total_cents", "user_id",
+            },
             payload.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
 
         Assert.Equal(OrderId, payload.GetProperty("order_id").GetString());
@@ -111,6 +157,120 @@ public class SqsEventPublisherTests
         // Parseable back to the same instant: the consumer stores it as a date string.
         var createdAt = payload.GetProperty("created_at").GetString();
         Assert.Equal(CreatedAt, DateTime.Parse(createdAt!).ToUniversalTime());
+    }
+
+    [Fact]
+    public async Task Carries_the_buyers_name_for_the_greeting_and_the_billed_to_line()
+    {
+        var (publisher, sqs, _) = Build();
+
+        var payload = (await PublishAndReadBody(sqs, publisher)).GetProperty("payload");
+
+        // The consumer cannot look this up — it has no access to Users — so a dropped
+        // full_name is an email addressed to nobody, not a recoverable omission.
+        Assert.Equal(FullName, payload.GetProperty("full_name").GetString());
+    }
+
+    [Fact]
+    public async Task Carries_the_four_figure_money_breakdown_the_receipt_prints()
+    {
+        var (publisher, sqs, _) = Build();
+
+        var payload = (await PublishAndReadBody(sqs, publisher)).GetProperty("payload");
+
+        // All four travel as their own figure. The constants are mutually distinct, so a
+        // publisher that wired subtotal into tax_cents (or derived one from another) fails
+        // here rather than coinciding.
+        Assert.Equal(SubtotalCents, payload.GetProperty("subtotal_cents").GetInt64());
+        Assert.Equal(TaxCents, payload.GetProperty("tax_cents").GetInt64());
+        Assert.Equal(ShippingCents, payload.GetProperty("shipping_cents").GetInt64());
+        Assert.Equal(TotalCents, payload.GetProperty("total_cents").GetInt64());
+
+        // Numbers, not strings — the money convention is integer cents and the schema is
+        // z.number().int().
+        Assert.Equal(JsonValueKind.Number, payload.GetProperty("subtotal_cents").ValueKind);
+        Assert.Equal(JsonValueKind.Number, payload.GetProperty("tax_cents").ValueKind);
+        Assert.Equal(JsonValueKind.Number, payload.GetProperty("shipping_cents").ValueKind);
+
+        // The arithmetic the reader of the receipt checks. Pinned so a future change that
+        // makes the rows stop adding up to the total is caught here, not by a customer.
+        Assert.Equal(
+            payload.GetProperty("total_cents").GetInt64(),
+            payload.GetProperty("subtotal_cents").GetInt64()
+                + payload.GetProperty("tax_cents").GetInt64()
+                + payload.GetProperty("shipping_cents").GetInt64());
+    }
+
+    [Fact]
+    public async Task Items_carry_each_lines_name_quantity_and_unit_price()
+    {
+        var (publisher, sqs, _) = Build();
+
+        var payload = (await PublishAndReadBody(sqs, publisher)).GetProperty("payload");
+        var items = payload.GetProperty("items");
+
+        Assert.Equal(JsonValueKind.Array, items.ValueKind);
+        Assert.Equal(Items.Count, items.GetArrayLength());
+
+        // Order matters as much as content: a publisher that emitted one line twice, or
+        // crossed quantity with unit price, must fail. The two fixtures differ in every
+        // field precisely so it cannot pass by coincidence.
+        var actual = items.EnumerateArray().ToArray();
+        for (var i = 0; i < Items.Count; i++)
+        {
+            // Exactly the three keys the consumer's schema names — no line total: the
+            // template multiplies, and a fourth figure could contradict the two it came from.
+            Assert.Equal(
+                new[] { "name", "quantity", "unit_price_cents" },
+                actual[i].EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
+
+            // The NAME, not the product id: OrderDetail stores only ProductId, and the
+            // consumer cannot resolve one into the other — an id would print verbatim
+            // on the customer's receipt.
+            Assert.Equal(Items[i].Name, actual[i].GetProperty("name").GetString());
+            Assert.Equal(Items[i].Quantity, actual[i].GetProperty("quantity").GetUInt32());
+            Assert.Equal(Items[i].UnitPriceCents, actual[i].GetProperty("unit_price_cents").GetInt64());
+        }
+    }
+
+    [Fact]
+    public async Task Embeds_the_shipping_address_as_a_json_object_not_a_string_of_json()
+    {
+        var (publisher, sqs, _) = Build();
+
+        var payload = (await PublishAndReadBody(sqs, publisher)).GetProperty("payload");
+        var address = payload.GetProperty("shipping_address");
+
+        // Re-parsed from the stored snapshot, so the consumer receives a real object. Left
+        // as a string it would arrive double-escaped and render on the receipt as a blob
+        // of quotes and backslashes.
+        Assert.Equal(JsonValueKind.Object, address.ValueKind);
+        Assert.Equal("1 Ada Way", address.GetProperty("line1").GetString());
+        Assert.Equal("San Juan", address.GetProperty("city").GetString());
+        Assert.Equal("PR", address.GetProperty("country").GetString());
+        Assert.Equal("00901", address.GetProperty("postal_code").GetString());
+    }
+
+    [Fact]
+    public async Task Omits_shipping_address_entirely_when_the_buyer_has_none_on_file()
+    {
+        var (publisher, sqs, _) = Build();
+
+        await Publish(publisher, shippingAddress: null);
+
+        // Asserted against the RAW JSON as well as the parsed keys, exactly like
+        // author.cognito_sub: `"shipping_address": null` would satisfy a ValueKind.Null
+        // check while violating the contract, which says an absent address is ABSENT.
+        var raw = sqs.Requests.Single().MessageBody;
+        var payload = JsonDocument.Parse(raw).RootElement.GetProperty("payload");
+
+        Assert.False(payload.TryGetProperty("shipping_address", out _));
+        Assert.DoesNotContain("shipping_address", raw);
+
+        // The rest of the receipt is unaffected — no address must never cost the buyer
+        // the whole email.
+        Assert.Equal(FullName, payload.GetProperty("full_name").GetString());
+        Assert.Equal(Items.Count, payload.GetProperty("items").GetArrayLength());
     }
 
     [Fact]
@@ -170,7 +330,7 @@ public class SqsEventPublisherTests
         var (publisher, sqs, _) = Build();
 
         // No sub supplied — the shape a producer with no human author sends.
-        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt);
+        await Publish(publisher, cognitoSub: null);
 
         // Asserted against the RAW JSON as well as the parsed keys: `"cognito_sub": null`
         // would satisfy a ValueKind.Null check while violating the contract, which says
@@ -191,7 +351,7 @@ public class SqsEventPublisherTests
 
         // proto3 has no null, so an absent identity can reach us as "". An empty string
         // would pass a null check and reach the consumer as a real-looking value.
-        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt, "  ");
+        await Publish(publisher, cognitoSub: "  ");
 
         var raw = sqs.Requests.Single().MessageBody;
         Assert.DoesNotContain("cognito_sub", raw);
@@ -216,7 +376,7 @@ public class SqsEventPublisherTests
     {
         var (publisher, sqs, _) = Build();
 
-        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt, CognitoSub);
+        await Publish(publisher);
 
         // Duplicated as attributes so the queue can be inspected/filtered without
         // deserializing bodies.
@@ -233,8 +393,8 @@ public class SqsEventPublisherTests
         var (publisher, sqs, _) = Build();
 
         // Same arguments both times: only an id minted INSIDE the publisher can differ.
-        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt, CognitoSub);
-        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt, CognitoSub);
+        await Publish(publisher);
+        await Publish(publisher);
 
         var ids = sqs.Requests
             .Select(r => JsonDocument.Parse(r.MessageBody).RootElement.GetProperty("event_id").GetString())
@@ -254,7 +414,7 @@ public class SqsEventPublisherTests
 
         // No assertion that "the throwing fake threw" — the behaviour under test is that
         // the publisher does NOT propagate, i.e. the caller's transaction is not aborted.
-        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt, CognitoSub);
+        await Publish(publisher);
 
         // Swallowed is not the same as hidden: it must still be alertable.
         var entry = Assert.Single(logger.Entries);
@@ -268,7 +428,7 @@ public class SqsEventPublisherTests
     {
         var (publisher, _, logger) = Build(sendFailure: new AmazonSQSException("queue unreachable"));
 
-        await publisher.PublishOrderCreatedAsync(OrderId, UserId, Email, TotalCents, CreatedAt, CognitoSub);
+        await Publish(publisher);
 
         // Read over EVERYTHING the logger received — rendered message, the raw template,
         // every structured value, and the exception — not just the formatted line. A

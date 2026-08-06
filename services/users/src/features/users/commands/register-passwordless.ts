@@ -153,10 +153,18 @@ export class RegisterPasswordlessCommand {
 
     // Best-effort by design (the publisher swallows and logs its own failures),
     // so a queue outage never turns a completed registration into an HTTP error.
+    //
+    // Identical payload to register.ts, deliberately: a passwordless signup
+    // produces the same welcome email as a password one, so it must carry the
+    // same fields — `id` for the email's "Account ID" row and the created row's
+    // `createdAt` for its "Member Since" row. Both come from values already in
+    // hand here (the minted id and the row the `create` returned), so there is
+    // no extra query on this path either.
     await this.events.publishUserCreated({
       id,
       email: input.email,
       fullName: input.fullName,
+      createdAt: (row as any).createdAt,
       cognitoSub: signUp.sub,
     });
 
