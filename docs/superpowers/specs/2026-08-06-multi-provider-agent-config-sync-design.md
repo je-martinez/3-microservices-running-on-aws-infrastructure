@@ -207,7 +207,35 @@ subagents:
 ```
 
 Without it, each run reclassifies from scratch and produces drift — precisely the problem this
-design exists to solve. The manifest is **version-controlled**; `.ai/` is not.
+design exists to solve.
+
+### Everything is version-controlled
+
+`.ai/` **and** the per-provider outputs are committed. This reverses an earlier decision to
+gitignore them as "generated output", which broke the motivating use case: an Orca worker
+starting in a fresh worktree without running a sync gets no configuration at all, and works
+without the project's conventions while appearing to function normally.
+
+Three things make committing safe rather than noisy:
+
+- **The output is deterministic.** Two syncs over unchanged sources produce byte-identical
+  files, verified by hashing. Generated files that churn would be intolerable in review; these
+  do not churn.
+- **It is small** — 24 files, roughly 96 KB.
+- **No secrets travel.** MCP configs carry the `${APIDOG_PROJECT_ID}` placeholder, never a
+  literal value.
+
+And one thing makes it *necessary* rather than merely nice: **every provider's `skills/` and
+`AGENTS.md` are symlinks into `.ai/`.** Committing the provider directories while ignoring
+`.ai/` would leave a fresh clone full of dangling links — worse than committing nothing.
+
+Only `.ai/.lnai-manifest.json` stays ignored; it is machine state, not configuration. lnai
+honors a per-tool `versionControl: true` flag in `.ai/config.json` and keeps its own
+`.gitignore` block in sync with it, so this is configured through the tool rather than against
+it.
+
+The reviewable side effect is a bonus: a PR that changes a convention now shows exactly what
+each provider receives, which is stronger evidence than the loss report's prose.
 
 ## Subagent projection
 
@@ -395,8 +423,9 @@ fix must be re-applied after each re-copy.
 - **Cursor CLI** is unsupported by lnai but launchable by Orca. Deferred: measure whether the
   gap hurts in practice before writing a plugin. (Antigravity turned out to be covered by the
   Gemini plugin — see the Background section.)
-- **`.ai/` in `.gitignore`** assumes every environment can run `lnai sync`. If an Orca worker
-  starts without it, that worker gets no config. Revisit if it occurs.
+- ~~**`.ai/` in `.gitignore`** assumes every environment can run `lnai sync`.~~ **Resolved:**
+  everything is committed, so a fresh clone or Orca worktree works without syncing. See
+  "Everything is version-controlled" above.
 
 ## Related
 
