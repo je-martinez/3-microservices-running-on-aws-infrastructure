@@ -31,6 +31,12 @@ services/*/src/generated/
 # Playwright E2E artifacts
 e2e/test-results/
 
+# Email rendering screenshots. Regenerated on every run and inspected by a
+# human — they are the OUTPUT of the visual specs, not a committed baseline, so
+# versioning them would add binary churn to every template tweak without ever
+# being read from git.
+e2e/screenshots/
+
 # Terraform state & cache (local environments)
 **/.terraform/
 *.tfstate
