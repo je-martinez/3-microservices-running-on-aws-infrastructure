@@ -6,6 +6,8 @@ column, a composite primary key, a unique constraint, VARCHAR widths against
 check and a different dialect can silently accept.
 """
 
+import inspect as _inspect
+import re
 from datetime import datetime, timedelta
 
 import pytest
@@ -22,6 +24,10 @@ from src.features.tracking.domain.repository import TrackingRepository
 from src.features.tracking.domain.status import TrackingStatus
 from src.shared.audit.audit_actor import AuditActor
 from src.shared.db.nano_id import TRACKING_PREFIX, new_tracking_id
+from src.shared.db.tracking_number import (
+    TRACKING_NUMBER_ALPHABET,
+    TRACKING_NUMBER_LENGTH,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -953,6 +959,187 @@ class TestSoftDeleteByTag:
             repo.soft_delete_by_tag(E2E_SOURCE_TAG, actor=AuditActor.E2E_CLEANUP)
             == 0
         )
+
+
+class TestTrackingNumberColumn:
+    """`tracking.tracking_number` — the customer-facing shipment number.
+
+    Minted at creation by the repository (never a parameter), NOT NULL and
+    UNIQUE. Every assertion here is against real MySQL, because the properties
+    that matter — the constraint actually existing, the column actually
+    rejecting NULL, the value surviving the round trip — are exactly what a
+    mocked session would answer "yes" to regardless.
+    """
+
+    def test_creation_mints_a_number(self, repo: TrackingRepository) -> None:
+        tracking = make_tracking(repo, order_id="ord_num00000000000000001")
+
+        assert tracking.tracking_number
+
+    def test_the_number_uses_the_readable_3mrai_format(
+        self, repo: TrackingRepository
+    ) -> None:
+        """`3MRAI-XXXX-XXXX-XXXX`. The prefix names the issuing system: this is
+        OUR number, minted at PLACED before any carrier exists."""
+        tracking = make_tracking(repo, order_id="ord_num00000000000000002")
+
+        assert re.fullmatch(
+            r"3MRAI-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}",
+            tracking.tracking_number,
+        )
+
+    def test_the_number_avoids_the_confusable_characters(
+        self, repo: TrackingRepository
+    ) -> None:
+        """`I`, `O`, `0` and `1` are excluded from the alphabet — a tracking
+        number's whole job is to survive being read off an email and typed back
+        in. Asserted over many draws, since a single number omits most of the
+        alphabet by chance."""
+        numbers = [
+            make_tracking(repo, order_id=f"ord_num0000000000000{index:04d}")
+            .tracking_number.removeprefix("3MRAI-")
+            .replace("-", "")
+            for index in range(60)
+        ]
+        drawn = set("".join(numbers))
+
+        assert drawn <= set(TRACKING_NUMBER_ALPHABET)
+        assert not drawn & {"I", "O", "0", "1"}
+
+    def test_the_number_survives_a_round_trip_through_mysql(
+        self, repo: TrackingRepository, session: Session
+    ) -> None:
+        """Read back on a fresh snapshot, not off the in-memory entity — which
+        would assert nothing about what the column actually stored (a too-narrow
+        VARCHAR would truncate it silently)."""
+        created = make_tracking(repo, order_id="ord_num00000000000000101")
+        session.expire_all()
+
+        stored = repo.get_by_order_id("ord_num00000000000000101")
+        assert stored is not None
+        assert stored.tracking_number == created.tracking_number
+
+    def test_the_column_is_not_nullable(self, engine) -> None:
+        """Pinned at the schema. The emails quote this on every transition, so
+        a NULL would make five templates branch on a value that is free to
+        produce."""
+        column = next(
+            c
+            for c in inspect(engine).get_columns("tracking")
+            if c["name"] == "tracking_number"
+        )
+        assert column["nullable"] is False
+
+    def test_the_column_is_wide_enough_for_the_format(self, engine) -> None:
+        """A VARCHAR narrower than 20 would truncate every number — and MySQL
+        truncates a too-long string on insert in non-strict mode rather than
+        failing, which is the silent version of this bug."""
+        column = next(
+            c
+            for c in inspect(engine).get_columns("tracking")
+            if c["name"] == "tracking_number"
+        )
+        assert column["type"].length >= TRACKING_NUMBER_LENGTH
+
+    def test_two_trackings_get_different_numbers(
+        self, repo: TrackingRepository
+    ) -> None:
+        a = make_tracking(repo, order_id="ord_num00000000000000201")
+        b = make_tracking(repo, order_id="ord_num00000000000000202")
+
+        assert a.tracking_number != b.tracking_number
+
+    def test_numbers_are_unique_across_many_rows(
+        self, repo: TrackingRepository
+    ) -> None:
+        """A single inequality passes by luck far more often than fifty do.
+
+        Fifty rows also exercise the real unique index: a generator with far
+        less entropy than advertised (a truncated hash, a seeded PRNG) would
+        start colliding here as an `IntegrityError`, not as a soft assertion
+        failure.
+        """
+        numbers = {
+            make_tracking(
+                repo, order_id=f"ord_num0000000000001{index:04d}"
+            ).tracking_number
+            for index in range(50)
+        }
+
+        assert len(numbers) == 50
+
+    def test_the_unique_constraint_exists_in_mysql(self, engine) -> None:
+        """The application-level uniqueness above is only as good as the index
+        underneath it: without the constraint a collision becomes two live
+        shipments sharing a number rather than a failed INSERT."""
+        indexes = inspect(engine).get_indexes("tracking")
+        unique_on_number = [
+            index
+            for index in indexes
+            if index["unique"] and index["column_names"] == ["tracking_number"]
+        ]
+
+        assert unique_on_number, indexes
+
+    def test_a_duplicate_number_is_rejected_by_the_database(
+        self, repo: TrackingRepository, session: Session
+    ) -> None:
+        """Forced, because the generator will not produce one: the constraint is
+        asserted by violating it deliberately.
+
+        A collision must fail at INSERT — the alternative is a support agent
+        looking up a number and finding two people's parcels.
+        """
+        first = make_tracking(repo, order_id="ord_num00000000000000301")
+        second = make_tracking(repo, order_id="ord_num00000000000000302")
+
+        second.tracking_number = first.tracking_number
+        with pytest.raises(IntegrityError):
+            session.flush()
+        session.rollback()
+
+    def test_the_number_is_not_a_parameter_of_create(
+        self, repo: TrackingRepository
+    ) -> None:
+        """Minting is the repository's job, not a caller's.
+
+        Accepting one would let a call site supply a duplicate (or an empty
+        string) into a NOT NULL UNIQUE column, and would mean every write path
+        had to remember to produce one. Asserted structurally so a future
+        parameter cannot be added without this failing.
+        """
+        parameters = _inspect.signature(TrackingRepository.create).parameters
+        assert "tracking_number" not in parameters
+
+    def test_the_number_is_stable_across_a_status_update(
+        self, repo: TrackingRepository, session: Session
+    ) -> None:
+        """It identifies the SHIPMENT, not its current state. Re-minting on a
+        transition would give the customer a different number in every email
+        about one parcel."""
+        tracking = make_tracking(repo, order_id="ord_num00000000000000401")
+        original = tracking.tracking_number
+
+        repo.update_status(
+            tracking=tracking,
+            status=TrackingStatus.PROCESSING,
+            actor=AuditActor.CARRIER_STATUS_UPDATE,
+        )
+        session.commit()
+        session.expire_all()
+
+        stored = repo.get_by_order_id("ord_num00000000000000401")
+        assert stored is not None
+        assert stored.tracking_number == original
+
+    def test_history_rows_do_not_carry_the_number(self, engine) -> None:
+        """Denormalizing it would give one fact two sources that a partial
+        update could put out of step — the same call `tracking_history` makes
+        about `tags` and `shipping_address`. The number is reachable through the
+        parent's FK, which is how the history is always read."""
+        columns = {c["name"] for c in inspect(engine).get_columns("tracking_history")}
+
+        assert "tracking_number" not in columns
 
 
 class TestReprDoesNotLeakPii:

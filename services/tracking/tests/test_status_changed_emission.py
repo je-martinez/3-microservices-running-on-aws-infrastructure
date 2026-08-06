@@ -52,6 +52,7 @@ from src.features.tracking.commands.update_status import (
     UpdateTrackingStatusCommand,
     update_tracking_status,
 )
+from src.features.tracking.domain.models import Tracking
 from src.features.tracking.domain.repository import TrackingRepository
 from src.features.tracking.domain.status import (
     InvalidTransitionError,
@@ -73,13 +74,45 @@ COGNITO_SUB = "22222222-2222-4222-8222-222222222222"
 
 
 class RecordingPublisher:
-    """Records each `publish_tracking_status_changed` call's kwargs, in order."""
+    """Records each `publish_tracking_status_changed` call's kwargs, in order.
+
+    ## Why the recorded values are SNAPSHOTS, not the entity
+
+    The port hands the publisher the live `Tracking` object. A recorder that
+    simply kept a reference would let a LATER transition mutate what an earlier
+    call appears to have published — a five-step TestMode run would end with
+    five recorded events all reporting `DELIVERED`, and every ordering assertion
+    in this file would be reading the last write rather than the sequence.
+
+    So each call is flattened at record time into the fields the envelope is
+    built from, history included. That also keeps the assertions below readable
+    as "what reached the wire" rather than as attribute walks.
+    """
 
     def __init__(self) -> None:
         self.published: list[dict[str, Any]] = []
 
-    def publish_tracking_status_changed(self, **kwargs: Any) -> None:
-        self.published.append(kwargs)
+    def publish_tracking_status_changed(
+        self, *, tracking: Any, previous_status: str, actor: Any
+    ) -> None:
+        self.published.append(
+            {
+                # The persisted row's own values, copied now.
+                "order_id": tracking.order_id,
+                "user_id": tracking.user_id,
+                "tracking_number": tracking.tracking_number,
+                "shipping_address": tracking.shipping_address,
+                "status": tracking.status,
+                "changed_at": tracking.datetime_,
+                # Resolved here, while the session is still open and the
+                # collection still loaded.
+                "history": [
+                    (entry.status, entry.datetime_) for entry in tracking.history
+                ],
+                "previous_status": previous_status,
+                "actor": actor,
+            }
+        )
 
 
 class ExplodingPublisher:
@@ -105,13 +138,20 @@ def seed(
     order_id: str,
     user_id: str = OWNER,
     status: TrackingStatus = TrackingStatus.PLACED,
+    shipping_address: dict | None = None,
 ) -> str:
-    """A committed tracking owned by `user_id`, at `status`."""
+    """A committed tracking owned by `user_id`, at `status`.
+
+    `shipping_address` defaults to None — the column is nullable, and the
+    omitted-not-nulled rule is only testable against a row that genuinely has
+    none.
+    """
     tracking = TrackingRepository(session).create(
         order_id=order_id,
         user_id=user_id,
         cognito_sub=COGNITO_SUB,
         status=status,
+        shipping_address=shipping_address,
         actor=AuditActor.CREATE_TRACKING,
     )
     session.commit()
@@ -532,6 +572,271 @@ class TestUserIdComesFromThePersistedRow:
         assert publisher.published[0]["user_id"] == OWNER
 
 
+class TestTheEnrichedFieldsComeOffThePersistedRow:
+    """The email-payload enrichment, asserted where it can actually fail.
+
+    `test_sqs_event_publisher.py` pins the JSON the publisher builds from an
+    entity handed to it. This class pins the entity the COMMAND hands over, read
+    back from real MySQL — which is the half a unit test cannot check: a column
+    that does not exist, a value that was never written, a relationship that is
+    stale after the update.
+
+    The last of those is the interesting one. `repository.update_status` expires
+    `tracking.history` after appending, precisely so the publisher's read
+    includes the transition being announced. Assert against the in-memory
+    collection alone and that expiry looks unnecessary; assert on what the
+    publisher received and a regression removing it fails here.
+    """
+
+    ADDRESS = {
+        "line1": "742 Evergreen Terrace",
+        "city": "Springfield",
+        "country": "US",
+        "postal_code": "97477",
+    }
+
+    def test_the_tracking_number_is_the_one_mysql_holds(
+        self, session: Session
+    ) -> None:
+        """Read back from the database, not compared to a constant the test
+        supplied: a publisher minting its own number would pass a format check
+        and quote a number no support agent could ever find."""
+        seed(session, order_id="ord_enr00000000000001")
+        publisher = RecordingPublisher()
+
+        advance(
+            session,
+            "ord_enr00000000000001",
+            TrackingStatus.PROCESSING,
+            publisher=publisher,
+        )
+
+        assert publisher.published[0]["tracking_number"] == (
+            reload(session, "ord_enr00000000000001").tracking_number
+        )
+
+    def test_the_tracking_number_is_stable_across_every_transition(
+        self, session: Session
+    ) -> None:
+        """Four emails about one shipment must quote ONE number. A number
+        regenerated per event would give the reader four."""
+        seed(session, order_id="ord_enr00000000000002")
+        publisher = RecordingPublisher()
+
+        for status in (
+            TrackingStatus.PROCESSING,
+            TrackingStatus.SHIPPED,
+            TrackingStatus.OUT_FOR_DELIVERY,
+            TrackingStatus.DELIVERED,
+        ):
+            advance(
+                session, "ord_enr00000000000002", status, publisher=publisher
+            )
+
+        numbers = {event["tracking_number"] for event in publisher.published}
+        assert len(numbers) == 1
+
+    def test_the_shipping_address_is_the_persisted_snapshot(
+        self, session: Session
+    ) -> None:
+        """Round-tripped through MySQL's JSON column, so a mapping that stored
+        or read it wrong fails here rather than in the pipeline."""
+        seed(
+            session,
+            order_id="ord_enr00000000000003",
+            shipping_address=self.ADDRESS,
+        )
+        publisher = RecordingPublisher()
+
+        advance(
+            session,
+            "ord_enr00000000000003",
+            TrackingStatus.PROCESSING,
+            publisher=publisher,
+        )
+
+        assert publisher.published[0]["shipping_address"] == self.ADDRESS
+
+    def test_a_row_with_no_address_hands_over_none(
+        self, session: Session
+    ) -> None:
+        """`None` at this layer — the OMISSION happens in the publisher, which
+        is where the wire format is decided (and where
+        `TestShippingAddressIsOmittedNotNulled` asserts it). What matters here
+        is that "no address" survives the round trip as one value rather than
+        becoming `{}` or `"null"`."""
+        seed(session, order_id="ord_enr00000000000004", shipping_address=None)
+        publisher = RecordingPublisher()
+
+        advance(
+            session,
+            "ord_enr00000000000004",
+            TrackingStatus.PROCESSING,
+            publisher=publisher,
+        )
+
+        assert publisher.published[0]["shipping_address"] is None
+
+    def test_the_history_carries_every_transition_so_far(
+        self, session: Session
+    ) -> None:
+        """After three steps the timeline has four entries, oldest first —
+        creation's `PLACED` plus each transition."""
+        seed(session, order_id="ord_enr00000000000005")
+        publisher = RecordingPublisher()
+
+        for status in (
+            TrackingStatus.PROCESSING,
+            TrackingStatus.SHIPPED,
+            TrackingStatus.OUT_FOR_DELIVERY,
+        ):
+            advance(
+                session, "ord_enr00000000000005", status, publisher=publisher
+            )
+
+        last = publisher.published[-1]["history"]
+        assert [status for status, _ in last] == [
+            TrackingStatus.PLACED,
+            TrackingStatus.PROCESSING,
+            TrackingStatus.SHIPPED,
+            TrackingStatus.OUT_FOR_DELIVERY,
+        ]
+
+    def test_the_history_grows_by_one_entry_per_event(
+        self, session: Session
+    ) -> None:
+        """THE regression for the stale collection.
+
+        `repository.update_status` expires `tracking.history`, so the publisher
+        reloads it and sees the transition just written. Without that expiry the
+        collection is the one loaded before the update, and every event would
+        carry a timeline one step short — the email announcing SHIPPED would
+        show a timeline ending at PROCESSING.
+        """
+        seed(session, order_id="ord_enr00000000000006")
+        publisher = RecordingPublisher()
+
+        for status in (
+            TrackingStatus.PROCESSING,
+            TrackingStatus.SHIPPED,
+            TrackingStatus.OUT_FOR_DELIVERY,
+            TrackingStatus.DELIVERED,
+        ):
+            advance(
+                session, "ord_enr00000000000006", status, publisher=publisher
+            )
+
+        assert [len(event["history"]) for event in publisher.published] == [
+            2,
+            3,
+            4,
+            5,
+        ]
+
+    def test_every_event_history_contains_the_status_it_announces(
+        self, session: Session
+    ) -> None:
+        """The property stated directly: an email describing a step whose
+        timeline does not contain it is describing a state the reader cannot
+        see."""
+        seed(session, order_id="ord_enr00000000000007")
+        publisher = RecordingPublisher()
+
+        for status in (
+            TrackingStatus.PROCESSING,
+            TrackingStatus.SHIPPED,
+            TrackingStatus.OUT_FOR_DELIVERY,
+            TrackingStatus.DELIVERED,
+        ):
+            advance(
+                session, "ord_enr00000000000007", status, publisher=publisher
+            )
+
+        for event in publisher.published:
+            assert event["status"] in [
+                status for status, _ in event["history"]
+            ]
+
+    def test_each_history_entry_carries_its_own_persisted_datetime(
+        self, session: Session
+    ) -> None:
+        """Asserted against `get_history`, i.e. against MySQL, so a publisher
+        stamping `now` on each entry — or copying the event's `changed_at` five
+        times — fails."""
+        tracking_id = seed(session, order_id="ord_enr00000000000008")
+        publisher = RecordingPublisher()
+
+        for status in (TrackingStatus.PROCESSING, TrackingStatus.SHIPPED):
+            advance(
+                session, "ord_enr00000000000008", status, publisher=publisher
+            )
+        session.commit()
+
+        persisted = TrackingRepository(session).get_history(tracking_id)
+        assert publisher.published[-1]["history"] == [
+            (entry.status, entry.datetime_) for entry in persisted
+        ]
+
+    def test_the_history_is_in_progression_order_not_alphabetical(
+        self, session: Session
+    ) -> None:
+        """The trap `TrackingHistory.ordering()` exists for: MySQL's tiebreak on
+        equal timestamps is primary-key order, which for `(tracking_id, status)`
+        is ALPHABETICAL — DELIVERED, OUT_FOR_DELIVERY, PLACED, PROCESSING,
+        SHIPPED. A timeline in that order shows a parcel delivered before it was
+        placed."""
+        seed(session, order_id="ord_enr00000000000009")
+        publisher = RecordingPublisher()
+
+        for status in (
+            TrackingStatus.PROCESSING,
+            TrackingStatus.SHIPPED,
+            TrackingStatus.OUT_FOR_DELIVERY,
+            TrackingStatus.DELIVERED,
+        ):
+            advance(
+                session, "ord_enr00000000000009", status, publisher=publisher
+            )
+
+        statuses = [status for status, _ in publisher.published[-1]["history"]]
+        assert statuses == [
+            TrackingStatus.PLACED,
+            TrackingStatus.PROCESSING,
+            TrackingStatus.SHIPPED,
+            TrackingStatus.OUT_FOR_DELIVERY,
+            TrackingStatus.DELIVERED,
+        ]
+        assert statuses != sorted(statuses)
+
+    def test_the_carrier_endpoint_publishes_the_enriched_row(
+        self, client: TestClient, session: Session
+    ) -> None:
+        """Through the REAL endpoint with the default publisher path, so nothing
+        about this depends on the command being called directly."""
+        seed(
+            session,
+            order_id="ord_enr00000000000010",
+            shipping_address=self.ADDRESS,
+        )
+        publisher = RecordingPublisher()
+
+        with _bound_publisher(publisher):
+            response = client.put(
+                "/v1/trackings/ord_enr00000000000010/status",
+                json={"status": TrackingStatus.PROCESSING},
+                headers=carrier(),
+            )
+
+        assert response.status_code == 200
+        event = publisher.published[0]
+        assert event["shipping_address"] == self.ADDRESS
+        assert event["tracking_number"].startswith("3MRAI-")
+        assert [status for status, _ in event["history"]] == [
+            TrackingStatus.PLACED,
+            TrackingStatus.PROCESSING,
+        ]
+
+
 class TestAPublishFailureNeverFailsTheTransition:
     """The policy, asserted at the command level: a raising publisher is absorbed
     and the transition still succeeds.
@@ -948,13 +1253,20 @@ class TestNoopPublisher:
         assert updated.status == TrackingStatus.PROCESSING
 
     def test_it_returns_none(self) -> None:
+        """Called with the port's real signature — the entity — so the Noop
+        cannot silently fall out of step with `SqsEventPublisher`."""
         assert (
             NoopEventPublisher().publish_tracking_status_changed(
-                order_id="ord_x",
-                user_id="usr_x",
-                status="PLACED",
+                tracking=Tracking(
+                    id="trk_x",
+                    order_id="ord_x",
+                    user_id="usr_x",
+                    tracking_number="3MRAI-AAAA-BBBB-CCCC",
+                    status="PLACED",
+                    tags=[],
+                    datetime_=datetime(2026, 8, 3),
+                ),
                 previous_status="PLACED",
-                changed_at=datetime(2026, 8, 3),
                 actor=AuditActor.CARRIER_STATUS_UPDATE,
             )
             is None

@@ -16,33 +16,48 @@ The AUTHORITY is the consumer, not this file:
   this event, is always. There is no `author.source`: the root `source` already
   names the producer.
 * payload — `functions/events-pipeline/src/handlers/tracking-status-changed.ts`:
-  `{ status, previous_status, changed_at, email }`. `status` is an enum of the
-  five progression values.
+  `{ status, previous_status, changed_at, email }`, plus the enrichment fields
+  `{ full_name, order_id, tracking_number, shipping_address?, history[] }`
+  specified in
+  `docs/superpowers/specs/2026-08-05-email-payload-enrichment-design.md`.
+  `status` is an enum of the five progression values.
 
 A missing or misnamed field is NOT a loud failure: the handler rejects it as a
 `PermanentError`, the record is consumed rather than retried, and the user never
 gets an email. Nothing upstream notices. That is why the payload below is built
 literally against those two schemas.
 
-## Why this publisher resolves the email itself
+## Why this publisher resolves the user itself
 
-The handler requires `email`, and Tracking persists none — `tracking` stores
-`user_id` and `cognito_sub`, never an address. Users holds it, and Tracking
-already has an outbound client to Users (`shared/grpc/users_client.py`) whose
-`GetUserById` response carries `email` on the wire.
+The handler requires `email` (and now `full_name`), and Tracking persists
+neither — `tracking` stores `user_id` and `cognito_sub`, never a name or an
+address. Users holds both, and Tracking already has an outbound client to Users
+(`shared/grpc/users_client.py`) whose `GetUserById` response carries `email` and
+`full_name` on the same wire message. One round trip yields both; there is no
+second call for the name.
 
 Resolution happens HERE rather than in `update_tracking_status` on purpose: the
-command's job is the state transition, and threading a gRPC call plus a PII
-field through it would make every caller (the carrier PUT, TestMode) handle a
-Users outage in the middle of a database write. Behind the port, a failed
-resolution degrades exactly like a failed send — see the failure policy below.
+command's job is the state transition, and threading a gRPC call plus PII
+through it would make every caller (the carrier PUT, TestMode) handle a Users
+outage in the middle of a database write. Behind the port, a failed resolution
+degrades exactly like a failed send — see the failure policy below.
 
 ## PII
 
-`email` travels in the payload because the pipeline needs somewhere to send the
-mail, and NOWHERE else. It is never logged: failure lines carry `email_hash`
-(the cross-service SHA-256/16 contract from [[logging-context]]) plus `user_id`
-and `order_id`, never the address itself.
+`email`, `full_name` and `shipping_address` travel in the payload because the
+pipeline needs somewhere to send the mail and something to render in it, and
+NOWHERE else. None of them is ever logged: failure lines carry `email_hash` (the
+cross-service SHA-256/16 contract from [[logging-context]]) plus `user_id` and
+`order_id`, never the address, the name, or the delivery address itself.
+
+## Omitted, never null
+
+`shipping_address` is nullable on the row (proto3 has no null, so an address
+absent upstream arrives as an empty message and is persisted as NULL). When it
+is absent the KEY IS OMITTED from the payload rather than sent as `null` — the
+repo-wide rule from [[logging-context]] and the envelope contract alike: unknown
+fields are omitted, never nulled. A `"shipping_address": null` would make the
+template branch on two spellings of "no address" instead of one.
 """
 
 from __future__ import annotations
@@ -50,16 +65,18 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from collections.abc import Callable
-from datetime import datetime
+from collections.abc import Callable, Iterable
 from functools import lru_cache
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import boto3
 
 from src.shared.audit.audit_actor import AuditActor
 from src.shared.config.settings import get_settings
-from src.shared.grpc.users_client import shared_users_client
+from src.shared.grpc.users_client import ResolvedUser, shared_users_client
+
+if TYPE_CHECKING:
+    from src.features.tracking.domain.models import Tracking, TrackingHistory
 
 logger = logging.getLogger(__name__)
 
@@ -80,8 +97,15 @@ EVENT_ID_PREFIX = "evt_"
 #: collision-relevant for a key that only has to be unique per (order, status).
 EVENT_ID_HASH_LENGTH = 16
 
-#: Resolves an internal `usr_` id to that user's email, or None when unknown.
-EmailResolver = Callable[[str], str | None]
+#: Resolves an internal `usr_` id to the Users record behind it, or None when
+#: unknown.
+#:
+#: Returns the whole `ResolvedUser` rather than just the email, as it used to:
+#: the payload needs the recipient's `full_name` as well as their address, both
+#: of which arrive on the SAME `GetUserById` response. Narrowing the resolver to
+#: a `str` would have forced a second round trip (or a second resolver) for a
+#: field that was already on the wire.
+UserResolver = Callable[[str], "ResolvedUser | None"]
 
 
 def derive_event_id(order_id: str, status: str) -> str:
@@ -123,6 +147,60 @@ def hash_email(email: str) -> str:
     return hashlib.sha256(email.strip().lower().encode()).hexdigest()[:16]
 
 
+def serialize_history(
+    entries: Iterable[TrackingHistory],
+) -> list[dict[str, str]]:
+    """Render a tracking's transitions as `[{ status, datetime }, …]`.
+
+    This is what makes the email's five-step delivery timeline renderable. A
+    transition event describes ONE step; without the history the template could
+    only ever show the step that just happened, and would have to invent the
+    other four (or render a timeline with a single entry, which is not a
+    timeline).
+
+    ## The order is the relationship's, not one re-derived here
+
+    `entries` arrives already sorted — `Tracking.history` declares
+    `order_by=TrackingHistory.ordering()`, which is transition timestamp then
+    position in the forward-only progression. This function preserves that order
+    and deliberately does not re-sort: a bare `datetime` sort ties when two
+    transitions share a second (a carrier sending two updates inside one second,
+    or any unit of work stamping several rows with one `now`), and MySQL then
+    falls back to primary-key order — alphabetical for `(tracking_id, status)`,
+    which puts DELIVERED before PLACED. A timeline that shows a parcel delivered
+    before it was placed is worse than no timeline.
+
+    ## The load this does and does not cost
+
+    `Tracking.history` is `lazy="selectin"`, so on any ordinary read the entries
+    arrive with the tracking and serializing them costs nothing beyond this loop.
+
+    On the transition path there IS one load, and it is not incidental:
+    `TrackingRepository.update_status` expires the collection after appending
+    (see its docstring), precisely because the in-memory one is stale — it still
+    holds the transitions from before the update. So the reload is what makes the
+    timeline include the step the email is announcing. It is a single `selectin`
+    query for one tracking's rows, not an N+1, and it replaces the alternative of
+    publishing a history that demonstrably omits the event being published.
+
+    Each entry carries only `status` and `datetime`: `tracking_id`, `order_id`,
+    `user_id` and `cognito_sub` are on every row but are identical across all of
+    them and already present at the envelope root, so repeating them per entry
+    would be five copies of one fact — and `cognito_sub` in particular is an
+    ownership key with no business leaving the service.
+    """
+    return [
+        {
+            "status": entry.status,
+            # ISO-8601, for the same reason `changed_at` is: a `datetime` is not
+            # JSON-serializable, and `json.dumps` raising inside the send would
+            # be swallowed by the failure policy into "no event at all".
+            "datetime": entry.datetime_.isoformat(),
+        }
+        for entry in entries
+    ]
+
+
 class SqsEventPublisher:
     """Publishes `TRACKING_STATUS_CHANGED` to the shared events queue.
 
@@ -162,31 +240,43 @@ class SqsEventPublisher:
         *,
         client: Any,
         queue_url: str,
-        resolve_email: EmailResolver,
+        resolve_user: UserResolver,
     ) -> None:
         self._client = client
         self._queue_url = queue_url
-        self._resolve_email = resolve_email
+        self._resolve_user = resolve_user
 
     def publish_tracking_status_changed(
         self,
         *,
-        order_id: str,
-        user_id: str,
-        status: str,
+        tracking: Tracking,
         previous_status: str,
-        changed_at: datetime,
         actor: AuditActor,
     ) -> None:
         """Emit one transition. Never raises — see the class docstring.
+
+        `tracking` is the row `update_tracking_status` just wrote, and every
+        subject-side field of the envelope is read off it: the owner
+        (`user_id`), the order, the new status, the transition's own timestamp,
+        the tracking number, the address and the whole history. Nothing comes
+        from the request — this endpoint's caller is an external carrier whose
+        gateway route has no Cognito authorizer, so no caller identity reaches
+        the service at all (see the port's docstring).
+
+        `previous_status` is the one parameter that cannot come off the entity:
+        `tracking.status` is already the NEW status by the time this runs.
 
         `actor` becomes the envelope's `author.actor`. It is handed down from
         `update_tracking_status` rather than fixed here: the carrier PUT and
         TestMode progression share this publisher, and a constant would mislabel
         one of them (see the port's docstring).
         """
+        order_id = tracking.order_id
+        user_id = tracking.user_id
+        status = tracking.status
+
         try:
-            email = self._resolve_email(user_id)
+            user = self._resolve_user(user_id)
         except Exception:  # noqa: BLE001 - a notification must not break a write
             # Users unreachable, or answering something other than NOT_FOUND.
             # `logger.exception` keeps the traceback; the extra fields carry no
@@ -203,11 +293,16 @@ class SqsEventPublisher:
             )
             return
 
+        email = user.email if user else None
         if not email:
             # Users answered NOT_FOUND, or holds no address for this user. The
             # pipeline would reject the payload as a PermanentError anyway, so
             # publishing it would only manufacture a FAILED document; better to
             # stop here where the reason is still legible.
+            #
+            # Keyed on the EMAIL rather than on the name: without an address
+            # there is nowhere to send the mail at all, whereas a missing name
+            # is a cosmetic gap in a message that can still be delivered.
             logger.error(
                 "tracking_status_changed_publish_failed",
                 extra={
@@ -252,16 +347,12 @@ class SqsEventPublisher:
             "author": {
                 "actor": actor.value,
             },
-            "payload": {
-                "status": status,
-                "previous_status": previous_status,
-                # ISO-8601. The handler validates it as a non-empty string and
-                # the template renders it; a datetime is not JSON-serializable.
-                "changed_at": changed_at.isoformat(),
-                # Required by the handler's schema — a payload without it is a
-                # PermanentError and no email is ever sent.
-                "email": email,
-            },
+            "payload": self._build_payload(
+                tracking=tracking,
+                previous_status=previous_status,
+                user=user,
+                email=email,
+            ),
         }
 
         try:
@@ -291,16 +382,89 @@ class SqsEventPublisher:
                 },
             )
 
+    @staticmethod
+    def _build_payload(
+        *,
+        tracking: Tracking,
+        previous_status: str,
+        user: ResolvedUser | None,
+        email: str,
+    ) -> dict[str, Any]:
+        """The `TRACKING_STATUS_CHANGED` payload, field by field.
 
-def _resolve_email_via_users(user_id: str) -> str | None:
-    """Ask Users for this internal id's email, through the shared gRPC client.
+        Split out of `publish_tracking_status_changed` because it is the part
+        that is genuinely a CONTRACT — every key here is read by
+        `functions/events-pipeline/src/handlers/tracking-status-changed.ts` and
+        rendered by a template, so it is worth reading on its own, without the
+        resolution and failure handling around it.
+
+        Each field, and why the email needs it:
+
+        * `status` / `previous_status` — the transition itself. Inverted, the
+          email would announce the step the parcel just left.
+        * `changed_at` — when it happened. Taken from `tracking.datetime_`, the
+          column stamped by this very transition, NOT from `updated_at`, which
+          moves on any write.
+        * `email` — where to send it. Already resolved by the caller (and the
+          reason to bail out entirely when it is missing), so it is passed in
+          rather than re-read off `user`.
+        * `full_name` — how to address the reader. Off the same `GetUserById`
+          response the address came from; no second round trip.
+        * `order_id` — displayed in the email body. It is on the envelope root
+          too, and the duplication is deliberate: the handler renders from the
+          payload, and making a template reach up into the envelope for one
+          field would be a second, undocumented data path.
+        * `tracking_number` — the shipment number the reader quotes back. Always
+          present: the column is NOT NULL and minted at creation.
+        * `shipping_address` — where it is going. OMITTED when NULL, never sent
+          as null (see the module docstring).
+        * `history` — every transition so far, which is what makes the five-step
+          delivery timeline renderable at all.
+        """
+        payload: dict[str, Any] = {
+            "status": tracking.status,
+            "previous_status": previous_status,
+            # ISO-8601. The handler validates it as a non-empty string and the
+            # template renders it; a datetime is not JSON-serializable.
+            "changed_at": tracking.datetime_.isoformat(),
+            # Required by the handler's schema — a payload without it is a
+            # PermanentError and no email is ever sent.
+            "email": email,
+            # `""` rather than a missing key when Users holds no name: proto3
+            # sends an absent string as `""`, and the handler's schema takes a
+            # string. Unlike `shipping_address` below this is not omitted,
+            # because the greeting is unconditional — the template needs
+            # something to interpolate, and an empty string degrades to a
+            # nameless greeting rather than a `KeyError` mid-render.
+            "full_name": user.full_name if user else "",
+            # Also on the envelope root; see the docstring.
+            "order_id": tracking.order_id,
+            "tracking_number": tracking.tracking_number,
+            # Ordered by the relationship, loaded with the tracking, no query.
+            "history": serialize_history(tracking.history),
+        }
+
+        if tracking.shipping_address is not None:
+            # Set only when there IS one. Assigning `None` would put
+            # `"shipping_address": null` on the wire, which is the one shape the
+            # convention rules out — unknown fields are omitted, never nulled.
+            payload["shipping_address"] = tracking.shipping_address
+
+        return payload
+
+
+def _resolve_user_via_users(user_id: str) -> ResolvedUser | None:
+    """Ask Users for this internal id's record, through the shared gRPC client.
 
     `GetUserById` accepts the internal `usr_` id as well as a Cognito sub (the
     .proto says so), and the persisted `tracking.user_id` is the former — so no
     sub is needed, and none is available on the carrier path anyway.
+
+    Returns the whole `ResolvedUser` (email AND full name) rather than just the
+    address it used to: both fields ride the same response, so the enriched
+    payload costs no extra call.
     """
-    resolved = shared_users_client().resolve(user_id)
-    return resolved.email if resolved else None
+    return shared_users_client().resolve(user_id)
 
 
 @lru_cache(maxsize=1)
@@ -328,7 +492,7 @@ def _cached_publisher(queue_url: str, endpoint_url: str | None, region: str):
     return SqsEventPublisher(
         client=client,
         queue_url=queue_url,
-        resolve_email=_resolve_email_via_users,
+        resolve_user=_resolve_user_via_users,
     )
 
 

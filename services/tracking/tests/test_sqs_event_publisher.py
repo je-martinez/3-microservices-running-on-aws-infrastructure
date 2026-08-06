@@ -23,11 +23,26 @@ any of it.
 * the envelope — `functions/events-pipeline/src/domain/envelope.ts`:
   `{ event_id, type, source, user_id, order_id, payload }`, every key present.
 * the payload — `functions/events-pipeline/src/handlers/tracking-status-changed.ts`:
-  `{ status, previous_status, changed_at, email }`, all four required.
+  `{ status, previous_status, changed_at, email }`, plus the enrichment fields
+  `{ full_name, order_id, tracking_number, shipping_address?, history[] }` from
+  `docs/superpowers/specs/2026-08-05-email-payload-enrichment-design.md`.
 
 A drift on either side is not a loud failure in production: the handler rejects
 the record as a `PermanentError`, consumes it, and nobody gets an email. These
 assertions are the only place that drift becomes visible.
+
+## The tracking is a REAL entity, unsaved
+
+The publisher takes the persisted `Tracking` row. These tests build one in
+memory rather than through the repository: what is under test is the mapping
+from entity to JSON, and every field it reads is a plain attribute. No database
+is needed for that — the persistence side is covered against real MySQL in
+`test_status_changed_emission.py`, which is where a column that does not exist
+would actually fail.
+
+Using the real model class rather than a stub object is what makes a typo in an
+attribute name (`tracking.number`, `tracking.addresses`) fail here instead of
+passing against a `SimpleNamespace` that answers anything.
 """
 
 from __future__ import annotations
@@ -40,7 +55,9 @@ from typing import Any
 
 import pytest
 
+from src.features.tracking.domain.models import Tracking, TrackingHistory
 from src.shared.audit.audit_actor import AuditActor
+from src.shared.grpc.users_client import ResolvedUser
 from src.shared.messaging.sqs_event_publisher import (
     EVENT_ID_PREFIX,
     EVENT_SOURCE,
@@ -48,13 +65,26 @@ from src.shared.messaging.sqs_event_publisher import (
     SqsEventPublisher,
     derive_event_id,
     hash_email,
+    serialize_history,
 )
 
 QUEUE_URL = "https://sqs.us-east-1.amazonaws.com/000000000000/events"
 
+TRACKING_ID = "trk_aaaaaaaaaaaaaaaaaaaaa"
 ORDER_ID = "ord_aaaaaaaaaaaaaaaaaaaaa"
 USER_ID = "usr_aaaaaaaaaaaaaaaaaaaaa"
 EMAIL = "user@example.com"
+FULL_NAME = "Ada Lovelace"
+TRACKING_NUMBER = "3MRAI-K7QD-2XBM-9PWA"
+
+#: A real-shaped address snapshot. A `dict`, because the column is JSON and the
+#: service stores whatever mapping it was handed without reshaping it.
+SHIPPING_ADDRESS = {
+    "line1": "742 Evergreen Terrace",
+    "city": "Springfield",
+    "country": "US",
+    "postal_code": "97477",
+}
 
 #: A fixed instant, so the serialized `changed_at` is a literal the test can pin
 #: rather than something re-derived from the same call under test.
@@ -96,45 +126,112 @@ class FailingSqsClient:
         raise self._error
 
 
+def history_entries(
+    *steps: tuple[str, datetime],
+) -> list[TrackingHistory]:
+    """Build history rows, already in the order the relationship would yield.
+
+    The publisher must NOT re-sort them (see `serialize_history`), so this
+    helper hands over the sequence exactly as given — a test can therefore hand
+    over a deliberately awkward one and assert the order survived.
+    """
+    return [
+        TrackingHistory(
+            tracking_id=TRACKING_ID,
+            order_id=ORDER_ID,
+            user_id=USER_ID,
+            status=status,
+            datetime_=moment,
+        )
+        for status, moment in steps
+    ]
+
+
+def tracking(
+    *,
+    status: str = "PROCESSING",
+    changed_at: datetime = CHANGED_AT,
+    order_id: str = ORDER_ID,
+    user_id: str = USER_ID,
+    tracking_number: str = TRACKING_NUMBER,
+    shipping_address: dict[str, Any] | None = None,
+    history: list[TrackingHistory] | None = None,
+) -> Tracking:
+    """An unsaved `Tracking` shaped like the row a transition just wrote.
+
+    `shipping_address` defaults to None — i.e. ABSENT — deliberately, so a test
+    that cares about the address has to say so, and the omission assertions read
+    as the default rather than as a special case.
+    """
+    return Tracking(
+        id=TRACKING_ID,
+        order_id=order_id,
+        user_id=user_id,
+        cognito_sub="22222222-2222-4222-8222-222222222222",
+        tracking_number=tracking_number,
+        status=status,
+        shipping_address=shipping_address,
+        tags=[],
+        datetime_=changed_at,
+        history=history if history is not None else [],
+    )
+
+
 def build(
     client: Any,
     *,
     email: str | None = EMAIL,
+    full_name: str = FULL_NAME,
+    user: ResolvedUser | None = None,
+    unknown_user: bool = False,
     resolver_error: Exception | None = None,
 ) -> SqsEventPublisher:
-    """A publisher over `client`, with the email resolution stubbed out.
+    """A publisher over `client`, with the Users resolution stubbed out.
 
     The resolver is a plain closure rather than a gRPC client: what is under test
     here is the envelope and the failure policy, and `users_client.py` has its own
     suite against a real `users.v1.Users` server on a real socket.
+
+    `unknown_user=True` is Users answering NOT_FOUND (the client maps that to
+    None) — distinct from `email=None`, which is a KNOWN user with no address on
+    file. Both must degrade the same way, and having two spellings is what lets
+    a test assert that they do.
     """
 
-    def resolve(user_id: str) -> str | None:
+    def resolve(user_id: str) -> ResolvedUser | None:
         if resolver_error is not None:
             raise resolver_error
-        return email
+        if unknown_user:
+            return None
+        return user or ResolvedUser(
+            internal_id=user_id,
+            cognito_sub="22222222-2222-4222-8222-222222222222",
+            email=email,
+            full_name=full_name,
+        )
 
     return SqsEventPublisher(
-        client=client, queue_url=QUEUE_URL, resolve_email=resolve
+        client=client, queue_url=QUEUE_URL, resolve_user=resolve
     )
 
 
 def publish(
     publisher: SqsEventPublisher,
     *,
-    order_id: str = ORDER_ID,
-    user_id: str = USER_ID,
-    status: str = "PROCESSING",
+    entity: Tracking | None = None,
     previous_status: str = "PLACED",
-    changed_at: datetime = CHANGED_AT,
     actor: AuditActor = AuditActor.CARRIER_STATUS_UPDATE,
+    **entity_fields: Any,
 ) -> None:
+    """Publish one transition.
+
+    `entity_fields` are forwarded to `tracking()`, so a test that only cares
+    about one field says only that (`publish(p, status="DELIVERED")`) while a
+    test that needs a fully-built row passes `entity=`.
+    """
     publisher.publish_tracking_status_changed(
-        order_id=order_id,
-        user_id=user_id,
-        status=status,
+        tracking=entity if entity is not None else tracking(**entity_fields),
         previous_status=previous_status,
-        changed_at=changed_at,
         actor=actor,
     )
 
@@ -325,7 +422,18 @@ class TestTheAuthorItBuilds:
 class TestThePayloadItBuilds:
     """Against `TrackingStatusChangedPayloadSchema` in the handler."""
 
-    def test_the_payload_has_exactly_the_four_required_keys(self) -> None:
+    def test_the_payload_has_exactly_the_expected_keys(self) -> None:
+        """The four original fields plus the enrichment ones.
+
+        `shipping_address` is NOT here, and that is the assertion: this
+        publishes a tracking with no address, and the key must be absent rather
+        than null. `TestShippingAddressIsOmittedNotNulled` covers both
+        directions.
+
+        Asserted as an exact set, not as a subset: an extra key is as much a
+        contract change as a missing one, and the handler validates the payload
+        it is given.
+        """
         client = RecordingSqsClient()
         publish(build(client))
 
@@ -334,6 +442,10 @@ class TestThePayloadItBuilds:
             "previous_status",
             "changed_at",
             "email",
+            "full_name",
+            "order_id",
+            "tracking_number",
+            "history",
         }
 
     def test_status_and_previous_status_are_the_transition(self) -> None:
@@ -387,19 +499,327 @@ class TestThePayloadItBuilds:
         assert sent_body(client)["payload"]["email"] == "someone@example.org"
 
     def test_the_email_is_resolved_for_the_persisted_user_id(self) -> None:
-        """The resolver is asked about the `user_id` it was handed, not about the
+        """The resolver is asked about the `user_id` off the ROW, not about the
         order or anything else — Users is keyed by the internal `usr_` id."""
         asked: list[str] = []
         client = RecordingSqsClient()
+
+        def resolve(user_id: str) -> ResolvedUser:
+            asked.append(user_id)
+            return ResolvedUser(
+                internal_id=user_id,
+                cognito_sub="sub",
+                email=EMAIL,
+                full_name=FULL_NAME,
+            )
+
         publisher = SqsEventPublisher(
-            client=client,
-            queue_url=QUEUE_URL,
-            resolve_email=lambda user_id: (asked.append(user_id), EMAIL)[1],
+            client=client, queue_url=QUEUE_URL, resolve_user=resolve
         )
 
         publish(publisher, user_id="usr_specific000000001")
 
         assert asked == ["usr_specific000000001"]
+
+    def test_the_user_is_resolved_exactly_once_per_event(self) -> None:
+        """`full_name` and `email` come off ONE `GetUserById` response.
+
+        The spec's justification for carrying the name is that it costs no new
+        round trip. A publisher that resolved the name separately would satisfy
+        every field assertion here and quietly double the load on Users.
+        """
+        calls: list[str] = []
+        client = RecordingSqsClient()
+
+        def resolve(user_id: str) -> ResolvedUser:
+            calls.append(user_id)
+            return ResolvedUser(
+                internal_id=user_id,
+                cognito_sub="sub",
+                email=EMAIL,
+                full_name=FULL_NAME,
+            )
+
+        publish(
+            SqsEventPublisher(
+                client=client, queue_url=QUEUE_URL, resolve_user=resolve
+            )
+        )
+        payload = sent_body(client)["payload"]
+
+        assert len(calls) == 1
+        assert payload["email"] == EMAIL
+        assert payload["full_name"] == FULL_NAME
+
+    def test_the_full_name_is_the_resolved_name(self) -> None:
+        """What the template greets the reader with. From the same
+        `GetUserById` response the address came from."""
+        client = RecordingSqsClient()
+        publish(build(client, full_name="Grace Hopper"))
+
+        assert sent_body(client)["payload"]["full_name"] == "Grace Hopper"
+
+    def test_a_missing_name_is_an_empty_string_not_a_missing_key(self) -> None:
+        """Users holds no name for this user — proto3 sends `""`.
+
+        Unlike `shipping_address`, this key stays: the greeting is
+        unconditional, so the template needs something to interpolate and an
+        absent key would be a `KeyError` mid-render. The mail is still
+        deliverable, which is the difference from a missing email.
+        """
+        client = RecordingSqsClient()
+        publish(build(client, full_name=""))
+        payload = sent_body(client)["payload"]
+
+        assert "full_name" in payload
+        assert payload["full_name"] == ""
+
+    def test_the_order_id_is_carried_in_the_payload_too(self) -> None:
+        """It is on the envelope root as well, and the duplication is
+        deliberate: the handler renders from the payload, so making a template
+        reach up into the envelope for one field would be a second,
+        undocumented data path."""
+        client = RecordingSqsClient()
+        publish(build(client), order_id="ord_zzzzzzzzzzzzzzzzzzzzz")
+        envelope = sent_body(client)
+
+        assert envelope["payload"]["order_id"] == "ord_zzzzzzzzzzzzzzzzzzzzz"
+        assert envelope["payload"]["order_id"] == envelope["order_id"]
+
+    def test_the_tracking_number_is_the_rows_own(self) -> None:
+        """Read off the entity, never re-minted here: a number generated at
+        publish time would differ from the one the database holds, so two
+        emails about one shipment would quote two different numbers."""
+        client = RecordingSqsClient()
+        publish(build(client), tracking_number="3MRAI-ABCD-EFGH-JKLM")
+
+        assert (
+            sent_body(client)["payload"]["tracking_number"]
+            == "3MRAI-ABCD-EFGH-JKLM"
+        )
+
+    def test_the_tracking_number_keeps_its_readable_format(self) -> None:
+        """Serialized verbatim — not stripped of its separators, not
+        lowercased. The value in the email is the value a customer reads back,
+        and it must match what a support agent finds in the database."""
+        client = RecordingSqsClient()
+        publish(build(client))
+        number = sent_body(client)["payload"]["tracking_number"]
+
+        assert re.fullmatch(r"3MRAI-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}", number)
+
+
+class TestShippingAddressIsOmittedNotNulled:
+    """The repo-wide rule: unknown fields are OMITTED, never null.
+
+    `Tracking.shipping_address` is nullable — proto3 has no null, so an address
+    absent upstream arrives as an empty message and is persisted as NULL. A
+    `"shipping_address": null` on the wire would give "no address" two spellings
+    and make the template branch on both.
+
+    Both assertions below are on the SERIALIZED body, not on the dict: a null
+    value satisfies a `.get(...) is None` check while violating the contract.
+    """
+
+    def test_the_address_is_carried_when_the_row_has_one(self) -> None:
+        """The other half of the rule — omitting it always would silently
+        delete the address block from every email."""
+        client = RecordingSqsClient()
+        publish(build(client), shipping_address=SHIPPING_ADDRESS)
+
+        assert sent_body(client)["payload"]["shipping_address"] == SHIPPING_ADDRESS
+
+    def test_the_key_is_absent_when_the_row_has_none(self) -> None:
+        client = RecordingSqsClient()
+        publish(build(client), shipping_address=None)
+
+        assert "shipping_address" not in sent_body(client)["payload"]
+
+    def test_it_is_not_serialized_as_null(self) -> None:
+        """Stated against the raw JSON, which is what actually reaches SQS: the
+        string `"shipping_address"` must not appear at all."""
+        client = RecordingSqsClient()
+        publish(build(client), shipping_address=None)
+
+        assert "shipping_address" not in client.sends[0]["MessageBody"]
+
+    def test_an_empty_address_mapping_is_still_carried(self) -> None:
+        """`{}` is a row that HAS an address column value, however unhelpful —
+        distinct from NULL. Omitting it would make the publisher second-guess
+        what the database was told to store."""
+        client = RecordingSqsClient()
+        publish(build(client), shipping_address={})
+
+        assert sent_body(client)["payload"]["shipping_address"] == {}
+
+
+class TestTheHistoryItSerializes:
+    """`history[]` is what makes the five-step delivery timeline renderable.
+
+    Without it a transition event can only describe its own step, and the
+    template would have to invent the other four.
+    """
+
+    #: A full run, oldest first — the order `Tracking.history` yields.
+    FULL_RUN = (
+        ("PLACED", datetime(2026, 8, 3, 10, 0, 0)),
+        ("PROCESSING", datetime(2026, 8, 3, 11, 0, 0)),
+        ("SHIPPED", datetime(2026, 8, 3, 12, 0, 0)),
+        ("OUT_FOR_DELIVERY", datetime(2026, 8, 3, 13, 0, 0)),
+        ("DELIVERED", datetime(2026, 8, 3, 14, 0, 0)),
+    )
+
+    def test_every_transition_is_carried(self) -> None:
+        """One entry per transition, not just the current step."""
+        client = RecordingSqsClient()
+        publish(
+            build(client),
+            status="DELIVERED",
+            history=history_entries(*self.FULL_RUN),
+        )
+
+        assert [entry["status"] for entry in sent_body(client)["payload"]["history"]] == [
+            "PLACED",
+            "PROCESSING",
+            "SHIPPED",
+            "OUT_FOR_DELIVERY",
+            "DELIVERED",
+        ]
+
+    def test_each_entry_carries_its_own_datetime(self) -> None:
+        """Not the event's `changed_at` copied five times: each step happened at
+        its own moment, and a timeline stamping them all identically would be
+        five rows saying nothing."""
+        client = RecordingSqsClient()
+        publish(
+            build(client),
+            status="DELIVERED",
+            history=history_entries(*self.FULL_RUN),
+        )
+
+        assert [
+            entry["datetime"] for entry in sent_body(client)["payload"]["history"]
+        ] == [
+            "2026-08-03T10:00:00",
+            "2026-08-03T11:00:00",
+            "2026-08-03T12:00:00",
+            "2026-08-03T13:00:00",
+            "2026-08-03T14:00:00",
+        ]
+
+    def test_each_entry_has_exactly_status_and_datetime(self) -> None:
+        """No `tracking_id`, no `user_id`, and above all no `cognito_sub`: those
+        are identical across every entry, already at the envelope root, and the
+        sub is an ownership key with no business leaving the service."""
+        client = RecordingSqsClient()
+        publish(build(client), history=history_entries(*self.FULL_RUN))
+
+        for entry in sent_body(client)["payload"]["history"]:
+            assert set(entry) == {"status", "datetime"}
+
+    def test_the_datetimes_are_strings_not_raw_datetimes(self) -> None:
+        """A `datetime` is not JSON-serializable, and `json.dumps` raising
+        inside the send would be swallowed by the failure policy into "no event
+        at all" rather than into a loud error."""
+        client = RecordingSqsClient()
+        publish(build(client), history=history_entries(*self.FULL_RUN))
+
+        for entry in sent_body(client)["payload"]["history"]:
+            assert isinstance(entry["datetime"], str)
+            assert entry["datetime"]
+
+    def test_the_order_is_preserved_and_not_re_sorted(self) -> None:
+        """The relationship already sorts by `TrackingHistory.ordering()` —
+        timestamp, then progression position.
+
+        Handed a run whose timestamps all TIE (which real same-second
+        transitions do), the publisher must keep the sequence it was given. A
+        publisher that re-sorted on `datetime` would be free to reorder these,
+        and MySQL's own tiebreak is alphabetical PK order — DELIVERED before
+        PLACED, i.e. a parcel delivered before it was placed.
+        """
+        tied = datetime(2026, 8, 3, 9, 0, 0)
+        client = RecordingSqsClient()
+        publish(
+            build(client),
+            history=history_entries(
+                ("PLACED", tied),
+                ("PROCESSING", tied),
+                ("SHIPPED", tied),
+            ),
+        )
+
+        assert [
+            entry["status"] for entry in sent_body(client)["payload"]["history"]
+        ] == ["PLACED", "PROCESSING", "SHIPPED"]
+
+    def test_the_history_includes_the_transition_being_announced(self) -> None:
+        """The property that matters most: an email announcing SHIPPED whose
+        timeline stops at PROCESSING is describing a state the reader cannot
+        see. The command hands over an entity whose collection was expired and
+        reloaded for exactly this reason."""
+        client = RecordingSqsClient()
+        publish(
+            build(client),
+            status="SHIPPED",
+            previous_status="PROCESSING",
+            history=history_entries(*self.FULL_RUN[:3]),
+        )
+        payload = sent_body(client)["payload"]
+
+        assert payload["status"] in [
+            entry["status"] for entry in payload["history"]
+        ]
+
+    def test_a_single_entry_history_is_still_a_list(self) -> None:
+        """The very first transition has two entries; a hypothetical one-entry
+        row must still serialize as an array, not as a bare object the template
+        would then fail to iterate."""
+        client = RecordingSqsClient()
+        publish(build(client), history=history_entries(*self.FULL_RUN[:1]))
+        history = sent_body(client)["payload"]["history"]
+
+        assert isinstance(history, list)
+        assert len(history) == 1
+
+    def test_an_empty_history_serializes_as_an_empty_list(self) -> None:
+        """Never omitted and never null — the key is unconditional so the
+        template iterates one shape. (No real row reaches this state: creation
+        always writes the opening `PLACED` row.)"""
+        client = RecordingSqsClient()
+        publish(build(client), history=[])
+        payload = sent_body(client)["payload"]
+
+        assert payload["history"] == []
+        assert "history" in payload
+
+
+class TestSerializeHistory:
+    """The helper on its own, without a queue in the way."""
+
+    def test_it_maps_each_entry_to_status_and_datetime(self) -> None:
+        entries = history_entries(
+            ("PLACED", datetime(2026, 8, 3, 10, 0, 0)),
+            ("PROCESSING", datetime(2026, 8, 3, 11, 0, 0)),
+        )
+
+        assert serialize_history(entries) == [
+            {"status": "PLACED", "datetime": "2026-08-03T10:00:00"},
+            {"status": "PROCESSING", "datetime": "2026-08-03T11:00:00"},
+        ]
+
+    def test_it_is_json_serializable(self) -> None:
+        """The property the publisher depends on: anything left as a `datetime`
+        would raise inside `json.dumps`, where the swallow policy turns the
+        failure into a missing email rather than an error."""
+        serialized = serialize_history(
+            history_entries(("PLACED", datetime(2026, 8, 3, 10, 0, 0)))
+        )
+
+        assert json.loads(json.dumps(serialized)) == serialized
+
+    def test_an_empty_sequence_yields_an_empty_list(self) -> None:
+        assert serialize_history([]) == []
 
 
 class TestMessageAttributes:
@@ -659,17 +1079,41 @@ class TestEmailResolutionFailure:
         assert record.app_event == "tracking_status_changed_publish_failed"
         assert record.reason == "email_resolution_failed"
 
-    def test_an_unknown_user_is_reported_as_no_email(
+    def test_a_known_user_with_no_email_is_reported_as_no_email(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Users answered NOT_FOUND (the client maps that to None), or holds no
-        address. Not an outage, so it gets its own reason."""
+        """Users answered, but holds no address for this user. Not an outage, so
+        it gets its own reason."""
         client = RecordingSqsClient()
         with caplog.at_level(logging.ERROR):
             publish(build(client, email=None))
 
         assert client.sends == []
         assert caplog.records[-1].reason == "no_email_for_user"
+
+    def test_an_unknown_user_is_reported_as_no_email_too(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The OTHER shape of "no address": Users answered NOT_FOUND, which the
+        client maps to `None` for the whole record rather than to a record with
+        an empty email.
+
+        Distinct from the case above and asserted separately, because the
+        publisher now reads two fields off that record — a `user.email` on a
+        `None` user would be an `AttributeError` swallowed by the outer policy
+        into a silent non-publish with the WRONG reason on the log line.
+        """
+        client = RecordingSqsClient()
+        with caplog.at_level(logging.ERROR):
+            publish(build(client, unknown_user=True))
+
+        assert client.sends == []
+        assert caplog.records[-1].reason == "no_email_for_user"
+
+    def test_an_unknown_user_does_not_raise(self) -> None:
+        """The guard above stated as behaviour: a `None` record must not become
+        an exception inside the publisher."""
+        assert publish(build(RecordingSqsClient(), unknown_user=True)) is None
 
     def test_an_empty_email_is_treated_as_no_email(self) -> None:
         """proto3 has no null, so an absent address can arrive as `""`. It would
@@ -680,14 +1124,33 @@ class TestEmailResolutionFailure:
 
         assert client.sends == []
 
+    def test_a_missing_name_does_not_stop_the_publish(self) -> None:
+        """The asymmetry, asserted at the publisher: no address means no mail
+        can be sent at all, so it bails out; no name is cosmetic, so it must
+        NOT. A guard that keyed on "the user record is incomplete" would silence
+        a perfectly deliverable notification."""
+        client = RecordingSqsClient()
+        publish(build(client, full_name=""))
+
+        assert len(client.sends) == 1
+        assert sent_body(client)["payload"]["email"] == EMAIL
+
 
 class TestNoPlaintextEmailInLogs:
     """The rule from [[logging-context]], asserted over the WHOLE log record —
     message, args and every extra field — because a leak is far more likely to
     arrive through a field nobody thought about than through the one under test.
+
+    The enrichment WIDENED the PII this publisher handles: it now carries the
+    reader's name and their delivery address alongside their email. Every one of
+    the three is payload-only, so the class asserts on all three rather than on
+    the email it was originally written for.
     """
 
     ADDRESS = "leaky.person@example.com"
+    #: A name and a street a search can find unambiguously in a rendered record.
+    NAME = "Leaky Nameington"
+    HOME = {"line1": "1 Leaky Lane", "city": "Leakville", "country": "US"}
 
     def _rendered(self, caplog: pytest.LogCaptureFixture) -> str:
         """Every record flattened to one searchable string.
@@ -718,6 +1181,36 @@ class TestNoPlaintextEmailInLogs:
         rendered = self._rendered(caplog)
         assert self.ADDRESS not in rendered
         assert "leaky.person" not in rendered
+
+    def test_a_failed_send_never_logs_the_full_name(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """New PII on this path, and it has no hashed counterpart — the name is
+        simply not logged. `user_id` already identifies the person for anyone
+        with the authority to look them up."""
+        with caplog.at_level(logging.DEBUG):
+            publish(
+                build(FailingSqsClient(), email=self.ADDRESS, full_name=self.NAME)
+            )
+
+        rendered = self._rendered(caplog)
+        assert self.NAME not in rendered
+        assert "Nameington" not in rendered
+
+    def test_a_failed_send_never_logs_the_shipping_address(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The delivery address is the most sensitive field on this payload, and
+        the failure line has never needed it: `order_id` names the shipment."""
+        with caplog.at_level(logging.DEBUG):
+            publish(
+                build(FailingSqsClient(), email=self.ADDRESS),
+                shipping_address=self.HOME,
+            )
+
+        rendered = self._rendered(caplog)
+        assert "1 Leaky Lane" not in rendered
+        assert "Leakville" not in rendered
 
     def test_a_failed_send_logs_the_hash_of_that_address(
         self, caplog: pytest.LogCaptureFixture

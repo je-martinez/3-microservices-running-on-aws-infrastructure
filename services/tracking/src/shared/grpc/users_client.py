@@ -116,6 +116,24 @@ class ResolvedUser:
     #: (and log a `reason`) before anything reaches the queue.
     email: str | None = None
 
+    #: The user's display name, from `UserResponse.full_name` — carried for the
+    #: same reason `email` is, and on the same response. The rebranded
+    #: notification templates greet the reader by name
+    #: ([[email-payload-enrichment]]), and Tracking persists no name of its own,
+    #: so it comes from the one call this service already makes to Users. No
+    #: extra round trip: `GetUserById` returns both fields together.
+    #:
+    #: PII like the rest of this dataclass — never log a `ResolvedUser`.
+    #:
+    #: Kept as the raw `""` when Users holds no name, NOT normalized to `None`
+    #: like `email`. The two are different kinds of missing: an absent address
+    #: means the notification cannot be delivered at all, so the publisher must
+    #: be able to distinguish it and bail out; an absent name is cosmetic, the
+    #: mail still sends, and the payload field is a plain string the template
+    #: interpolates. Two spellings of "no name" would only give the publisher a
+    #: `None` to convert back into `""` before every send.
+    full_name: str = ""
+
 
 class UsersGrpcClient:
     """Resolves a Cognito sub to an internal user through `users.v1.Users`.
@@ -197,6 +215,10 @@ class UsersGrpcClient:
             # so "Users has no email on file" is one value, not two — see the
             # field's docstring.
             email=response.email or None,
+            # NOT normalized: `""` is carried through as-is, because a missing
+            # name is cosmetic where a missing address is disqualifying. See the
+            # field's docstring.
+            full_name=response.full_name,
         )
 
 

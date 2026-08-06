@@ -19,6 +19,27 @@ public class Order : AuditableEntity
     public string CognitoSub { get; set; } = string.Empty;  // from the gateway
     public long SubtotalCents { get; set; }
     public long TaxCents { get; set; }
+
+    /// <summary>
+    /// The delivery cost charged on this order, in cents. Part of
+    /// <see cref="TotalCents"/> (<c>subtotal + tax + shipping</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An ORDER-level cost, not a per-line one: it is charged once for the shipment,
+    /// not once per product. Deliberately absent from <c>OrderDetail</c> and from
+    /// <c>OrderPricing.PriceLine</c> — spreading it across the lines would make each
+    /// line's own total unexplainable from its unit price and quantity.
+    /// </para>
+    /// <para>
+    /// Point-in-time, like <see cref="ShippingAddress"/>: the rate is read from the
+    /// <c>configuration</c> table (key <c>shipping_cents</c>) when the order is created
+    /// and then frozen onto the row, so a later rate change never rewrites what a past
+    /// order actually cost.
+    /// </para>
+    /// </remarks>
+    public long ShippingCents { get; set; }
+
     public long TotalCents { get; set; }
 
     /// <summary>
@@ -71,5 +92,6 @@ public class Order : AuditableEntity
 
     public decimal Subtotal => SubtotalCents / 100m;
     public decimal Tax => TaxCents / 100m;
+    public decimal Shipping => ShippingCents / 100m;
     public decimal Total => TotalCents / 100m;
 }

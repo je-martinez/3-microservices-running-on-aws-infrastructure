@@ -97,6 +97,14 @@ public class CreateOrderService
         // Tax rate is read per-request from the configuration table (not an env var).
         var taxRate = await _config.GetTaxRateAsync(ct);
 
+        // Same source as the tax rate: a flat, ORDER-level delivery charge, read per-request
+        // so it can change without a redeploy. Read here, next to the rate, but applied ONCE
+        // to the order below — never inside the per-line pricing loop. It is charged for the
+        // shipment, not per product, so it deliberately never reaches OrderPricing.PriceLine
+        // or any OrderDetail: a line whose total exceeded unit_price * quantity could not be
+        // explained from its own columns.
+        var shippingCents = await _config.GetShippingCentsAsync(ct);
+
         // Wrap the whole transactional write so the audit interceptor stamps
         // CreatedBy/UpdatedBy with `orders_api:create_order` rather than the
         // buyer's id. The buyer is still traced via UserId/CognitoSub on the row;
@@ -186,6 +194,13 @@ public class CreateOrderService
 
             order.SubtotalCents = subtotal;
             order.TaxCents = tax;
+            order.ShippingCents = shippingCents;
+
+            // `total` accumulated above is the LINE total (subtotal + tax summed across
+            // details); shipping is added once here because it is charged per shipment.
+            // This is the one place the order's total diverges from the sum of its lines,
+            // and it is why the emailed receipt's Subtotal/Shipping/Tax/Total adds up.
+            total += shippingCents;
             order.TotalCents = total;
 
             _db.Orders.Add(order);

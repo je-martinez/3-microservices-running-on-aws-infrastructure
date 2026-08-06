@@ -25,4 +25,16 @@ public class ConfigurationReader : IConfigurationReader
 
         return decimal.Parse(value, CultureInfo.InvariantCulture);
     }
+
+    public async Task<long> GetShippingCentsAsync(CancellationToken ct = default)
+    {
+        var value = await _db.Configurations
+            .AsNoTracking()
+            .Where(c => c.Key == ConfigurationSeed.ShippingCentsKey)
+            .Select(c => c.Value)
+            .FirstOrDefaultAsync(ct)
+            ?? throw new InvalidOperationException("shipping_cents configuration missing");
+
+        return long.Parse(value, CultureInfo.InvariantCulture);
+    }
 }
