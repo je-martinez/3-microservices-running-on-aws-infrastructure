@@ -569,7 +569,7 @@ class TestTheCognitoSubComesFromThePersistedRow:
         advance(
             session,
             "ord_sub00000000000001",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             publisher=publisher,
         )
 
@@ -587,7 +587,7 @@ class TestTheCognitoSubComesFromThePersistedRow:
         advance(
             session,
             "ord_sub00000000000002",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             publisher=publisher,
         )
 
@@ -611,7 +611,7 @@ class TestTheCognitoSubComesFromThePersistedRow:
         advance(
             session,
             "ord_sub00000000000003",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             publisher=publisher,
         )
         event = publisher.published[0]
@@ -630,7 +630,7 @@ class TestTheCognitoSubComesFromThePersistedRow:
         advance(
             session,
             "ord_sub00000000000004",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             publisher=publisher,
         )
 
@@ -653,14 +653,14 @@ class TestTheCognitoSubComesFromThePersistedRow:
         advance(
             session,
             "ord_sub00000000000005",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             publisher=publisher,
         )
         event = publisher.published[0]
 
         assert event["user_id"] == OWNER
         assert event["order_id"] == "ord_sub00000000000005"
-        assert event["status"] == TrackingStatus.ON_THE_WAY
+        assert event["status"] == TrackingStatus.PROCESSING
 
     def test_no_request_header_can_supply_the_cognito_sub(
         self, client: TestClient, session: Session
@@ -684,7 +684,7 @@ class TestTheCognitoSubComesFromThePersistedRow:
         with _bound_publisher(publisher):
             response = client.put(
                 "/v1/trackings/ord_sub00000000000006/status",
-                json={"status": TrackingStatus.ON_THE_WAY},
+                json={"status": TrackingStatus.PROCESSING},
                 headers={**carrier(), "x-user-id": IMPOSTOR_SUB},
             )
 
@@ -703,7 +703,7 @@ class TestTheCognitoSubComesFromThePersistedRow:
         advance(
             session,
             "ord_sub00000000000007",
-            TrackingStatus.ON_THE_WAY,
+            TrackingStatus.PROCESSING,
             publisher=publisher,
             actor=AuditActor.TEST_MODE_PROGRESSION,
         )
