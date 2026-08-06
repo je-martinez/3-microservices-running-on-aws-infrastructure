@@ -292,6 +292,25 @@ Not portable (Claude Code only):
 This is not cosmetic. It prevents assuming parity where none exists — an assumption that
 becomes expensive when Orca is running agents across several providers at once.
 
+## Round-trip evidence
+
+The pipeline was exercised end to end by editing a rule in `.ai/rules/`, running
+`make ai-sync`, and checking every destination. A marker added to
+`scripting-language.md` reached all six providers:
+
+| Provider | Delivery mechanism |
+|---|---|
+| Cursor | `.cursor/rules/*.mdc` — translated format |
+| Copilot | `.github/instructions/*.instructions.md` |
+| Windsurf | `.windsurf/rules/*.md` |
+| Gemini / Antigravity | `GEMINI.md` — rules concatenated per directory |
+| OpenCode | `.opencode/rules` → symlink, current by construction |
+| Codex | root `AGENTS.md` → symlink to `.ai/AGENTS.md` |
+
+Removing the marker and re-syncing propagated the **deletion** to all six. That
+matters more than the addition: it proves the pipeline synchronizes rather than
+merely appends, so a rule deleted at the source cannot survive at a destination.
+
 ## Verification
 
 1. `lnai validate` passes.
@@ -337,11 +356,25 @@ filesystem with `readdirSync`, so `.gitignore` does not hide anything from it. U
 **lnai's rule schema requires `paths`, not `name`/`description`.** `paths` must be a
 non-empty glob array; a rule without it fails validation outright.
 
-**Windsurf exports every rule as `trigger: manual`.** They are present but not
-ambient, so a rule that only lives in `.ai/rules/` is effectively inert there. This
-is why safety-critical policy — chiefly "never commit without explicit confirmation" —
-must also appear in the body of `AGENTS.md`, which Windsurf reads ambiently. Treat
-`.ai/rules/` as reference material and `AGENTS.md` as the load-bearing surface.
+**Rule files are never ambient — on any provider.** Two independent confirmations of
+the same underlying limitation:
+
+- **Windsurf** exports every rule as `trigger: manual`, so rules are present but not
+  applied on their own.
+- **Cursor** receives every rule with `alwaysApply: false`, and this cannot be
+  changed. lnai derives the flag as `alwaysApply = globs.length === 0`, while its
+  schema makes `paths` mandatory (`z.ZodArray`, not optional). Verified by removing
+  `paths` from a rule: `lnai validate` fails with
+  `expected array, received undefined`. With globs the flag is always `false`;
+  without them the config does not validate. There is no third option.
+
+In practice a `paths: ["**"]` rule still activates on any file touched, so coverage is
+adequate — but adequate-by-glob is not the same as ambient. The conclusion holds for
+both providers and drives the architecture: **treat `.ai/rules/` as reference material
+and `AGENTS.md` as the load-bearing surface.** Safety-critical policy — chiefly "never
+commit, push, merge, or open a PR without explicit user confirmation" — must appear in
+the body of `AGENTS.md`, which every provider reads ambiently, and not only as a rule
+file.
 
 **Frontmatter that Claude Code tolerates can be invalid to stricter parsers.** The
 `floci` skill's description contains an unquoted `": "` (in `:4566` and

@@ -78,10 +78,18 @@ paths:
   # - "services/**"  # BAD: creates services/AGENTS.md
 ```
 
-**`AGENTS.md` is the load-bearing surface, not `.ai/rules/`.** Windsurf exports every
-rule as `trigger: manual`, so rules there are present but not ambient. Any
-safety-critical policy — above all "never commit without explicit confirmation" — must
-appear in the body of `AGENTS.md` too, not only as a rule file.
+**`AGENTS.md` is the load-bearing surface, not `.ai/rules/`.** Rule files are never
+ambient on any provider:
+
+- Windsurf exports every rule as `trigger: manual`.
+- Cursor receives every rule with `alwaysApply: false`, and it cannot be changed —
+  lnai computes `alwaysApply = globs.length === 0` while its schema makes `paths`
+  mandatory. Omitting `paths` fails validation instead of producing an always-on rule.
+
+A `paths: ["**"]` rule does activate on any file touched, so coverage is adequate — but
+do not mistake that for ambient. Any safety-critical policy — above all "never commit,
+push, merge, or open a PR without explicit user confirmation" — must appear in the body
+of `AGENTS.md`, not only as a rule file.
 
 ### 3. Normalize the subagent frontmatter
 
