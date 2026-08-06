@@ -131,9 +131,12 @@ and always regenerable; the arrow points one way.**
 ```
 .claude/  ──[distill: subagent]──▶  .ai/  ──[lnai sync]──▶  6 providers
 (source,                           (derived,               .cursor/  .github/
- real files,                        disposable,            .gemini/  .windsurf/
- version-controlled)                gitignored)            .codex/   .agents/
+ hand-edited,                       regenerable,           .gemini/  .windsurf/
+ authoritative)                     never hand-edited)     .codex/   .agents/
                                                            opencode.json
+
+  All three columns are committed. "Derived" means regenerate-don't-edit,
+  not absent from git — see "Everything is version-controlled".
 ```
 
 ### Stage 1 — Distillation and normalization (LLM; the subagent)
