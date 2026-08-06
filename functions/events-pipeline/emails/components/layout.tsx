@@ -164,8 +164,25 @@ export function EmailLayout({ children }: { children: ReactNode }) {
           >
             <EmailHeader />
 
-            {/* "Body Wrapper" in the `.pen`: 32px of page gutter around the card. */}
-            <Section className="bg-bg-body p-[32px]">
+            {/* "Body Wrapper" in the `.pen`: 32px of page gutter around the card.
+                PADDING ONLY — deliberately no background.
+
+                The `.pen` fills this frame with `bg-body` because a Pencil frame
+                has no inherited backdrop, but in HTML it painted `#F4F4F5` on
+                top of `#F4F4F5` — invisible, and a second place the page colour
+                could be changed from.
+
+                Removing it is safe for a reason worth stating, because the
+                obvious objection is right: `<body>` styling has only 65.86%
+                support, and Gmail, Outlook.com, Yahoo and AOL all replace the
+                tag with a `<div>`, so a page background that lived ONLY on
+                `<body>` would vanish for most webmail readers. It does not live
+                only there — react-email's `<Body>` also emits a full-width
+                wrapper `<table>`/`<td>` carrying the same colour, which is
+                exactly the "put it on a wrapper table" practice those clients
+                need. Verified in the rendered HTML: three elements carried this
+                colour, and the two that survive are the ones that matter. */}
+            <Section className="p-[32px]">
               {/* "Content Card" — identical in all five `.pen` frames. */}
               <Section className="bg-bg-white rounded-[8px] px-[36px] py-[40px]">
                 {children}
