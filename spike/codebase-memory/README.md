@@ -85,8 +85,34 @@ before anything is built on it.
 - [x] Part A designed
 - [x] Part A1 executed — 6 documented-knowledge questions (2026-08-07)
 - [x] Part A2 executed — 3 change-impact questions (2026-08-07)
-- [ ] Cheap-fix test: write blast-radius checklists, re-measure
-- [ ] Part B decision — pending the cheap-fix result
+- [x] Part A3 executed — cheap-fix test: checklists written, re-measured (2026-08-07)
+- [x] A3 root cause established (follow-up questioning of the run)
+- [ ] Part B decision — the documentation-only path has now failed twice
+
+### A3 in one line
+
+The checklists were written, verified, and **never read** — not because they were
+hard to find, but because a partial answer felt complete and the agent stopped.
+
+### Why that matters more than it sounds
+
+The first diagnosis was "missing breadcrumb" and it was **wrong**. Checked directly:
+`services/tracking/CLAUDE.md` §6 links the spec by relative path, labelled *"source of
+truth"*, and the agent confirmed the spec also appeared in its own grep results. It saw
+the target twice and did not open it, because
+`services/tracking/scripts/generate_grpc_stubs.py`'s docstring had already given a
+plausible partial answer.
+
+A missing link is a one-line fix. **"Agents stop when satisfied" is not fixable by
+writing more or linking better** — a partial answer to "what must change" looks exactly
+like a complete one. It is a list, and nothing about a short list announces its
+shortness.
+
+This also reframes the graph engine's value. Not knowledge the docs lack — when finally
+read, the specs were **strictly more complete** than the agent's grep reconstruction,
+which found 3 of 4 proto consumers and missed `order-created.ts` entirely. What a query
+interface adds is a **terminating condition**: `get_callers` returns *the set*, and the
+caller knows it is the set. Prose cannot signal its own completeness.
 
 ### The two runs disagree, and the disagreement is the finding
 
