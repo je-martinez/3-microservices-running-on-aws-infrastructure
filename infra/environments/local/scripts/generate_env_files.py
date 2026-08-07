@@ -28,6 +28,11 @@ left in one of these files would reach the service as that literal string.
 Every value is REQUIRED. A missing one raises rather than writing an empty
 string, because an empty segment inside a connection string yields a service
 that starts and then cannot connect — much harder to diagnose than failing here.
+
+ONE DOCUMENTED EXCEPTION: ASSETS_BASE_URL is read from the PHASE 2 root
+(environments/local/post), which `make bootstrap` does not apply — so it falls
+back to the derived value phase 2 would produce instead of raising. See
+discover_assets_base_url; every other value still fails loudly.
 """
 
 import argparse
@@ -104,6 +109,52 @@ MAILPIT_API_URL = "http://localhost:8025/api/v1"
 GRPC_API_KEY = "local-dev-grpc-key"
 TRACKING_CARRIER_API_KEY = "local-dev-carrier-key"
 
+# Public base URL of the assets bucket, with NO trailing slash. The email
+# templates append a known object key to it ("<base>/email/logo.png") to build
+# the REMOTE <img> src of every icon.
+#
+# The bucket lives in the PHASE 2 root (environments/local/post/assets.tf), so
+# unlike every other value in this file it may not exist yet: `make bootstrap`
+# runs `env-file` and phase 2 is a separate, explicit `make post-infra`. This is
+# therefore the ONE value read with a fallback rather than as a hard-required
+# terraform output — the alternative is a generator that fails for everyone who
+# has not run phase 2, which would break bootstrap itself.
+#
+# The fallback is not a guess. Phase 2 pins endpoint_url = "http://localhost:4566"
+# and names the bucket "post-<label_post.id>-assets" off the fixed
+# (3mrai, local, post) label triple, so both halves are static and this string is
+# byte-identical to what the output returns. It is the same default declared on
+# var.assets_base_url in environments/local/variables.tf, which is what the
+# LAMBDA reads — the two must stay in sync, and they are kept so by both being
+# derived from the same two static facts.
+#
+# `localhost`, not the in-network `floci`: this URL is never fetched by our own
+# code. It is embedded in a delivered email and resolved by the reader's mail
+# client (Mailpit in a host browser locally), so an in-network hostname would
+# render as a broken image.
+ASSETS_BASE_URL_FALLBACK = "http://localhost:4566/post-3mrai-local-post-assets"
+
+
+def discover_assets_base_url(repo_root: Path) -> str:
+    """Phase 2's assets_base_url output, or the derived fallback.
+
+    Deliberately tolerant, unlike `terraform_output`: a developer who has not run
+    `make post-infra` still gets a working env file, and the value they get is
+    the one phase 2 would produce anyway. Once phase 2 HAS been applied its
+    output wins, so a rename or a switch to CloudFront propagates here without
+    this constant being edited.
+    """
+    post_dir = repo_root / "infra" / "environments" / "local" / "post"
+    try:
+        return terraform_output(post_dir, "assets_base_url")
+    except MissingValue:
+        inf(
+            "assets_base_url: phase 2 (post) has no state yet — using the derived "
+            f"default {ASSETS_BASE_URL_FALLBACK}. Run `make post-infra` to create "
+            "the bucket, then `make assets-sync` to upload."
+        )
+        return ASSETS_BASE_URL_FALLBACK
+
 
 def build(repo_root: Path) -> dict[Path, dict]:
     """Resolve every value once, then describe each file to write."""
@@ -126,6 +177,11 @@ def build(repo_root: Path) -> dict[Path, dict]:
     docdb_cluster_identifier = terraform_output(tf_dir, "docdb_cluster_identifier")
     docdb_port = terraform_output(tf_dir, "docdb_port")
     docdb_username = terraform_output(tf_dir, "docdb_master_username")
+
+    # Read from PHASE 2 (the assets bucket root), with a derived fallback — the
+    # only value in this file that is not a hard-required phase-1 output. See
+    # discover_assets_base_url for why.
+    assets_base_url = discover_assets_base_url(repo_root)
 
     # Discovered per-engine, never assumed: Floci assigns proxy ports 7000-7099
     # by cluster creation order, so postgres and mysql swap across applies.
@@ -344,6 +400,12 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # functions/events-pipeline/src/shared/config/env.ts.
                 "DOCDB_AUTH_SOURCE": "admin",
                 "SES_FROM_ADDRESS": "no-reply@3mrai.local",
+                # Base URL the email templates append icon keys to. They render
+                # REMOTE <img> tags (100% client support) rather than base64
+                # data: URIs (80.95%), so without this every icon is a broken
+                # URL. The service's Zod schema REQUIRES it, so a missing value
+                # kills the function at boot rather than mailing broken images.
+                "ASSETS_BASE_URL": assets_base_url,
             },
         ),
         # --- debug: HOST-reachable, loaded by nothing ------------------------

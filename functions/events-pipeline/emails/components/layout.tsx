@@ -1,6 +1,7 @@
-import { Html, Head, Font, Body, Container, Section, Row, Column, Text, Hr } from "@react-email/components";
+import { Html, Head, Font, Body, Container, Section, Row, Column, Text, Hr, Img } from "@react-email/components";
 import type { ReactNode } from "react";
 import { Brand } from "./brand.tsx";
+import { emailAssets } from "../assets.ts";
 
 // Shared chrome for every transactional email. Lives in `emails/` (the
 // react-email CLI's default dir) rather than under `src/` so `email dev` picks
@@ -31,14 +32,22 @@ const EMAIL_WIDTH = "600px";
 // hex visible next to the only rule that uses it.
 const FOOTER_DIVIDER = "#3D4A5C";
 
-// The logo mark (`assets/img/standalone-logo.png`) is deliberately NOT rendered.
-// It is a 1.38 MB 1024x1024 master shown at 42px, emails cannot reference
-// repo-relative paths, and many clients block remote images by default. So the
-// brand is carried by the "3M" + "RAI" text lockup, which is legible with no
-// images at all. If an <Img> is ever added it needs a PUBLICLY HOSTED URL (plus
-// a resized asset), and it must stay an ENHANCEMENT — never the only thing
-// carrying the brand, or the header goes blank for every reader who blocks
-// images.
+// The logo mark IS now rendered — the two objections that kept it out are both
+// resolved. It is no longer the 1.38 MB 1024x1024 master: `make assets-sync`
+// uploads a 42x42, ~1.3 KB `email/logo.png`. And it no longer needs a
+// repo-relative path: the asset has a real public URL, built from
+// ASSETS_BASE_URL in `emails/assets.ts`.
+//
+// The "many clients block remote images by default" objection does not survive
+// contact with the numbers: a remote <img> has 100% client support, and Gmail has
+// shown remote images BY DEFAULT since 2013 (it proxies them). The full argument,
+// and why this reverses the base64 decision, is in `emails/assets.ts`.
+//
+// The "3M" + "RAI" TEXT LOCKUP STAYS BESIDE IT, and that is not decoration. A
+// reader who turns images off — or whose client fails to fetch — still sees the
+// brand, because text is the only element here with genuinely 100% reach. The
+// mark is an ENHANCEMENT layered on a header that is already complete without
+// it; it must never become the only thing carrying the brand.
 function LogoLockup({ fontSize }: { fontSize: number }) {
   // Two <Text> nodes would each become a block-level <p>, stacking "3M" over
   // "RAI". A single line with <span>s keeps the lockup on one line in every
@@ -64,10 +73,34 @@ export function EmailHeader() {
   return (
     <Section className="bg-brand-navy px-[32px] py-[20px]">
       <Row>
-        <Column align="left">
+        {/* Mark + wordmark, left. They are two CELLS of one row rather than an
+            <Img> and a <Text> in the same cell: <Text> renders a block-level
+            <p>, which would push the lockup onto its own line under the mark.
+            Two table cells keep them side by side in every client.
+
+            The mark's cell is `width="42"` — its exact display width — so the
+            wordmark's cell takes the remaining space and the two stay adjacent
+            instead of the mark's cell stretching. `valign="middle"` on both
+            keeps the 42px mark and the 18px type on a shared centre line.
+
+            `width`/`height` come from the asset entry as HTML ATTRIBUTES.
+            Outlook sizes images from the attributes and ignores CSS, so a mark
+            with only a class would render at its natural size and blow the
+            header's height open. */}
+        <Column width="42" valign="middle">
+          <Img
+            {...emailAssets.logo}
+            alt="3MRAI"
+            // `block` kills the few px of descender gap an inline replaced
+            // element leaves under itself, which would otherwise offset the
+            // mark from the wordmark's baseline.
+            className="block"
+          />
+        </Column>
+        <Column align="left" valign="middle" className="pl-[10px]">
           <LogoLockup fontSize={18} />
         </Column>
-        <Column align="right">
+        <Column align="right" valign="middle">
           <Text className="m-0 font-body text-[11px] font-normal tracking-[3px] text-text-muted">
             COMPANY
           </Text>

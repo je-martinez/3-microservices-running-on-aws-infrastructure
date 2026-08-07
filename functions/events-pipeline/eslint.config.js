@@ -32,9 +32,6 @@ export default tseslint.config(
         console: "readonly",
         process: "readonly",
         URL: "readonly",
-        // scripts/build-icons.mjs rasterises SVG text into PNG bytes, so it
-        // handles Buffers on both sides of sharp.
-        Buffer: "readonly",
       },
     },
   },

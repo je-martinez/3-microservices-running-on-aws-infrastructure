@@ -3,7 +3,7 @@ import { EmailLayout } from "./components/layout.tsx";
 import { greeting } from "./components/greeting.ts";
 import { Button } from "./components/button.tsx";
 import { DetailRow } from "./components/detail-row.tsx";
-import { userCheck } from "./icons.generated.ts";
+import { emailAssets } from "./assets.ts";
 
 // `createdAt` is the ISO-8601 string the producer serialized (Users'
 // SqsEventPublisher calls `.toISOString()`), not a Date: it crossed a JSON
@@ -50,22 +50,21 @@ function formatMemberSince(createdAt: string | undefined): string | null {
   });
 }
 
-// The `.pen`'s "Icon Circle" holds a 28px lucide `user-check`, and it is now a
-// REAL icon — a base64 PNG `data:` URI from `icons.generated.ts`, replacing the
-// "✓" text glyph this template used to print.
+// The `.pen`'s "Icon Circle" holds a 28px lucide `user-check`, served as a
+// REMOTE PNG from the assets bucket (`emails/assets.ts`).
 //
-// The three obvious ways to ship an icon still do not work: an icon font needs
-// @font-face (a <style> block, which Gmail and Outlook strip), inline SVG has
+// Two of the three ways to ship an icon are still dead ends: an icon font needs
+// @font-face (a <style> block, which Gmail and Outlook strip), and inline SVG has
 // 40.48% support and renders in NO version of Outlook on Windows
-// (caniemail.com/features/html-svg), and a remote <img> is blocked by default in
-// many clients. base64 `data:` URIs are the one path that works: 80.95% support,
-// including BOTH Gmail (since 2020) and Outlook on Windows
-// (caniemail.com/features/image-base64). PNG specifically — Outlook Windows does
-// not render base64 GIF.
+// (caniemail.com/features/html-svg). The third — a remote <img> — is the one that
+// works: 100% client support, and Gmail has displayed remote images by default
+// since 2013. This REPLACES the base64 `data:` URI this file used to embed, whose
+// 80.95% support left ~19% of readers with nothing and no way to fix it. Full
+// argument in `emails/assets.ts`.
 //
-// The ~20% where it does not load is why the ORANGE CIRCLE STAYS. With the image
-// missing the reader still sees a deliberate brand-tinted disc above the
-// heading, not a broken-image box, and the `alt` carries the meaning.
+// A reader may still have images off by choice, which is why the ORANGE CIRCLE
+// STAYS. With the image missing the reader sees a deliberate brand-tinted disc
+// above the heading, not a broken-image box, and the `alt` carries the meaning.
 //
 // The circle itself is a fixed-width table cell with a 32px radius, not a flex
 // box: `borderRadius` on a <td> is honoured by every client that matters, and
@@ -86,15 +85,15 @@ function IconCircle() {
             align="center"
             className="w-[64px] h-[64px] bg-brand-orange-light rounded-[32px] text-center align-middle"
           >
-            {/* `width`/`height` are ATTRIBUTES, not just classes: Outlook
-                sizes an image from the HTML attributes and ignores CSS
-                dimensions, so the PNG rendered at 56px would otherwise
-                display at its natural size and burst the circle. */}
+            {/* `width`/`height` come from the asset entry as ATTRIBUTES, not
+                classes: Outlook sizes an image from the HTML attributes and
+                ignores CSS dimensions, so the 64px file (a deliberate 2x
+                retina asset) would otherwise display full-size and burst the
+                circle. Spreading the whole entry is what keeps the src and its
+                sizing from drifting apart. */}
             <Img
-              src={userCheck}
+              {...emailAssets.userCheck}
               alt="Account created"
-              width="28"
-              height="28"
               className="inline-block align-middle"
             />
           </Column>

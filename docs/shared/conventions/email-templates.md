@@ -4,12 +4,14 @@ type: convention
 area: events-pipeline
 status: active
 created: 2026-08-06
-updated: 2026-08-06
+updated: 2026-08-07
 tags: [type/convention, area/events-pipeline, status/active]
 related:
   - "[[events-pipeline-design]]"
   - "[[tightened-schemas-need-producer-first-deploys]]"
   - "[[testing]]"
+  - "[[env-files]]"
+  - "[[ADR-0014-env-validation-zod]]"
 ---
 
 # Email Templates
@@ -34,20 +36,41 @@ number behind it, and the templates are built the way they are specifically to s
   ([caniemail.com/features/html-svg](https://www.caniemail.com/features/html-svg/)), and it
   renders in **no version of Outlook on Windows** — that client goes through Word's HTML
   engine, which has no SVG support at all.
-- **Remote `<img>` is blocked by default** in many clients for unknown senders, and it also
-  leaks an open-tracking signal via the external request.
-- **Base64 `data:` URIs are the one that works.** 80.95% support
-  ([caniemail.com/features/image-base64](https://www.caniemail.com/features/image-base64/)),
-  working in both Gmail (since 2020) and Outlook on Windows. **PNG, not GIF** — Outlook Windows
-  does not render a base64 GIF, only base64 PNG.
-- **Because ~20% of recipients still see no image, every image must be an enhancement.** The
-  coloured icon circle, the button label, the text lockup must each carry the design on their
-  own with zero assets loaded. Every `<Img>` needs a meaningful `alt`. Never make an icon the
-  only thing conveying required information (see the OTP security notice below).
-- **Gmail clips messages over ~102 KB.** The current templates run roughly 8–25 KB rendered, so
-  there is headroom — but base64 icons are what actually consumes it, which is why
-  `build-icons.mjs` rasterises each icon at a deliberately small size (see
-  [[#Adding an icon]]) rather than embedding full-resolution art.
+- **Remote `<img>` is the one that works — 100% client support**
+  ([caniemail.com/features/image-jpg](https://www.caniemail.com/features/image-jpg/)). Every
+  image the templates render (icons, the logo, the timeline dots) is a remote `<img>` served
+  from the assets bucket (see [[#The asset pipeline]]), not an embedded `data:` URI.
+- **The old objection to remote images was based on a stale claim, and the correction is worth
+  keeping on record.** The templates used to embed every icon as a base64 PNG `data:` URI on
+  the premise that "Gmail blocks remote images by default". **That has not been true since
+  2013**: Gmail displays remote images by default, proxying them through its own image cache
+  (`googleusercontent.com`) rather than hitting the sending server directly. It withholds an
+  image only when it judges the *sender* suspicious — a reputation problem, not a property of
+  remote images, and one addressable with SPF, DKIM, DMARC, and a consistent sending domain.
+  Transactional mail also has the easiest reputation to earn: it goes to someone who just
+  handed over their address and is actively expecting it.
+- **Base64 `data:` URIs, kept here as the rejected alternative, not the current approach.**
+  80.95% support ([caniemail.com/features/image-base64](https://www.caniemail.com/features/image-base64/)).
+  That ~19% gap is a **hard rendering limit** — no sender-side mitigation exists for it, unlike
+  the reputation-based blocking that remote `<img>` risks. That asymmetry is why remote wins:
+  a mitigable risk beats an unfixable one. It also cost message size (base64 inflates every
+  byte by ~33% and repeats the whole payload inside the message) and required a build step
+  (`build-icons.mjs` rasterising `lucide-static` SVGs into a committed
+  `emails/icons.generated.ts`) that has since been deleted along with the `build:icons` npm
+  script — see [[#The asset pipeline]] for what replaced it. Do not "optimise" back to base64
+  without re-reading this section; the number that justified it was wrong, not the number
+  itself.
+- **Images are an enhancement, always — this did not change when the image mechanism did.**
+  Whether a recipient's client blocks a remote image for reputation reasons, or a recipient has
+  images off by personal setting, the same rule applies: every `<Img>` needs a meaningful
+  `alt`, the coloured circle behind each header icon stays, and the header's "3M"+"RAI" text
+  lockup stays beside the logo mark — text is the only element with genuinely 100% reach. An
+  image must never be the only thing conveying required information (see the OTP security
+  notice below).
+- **Gmail clips messages over ~102 KB.** Serving images remotely instead of embedding them
+  removes the biggest contributor to that ceiling — base64 was what actually consumed the
+  budget — so this constraint is less pressing now than it was, though it still bounds how much
+  text and markup a template can carry.
 
 ## Authoring rules
 
@@ -77,9 +100,21 @@ number behind it, and the templates are built the way they are specifically to s
   is resolved by the table after the radius is computed, so round corners on a `Column` render
   inconsistently across clients. Round shapes (icon circles, status badges) go on an
   `inline-block` `<span>`/`Text` with `border-radius: 50%` and `box-sizing: border-box` instead.
+- **Where a shape must be round in every client, use an image instead of CSS — the timeline
+  dots are the concrete case.** They used to be CSS-drawn `inline-block` spans with
+  `border-radius: 50%`, the most fragile construct in the whole template set: `border-radius`
+  has 82.92% support ([caniemail.com/features/css-border-radius](https://www.caniemail.com/features/css-border-radius/))
+  and Outlook on Windows has **none** of it, so every dot rendered as a square there. They are
+  now PNGs (`greenDot`/`orangeDot`/`blankDot` in `emails/assets.ts`), which removes both the
+  `border-radius` dependency and the `inline-block` dependency from that part of the layout in
+  one move — a PNG of a circle is a circle in every client. Colour still distinguishes the
+  three states on its own, so a reader with images off loses the dots but keeps the timeline:
+  each step keeps its text label, its date, and the active step keeps its bold weight.
 - **`<Img>` needs `width`/`height` as HTML attributes, not just Tailwind classes.** Outlook
   sizes images from the HTML attributes and ignores CSS dimensions — an image with only a
-  `w-[28px]` class can render full-size and burst its container.
+  `w-[28px]` class can render full-size and burst its container. This applies to every `<Img>`
+  in these templates without exception, now that all of them (icons, logo, and dots) are remote
+  images rather than a mix of base64 icons and CSS shapes.
 - **`Hr`'s own default border style is emitted *after* the compiled Tailwind classes.** Its
   border colour must be set via inline `style`, or the component default
   (`border-top: 1px solid #eaeaea`) wins the cascade and the rule silently renders grey — no
@@ -90,13 +125,13 @@ number behind it, and the templates are built the way they are specifically to s
 
 1. **Design the frame** in `assets/email/emails.pen`, and document it in `assets/email/DESIGN.md`
    (layout structure, tokens used, icons, component patterns).
-2. **Add the icon(s)** to `functions/events-pipeline/scripts/build-icons.mjs` — colours read
-   from `emails/theme.ts` tokens where tokenized, or as a documented one-off literal otherwise.
-   The script rasterises `lucide-static` SVGs to base64 PNG at 2× display size (for retina) into
-   the committed `emails/icons.generated.ts`. It is committed deliberately: `emails/*.tsx`
-   import it directly, so `tsc --noEmit`, `vitest`, and `email dev` all need it to exist without
-   a build step having run first. Run `pnpm run build:icons` (or the full `pnpm run build`) after
-   editing the `ICONS` list.
+2. **Add the image(s)** to `assets/` (e.g. `assets/img/email/`), run `make assets-sync` to
+   optimise and upload them, then reference them through `emails/assets.ts` — add an
+   `emailAssets` entry with the object key, the display size, and the colour/state it belongs
+   to. See [[#The asset pipeline]] for the full mechanics. There is no build step to run inside
+   `functions/events-pipeline/` for this — the old `build-icons.mjs` script,
+   `emails/icons.generated.ts`, and the `build:icons` npm script are gone; images live in the
+   assets bucket, not in committed TypeScript.
 3. **Write the component** under `emails/`, wrapped in `EmailLayout` (`emails/components/layout.tsx`),
    which supplies the header, the white content card, and the footer.
 4. **Register it in `src/email/catalog.ts`** via `defineTemplate<P>()`, with realistic
@@ -114,6 +149,37 @@ number behind it, and the templates are built the way they are specifically to s
    a snapshot can agree with itself while still being visually wrong (see
    [[tightened-schemas-need-producer-first-deploys]] for a case where source-based tests agreed
    with each other while the deployed artifact was stale).
+
+## The asset pipeline
+
+Every image the templates render — icons, the logo mark, the timeline dots — is a file under
+`assets/` served from an S3 assets bucket, not an embedded `data:` URI.
+
+- **`make assets-sync` is the day-to-day entry point.** It optimises everything under `assets/`
+  (resizing to the deliberately small display-plus-retina size each image needs) and uploads it
+  to the assets bucket, writing `assets/assets.manifest.json` as it goes. It touches no
+  infrastructure — no plan, no apply, no teardown — so it is safe to re-run against an
+  already-running stack, and idempotent: every object and the manifest are fully overwritten on
+  each run, so re-running is the repair mechanism, not something to avoid.
+- **The manifest is a build/dev artifact, not something the runtime reads.** It is gitignored
+  and environment-specific. The Lambda does not import it or read it at render time — reading a
+  gitignored file at runtime would throw `ENOENT` inside a deployed function, and esbuild does
+  not bundle it either way. `emails/assets.ts` instead hardcodes the known object keys as string
+  literals and builds each URL from `ASSETS_BASE_URL` plus the key.
+- **`ASSETS_BASE_URL` is the one runtime dependency, and it is Zod-required.** The chain is
+  Terraform (assets bucket module) → `generate_env_files.py` (writes the env file — see
+  [[env-files]]) → the service's Zod config schema ([[ADR-0014-env-validation-zod]]) →
+  `emails/assets.ts`. Because the schema requires the key, a Lambda deployed without it dies at
+  boot with a named error instead of rendering emails with broken image links. `emails/assets.ts`
+  itself reads `process.env.ASSETS_BASE_URL` directly rather than importing the shared config
+  module, since that module parses the full service schema (including DocumentDB and SES vars)
+  at import time — importing it would drag unrelated config into contexts that legitimately
+  don't have it, such as the catalog snapshot test and the local `email dev` preview server. It
+  falls back to the local Floci bucket URL in those two contexts only.
+- **Still no WebP, unchanged by this move.** Deliberately not generated: Outlook on Windows (the
+  Word rendering engine) and Apple Mail do not support it, and Gmail converts it to JPG on the
+  way through. It would be a third variant to generate, upload, and track in the manifest, for
+  clients that already render the PNG just as well.
 
 ## One rule that is easy to break by "tidying"
 
@@ -144,3 +210,7 @@ that sentence shows up as a diff to review, not a silent E2E failure days later.
   widening producer payloads to feed richer templates; step 5 above exists because of it.
 - [[testing]] — the three-layer testing convention this service's email screenshot E2E
   implements a variant of.
+- [[env-files]] — how `ASSETS_BASE_URL` reaches the Lambda's env file (`make env-file`,
+  Terraform outputs → `generate_env_files.py`); see [[#The asset pipeline]].
+- [[ADR-0014-env-validation-zod]] — why a missing `ASSETS_BASE_URL` fails Lambda boot instead of
+  rendering broken image links.

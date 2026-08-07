@@ -4,7 +4,7 @@ import { greeting } from "./components/greeting.ts";
 import { Button } from "./components/button.tsx";
 import { DetailRow } from "./components/detail-row.tsx";
 import { theme } from "./theme.ts";
-import { mapPin, check, externalLink } from "./icons.generated.ts";
+import { emailAssets, type EmailAsset } from "./assets.ts";
 
 // Ported from the "Tracking Status Update Email" frame of
 // `assets/email/emails.pen`. The `.pen` expresses its layout with flexbox
@@ -13,30 +13,35 @@ import { mapPin, check, externalLink } from "./icons.generated.ts";
 // grid, so the INTENT is translated into react-email's `Row`/`Column`, which
 // render as tables.
 //
-// ICONS: the `.pen` uses three lucide glyphs (`map-pin` in the header circle,
-// `check` inside each completed timeline dot, `external-link` on the CTA). All
-// three are now REAL icons — base64 PNG `data:` URIs from `icons.generated.ts`,
-// replacing the "◎"/"✓" text glyphs and the dropped CTA icon this template used
-// to have.
+// ICONS: the `.pen` uses `map-pin` in the header circle and `external-link` on
+// the CTA, plus a dot per timeline step. All are served as REMOTE PNGs from the
+// assets bucket (`emails/assets.ts`).
 //
-// The three obvious alternatives still fail: an icon font needs @font-face (a
-// <style> block Gmail and Outlook strip), inline SVG has 40.48% support and
-// renders in NO version of Outlook on Windows (caniemail.com/features/html-svg),
-// and a remote <img> is blocked by default in many clients. base64 `data:` URIs
-// are the one that works — 80.95% support, covering BOTH Gmail (since 2020) and
-// Outlook on Windows (caniemail.com/features/image-base64). PNG, never GIF:
-// Outlook Windows does not render a base64 GIF.
+// Two alternatives still fail: an icon font needs @font-face (a <style> block
+// Gmail and Outlook strip), and inline SVG has 40.48% support and renders in NO
+// version of Outlook on Windows (caniemail.com/features/html-svg). The third — a
+// remote <img> — is the one that works: 100% client support, and Gmail has
+// displayed remote images by default since 2013. This REPLACES the base64
+// `data:` URIs this file used to embed, whose 80.95% support left ~19% of
+// readers with nothing. Full argument in `emails/assets.ts`.
 //
-// The remaining ~20% of recipients see NO image, so the COLOURED SHAPES STAY and
-// keep carrying the design on their own:
-//   - the header circle is still a filled, border-radiused table cell — an
-//     info-blue disc with or without the pin inside it;
-//   - the timeline dots are still filled/hollow coloured circles, so done,
-//     active and pending remain distinguishable by COLOUR AND FILL alone, with
-//     the check mark as a second, redundant cue;
+// THE TIMELINE DOTS ARE THE BIG WIN HERE, and the reason is not the support
+// number. They used to be `inline-block` <span>s with `border-radius: 50%`.
+// `border-radius` has 82.92% support (caniemail.com/features/css-border-radius)
+// and Outlook on Windows — Word's HTML engine — has NONE of it, so every dot
+// rendered as a SQUARE there while the rest of the email looked correct. Three
+// dot PNGs (green = done, orange = active, blank = pending) are circles in every
+// client, and they remove this template's dependence on BOTH `border-radius` and
+// `inline-block` from its most fragile construct.
+//
+// A reader may still have images off, so the design still holds with zero
+// assets loaded:
+//   - the header circle is a filled, border-radiused table cell — an info-blue
+//     disc with or without the pin inside it;
+//   - each timeline step keeps its TEXT LABEL, its date, and the bold weight on
+//     the active one, so the progression is readable without any dot;
 //   - the CTA still reads "Track Your Shipment" without its glyph.
-// Every <Img> carries a meaningful `alt`. The email therefore looks deliberate
-// with zero images loaded, which is the state many recipients see on first open.
+// Every <Img> carries a meaningful `alt`.
 
 // One entry per transition the shipment has already made, oldest first. Carried
 // on the event rather than re-derived here: the pipeline stores its own event
@@ -187,16 +192,48 @@ function formatShippingAddress(address?: Record<string, unknown>): string | unde
 
 type StepState = "done" | "active" | "pending";
 
+// The three dot images, one per state. A lookup rather than a chain of
+// ternaries at the call site: the mapping IS the meaning (green = done,
+// orange = active, blank = pending), and stating it once keeps the three from
+// drifting apart as the component grows.
+//
+// Each entry already carries its 22px display width/height — the exact diameter
+// the CSS-drawn dots had — so the indicator column's alignment is unchanged by
+// the switch from spans to images.
+const STEP_DOT: Record<StepState, EmailAsset> = {
+  done: emailAssets.greenDot,
+  active: emailAssets.orangeDot,
+  pending: emailAssets.blankDot,
+};
+
+// `alt` per state, so a reader with images off gets the step's status as text
+// rather than three identical "dot" strings. Kept beside STEP_DOT because the
+// two are the same decision seen twice.
+const STEP_DOT_ALT: Record<StepState, string> = {
+  done: "Completed",
+  active: "In progress",
+  pending: "Pending",
+};
+
 // The indicator column of one timeline row: the dot, and below it the connector
-// line running to the next step. Both are plain table cells with a background
-// colour — no image, no SVG, no positioned element (absolute positioning is
-// stripped by Outlook, which renders through Word's HTML engine).
+// line running to the next step.
+//
+// THE DOT IS AN IMAGE, NOT A STYLED BOX — and that is the point of this
+// component's current shape. It used to be an `inline-block` <span> with
+// `border-radius: 50%`, which Outlook on Windows renders as a SQUARE:
+// `border-radius` has 82.92% support and Word's HTML engine implements none of
+// it. A PNG circle is a circle everywhere, and it takes both `border-radius` and
+// `inline-block` out of the most fragile part of this layout. Do not "simplify"
+// it back into a styled span.
+//
+// The CONNECTOR stays a plain table cell with a background colour — no image, no
+// SVG, no positioned element (absolute positioning is stripped by Outlook). A
+// rectangle needs no radius, so it never had the problem the dot did, and a
+// runtime-coloured 2px band is cheaper as a cell than as a third asset.
 //
 // The connector is omitted on the last step, matching the `.pen`, where only
 // "Step Delivered" has no "Line" child.
 function StepIndicator({ state, isLast }: { state: StepState; isLast: boolean }) {
-  const dotFill =
-    state === "done" ? theme.successGreen : state === "active" ? theme.brandOrange : theme.bgWhite;
   // The connector spans the step above it to the step below, so it is only
   // TRAVELLED once the step above is COMPLETE. Under the active step the journey
   // has not been made yet, so that segment is grey like the ones ahead of it.
@@ -216,63 +253,33 @@ function StepIndicator({ state, isLast }: { state: StepState; isLast: boolean })
   return (
     <>
       <Row width="auto" className="border-collapse">
-        {/* The dot is a SPAN inside the cell, not the cell itself.
-                `border-radius` on a `<td>` is unreliable: it is a
-                `display: table-cell` whose box the table's own layout resolves
-                after the radius is computed, so the corners survive. That is
-                exactly how the pending steps came out as visible SQUARES beside
-                perfectly round done/active ones — the borderless states had no
-                edge to reveal the shape, the 2px-bordered pending one did. An
-                inline-block span is an ordinary box and rounds reliably.
-
-                `box-sizing: border-box` keeps the bordered pending dot the same
-                22px across as the borderless ones; without it the border is
-                added OUTSIDE the width and the indicator column misaligns. */}
+        {/* `leading-[0]` on the cell kills the line box an inline replaced
+            element would otherwise sit on, which used to add a few px under
+            the dot and push the connector away from it. The dot's own
+            `block` display does the rest. */}
         <Column align="center" className="p-0 leading-[0]">
-          {/* STOP POINT — this span keeps an inline `style`. Its background,
-              border and font size are all DERIVED AT RUNTIME from
-              `done`/`active`/`pending` (see `dotFill`/`lineFill` above), and
-              a class built by interpolating a computed colour
-              (`bg-[${dotFill}]`) is not something Tailwind can compile: the
-              fill would silently disappear and every dot would render
-              transparent. Only the truly static parts move to `className`. */}
-          <span
-            className="inline-block w-[22px] h-[22px] font-body text-bg-white text-center align-middle"
-            style={{
-              backgroundColor: dotFill,
-              // The pending dot is a hollow ring; done/active are filled, and
-              // the active one gets a white centre from the "●" glyph below.
-              border: state === "pending" ? `2px solid ${theme.borderColor}` : "none",
-              boxSizing: "border-box",
-              borderRadius: "50%",
-              lineHeight: "22px",
-              fontSize: "10px",
-            }}
-          >
-            {/* The done step carries lucide's `check` as a 13px white PNG
-                (see the ICONS note at the top of the file); the active step
-                keeps the `.pen`'s white 10px "Inner Dot" as the "●" TEXT
-                glyph, which has no lucide equivalent and is a pure shape.
-                A pending step is an empty ring, exactly as designed — the
-                span holds its own 22px box, so nothing collapses.
+          {/* The whole state distinction now lives in WHICH image is chosen —
+              no runtime colour, no border, no radius, so nothing here needs an
+              inline `style` at all. That is a direct consequence of the switch:
+              the old span carried a computed `backgroundColor` precisely
+              because Tailwind cannot compile an interpolated colour class
+              (`bg-[${dotFill}]` generates no rule), and picking between three
+              static assets sidesteps the problem instead of working around it.
 
-                If the check PNG does not load, the dot is still a FILLED
-                GREEN circle and still reads as completed: the icon is the
-                second cue, never the only one. */}
-            {state === "done" ? (
-              <Img
-                src={check}
-                alt="Completed"
-                width="13"
-                height="13"
-                className="inline-block align-middle"
-              />
-            ) : state === "active" ? (
-              "●"
-            ) : (
-              ""
-            )}
-          </span>
+              `width`/`height` come from the asset entry as HTML ATTRIBUTES —
+              Outlook sizes images from those and ignores CSS. They are 22px,
+              the same diameter the CSS dots had, so the indicator column lines
+              up exactly as before.
+
+              `alt` varies by state, so a reader with images off gets
+              "Completed"/"In progress"/"Pending" rather than three identical
+              strings. The step's own label and date sit beside it either way,
+              so the timeline never depends on these images. */}
+          <Img
+            {...STEP_DOT[state]}
+            alt={STEP_DOT_ALT[state]}
+            className="block"
+          />
         </Column>
       </Row>
       {!isLast && (
@@ -423,10 +430,8 @@ export default function TrackingStatusChangedEmail({
               className="w-[64px] h-[64px] rounded-[32px] bg-info-bg text-center align-middle"
             >
               <Img
-                src={mapPin}
+                {...emailAssets.mapPin}
                 alt="Shipment location update"
-                width="28"
-                height="28"
                 className="inline-block align-middle"
               />
             </Column>
@@ -485,10 +490,8 @@ export default function TrackingStatusChangedEmail({
       <Section className="text-center pt-[24px] px-0 pb-0">
         <Button href={`https://app.3mrai.com/orders/${orderId}/tracking`} backgroundColor={theme.infoBlue}>
           <Img
-            src={externalLink}
+            {...emailAssets.externalLink}
             alt="Opens in your browser"
-            width="16"
-            height="16"
             className="inline-block align-middle mr-[6px]"
           />
           <span className="align-middle">Track Your Shipment</span>

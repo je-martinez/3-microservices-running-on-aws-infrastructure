@@ -16,10 +16,10 @@ import { theme } from "../theme.ts";
 //
 // `children` is `ReactNode`, not `string`, because the `.pen`'s CTA pattern is
 // "optional 16x16 icon + 15px bold white label" (see DESIGN.md § CTA Button) and
-// the order/tracking CTAs now put a base64 `<Img>` beside their text. The label
-// must ALWAYS be able to stand alone: the icon is an enhancement that ~20% of
-// recipients never see (see `icons.generated.ts`), so no button may rely on it
-// to be readable.
+// the order/tracking CTAs put a remote `<Img>` beside their text. The label must
+// ALWAYS be able to stand alone: the icon is an enhancement a reader with images
+// off never sees (see `emails/assets.ts`), so no button may rely on it to be
+// readable.
 export function Button({
   href,
   children,

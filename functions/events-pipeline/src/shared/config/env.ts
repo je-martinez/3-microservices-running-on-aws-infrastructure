@@ -17,6 +17,27 @@ const EnvSchema = z.object({
   // locally. Optional so the same code serves both substrates.
   DOCDB_AUTH_SOURCE: z.string().min(1).optional(),
   SES_FROM_ADDRESS: z.string().email(),
+  // Public base URL of the assets bucket, WITHOUT a trailing slash. The email
+  // templates append a known object key ("<base>/email/logo.png") to build the
+  // remote <img> src of every icon — see emails/assets.ts.
+  //
+  // REQUIRED, with no default, on purpose. A default would let a
+  // misconfigured deploy mail every recipient an email full of broken images
+  // and never fail anything: nothing in the send path fetches these URLs, so
+  // there is no other moment at which a wrong value can surface. Requiring it
+  // moves the failure to boot, where it is one loud Zod error (ADR-0014).
+  //
+  // The trailing slash is REJECTED rather than trimmed. `emails/assets.ts`
+  // joins with a literal "/", so a trailing slash yields "…/assets//email/x.png"
+  // — a URL S3 treats as a DIFFERENT key ("/email/x.png") and answers with 404,
+  // which again nothing here would notice. Failing on the shape is cheaper than
+  // silently normalising a value the operator got wrong.
+  ASSETS_BASE_URL: z
+    .string()
+    .url()
+    .refine((value) => !value.endsWith("/"), {
+      message: "must not end with '/' — object keys are appended with a literal '/'",
+    }),
   // Feeds the schema logger's `deployment_environment` base field (see
   // #shared/logging/logger). Defaults to "local" for dev/test; prod deploys set
   // it explicitly. Same name, shape and default as Users' env schema — the

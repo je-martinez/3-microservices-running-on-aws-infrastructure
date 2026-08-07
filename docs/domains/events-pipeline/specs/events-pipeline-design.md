@@ -4,7 +4,7 @@ type: spec
 area: events-pipeline
 status: accepted
 created: 2026-06-26
-updated: 2026-08-06
+updated: 2026-08-07
 tags: [type/spec, area/events-pipeline, status/accepted]
 related:
   - "[[cqrs]]"
@@ -281,9 +281,9 @@ Handlers do not just record events — they render an email from the event's pay
 Validation remains the precondition for rendering: `validate payload (Zod) → render react-email
 template to HTML → SES SendEmail → COMPLETED`.
 
-Template authoring rules, the client-support constraints that shape them (icon fonts, inline SVG
-and remote `<img>` are unusable; base64 PNG `data:` URIs are the one that survives Gmail and
-Outlook Windows), and the checklist for adding a new template are in [[email-templates]] — read
+Template authoring rules, the client-support constraints that shape them (icon fonts and inline
+SVG are unusable; remote `<img>` served from the assets bucket is the one that works, at 100%
+client support), and the checklist for adding a new template are in [[email-templates]] — read
 it before adding a fifth template.
 
 ### `src/email/catalog.ts` — the registry

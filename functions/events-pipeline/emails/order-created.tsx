@@ -3,7 +3,7 @@ import { EmailLayout } from "./components/layout.tsx";
 import { greeting } from "./components/greeting.ts";
 import { Button } from "./components/button.tsx";
 import { theme } from "./theme.ts";
-import { packageCheck, packageSearch } from "./icons.generated.ts";
+import { emailAssets } from "./assets.ts";
 
 // Ported from the "Order Created Email" frame of `assets/email/emails.pen`: a
 // success circle, "Order Confirmed!", a greeting, an ITEM/QTY/PRICE line-items
@@ -56,22 +56,21 @@ function formatCents(cents: number): string {
 }
 
 // ICONS: the mockup's two lucide glyphs (`package-check` in the header circle,
-// `package-search` on the CTA) are now REAL icons — base64 PNG `data:` URIs from
-// `icons.generated.ts`, replacing the "✓" text glyph and the dropped CTA icon
-// this template used to have.
+// `package-search` on the CTA) are served as REMOTE PNGs from the assets bucket
+// (`emails/assets.ts`).
 //
-// The alternatives still fail: an icon font needs @font-face (a <style> block,
-// which Gmail and Outlook strip), inline <svg> has 40.48% support and renders in
-// NO version of Outlook on Windows (caniemail.com/features/html-svg), and a
-// remote <img> is blocked by default for most readers. base64 `data:` URIs are
-// the exception — 80.95% support, working in BOTH Gmail and Outlook on Windows
-// (caniemail.com/features/image-base64). PNG, not GIF: Outlook Windows does not
-// render a base64 GIF.
+// Two alternatives remain dead ends: an icon font needs @font-face (a <style>
+// block, which Gmail and Outlook strip), and inline <svg> has 40.48% support and
+// renders in NO version of Outlook on Windows (caniemail.com/features/html-svg).
+// The third — a remote <img> — is the one that works: 100% client support, and
+// Gmail has displayed remote images by default since 2013. This REPLACES the
+// base64 `data:` URIs this file used to embed, whose 80.95% support left ~19% of
+// readers with no icon at all. Full argument in `emails/assets.ts`.
 //
-// The ~20% that still shows nothing is why the SUCCESS-TINTED CIRCLE STAYS and
-// why the CTA's label ("Track Your Order") carries the button on its own. Both
-// icons are an enhancement layered on a design that is already complete without
-// them, and each <Img> carries a meaningful `alt`.
+// A reader may still turn images off, which is why the SUCCESS-TINTED CIRCLE
+// STAYS and why the CTA's label ("Track Your Order") carries the button on its
+// own. Both icons are an enhancement layered on a design that is already
+// complete without them, and each <Img> carries a meaningful `alt`.
 
 // The `.pen` sizes the right-hand QTY/PRICE columns by flex `gap`, which email
 // clients do not support. Fixed pixel widths inside the table are the portable
@@ -223,10 +222,8 @@ export default function OrderCreatedEmail({
                 className="w-[64px] h-[64px] rounded-[32px] bg-success-bg text-center align-middle"
               >
                 <Img
-                  src={packageCheck}
+                  {...emailAssets.packageCheck}
                   alt="Order confirmed"
-                  width="28"
-                  height="28"
                   className="inline-block align-middle"
                 />
               </Column>
@@ -331,10 +328,8 @@ export default function OrderCreatedEmail({
               backgroundColor={theme.infoBlue}
             >
               <Img
-                src={packageSearch}
+                {...emailAssets.packageSearch}
                 alt="Track"
-                width="16"
-                height="16"
                 className="inline-block align-middle mr-[6px]"
               />
               <span className="align-middle">Track Your Order</span>

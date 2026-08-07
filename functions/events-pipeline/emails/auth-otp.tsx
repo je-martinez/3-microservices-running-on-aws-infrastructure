@@ -2,7 +2,7 @@ import { Section, Row, Column, Heading, Text, Hr, Img } from "@react-email/compo
 import { EmailLayout } from "./components/layout.tsx";
 import { greeting } from "./components/greeting.ts";
 import { theme } from "./theme.ts";
-import { logIn, triangleAlert } from "./icons.generated.ts";
+import { emailAssets } from "./assets.ts";
 
 export interface AuthOtpEmailProps {
   code: string;
@@ -26,19 +26,18 @@ export interface AuthOtpEmailProps {
 // flow this service does not have.
 //
 // Icon treatment: the `.pen`'s two lucide glyphs (`log-in` inside the 64px
-// info-blue circle, `triangle-alert` in the security notice) are now REAL icons
-// — base64 PNG `data:` URIs from `icons.generated.ts`, replacing the "→" and "!"
-// text glyphs this template used to substitute for them.
+// info-blue circle, `triangle-alert` in the security notice) are served as
+// REMOTE PNGs from the assets bucket (`emails/assets.ts`).
 //
-// The alternatives still do not survive email: an icon font or an SVG sprite
-// needs @font-face / an external reference, inline SVG has 40.48% support and
-// renders in NO version of Outlook on Windows (caniemail.com/features/html-svg),
-// and a remote <img> is blocked by default in most clients. base64 `data:` URIs
-// are the one that works — 80.95% support, including BOTH Gmail (since 2020) and
-// Outlook on Windows (caniemail.com/features/image-base64). PNG rather than GIF:
-// Outlook Windows renders base64 PNG but not base64 GIF.
+// Two alternatives still do not survive email: an icon font or an SVG sprite
+// needs @font-face / an external reference, and inline SVG has 40.48% support and
+// renders in NO version of Outlook on Windows (caniemail.com/features/html-svg).
+// The third — a remote <img> — is the one that works: 100% client support, and
+// Gmail has displayed remote images by default since 2013. This REPLACES the
+// base64 `data:` URIs this file used to embed, whose 80.95% support left ~19% of
+// readers with no icon. Full argument in `emails/assets.ts`.
 //
-// Both COLOURED SHAPES STAY, because ~20% of recipients still see no image: the
+// Both COLOURED SHAPES STAY, because a reader may still have images off: the
 // info-tinted round cell above the heading and the amber badge beside the
 // warning both draw with zero assets loaded, and each <Img> carries a meaningful
 // `alt`. The security notice in particular must never depend on its icon — its
@@ -91,10 +90,8 @@ export default function AuthOtpEmail({ code, ttlMinutes, fullName }: AuthOtpEmai
               className="w-[64px] h-[64px] rounded-[32px] bg-info-bg text-center align-middle"
             >
               <Img
-                src={logIn}
+                {...emailAssets.logIn}
                 alt="Sign in"
-                width="28"
-                height="28"
                 className="inline-block align-middle"
               />
             </Column>
@@ -170,7 +167,8 @@ export default function AuthOtpEmail({ code, ttlMinutes, fullName }: AuthOtpEmai
           with flex; two Columns render the same intent as a table. The glyph is
           now the real lucide `triangle-alert` as a base64 PNG.
           NOTE THE COLOUR INVERSION vs the header icon. `triangle-alert` is
-          rasterised IN the warning amber (see `icons.generated.ts`), so the
+          rasterised IN the warning amber (the uploaded
+          `assets/email/triangle-alert.png` is amber, not white), so the
           circle behind it CANNOT stay amber-FILLED the way it was under the
           white "!" — amber on amber is invisible. The circle is kept and
           inverted instead: a pale disc with a 1px amber ring, which is still a
@@ -192,10 +190,8 @@ export default function AuthOtpEmail({ code, ttlMinutes, fullName }: AuthOtpEmai
                 className={`w-[20px] h-[20px] rounded-[10px] bg-bg-white border border-solid border-[${NOTICE_ACCENT}] text-center align-middle`}
               >
                 <Img
-                  src={triangleAlert}
+                  {...emailAssets.triangleAlert}
                   alt="Security notice"
-                  width="13"
-                  height="13"
                   className="inline-block align-middle"
                 />
               </Column>
