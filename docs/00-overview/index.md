@@ -71,6 +71,8 @@ related:
   - "[[2026-08-05-realtime-tracking-events-websocket]]"
   - "[[floci-sqs-lambda-docdb-support]]"
   - "[[floci-websocket-apigw-dynamodb-support]]"
+  - "[[2026-08-06-multi-provider-agent-config-sync-design]]"
+  - "[[2026-08-06-multi-provider-agent-config-sync]]"
 ---
 
 # 3MRAI — Index
@@ -243,6 +245,8 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-07-20-env-file-generation-design]] — Design for auto-generating every env file that derives from Terraform discovery, split per consumer (root `.env` for compose interpolation, `.env.local.infra`, per-service `.env.local.<svc>`, and a host-debug file), replacing the Makefile's inline awk/printf and moving compose from inline `environment:` to `env_file:`; block 3 of 3 of the Developer Experience milestone, per [[2026-07-19-scripts-to-python-migration-design]], [[scripting-language]], [[testing]].
 - [[2026-07-30-post-infra-root-design]] — Design splitting `make bootstrap` (ends usable: services up, seeded, connecting as the cluster superuser) from a new `make post-infra` (hardens it: moved MySQL provider GRANTs + the existing phase-2 least-privilege app-user apply), plus a DynamoDB execution log — declared in `tf-backend` — that records, but never uses to skip, the outcome of the four post-resource provisioning scripts; per [[two-phase-terraform-apply]], [[scripting-language]], [[env-files]].
 - [[2026-08-05-realtime-tracking-events-websocket-design]] — Design for pushing `TRACKING_STATUS_CHANGED` to connected clients over an AWS API Gateway WebSocket API alongside the existing email notification: fan-out from the existing events-pipeline Lambda, a new `functions/realtime-events/` connection-lifecycle package, a DynamoDB connections table keyed by `cognito_sub` (not `user_id`), and a new `infra/modules/api-gateway-ws/` module; per [[events-pipeline-design]], [[tracking-service-design]], [[user-id-vs-cognito-sub-ownership-key]].
+- [[2026-08-06-multi-provider-agent-config-sync-design]] — Design of `ai-config-sync`, a subagent keeping this repo's agent configuration consistent across AI coding providers (Codex, Cursor, Copilot, Gemini CLI, OpenCode, Windsurf) via [lnai](https://lnai.sh/): `.claude/` stays source of truth and always real, `.ai/` is derived and disposable, subagents are projected into an `AGENTS.md` roles appendix since lnai has no subagent concept, and every non-portable element is reported explicitly in a loss report; see [[skills-catalog]] for the skill-sharing allowlist.
+- [[2026-08-06-multi-provider-agent-config-sync]] — Implementation plan for the sync pipeline: the frontmatter normalizer, lnai initialization with Claude Code disabled as a sync target, the `ai-config-sync` subagent and projection manifest, `make ai-sync`/`make ai-sync-check`, and vault propagation.
 
 ---
 
@@ -334,3 +338,5 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[2026-08-05-realtime-tracking-events-websocket]]
 - [[floci-sqs-lambda-docdb-support]]
 - [[floci-websocket-apigw-dynamodb-support]]
+- [[2026-08-06-multi-provider-agent-config-sync-design]]
+- [[2026-08-06-multi-provider-agent-config-sync]]

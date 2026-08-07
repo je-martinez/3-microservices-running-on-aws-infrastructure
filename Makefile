@@ -50,7 +50,7 @@ export EXECUTION_LOG_TABLE ?= 3mrai-local-tfstate-execution-log
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps test-unit test-e2e test-all backend-up infra-init infra-plan infra-up post-infra infra-down infra-output env-file migrate migrate-tracking bootstrap bootstrap-provision bootstrap-converge doctor clean observability-up observability-down observability-dashboards scripts-setup
+.PHONY: help up down logs build ps test-unit test-e2e test-all backend-up infra-init infra-plan infra-up post-infra infra-down infra-output env-file migrate migrate-tracking bootstrap bootstrap-provision bootstrap-converge doctor clean observability-up observability-down observability-dashboards scripts-setup ai-sync ai-sync-check
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -393,3 +393,40 @@ observability-down: ## Stop the observability stack (leaves the rest running)
 
 observability-dashboards: ## Import/update OpenObserve dashboards from observability/dashboards/*.dashboard.json (idempotent)
 	node scripts/import-dashboards.mjs
+
+## --- Multi-provider agent config ---
+
+ai-sync: ## Propagate agent config from .claude/ to the other AI providers
+	@# .claude/ is the source of truth; .ai/ is derived. Distilling universal
+	@# rules from Claude-specific ones needs judgment, so it runs through the
+	@# ai-config-sync subagent — this target is the deterministic half only.
+	@# The checksum bracket is the guard: a sync must never alter the source.
+	@before=$$(shasum CLAUDE.md | cut -d' ' -f1); \
+	npx -y lnai@latest sync; \
+	after=$$(shasum CLAUDE.md | cut -d' ' -f1); \
+	test "$$before" = "$$after" \
+	  || { echo "ERROR: CLAUDE.md changed during sync — the arrow inverted"; exit 1; }
+	@test ! -e .claude/CLAUDE.md \
+	  || { echo "ERROR: .claude/CLAUDE.md was created — lnai's claudeCode target is enabled"; exit 1; }
+
+ai-sync-check: ## Verify provider configs are valid and the guard is in place (CI gate)
+	npx -y lnai@latest validate
+	@# The arrow points one way: .claude/ -> .ai/ -> providers. lnai's claudeCode
+	@# plugin, if enabled, writes .claude/CLAUDE.md as a symlink to generated
+	@# output — so both its absence and the config flag are checked. This gate
+	@# deliberately does NOT require a clean working tree: uncommitted subagent
+	@# edits are normal, and conflating them with corruption would make the gate
+	@# cry wolf on every ordinary change.
+	@test ! -e .claude/CLAUDE.md \
+	  || { echo "ERROR: .claude/CLAUDE.md exists — lnai's claudeCode target is enabled"; exit 1; }
+	@grep -A1 '"claudeCode"' .ai/config.json | grep -q '"enabled": false' \
+	  || { echo "ERROR: claudeCode is not disabled in .ai/config.json"; exit 1; }
+	@# The provider outputs are committed, so they can go stale when someone edits
+	@# .claude/ and forgets to sync. Re-run the sync and fail if it changed
+	@# anything: the output is deterministic, so a diff here means the committed
+	@# config no longer matches its source.
+	@npx -y lnai@latest sync >/dev/null 2>&1
+	@test -z "$$(git status --porcelain .ai/ .cursor/ .windsurf/ .gemini/ .codex/ .agents/ .github/ .opencode/ .vscode/ AGENTS.md GEMINI.md opencode.json)" \
+	  || { echo "ERROR: provider config is stale — run 'make ai-sync' and commit the result"; \
+	       git status --porcelain .ai/ .cursor/ .windsurf/ .gemini/ .codex/ .agents/ .github/ .opencode/ .vscode/ AGENTS.md GEMINI.md opencode.json; exit 1; }
+	@echo "OK: providers valid, guard in place, committed output up to date"

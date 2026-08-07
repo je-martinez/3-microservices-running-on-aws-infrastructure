@@ -1,0 +1,16 @@
+[project]
+name = "scripts3mrai"
+version = "0.1.0"
+description = "Repo-root scripts for 3MRAI"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+# Test-only, mirroring infra/scripts/pyproject.toml: the runtime path stays
+# dependency-free so nothing pulls a test runner. PyYAML is a test dependency
+# only — the normalizer itself is pure stdlib by design, so it runs anywhere
+# without an install step.
+dev = ["pytest>=8,<9", "PyYAML>=6,<7"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

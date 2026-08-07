@@ -51,11 +51,35 @@ infra/environments/local/.orders-app-db-secret
 # archive_file build artifact (modules/cognito/main.tf data.archive_file.pre_token)
 infra/modules/cognito/pre-token-lambda.zip
 
-# Agent-skills CLI local mirror (canonical copies live in .claude/skills/)
-.agents/
+# NOTE: .agents/ used to be ignored as an agent-skills CLI mirror. It is now
+# lnai's output directory for OpenCode and Codex skills and IS committed — see
+# the lnai block below.
 
 # Python (infra scripts). The venv is created by `make scripts-setup`; Terraform
 # local-exec and the Makefile call .venv/bin/python by ABSOLUTE path.
 .venv/
 __pycache__/
 *.egg-info/
+
+
+# lnai — .ai/ is DERIVED from .claude/ (the source of truth). See
+# docs/superpowers/specs/2026-08-06-multi-provider-agent-config-sync-design.md
+#
+# Both .ai/ and the per-provider outputs are COMMITTED, so a fresh clone or a new
+# Orca worktree has working config without running a sync first. Two reasons this
+# is safe: the output is deterministic (two syncs over unchanged sources produce
+# byte-identical files, so no diff noise), and reviewing it shows exactly what a
+# convention change delivers to each provider.
+#
+# .ai/ in particular CANNOT be ignored while the providers are committed: every
+# provider's skills/ and AGENTS.md are symlinks INTO .ai/, so ignoring it would
+# leave a fresh clone full of dangling links — breaking the very Orca case this
+# is meant to serve.
+#
+# Only the sync manifest stays out: it is machine state, not configuration.
+# `make ai-sync-check` fails if any of it drifts from the source.
+.ai/.lnai-manifest.json
+
+# lnai-generated
+.ai/.lnai-manifest.json
+# end lnai-generated

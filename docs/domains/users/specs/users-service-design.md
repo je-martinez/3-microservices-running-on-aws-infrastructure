@@ -4,7 +4,7 @@ type: spec
 area: users
 status: active
 created: 2026-06-26
-updated: 2026-08-05
+updated: 2026-08-07
 tags: [type/spec, area/users, status/active]
 related:
   - "[[soft-delete]]"
@@ -233,6 +233,29 @@ succeeded. See [[events-pipeline-design]] for the consumer side and the full env
 | `GetUserById` | `{ id: string }` | `User` object, including `address` (typed `Address` message — see below) |
 
 Used by Orders and Tracking services for inter-service lookups (see [[ADR-0003-grpc-inter-service]]).
+
+## Change impact — editing `proto/users.proto`
+
+`proto/users.proto` is **owned by Users** and consumed by three other components, each by a
+**different mechanism** — which is why a proto edit propagates in three different ways, not one:
+
+| Consumer | File | Mechanism |
+|---|---|---|
+| Users | `services/users/src/shared/grpc/server.ts` | Loads the proto at **runtime** via `@grpc/proto-loader` — no regeneration step |
+| Orders | `services/orders/src/Orders.Infrastructure/Orders.Infrastructure.csproj` | Compiles the proto at **build time** |
+| Tracking | `services/tracking/src/shared/grpc/generated/users_pb2.py` | **Committed generated stubs** — must be regenerated with `services/tracking/scripts/generate_grpc_stubs.py` |
+| events-pipeline | `functions/events-pipeline/src/handlers/order-created.ts` | Calls the Users gRPC surface |
+
+> [!warning] The Tracking case is the one that bites
+> `services/tracking/tests/test_grpc_stubs.py` re-runs codegen into a temp directory and compares
+> it byte for byte with what is checked in, specifically because a runtime-loaded proto (Users) and
+> a build-time-compiled one (Orders) both fail loudly and immediately when they drift, while
+> committed generated stubs (Tracking) do not — nothing forces a regeneration. In the test's own
+> words: *"`users.proto` is OWNED BY USERS and consumed by both Orders and Tracking, which is what
+> makes this guard matter more than usual here: the contract can change in a service that has no
+> way to know these stubs exist."* Edit the proto without regenerating Tracking's stubs and this
+> test fails CI — the fix is exactly the command the test's own docstring prints:
+> `services/tracking/.venv/bin/python services/tracking/scripts/generate_grpc_stubs.py`.
 
 ### `address` on `GetUserById` — typed message, not raw JSON
 
