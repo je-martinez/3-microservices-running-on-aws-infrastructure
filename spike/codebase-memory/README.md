@@ -87,7 +87,35 @@ before anything is built on it.
 - [x] Part A2 executed — 3 change-impact questions (2026-08-07)
 - [x] Part A3 executed — cheap-fix test: checklists written, re-measured (2026-08-07)
 - [x] A3 root cause established (follow-up questioning of the run)
-- [ ] Part B decision — the documentation-only path has now failed twice
+- [x] Part B executed — both engines run against `services/users` (2026-08-07)
+- [x] Part B verdict: **codebase-memory, for change-impact queries only**
+
+### Part B in one line
+
+`codebase-memory-mcp` produced **217 CALLS edges** to Graphify's **27** over the same
+43 TypeScript files — 8× the call-graph coverage, indexed in 1.3s, entirely offline.
+Full scorecard and caveats: `part-b-engine-comparison.md`.
+
+### The three conditions on that verdict
+
+1. **Use `query_graph` (Cypher), not `trace_path`.** The flagship caller/callee tool
+   returned empty for every symbol tried — including `hashEmail`, which the same graph
+   correctly reports as having 8 callers and which Cypher then listed exactly.
+2. **Treat output as a lead, not a fact.** Route extraction was 10 of 11, plus one
+   phantom (`/v1/users/login-history`, which exists only inside a test assertion).
+3. **Do not build the Obsidian adapter.** A3 falsified its premise: the failure is
+   agents stopping early, not knowledge missing from the vault. Generating notes would
+   add exactly the vault noise the proposal warns about in its own §21.
+
+### What survives of the original proposal
+
+Its MVP was engine → intermediate model → Obsidian adapter → MCP → measure. The
+evidence supports the engine and the MCP — and the MCP **already exists**, since
+`codebase-memory-mcp` is itself an MCP server. The intermediate model is premature with
+one provider, the adapter is falsified, and the measuring is what Part A already did.
+
+The honest version is far smaller than the document: point an existing MCP server at
+the repo, query it with Cypher for blast radius, build nothing.
 
 ### A3 in one line
 
