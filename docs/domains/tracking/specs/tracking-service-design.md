@@ -4,7 +4,7 @@ type: spec
 area: tracking
 status: accepted
 created: 2026-06-26
-updated: 2026-08-06
+updated: 2026-08-07
 tags: [type/spec, area/tracking, status/accepted]
 related:
   - "[[soft-delete]]"
@@ -640,6 +640,53 @@ See [[events-pipeline-design]] for the consuming side: the shared queue, the dis
 error taxonomy that decides whether a publish-side failure downstream gets retried, and the
 `tracking-status-changed` email template family (one event type, five rendered variants selected
 by `payload.status`).
+
+## Change impact — renaming a delivery status
+
+Renaming a value in the delivery-status enum ([Tracking statuses](#tracking-statuses)) touches
+**11 files across 4 components**, crossing a service boundary over SQS — it is not a Tracking-local
+change, even though Tracking owns the enum. The same shape of surprise applies to
+[[users-service-design#Change impact — editing `proto/users.proto`|editing `proto/users.proto`]]:
+in both cases the owning service can change its contract without anything forcing the downstream
+consumer to notice.
+
+- **Tracking (owner):** `src/features/tracking/domain/status.py`,
+  `src/features/tracking/domain/models.py`, `src/features/tracking/commands/update_status.py`,
+  `src/features/tracking/commands/test_mode_progression.py`,
+  `src/features/tracking/api/schemas.py`, `src/shared/audit/audit_actor.py`
+- **events-pipeline (consumer):** `src/handlers/tracking-status-changed.ts`,
+  `src/handlers/index.ts`, `src/email/catalog.ts`, `emails/tracking-status-changed.tsx`
+- **Orders (consumer):** `services/orders/tests/Orders.Tests/Infrastructure/TrackingContractTests.cs`
+  hardcodes status literals in its contract-test fixtures and assertions. `TrackingDto.Status`
+  (`services/orders/src/Orders.Application/Tracking/TrackingDto.cs`) is a plain `string`, not an
+  enum, so Orders has no compile-time protection — a rename breaks this test at test time, in a
+  different service and language from the one that owns the enum.
+- **E2E:** `e2e/support/mailpit-client.ts`
+- Plus the Tracking test files that assert on status values (`test_test_mode_progression.py`,
+  `test_rest_carrier_status.py`, `test_repository.py`, `test_status_state_machine.py`,
+  `test_rest_init_tracking.py`, `test_sqs_event_publisher.py`, `test_status_changed_emission.py`,
+  `test_rest_reads.py`, `test_log_identity.py`, `test_rest_e2e_cleanup.py`)
+
+> [!note] How the Orders gap was found
+> A repo-wide grep during a benchmark run, after this checklist was first written, turned up the
+> Orders coupling. `TrackingDto.cs`'s own docstring already documented "Mirrors `TrackingResponse`
+> in `services/tracking/src/features/tracking/api/schemas.py`. Change them together." — the
+> coupling was recorded at the source, just not aggregated here.
+
+> [!danger] The silent failure — `catalog.ts` maps status to email template, with no compiler and no test to catch a miss
+> `functions/events-pipeline/src/email/catalog.ts` maps each status value to the email template
+> rendered for it. Rename a status in Tracking without updating this map and the mapping simply
+> stops matching — there is no compile error (TypeScript sees a string, not the Python enum) and no
+> failing Tracking test (Tracking's own suite has no visibility into events-pipeline). Users stop
+> receiving the right delivery notification, and the break surfaces only as production behavior —
+> an email that never arrives, or arrives with the wrong content — not as a red build. This is the
+> same class of gap [[events-pipeline-design]] documents for the envelope contract generally: a
+> string crossing a service boundary over SQS carries none of the guarantees a shared type would.
+
+The status values also **persist in the database as strings** (`Tracking.status`,
+`Tracking_History.status` — see [Data Model](#tracking)). A rename is therefore not just a code
+change: existing rows still hold the old string, so renaming implies a data-migration question for
+every already-persisted tracking, not only for code going forward.
 
 ## Cross-cutting rules
 
