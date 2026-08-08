@@ -4,6 +4,11 @@ import { AuditActor } from "#shared/audit/audit-actor";
 import { getActor } from "#shared/audit/actor-context";
 import { EmailAlreadyExistsError } from "#shared/auth/auth-errors";
 
+// The row timestamp the fake `create` returns — the same value the publish
+// payload must carry, since the welcome email's "Member Since" row is rendered
+// from it.
+const CREATED_AT = new Date("2026-01-01");
+
 function deps(overrides: Record<string, unknown> = {}) {
   const created: any = {};
   return {
@@ -17,9 +22,9 @@ function deps(overrides: Record<string, unknown> = {}) {
           return {
             ...data,
             createdBy: AuditActor.RegisterPasswordless,
-            createdAt: new Date("2026-01-01"),
+            createdAt: CREATED_AT,
             updatedBy: AuditActor.RegisterPasswordless,
-            updatedAt: new Date("2026-01-01"),
+            updatedAt: CREATED_AT,
             deletedBy: null,
             deletedAt: null,
           };
@@ -52,6 +57,19 @@ describe("RegisterPasswordlessCommand", () => {
 
     expect(user.authType).toBe("PASSWORDLESS");
     expect(d.db.user.create.mock.calls[0][0].data.authType).toBe("PASSWORDLESS");
+  });
+
+  // This path matters more than the password one for the name: a passwordless
+  // user signs in ONLY through the OTP flow, so they are guaranteed to receive
+  // the login-code email that greets them. Losing the name here means every
+  // such user is greeted namelessly, forever, on every sign-in.
+  it("forwards the full name to signUp, so Cognito can carry it to the OTP email", async () => {
+    const d = deps();
+
+    await new RegisterPasswordlessCommand(d).execute(input);
+
+    const [, , , fullName] = d.auth.signUp.mock.calls[0];
+    expect(fullName).toBe(input.fullName);
   });
 
   it("calls auth.signUp with a random password never exposed on the returned user", async () => {
@@ -104,12 +122,26 @@ describe("RegisterPasswordlessCommand", () => {
   it("publishes USER_CREATED the same way register() does", async () => {
     const d = deps();
     const user = await new RegisterPasswordlessCommand(d).execute(input);
+    // Same payload shape as the password path, createdAt included: a
+    // passwordless signup gets the same welcome email, so it cannot carry less
+    // than what that email renders.
     expect(d.events.publishUserCreated).toHaveBeenCalledWith({
       id: user.id,
       email: "a@b.co",
       fullName: "Ada",
+      createdAt: CREATED_AT,
       cognitoSub: "7904d681-f590-4b4d-bbce-15348a898873",
     });
+  });
+
+  it("takes createdAt off the created row rather than re-reading the user", async () => {
+    const d = deps();
+    await new RegisterPasswordlessCommand(d).execute(input);
+
+    const published = d.events.publishUserCreated.mock.calls[0][0];
+    expect(published.createdAt).toEqual(CREATED_AT);
+    expect(d.db.user.create).toHaveBeenCalledOnce();
+    expect(Object.keys(d.db.user)).toEqual(["create"]);
   });
 
   it("propagates EmailAlreadyExistsError from Cognito without writing a row", async () => {

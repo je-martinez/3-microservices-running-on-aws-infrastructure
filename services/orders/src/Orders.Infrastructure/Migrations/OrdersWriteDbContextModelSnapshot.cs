@@ -101,6 +101,12 @@ namespace Orders.Infrastructure.Migrations
                         .HasColumnType("json")
                         .HasColumnName("shipping_address");
 
+                    b.Property<long>("ShippingCents")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L)
+                        .HasColumnName("shipping_cents");
+
                     b.Property<long>("SubtotalCents")
                         .HasColumnType("bigint")
                         .HasColumnName("subtotal_cents");

@@ -25,10 +25,14 @@ keyed on primitives, and `shared_event_publisher()` follows it exactly (see
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from src.shared.audit.audit_actor import AuditActor
+
+if TYPE_CHECKING:
+    # Type-only: keeps this module importable without pulling the ORM in, which
+    # is what lets a test bind a fake publisher with no database configured.
+    from src.features.tracking.domain.models import Tracking
 
 
 class EventPublisher(Protocol):
@@ -37,11 +41,35 @@ class EventPublisher(Protocol):
     Implemented by `SqsEventPublisher` (the real one) and `NoopEventPublisher`
     (tests and any environment that must not emit).
 
-    `user_id` is the persisted `tracking.user_id` — the internal `usr_` id — and
-    NEVER a request-supplied value. The carrier webhook driving this command
-    carries no caller identity at all (its gateway route has no Cognito
-    authorizer and therefore no `x-user-id`), so there is nothing on the request
-    to reach for; see `commands/update_status.py`'s module docstring.
+    ## Why this takes the ENTITY rather than a list of scalars
+
+    The port used to take `order_id`, `user_id`, `status`, `changed_at` — one
+    keyword per payload field. That stopped scaling the moment the email
+    templates needed the shipment's own data (the tracking number, the delivery
+    address, the full transition history): the signature would have grown a
+    parameter per template field, and every one of those parameters would have
+    been read off the same object the command already holds.
+
+    `tracking` IS the persisted row `update_tracking_status` just wrote, and
+    passing it whole preserves the property that mattered most about the old
+    signature: **every subject-side field comes off the database row and none
+    from the request.** The carrier webhook carries no caller identity at all
+    (its gateway route has no Cognito authorizer, so there is no `x-user-id`),
+    so there is nothing on the request to reach for even if a caller wanted to;
+    see `commands/update_status.py`'s module docstring.
+
+    It also makes `history` free. `Tracking.history` is loaded with
+    `lazy="selectin"` and ordered by `TrackingHistory.ordering()`, so the
+    publisher serializes the whole timeline without issuing a query and without
+    re-deriving an order that the relationship already gets right (a bare
+    timestamp sort ties on same-second transitions and MySQL then falls back to
+    alphabetical PK order — DELIVERED first).
+
+    ## The parameters that are NOT on the entity
+
+    `previous_status` is the status the row held BEFORE this transition, which by
+    definition `tracking.status` no longer is — the command is the only thing
+    that still knows it, so it stays an explicit parameter.
 
     `actor` is the envelope's AUTHOR — what originated the transition — and is a
     PARAMETER rather than a constant inside the publisher for a specific reason:
@@ -51,8 +79,9 @@ class EventPublisher(Protocol):
     automatic TestMode transition as a real carrier update, which is precisely
     the confusion the semantic actor exists to prevent.
 
-    Note the asymmetry with `user_id`: that is the event's SUBJECT (the order's
-    owner), while the author of these transitions is never a human at all.
+    Note the asymmetry with the tracking's `user_id`: that is the event's SUBJECT
+    (the order's owner), while the author of these transitions is never a human
+    at all.
 
     `cognito_sub` is the tracking row's persisted Cognito subject, or None for a
     legacy row that predates the column. It becomes the envelope's optional
@@ -74,11 +103,8 @@ class EventPublisher(Protocol):
     def publish_tracking_status_changed(
         self,
         *,
-        order_id: str,
-        user_id: str,
-        status: str,
+        tracking: Tracking,
         previous_status: str,
-        changed_at: datetime,
         actor: AuditActor,
         cognito_sub: str | None,
     ) -> None: ...
@@ -100,11 +126,8 @@ class NoopEventPublisher:
     def publish_tracking_status_changed(
         self,
         *,
-        order_id: str,
-        user_id: str,
-        status: str,
+        tracking: Tracking,
         previous_status: str,
-        changed_at: datetime,
         actor: AuditActor,
         cognito_sub: str | None,
     ) -> None:

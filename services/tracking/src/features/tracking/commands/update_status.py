@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
 
 from sqlalchemy.orm import Session
 
@@ -124,14 +123,28 @@ def update_tracking_status(
     beside either of them is how the two would start disagreeing about which
     transitions notify.
 
-    **The envelope's `user_id` is `updated.user_id` — the persisted internal
-    `usr_` id — and it could not come from anywhere else.** This request has no
-    caller identity at all (see "Why the lookup here is UNSCOPED" above): the
-    carrier presents an API key, its gateway route has no Cognito authorizer,
-    and no `x-user-id` reaches the service. The entity this function already
-    loaded is the only source of an owner for the event, and `cognito_sub` would
-    be the wrong one — that is the ownership key the REST reads filter by, not
-    the envelope's `user_id`.
+    **The event is built from the PERSISTED ENTITY, and could not come from
+    anywhere else.** This request has no caller identity at all (see "Why the
+    lookup here is UNSCOPED" above): the carrier presents an API key, its
+    gateway route has no Cognito authorizer, and no `x-user-id` reaches the
+    service. So `updated` — the row this function just wrote — is the only
+    source of an owner for the event, and it is handed to the publisher whole
+    rather than decomposed into keyword arguments here.
+
+    Passing the entity is what lets the payload carry the shipment's own data:
+    the tracking number, the delivery address and the FULL transition history
+    that makes the email's five-step timeline renderable. `Tracking.history` is
+    `lazy="selectin"` and ordered by the relationship, so the publisher neither
+    issues an N+1 nor re-derives an ordering that is already correct. Note that
+    `repository.update_status` EXPIRES that collection after appending, so the
+    publisher's read of it reloads — which is the point: the timeline it
+    serializes contains the transition being announced, rather than the stale
+    pre-update list.
+
+    `cognito_sub` is deliberately not the envelope's `user_id` — that is the
+    ownership key the REST reads filter by, and Users is keyed by the internal
+    `usr_` id, so a sub would resolve to no email and the notification would be
+    dropped as `no_email_for_user`.
 
     **The envelope's `author` is this function's `actor`, and names no human.**
     `user_id` above says who the event is ABOUT; `author` says what ORIGINATED
@@ -184,15 +197,14 @@ def update_tracking_status(
 
     _emit_status_changed(
         publisher,
-        order_id=updated.order_id,
-        # The PERSISTED usr_ id off the entity — never a request value. See the
-        # docstring's section 5.
-        user_id=updated.user_id,
-        status=requested.value,
+        # The PERSISTED row this function just wrote — never a request value.
+        # Everything the event says about the shipment (its owner, its order,
+        # its number, its address, its whole history) is read off this entity by
+        # the publisher; see the docstring's section 5.
+        tracking=updated,
+        # The one fact the entity no longer holds: `updated.status` is already
+        # the NEW status.
         previous_status=current.value,
-        # The transition's own timestamp, which `update_status` just stamped —
-        # not `updated_at`, which moves on any write.
-        changed_at=updated.datetime_,
         # THIS function's `actor` — the one already distinguishing the carrier
         # PUT from TestMode progression — travels onto the envelope as its
         # author. Passed down rather than fixed in the publisher, or a TestMode
@@ -212,11 +224,8 @@ def update_tracking_status(
 def _emit_status_changed(
     publisher: EventPublisher | None,
     *,
-    order_id: str,
-    user_id: str,
-    status: str,
+    tracking: Tracking,
     previous_status: str,
-    changed_at: datetime,
     actor: AuditActor,
     cognito_sub: str | None,
 ) -> None:
@@ -258,11 +267,8 @@ def _emit_status_changed(
             publisher = shared_event_publisher()
 
         publisher.publish_tracking_status_changed(
-            order_id=order_id,
-            user_id=user_id,
-            status=status,
+            tracking=tracking,
             previous_status=previous_status,
-            changed_at=changed_at,
             actor=actor,
             cognito_sub=cognito_sub,
         )
@@ -272,8 +278,12 @@ def _emit_status_changed(
             extra={
                 "app_event": "tracking_status_changed_publish_failed",
                 "reason": "publisher_unavailable",
-                "order_id": order_id,
-                "user_id": user_id,
-                "status": status,
+                # Read off the entity, like everything else on this path. These
+                # three fields and no more: the line names WHICH notification
+                # was lost, never what it would have contained — no address, no
+                # name, no history. See [[logging-context]].
+                "order_id": tracking.order_id,
+                "user_id": tracking.user_id,
+                "status": tracking.status,
             },
         )

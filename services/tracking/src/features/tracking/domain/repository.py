@@ -44,6 +44,7 @@ from src.features.tracking.domain.models import Tracking, TrackingHistory
 from src.features.tracking.domain.status import INITIAL_STATUS, TrackingStatus
 from src.shared.audit.audit_actor import AuditActor
 from src.shared.db.nano_id import new_tracking_id
+from src.shared.db.tracking_number import new_tracking_number
 
 
 def _utcnow() -> datetime:
@@ -209,11 +210,24 @@ class TrackingRepository:
         "no tags" has exactly one spelling (see `Tracking.tags`). A caller that
         does not care about tags — which is every caller except the E2E creation
         path — writes `[]` by simply not passing it.
+
+        ## The tracking number is minted here, and is not a parameter
+
+        `tracking_number` is generated below rather than accepted, for the same
+        reason `id` is: it is the row's own identity, not an input to creating
+        one. Making it a parameter would let a caller supply a duplicate (or an
+        empty string) into a NOT NULL UNIQUE column, and would mean every write
+        path had to remember to mint one. There is exactly one creation path in
+        this service, and this is it — so minting here makes "every tracking has
+        a number" true by construction rather than by convention.
         """
         moment = now or _utcnow()
         tracking = Tracking(
             id=new_tracking_id(),
             order_id=order_id,
+            # OURS, not a carrier's: this row exists from PLACED, before any
+            # shipper is involved. See `shared/db/tracking_number.py`.
+            tracking_number=new_tracking_number(),
             user_id=user_id,
             cognito_sub=cognito_sub,
             status=status.value,

@@ -22,6 +22,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.features.tracking.domain.status import STATUS_ORDER
 from src.shared.db.base import AuditMixin, Base
+from src.shared.db.tracking_number import TRACKING_NUMBER_LENGTH
 
 # Width of every id-bearing column.
 #
@@ -100,6 +101,41 @@ class Tracking(Base, AuditMixin):
     #: application, so a duplicate creation cannot race past a pre-check.
     order_id: Mapped[str] = mapped_column(String(ID_LENGTH), nullable=False)
 
+    #: The customer-facing shipment number — `3MRAI-XXXX-XXXX-XXXX`, minted at
+    #: creation by `shared/db/tracking_number.py`.
+    #:
+    #: **OURS, not a carrier's.** A tracking row exists from `PLACED` onward,
+    #: long before anything is handed to a shipper, so there is no carrier number
+    #: to record at the only moment this row is created. Naming it after the
+    #: system that issued it (`3MRAI-`) keeps that honest; the day a real carrier
+    #: number arrives it is a second, differently-named column, not a silent
+    #: overwrite of this one.
+    #:
+    #: **NOT NULL, minted at creation rather than lazily.** The notification
+    #: emails quote it on every transition ([[email-payload-enrichment]]), and a
+    #: nullable column would make each of the five templates branch on its
+    #: absence for a value that is free to produce. There is no write path that
+    #: can create a tracking without one: `TrackingRepository.create` mints it,
+    #: and it is not a parameter of that method, so no call site can omit it.
+    #:
+    #: **UNIQUE** — declared as a NAMED constraint in `__table_args__` below
+    #: rather than `unique=True` here, matching `order_id`: an inline flag emits
+    #: an index whose name MySQL invents, which a migration then has to guess at
+    #: to drop. 60 bits of CSPRNG entropy make a collision impractical (see the
+    #: generator's docstring), but "impractical" is not "impossible", and two
+    #: shipments sharing a number is precisely the kind of fact that must fail at
+    #: INSERT rather than surface later as one customer reading another's
+    #: delivery.
+    #:
+    #: Not the primary key, and not a replacement for `id`: `trk_…` is a
+    #: machine identifier referenced by the history table's FK, while this is a
+    #: string a person transcribes. Keeping them separate means the readable
+    #: format can change (a longer group, a different alphabet) without touching
+    #: a foreign key.
+    tracking_number: Mapped[str] = mapped_column(
+        String(TRACKING_NUMBER_LENGTH), nullable=False
+    )
+
     #: One of the five TrackingStatus values. Stored as a plain VARCHAR rather
     #: than a MySQL ENUM: the lookup/enum trade-off aside, the REST surface carries
     #: it as a string, and widening a native ENUM is a DDL change.
@@ -153,6 +189,11 @@ class Tracking(Base, AuditMixin):
 
     __table_args__ = (
         UniqueConstraint("order_id", name="uq_tracking_order_id"),
+        # The customer-facing number is unique across the whole table. No index
+        # is added beside it: the unique constraint IS an index, and nothing
+        # reads a tracking by this column today — it is carried outward in the
+        # event payload, never used as a lookup key here.
+        UniqueConstraint("tracking_number", name="uq_tracking_tracking_number"),
         # The REST reads filter on (order_id, cognito_sub) together — cognito_sub,
         # NOT user_id, is the ownership key (see the column's docstring) — so this
         # is the composite that actually serves them. The unique constraint above

@@ -34,25 +34,36 @@ public class CreateOrderServiceTests : IAsyncLifetime
     // regression that dropped or substituted the email could not pass by coincidence.
     private const string CallerEmail = "buyer@example.com";
 
+    // The display name a resolved caller carries unless a test overrides it. Distinctive for
+    // the same reason as CallerEmail: the publisher-seam test asserts this exact value
+    // crossed the seam, so a regression that dropped it cannot pass by coincidence.
+    private const string CallerFullName = "Ada Lovelace";
+
     private sealed class FixedDirectory : IUserDirectory
     {
         private readonly string? _id;
         private readonly CallerAddress? _address;
         private readonly string _email;
+        private readonly string _fullName;
 
         // Address defaults to null — the "user has no address on file" branch. Tests that
         // exercise the snapshot pass one explicitly.
-        public FixedDirectory(string? id, CallerAddress? address = null, string email = CallerEmail)
+        public FixedDirectory(
+            string? id,
+            CallerAddress? address = null,
+            string email = CallerEmail,
+            string fullName = CallerFullName)
         {
             _id = id;
             _address = address;
             _email = email;
+            _fullName = fullName;
         }
 
         public Task<string?> ResolveInternalUserIdAsync(string sub, CancellationToken ct = default) => Task.FromResult(_id);
 
         public Task<CallerProfile?> ResolveCallerAsync(string sub, CancellationToken ct = default) =>
-            Task.FromResult(_id is null ? null : new CallerProfile(_id, _email, _address));
+            Task.FromResult(_id is null ? null : new CallerProfile(_id, _email, _fullName, _address));
     }
 
     // Records what order creation handed to Tracking, and when. Default outcome is
@@ -99,28 +110,55 @@ public class CreateOrderServiceTests : IAsyncLifetime
         public string? OrderId { get; private set; }
         public string? UserId { get; private set; }
         public string? Email { get; private set; }
+        public string? FullName { get; private set; }
+        public long SubtotalCents { get; private set; }
+        public long TaxCents { get; private set; }
+        public long ShippingCents { get; private set; }
         public long TotalCents { get; private set; }
+        public string? ShippingAddress { get; private set; }
+        public IReadOnlyList<OrderCreatedItem> Items { get; private set; } = Array.Empty<OrderCreatedItem>();
         public string? CognitoSub { get; private set; }
 
         public Task PublishOrderCreatedAsync(
-            string orderId, string userId, string email, long totalCents,
+            string orderId, string userId, string email, string fullName,
+            long subtotalCents, long taxCents, long shippingCents, long totalCents,
+            string? shippingAddress, IReadOnlyList<OrderCreatedItem> items,
             DateTime createdAt, string? cognitoSub = null, CancellationToken ct = default)
         {
             Calls++;
             OrderId = orderId;
             UserId = userId;
             Email = email;
+            FullName = fullName;
+            SubtotalCents = subtotalCents;
+            TaxCents = taxCents;
+            ShippingCents = shippingCents;
             TotalCents = totalCents;
+            ShippingAddress = shippingAddress;
+            Items = items;
             CognitoSub = cognitoSub;
             return Task.CompletedTask;
         }
     }
 
+    // The flat shipping charge every test below is priced against, unless it overrides it.
+    // 1500 = $15.00, matching the ConfigurationSeed default.
+    private const long ShippingCents = 1500;
+
     private sealed class FixedConfig : IConfigurationReader
     {
         private readonly decimal _taxRate;
-        public FixedConfig(decimal taxRate) => _taxRate = taxRate;
+        private readonly long _shippingCents;
+
+        public FixedConfig(decimal taxRate, long shippingCents = ShippingCents)
+        {
+            _taxRate = taxRate;
+            _shippingCents = shippingCents;
+        }
+
         public Task<decimal> GetTaxRateAsync(CancellationToken ct = default) => Task.FromResult(_taxRate);
+
+        public Task<long> GetShippingCentsAsync(CancellationToken ct = default) => Task.FromResult(_shippingCents);
     }
 
     private async Task<string> SeedProduct(uint stock, long priceCents)
@@ -149,7 +187,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
         Assert.Equal("sub-a", dto.CognitoSub);
         Assert.Equal(3000, dto.SubtotalCents);           // 3 * 1000
         Assert.Equal(300, dto.TaxCents);                 // 10%
-        Assert.Equal(3300, dto.TotalCents);
+        Assert.Equal(4800, dto.TotalCents);              // 3000 + 300 + 1500 shipping
         var dtoLine = Assert.Single(dto.Lines);
         Assert.Equal(productId, dtoLine.ProductId);
         Assert.Equal(3u, dtoLine.Quantity);
@@ -161,7 +199,11 @@ public class CreateOrderServiceTests : IAsyncLifetime
         Assert.Equal("sub-a", order.CognitoSub);
         Assert.Equal(3000, order.SubtotalCents);         // 3 * 1000
         Assert.Equal(300, order.TaxCents);               // 10%
-        Assert.Equal(3300, order.TotalCents);
+        // The configured flat rate is PERSISTED on the order, not just folded into the
+        // total: the emailed receipt renders it as its own line, so it has to survive
+        // a round trip to the database.
+        Assert.Equal(1500, order.ShippingCents);
+        Assert.Equal(4800, order.TotalCents);            // 3000 + 300 + 1500
         // CreatedBy now records the semantic actor, not the buyer's id.
         Assert.Equal(AuditActor.CreateOrder, order.CreatedBy);
         Assert.Equal(AuditActor.CreateOrder, order.UpdatedBy);
@@ -170,6 +212,12 @@ public class CreateOrderServiceTests : IAsyncLifetime
         Assert.Equal("usr_a", detail.UserId);            // both ids stamped on the line too
         Assert.Equal("sub-a", detail.CognitoSub);
         Assert.Equal(AuditActor.CreateOrder, detail.CreatedBy);
+        // Shipping is charged once per SHIPMENT, so it must NOT appear on the line: the
+        // detail's own total stays subtotal + tax and remains explainable from its unit
+        // price and quantity alone.
+        Assert.Equal(3000, detail.SubtotalCents);
+        Assert.Equal(300, detail.TaxCents);
+        Assert.Equal(3300, detail.TotalCents);
     }
 
     [Fact]
@@ -194,7 +242,9 @@ public class CreateOrderServiceTests : IAsyncLifetime
         Assert.Equal("distinct-buyer@example.com", events.Email);
         Assert.Equal(dto.Id, events.OrderId);
         Assert.Equal("usr_a", events.UserId);
-        Assert.Equal(3300, events.TotalCents);
+        // The total that crosses the seam is the ORDER total, shipping included — the
+        // same figure the receipt email prints, so 3000 + 300 + 1500.
+        Assert.Equal(4800, events.TotalCents);
         // The request's own identity crosses the seam too: it becomes the envelope's
         // author.cognito_sub. A distinct value from the internal id, so a service that
         // passed the wrong one of the two cannot pass here.
@@ -224,7 +274,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
         Assert.Equal(5u, dtoLine.Quantity);
         Assert.Equal(5000, dto.SubtotalCents);           // 5 * 1000
         Assert.Equal(500, dto.TaxCents);                 // 10%
-        Assert.Equal(5500, dto.TotalCents);
+        Assert.Equal(7000, dto.TotalCents);              // 5000 + 500 + 1500 shipping
 
         var product = await db.Products.FirstAsync(p => p.Id == productId);
         Assert.Equal(5u, product.UnitsInStock);          // 10 - (2 + 3)
@@ -235,7 +285,10 @@ public class CreateOrderServiceTests : IAsyncLifetime
         Assert.Equal(5u, detail.Quantity);
         Assert.Equal(5000, order.SubtotalCents);         // 5 * 1000
         Assert.Equal(500, order.TaxCents);               // 10%
-        Assert.Equal(5500, order.TotalCents);
+        // Shipping is charged ONCE per order regardless of how many lines it has — the
+        // two consolidated lines do not buy two shipments.
+        Assert.Equal(1500, order.ShippingCents);
+        Assert.Equal(7000, order.TotalCents);            // 5000 + 500 + 1500
     }
 
     [Fact]

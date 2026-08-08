@@ -26,6 +26,7 @@ design's 10s cadence. The timing is the only thing compressed.
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Iterator
 
 import pytest
@@ -320,6 +321,94 @@ class TestSuccessfulCreation:
 
         assert read.status_code == 200
         assert read.json()["order_id"] == "ord_init00000000000009"
+
+
+class TestTheTrackingNumberIsMintedAtCreation:
+    """`init-tracking` is the ONLY write path that brings a tracking into
+    existence, so it is the only place a `tracking_number` can be minted.
+
+    The column is NOT NULL and UNIQUE, and the notification emails quote it on
+    every transition — so a creation that forgot it would not be a cosmetic gap:
+    the INSERT itself would fail. These tests drive the real endpoint against
+    real MySQL, which is the only place that failure is visible.
+    """
+
+    def test_the_created_row_carries_a_tracking_number(
+        self, init_client: TestClient, known_caller: StubUsersServicer, session: Session
+    ) -> None:
+        """Read back through a SEPARATE session: what matters is what MySQL
+        holds, not what the in-memory entity was assigned."""
+        response = create(init_client, "ord_tnum0000000000001")
+
+        assert response.status_code == 201
+        tracking = stored(session, "ord_tnum0000000000001")
+        assert tracking is not None
+        assert tracking.tracking_number
+
+    def test_the_number_uses_the_readable_3mrai_format(
+        self, init_client: TestClient, known_caller: StubUsersServicer, session: Session
+    ) -> None:
+        """OURS, not a carrier's: the row is created at PLACED, long before
+        anything is handed to a shipper, so the prefix names the system that
+        issued the number."""
+        create(init_client, "ord_tnum0000000000002")
+
+        tracking = stored(session, "ord_tnum0000000000002")
+        assert tracking is not None
+        assert re.fullmatch(
+            r"3MRAI-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}",
+            tracking.tracking_number,
+        )
+
+    def test_two_creations_get_different_numbers(
+        self, init_client: TestClient, known_caller: StubUsersServicer, session: Session
+    ) -> None:
+        create(init_client, "ord_tnum0000000000003")
+        create(init_client, "ord_tnum0000000000004")
+
+        first = stored(session, "ord_tnum0000000000003")
+        second = stored(session, "ord_tnum0000000000004")
+        assert first is not None and second is not None
+        assert first.tracking_number != second.tracking_number
+
+    def test_the_numbers_are_unique_across_many_creations(
+        self, init_client: TestClient, known_caller: StubUsersServicer, session: Session
+    ) -> None:
+        """Through the endpoint, twenty times.
+
+        A single inequality passes by luck; twenty rows also put the real unique
+        index under load — a generator with far less entropy than advertised
+        would surface here as a failed creation, not as a soft assertion.
+        """
+        order_ids = [f"ord_tnum000000000{index:04d}" for index in range(100, 120)]
+        for order_id in order_ids:
+            assert create(init_client, order_id).status_code == 201
+
+        _refresh(session)
+        repository = TrackingRepository(session)
+        numbers = {
+            repository.get_by_order_id(order_id).tracking_number  # type: ignore[union-attr]
+            for order_id in order_ids
+        }
+
+        assert len(numbers) == len(order_ids)
+
+    def test_the_response_does_not_echo_the_tracking_number(
+        self, init_client: TestClient, known_caller: StubUsersServicer
+    ) -> None:
+        """Deliberately absent from the REST contract, like `shipping_address`
+        and `cognito_sub`: nothing on this surface needs it, and the response
+        schema is hand-mapped precisely so a new column does not leak onto the
+        wire by default. It travels in the EVENT payload, which is the one
+        consumer that has a use for it.
+
+        Asserted so that adding it later is a deliberate contract change rather
+        than an accident of adding a column.
+        """
+        response = create(init_client, "ord_tnum0000000000005")
+
+        assert "tracking_number" not in response.text
+        assert "3MRAI-" not in response.text
 
 
 class TestBothIdentitiesArePersisted:

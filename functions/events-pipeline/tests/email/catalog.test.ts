@@ -34,6 +34,28 @@ describe("email catalog", () => {
     expect(html).toMatchSnapshot();
   });
 
+  // The gateway E2E signs in with a real OTP, which it can only do by scraping
+  // the code out of the delivered message body — `e2e/tests/gateway/otp-flow.spec.ts`
+  // strips the tags and takes the first `\b\d{6}\b`. This reproduces that exact
+  // extraction here, in the fast suite.
+  //
+  // Without it the property has NO permanent guard: the template renders the
+  // code twice on purpose (one contiguous sentence for machines, six boxed
+  // digits for humans), the duplication reads as redundant, and deleting the
+  // sentence breaks nothing visible — the emails still look right and the E2E
+  // suite silently loses its ability to log in. The six boxes alone can never
+  // satisfy the regex, since markup sits between every digit.
+  it("renders the OTP code as contiguous text the gateway E2E can extract", async () => {
+    const html = await renderTemplate("auth-otp", catalog["auth-otp"].sampleProps);
+
+    const body = html.replace(/<[^>]+>/g, " ");
+    const match = body.match(/\b(\d{6})\b/);
+
+    expect(match?.[1], "no six-digit run survived tag-stripping — the E2E cannot sign in").toBe(
+      "042817",
+    );
+  });
+
   // Classification matters: an unknown template is a code/config bug that a
   // retry can never fix, so it must NOT be routed back into batchItemFailures.
   it("throws PermanentError for a template key that is not registered", async () => {

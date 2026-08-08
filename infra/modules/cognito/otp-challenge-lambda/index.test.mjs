@@ -39,12 +39,15 @@ function defineEvent(sessions = []) {
   };
 }
 
-function createEvent(sessions = []) {
+// `userAttributes` is overridable so a case can drop the standard `name`
+// attribute — which is the SHIPPING state of this pool today: the Users service
+// sets email, email_verified and custom:app_user_id at sign-up and nothing else.
+function createEvent(sessions = [], userAttributes = { email: "ada@example.com", sub: "sub-123", name: "Ada Lovelace" }) {
   return {
     triggerSource: "CreateAuthChallenge_Authentication",
     request: {
       session: sessions,
-      userAttributes: { email: "ada@example.com", sub: "sub-123" },
+      userAttributes,
     },
     response: {},
   };
@@ -150,6 +153,30 @@ describe("CreateAuthChallenge", () => {
     expect(envelope).toHaveProperty("order_id", null);
     expect(envelope.user_id).toBeTruthy();
     expect(envelope.author.actor).toBeTruthy();
+  });
+
+  it("carries the user's full name so the email can greet them", async () => {
+    await handler(createEvent([]));
+
+    const envelope = JSON.parse(JSON.parse(sentBodies[0]).MessageBody);
+
+    expect(envelope.payload.full_name).toBe("Ada Lovelace");
+    expect(envelope.payload.email).toBe("ada@example.com");
+  });
+
+  // The name attribute is optional on the pool, so the payload must still be
+  // COMPLETE without it: every field of this payload is required by the
+  // pipeline's schema, and an omitted (or undefined) key would make it reject
+  // the envelope — losing the login code, not just the greeting.
+  it("falls back to an empty full name when the attribute is absent, keeping the key present", async () => {
+    await handler(createEvent([], { email: "ada@example.com", sub: "sub-123" }));
+
+    // Parsed from the SERIALIZED body: `undefined` would have been dropped by
+    // JSON.stringify, so round-tripping the wire form is what proves the key
+    // actually survived rather than merely existing on the in-memory object.
+    const envelope = JSON.parse(JSON.parse(sentBodies[0]).MessageBody);
+
+    expect(envelope.payload).toHaveProperty("full_name", "");
   });
 
   // A second CUSTOM_CHALLENGE round must not mint a new code: the user is

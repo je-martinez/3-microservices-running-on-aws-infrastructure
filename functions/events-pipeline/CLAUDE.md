@@ -97,6 +97,7 @@ Two constraints when writing code:
 - Audit fields: [../../docs/shared/conventions/audit-fields.md](../../docs/shared/conventions/audit-fields.md) — persisted **snake_case** here (no ORM mapping layer), unlike this note's camelCase examples; see the events-pipeline spec's Data Model section.
 - Env validation: [../../docs/shared/decisions/ADR-0014-env-validation-zod.md](../../docs/shared/decisions/ADR-0014-env-validation-zod.md)
 - Logging context & tracing: [../../docs/shared/conventions/logging-context.md](../../docs/shared/conventions/logging-context.md)
+- **Email templates: [../../docs/shared/conventions/email-templates.md](../../docs/shared/conventions/email-templates.md) → [[email-templates]] — READ BEFORE TOUCHING ANYTHING UNDER `emails/`.** Email is not a web page and the constraints are not guessable: inline SVG renders in no version of Outlook on Windows, icon fonts are stripped, and `<table>`/`<td>` must come from react-email's `Row`/`Column` rather than be hand-written. The note carries the client-support numbers behind each rule and the checklist for adding a template.
 
 > No prefixed nano-IDs in this service: `event_id` (producer-generated) is the event's only
 > identifier — no `friendlyId`, no `nanoid` dependency. See

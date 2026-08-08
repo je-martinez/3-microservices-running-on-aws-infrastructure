@@ -81,7 +81,7 @@ export class RegisterUserCommand {
     // contract (409 email_exists, etc.) is unchanged.
     let signUp;
     try {
-      signUp = await this.auth.signUp(input.email, input.password, id);
+      signUp = await this.auth.signUp(input.email, input.password, id, input.fullName);
     } catch (err) {
       appLogger.error(
         {
@@ -167,10 +167,17 @@ export class RegisterUserCommand {
     // `author` block — WHO originated the event, next to the `user_id` that says
     // WHO it is about (the same person on a self-registration, not on every
     // event). Nothing is plumbed through to fetch it.
+    //
+    // `createdAt` comes off the row the `create` above just returned — NOT from
+    // a re-read. The welcome email prints a "Member Since" row from it (and an
+    // "Account ID" row from `id`), so both have to reach the publisher; both
+    // were already in hand at this point, so enriching the payload costs no
+    // extra database round trip.
     await this.events.publishUserCreated({
       id,
       email: input.email,
       fullName: input.fullName,
+      createdAt: (row as any).createdAt,
       cognitoSub: signUp.sub,
     });
 

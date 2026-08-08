@@ -42,6 +42,10 @@ beforeAll(() => {
   process.env.DOCDB_HOST ??= "unused-by-this-suite";
   process.env.DOCDB_USERNAME ??= "unused";
   process.env.DOCDB_PASSWORD ??= "unused";
+  // Required since the templates moved to remote images. Unused by this suite:
+  // it asserts transport-layer failure classification and never renders a
+  // template, so any schema-valid URL does.
+  process.env.ASSETS_BASE_URL ??= "http://assets.test/bucket";
 });
 
 describe("sendEmail failure classification", () => {

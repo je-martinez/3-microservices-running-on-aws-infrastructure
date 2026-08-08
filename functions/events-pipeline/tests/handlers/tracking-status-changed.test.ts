@@ -23,6 +23,16 @@ import { renderTemplate } from "#email/renderer";
 import { PermanentError } from "#pipeline/errors";
 import type { Envelope } from "#domain/envelope";
 
+// The forward-only progression a shipment walks, oldest first. Declared once so
+// every fixture below describes the same parcel rather than five different ones.
+const PROGRESSION = [
+  { status: "PLACED", datetime: "2026-07-28T14:02:11.000Z" },
+  { status: "PROCESSING", datetime: "2026-07-29T09:15:40.000Z" },
+  { status: "SHIPPED", datetime: "2026-08-01T17:48:03.000Z" },
+  { status: "OUT_FOR_DELIVERY", datetime: "2026-08-05T07:22:19.000Z" },
+  { status: "DELIVERED", datetime: "2026-08-05T15:31:55.000Z" },
+];
+
 function makeEnvelope(status: string, previousStatus: string, event_id?: string): Envelope {
   return {
     event_id: event_id ?? `evt_tracking_${status.toLowerCase()}`,
@@ -36,6 +46,20 @@ function makeEnvelope(status: string, previousStatus: string, event_id?: string)
       previous_status: previousStatus,
       changed_at: "2026-08-03T12:00:00.000Z",
       email: "ada@example.com",
+      full_name: "Ada Lovelace",
+      order_id: "ord_1",
+      tracking_number: "3MRAI-7K2P-9WQX-4M8B",
+      shipping_address: {
+        line1: "1 Ada Way",
+        city: "San Juan",
+        country: "PR",
+        postal_code: "00901",
+      },
+      // Only the steps that have ACTUALLY happened by `status` — the timeline
+      // the email draws is the shipment's real past, and a fixture showing a
+      // delivery date on a PROCESSING event would preview a shipment the
+      // pipeline can never receive.
+      history: PROGRESSION.slice(0, PROGRESSION.findIndex((e) => e.status === status) + 1),
     },
   };
 }
@@ -141,7 +165,7 @@ describe("trackingStatusChangedHandler", () => {
   // Each field checked in isolation: a schema that defaults away exactly ONE
   // required field (leaving the other two intact) would still satisfy the
   // combined test above by accident if that test only checked "it throws".
-  it.each(["previous_status", "changed_at", "email"])(
+  it.each(["previous_status", "changed_at", "email", "order_id", "tracking_number", "history"])(
     "rejects a payload missing only %s",
     async (missingField) => {
       const fullPayload: Record<string, unknown> = {
@@ -149,6 +173,10 @@ describe("trackingStatusChangedHandler", () => {
         previous_status: "PROCESSING",
         changed_at: "2026-08-03T12:00:00.000Z",
         email: "ada@example.com",
+        full_name: "Ada Lovelace",
+        order_id: "ord_1",
+        tracking_number: "3MRAI-7K2P-9WQX-4M8B",
+        history: PROGRESSION.slice(0, 3),
       };
       delete fullPayload[missingField];
 

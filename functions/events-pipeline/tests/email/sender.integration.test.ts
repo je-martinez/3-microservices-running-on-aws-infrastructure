@@ -92,6 +92,15 @@ describe.skipIf(!reachable)("USER_CREATED email (integration: SES → Floci rela
     process.env.DOCDB_HOST ??= "unused-by-this-suite";
     process.env.DOCDB_USERNAME ??= "unused";
     process.env.DOCDB_PASSWORD ??= "unused";
+    // UNLIKE the DOCDB_* placeholders above, this default is the REAL local
+    // bucket URL, because this suite renders a template and the delivered
+    // message is then read back out of Mailpit. A dummy host would still pass
+    // every assertion here (none of them fetches an image), but the message a
+    // developer opens in Mailpit to eyeball would show broken icons — which is
+    // exactly the thing this suite exists to make visible. It mirrors
+    // .env.local.events-pipeline, and `??=` lets that file's real value win when
+    // the suite is run with the generated environment loaded.
+    process.env.ASSETS_BASE_URL ??= "http://localhost:4566/post-3mrai-local-post-assets";
   });
 
   it("delivers a rendered welcome email whose recipient, sender and body match the event", async () => {
@@ -111,7 +120,12 @@ describe.skipIf(!reachable)("USER_CREATED email (integration: SES → Floci rela
       source: "users",
       user_id: "usr_integration",
       order_id: null,
-      payload: { fullName: "Ada Lovelace", email: recipient },
+      payload: {
+        fullName: "Ada Lovelace",
+        email: recipient,
+        userId: "usr_1",
+        createdAt: "2026-08-03T12:00:00.000Z",
+      },
     });
 
     // Search by RECIPIENT, not subject: the subject is fixed copy shared by

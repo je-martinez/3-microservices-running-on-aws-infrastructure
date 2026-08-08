@@ -38,20 +38,26 @@ COGNITO_SUB = "22222222-2222-4222-8222-222222222222"
 #: events-pipeline milestone because the notification payload requires it.
 USER_EMAIL = "user@example.com"
 
+#: The same person's display name. Carried for the same reason the email is: the
+#: rebranded notification templates greet the reader by name, and Tracking
+#: persists no name of its own. Deliberately unlike every other constant here so
+#: a mapping that copied the wrong field could not pass by coincidence.
+USER_FULL_NAME = "Test User"
+
 
 def known_user() -> users_pb2.UserResponse:
-    """A `UserResponse` shaped like the real one, address and email included.
+    """A `UserResponse` shaped like the real one, address included.
 
     The address is populated even though `ResolvedUser` still drops it — that is
     the point: the client must not blow up on, or start carrying, a field it has
-    no use for. `email` IS carried now (the events publisher consumes it), so
-    the two together prove the narrowing is deliberate per-field rather than
-    "whatever the mapping happened to copy".
+    no use for. `email` and `full_name` ARE carried (the events publisher
+    consumes both), so the three together prove the narrowing is deliberate
+    per-field rather than "whatever the mapping happened to copy".
     """
     return users_pb2.UserResponse(
         id=USER_ID,
         email=USER_EMAIL,
-        full_name="Test User",
+        full_name=USER_FULL_NAME,
         cognito_sub=COGNITO_SUB,
         address=users_pb2.Address(
             line1="742 Evergreen Terrace",
@@ -70,7 +76,10 @@ class TestResolve:
         resolved = users_client.resolve(COGNITO_SUB)
 
         assert resolved == ResolvedUser(
-            internal_id=USER_ID, cognito_sub=COGNITO_SUB, email=USER_EMAIL
+            internal_id=USER_ID,
+            cognito_sub=COGNITO_SUB,
+            email=USER_EMAIL,
+            full_name=USER_FULL_NAME,
         )
 
     def test_carries_the_email_the_events_publisher_needs(
@@ -90,6 +99,65 @@ class TestResolve:
 
         assert resolved is not None
         assert resolved.email == USER_EMAIL
+
+    def test_carries_the_full_name_the_enriched_payload_needs(
+        self, users_client: UsersGrpcClient, users_servicer: StubUsersServicer
+    ) -> None:
+        """`full_name` rides the SAME response as `email`.
+
+        The enriched `TRACKING_STATUS_CHANGED` payload greets the reader by
+        name, and Tracking persists no name — so this RPC is the only source,
+        exactly as it is for the address. Asserted here rather than only in the
+        publisher's suite because the publisher's fake resolver would happily
+        return a name this mapping never actually reads off the wire.
+        """
+        users_servicer.users[COGNITO_SUB] = known_user()
+
+        resolved = users_client.resolve(COGNITO_SUB)
+
+        assert resolved is not None
+        assert resolved.full_name == USER_FULL_NAME
+
+    def test_the_name_costs_no_second_round_trip(
+        self, users_client: UsersGrpcClient, users_servicer: StubUsersServicer
+    ) -> None:
+        """One `GetUserById` yields both the address and the name.
+
+        The spec's whole justification for adding `full_name` to the payload is
+        that it is already on the wire ("from the existing `GetUserById` gRPC
+        call. No new round trip"). Asserted on the stub server's call log, which
+        is the only place a second call would be visible.
+        """
+        users_servicer.users[COGNITO_SUB] = known_user()
+
+        resolved = users_client.resolve(COGNITO_SUB)
+
+        assert resolved is not None
+        assert resolved.email == USER_EMAIL
+        assert resolved.full_name == USER_FULL_NAME
+        assert len(users_servicer.calls) == 1
+
+    def test_an_absent_name_stays_an_empty_string(
+        self, users_client: UsersGrpcClient, users_servicer: StubUsersServicer
+    ) -> None:
+        """The DELIBERATE asymmetry with `email`, which is normalized to None.
+
+        A missing address means the notification cannot be delivered at all, so
+        the publisher must be able to detect it and bail out — hence `None`. A
+        missing name is cosmetic: the mail still sends, and the payload field is
+        a plain string the template interpolates. Normalizing it to `None` would
+        only give the publisher something to convert back to `""` before every
+        send.
+        """
+        users_servicer.users[COGNITO_SUB] = users_pb2.UserResponse(
+            id=USER_ID, cognito_sub=COGNITO_SUB, email=USER_EMAIL
+        )
+
+        resolved = users_client.resolve(COGNITO_SUB)
+
+        assert resolved is not None
+        assert resolved.full_name == ""
+        assert resolved.full_name is not None
 
     def test_an_absent_email_becomes_none_rather_than_an_empty_string(
         self, users_client: UsersGrpcClient, users_servicer: StubUsersServicer

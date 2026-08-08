@@ -2,8 +2,8 @@ namespace Orders.Application.Identity;
 
 /// <summary>
 /// The caller as Users knows them, resolved in a single <c>GetUserById</c> round trip:
-/// the internal id order creation must stamp, the email the ORDER_CREATED consumer needs,
-/// plus the delivery address it snapshots.
+/// the internal id order creation must stamp, the email and name the ORDER_CREATED
+/// consumer needs, plus the delivery address it snapshots.
 /// </summary>
 /// <param name="InternalUserId">The internal <c>usr_</c> id.</param>
 /// <param name="Email">
@@ -14,11 +14,30 @@ namespace Orders.Application.Identity;
 /// PII — never log it in plaintext; log <c>EmailHash.Compute</c> instead (see the
 /// logging-context convention).
 /// </param>
+/// <param name="FullName">
+/// The caller's display name, for the confirmation email's greeting and the receipt's
+/// "billed to" line. Carried for exactly the same reason as <paramref name="Email"/>: it is
+/// already on the SAME <c>GetUserById</c> response (<c>users.v1.UserResponse.full_name</c>),
+/// so reading it here is free, whereas a second lookup later would spend a network call on
+/// data the service already had in hand.
+/// <para>
+/// Non-nullable, defaulting to <c>""</c>, because proto3 has no null: a user with no name on
+/// file arrives as an empty string rather than as an absent field. Keeping that shape means
+/// the payload always carries the key and the template renders an unnamed greeting, instead
+/// of the consumer's schema rejecting the envelope — which would cost the buyer their
+/// confirmation email over a missing courtesy.
+/// </para>
+/// PII — treat it like <paramref name="Email"/>: never log it.
+/// </param>
 /// <param name="Address">
 /// The caller's delivery address, or <c>null</c> when they have none on file. PII —
 /// never log it (see the logging-context convention).
 /// </param>
-public sealed record CallerProfile(string InternalUserId, string Email, CallerAddress? Address);
+public sealed record CallerProfile(
+    string InternalUserId,
+    string Email,
+    string FullName,
+    CallerAddress? Address);
 
 /// <summary>
 /// A delivery address as it crosses the Users boundary, with the wire encoding already

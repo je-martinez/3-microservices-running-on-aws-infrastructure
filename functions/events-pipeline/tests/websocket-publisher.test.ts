@@ -10,6 +10,10 @@ vi.stubEnv("DOCDB_USERNAME", "root");
 vi.stubEnv("DOCDB_PASSWORD", "secret");
 vi.stubEnv("DOCDB_DATABASE", "events");
 vi.stubEnv("SES_FROM_ADDRESS", "noreply@example.com");
+// Required by the schema since the email templates moved to remote images. Any
+// valid absolute URL without a trailing slash satisfies it — this suite renders
+// no template and fetches nothing.
+vi.stubEnv("ASSETS_BASE_URL", "http://assets.test/bucket");
 
 const queryByCognitoSub = vi.fn();
 const deleteConnection = vi.fn();

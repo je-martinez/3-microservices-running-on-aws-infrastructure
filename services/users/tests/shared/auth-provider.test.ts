@@ -64,10 +64,26 @@ describe("CognitoAuthProvider", () => {
   it("signUp sets custom:app_user_id from the app user id", async () => {
     const send = vi.fn(async () => ({ User: { Attributes: [{ Name: "sub", Value: "sub-1" }] } }));
     const p = new CognitoAuthProvider({ send } as any, "pool", "client");
-    await p.signUp("a@b.co", "P@ss", "usr_ABC");
+    await p.signUp("a@b.co", "P@ss", "usr_ABC", "Ada Lovelace");
     const createCall = send.mock.calls[0][0]; // AdminCreateUserCommand
     const attrs = createCall.input.UserAttributes;
     expect(attrs).toEqual(expect.arrayContaining([{ Name: "custom:app_user_id", Value: "usr_ABC" }]));
+  });
+
+  // Cognito is the ONLY place the OTP challenge Lambda can read a user from: it
+  // runs inside Cognito with no SDK and no database, so an attribute missing
+  // here is a greeting the login-code email can never recover. That failure is
+  // silent — the email still sends, still looks right, and simply says "Hello,"
+  // to everyone — which is exactly how it went unnoticed until the delivered
+  // messages were read. This pins the attribute so it cannot be dropped again.
+  it("signUp writes the full name to Cognito's standard `name` attribute", async () => {
+    const send = vi.fn(async () => ({ User: { Attributes: [{ Name: "sub", Value: "sub-1" }] } }));
+    const p = new CognitoAuthProvider({ send } as any, "pool", "client");
+
+    await p.signUp("a@b.co", "P@ss", "usr_ABC", "Ada Lovelace");
+
+    const attrs = send.mock.calls[0][0].input.UserAttributes;
+    expect(attrs).toEqual(expect.arrayContaining([{ Name: "name", Value: "Ada Lovelace" }]));
   });
 
   it("refresh returns new id + access tokens", async () => {

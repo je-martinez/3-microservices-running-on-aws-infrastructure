@@ -3,7 +3,11 @@ name = "lib3mrai"
 version = "0.1.0"
 description = "Shared helpers for 3MRAI infrastructure scripts"
 requires-python = ">=3.11"
-dependencies = ["boto3>=1.34,<2"]
+# Pillow: raster resize/re-encode for the email assets uploaded by
+# modules/assets-bucket/scripts/sync_assets.py. Python has no `sharp`; Pillow is
+# the standard equivalent and ships wheels for every platform this repo targets,
+# so `make scripts-setup` still needs no system libraries.
+dependencies = ["boto3>=1.34,<2", "pillow>=10,<12"]
 
 [project.optional-dependencies]
 # Test-only. Kept OUT of the runtime dependency list so `make scripts-setup`

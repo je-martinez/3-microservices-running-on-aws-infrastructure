@@ -12,6 +12,13 @@ public static class ConfigurationSeed
     public const string TaxRateKey = "tax_rate";
     private const string DefaultTaxRate = "0.08";
 
+    // Config key holding the flat per-order delivery charge, in CENTS ("1500" = $15.00).
+    // Cents (not dollars) so it is read straight into the `long` the column stores, with
+    // no decimal round trip. Lives here rather than in code so the rate can change
+    // without a redeploy — the same reason tax_rate does.
+    public const string ShippingCentsKey = "shipping_cents";
+    private const string DefaultShippingCents = "1500";
+
     public static Task ApplyAsync(OrdersWriteDbContext db) =>
         // Stamp CreatedBy/UpdatedBy = orders_api:config_seed via the audit
         // interceptor (replaces the old bare "system" literal).
@@ -19,16 +26,29 @@ public static class ConfigurationSeed
 
     private static async Task RunAsync(OrdersWriteDbContext db)
     {
-        if (await db.Configurations.AnyAsync(c => c.Key == TaxRateKey)) return;
+        // Each key is checked INDEPENDENTLY, not behind one early return on tax_rate.
+        // A single guard would mean a database seeded before shipping_cents existed
+        // (tax_rate already present) never receives the new key, and every order would
+        // then fail on the missing-key exception.
+        var added = false;
+        added |= await SeedKeyAsync(db, TaxRateKey, DefaultTaxRate);
+        added |= await SeedKeyAsync(db, ShippingCentsKey, DefaultShippingCents);
+
+        if (added) await db.SaveChangesAsync();
+    }
+
+    private static async Task<bool> SeedKeyAsync(OrdersWriteDbContext db, string key, string value)
+    {
+        if (await db.Configurations.AnyAsync(c => c.Key == key)) return false;
 
         var now = DateTime.UtcNow;
         db.Configurations.Add(new Configuration
         {
-            Key = TaxRateKey,
-            Value = DefaultTaxRate,
+            Key = key,
+            Value = value,
             CreatedAt = now,
             UpdatedAt = now,
         });
-        await db.SaveChangesAsync();
+        return true;
     }
 }

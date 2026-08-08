@@ -101,7 +101,12 @@ test("POST /v1/orders with x-user-id creates the order and GET /v1/orders/{id} r
   expect(Array.isArray(order.lines)).toBe(true);
   expect(order.lines).toHaveLength(1);
   expect(order.lines[0]).toMatchObject({ productId: product.id, quantity: 1 });
-  expect(order.totalCents).toBe(order.subtotalCents + order.taxCents);
+  // Shipping is part of the order total: an order-level cost charged once per
+  // shipment, read from the `shipping_cents` configuration key rather than
+  // derived per line. The confirmation email prints all four figures, so a
+  // total that excluded shipping would make the receipt fail its own
+  // arithmetic in front of the buyer.
+  expect(order.totalCents).toBe(order.subtotalCents + order.taxCents + order.shippingCents);
 
   const fetched = await api.get(`/v1/orders/${order.id}`, { headers: { "x-user-id": userId } });
   expect(fetched.status()).toBe(200);

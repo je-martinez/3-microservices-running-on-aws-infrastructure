@@ -37,7 +37,13 @@ public class ReadsNoGrpcTests
         // as well as the id, from one call. Left unconfigured this returns null,
         // which the service reads as an unknown user and answers 404.
         mock.Setup(d => d.ResolveCallerAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new CallerProfile(OrdersApiFactory.KnownUserId, OrdersApiFactory.KnownEmail, null));
+            .ReturnsAsync(new CallerProfile(
+                OrdersApiFactory.KnownUserId,
+                OrdersApiFactory.KnownEmail,
+                OrdersApiFactory.KnownFullName,
+                // These tests are about the CALL COUNT, not the address: null exercises
+                // the "no address on file" branch and keeps the stub minimal.
+                null));
 
         var host = _factory.WithWebHostBuilder(builder =>
         {

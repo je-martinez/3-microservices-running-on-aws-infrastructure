@@ -50,7 +50,7 @@ export EXECUTION_LOG_TABLE ?= 3mrai-local-tfstate-execution-log
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps test-unit test-e2e test-all backend-up infra-init infra-plan infra-up post-infra infra-down infra-output env-file migrate migrate-tracking bootstrap bootstrap-provision bootstrap-converge doctor clean observability-up observability-down observability-dashboards scripts-setup
+.PHONY: help up down logs build ps test-unit test-e2e test-all backend-up infra-init infra-plan infra-up post-infra infra-down infra-output env-file migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean observability-up observability-down observability-dashboards scripts-setup
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -247,6 +247,25 @@ post-infra: scripts-setup ## Harden a bootstrapped environment: MySQL provider g
 	pgport="$$($(PY) $(DISCOVER_DB_PORT) postgres)"; \
 	myport="$$($(PY) $(DISCOVER_DB_PORT) mysql)"; \
 	cd $(TF_LOCAL_DIR)/post && terraform init -reconfigure -backend-config=backend.hcl >/dev/null && terraform apply -auto-approve -var pg_port=$$pgport -var mysql_port=$$myport -var python_bin=$(PY)
+
+assets-sync: scripts-setup ## Re-optimise and re-upload assets/ to the assets bucket (NO terraform apply)
+	@# The day-to-day entry point for asset changes: swap a logo, run this, done.
+	@# It touches NO infrastructure — no plan, no apply, no teardown — so it is
+	@# safe against an already-running stack and safely re-runnable. The script
+	@# fully overwrites every object and the manifest on each run, so re-running
+	@# is the repair mechanism rather than something to avoid.
+	@#
+	@# The bucket lives in the phase-2 (post) root, so its name and public base
+	@# URL are DISCOVERED from that root's outputs rather than hardcoded here —
+	@# the same reason `post-infra` discovers RDS proxy ports instead of trusting
+	@# a default. `terraform output` is a state read, not an apply.
+	@#
+	@# REQUIRES `make post-infra` to have run once (that is what creates the
+	@# bucket). Against a root that has never been applied the output read fails
+	@# with a clear message, before anything is uploaded.
+	@bucket="$$(cd $(TF_LOCAL_DIR)/post && terraform output -raw assets_bucket_name)"; \
+	base_url="$$(cd $(TF_LOCAL_DIR)/post && terraform output -raw assets_base_url)"; \
+	$(PY) infra/modules/assets-bucket/scripts/sync_assets.py --bucket "$$bucket" --base-url "$$base_url"
 
 doctor: scripts-setup ## Diagnose the local stack: what ran, what did not, and how to finish it
 	@# READ-ONLY. Every check is a SELECT, a SHOW, an HTTP GET or a docker

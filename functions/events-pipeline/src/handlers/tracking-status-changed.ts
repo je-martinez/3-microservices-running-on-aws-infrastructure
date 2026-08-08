@@ -21,11 +21,57 @@ import { publishToUser } from "#shared/realtime/websocket-publisher";
 // transition path, which creation never takes. So a TestMode run writes five
 // history rows and sends FOUR events. Anything asserting one message per status
 // waits forever for a fifth that is never sent.
+//
+// The enrichment fields below were verified against the producer,
+// `services/tracking/src/shared/messaging/sqs_event_publisher.py`
+// (`_build_payload`), which emits exactly
+// `{ status, previous_status, changed_at, email, full_name, order_id,
+// tracking_number, history[] }` plus `shipping_address` only when the column is
+// non-NULL.
+//
+// `full_name` is `.min(0)` by omission — a plain `z.string()`: the producer
+// sends `""` when Users holds no name for the user (proto3 renders an absent
+// string as empty). Requiring a non-empty value would turn a cosmetic gap into
+// a PermanentError, costing the user their delivery notification over a
+// greeting.
+//
+// `order_id` duplicates the envelope root deliberately: the renderer is handed
+// the PAYLOAD, so making a template reach up into the envelope for one field
+// would be a second, undocumented data path.
+//
+// `shipping_address` is `.optional()` and NOT `.nullable()` — the producer
+// omits the key entirely when the column is NULL rather than sending null (see
+// its module docstring, and the same reasoning in #handlers/order-created). The
+// permissive record shape is deliberate for the same reason there: the column
+// is a snapshot owned by Users' `Address` message, and a strict object would
+// reject the whole envelope the day a field is added upstream.
+//
+// `history[]` is what makes the five-step delivery timeline renderable at all:
+// a transition event describes ONE step, so without it a template could only
+// show the step that just happened and would have to invent the other four. It
+// arrives already ordered by the producer (transition timestamp, then position
+// in the forward-only progression) — this schema preserves the array order and
+// nothing here re-sorts it.
+//
+// PII: `email`, `full_name` and `shipping_address` are personal data. They are
+// persisted on the event document as the audit trail but must NEVER be logged —
+// the error path below reports field PATHS only, and this service never logs
+// `payload` (CLAUDE.md, [[logging-context]]).
 const TrackingStatusChangedPayloadSchema = z.object({
   status: z.enum(["PLACED", "PROCESSING", "SHIPPED", "OUT_FOR_DELIVERY", "DELIVERED"]),
   previous_status: z.string().min(1),
   changed_at: z.string().min(1),
   email: z.string().email(),
+  full_name: z.string(),
+  order_id: z.string().min(1),
+  tracking_number: z.string().min(1),
+  shipping_address: z.record(z.string(), z.unknown()).optional(),
+  history: z.array(
+    z.object({
+      status: z.string().min(1),
+      datetime: z.string().min(1),
+    }),
+  ),
 });
 
 // Maps payload.status -> the catalog key for that variant. All five keys
@@ -69,10 +115,24 @@ export async function trackingStatusChangedHandler(envelope: Envelope): Promise<
     throw new PermanentError(`no template for status: ${result.data.status}`);
   }
 
+  // snake_case wire → camelCase props, mapped explicitly (see the equivalent
+  // comment in #handlers/order-created for why this is not a spread).
+  //
+  // `orderId` now comes from the PAYLOAD rather than the envelope: the producer
+  // sends it in both places, and reading the one the renderer is actually handed
+  // keeps every rendered field on a single data path.
   const html = await renderTemplate(templateKey, {
-    orderId: envelope.order_id,
+    orderId: result.data.order_id,
     status: result.data.status,
     previousStatus: result.data.previous_status,
+    changedAt: result.data.changed_at,
+    fullName: result.data.full_name,
+    trackingNumber: result.data.tracking_number,
+    shippingAddress: result.data.shipping_address,
+    history: result.data.history.map((entry) => ({
+      status: entry.status,
+      datetime: entry.datetime,
+    })),
   });
 
   // sendEmail classifies its own failures as TransientError, so a SES outage

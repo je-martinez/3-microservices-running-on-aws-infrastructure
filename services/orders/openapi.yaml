@@ -175,6 +175,7 @@ components:
         - cognitoSub
         - subtotalCents
         - taxCents
+        - shippingCents
         - totalCents
         - createdAt
         - lines
@@ -193,6 +194,12 @@ components:
             - string
           format: int64
         taxCents:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: int64
+        shippingCents:
           pattern: '^-?(?:0|[1-9]\d*)$'
           type:
             - integer

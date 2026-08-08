@@ -139,6 +139,19 @@ Source of truth with full evidence: [[floci-vs-ministack-spike-findings]]
       27017 is **not** published to the host. `aws docdb describe-db-clusters` returns a Docker
       network IP that changes on recreation — connect by the backing container name
       **`floci-docdb-<db-cluster-identifier>`** via Docker DNS instead.
+13. **CloudFront is management-plane only** (verified 2026-08-06) — same shape as the Route53
+    quirk above. `create-distribution` succeeds with a real Id/ARN/`DomainName` and
+    `Status: "Deployed"`, but the returned `<id>.cloudfront.net` domain does not resolve and
+    serves nothing (`curl` → HTTP code `000`). `delete-distribution` also refuses with
+    `DistributionNotDisabled` unless disabled first. S3 as an origin works fully
+    (`mb`/`cp`/`GET` all return real objects) — the gap is CloudFront's edge/serving layer
+    specifically. Terraform apply state alone cannot tell you a CDN-fronted asset is
+    unreachable locally; only curling the domain does.
+    [Floci's own docs](https://floci.io/floci/services/cloudfront/) state it outright:
+    *"Actual content delivery is not emulated — this is a management-plane-only
+    implementation."* They also note there is **no local invoke URL** for a distribution
+    (unlike API Gateway's `/restapis/...`), so there is nothing to point a template at.
+    See [[floci-vs-ministack-spike-findings]].
 
 ## Per-service knowledge
 

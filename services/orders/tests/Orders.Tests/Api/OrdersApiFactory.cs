@@ -26,6 +26,9 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
     // Users returns an email on the same GetUserById response as the id; ORDER_CREATED
     // carries it to the pipeline, so the stub must supply one.
     public const string KnownEmail = "known@example.com";
+    // Rides on the same GetUserById response as the email; ORDER_CREATED carries it so the
+    // confirmation email can greet the buyer by name.
+    public const string KnownFullName = "Known Buyer";
     public string SeededProductId { get; private set; } = string.Empty;
 
     public async Task InitializeAsync()
@@ -105,6 +108,7 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
                 ? new CallerProfile(
                     KnownUserId,
                     KnownEmail,
+                    KnownFullName,
                     new CallerAddress("1 Test St", null, "Testville", null, "Testland", null))
                 : null);
     }

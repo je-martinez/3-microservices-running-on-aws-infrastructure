@@ -395,6 +395,18 @@ module "lambda_events_pipeline" {
     # DOCDB_AUTH_SOURCE in functions/events-pipeline/src/shared/config/env.ts.
     DOCDB_AUTH_SOURCE = "admin"
     SES_FROM_ADDRESS  = var.ses_from_address
+    # Base URL the email templates append icon keys to. The templates render
+    # REMOTE <img> tags (100% client support) rather than base64 data: URIs
+    # (80.95%), so without this every icon in every email is a broken URL. The
+    # function's Zod schema requires it, so a missing value kills the Lambda at
+    # boot instead of silently mailing broken images — see
+    # functions/events-pipeline/src/shared/config/env.ts.
+    #
+    # `localhost`, not `floci`, on purpose: this URL is resolved by the reader's
+    # mail client on the HOST, never fetched by the Lambda itself. See
+    # var.assets_base_url for the full argument and for why this is a variable
+    # rather than a read of the phase-2 bucket output.
+    ASSETS_BASE_URL = var.assets_base_url
 
     # ─── Realtime WebSocket fan-out ─────────────────────────────────────────
     WS_CONNECTIONS_TABLE = module.ws_connections.table_name

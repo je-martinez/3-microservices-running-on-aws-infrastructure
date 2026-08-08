@@ -42,6 +42,14 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         b.Property(o => o.CognitoSub).HasColumnName("cognito_sub").HasMaxLength(255);
         b.Property(o => o.SubtotalCents).HasColumnName("subtotal_cents").HasColumnType("bigint");
         b.Property(o => o.TaxCents).HasColumnName("tax_cents").HasColumnType("bigint");
+        // Order-level delivery cost (see Order.ShippingCents), part of total_cents.
+        // NOT NULL with a 0 default so rows written before this column existed read
+        // back as "no shipping charged" rather than null — they genuinely had none.
+        b.Property(o => o.ShippingCents)
+            .HasColumnName("shipping_cents")
+            .HasColumnType("bigint")
+            .HasDefaultValue(0L)
+            .IsRequired();
         b.Property(o => o.TotalCents).HasColumnName("total_cents").HasColumnType("bigint");
         // Point-in-time snapshot of the delivery address (see Order.ShippingAddress).
         // Real MySQL `json` column, nullable — a user may have no address on file.
@@ -60,6 +68,7 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         ProductConfiguration.ApplyAudit(b);
         b.Ignore(o => o.Subtotal);
         b.Ignore(o => o.Tax);
+        b.Ignore(o => o.Shipping);
         b.Ignore(o => o.Total);
         b.Ignore(o => o.IsDeleted);
         b.HasMany(o => o.Details).WithOne().HasForeignKey(d => d.OrderId);

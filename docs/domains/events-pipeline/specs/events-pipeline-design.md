@@ -4,7 +4,7 @@ type: spec
 area: events-pipeline
 status: accepted
 created: 2026-06-26
-updated: 2026-08-06
+updated: 2026-08-07
 tags: [type/spec, area/events-pipeline, status/accepted]
 related:
   - "[[cqrs]]"
@@ -283,6 +283,11 @@ DocumentDB indexes:
 Handlers do not just record events — they render an email from the event's payload and send it.
 Validation remains the precondition for rendering: `validate payload (Zod) → render react-email
 template to HTML → SES SendEmail → COMPLETED`.
+
+Template authoring rules, the client-support constraints that shape them (icon fonts and inline
+SVG are unusable; remote `<img>` served from the assets bucket is the one that works, at 100%
+client support), and the checklist for adding a new template are in [[email-templates]] — read
+it before adding a fifth template.
 
 ### `src/email/catalog.ts` — the registry
 
@@ -566,6 +571,8 @@ for the full evidence trail.
 - [[2026-08-05-passwordless-otp-auth]] — the implementation plan that shipped it.
 - [[users-service-design]] — the fourth producer's home service, and the consumer-facing OTP endpoints.
 - [[cognito-custom-auth-triggers]] — the `otp-challenge-lambda` that publishes `AUTH_OTP_REQUESTED`.
+- [[email-templates]] — how to build a template: client-support constraints, authoring rules,
+  and the checklist for adding a new one.
 - [[2026-08-05-realtime-tracking-events-websocket-design]] — the design for the WebSocket fan-out
   documented above: the connections table, the `by-cognito-sub` GSI, the three new env vars, and
   the gateway E2E resolution.

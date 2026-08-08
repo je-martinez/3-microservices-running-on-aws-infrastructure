@@ -28,7 +28,11 @@ export default tseslint.config(
     // (console, URL, process) that the default config does not declare.
     files: ["scripts/**/*.mjs", "*.config.js", "*.config.ts"],
     languageOptions: {
-      globals: { console: "readonly", process: "readonly", URL: "readonly" },
+      globals: {
+        console: "readonly",
+        process: "readonly",
+        URL: "readonly",
+      },
     },
   },
 );

@@ -11,7 +11,13 @@ public class NoopEventPublisher : IEventPublisher
         string orderId,
         string userId,
         string email,
+        string fullName,
+        long subtotalCents,
+        long taxCents,
+        long shippingCents,
         long totalCents,
+        string? shippingAddress,
+        IReadOnlyList<OrderCreatedItem> items,
         DateTime createdAt,
         string? cognitoSub = null,
         CancellationToken ct = default)
