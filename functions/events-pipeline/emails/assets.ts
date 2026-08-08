@@ -160,9 +160,12 @@ export const emailAssets = Object.freeze({
   // here was ever the only thing conveying required information: each template
   // states its subject in the heading directly below.
   //
-  // At 64px these run at 1x, not 2x, so they are no longer retina-sharp. That
-  // is the trade for showing the artwork as drawn; re-exporting the four files
-  // at 128x128 would restore it without any code change here.
+  // The files are 128x128 shown at 64px — 2x, so they stay sharp on retina.
+  // They briefly ran at 1x (64px files shown at 64px) after the disc fix, and
+  // were re-exported from `assets/email/emails.pen` at scale 2 rather than
+  // upscaled: the `.pen` holds these as VECTOR `icon` nodes, so exporting adds
+  // real detail, while resampling a 64px PNG to 128px only interpolates and
+  // softens the edges. Re-export from the design source, never upscale.
   userCheck: asset("email/user-check.png", 64),
   packageCheck: asset("email/package-check.png", 64),
   mapPin: asset("email/map-pin.png", 64),
