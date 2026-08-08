@@ -4,7 +4,7 @@ type: convention
 area: events-pipeline
 status: active
 created: 2026-08-06
-updated: 2026-08-07
+updated: 2026-08-08
 tags: [type/convention, area/events-pipeline, status/active]
 related:
   - "[[events-pipeline-design]]"
@@ -192,6 +192,59 @@ the code. Deleting it — or moving the code out of it — breaks the E2E suite 
 still looks correct to a human, but the test can no longer extract the code and sign in.
 `tests/email/catalog.test.ts` guards this by snapshotting the rendered entry, so a change to
 that sentence shows up as a diff to review, not a silent E2E failure days later.
+
+## Known gap — rounded corners in Outlook Windows
+
+Deferred, not a bug: `border-radius` has 82.92% client support and **no support in any version
+of Outlook Windows (2003–2019)**
+([caniemail.com/features/css-border-radius](https://www.caniemail.com/features/css-border-radius/)).
+Outlook simply ignores the property — nothing breaks, a rounded shape just renders with square
+corners. There are 14 usages across the four templates as of this writing; what matters for
+visibility is whether the radius is *circular* (radius = half the side, so a square corner is
+obvious) or a *soft corner* on a larger rectangular panel (a few px flattening is easy to miss).
+
+**Visibly affected — a circle becomes a square:**
+- The 64×64 header icon circle in each of the four templates (`user-created.tsx`,
+  `order-created.tsx`, `tracking-status-changed.tsx`, `auth-otp.tsx` — one per template, each
+  with its own accent tint).
+- The 20×20 amber-bordered badge in `auth-otp.tsx`'s "Wasn't you?" security notice.
+
+**Barely noticeable — an 8px corner flattens on a larger panel:**
+- The white content card in `emails/components/layout.tsx` (affects all four templates via
+  `EmailLayout`).
+- The CTA button in `emails/components/button.tsx` (every template with a CTA).
+- The "YOUR ACCOUNT" panel in `user-created.tsx`.
+- The line-items panel and the "SHIPPING TO" panel in `order-created.tsx`.
+- The timeline panel in `tracking-status-changed.tsx`.
+- The six OTP digit boxes and the "Wasn't you?" notice panel in `auth-otp.tsx`.
+
+Line numbers drift; the above names each component instead so the note survives edits.
+
+**If this is ever worth closing, there are two options:**
+
+1. **PNG with the circle baked in** — export the coloured disc together with its icon as a single
+   image, the same technique already used for the timeline dots (see the note on `greenDot`/
+   `orangeDot`/`blankDot` in [[#Authoring rules]] and [[#The asset pipeline]] — they were CSS
+   circles rendering as squares in Outlook until they became PNGs). Closes 4 of the 5 visibly
+   affected cases with no conditional markup and no new fragility, and is consistent with what
+   the codebase already does elsewhere.
+2. **VML `RoundRect`** — Outlook-only conditional markup (`<!--[if mso]>`). Covers everything,
+   including the 8px soft corners, but doubles the markup around every rounded element and is
+   notoriously brittle.
+
+Recorded recommendation, if this is ever picked up: option 1, and only for the header icon
+circles (plus the OTP badge). The nine soft corners on panels/buttons/digit boxes are not worth
+touching — a square 8px corner in one declining client is invisible to a reader.
+
+Also worth recording as context: react-email already emits two `<!--[if mso]>` conditional blocks
+and `mso-padding-alt`/`mso-text-raise`/`mso-font-width` properties around the CTA button (see
+`emails/components/button.tsx`), so the library covers Outlook fidelity where it matters most —
+the primary call to action — without any hand-written VML.
+
+**What would make this worth doing:** evidence that a meaningful share of recipients read these
+emails in Outlook Windows (e.g. open-client analytics once the events-pipeline ships them). The
+templates are legible and on-brand in Outlook Windows today; closing this gap is fidelity polish
+in one declining client, not a fix for broken mail.
 
 ## Design source
 
