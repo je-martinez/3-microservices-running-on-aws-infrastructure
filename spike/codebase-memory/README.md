@@ -88,7 +88,32 @@ before anything is built on it.
 - [x] Part A3 executed — cheap-fix test: checklists written, re-measured (2026-08-07)
 - [x] A3 root cause established (follow-up questioning of the run)
 - [x] Part B executed — both engines run against `services/users` (2026-08-07)
-- [x] Part B verdict: **codebase-memory, for change-impact queries only**
+- [x] ~~Part B verdict: codebase-memory, for change-impact queries only~~
+- [x] **Part B verdict WITHDRAWN (2026-08-08)** — real token measurement reversed it
+
+### The measurement that reversed Part B
+
+Token usage was extracted from the subagent transcripts, which record what the API
+actually billed. Full analysis: `benchmark/results-tokens.md`.
+
+| Arm | Turns | Total input |
+|---|---|---|
+| A2 baseline (grep) | 60 | 4,726,249 |
+| **A2 index-first** | **26** | **1,925,211** |
+| A4 graph-assisted | 36 | 2,596,744 |
+
+**Index-first saves 59.3% vs baseline. The graph costs 35% MORE than index-first** —
+and returned a *less* complete answer, missing both cross-language string couplings
+(`TrackingContractTests.cs`, `order-created.ts`) that grep found trivially.
+
+Why: **92% of all spend is re-paying accumulated context each turn**, not reading files.
+Context grew 42k → 82k tokens; at ~74k/turn, the multiplier is *turns*. The graph added
+turns — 2 of 8 queries returned silent zeros (wrong node label, unresolved Python
+imports), and the graph says *which files* matter but not *what is in them*, so the
+agent read them anyway.
+
+The engine is not bad. It is aimed at a question this repo does not have: call edges
+within one language, when the real coupling is string literals across three.
 
 ### Part B in one line
 
