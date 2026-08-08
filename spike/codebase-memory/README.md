@@ -1,4 +1,10 @@
-# Codebase Memory Spike
+# Codebase Memory Spike — CLOSED
+
+> **Decision (2026-08-08): no engine adopted. Nothing installed, no footprint left.**
+> Read **[CONCLUSION.md](CONCLUSION.md)** first — it has the verdict, the four times the
+> reasoning was wrong along the way, and the concrete triggers for reopening. The rest of
+> this directory is the evidence trail.
+
 
 Evaluating whether this repo needs a structural code-memory engine (Codebase Memory,
 Graphify, GitNexus, CodeGraph) feeding the Obsidian vault.

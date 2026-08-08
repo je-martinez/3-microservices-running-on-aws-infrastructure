@@ -72,19 +72,46 @@ replacement for them.
 means every surprising result needs checking against source. That is the tax documented
 in `hallucination-mitigation.md`, now visible in tokens.
 
-## The finding that matters more than the cost
+## The finding that matters more than the cost — with a correction
 
-**The graph arm missed both hard consumers** that the grep-based arms found:
+The graph arm missed both hard consumers that the grep-based arms found:
 
 - `services/orders/tests/Orders.Tests/Infrastructure/TrackingContractTests.cs` — hardcodes `"SHIPPED"`
 - `functions/events-pipeline/src/handlers/order-created.ts` — a `users.proto` consumer
 
-Both are string-literal couplings across service and language boundaries. A call-graph
-does not model "this C# test asserts on a string that a Python enum produces". `grep`
-does, trivially.
+**Correction (verified after the run): this was the agent's fault, not the tool's.**
 
-So on the question Part A2 identified as the real gap — cross-service blast radius —
-**the graph cost 35% more and returned a less complete answer.**
+A first draft of this document blamed the engine. Checking directly:
+
+```
+MATCH (f:File) WHERE f.file_path CONTAINS 'e2e/' RETURN count(f)      → 21
+MATCH (f:File) WHERE f.file_path CONTAINS 'TrackingContract' …        → found
+search_code --pattern "SHIPPED"    → 10 hits in 6 files, INCLUDING TrackingContractTests.cs
+```
+
+The engine indexes `e2e/`, contains the Orders test, and finds it in **one call**. The
+agent used `query_graph` (the call graph) where it should have used `search_code`
+(literal search). Wrong tool, not missing data.
+
+That correction matters, because it is fixable with better instructions — and it means
+the earlier framing ("a call graph cannot model string couplings") was too strong.
+
+**What survives the correction, and still sinks the case:**
+
+1. **`search_code` is `grep` with an indexing step.** It found the Orders test by
+   searching for the literal `"SHIPPED"` — exactly what `grep -r` does, already
+   available, with no daemon and no index.
+2. **It also fails on the couplings that are not literal.** `search_code --pattern
+   "users.proto"` returned 10 files, mostly this spike's own documents, and did **not**
+   find `order-created.ts` or Orders' `.csproj`. Those consume the proto by import and
+   by build step, not by mentioning its name.
+3. **You must already know the answer to ask the question.** Searching `"SHIPPED"`
+   requires knowing the coupling runs through that literal. If you know that, `grep`
+   serves equally. The promised value was discovering couplings you do *not* suspect,
+   and neither tool delivered that here.
+
+So the cost finding stands on its own: **35% more tokens and 10 more turns**, even if
+the completeness gap was self-inflicted.
 
 ## Revised conclusion
 
