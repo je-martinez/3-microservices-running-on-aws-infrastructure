@@ -50,8 +50,9 @@ function formatMemberSince(createdAt: string | undefined): string | null {
   });
 }
 
-// The `.pen`'s "Icon Circle" holds a 28px lucide `user-check`, served as a
-// REMOTE PNG from the assets bucket (`emails/assets.ts`).
+// The `.pen`'s "Icon Circle" — the brand-orange disc AND the lucide `user-check`
+// inside it — is ONE remote PNG from the assets bucket (`emails/assets.ts`),
+// rendered at its full 64px.
 //
 // Two of the three ways to ship an icon are still dead ends: an icon font needs
 // @font-face (a <style> block, which Gmail and Outlook strip), and inline SVG has
@@ -62,35 +63,36 @@ function formatMemberSince(createdAt: string | undefined): string | null {
 // 80.95% support left ~19% of readers with nothing and no way to fix it. Full
 // argument in `emails/assets.ts`.
 //
-// A reader may still have images off by choice, which is why the ORANGE CIRCLE
-// STAYS. With the image missing the reader sees a deliberate brand-tinted disc
-// above the heading, not a broken-image box, and the `alt` carries the meaning.
+// THERE IS NO CSS CIRCLE HERE ANY MORE, AND ADDING ONE BACK IS A BUG.
+// `user-check.png` already contains the rgb(255,244,229) disc — the exact tint
+// the removed `bg-brand-orange-light` class emitted. Drawing both nested two
+// discs: the PNG's own disc was invisible against the identical CSS one, so all
+// the reader saw was the glyph inside it, shrunk to whatever display size the
+// image was given (14px in a 64px disc — 22%, measured on a screenshot). Showing
+// the image at the full 64px is what puts the glyph back at the 41% the artwork
+// was drawn at.
 //
-// The circle itself is a fixed-width table cell with a 32px radius, not a flex
-// box: `borderRadius` on a <td> is honoured by every client that matters, and
-// the ones that ignore it degrade to an orange square — still deliberate.
+// It also closes the Outlook Windows gap for this element for free: that client
+// supports no `border-radius` at all and rendered the CSS disc as a SQUARE. A
+// PNG of a circle is a circle everywhere — the same reason the timeline dots
+// became images (see [[email-templates]] § Authoring rules).
 //
-// That cell is a `Column`, which IS a <td> — the circle styling has to land on
-// the cell itself, so `Section` (whose props go on its <table>, leaving the
-// inner <td> bare) would not express this. The inner `Row` carries
-// `width="auto"` because `Row` defaults to `width="100%"`: a full-width table
-// would stretch the shrink-to-fit wrapper the 64px cell needs. `Row` already
-// defaults to `align="center"`, which is what centres the disc.
+// WITH IMAGES BLOCKED the reader now loses the marker entirely rather than
+// keeping a tinted disc. The layout does not move: `width`/`height` are HTML
+// ATTRIBUTES (spread from the asset entry, never CSS-only — Outlook sizes images
+// from the attributes), so the 64x64 box is reserved and "Welcome to 3MRAI!"
+// stays exactly where it is. The `alt` carries the meaning and the heading
+// directly below states it in text.
+//
+// The `Row`/`Column` wrapper stays because it is what CENTRES the image;
+// `width="auto"` on the inner `Row` keeps that table shrink-to-fit rather than
+// `Row`'s default full width, and `align="center"` is already its default.
 function IconCircle() {
   return (
     <Row>
       <Column align="center">
         <Row width="auto">
-          <Column
-            align="center"
-            className="w-[64px] h-[64px] bg-brand-orange-light rounded-[32px] text-center align-middle"
-          >
-            {/* `width`/`height` come from the asset entry as ATTRIBUTES, not
-                classes: Outlook sizes an image from the HTML attributes and
-                ignores CSS dimensions, so the 64px file (a deliberate 2x
-                retina asset) would otherwise display full-size and burst the
-                circle. Spreading the whole entry is what keeps the src and its
-                sizing from drifting apart. */}
+          <Column align="center" className="text-center">
             <Img
               {...emailAssets.userCheck}
               alt="Account created"

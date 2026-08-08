@@ -34,10 +34,18 @@ import { emailAssets, type EmailAsset } from "./assets.ts";
 // client, and they remove this template's dependence on BOTH `border-radius` and
 // `inline-block` from its most fragile construct.
 //
+// THE HEADER CIRCLE IS NOW THE SAME KIND OF IMAGE as those dots: the info-blue
+// disc is baked into `map-pin.png` rather than drawn by the cell, so it is shown
+// at the full 64px. Scaling it down inside a CSS disc nested two identical
+// circles and left the glyph at 19% of the circle — the defect that motivated
+// this; measurements in `emails/assets.ts`. It gains the same Outlook Windows
+// benefit the dots did: a real circle instead of a square.
+//
 // A reader may still have images off, so the design still holds with zero
 // assets loaded:
-//   - the header circle is a filled, border-radiused table cell — an info-blue
-//     disc with or without the pin inside it;
+//   - the header marker disappears rather than degrading to a tinted disc, but
+//     its 64x64 box is still reserved by the <Img>'s width/height attributes, so
+//     "Tracking Update" does not jump upward and the `alt` names it;
 //   - each timeline step keeps its TEXT LABEL, its date, and the bold weight on
 //     the active one, so the progression is readable without any dot;
 //   - the CTA still reads "Track Your Shipment" without its glyph.
@@ -397,38 +405,36 @@ export default function TrackingStatusChangedEmail({
 
   return (
     <EmailLayout>
-      {/* "Icon Circle" — the `.pen`'s 64px info-blue disc, now holding the real
-          `map-pin` as a base64 PNG instead of the "◎" text glyph it used to
-          approximate one with (see the ICONS note). The DISC itself is unchanged
-          and still drawn by the cell, so it survives the ~20% of clients that
-          show no image.
-          `align`/`align-middle` on the cell rather than a 64px line-height: an
-          <Img> is a replaced element Outlook positions from the cell's own
-          attributes, and `width`/`height` are HTML attributes because Outlook
-          sizes images from those and ignores CSS dimensions — the 56px raster
-          would otherwise display full-size and burst the circle.
+      {/* "Icon Circle" — the `.pen`'s 64px info-blue disc and the `map-pin`
+          glyph inside it are ONE remote PNG, shown at its full 64px.
 
-          CLASS ORDER IS LOAD-BEARING HERE — do not "tidy" it. With `bg-info-bg`
-          written BEFORE `rounded-[32px]` this cell compiled to NO
-          `background-color` at all and the disc rendered transparent, silently:
-          the email still looked plausible, so nothing failed. `rounded-[32px]`
-          first, then the fill, is the order the other two templates use and the
-          one that emits `background-color:rgb(239,246,255)`. Verified in the
-          rendered HTML, not assumed.
+          THE CSS DISC IS GONE, AND RE-ADDING IT IS A REGRESSION. The file
+          already carries the rgb(239,246,255) disc that `bg-info-bg` used to
+          paint, so drawing both stacked two identical circles and left only the
+          glyph readable, scaled down to the image's display size — 12x14px
+          inside a 64px disc, i.e. 19% of it, measured on a rendered screenshot.
+          At full size the glyph sits at the ~38% the artwork was drawn at. The
+          pixel measurements are in `emails/assets.ts`.
 
-          The disc is drawn by a `Column`, which IS a <td> — the fill and radius
-          must land on the cell, and `Section` puts its props on its <table>
-          while leaving the inner <td> bare, so it cannot express this. The inner
-          `Row` is `width="auto"` because `Row` defaults to `width="100%"`, which
-          would stretch the shrink-to-fit wrapper the 64px cell needs;
-          `align="center"` is already `Row`'s default. */}
+          This also RETIRES a long-standing hazard specific to this template: the
+          old cell's class ORDER was load-bearing, because with `bg-info-bg`
+          written before `rounded-[32px]` it compiled to no `background-color` at
+          all and the disc rendered transparent, silently. There is no fill class
+          left to lose, so that failure mode is gone rather than documented.
+
+          `width`/`height` remain HTML ATTRIBUTES (spread from the asset entry):
+          Outlook sizes images from the attributes and ignores CSS dimensions,
+          and they are what reserves the 64x64 box when a client blocks the
+          image, so "Tracking Update" below does not jump upward. The `alt`
+          carries the meaning.
+
+          The `Row`/`Column` wrapper stays because it is what CENTRES the image;
+          the inner `Row` is `width="auto"` because `Row` defaults to
+          `width="100%"` and would stretch this shrink-to-fit wrapper. */}
       <Row>
         <Column align="center">
           <Row width="auto" className="border-collapse">
-            <Column
-              align="center"
-              className="w-[64px] h-[64px] rounded-[32px] bg-info-bg text-center align-middle"
-            >
+            <Column align="center" className="text-center">
               <Img
                 {...emailAssets.mapPin}
                 alt="Shipment location update"

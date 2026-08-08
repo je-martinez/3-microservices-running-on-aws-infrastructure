@@ -67,10 +67,17 @@ function formatCents(cents: number): string {
 // base64 `data:` URIs this file used to embed, whose 80.95% support left ~19% of
 // readers with no icon at all. Full argument in `emails/assets.ts`.
 //
-// A reader may still turn images off, which is why the SUCCESS-TINTED CIRCLE
-// STAYS and why the CTA's label ("Track Your Order") carries the button on its
-// own. Both icons are an enhancement layered on a design that is already
-// complete without them, and each <Img> carries a meaningful `alt`.
+// THE SUCCESS-TINTED CIRCLE IS NO LONGER A CSS SHAPE — it is baked into
+// `package-check.png`, which is why that image is displayed at the full 64px
+// rather than scaled down inside a disc (a nested-disc arrangement that shrank
+// the visible glyph to 22% of the circle; measurements in `emails/assets.ts`).
+//
+// A reader may still turn images off, and the design still reads: with the
+// header image blocked the heading "Order Confirmed!" states the subject in
+// text and the reserved 64x64 box keeps it in place, while the CTA's label
+// ("Track Your Order") carries the button on its own. Both icons are an
+// enhancement layered on a design that is complete without them, and each
+// <Img> carries a meaningful `alt`.
 
 // The `.pen` sizes the right-hand QTY/PRICE columns by flex `gap`, which email
 // clients do not support. Fixed pixel widths inside the table are the portable
@@ -198,29 +205,32 @@ export default function OrderCreatedEmail({
 
   return (
     <EmailLayout>
-      {/* "Icon Circle": 64px, success-tinted, centred, now holding the
-          `package-check` PNG. It is a TABLE CELL with `align`/`valign` rather
-          than the old `<Text>` with a 64px line-height: line-height centres a
-          text glyph, but an <Img> is a replaced element that Outlook aligns from
-          the cell's own attributes. `width`/`height` are HTML ATTRIBUTES on the
-          image for the same reason — Outlook sizes images from the attributes
-          and ignores CSS dimensions, so the 56px raster would otherwise display
-          at full size and burst the circle.
+      {/* "Icon Circle": the 64px success-tinted disc AND the `package-check`
+          glyph are ONE PNG, shown at its full 64px.
 
-          The cell is a `Column`, which IS a <td>, so the circle styling lands on
-          the cell. `Section` would not do: its props go on its <table> and its
-          inner <td> is left bare. The inner `Row` is `width="auto"` because
-          `Row` defaults to `width="100%"`, which would stretch the shrink-to-fit
-          wrapper this 64px cell needs; `align="center"` is already `Row`'s
-          default and is what centres the disc. */}
+          THE CSS CIRCLE IS GONE ON PURPOSE — DO NOT PUT IT BACK. The file
+          already carries a rgb(236,253,245) disc, the exact tint the removed
+          `bg-success-bg` emitted, so drawing both nested two identical discs and
+          left only the glyph visible, shrunk to the image's display size (14px
+          inside 64px — 22%, measured on a screenshot). At full size the glyph
+          lands at the 39% the artwork was drawn at. Full reasoning and the pixel
+          measurements are in `emails/assets.ts`.
+
+          `width`/`height` stay HTML ATTRIBUTES spread from the asset entry:
+          Outlook sizes images from the attributes and ignores CSS dimensions,
+          and they are also what reserves the 64x64 box when a client blocks the
+          image — the heading below does not jump up. The `alt` carries the
+          meaning; "Order Confirmed!" states it in text either way.
+
+          The `Row`/`Column` wrapper remains because it is what CENTRES the
+          image. The inner `Row` is `width="auto"` because `Row` defaults to
+          `width="100%"`, which would stretch this shrink-to-fit wrapper;
+          `align="center"` is already `Row`'s default. */}
       <Section>
         <Row>
           <Column align="center">
             <Row width="auto">
-              <Column
-                align="center"
-                className="w-[64px] h-[64px] rounded-[32px] bg-success-bg text-center align-middle"
-              >
+              <Column align="center" className="text-center">
                 <Img
                   {...emailAssets.packageCheck}
                   alt="Order confirmed"

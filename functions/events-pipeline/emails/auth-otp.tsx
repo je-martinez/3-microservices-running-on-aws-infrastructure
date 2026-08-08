@@ -37,11 +37,23 @@ export interface AuthOtpEmailProps {
 // base64 `data:` URIs this file used to embed, whose 80.95% support left ~19% of
 // readers with no icon. Full argument in `emails/assets.ts`.
 //
-// Both COLOURED SHAPES STAY, because a reader may still have images off: the
-// info-tinted round cell above the heading and the amber badge beside the
-// warning both draw with zero assets loaded, and each <Img> carries a meaningful
-// `alt`. The security notice in particular must never depend on its icon — its
-// heading and body text state the warning in full.
+// BOTH PNGs CARRY THEIR OWN DISC, so neither is scaled down inside a CSS shape
+// any more — that arrangement nested two discs and shrank the visible glyph to a
+// speck (the defect this replaced; measurements in `emails/assets.ts`). The CSS
+// circle above the heading and the CSS badge in the security notice are both
+// removed, and each image is shown at the full size of the shape it replaces.
+//
+// They do not look alike afterwards, and that follows from the artwork: the
+// header PNG's rgb(239,246,255) disc contrasts with the white card, so it still
+// reads as a circle, while the notice PNG's disc is the notice panel's own fill,
+// so that one reads as a bare triangle in the gutter. See the notice itself for
+// why its amber ring could not be kept.
+//
+// A reader with images off now loses both markers rather than keeping tinted
+// shapes. Every <Img> keeps a meaningful `alt`, its `width`/`height` attributes
+// hold the layout open, and neither icon was ever load-bearing: the heading
+// names the email and the security notice states its warning in full in its own
+// heading and body.
 //
 // Default export, because react-email's `email dev` previews the default export
 // of each file under `emails/`. The catalog imports the same symbol, so preview
@@ -52,10 +64,15 @@ export interface AuthOtpEmailProps {
 // variable, so it is not in `theme.ts`.
 const DIGIT_BG = "#F9FAFB";
 
-// "Security Notice" frame tints — likewise one-offs in the `.pen` (amber warning
+// "Security Notice" panel fill — likewise a one-off in the `.pen` (amber warning
 // block), deliberately not promoted into `theme.ts`.
+//
+// The frame's amber ACCENT (#F59E0B) is no longer a constant here. It drew the
+// 1px ring around the notice badge, and that badge is now the `triangle-alert`
+// PNG itself — the ring could not survive an image that fills the cell exactly
+// (it painted as four detached segments; see the security notice below). The
+// accent colour still ships: it is rasterised into the image.
 const NOTICE_BG = "#FFF8E1";
-const NOTICE_ACCENT = "#F59E0B";
 
 export default function AuthOtpEmail({ code, ttlMinutes, fullName }: AuthOtpEmailProps) {
   // Split for the six-box display ONLY. The code is a STRING and is never
@@ -67,28 +84,28 @@ export default function AuthOtpEmail({ code, ttlMinutes, fullName }: AuthOtpEmai
 
   return (
     <EmailLayout>
-      {/* Icon Circle — the real `log-in` icon as a base64 PNG inside the
-          unchanged info-tinted disc. See the note above.
-          A table cell with `align`/`align-middle` rather than the old `<Text>`
-          with a 64px line-height: line-height centres a text glyph, but an <Img>
-          is a replaced element Outlook positions from the cell's attributes.
-          `width`/`height` are HTML attributes because Outlook sizes images from
-          those and ignores CSS dimensions — the 56px raster would otherwise
-          display full-size and burst the circle.
+      {/* Icon Circle — the info-tinted disc and the `log-in` glyph inside it are
+          ONE remote PNG, shown at its full 64px. See the note above.
 
-          The cell is a `Column` (which IS a <td>), so the disc styling lands on
-          the cell itself — `Section` puts its props on its <table> and leaves
-          the inner <td> bare, so it cannot express this. The inner `Row` is
-          `width="auto"`: `Row` defaults to `width="100%"`, which would stretch
-          the shrink-to-fit wrapper the 64px cell needs. `align="center"` is
-          already `Row`'s default and is what centres the disc. */}
+          NO CSS DISC BEHIND IT, DELIBERATELY. `log-in.png` already carries the
+          rgb(239,246,255) disc that `bg-info-bg` used to draw; stacking both
+          nested two identical circles and left only the glyph visible, shrunk to
+          the image's display size (14px in a 64px disc — 22%, measured on a
+          rendered screenshot). Full size restores the ~38% the artwork was drawn
+          at. Measurements in `emails/assets.ts`.
+
+          `width`/`height` stay HTML attributes because Outlook sizes images from
+          those and ignores CSS dimensions — and because they reserve the 64x64
+          box when a client blocks the image, so "Your Login Code" below keeps
+          its position instead of jumping up. The `alt` carries the meaning.
+
+          The `Row`/`Column` wrapper is what CENTRES the image; the inner `Row`
+          is `width="auto"` because `Row` defaults to `width="100%"` and would
+          stretch this shrink-to-fit wrapper. */}
       <Row>
         <Column align="center">
           <Row width="auto">
-            <Column
-              align="center"
-              className="w-[64px] h-[64px] rounded-[32px] bg-info-bg text-center align-middle"
-            >
+            <Column align="center" className="text-center">
               <Img
                 {...emailAssets.logIn}
                 alt="Sign in"
@@ -165,30 +182,50 @@ export default function AuthOtpEmail({ code, ttlMinutes, fullName }: AuthOtpEmai
 
       {/* Security Notice — the `.pen` lays the warning glyph beside the text
           with flex; two Columns render the same intent as a table. The glyph is
-          now the real lucide `triangle-alert` as a base64 PNG.
-          NOTE THE COLOUR INVERSION vs the header icon. `triangle-alert` is
-          rasterised IN the warning amber (the uploaded
-          `assets/email/triangle-alert.png` is amber, not white), so the
-          circle behind it CANNOT stay amber-FILLED the way it was under the
-          white "!" — amber on amber is invisible. The circle is kept and
-          inverted instead: a pale disc with a 1px amber ring, which is still a
-          deliberate 20px marker in the gutter for the ~20% of readers whose
-          client shows no image. The notice's heading and body state the warning
-          in full either way; the icon is never the thing carrying it. */}
+          the real lucide `triangle-alert`, served as a remote PNG.
+
+          THE IMAGE NOW FILLS THE BADGE INSTEAD OF FLOATING INSIDE IT. Measured
+          on the file: `triangle-alert.png` is a 40x40 rgb(255,248,225) disc with
+          the amber glyph filling 48% of it. It was being shown at 13px inside a
+          20px CSS badge, which left the visible triangle at ~6px — a speck, and
+          the ring was the only part of the marker a reader actually registered.
+          It is shown at the badge's full 20px now, so the triangle reads at ~50%
+          of the badge.
+
+          THE CSS BADGE AROUND IT IS GONE — both its white fill and its 1px
+          amber ring — and both were verified as unrecoverable rather than
+          dropped for tidiness:
+
+          - The WHITE FILL cannot show. The PNG is opaque across its whole disc
+            (1516 of its 1600 pixels are alpha 255; only the corners are
+            transparent), so a `background-color` behind it is simply covered.
+          - The AMBER RING was tried and REVERTED after looking at the render.
+            At the size the fix requires, the image fills the cell exactly, so
+            the ring had no gap to curve through: it painted as FOUR DETACHED
+            STRAIGHT SEGMENTS around the triangle — visibly broken, and worse
+            than either alternative. Reinstating it would need the image inset
+            inside a LARGER badge, which reintroduces the very nesting that made
+            the glyph a speck.
+
+          So the marker is a pale-amber triangle sitting directly on the notice
+          panel. It has no disc edge of its own, since the PNG's disc is the
+          panel's own rgb(255,248,225) — that is the difference from the four
+          header icons, whose discs contrast against the white card and so still
+          read as circles.
+
+          WITH IMAGES BLOCKED the gutter is empty rather than showing a ringed
+          disc. The notice never depended on the icon: its heading ("Wasn't
+          you?") and body state the warning in full, and `Column width="32"`
+          still reserves the gutter so the text does not reflow into it. */}
       <Section className={`bg-[${NOTICE_BG}] rounded-[8px] px-[16px] py-[14px]`}>
         <Row>
-          {/* The badge is the same shape as the header disc, so it is built the
-              same way: a `Column` (a <td>) carries the ring, wrapped in a
-              `width="auto"` `Row` so the table shrinks to the 20px cell instead
-              of `Row`'s default full width. `align="left"` is passed EXPLICITLY
-              here — `Row` defaults to `align="center"`, and the badge sits in
-              the notice's left gutter, not centred in it. */}
+          {/* `align="left"` is passed EXPLICITLY — `Row` defaults to
+              `align="center"`, and the badge sits in the notice's left gutter,
+              not centred in it. `width="auto"` keeps the wrapper table
+              shrink-to-fit instead of `Row`'s default full width. */}
           <Column width="32" valign="top">
             <Row width="auto" align="left">
-              <Column
-                align="center"
-                className={`w-[20px] h-[20px] rounded-[10px] bg-bg-white border border-solid border-[${NOTICE_ACCENT}] text-center align-middle`}
-              >
+              <Column align="center" className="text-center">
                 <Img
                   {...emailAssets.triangleAlert}
                   alt="Security notice"
