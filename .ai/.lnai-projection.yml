@@ -1,0 +1,82 @@
+# Classification decisions for multi-provider config sync.
+#
+# Committed on purpose, unlike the rest of .ai/: these are DECISIONS, not
+# generated output. Without them every run reclassifies from scratch and
+# produces drift — the exact problem this design exists to prevent.
+#
+# Spec: docs/superpowers/specs/2026-08-06-multi-provider-agent-config-sync-design.md
+#
+# rules:     universal   -> goes to .ai/AGENTS.md, reaches every provider
+#            claude-only -> stays in CLAUDE.md, never propagated
+# skills:    share | exclude
+# subagents: role        -> described in the AGENTS.md "## Roles" appendix
+#            prohibition -> written as a "do not do this yourself" rule instead,
+#                           because the agent is the single writer of a resource
+
+rules:
+  # Universal: policy that holds no matter which tool runs the agent.
+  conventional-commits: universal
+  python-first-scripting: universal
+  env-files-generated: universal
+  logging-context-and-pii: universal
+  testing-three-layers: universal
+  language-spanish-user-english-docs: universal
+  scope-yagni: universal
+  never-commit-without-confirmation: universal
+
+  # Added 2026-08-06, first end-to-end run. CLAUDE.md topics that the original
+  # list did not name explicitly.
+  documentation-vault-conventions: universal  # structure/frontmatter/validation
+  branch-flow: universal                      # feature/task branches, PR targets
+  phase-c-batch-review: universal             # batching + dependency gates
+  node-version-pinned: universal              # .nvmrc; activate before npx/node
+
+  # Claude-only: names a tool, skill, or plugin that exists only in Claude Code.
+  # Note the seam — the POLICY "never commit without confirmation" is universal
+  # (above); only its MECHANISM (the A/B/C/D/E menu rendered via
+  # AskUserQuestion) is Claude-specific.
+  git-confirmation-menu: claude-only
+  superpowers-skills: claude-only
+  plugin-mcp-servers: claude-only
+  subagent-delegation-flow: claude-only
+
+  # Added 2026-08-06. Points at .claude/ paths and Claude-Code-only machinery.
+  claude-memory-location: claude-only  # "no ~/.claude/ memory file" is internal
+  nested-claude-md-files: claude-only  # services/<svc>/CLAUDE.md loading model
+
+skills:
+  # Portable knowledge worth having in any tool.
+  #
+  # NOTE (2026-08-06): the copy in .ai/skills/floci/SKILL.md needs its
+  # `description` wrapped in double quotes. The source value contains ": " twice
+  # (":4566" and "Knowledge layer:"), which Claude Code's parser tolerates and
+  # lnai's (gray-matter/js-yaml) rejects outright. Re-apply after every re-copy;
+  # fix the COPY, never .claude/skills/.
+  floci: share
+  terraform-skill: share
+
+  # Depend on Obsidian tooling other providers do not have.
+  obsidian-bases: exclude
+  obsidian-cli: exclude
+  obsidian-markdown: exclude
+  json-canvas: exclude
+  defuddle: exclude
+
+subagents:
+  # Implementers and the planner: safe to describe as roles.
+  users-impl: role
+  orders-impl: role
+  tracking-impl: role
+  events-pipeline-impl: role
+  infra-impl: role
+  solutions-architect: role
+
+  # Single writers. Projecting these as "available roles" would invite an agent
+  # to believe it may write to Linear or docs/ itself. They become prohibitions.
+  linear-pm: prohibition
+  obsidian-vault: prohibition
+  github-ops: prohibition
+
+  # The sync agent itself is Claude-only machinery; it has nothing to say to
+  # other providers.
+  ai-config-sync: exclude
