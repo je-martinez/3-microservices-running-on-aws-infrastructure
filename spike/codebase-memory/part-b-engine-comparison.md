@@ -14,12 +14,16 @@ savings carry almost none.
 |---|---|---|---|---|
 | **Call-graph completeness** | 30% | **9/10** — 217 CALLS edges | 3/10 — 27 CALLS edges | **CM** |
 | **Query precision** | 20% | **8/10** — Cypher, exact answers | 4/10 — JSON, query it yourself | **CM** |
-| **Correctness / no hallucination** | 20% | 5/10 — one phantom route | **8/10** — 100% EXTRACTED, confidence-tagged | **GF** |
+| **Correctness / no hallucination** | 20% | 7/10 — two phantoms, but filterable to 92% precision / 100% recall | **8/10** — 100% EXTRACTED, confidence-tagged | **GF** |
 | **Local & private** | 10% | **10/10** — no network, ever | 5/10 — LLM key for docs & labels | **CM** |
 | **Obsidian integration** | 10% | 0/10 — none | **7/10** — native export (needs key) | **GF** |
 | **Setup friction** | 5% | 7/10 — npx, but daemon + flag quirks | **8/10** — pip, but writes into the repo | GF |
 | **Provenance** | 5% | **9/10** — 38k★, MIT, C, active | 8/10 — 104k★, Apache-2.0, active | CM |
-| **Weighted total** | | **7.55** | **5.15** | **codebase-memory** |
+| **Weighted total** | | **7.95** | **5.15** | **codebase-memory** |
+
+Correctness was re-scored from 5 to 7 after the follow-up: the phantoms are a
+presentation-layer defect with a one-line mitigation, not a bad extractor. The winner
+does not change; the margin widens.
 
 ## The measurement that decides it
 
@@ -65,12 +69,23 @@ is not. On a 418-open-issue project this reads as a bug, not a design limit, but
 means the advertised interface cannot be relied on today. **Cypher via `query_graph` is
 the usable path.**
 
-**One hallucinated route, one missed route.** `get_architecture` reported
-`/v1/users/login-history`, which does not exist — it appears only in
-`tests/shared/public-routes.test.ts` as an example of a route that should *not* be
-public. It also missed `/v1/users/e2e-identity`, which does exist
-(`routes.ts:434`). So route extraction is 10/11 with one phantom: good enough to
-navigate, not good enough to trust unverified.
+**Two hallucinated routes — and the "missed" route was not missed.** Corrected by a
+follow-up investigation; see `hallucination-mitigation.md`.
+
+`get_architecture` reported `/v1/users/login-history`, which exists nowhere: it is a
+string literal inside a test assertion, deliberately naming a path that does not exist.
+It also reported `/v1/health-probe`, which is a *real* route registration but only on a
+throwaway app inside `routes.test.ts`. Two phantoms, two different causes.
+
+The claim that `/v1/users/e2e-identity` was missed was **wrong**. The graph has it, with
+`method: GET` and `in_degree: 1`. `get_architecture` rendered it without its method and
+I read that as absence. **The extractor is more accurate than this section originally
+credited; the presentation tool is the weak point.**
+
+Both phantoms are filterable with metadata the engine already computes
+(`method <> '' AND in_degree > 0` gives 0 false negatives and drops the string-literal
+phantom). Verification is still required — both were found by reading source, not by
+querying.
 
 **Rough edges.** JSON args are deprecated in favor of flags with unhelpful errors
 (`repo_path is required` after passing `path`); `search_graph --name` was ignored and

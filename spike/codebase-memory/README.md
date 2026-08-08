@@ -101,8 +101,11 @@ Full scorecard and caveats: `part-b-engine-comparison.md`.
 1. **Use `query_graph` (Cypher), not `trace_path`.** The flagship caller/callee tool
    returned empty for every symbol tried — including `hashEmail`, which the same graph
    correctly reports as having 8 callers and which Cypher then listed exactly.
-2. **Treat output as a lead, not a fact.** Route extraction was 10 of 11, plus one
-   phantom (`/v1/users/login-history`, which exists only inside a test assertion).
+2. **Treat output as a lead, not a fact** — but a filterable one. There were **two**
+   phantom routes, not one, from two different causes. A one-line predicate
+   (`method <> '' AND in_degree > 0`) drops the string-literal phantom with **zero
+   false negatives**, using metadata the engine already computes but
+   `get_architecture` ignores. See `hallucination-mitigation.md`.
 3. **Do not build the Obsidian adapter.** A3 falsified its premise: the failure is
    agents stopping early, not knowledge missing from the vault. Generating notes would
    add exactly the vault noise the proposal warns about in its own §21.
