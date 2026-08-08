@@ -71,6 +71,12 @@ pytestmark = pytest.mark.integration
 OWNER = "usr_owner00000000000001"
 IMPOSTOR = "usr_impostor000000000001"
 COGNITO_SUB = "22222222-2222-4222-8222-222222222222"
+#: A sub-shaped stray identity, for the header a carrier could send but must not
+#: be believed. Sub-shaped rather than `usr_`-shaped because `x-user-id` carries
+#: the JWT's `sub` on the authenticated routes — so this is what a plausible
+#: forgery actually looks like, and comparing against `IMPOSTOR` would let an
+#: implementation reading the header slip through on shape alone.
+IMPOSTOR_SUB = "33333333-3333-4333-8333-333333333333"
 
 
 class RecordingPublisher:
@@ -93,7 +99,12 @@ class RecordingPublisher:
         self.published: list[dict[str, Any]] = []
 
     def publish_tracking_status_changed(
-        self, *, tracking: Any, previous_status: str, actor: Any
+        self,
+        *,
+        tracking: Any,
+        previous_status: str,
+        actor: Any,
+        cognito_sub: str | None = None,
     ) -> None:
         self.published.append(
             {
@@ -111,6 +122,13 @@ class RecordingPublisher:
                 ],
                 "previous_status": previous_status,
                 "actor": actor,
+                # Recorded as its OWN key rather than read off `tracking`: the
+                # command passes it explicitly (`updated.cognito_sub`), and the
+                # assertions in `TestTheCognitoSubComesFromThePersistedRow` are
+                # about what the COMMAND handed over. Snapshotting the entity's
+                # attribute instead would pass even if the command stopped
+                # passing the argument at all.
+                "cognito_sub": cognito_sub,
             }
         )
 
@@ -137,6 +155,7 @@ def seed(
     *,
     order_id: str,
     user_id: str = OWNER,
+    cognito_sub: str | None = COGNITO_SUB,
     status: TrackingStatus = TrackingStatus.PLACED,
     shipping_address: dict | None = None,
 ) -> str:
@@ -145,11 +164,16 @@ def seed(
     `shipping_address` defaults to None — the column is nullable, and the
     omitted-not-nulled rule is only testable against a row that genuinely has
     none.
+
+    `cognito_sub` is overridable — and specifically nullable — because the column
+    is: rows created by a caller that omitted the optional wire field hold NULL,
+    and the emission has to survive that (see
+    `TestTheCognitoSubComesFromThePersistedRow`).
     """
     tracking = TrackingRepository(session).create(
         order_id=order_id,
         user_id=user_id,
-        cognito_sub=COGNITO_SUB,
+        cognito_sub=cognito_sub,
         status=status,
         shipping_address=shipping_address,
         actor=AuditActor.CREATE_TRACKING,
@@ -837,6 +861,172 @@ class TestTheEnrichedFieldsComeOffThePersistedRow:
         ]
 
 
+class TestTheCognitoSubComesFromThePersistedRow:
+    """`author.cognito_sub` is how the realtime WebSocket push finds its sockets.
+
+    The events-pipeline queries a DynamoDB index keyed on the Cognito `sub` to
+    find a user's open connections. The envelope's root `user_id` is the internal
+    `usr_` id — a DIFFERENT value — so querying that index with it returns an
+    EMPTY list and no error: the push is silently delivered to nobody. The sub
+    therefore has to travel on the envelope, and only the persisted row can
+    supply it: the carrier webhook is authenticated by an API key, carries no
+    `x-user-id`, and the repository lookup here is deliberately unscoped.
+
+    The column is NULLABLE, so the second half of the contract is that a row
+    holding None still publishes — it simply cannot be routed to a socket.
+    """
+
+    def test_it_publishes_the_sub_stored_on_the_row(
+        self, session: Session
+    ) -> None:
+        seed(session, order_id="ord_sub00000000000001", cognito_sub=COGNITO_SUB)
+        publisher = RecordingPublisher()
+
+        advance(
+            session,
+            "ord_sub00000000000001",
+            TrackingStatus.PROCESSING,
+            publisher=publisher,
+        )
+
+        assert publisher.published[0]["cognito_sub"] == COGNITO_SUB
+
+    def test_the_published_sub_matches_what_mysql_holds(
+        self, session: Session
+    ) -> None:
+        """Read back from the database rather than compared to the seed constant,
+        so this fails if the emission ever reads a value that was never
+        persisted."""
+        seed(session, order_id="ord_sub00000000000002", cognito_sub=COGNITO_SUB)
+        publisher = RecordingPublisher()
+
+        advance(
+            session,
+            "ord_sub00000000000002",
+            TrackingStatus.PROCESSING,
+            publisher=publisher,
+        )
+
+        assert publisher.published[0]["cognito_sub"] == (
+            reload(session, "ord_sub00000000000002").cognito_sub
+        )
+
+    def test_it_is_not_the_internal_user_id(self, session: Session) -> None:
+        """The whole reason this field was added: the two identities describe the
+        same person and are not interchangeable. A publisher handed the `usr_` id
+        here would make the pipeline's index query match nothing — with no
+        error — and the realtime push would silently reach no one."""
+        seed(
+            session,
+            order_id="ord_sub00000000000003",
+            user_id=OWNER,
+            cognito_sub=COGNITO_SUB,
+        )
+        publisher = RecordingPublisher()
+
+        advance(
+            session,
+            "ord_sub00000000000003",
+            TrackingStatus.PROCESSING,
+            publisher=publisher,
+        )
+        event = publisher.published[0]
+
+        assert event["cognito_sub"] != event["user_id"]
+        assert not event["cognito_sub"].startswith("usr_")
+
+    def test_a_row_with_no_sub_still_publishes(self, session: Session) -> None:
+        """The nullable column, exercised. A row predating `cognito_sub`, or
+        created by a caller that omitted the optional wire field, holds NULL. It
+        cannot be routed to a websocket, but the email path is unaffected — so
+        the event must still be published, carrying no sub."""
+        seed(session, order_id="ord_sub00000000000004", cognito_sub=None)
+        publisher = RecordingPublisher()
+
+        advance(
+            session,
+            "ord_sub00000000000004",
+            TrackingStatus.PROCESSING,
+            publisher=publisher,
+        )
+
+        assert len(publisher.published) == 1
+        assert publisher.published[0]["cognito_sub"] is None
+
+    def test_a_row_with_no_sub_still_publishes_everything_else(
+        self, session: Session
+    ) -> None:
+        """Guards the test above: "published with no sub" must not degrade into
+        an event missing the fields the email actually needs."""
+        seed(
+            session,
+            order_id="ord_sub00000000000005",
+            user_id=OWNER,
+            cognito_sub=None,
+        )
+        publisher = RecordingPublisher()
+
+        advance(
+            session,
+            "ord_sub00000000000005",
+            TrackingStatus.PROCESSING,
+            publisher=publisher,
+        )
+        event = publisher.published[0]
+
+        assert event["user_id"] == OWNER
+        assert event["order_id"] == "ord_sub00000000000005"
+        assert event["status"] == TrackingStatus.PROCESSING
+
+    def test_no_request_header_can_supply_the_cognito_sub(
+        self, client: TestClient, session: Session
+    ) -> None:
+        """Driven through the REAL endpoint with a stray `x-user-id` — which, at
+        the gateway, is precisely where a sub WOULD arrive on an authenticated
+        route. The carrier's route has no authorizer, so anything it sends there
+        is unverified and must be ignored; the row's own sub wins.
+
+        This is the mutation-sensitive one: change `_emit_status_changed`'s
+        `cognito_sub=updated.cognito_sub` to a request-derived value and this
+        fails, while every other assertion in the suite keeps passing.
+        """
+        seed(
+            session,
+            order_id="ord_sub00000000000006",
+            cognito_sub=COGNITO_SUB,
+        )
+        publisher = RecordingPublisher()
+
+        with _bound_publisher(publisher):
+            response = client.put(
+                "/v1/trackings/ord_sub00000000000006/status",
+                json={"status": TrackingStatus.PROCESSING},
+                headers={**carrier(), "x-user-id": IMPOSTOR_SUB},
+            )
+
+        assert response.status_code == 200
+        assert publisher.published[0]["cognito_sub"] == COGNITO_SUB
+        assert publisher.published[0]["cognito_sub"] != IMPOSTOR_SUB
+
+    def test_the_testmode_path_publishes_the_sub_too(
+        self, session: Session
+    ) -> None:
+        """TestMode progression shares this write path, and its transitions are
+        exactly the ones a user is watching a live UI for."""
+        seed(session, order_id="ord_sub00000000000007", cognito_sub=COGNITO_SUB)
+        publisher = RecordingPublisher()
+
+        advance(
+            session,
+            "ord_sub00000000000007",
+            TrackingStatus.PROCESSING,
+            publisher=publisher,
+            actor=AuditActor.TEST_MODE_PROGRESSION,
+        )
+
+        assert publisher.published[0]["cognito_sub"] == COGNITO_SUB
+
+
 class TestAPublishFailureNeverFailsTheTransition:
     """The policy, asserted at the command level: a raising publisher is absorbed
     and the transition still succeeds.
@@ -1268,6 +1458,37 @@ class TestNoopPublisher:
                 ),
                 previous_status="PLACED",
                 actor=AuditActor.CARRIER_STATUS_UPDATE,
+                cognito_sub="sub-x",
+            )
+            is None
+        )
+
+    def test_it_accepts_a_null_cognito_sub(self) -> None:
+        """The null implementation has to track the port's signature or the
+        suites bound to it break on a `TypeError` — the one failure mode a Noop
+        exists to prevent. `None` gets its own case because the port declares no
+        default for it, so a Noop that omitted the parameter would still pass
+        the test above and fail here.
+
+        Like the test above, called with the port's REAL signature (the entity,
+        not the scalars the port took before the payload enrichment).
+        """
+        noop = NoopEventPublisher()
+
+        assert (
+            noop.publish_tracking_status_changed(
+                tracking=Tracking(
+                    id="trk_x",
+                    order_id="ord_x",
+                    user_id="usr_x",
+                    tracking_number="3MRAI-AAAA-BBBB-CCCC",
+                    status="SHIPPED",
+                    tags=[],
+                    datetime_=datetime(2026, 8, 3),
+                ),
+                previous_status="OUT_FOR_DELIVERY",
+                actor=AuditActor.CARRIER_STATUS_UPDATE,
+                cognito_sub=None,
             )
             is None
         )

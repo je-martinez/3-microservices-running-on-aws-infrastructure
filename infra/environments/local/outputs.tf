@@ -85,6 +85,37 @@ output "events_lambda_function_name" {
   value       = module.lambda_events_pipeline.function_name
 }
 
+# ─── Realtime WebSocket ─────────────────────────────────────────────────────────
+# ws://localhost:4566/ws/{apiId}/{stage} — the HOST-facing data plane, NOT the
+# restapis/<id>/$default/_user_request_/ shape the HTTP API uses. Consumed by the
+# E2E harness via .env.local.debug.
+output "ws_url" {
+  description = "WebSocket URL for E2E clients."
+  value       = module.api_gateway_ws.ws_url_local
+}
+
+output "ws_api_id" {
+  description = "WebSocket API id."
+  value       = module.api_gateway_ws.api_id
+}
+
+output "ws_connections_table" {
+  description = "DynamoDB table holding one row per open WebSocket connection."
+  value       = module.ws_connections.table_name
+}
+
+output "ws_connections_gsi" {
+  description = "GSI on cognito_sub the events-pipeline queries to fan out to a user's sockets."
+  value       = module.ws_connections.gsi_name
+}
+
+# IN-NETWORK (floci:4566): read into the events-pipeline's environment. Not
+# host-reachable, and deliberately so — the only consumer is a Lambda container.
+output "ws_management_endpoint" {
+  description = "@connections management endpoint used by the events-pipeline fan-out (Floci's undocumented /execute-api/ shape)."
+  value       = module.api_gateway_ws.management_endpoint_local
+}
+
 output "app_secret_arn" {
   description = "ARN of the least-privilege app-user credentials secret."
   value       = module.rds_aurora.app_secret_arn

@@ -221,6 +221,7 @@ def publish(
     entity: Tracking | None = None,
     previous_status: str = "PLACED",
     actor: AuditActor = AuditActor.CARRIER_STATUS_UPDATE,
+    cognito_sub: str | None = None,
     **entity_fields: Any,
 ) -> None:
     """Publish one transition.
@@ -228,11 +229,16 @@ def publish(
     `entity_fields` are forwarded to `tracking()`, so a test that only cares
     about one field says only that (`publish(p, status="DELIVERED")`) while a
     test that needs a fully-built row passes `entity=`.
+
+    `cognito_sub` defaults to None — the legacy/NULL row — so every existing
+    assertion keeps describing the envelope's author WITHOUT a sub, and the
+    routable variant is opted into explicitly by the tests that pin it.
     """
     publisher.publish_tracking_status_changed(
         tracking=entity if entity is not None else tracking(**entity_fields),
         previous_status=previous_status,
         actor=actor,
+        cognito_sub=cognito_sub,
     )
 
 
@@ -331,20 +337,24 @@ class TestTheAuthorItBuilds:
     """WHO originated the event, as opposed to `user_id`, which is WHO it is
     about.
 
-    This event is the reason the two are separate at all: neither of its paths
-    has a human author. The carrier is an external system holding an API key and
-    TestMode progression is a timer, so the author carries `actor` and nothing
-    else — the order's owner belongs in the envelope's root `user_id`, and
-    copying it here would assert that the buyer changed their own parcel's
-    status.
+    Neither of this event's paths has a human author: the carrier is an external
+    system holding an API key and TestMode progression is a timer. So the author
+    never carries an `author.user_id` — the order's owner belongs in the
+    envelope's root `user_id`, and copying it here would assert that the buyer
+    changed their own parcel's status.
+
+    `author.cognito_sub` is the ONE exception, and it is not an author claim: it
+    is the routing key the events-pipeline needs to find the owner's open
+    WebSocket connections. See `TestTheCognitoSubOnTheAuthor`.
     """
 
     def test_the_author_carries_exactly_the_actor(self) -> None:
-        """No `user_id`, no `cognito_sub`: there IS no human on either path, and
-        the contract omits what it does not know rather than nulling it. No
-        `source` either — the envelope's root one already names the producer."""
+        """With no sub to route by, the author is `actor` alone. No `user_id`:
+        there IS no human on either path, and the contract omits what it does not
+        know rather than nulling it. No `source` either — the envelope's root one
+        already names the producer."""
         client = RecordingSqsClient()
-        publish(build(client))
+        publish(build(client), cognito_sub=None)
 
         assert set(sent_body(client)["author"]) == {"actor"}
 
@@ -353,12 +363,20 @@ class TestTheAuthorItBuilds:
         `"user_id": null` would satisfy a `.get(...) is None` check while
         violating the contract — the key must not be there at all."""
         client = RecordingSqsClient()
-        publish(build(client))
+        publish(build(client), cognito_sub=None)
         raw = client.sends[0]["MessageBody"]
 
         assert "cognito_sub" not in raw
         # `user_id` DOES appear at the envelope root (the subject); what must not
         # exist is one inside the author.
+        assert "user_id" not in sent_body(client)["author"]
+
+    def test_the_author_never_carries_a_user_id_even_with_a_sub(self) -> None:
+        """The sub travels for ROUTING; it does not turn the carrier into a human
+        author. `author.user_id` stays absent on both variants."""
+        client = RecordingSqsClient()
+        publish(build(client), cognito_sub="sub-abc")
+
         assert "user_id" not in sent_body(client)["author"]
 
     def test_the_producer_is_named_once_at_the_root_not_twice(self) -> None:
@@ -417,6 +435,109 @@ class TestTheAuthorItBuilds:
 
         assert isinstance(actor, str)
         assert actor.startswith("tracking_api:")
+
+
+class TestTheCognitoSubOnTheAuthor:
+    """`author.cognito_sub` — the realtime WebSocket routing key.
+
+    The events-pipeline queries a DynamoDB index keyed on the Cognito `sub` to
+    find the owner's open connections. The envelope's root `user_id` is the
+    internal `usr_` id, a DIFFERENT value: querying that index with it returns an
+    empty list and NO error, so the push would be delivered to nobody, silently.
+
+    Two rules, and the second is the dangerous one:
+
+    1. Present when the tracking row has one.
+    2. **OMITTED, never null, when it does not.** `AuthorSchema` declares the
+       field OPTIONAL, and Zod rejects an explicit `null` for an optional string.
+       That rejection is a `PermanentError`: the record is consumed rather than
+       retried, and the notification is lost outright. Writing `null` would
+       therefore be strictly worse than writing nothing — it would break the
+       EMAIL for every legacy row, not merely fail to route a socket.
+    """
+
+    def test_the_sub_is_on_the_author_when_the_row_has_one(self) -> None:
+        client = RecordingSqsClient()
+        publish(build(client), cognito_sub="22222222-2222-4222-8222-222222222222")
+
+        assert (
+            sent_body(client)["author"]["cognito_sub"]
+            == "22222222-2222-4222-8222-222222222222"
+        )
+
+    def test_it_is_the_sub_it_was_handed_not_the_user_id(self) -> None:
+        """The confusion that would make the index query match nothing."""
+        client = RecordingSqsClient()
+        publish(build(client), user_id=USER_ID, cognito_sub="sub-abc")
+        envelope = sent_body(client)
+
+        assert envelope["author"]["cognito_sub"] == "sub-abc"
+        assert envelope["user_id"] == USER_ID
+        assert envelope["author"]["cognito_sub"] != envelope["user_id"]
+
+    def test_the_author_then_carries_the_actor_and_the_sub(self) -> None:
+        """Exactly two keys — the sub is additive, and must not have displaced
+        `actor`, which is what the email handler dispatches and labels on."""
+        client = RecordingSqsClient()
+        publish(build(client), cognito_sub="sub-abc")
+
+        assert set(sent_body(client)["author"]) == {"actor", "cognito_sub"}
+
+    def test_the_key_is_absent_entirely_when_there_is_no_sub(self) -> None:
+        """Not `None`, not `""` — ABSENT. Asserted with `in` on the dict rather
+        than `.get(...) is None`, which a null would satisfy."""
+        client = RecordingSqsClient()
+        publish(build(client), cognito_sub=None)
+
+        assert "cognito_sub" not in sent_body(client)["author"]
+
+    def test_no_null_reaches_the_serialized_body(self) -> None:
+        """The assertion that actually matches the failure mode: Zod validates
+        the PARSED JSON, so what matters is that the wire bytes contain no
+        `"cognito_sub": null`. A dict-level check would pass on an implementation
+        that serialized the key with a null value."""
+        client = RecordingSqsClient()
+        publish(build(client), cognito_sub=None)
+        raw = client.sends[0]["MessageBody"]
+
+        assert "cognito_sub" not in raw
+        # Stated over the author object specifically rather than as
+        # `"null" not in raw`: `order_id` is legitimately nullable in the
+        # envelope schema, so a blanket ban would be asserting something the
+        # contract does not say.
+        assert None not in sent_body(client)["author"].values()
+
+    def test_an_empty_sub_is_treated_as_no_sub(self) -> None:
+        """`""` normalizes to NULL in the schema (see `CLAUDE.md` §5b), but a
+        value could still arrive empty. An empty string routes to nothing while
+        looking like a real sub downstream, so it is omitted like a missing one
+        rather than published as a key that can never match."""
+        client = RecordingSqsClient()
+        publish(build(client), cognito_sub="")
+
+        assert "cognito_sub" not in sent_body(client)["author"]
+
+    def test_the_sub_is_published_on_both_actor_paths(self) -> None:
+        """The sub is about the SUBJECT's sockets, not about who moved the
+        parcel — so it travels identically for the carrier and for TestMode, and
+        TestMode is the path a live UI is most likely watching."""
+        client = RecordingSqsClient()
+        publisher = build(client)
+        publish(publisher, actor=AuditActor.CARRIER_STATUS_UPDATE, cognito_sub="s")
+        publish(publisher, actor=AuditActor.TEST_MODE_PROGRESSION, cognito_sub="s")
+
+        assert sent_body(client, 0)["author"]["cognito_sub"] == "s"
+        assert sent_body(client, 1)["author"]["cognito_sub"] == "s"
+
+    def test_a_missing_sub_does_not_stop_the_event_being_published(self) -> None:
+        """The legacy row still gets its EMAIL. Only the websocket push is lost,
+        and that degradation must not spread to the notification path."""
+        client = RecordingSqsClient()
+        publish(build(client), cognito_sub=None)
+        envelope = sent_body(client)
+
+        assert len(client.sends) == 1
+        assert envelope["payload"]["email"] == EMAIL
 
 
 class TestThePayloadItBuilds:

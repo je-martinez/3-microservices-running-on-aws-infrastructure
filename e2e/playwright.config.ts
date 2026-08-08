@@ -22,7 +22,13 @@ import { defineConfig } from "@playwright/test";
 // `http://localhost:4566/restapis/<id>/$default/_user_request_` — it must be
 // preserved verbatim, not treated as a shell/env variable reference.
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-for (const file of [".env.local.infra", ".env.local.users"]) {
+// .env.local.debug is loaded too, alongside the other two — it is where
+// `make env-file` (Task 9) writes WS_URL, the realtime WebSocket API's
+// HOST-reachable endpoint. Nothing else in this file's own vars collides
+// with the other two (see its own header: "loaded by nothing — copy the
+// value you need"), so adding it here is additive, not a behavior change
+// for existing specs.
+for (const file of [".env.local.infra", ".env.local.users", ".env.local.debug"]) {
   dotenv.config({ path: path.join(repoRoot, file) });
 }
 

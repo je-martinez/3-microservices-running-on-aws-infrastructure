@@ -1,16 +1,38 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// #shared/config/env parses process.env at MODULE LOAD (ADR-0014). This file
+// imports #handlers/index, which now (since the realtime fan-out landed in
+// tracking-status-changed.ts) transitively pulls in
+// #shared/realtime/websocket-publisher -> #shared/logging/app-logger ->
+// #shared/config/env, so the schema must be satisfied even though this
+// suite never exercises tracking-status-changed itself. Mirrors
+// tests/handler.test.ts.
+vi.stubEnv("DOCDB_HOST", "docdb-test");
+vi.stubEnv("DOCDB_USERNAME", "root");
+vi.stubEnv("DOCDB_PASSWORD", "secret");
+vi.stubEnv("SES_FROM_ADDRESS", "noreply@example.com");
+// Required by the schema since the templates moved to remote images. The
+// renderer reads it to build every <img src>, so it must be a valid absolute
+// URL with no trailing slash; nothing here fetches it.
+vi.stubEnv("ASSETS_BASE_URL", "http://assets.test/bucket");
+
 // The sender is the ONLY mocked collaborator: it is the process boundary (SES
 // over the network). The renderer and the catalog run for real, so a template
 // that throws fails this test rather than passing against a stub. Mirrors
 // tests/handlers/user-created.test.ts.
 vi.mock("#email/sender", () => ({ sendEmail: vi.fn(async () => {}) }));
 
-import { orderCreatedHandler } from "#handlers/order-created";
-import { handlers } from "#handlers/index";
 import { sendEmail } from "#email/sender";
 import { PermanentError } from "#pipeline/errors";
 import type { Envelope } from "#domain/envelope";
+
+// Dynamic import, AFTER the vi.stubEnv calls above: static imports are
+// hoisted above all other module code (including vi.stubEnv), so importing
+// #handlers/order-created or #handlers/index at the top of the file would
+// evaluate #shared/config/env before the stubs exist. Mirrors
+// tests/handler.test.ts.
+const { orderCreatedHandler } = await import("#handlers/order-created");
+const { handlers } = await import("#handlers/index");
 
 function envelope(payload: Record<string, unknown>, event_id = "evt_order_1"): Envelope {
   return {

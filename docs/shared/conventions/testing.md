@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-17
-updated: 2026-08-05
+updated: 2026-08-06
 tags: [type/convention, area/shared, status/active]
 related:
   - "[[ADR-0010-cognito-auth]]"
@@ -17,6 +17,8 @@ related:
   - "[[2026-08-05-passwordless-otp-auth-design]]"
   - "[[2026-08-05-passwordless-otp-auth]]"
   - "[[passwordless-auth-type]]"
+  - "[[2026-08-05-realtime-tracking-events-websocket-design]]"
+  - "[[2026-08-05-realtime-tracking-events-websocket]]"
 ---
 
 # Testing
@@ -27,7 +29,12 @@ Every HTTP endpoint MUST have all three test layers before it is considered done
 
 1. **Unit / integration** — the endpoint's logic tested in isolation. Orders uses xUnit with
    Testcontainers-MySQL through the in-process `WebApplicationFactory`; Users uses vitest with a
-   mocked container; Tracking uses pytest against a **live** MySQL rather than mocks.
+   mocked container; Tracking uses pytest against a **live** MySQL rather than mocks — specifically
+   the **shared local `tracking` database** (Floci grants the `test` user no `CREATE DATABASE`
+   privilege, so a throwaway per-run database is not an option), which means any fixture touching
+   the schema must restore it exactly as found. See
+   [[tracking/testing/index#Layer 1 — unit / integration]] and
+   `services/tracking/CLAUDE.md` §5c-bis for the full mechanics.
 2. **Internal E2E** — the service's own URL hit directly, bypassing the gateway, with `x-user-id`
    faked. Each service has its own internal Playwright spec running against its own port: orders
    against `http://localhost:3001`, users against `http://localhost:3000`, tracking against
@@ -126,6 +133,75 @@ See [[events-pipeline-design]] and [[2026-08-03-events-pipeline-milestone-design
 detail, including the dedicated `batchItemFailures` test (inject one good message and one that
 triggers a transient failure; assert the good one is consumed exactly once and only the bad one
 retries).
+
+## Adapting the three layers to a WebSocket surface (realtime-events)
+
+A WebSocket API is not a REST endpoint — there is no per-request response to assert — but it is
+still a **real gateway surface**, and the gateway-crossing test is still the one that matters, the
+same principle [[events-pipeline-design#Realtime WebSocket fan-out (second output of TRACKING_STATUS_CHANGED)]]'s
+producer, `functions/realtime-events/`, adapted from. See
+[[2026-08-05-realtime-tracking-events-websocket-design#Testing]] for the full design.
+
+1. **Unit/integration** (`functions/realtime-events/tests/`) — the authorizer (valid, expired,
+   malformed, absent token), and the connect/disconnect handlers against a **real DynamoDB, not
+   mocks** — per [[2026-08-05-realtime-tracking-events-websocket-design#2-dynamodb-as-the-connection-store]]
+   and this repo's own prior lesson that a mocked persistence-path test can pass while the real
+   schema or driver rejects the write.
+2. **Pipeline-side** (`functions/events-pipeline/tests/websocket-publisher.test.ts`) — the fan-out
+   logic with a simulated `410 Gone` response, asserting the dead connection's row is deleted and
+   the rest of the batch is unaffected.
+3. **Gateway E2E** (`e2e/tests/gateway/realtime-tracking.spec.ts`) — the only test that crosses
+   Floci's WebSocket data plane end to end: real Cognito login → open the socket at
+   `ws://localhost:4566/ws/{apiId}/{stage}?token=<jwt>` → create an order with
+   `x-test-mode: true` → assert the **four** TestMode transitions arrive as WebSocket frames
+   (`PROCESSING`, `SHIPPED`, `OUT_FOR_DELIVERY`, `DELIVERED` — `PLACED` is the status the tracking
+   is *created* at, not a transition, and `TRACKING_STATUS_CHANGED` only fires from the transition
+   path; see [[tracking-service-design#Events]]).
+
+### Two mandatory negative tests for a WebSocket surface
+
+Per [A rejection test is mandatory wherever a credential is verified](#a-rejection-test-is-mandatory-wherever-a-credential-is-verified)
+above, generalized to a connection handshake instead of a login/verify endpoint:
+
+- **An invalid token must be rejected at the handshake.** Same shape of risk this repo already
+  hit once for HTTP login (see
+  [A rejection test is mandatory wherever a credential is verified](#a-rejection-test-is-mandatory-wherever-a-credential-is-verified)):
+  a `$connect` that accepts a bad or absent token regardless of validity would pass a
+  happy-path-only suite with authentication effectively skipped. Only an explicit
+  wrong-token-is-rejected test at the handshake rules that out — and it is the one gateway E2E
+  test in this feature that currently **passes**; see the note below.
+- **User A must not receive user B's events.** Two simultaneous connections from different users,
+  asserting isolation — the only test that actually exercises the `by-cognito-sub` GSI scoping
+  rather than merely asserting that *a* message arrived at all.
+
+### Ordering caveat — assert the set, never the sequence
+
+Messages are ordered per WebSocket connection (it runs over TCP), but the events-pipeline
+processes SQS records in **batches with no cross-record ordering guarantee** (see
+[[events-pipeline-design#Dispatch]]). A gateway E2E test for the TestMode transitions must
+assert the **set** of `{PROCESSING, SHIPPED, OUT_FOR_DELIVERY, DELIVERED}` received — `PLACED` is
+never in that set, since it is the tracking's creation status, not a transition — never a
+specific sequence: a test that demands strict order is flaky independent of whether the feature
+itself works.
+
+> [!success] Resolved (2026-08-06) — the gap above was the assertion, not the feature
+> The gap once documented here (two of three positive gateway E2E tests red, 0 frames received)
+> turned out to be an incorrect assertion, not a delivery bug: the tests waited for **five**
+> messages including `PLACED`, which `TRACKING_STATUS_CHANGED` never emits (`PLACED` is the
+> tracking's creation status, not a transition — see the corrected count above). With the
+> assertion corrected to the four real transitions, all three realtime gateway E2E tests pass
+> and the full E2E suite is 83/83. The direct-Lambda controller probe mentioned in earlier
+> versions of this note (authenticated socket → GSI row → event published for that sub → frame
+> delivered with the correct payload) had already shown the feature itself worked; the count-only
+> failure (`expected 5, got 4`) hid that the test helper needed to report *which* messages
+> arrived, not just how many, before the real cause was visible — see
+> [[2026-08-05-realtime-tracking-events-websocket-design#Debugging lesson — a count-only
+> assertion hides which system is wrong]]. See also
+> [[2026-08-05-realtime-tracking-events-websocket-design#Verification results (POC, 2026-08-05)]]
+> and [[events-pipeline-design#Realtime WebSocket fan-out (second output of TRACKING_STATUS_CHANGED)]].
+> Recorded here as a concrete instance of this convention's own rule: an unexplained red test is
+> not swept into "pass eventually" — it is documented as outstanding until the root cause is
+> found.
 
 ### A test must never assert a mock's own configured behaviour
 

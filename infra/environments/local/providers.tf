@@ -16,9 +16,17 @@ provider "aws" {
   # and a Secrets Manager secret for the DB credentials (see rds-aurora/main.tf:
   # aws_secretsmanager_secret.db_credentials).
   endpoints {
-    apigateway       = "http://localhost:4566"
-    apigatewayv2     = "http://localhost:4566"
-    cognitoidp       = "http://localhost:4566"
+    apigateway   = "http://localhost:4566"
+    apigatewayv2 = "http://localhost:4566"
+    cognitoidp   = "http://localhost:4566"
+    # The WebSocket connections registry (modules/dynamodb) — phase 1's first
+    # DynamoDB resource. Its absence is NOT a silent no-op: an undeclared
+    # service is sent to REAL AWS, which rejects the test/test credentials with
+    # `UnrecognizedClientException: The security token included in the request
+    # is invalid` — a message that reads like a Floci auth problem but means the
+    # request never reached Floci at all. (The `backend/` root already declared
+    # dynamodb for the state-lock table, which is why that one always worked.)
+    dynamodb         = "http://localhost:4566"
     ec2              = "http://localhost:4566"
     ecs              = "http://localhost:4566"
     elbv2            = "http://localhost:4566"

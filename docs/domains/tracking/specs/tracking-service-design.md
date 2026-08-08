@@ -4,7 +4,7 @@ type: spec
 area: tracking
 status: accepted
 created: 2026-06-26
-updated: 2026-08-05
+updated: 2026-08-06
 tags: [type/spec, area/tracking, status/accepted]
 related:
   - "[[soft-delete]]"
@@ -28,6 +28,8 @@ related:
   - "[[events-pipeline-design]]"
   - "[[env-files]]"
   - "[[2026-08-03-events-pipeline-milestone-design]]"
+  - "[[2026-08-05-realtime-tracking-events-websocket-design]]"
+  - "[[2026-08-05-realtime-tracking-events-websocket]]"
 ---
 
 # Tracking Service Design
@@ -565,17 +567,52 @@ the carrier webhook (`PUT /v1/trackings/{orderId}/status`) and TestMode's automa
 call site, rather than from each caller separately, is what guarantees both paths notify the same
 way instead of drifting apart.
 
-- **Every successful transition emits, `DELIVERED` included — no suppression.** A TestMode run
-  that walks a tracking through all five statuses in ~40 seconds produces **five emails in
-  Mailpit** for that one tracking. This is expected, not a bug; E2E assertions for Tracking must
-  account for all five transitions, not just the final `DELIVERED` state.
+- **Every successful transition emits, `DELIVERED` included — no suppression. But the event count
+  is one less than the status count.** `PLACED` is not a transition: it is the status written by
+  `create_tracking` at the moment the tracking is created, and `create_tracking.py` never calls
+  `_emit_status_changed` — only `update_tracking_status` does. A TestMode run that walks a
+  tracking through `PLACED → PROCESSING → SHIPPED → OUT_FOR_DELIVERY → DELIVERED` in ~40 seconds
+  therefore makes exactly **four** calls into `update_tracking_status` (the four automatic
+  advances) and produces **four emails in Mailpit** for that one tracking, not five. This is
+  expected, not a bug; E2E assertions for Tracking must account for the four *transitions*
+  (`PROCESSING`, `SHIPPED`, `OUT_FOR_DELIVERY`, `DELIVERED`), not the five *statuses* — and not
+  just the final `DELIVERED` state either.
+  >
+  > The off-by-one here has been got wrong twice, in both directions, so it is worth stating
+  > plainly: **five history rows, four events.** Verified empirically (2026-08-06) by a live
+  > gateway E2E run for the realtime WebSocket fan-out (see
+  > [[2026-08-05-realtime-tracking-events-websocket-design#Gateway E2E — the test that matters]]):
+  > the client received one push per transition and never one for the creation status, matching
+  > `TRACKING_STATUS_CHANGED` firing from `update_status.py` alone.
 - **`user_id` on the envelope comes from the persisted tracking row, not the request.** The
   carrier webhook carries **no** `x-user-id` at all — it is authenticated by an API key, not a
   Cognito JWT, and its repository lookup is deliberately unscoped (see
   [State machine & update guards](#state-machine--update-guards)). `_emit_status_changed` reads
   `updated.user_id` off the entity `update_tracking_status` already loaded and returned — the
-  only source of an owner for this event. `cognito_sub` is deliberately **not** used here; it is
-  the ownership key the REST reads filter by, not the envelope's `user_id`.
+  only source of an owner for this event.
+- **`author.cognito_sub` also comes from the persisted row, not the request — added for the
+  realtime WebSocket fan-out (2026-08-06).** The publisher now additionally reads
+  `updated.cognito_sub` off that same already-loaded entity and sets it on the envelope's
+  `author.cognito_sub` (see [[events-pipeline-design#The envelope's author object]]). Same
+  reasoning as `user_id` above, for the same reason: the carrier webhook has no `x-user-id`, so
+  the persisted row is the only source of identity available at this call site — there is no
+  request-side value to prefer over it even by convention.
+  - **Why the pipeline needs it:** [[events-pipeline-design#Realtime WebSocket fan-out (second output of TRACKING_STATUS_CHANGED)]]
+    queries its DynamoDB connections table by `cognito_sub`, not by `user_id` — the connections
+    table only ever learns a caller's Cognito `sub` (from the WebSocket `$connect` JWT), never
+    their internal `usr_` id. Querying that GSI with the internal id `Tracking.user_id` carries
+    would return an **empty list with no error at all** — indistinguishable from "user has no
+    open connections." See [[user-id-vs-cognito-sub-ownership-key]] for the same trap already
+    documented on this service's own REST reads.
+  - **Omitted, never null, when absent** — `Tracking.cognito_sub` is nullable (see
+    [Data Model](#tracking) below: a row created before the column existed, or by a caller that
+    omitted it). The publisher only sets `author.cognito_sub` `if cognito_sub:` (a falsy check
+    that also excludes an empty string), so a legacy row with no `cognito_sub` produces an
+    envelope where the field is simply absent — never `author.cognito_sub: null`. This matches
+    the omit-not-null convention already established for `author.user_id`
+    (see [[events-pipeline-design#The envelope's author object]]) and means the realtime fan-out
+    is silently skipped for that event (the email still sends); it is not an error condition on
+    either side.
 - **`event_id` is derived from `(order_id, status)`, not generated fresh per attempt.** Given the
   forward-only state machine, this pair is a natural key for a transition. This matters because
   of TestMode: if `event_id` were regenerated on every send attempt, a retry of the same
@@ -698,3 +735,6 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
 - [[env-files]] — `EVENTS_QUEUE_URL` is generated into `.env.local.tracking`, never hardcoded.
 - [[2026-08-03-events-pipeline-milestone-design]] — the full design for Tracking joining as a
   third producer, including the `event_id` derivation and the `user_id`-from-persisted-row trap.
+- [[2026-08-05-realtime-tracking-events-websocket-design]] — the design that added
+  `author.cognito_sub` to this publisher's envelope, and the DynamoDB GSI it exists to serve.
+- [[2026-08-05-realtime-tracking-events-websocket]] — the implementation plan that shipped it.

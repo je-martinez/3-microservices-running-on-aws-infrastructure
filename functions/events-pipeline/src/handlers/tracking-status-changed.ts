@@ -3,6 +3,7 @@ import type { Envelope } from "#domain/envelope";
 import { renderTemplate } from "#email/renderer";
 import { sendEmail } from "#email/sender";
 import { PermanentError } from "#pipeline/errors";
+import { publishToUser } from "#shared/realtime/websocket-publisher";
 
 // Payload contract — snake_case, matching the envelope and the persisted
 // event document (see the events-pipeline design spec's Data Model section
@@ -11,44 +12,16 @@ import { PermanentError } from "#pipeline/errors";
 // `docs/domains/tracking/specs/tracking-service-design.md`
 // (PLACED -> PROCESSING -> SHIPPED -> OUT_FOR_DELIVERY -> DELIVERED); an
 // unknown value is a PERMANENT error below, never transient — retrying can't
-// make a status string valid. PLACED is the INITIAL status, emitted when
-// Tracking creates the tracking, so its `previous_status` carries the
-// "no previous status" marker rather than a real status.
+// make a status string valid.
 //
-// ANTICIPATED CONTRACT, not yet emitted by Tracking: as of this task,
-// Tracking has no publisher at all for TRACKING_STATUS_CHANGED — Task 14
-// wires one from `services/tracking/src/features/tracking/commands/
-// update_status.py`. Two things that command's implementer must get right,
-// verified by reading that file and its collaborators before writing this
-// schema:
+// `PLACED` is in the enum because it is a valid STATUS, not because this
+// handler ever receives it in practice: it is the status a tracking is CREATED
+// in, and `create_tracking.py` publishes nothing (verified — it holds no
+// publisher call at all). Emission happens only in `update_status.py`, the
+// transition path, which creation never takes. So a TestMode run writes five
+// history rows and sends FOUR events. Anything asserting one message per status
+// waits forever for a fifth that is never sent.
 //
-// 1. `user_id` (both the envelope's and, if echoed into the payload, this
-//    payload's) MUST come from the PERSISTED `Tracking.user_id` column
-//    (`services/tracking/src/features/tracking/domain/models.py`), never from
-//    the request. The carrier webhook that drives this command is
-//    authenticated by `TRACKING_CARRIER_API_KEY`, not a Cognito JWT — its
-//    gateway route carries no `x-user-id` at all, and
-//    `update_tracking_status` deliberately looks the tracking up unscoped
-//    (`repository.get_by_order_id(command.order_id)`, no `user_id` filter —
-//    see that function's docstring). An implementer who reaches for a
-//    request-supplied user id has nothing to reach for and will ship an
-//    event with no real owner.
-// 2. Tracking does not currently resolve the user's EMAIL either — the same
-//    gap Task 11 documented for Orders. Tracking already calls Users over
-//    gRPC (`services/tracking/src/shared/grpc/users_client.py`,
-//    `users.v1.Users/GetUserById`), but the client's own `ResolvedUser` value
-//    object deliberately narrows the response to `internal_id` and
-//    `cognito_sub` only — its docstring says so explicitly ("Deliberately
-//    NOT carrying the address... Add it when something actually consumes
-//    it"). `users.v1.UserResponse` already carries `email` on the wire (see
-//    that same client module's "Never log a UserResponse" note), so Task 14
-//    needs to: (a) add an `email` field to `ResolvedUser`
-//    (`shared/grpc/users_client.py`), (b) thread it out of `resolve()`, and
-//    (c) call `UsersGrpcClient.resolve` with the tracking's persisted
-//    `user_id` from inside the publisher it adds alongside
-//    `update_tracking_status`, mapping the result's snake_case-on-the-wire
-//    proto field onto this schema's `email`. Until then this handler cannot
-//    be exercised against Tracking's real output.
 // The enrichment fields below were verified against the producer,
 // `services/tracking/src/shared/messaging/sqs_event_publisher.py`
 // (`_build_payload`), which emits exactly
@@ -169,4 +142,24 @@ export async function trackingStatusChangedHandler(envelope: Envelope): Promise<
     subject: `Order ${envelope.order_id}: ${result.data.status.replace(/_/g, " ").toLowerCase()}`,
     html,
   });
+
+  // Realtime fan-out, AFTER the email. Secondary to it in every sense: the
+  // email is the durable notification, this is opportunistic, and
+  // `publishToUser` never throws — a push failure must not fail the event and
+  // trigger an SQS retry that would send a duplicate email.
+  //
+  // Keyed by `author.cognito_sub`, NOT `envelope.user_id`. The latter is the
+  // internal usr_ id; the connections GSI is keyed by the Cognito sub, so
+  // querying with user_id returns an empty list indistinguishable from "no open
+  // connections". See the user-id-vs-cognito-sub-ownership-key ADR.
+  const cognitoSub = envelope.author.cognito_sub;
+  if (cognitoSub) {
+    await publishToUser(cognitoSub, {
+      type: "TRACKING_STATUS_CHANGED",
+      order_id: envelope.order_id,
+      status: result.data.status,
+      previous_status: result.data.previous_status,
+      changed_at: result.data.changed_at,
+    });
+  }
 }

@@ -183,6 +183,15 @@ def build(repo_root: Path) -> dict[Path, dict]:
     # discover_assets_base_url for why.
     assets_base_url = discover_assets_base_url(repo_root)
 
+    # Realtime WebSocket. `ws_url` is HOST-facing (ws://localhost:4566/ws/...) —
+    # the E2E harness dials it from outside Docker. `ws_management_endpoint` is
+    # the opposite: an IN-NETWORK floci:4566 URL that only a Lambda container can
+    # reach, carrying Floci's undocumented /execute-api/ prefix. Do not swap them.
+    ws_url = terraform_output(tf_dir, "ws_url")
+    ws_connections_table = terraform_output(tf_dir, "ws_connections_table")
+    ws_connections_gsi = terraform_output(tf_dir, "ws_connections_gsi")
+    ws_management_endpoint = terraform_output(tf_dir, "ws_management_endpoint")
+
     # Discovered per-engine, never assumed: Floci assigns proxy ports 7000-7099
     # by cluster creation order, so postgres and mysql swap across applies.
     pg_port = discover_port("postgres")
@@ -406,6 +415,18 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # URL. The service's Zod schema REQUIRES it, so a missing value
                 # kills the function at boot rather than mailing broken images.
                 "ASSETS_BASE_URL": assets_base_url,
+                # Realtime fan-out. The DEPLOYED Lambda gets these from
+                # main.tf's environment_variables block, not from this file
+                # (there is no events-pipeline compose service) — they are
+                # mirrored here so the package's own tests and any manual
+                # `node`/`tsx` run against the live stack see the same values,
+                # exactly like DOCDB_* already are.
+                "WS_CONNECTIONS_TABLE": ws_connections_table,
+                "WS_CONNECTIONS_GSI": ws_connections_gsi,
+                # IN-NETWORK (floci:4566) with Floci's undocumented
+                # /execute-api/ prefix — NOT host-reachable. A wrong shape
+                # answers HTTP 400 with an S3 XML body, not an endpoint error.
+                "WS_MANAGEMENT_ENDPOINT": ws_management_endpoint,
             },
         ),
         # --- debug: HOST-reachable, loaded by nothing ------------------------
@@ -424,6 +445,15 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 "USERS_DB_PROXY_HOST": users_db_host,
                 "ORDERS_DB_PROXY_HOST": orders_db_host,
                 "TRACKING_DB_PROXY_HOST": tracking_db_host,
+                # The WebSocket data plane, host-facing — which is why it lives
+                # in THIS file and not in .env.local.infra: it belongs with the
+                # other "reachable from outside Docker" values. The realtime E2E
+                # harness reads WS_URL from here.
+                #
+                # ws://localhost:4566/ws/{apiId}/{stage}, NOT the
+                # restapis/<id>/$default/_user_request_/ shape API_GATEWAY_URL
+                # uses — the two gateways are served on different paths.
+                "WS_URL": ws_url,
             },
         ),
     }

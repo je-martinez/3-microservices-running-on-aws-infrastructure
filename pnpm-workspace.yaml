@@ -1,4 +1,5 @@
 packages:
   - "services/users"
   - "functions/events-pipeline"
+  - "functions/realtime-events"
   - "e2e"

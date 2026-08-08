@@ -43,6 +43,23 @@ variable "environment_variables" {
   sensitive   = true
 }
 
+# ─── Optional realtime (WebSocket fan-out) grants ───────────────────────────────
+# Both default to "" so the module keeps emitting exactly the policy it always
+# has when the consumer does not fan out. They are separate variables rather
+# than one "extra statements" escape hatch because each one names a concrete
+# capability with a concrete resource, which is what keeps the policy reviewable.
+variable "ws_connections_table_arn" {
+  description = "ARN of the WebSocket connections DynamoDB table. When set, the execution role gains Query on its indexes and DeleteItem on the table (the 410-Gone pruning path). Empty disables the statement."
+  type        = string
+  default     = ""
+}
+
+variable "ws_manage_connections_arn" {
+  description = "IAM resource ARN authorizing execute-api:ManageConnections (see modules/api-gateway-ws's manage_connections_arn output). Empty disables the statement."
+  type        = string
+  default     = ""
+}
+
 variable "batch_size" {
   description = "Max number of SQS messages per Lambda invocation."
   type        = number
