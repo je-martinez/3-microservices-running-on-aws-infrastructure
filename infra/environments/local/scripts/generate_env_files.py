@@ -343,6 +343,13 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # Orders publishes ORDER_CREATED here — the same shared queue
                 # Users and Tracking write to.
                 "EVENTS_QUEUE_URL": events_queue_url,
+                # Base URL the product catalogue's image keys hang off. Rows store
+                # a bucket-relative key ("products/x.jpg") and ProductReadService
+                # composes the absolute URL from this, so the bucket name is never
+                # persisted — Floci re-mints it on every apply. Same value the
+                # events-pipeline uses for email icons; see
+                # discover_assets_base_url for the phase-2 fallback.
+                "ASSETS_BASE_URL": assets_base_url,
                 "OTEL_EXPORTER_OTLP_ENDPOINT": OTLP_ENDPOINT,
                 "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
                 "OTEL_DIAGNOSTICS__LOGLEVEL": "Error",
