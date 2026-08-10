@@ -98,18 +98,29 @@ const EXPECTATIONS: Record<string, RegExp[]> = {
     //: The previous status is shown, which is the whole point of a "changed"
     // email — a transition mail that only names the new status tells the
     // recipient nothing they did not already know.
-    /PLACED/,
+    //
+    // Matched as the WHOLE "previously: <label>" clause, and with the human
+    // label rather than the raw enum. Both halves are deliberate: the template
+    // prints "Order Placed", not "PLACED" (a customer-facing mail should never
+    // leak an enum), and anchoring on the clause keeps the assertion from being
+    // satisfied by the same words appearing in the timeline below, which lists
+    // every step's label anyway.
+    /previously: Order Placed/,
   ],
-  "tracking-status-changed-shipped": [/has shipped/i, /3MRAI-7K2P-9WQX-4M8B/, /PROCESSING/],
+  "tracking-status-changed-shipped": [
+    /has shipped/i,
+    /3MRAI-7K2P-9WQX-4M8B/,
+    /previously: Processing/,
+  ],
   "tracking-status-changed-out-for-delivery": [
     /Out for delivery/i,
     /3MRAI-7K2P-9WQX-4M8B/,
-    /SHIPPED/,
+    /previously: Shipped/,
   ],
   "tracking-status-changed-delivered": [
     /Delivered/i,
     /3MRAI-7K2P-9WQX-4M8B/,
-    /OUT_FOR_DELIVERY/,
+    /previously: Out for Delivery/,
   ],
   "auth-otp": [
     /Login Code/i,
