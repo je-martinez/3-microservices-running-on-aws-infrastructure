@@ -7,7 +7,13 @@ requires-python = ">=3.11"
 # modules/assets-bucket/scripts/sync_assets.py. Python has no `sharp`; Pillow is
 # the standard equivalent and ships wheels for every platform this repo targets,
 # so `make scripts-setup` still needs no system libraries.
-dependencies = ["boto3>=1.34,<2", "pillow>=10,<12"]
+#
+# blurhash-python: computes the BlurHash placeholder the web app paints while a
+# product photo loads, written into assets.manifest.json by the same script. Pure
+# Python (no system libraries), so `make scripts-setup` still needs no toolchain.
+# RUNTIME rather than [dev]: sync_assets.py runs inside a Terraform local-exec
+# during phase 2, where the dev extra is not installed.
+dependencies = ["boto3>=1.34,<2", "pillow>=10,<12", "blurhash-python>=1.1,<2"]
 
 [project.optional-dependencies]
 # Test-only. Kept OUT of the runtime dependency list so `make scripts-setup`
