@@ -1,5 +1,5 @@
 {
-  "version": "2.15",
+  "version": "2.17",
   "children": [
     {
       "type": "frame",
@@ -16105,6 +16105,882 @@
                   "fontFamily": "$font-body",
                   "fontSize": 11,
                   "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "atwtV",
+      "x": 7800,
+      "y": 760,
+      "name": "Set New Password — Forced",
+      "clip": true,
+      "width": 1440,
+      "height": 1024,
+      "fill": "$bg-white",
+      "children": [
+        {
+          "id": "hvjJQ",
+          "type": "ref",
+          "ref": "WXmng",
+          "name": "Brand Panel"
+        },
+        {
+          "type": "frame",
+          "id": "oK6jq",
+          "name": "Auth Side",
+          "width": "fill_container",
+          "height": "fill_container",
+          "fill": "$bg-white",
+          "layout": "vertical",
+          "justifyContent": "center",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "b5HPoS",
+              "name": "Change Password Form",
+              "width": 480,
+              "layout": "vertical",
+              "gap": 26,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "k8bkVu",
+                  "name": "Required Notice",
+                  "width": "fill_container",
+                  "fill": "$warn-bg",
+                  "cornerRadius": "$radius-md",
+                  "gap": 11,
+                  "padding": 14,
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "WIJs7",
+                      "name": "Notice Icon",
+                      "width": 17,
+                      "height": 17,
+                      "icon": "shield-alert",
+                      "library": "lucide",
+                      "fill": "$warn-text"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "lPZ36",
+                      "name": "Notice Text",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 3,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "u9RRoZ",
+                          "name": "Notice Title",
+                          "fill": "$warn-text",
+                          "content": "Password update required",
+                          "fontFamily": "$font-body",
+                          "fontSize": 13.5,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "text",
+                          "id": "mPS8Q",
+                          "name": "Notice Body",
+                          "fill": "$warn-text",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "You signed in with a temporary code. Choose a new password to finish setting up your account.",
+                          "lineHeight": 1.5,
+                          "fontFamily": "$font-body",
+                          "fontSize": 13.5,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "Xqdc0",
+                  "name": "Form Header",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 10,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "WdgwX",
+                      "name": "Title",
+                      "fill": "$text-primary",
+                      "content": "Set a new password",
+                      "fontFamily": "$font-heading",
+                      "fontSize": 33,
+                      "fontWeight": "700",
+                      "letterSpacing": -1
+                    },
+                    {
+                      "type": "text",
+                      "id": "VEFfN",
+                      "name": "Subtitle",
+                      "fill": "$text-secondary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "For your security, this step can't be skipped. You'll use this password the next time you sign in.",
+                      "lineHeight": 1.55,
+                      "fontFamily": "$font-body",
+                      "fontSize": 16,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "Ne9pk",
+                  "name": "Fields",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 18,
+                  "children": [
+                    {
+                      "id": "m96Ia",
+                      "type": "ref",
+                      "ref": "TLRTA",
+                      "name": "New Password Field",
+                      "width": "fill_container",
+                      "descendants": {
+                        "x9933l": {
+                          "content": "New password"
+                        },
+                        "DBNRz": {
+                          "height": 58
+                        },
+                        "RPJzp": {
+                          "icon": "lock"
+                        },
+                        "XjoNi": {
+                          "content": "••••••••••••",
+                          "fill": "$text-primary"
+                        },
+                        "SRBQR": {
+                          "enabled": true
+                        }
+                      }
+                    },
+                    {
+                      "id": "t9Pi5X",
+                      "type": "ref",
+                      "ref": "TLRTA",
+                      "name": "Confirm Password Field",
+                      "width": "fill_container",
+                      "descendants": {
+                        "x9933l": {
+                          "content": "Confirm new password"
+                        },
+                        "DBNRz": {
+                          "height": 58
+                        },
+                        "RPJzp": {
+                          "icon": "lock-keyhole"
+                        },
+                        "XjoNi": {
+                          "content": "••••••••••••",
+                          "fill": "$text-primary"
+                        },
+                        "SRBQR": {
+                          "enabled": true
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "huwX3",
+                  "name": "Password Rules",
+                  "width": "fill_container",
+                  "fill": "$bg-subtle",
+                  "cornerRadius": "$radius-md",
+                  "stroke": "$border-color",
+                  "strokeWidth": 1,
+                  "layout": "vertical",
+                  "gap": 11,
+                  "padding": 16,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "LEwJm",
+                      "name": "Rules Label",
+                      "fill": "$text-muted",
+                      "content": "PASSWORD MUST HAVE",
+                      "fontFamily": "$font-body",
+                      "fontSize": 11.5,
+                      "fontWeight": "600",
+                      "letterSpacing": 1.4
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Mn17R",
+                      "name": "Rule At least 10 characters",
+                      "width": "fill_container",
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "Ht65v",
+                          "name": "Rule Mark",
+                          "width": 18,
+                          "height": 18,
+                          "fill": "$success-green",
+                          "cornerRadius": 9,
+                          "stroke": "#FFFFFF00",
+                          "strokeWidth": 1.5,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "HuE0c",
+                              "name": "Rule Check",
+                              "width": 11,
+                              "height": 11,
+                              "icon": "check",
+                              "library": "lucide",
+                              "fill": "#FFFFFF"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "G108E0",
+                          "name": "Rule Label",
+                          "fill": "$text-primary",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "At least 10 characters",
+                          "fontFamily": "$font-body",
+                          "fontSize": 13.5,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Yd0k5",
+                      "name": "Rule An uppercase and a lowercase letter",
+                      "width": "fill_container",
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "W30OP",
+                          "name": "Rule Mark",
+                          "width": 18,
+                          "height": 18,
+                          "fill": "$success-green",
+                          "cornerRadius": 9,
+                          "stroke": "#FFFFFF00",
+                          "strokeWidth": 1.5,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "qc7s8",
+                              "name": "Rule Check",
+                              "width": 11,
+                              "height": 11,
+                              "icon": "check",
+                              "library": "lucide",
+                              "fill": "#FFFFFF"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "WnUuU",
+                          "name": "Rule Label",
+                          "fill": "$text-primary",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "An uppercase and a lowercase letter",
+                          "fontFamily": "$font-body",
+                          "fontSize": 13.5,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "m2qZqS",
+                      "name": "Rule At least one number",
+                      "width": "fill_container",
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "fdHgS",
+                          "name": "Rule Mark",
+                          "width": 18,
+                          "height": 18,
+                          "fill": "$success-green",
+                          "cornerRadius": 9,
+                          "stroke": "#FFFFFF00",
+                          "strokeWidth": 1.5,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "VbWAt",
+                              "name": "Rule Check",
+                              "width": 11,
+                              "height": 11,
+                              "icon": "check",
+                              "library": "lucide",
+                              "fill": "#FFFFFF"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "Ex6cs",
+                          "name": "Rule Label",
+                          "fill": "$text-primary",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "At least one number",
+                          "fontFamily": "$font-body",
+                          "fontSize": 13.5,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "g3IFdj",
+                      "name": "Rule At least one symbol (!?@#$)",
+                      "width": "fill_container",
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "sYZG0",
+                          "name": "Rule Mark",
+                          "width": 18,
+                          "height": 18,
+                          "fill": "#FFFFFF00",
+                          "cornerRadius": 9,
+                          "stroke": "$border-strong",
+                          "strokeWidth": 1.5,
+                          "justifyContent": "center",
+                          "alignItems": "center"
+                        },
+                        {
+                          "type": "text",
+                          "id": "oH6Zj",
+                          "name": "Rule Label",
+                          "fill": "$text-secondary",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "At least one symbol (!?@#$)",
+                          "fontFamily": "$font-body",
+                          "fontSize": 13.5,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "id": "q1QW3C",
+                  "type": "ref",
+                  "ref": "sHl96",
+                  "name": "Update Password Button",
+                  "width": "fill_container",
+                  "height": 58,
+                  "descendants": {
+                    "G7D9G": {
+                      "content": "Update password & continue"
+                    },
+                    "X0hR6V": {
+                      "enabled": true
+                    }
+                  }
+                },
+                {
+                  "type": "frame",
+                  "id": "gEthX",
+                  "name": "Form Footer",
+                  "width": "fill_container",
+                  "gap": 6,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "xUq5A",
+                      "name": "Footer Text",
+                      "fill": "$text-secondary",
+                      "content": "Not your account?",
+                      "fontFamily": "$font-body",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "U1GPFE",
+                      "name": "Footer Link",
+                      "fill": "$brand-navy",
+                      "content": "Sign out",
+                      "fontFamily": "$font-body",
+                      "fontSize": 14,
+                      "fontWeight": "600"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "G6lEnQ",
+      "x": 2450,
+      "y": 1964,
+      "name": "Mobile — Set New Password",
+      "clip": true,
+      "width": 390,
+      "fill": "$bg-white",
+      "layout": "vertical",
+      "children": [
+        {
+          "id": "s5Uh5X",
+          "type": "ref",
+          "ref": "u2nnov",
+          "name": "Brand Header",
+          "width": "fill_container"
+        },
+        {
+          "type": "frame",
+          "id": "v4KFgB",
+          "name": "Body",
+          "width": "fill_container",
+          "fill": "$bg-white",
+          "layout": "vertical",
+          "gap": 20,
+          "padding": [
+            24,
+            24,
+            32,
+            24
+          ],
+          "children": [
+            {
+              "type": "frame",
+              "id": "bJgQO",
+              "name": "Required Notice",
+              "width": "fill_container",
+              "fill": "$warn-bg",
+              "cornerRadius": "$radius-md",
+              "gap": 10,
+              "padding": 13,
+              "children": [
+                {
+                  "type": "icon",
+                  "id": "g1FbN",
+                  "name": "Notice Icon",
+                  "width": 16,
+                  "height": 16,
+                  "icon": "shield-alert",
+                  "library": "lucide",
+                  "fill": "$warn-text"
+                },
+                {
+                  "type": "frame",
+                  "id": "lzqsV",
+                  "name": "Notice Text",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 3,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "O8f8Nv",
+                      "name": "Notice Title",
+                      "fill": "$warn-text",
+                      "content": "Password update required",
+                      "fontFamily": "$font-body",
+                      "fontSize": 13,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "text",
+                      "id": "w3iTh",
+                      "name": "Notice Body",
+                      "fill": "$warn-text",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "You signed in with a temporary code. Choose a new password to finish setting up your account.",
+                      "lineHeight": 1.5,
+                      "fontFamily": "$font-body",
+                      "fontSize": 12.5,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "IrCCr",
+              "name": "Form Header",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 7,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "O9B60l",
+                  "name": "Title",
+                  "fill": "$text-primary",
+                  "content": "Set a new password",
+                  "fontFamily": "$font-heading",
+                  "fontSize": 26,
+                  "fontWeight": "700",
+                  "letterSpacing": -0.7
+                },
+                {
+                  "type": "text",
+                  "id": "A7YbO",
+                  "name": "Subtitle",
+                  "fill": "$text-secondary",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "For your security, this step can't be skipped.",
+                  "lineHeight": 1.5,
+                  "fontFamily": "$font-body",
+                  "fontSize": 14,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "zIRZ2",
+              "name": "Fields",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 16,
+              "children": [
+                {
+                  "id": "Ydr0w",
+                  "type": "ref",
+                  "ref": "TLRTA",
+                  "name": "New Password Field",
+                  "width": "fill_container",
+                  "descendants": {
+                    "x9933l": {
+                      "content": "New password"
+                    },
+                    "DBNRz": {
+                      "height": 56
+                    },
+                    "RPJzp": {
+                      "icon": "lock"
+                    },
+                    "XjoNi": {
+                      "content": "••••••••••••",
+                      "fill": "$text-primary"
+                    },
+                    "SRBQR": {
+                      "enabled": true
+                    }
+                  }
+                },
+                {
+                  "id": "ujSBK",
+                  "type": "ref",
+                  "ref": "TLRTA",
+                  "name": "Confirm Password Field",
+                  "width": "fill_container",
+                  "descendants": {
+                    "x9933l": {
+                      "content": "Confirm new password"
+                    },
+                    "DBNRz": {
+                      "height": 56
+                    },
+                    "RPJzp": {
+                      "icon": "lock-keyhole"
+                    },
+                    "XjoNi": {
+                      "content": "••••••••••••",
+                      "fill": "$text-primary"
+                    },
+                    "SRBQR": {
+                      "enabled": true
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "ugI4m",
+              "name": "Password Rules",
+              "width": "fill_container",
+              "fill": "$bg-subtle",
+              "cornerRadius": "$radius-md",
+              "stroke": "$border-color",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "gap": 10,
+              "padding": 14,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "SxkRR",
+                  "name": "Rules Label",
+                  "fill": "$text-muted",
+                  "content": "PASSWORD MUST HAVE",
+                  "fontFamily": "$font-body",
+                  "fontSize": 11,
+                  "fontWeight": "600",
+                  "letterSpacing": 1.4
+                },
+                {
+                  "type": "frame",
+                  "id": "dTpsY",
+                  "name": "Rule At least 10 characters",
+                  "width": "fill_container",
+                  "gap": 9,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "J9jkmK",
+                      "name": "Rule Mark",
+                      "width": 17,
+                      "height": 17,
+                      "fill": "$success-green",
+                      "cornerRadius": 9,
+                      "stroke": "#FFFFFF00",
+                      "strokeWidth": 1.5,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "vfzwe",
+                          "name": "Rule Check",
+                          "width": 10,
+                          "height": 10,
+                          "icon": "check",
+                          "library": "lucide",
+                          "fill": "#FFFFFF"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "RwjFK",
+                      "name": "Rule Label",
+                      "fill": "$text-primary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "At least 10 characters",
+                      "fontFamily": "$font-body",
+                      "fontSize": 13,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "B0cNaf",
+                  "name": "Rule An uppercase and a lowercase letter",
+                  "width": "fill_container",
+                  "gap": 9,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "r5gvME",
+                      "name": "Rule Mark",
+                      "width": 17,
+                      "height": 17,
+                      "fill": "$success-green",
+                      "cornerRadius": 9,
+                      "stroke": "#FFFFFF00",
+                      "strokeWidth": 1.5,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "y2Z1d5",
+                          "name": "Rule Check",
+                          "width": 10,
+                          "height": 10,
+                          "icon": "check",
+                          "library": "lucide",
+                          "fill": "#FFFFFF"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "a4QdQ",
+                      "name": "Rule Label",
+                      "fill": "$text-primary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "An uppercase and a lowercase letter",
+                      "fontFamily": "$font-body",
+                      "fontSize": 13,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "rrQ81",
+                  "name": "Rule At least one number",
+                  "width": "fill_container",
+                  "gap": 9,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "HHn5K",
+                      "name": "Rule Mark",
+                      "width": 17,
+                      "height": 17,
+                      "fill": "$success-green",
+                      "cornerRadius": 9,
+                      "stroke": "#FFFFFF00",
+                      "strokeWidth": 1.5,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "o4RFUb",
+                          "name": "Rule Check",
+                          "width": 10,
+                          "height": 10,
+                          "icon": "check",
+                          "library": "lucide",
+                          "fill": "#FFFFFF"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "m0rHNs",
+                      "name": "Rule Label",
+                      "fill": "$text-primary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "At least one number",
+                      "fontFamily": "$font-body",
+                      "fontSize": 13,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "jPRkq",
+                  "name": "Rule At least one symbol (!?@#$)",
+                  "width": "fill_container",
+                  "gap": 9,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "Y0ywZG",
+                      "name": "Rule Mark",
+                      "width": 17,
+                      "height": 17,
+                      "fill": "#FFFFFF00",
+                      "cornerRadius": 9,
+                      "stroke": "$border-strong",
+                      "strokeWidth": 1.5,
+                      "justifyContent": "center",
+                      "alignItems": "center"
+                    },
+                    {
+                      "type": "text",
+                      "id": "RT7Fi",
+                      "name": "Rule Label",
+                      "fill": "$text-secondary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "At least one symbol (!?@#$)",
+                      "fontFamily": "$font-body",
+                      "fontSize": 13,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "GFpwm",
+              "type": "ref",
+              "ref": "sHl96",
+              "name": "Update Password Button",
+              "width": "fill_container",
+              "height": 56,
+              "descendants": {
+                "G7D9G": {
+                  "content": "Update password & continue",
+                  "fontSize": 15
+                },
+                "X0hR6V": {
+                  "enabled": true
+                }
+              }
+            },
+            {
+              "type": "frame",
+              "id": "vDt70",
+              "name": "Form Footer",
+              "width": "fill_container",
+              "gap": 6,
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "IMtF5",
+                  "name": "Footer Text",
+                  "fill": "$text-secondary",
+                  "content": "Not your account?",
+                  "fontFamily": "$font-body",
+                  "fontSize": 14,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "uhcMW",
+                  "name": "Footer Link",
+                  "fill": "$brand-navy",
+                  "content": "Sign out",
+                  "fontFamily": "$font-body",
+                  "fontSize": 14,
+                  "fontWeight": "600"
                 }
               ]
             }
