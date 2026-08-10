@@ -31,6 +31,13 @@ rules:
   phase-c-batch-review: universal             # batching + dependency gates
   node-version-pinned: universal              # .nvmrc; activate before npx/node
 
+  # Added 2026-08-10. Universal because it is a property of the local stack, not
+  # of any agent tool: an emulator resource can report `available` with no
+  # backing container, and `terraform apply` then creates nothing while
+  # reporting success. Any agent that runs `make clean` or reads a resource
+  # status needs this, whichever CLI it is driven from.
+  local-emulator-state: universal             # named volume; clean is destructive
+
   # Claude-only: names a tool, skill, or plugin that exists only in Claude Code.
   # Note the seam — the POLICY "never commit without confirmation" is universal
   # (above); only its MECHANISM (the A/B/C/D/E menu rendered via

@@ -95,6 +95,18 @@ const STEPS = [
   { status: "DELIVERED", label: "Delivered" },
 ] as const;
 
+// The human label for a raw status enum, for the places a status is printed as
+// PROSE rather than rendered as a timeline step — today just the "(previously:
+// …)" clause, which was showing the enum itself ("SHIPPED", not "Shipped").
+//
+// Falls back to the raw value rather than throwing or blanking: `previousStatus`
+// is typed `string`, not the five-way union, so a status this template does not
+// know about is reachable. Printing it raw is ugly; printing nothing would lose
+// the transition the sentence exists to state.
+function statusLabel(status: string): string {
+  return STEPS.find((step) => step.status === status)?.label ?? status;
+}
+
 // Days between the order being placed and its estimated delivery. A template
 // constant for the same reason as the carrier: the domain carries no promised
 // delivery date, so the mockup's "Estimated Delivery" row is COMPUTED from the
@@ -457,8 +469,8 @@ export default function TrackingStatusChangedEmail({
         {greeting(fullName)}
       </Text>
       <Text className="mt-[12px] mb-[24px] mx-0 font-body text-[14px] leading-[1.5] text-text-secondary">
-        {heading}: your order {orderId} {body} (previously: {previousStatus}). Here&apos;s the latest
-        on your shipment:
+        {heading}: your order {orderId} {body} (previously: {statusLabel(previousStatus)}). Here&apos;s
+        the latest on your shipment:
       </Text>
 
       <StatusTimeline status={status} history={history} />

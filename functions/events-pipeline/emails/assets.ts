@@ -186,18 +186,30 @@ export const emailAssets = Object.freeze({
   // to.
   keyRound: asset("email/key-round.png", 64),
 
-  // CTA glyphs — 40x40 files shown at 20px.
+  // CTA glyphs — 80x80 files shown at 40px.
   //
   // Same baked-in disc, but here it is a FEATURE rather than a defect: the
   // disc is rasterised in rgb(59,130,246), the exact `infoBlue` of the button
   // these sit on, so it blends into the button face and only the pale glyph
-  // reads. There is no CSS circle behind them to remove. The glyph occupies
-  // 35-38% of the 40px file, so at a 20px display size it draws at ~7px beside
-  // a 15px label — which is the optical weight a small leading glyph wants
-  // (a 15px label's cap height is itself only ~11px). The button's LABEL still
-  // carries the CTA on its own with images blocked.
-  packageSearch: asset("email/package-search.png", 20),
-  externalLink: asset("email/external-link.png", 20),
+  // reads. There is no CSS circle behind them to remove.
+  //
+  // THE DISPLAY SIZE IS SET FROM THE GLYPH, NOT THE FILE, and that is the whole
+  // subtlety here: the visible mark is only the pale glyph INSIDE the disc, which
+  // measures 26x26 of the 80x80 file — 32%. These were shown at 20px, which drew
+  // that glyph at ~6.5px beside a 15px/600 label and read as a speck (reported
+  // from a delivered email, not theorised). At 40px the glyph lands at ~13px,
+  // just under the label's ~11px cap height — the optical weight a leading CTA
+  // glyph wants. The disc it is centred in is invisible against the button, so
+  // the 40px box costs nothing visually.
+  //
+  // If either PNG is ever re-exported, re-measure the glyph's share of the
+  // canvas before trusting this number: it is a property of the ARTWORK, not of
+  // the file's dimensions. An earlier version of this comment described 40x40
+  // files whose glyph filled 35-38%, and it silently stopped matching the assets.
+  //
+  // The button's LABEL still carries the CTA on its own with images blocked.
+  packageSearch: asset("email/package-search.png", 40),
+  externalLink: asset("email/external-link.png", 40),
 
   // Security-notice glyph — 40x40 file shown at 20px, FILLING its badge rather
   // than floating inside it (it was 13px in a 20px badge, i.e. a ~6px triangle).

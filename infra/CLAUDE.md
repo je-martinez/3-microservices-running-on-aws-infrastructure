@@ -30,8 +30,18 @@ RDS, S3, DocumentDB, …). The **root `docker-compose.yml`** brings it up as the
 are created; Terraform's `environments/local` and the service SDKs target this
 endpoint (`AWS_ENDPOINT_URL`). Lambda/ECS execute as real Docker containers, so
 Floci mounts the docker socket and joins them to the same compose network
-(`FLOCI_SERVICES_ECS_DOCKER_NETWORK=3mrai_3mrai-network`). State persists under
-`./data/floci` (git-ignored) with `FLOCI_STORAGE_MODE=persistent`.
+(`FLOCI_SERVICES_ECS_DOCKER_NETWORK=3mrai_3mrai-network`). State persists in the
+`floci-state` **named volume** with `FLOCI_STORAGE_MODE=persistent`.
+
+That volume is not a `./data` bind mount for a specific reason: `docker compose
+down -v` removes named volumes and cannot remove a bind mount, so the old layout
+had no teardown command that cleared emulator state. It outlived every `down`,
+and `make clean` only offered to delete it behind a prompt that defaulted to
+KEEPING it — which made a from-scratch rebuild non-deterministic. Floci would
+boot, read the stale state, report DocumentDB/ElastiCache as `available`, and
+Terraform would create nothing, leaving clusters with no backing container.
+`make clean` now runs `down -v`; `make doctor` cross-checks state against
+`docker ps` and fails loudly if they drift.
 
 **`make bootstrap` is the single supported entry point.** It runs, in order:
 `floci` → `infra-init` → `infra-up` (phase-1 apply + regenerate `./.env` from

@@ -8,7 +8,14 @@ const NEW_PASSWORD = "N3wP@ssw0rd!";
 
 const USER = { id: "usr_1", email: EMAIL, fullName: "Jose" };
 
-function build(overrides: { user?: unknown; accepted?: boolean; cognitoRejects?: boolean } = {}) {
+function build(
+  overrides: {
+    user?: unknown;
+    accepted?: boolean;
+    cognitoRejects?: boolean;
+    mirrorRejects?: boolean;
+  } = {},
+) {
   const db = {
     user: {
       findFirst: vi.fn(async () => ("user" in overrides ? overrides.user : USER)),
@@ -18,6 +25,9 @@ function build(overrides: { user?: unknown; accepted?: boolean; cognitoRejects?:
   const auth = {
     setPassword: vi.fn(async () => {
       if (overrides.cognitoRejects) throw new Error("cognito down");
+    }),
+    setMustChangePassword: vi.fn(async () => {
+      if (overrides.mirrorRejects) throw new Error("attribute write failed");
     }),
   };
   const resetCodeStore = {
@@ -98,5 +108,23 @@ describe("ConfirmPasswordResetCommand", () => {
 
     await expect(command.execute(input)).rejects.toThrow("cognito down");
     expect(db.user.update).not.toHaveBeenCalled();
+  });
+
+  it("mirrors the cleared flag onto Cognito so the next token's claim is false", async () => {
+    const { command, auth } = build();
+
+    await command.execute(input);
+
+    expect(auth.setMustChangePassword).toHaveBeenCalledWith(EMAIL, false);
+  });
+
+  it("still succeeds when the Cognito mirror fails — the password is already set", async () => {
+    // The reset code has been consumed and the password applied by this point.
+    // Throwing here would tell the user their reset failed and send them for a
+    // new code, when in fact the new password works.
+    const { command, db } = build({ mirrorRejects: true });
+
+    await expect(command.execute(input)).resolves.toBeUndefined();
+    expect(db.user.update).toHaveBeenCalled();
   });
 });

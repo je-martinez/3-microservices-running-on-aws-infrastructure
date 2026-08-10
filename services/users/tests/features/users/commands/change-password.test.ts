@@ -22,11 +22,16 @@ const ROW = {
   isDeleted: false,
 };
 
-function build(overrides: { resolved?: unknown; cognitoRejects?: boolean } = {}) {
+function build(
+  overrides: { resolved?: unknown; cognitoRejects?: boolean; mirrorRejects?: boolean } = {},
+) {
   const db = { user: { update: vi.fn(async () => ROW) } };
   const auth = {
     setPassword: vi.fn(async () => {
       if (overrides.cognitoRejects) throw new Error("cognito down");
+    }),
+    setMustChangePassword: vi.fn(async () => {
+      if (overrides.mirrorRejects) throw new Error("attribute write failed");
     }),
   };
   const currentUser = {
@@ -81,5 +86,34 @@ describe("ChangePasswordCommand", () => {
       command.execute(currentUser as never, { newPassword: NEW_PASSWORD }),
     ).rejects.toThrow("cognito down");
     expect(db.user.update).not.toHaveBeenCalled();
+  });
+
+  it("mirrors the cleared flag onto Cognito so the next token's claim is false", async () => {
+    const { command, auth, currentUser } = build();
+
+    await command.execute(currentUser as never, { newPassword: NEW_PASSWORD });
+
+    expect(auth.setMustChangePassword).toHaveBeenCalledWith("jose@example.com", false);
+  });
+
+  it("still succeeds when the Cognito mirror fails — the durable write already happened", async () => {
+    // The mirror is a projection for the token claim, not the source of truth.
+    // Failing the request here would report an error for a password change that
+    // did happen, and GET /v1/users/me still answers correctly from Postgres.
+    const { command, db, currentUser } = build({ mirrorRejects: true });
+
+    const result = await command.execute(currentUser as never, { newPassword: NEW_PASSWORD });
+
+    expect(result).toMatchObject({ id: "usr_1", mustChangePassword: false });
+    expect(db.user.update).toHaveBeenCalled();
+  });
+
+  it("does not mirror when the password set failed", async () => {
+    const { command, auth, currentUser } = build({ cognitoRejects: true });
+
+    await expect(
+      command.execute(currentUser as never, { newPassword: NEW_PASSWORD }),
+    ).rejects.toThrow("cognito down");
+    expect(auth.setMustChangePassword).not.toHaveBeenCalled();
   });
 });

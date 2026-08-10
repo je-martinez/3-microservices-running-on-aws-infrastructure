@@ -50,4 +50,18 @@ export interface AuthProvider {
   // Throws InvalidCredentialsError when the account does not exist, so an
   // unknown email cannot be distinguished from a wrong code by status alone.
   setPassword(email: string, newPassword: string): Promise<void>;
+  // Mirrors `users.must_change_password` onto the Cognito account, where the
+  // Pre-Token-Generation trigger can read it into the `must_change_password`
+  // token claim. Postgres stays the source of truth; this is a projection of it.
+  //
+  // It exists because that trigger runs inside Cognito with no database access
+  // (same constraint that puts `name` on the account for the OTP Lambda), so a
+  // value the token must carry has to be pushed to Cognito by whoever changes it.
+  //
+  // Callers treat this as BEST-EFFORT and must not fail the request on it: the
+  // durable write to Postgres has already happened by then, and `GET /v1/users/me`
+  // — the frontend's existing source for this flag — reads that column, not the
+  // token. A failure here means the claim is stale until the next token is
+  // issued, not that the flag was lost.
+  setMustChangePassword(email: string, mustChangePassword: boolean): Promise<void>;
 }

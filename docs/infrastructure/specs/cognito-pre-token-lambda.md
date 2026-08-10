@@ -4,7 +4,7 @@ type: spec
 area: infra
 status: active
 created: 2026-07-12
-updated: 2026-08-05
+updated: 2026-08-10
 tags:
   - type/spec
   - area/infra
@@ -34,6 +34,12 @@ identity (`sub`) and the application's own user id, without changing identity re
 carries the Cognito `sub`, and the service still resolves users by `cognitoSub` via
 `byIdOrCognitoSub`. `app_user_id` is an additive, read-only convenience claim.
 
+The pool now carries a second custom attribute, `custom:must_change_password`, and the same
+Lambda mirrors it into a `must_change_password` claim on both tokens. Postgres
+(`users.must_change_password`) is the source of truth; the Cognito attribute is a projection kept
+in sync by the Users service (see [[users-service-design]]) so the dependency-free Lambda can
+still emit it without a database call.
+
 ## The custom attribute
 
 `infra/modules/cognito/main.tf` declares a custom schema attribute on the user pool:
@@ -58,6 +64,31 @@ schema {
   so the new custom attribute is automatically writable/readable by the client with no client
   change required.
 
+A second `schema` block declares `custom:must_change_password`:
+
+```hcl
+schema {
+  name                = "must_change_password"
+  attribute_data_type = "String"
+  mutable             = true
+  string_attribute_constraints {
+    min_length = 4
+    max_length = 5
+  }
+}
+```
+
+Cognito has no boolean attribute type, so the value is the literal string `"true"`/`"false"`.
+Unlike `app_user_id`, `mutable = true` is load-bearing here rather than incidental: this value
+genuinely changes across an account's life (set when a password change is forced, cleared once
+the user picks their own password), whereas `app_user_id` is written once at sign-up and never
+touched again.
+
+**Operational note:** custom attributes are create-only at the schema level (see above) — an
+*existing* pool cannot gain this attribute via `terraform apply`. Adding it locally required a
+full pool recreation (`make clean && make bootstrap`). Fine for Floci, which re-mints the pool
+every apply anyway, but a real constraint for any long-lived pool.
+
 ## Setting the attribute at sign-up
 
 `services/users/src/features/users/commands/register.ts` generates the `usr_` id **before**
@@ -79,12 +110,18 @@ exists.
 
 `infra/modules/cognito/pre-token-lambda/index.mjs` copies `custom:app_user_id` into an
 `app_user_id` claim on both the id and access tokens, using the Pre-Token-Generation **V2**
-event shape (`claimsAndScopeOverrideDetails`, not the V1 `claimsOverrideDetails`):
+event shape (`claimsAndScopeOverrideDetails`, not the V1 `claimsOverrideDetails`). It now also
+copies `custom:must_change_password` into a `must_change_password` claim on both tokens:
 
 ```js
 export const handler = async (event) => {
   const appUserId = event.request.userAttributes["custom:app_user_id"];
-  const claims = appUserId ? { app_user_id: appUserId } : {};
+  const mustChangePassword =
+    event.request.userAttributes["custom:must_change_password"] === "true";
+  const claims = {
+    ...(appUserId ? { app_user_id: appUserId } : {}),
+    must_change_password: mustChangePassword,
+  };
   event.response = {
     claimsAndScopeOverrideDetails: {
       idTokenGeneration: { claimsToAddOrOverride: claims },
@@ -95,9 +132,16 @@ export const handler = async (event) => {
 };
 ```
 
-- No DB access, no VPC — the id is read directly from the trigger event's `userAttributes`
-  (set by `register` at sign-up), so the function needs no extra IAM policy beyond its bare
-  execution role (`aws_iam_role.pre_token`, `sts:AssumeRole` for `lambda.amazonaws.com`).
+- No DB access, no VPC — both values are read directly from the trigger event's
+  `userAttributes`, so the function needs no extra IAM policy beyond its bare execution role
+  (`aws_iam_role.pre_token`, `sts:AssumeRole` for `lambda.amazonaws.com`). The dependency-free
+  design is unchanged — it's the reason `must_change_password` has to be mirrored onto the
+  Cognito account at all.
+- `must_change_password` is **always emitted**, unlike `app_user_id` which is omitted when the
+  attribute is absent. A missing boolean claim would be ambiguous to a consumer — it couldn't
+  tell "no forced change" from "this token predates the feature." Any value other than the
+  string `"true"` reads as `false`, so accounts created before the attribute existed are safely
+  permissive rather than locked out of a change they have no way to make.
 - Runtime `nodejs20.x`, packaged via `data.archive_file` (zip of the module's `pre-token-lambda/`
   directory), deployed as `aws_lambda_function.pre_token`.
 - `aws_lambda_permission.pre_token_cognito` grants `cognito-idp.amazonaws.com` `InvokeFunction`
@@ -106,6 +150,12 @@ export const handler = async (event) => {
   Pre-Token-Generation triggers **do** fire on Floci and custom attributes are readable in the
   event. (Note: PostConfirmation does **not** fire on Floci — a different trigger — see
   [[ADR-0017-floci-local]] consequences.)
+
+> [!success] Verified live (2026-08-10)
+> Checked end-to-end against the running stack: a freshly registered user's token carries
+> `must_change_password: false`; setting the Cognito attribute to `"true"` makes the next token
+> carry `true` on both the id and access tokens; `PATCH /v1/users/me/password` returns the next
+> token to `false` and resets `custom:must_change_password` back to `"false"`.
 
 ## Wiring the trigger — awscli fallback, not native
 
@@ -142,8 +192,8 @@ intentionally relaxed local password policy. `set-pre-token-trigger.sh` is there
 > `LambdaConfig` read-modify-write race between them.
 
 Schema/custom attributes are **not** re-passed by the script (they are create-only via
-`add-custom-attributes`, never part of `update-user-pool`), so `custom:app_user_id` is untouched
-by this wiring step.
+`add-custom-attributes`, never part of `update-user-pool`), so `custom:app_user_id` and
+`custom:must_change_password` are both untouched by this wiring step.
 
 ## Related
 

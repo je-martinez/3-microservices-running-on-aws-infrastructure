@@ -76,6 +76,13 @@ export class ChangePasswordCommand {
       }),
     );
 
+    // Mirror the cleared flag onto Cognito so the NEXT token carries
+    // must_change_password=false. Best-effort by design: the durable write above
+    // already succeeded, and GET /v1/users/me — what the frontend actually reads
+    // — answers from that column. Failing the request here would report an error
+    // for a password change that did happen.
+    await this.mirrorFlagToCognito(target.email, target.id);
+
     appLogger.info(
       {
         app_event: "change_password_succeeded",
@@ -86,5 +93,25 @@ export class ChangePasswordCommand {
     );
 
     return toDomain(row as any);
+  }
+
+  // Swallows its own failure, like the event publisher in register.ts: the
+  // consequence of a miss is a stale claim on the next token, not lost state.
+  // Logged with a distinct app_event so the drift is observable rather than
+  // silent — an operator seeing these knows tokens may disagree with Postgres.
+  private async mirrorFlagToCognito(email: string, userId: string): Promise<void> {
+    try {
+      await this.auth.setMustChangePassword(email, false);
+    } catch (err) {
+      appLogger.warn(
+        {
+          err,
+          app_event: "must_change_password_mirror_failed",
+          email: maskEmail(email),
+          user_id: userId,
+        },
+        "Could not mirror mustChangePassword to Cognito (non-fatal): the token claim stays stale until the next write",
+      );
+    }
   }
 }

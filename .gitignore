@@ -8,7 +8,11 @@
 # Superpowers
 .superpowers/
 
-# Ministack local state & data (created at runtime by docker-compose)
+# Local runtime state. Container state now lives in NAMED VOLUMES
+# (floci-state, openobserve-data) so `docker compose down -v` can clear it —
+# see the `volumes:` block in docker-compose.yml for why. This entry stays as a
+# guard: nothing should write here any more, and if something does, it must not
+# be committed.
 /data/
 
 # Node / pnpm

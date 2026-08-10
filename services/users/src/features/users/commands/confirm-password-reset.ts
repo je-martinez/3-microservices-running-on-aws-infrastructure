@@ -101,6 +101,24 @@ export class ConfirmPasswordResetCommand {
       }),
     );
 
+    // Mirror the cleared flag onto Cognito so the next token carries
+    // must_change_password=false. Best-effort for the same reason as in
+    // change-password.ts: the password and the column are already written, and
+    // GET /v1/users/me answers from the column, not the token.
+    try {
+      await this.auth.setMustChangePassword(input.email, false);
+    } catch (err) {
+      appLogger.warn(
+        {
+          err,
+          app_event: "must_change_password_mirror_failed",
+          email: maskEmail(input.email),
+          user_id: user!.id,
+        },
+        "Could not mirror mustChangePassword to Cognito (non-fatal): the token claim stays stale until the next write",
+      );
+    }
+
     // NEVER log the code or the new password.
     appLogger.info(
       {

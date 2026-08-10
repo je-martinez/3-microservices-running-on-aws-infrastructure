@@ -4,7 +4,7 @@ type: spec
 area: users
 status: active
 created: 2026-06-26
-updated: 2026-08-09
+updated: 2026-08-10
 tags: [type/spec, area/users, status/active]
 related:
   - "[[soft-delete]]"
@@ -128,7 +128,7 @@ Tables (all columns in `snake_case`; mapped to `camelCase`/`PascalCase` in the a
 | `phone_number` | `varchar` | Nullable |
 | `tags` | `text[]` | Array of labels; default `[]`. `E2E Source` marks records created by the Playwright E2E suite (see [[2026-06-28-users-service-design]]). |
 | `auth_type` | `enum` (`AuthType`: `PASSWORD` \| `PASSWORDLESS`) | Default `PASSWORD`. Exposed **read-only** in the API response (`UserSchema.authType`) — never a writable field on register/update. See [[passwordless-auth-type]]. |
-| `must_change_password` | `boolean` | Default `false`. Maps to `mustChangePassword`, read-only in the API. A durable user attribute (not an ephemeral credential, unlike the reset codes — see [[self-owned-password-reset-codes-in-redis]]), cleared by `PATCH /v1/users/me/password` or `POST /v1/users/password/confirm`. Migration `20260810032046_add_must_change_password`. |
+| `must_change_password` | `boolean` | Default `false`. Maps to `mustChangePassword`, read-only in the API. A durable user attribute (not an ephemeral credential, unlike the reset codes — see [[self-owned-password-reset-codes-in-redis]]), cleared by `PATCH /v1/users/me/password` or `POST /v1/users/password/confirm`. Migration `20260810032046_add_must_change_password`. **Postgres remains the source of truth**; a mirror also travels in the id/access token claims — see [`must_change_password` token claim](#mustchangepassword-token-claim) below. |
 | `created_by` / `created_at` | `varchar` / `timestamptz` | |
 | `updated_by` / `updated_at` | `varchar` / `timestamptz` | |
 | `deleted_by` / `deleted_at` | `varchar` / `timestamptz` | Null = active; set = soft-deleted |
@@ -254,6 +254,43 @@ including two Floci-only port/hostname traps: [[redis-elasticache-replication-gr
 > `newPassword` fields mirror the pool deliberately, to avoid two independently-drifting rules.
 > This is a recorded, **not yet resolved** product decision — see
 > [[password-policy-checklist-gap]] for the mismatch table and the recommendation.
+
+### `must_change_password` token claim
+
+Previously `users.must_change_password` was reachable only through `GET /v1/users/me`. Both the
+id and access tokens now also carry a `must_change_password` boolean claim, so a client can read
+the flag without a round trip to the API.
+
+**Postgres remains the source of truth.** Cognito holds a mirror of the column in a
+`custom:must_change_password` user-pool attribute, which exists solely so the
+Pre-Token-Generation Lambda — which runs inside Cognito with no database access — can read it at
+token-issue time. This is the same constraint that already puts the standard `name` attribute on
+the Cognito account for the OTP challenge Lambda (see [[cognito-custom-auth-triggers]]).
+
+`AuthProvider` gained a new port method, `setMustChangePassword(email, mustChangePassword)`,
+implemented in `CognitoAuthProvider` via `AdminUpdateUserAttributesCommand`. Cognito has no
+boolean attribute type, so the mirrored value is the string `"true"`/`"false"`.
+
+- `signUp` seeds `custom:must_change_password = "false"` inline among the other user attributes
+  at registration, so it costs no extra Cognito round trip.
+- `ChangePasswordCommand` (`PATCH /v1/users/me/password`) and `ConfirmPasswordResetCommand`
+  (`POST /v1/users/password/confirm`) mirror the cleared flag to Cognito **after** their Postgres
+  write.
+
+> [!warning] The mirror is best-effort and never fails the request
+> By the time the mirror call runs, the password and the Postgres column are already written, so
+> throwing would report an error for a change that in fact succeeded. A failure logs
+> `app_event=must_change_password_mirror_failed` and leaves the claim stale until the next token
+> is issued; `GET /v1/users/me` still answers correctly from Postgres regardless.
+
+> [!note] Known limitation — already-issued tokens keep their minted value
+> A token keeps the `must_change_password` value it was issued with until it expires or is
+> refreshed; that is inherent to putting mutable state in a JWT. This is why the Postgres column,
+> read through `GET /v1/users/me`, stays authoritative for anything that must be current.
+
+**Rejected alternative:** having the Pre-Token-Generation Lambda read the column live over gRPC.
+That would keep a single source of truth, but requires VPC configuration and DB credentials for
+the Lambda and adds latency plus a new failure point to every token issue.
 
 ## Events
 
