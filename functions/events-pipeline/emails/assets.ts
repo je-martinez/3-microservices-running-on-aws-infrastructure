@@ -171,6 +171,21 @@ export const emailAssets = Object.freeze({
   mapPin: asset("email/map-pin.png", 64),
   logIn: asset("email/log-in.png", 64),
 
+  // `forgot-password`'s header icon, and a COMPONENT image like the four above —
+  // same 128x128 file shown at 64px, same reason. The `.pen` "Forgot Password
+  // Email" frame draws it as a 28px `key-round` lucide glyph (#EF4444) inside a
+  // 64px #FEE2E2 disc; the export bakes both into one PNG, so the template shows
+  // it at the FULL 64px and draws NO CSS circle behind it. Wrapping it in a
+  // `bg-*`/`rounded-[32px]` span would reproduce the two-nested-discs defect
+  // documented above verbatim — the red disc would sit invisibly on the tinted
+  // CSS disc and only the key glyph would read, at ~22% of the circle.
+  //
+  // Its #FEE2E2 disc is the one tint in this set with no `theme.ts` token: the
+  // red/danger pair is a one-off in the `.pen` (only this frame uses it), so it
+  // ships rasterised in the artwork rather than as a named colour no CSS refers
+  // to.
+  keyRound: asset("email/key-round.png", 64),
+
   // CTA glyphs — 40x40 files shown at 20px.
   //
   // Same baked-in disc, but here it is a FEATURE rather than a defect: the
@@ -201,6 +216,13 @@ export const emailAssets = Object.freeze({
   // it painted as four detached straight segments because the image fills the
   // cell exactly and leaves the rounded corners no gap to curve through.
   triangleAlert: asset("email/triangle-alert.png", 20),
+
+  // NO `timer` ENTRY, DELIBERATELY. `assets/email/timer.png` exists and is
+  // synced to the bucket, but the `forgot-password` expiry panel it was drawn
+  // for was removed from the `.pen` frame in favour of a single muted line under
+  // the digits. Registering an asset nothing renders invites someone to
+  // reinstate the panel the design dropped. Add it back only alongside a
+  // template that actually draws it. Same reasoning as the frame's `lock` glyph.
 
   // Timeline state dots — shown at 22px, which is the exact diameter the
   // CSS-drawn dots used, so the indicator column's alignment is unchanged.

@@ -120,6 +120,18 @@ const EXPECTATIONS: Record<string, RegExp[]> = {
     /042817/,
     /expires in 5 minutes/i,
   ],
+  "forgot-password": [
+    /Reset Your Password/i,
+    // Same split-digit arrangement as auth-otp above: the contiguous "720486"
+    // lives in the prose line ("Use the code below…"), while the boxes render
+    // "7 2 0 4 8 6". Matching the contiguous form is what pins the machine-
+    // readable copy the gateway E2E scrapes — see [[email-templates]].
+    /720486/,
+    // The TTL is rendered from the prop, not the mockup: 10 minutes here, and
+    // the `.pen` frame agrees. A drift to the old 30 would mean the sample props
+    // and the template's expiry line stopped agreeing.
+    /expires in 10 minutes/i,
+  ],
 };
 
 // Rendered ONCE for the whole file, in a beforeAll: the render shells out to the
