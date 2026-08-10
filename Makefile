@@ -277,7 +277,7 @@ doctor: scripts-setup ## Diagnose the local stack: what ran, what did not, and h
 
 ## --- Orchestration ---
 
-bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in dependency order
+bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in dependency order (includes phase 2)
 	@# Order matters. The services cannot start before the infra exists: `users`
 	@# validates COGNITO_* with Zod at boot, and those IDs only exist after apply.
 	@# So: Floci first, then terraform, then .env, then migrations (DB needs
@@ -314,6 +314,30 @@ bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in depe
 	@# repeated there rather than factored out because a prerequisite would run
 	@# it in the wrong order relative to the terraform steps above.
 	$(MAKE) bootstrap-converge
+	@# Phase 2, LAST. The 2026-07-30 design deliberately split this out so that
+	@# `bootstrap` ended "usable" and a hardening failure could be diagnosed
+	@# against a known-good stack. That split held for the DB app-users it was
+	@# written about — but phase 2 later grew the ASSETS BUCKET the email
+	@# templates load their images from (environments/local/post/assets.tf), and
+	@# a stack whose emails render as broken-image placeholders is not usable in
+	@# the sense that decision claimed. The gap was silent: everything reports
+	@# healthy, every service answers, and the defect only appears in a delivered
+	@# email. So `bootstrap` is once again the single command that produces a
+	@# complete environment.
+	@#
+	@# What the original split bought is NOT given back up: post-infra is still
+	@# its own target with its own state, still re-runnable on its own, and still
+	@# fails against a torn-down phase 1 at the remote-state read before any
+	@# provisioner runs. It is only also CALLED here, at the very end, where its
+	@# blast radius is itself — the same placement argument that puts
+	@# bootstrap.py last inside bootstrap-converge.
+	@#
+	@# It is NOT in `bootstrap-converge`: that target is the resume path for a
+	@# run that died partway, and every step in it is idempotent by design.
+	@# post-infra is idempotent too, but it reads phase-1 state that a partial
+	@# run may not have written yet, so folding it in would make the resume path
+	@# fail for a reason unrelated to what it is resuming.
+	$(MAKE) post-infra
 
 bootstrap-provision: scripts-setup ## Phase 1 of bootstrap: Floci + terraform + env files (NOT re-runnable — see below)
 	@# The half of `bootstrap` that CANNOT be safely re-run: a second phase-1
@@ -351,12 +375,13 @@ bootstrap-converge: scripts-setup ## Phase 2 of bootstrap: migrations + services
 	$(MAKE) env-file
 	$(MAKE) migrate
 	$(COMPOSE) up -d --build users
-	@# Phase 2 is deliberately NOT called here. `bootstrap` leaves the stack
-	@# usable (all three services up, Orders seeded) but not yet hardened;
-	@# `make post-infra` is the separate, explicit step that creates the
-	@# least-privilege DB app-users. Splitting them keeps post-infra effects
-	@# centralized and predictable instead of buried as the last of twelve
-	@# steps, where a failure was the hardest in the chain to diagnose.
+	@# Phase 2 is deliberately NOT called here — but it IS called at the end of
+	@# `bootstrap`. The distinction is the point of this target: this is the
+	@# RESUME path for a run that died partway, and every step in it is
+	@# idempotent. post-infra reads phase-1 state through terraform_remote_state,
+	@# which a partial run may never have written, so calling it here would make
+	@# a resume fail for a reason that has nothing to do with what it is
+	@# resuming. Run `make post-infra` yourself after a resume.
 	@# See docs/superpowers/specs/2026-07-30-post-infra-root-design.md.
 	@# Orders migrates + seeds ITSELF on startup (SEED_ON_STARTUP=true in
 	@# compose): the Api applies EF Core migrations then ProductSeed against

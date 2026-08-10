@@ -4,7 +4,7 @@ type: adr
 area: infra
 status: accepted
 created: 2026-07-28
-updated: 2026-07-31
+updated: 2026-08-10
 tags:
   - type/adr
   - area/infra
@@ -222,6 +222,59 @@ change — `terraform apply -replace` was needed to force it.
 This is exactly the scenario the "record, never skip" rule (above) exists for: the log made a
 non-run visible. Had the design instead let recorded history skip re-execution, it would have
 **hidden** this exact case rather than exposing it.
+
+#### Update 2026-08-10 — `bootstrap` calls `post-infra` again; the split narrows, not reverses
+
+The "Split `make bootstrap` into `bootstrap` and `post-infra`" decision above (Update
+2026-07-30, [[2026-07-30-post-infra-root-design]] decision 1) reasoned that `bootstrap` should
+end *usable* and leave hardening (phase 2) as a separate, deliberately-run step, so a phase-2
+failure is diagnosed against a known-good stack. That reasoning was sound for what phase 2
+contained **at the time**: only the least-privilege DB app-users, which nothing in the running
+stack depends on to look and behave correctly.
+
+Phase 2 has since grown `infra/environments/local/post/assets.tf` — the public asset bucket the
+email templates load their header/footer images from. That resource is not app-users-shaped: a
+plain `make bootstrap` (without a following `make post-infra`) now produces a stack every
+service reports healthy for — `/v1/health` answers 200 on all three services, emails send
+successfully — but every email **renders with broken-image placeholders**, because the bucket
+those image URLs point at was never created. `assets.tf`'s own header comment already assumed
+otherwise ("so that a freshly provisioned environment already has its assets, without a second
+command") — the file and the Makefile disagreed, and nothing caught it: the defect is silent by
+every health-check measure and visible only by eye, in a delivered message. This is the concrete
+case the split's "usable" claim did not anticipate: *usable* had implicitly meant "the API
+answers," not "everything a delivered artifact references actually exists."
+
+**What changed:** `make bootstrap` now calls `$(MAKE) post-infra` as its last step, so one
+command again produces a complete environment — services up, seeded, hardened, and with its
+assets in place.
+
+**What did NOT change — the two-phase Terraform apply itself, unchanged:** this update narrows
+Update 2026-07-30's decision, it does not undo it. The two-phase split this ADR records — two
+independent Terraform roots, separate state, phase 1 not safely re-appliable — is exactly as
+correct today as when phase 2 contained only app-users. `post-infra` remains its own target with
+its own Terraform state, still re-runnable standalone, and still fails at the
+`terraform_remote_state` read against phase 1's state before any provisioner runs if phase 1
+isn't there (see "What happens if `post-infra` runs before `bootstrap`" in
+[[2026-07-30-post-infra-root-design]]). What changed is narrower than the phase boundary: only
+**who calls phase 2** — `post-infra` is now also invoked at the end of `bootstrap`, in addition
+to remaining runnable on its own. That placement follows the same "blast radius is itself when
+placed last" reasoning [[local-dev-floci]] already documents for `bootstrap.py` (the nginx
+alias).
+
+`post-infra` is deliberately **not** added to `bootstrap-converge` (the idempotent resume path
+for a `bootstrap` that died partway). `bootstrap-converge`'s steps are all safe to re-run because
+each is idempotent against state that already exists; `post-infra` reads phase-1 remote state
+that a partial run may never have written, so folding it in would make a resume fail for a reason
+unrelated to what it's resuming. After a `bootstrap-converge` resume, run `make post-infra`
+separately — see [[local-dev-floci]].
+
+`make doctor` gained a `check_assets` check: it fetches the header logo through
+`ASSETS_BASE_URL` and fails (exit 1) if the fetch does not return 200, pointing the operator at
+`make post-infra && make assets-sync`. It fetches **one object**, not a bucket listing, because a
+bucket that exists but is empty renders exactly the same broken-image placeholders as a bucket
+that doesn't exist at all — a listing check would pass on an empty bucket and miss the defect
+this update exists to catch. Verified both directions: green against a healthy stack, red (exit
+1) after deleting the object.
 
 ##### `post-infra` without `bootstrap` — an observed nuance
 
