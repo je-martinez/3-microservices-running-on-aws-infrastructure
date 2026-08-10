@@ -10,6 +10,13 @@ every time. Cross-cutting rules are **referenced**, never duplicated.
   `fastify-type-provider-zod` for the OpenAPI spec generated from route schemas).
 - DI: **Awilix** (PROXY injection; SINGLETON infra, SCOPED use-cases) — see [[dependency-injection]].
 - Database: Aurora Postgres (read + write replicas).
+- Cache: **ElastiCache Redis** (`ioredis`, singleton in the Awilix cradle) — used
+  ONLY for short-lived credentials that must expire on their own, today the
+  password-reset codes. Reached at `REDIS_HOST`/`REDIS_PORT` from the generated
+  env file; locally that host is Floci's backing container name and the port is
+  the CONTAINER's 6379, **not** the host-side proxy port the ElastiCache API
+  reports (they differ — see `infra/modules/redis/outputs.tf`). Durable state
+  belongs in Postgres; do not reach for Redis as a general datastore.
 - ORM: **Prisma v7** with the driver adapter (`@prisma/adapter-pg`) and
   `@prisma/extension-read-replicas`. A single client composes one cross-cutting
   extension (nano-id + audit + soft-delete + computed `isDeleted`) — `shared/db/`.
@@ -130,7 +137,32 @@ services/users/
   - `[POST] /v1/users/login` → 200 · 401 `invalid_credentials`
   - `[POST] /v1/users/refresh` → 200 · 401 (Cognito `REFRESH_TOKEN_AUTH`)
   - `[GET|PATCH] /v1/users/me` → 200 · 404 (identity from the `x-user-id` header,
-    resolved by `findByIdOrCognitoSub` — accepts the `usr_` id OR the Cognito sub)
+    resolved by `findByIdOrCognitoSub` — accepts the `usr_` id OR the Cognito sub).
+    `GET` also returns `mustChangePassword`, the flag the frontend reads to force
+    the set-new-password step (see the password-reset group below).
+  - `[POST] /v1/users/register/passwordless` → 201; `[POST] /v1/users/otp/start`,
+    `[POST] /v1/users/otp/verify` — the passwordless email-OTP login pair, over
+    Cognito `CUSTOM_AUTH` (never native `USER_AUTH`/`EMAIL_OTP`, which Floci
+    accepts and then silently skips the challenge). The code is emailed by the
+    events-pipeline, not by Cognito: the challenge Lambda publishes
+    `AUTH_OTP_REQUESTED` to SQS.
+  - `[POST] /v1/users/password/forgot` → 202 (ALWAYS 202, whether or not the email
+    exists — answering differently would be a user-enumeration oracle);
+    `[POST] /v1/users/password/confirm` → 200 · 401 `invalid_reset_code`;
+    `[PATCH] /v1/users/me/password` → 200 · 401. The last one sets a password and
+    NOTHING else — it must never grow into a general profile update.
+    - **The reset is ours, not Cognito's**, and that is not a preference: Cognito's
+      `ForgotPassword` never returns the code to the caller, its `CustomMessage`
+      trigger is never invoked on Floci (measured: 0 invocations against 1 from a
+      control), and only Cognito's own code passes `ConfirmForgotPassword`. So
+      Users mints the code, the events-pipeline emails it
+      (`PASSWORD_RESET_REQUESTED`), and the change is applied with
+      `AdminSetUserPassword`.
+    - **Codes live in Redis, never Postgres** (`shared/cache/reset-code-store.ts`):
+      key `password-reset:<emailHash>`, value = SHA-256 of the code, `SET … EX 600`
+      so it expires natively with no sweeper job, `DEL` on success so it is
+      single-use. `mustChangePassword` DOES live in Postgres — it is a durable
+      attribute, not an ephemeral credential.
   - `[POST] /v1/webhooks/cognito` (shared-secret guarded identity capture)
   - `[DELETE] /v1/users/e2e-cleanup`, `[GET] /v1/users/e2e-identity` — only when
     `E2E_TESTING_ENABLED`

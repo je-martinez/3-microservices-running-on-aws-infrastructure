@@ -4,7 +4,7 @@ type: spec
 area: users
 status: active
 created: 2026-06-26
-updated: 2026-08-07
+updated: 2026-08-09
 tags: [type/spec, area/users, status/active]
 related:
   - "[[soft-delete]]"
@@ -42,6 +42,10 @@ related:
   - "[[2026-08-05-passwordless-otp-auth]]"
   - "[[passwordless-auth-type]]"
   - "[[cognito-custom-auth-triggers]]"
+  - "[[ADR-0020-self-owned-password-reset]]"
+  - "[[self-owned-password-reset-codes-in-redis]]"
+  - "[[password-policy-checklist-gap]]"
+  - "[[redis-elasticache-replication-group-floci]]"
 ---
 
 # Users Service Design
@@ -76,8 +80,11 @@ All routes are versioned under `/v1` (see [[versioning]]). Source of truth: `ser
 | `POST` | `/v1/users/otp/start` | Starts a passwordless OTP challenge for the given email; returns `{ session }`. Works for both auth types — the second login path for a `PASSWORD` user and the only path for a `PASSWORDLESS` user. Public route, no JWT authorizer. See [Passwordless OTP authentication](#passwordless-otp-authentication) below. |
 | `POST` | `/v1/users/otp/verify` | Verifies `{ email, session, code }` against the Cognito `CUSTOM_AUTH` challenge; returns the same `AuthTokens` shape as `POST /v1/users/login`. Public route. |
 | `POST` | `/v1/users/register/passwordless` | Creates a `PASSWORDLESS` user: a `User` row with `authType=PASSWORDLESS` plus a backing Cognito user whose password is a random 32-byte value never revealed to the caller. Public route. |
-| `GET` | `/v1/users/me` | Returns the authenticated user's profile, resolved via `findByIdOrCognitoSub`. |
+| `POST` | `/v1/users/password/forgot` | Mints a self-owned reset code, stores its hash in Redis, publishes `PASSWORD_RESET_REQUESTED`. Always `202` with the same body, whether or not the email exists. Public route. See [Password reset](#password-reset) below. |
+| `POST` | `/v1/users/password/confirm` | Verifies `{ email, code, newPassword }` against the Redis-stored code and, on success, applies the new password via `AdminSetUserPassword`. Public route. `401 invalid_reset_code` on any failure (unknown email, wrong code, expired code — indistinguishable). |
+| `GET` | `/v1/users/me` | Returns the authenticated user's profile, resolved via `findByIdOrCognitoSub`, including `mustChangePassword`. |
 | `PATCH` | `/v1/users/me` | Updates the authenticated user's profile. |
+| `PATCH` | `/v1/users/me/password` | Sets a new password for the authenticated caller (no code) via `AdminSetUserPassword`; clears `mustChangePassword`. A dedicated command, not part of the general profile update — see [Password reset](#password-reset). |
 | `POST` | `/v1/webhooks/cognito` | Cognito PostConfirmation trigger webhook; shared-secret guarded (`x-webhook-secret`), no JWT authorizer. See [Cognito identity capture](#cognito-identity-capture). |
 | `DELETE` | `/v1/users/e2e-cleanup` | **[E2E only]** Soft-deletes E2E-sourced users. Gated on `E2E_TESTING_ENABLED`. |
 | `GET` | `/v1/users/e2e-identity` | **[E2E only]** Reads captured Cognito identity rows by email, for E2E assertions. Gated on `E2E_TESTING_ENABLED`. |
@@ -93,7 +100,8 @@ A global `app.setErrorHandler` in `routes.ts` maps typed auth-domain errors (`se
 | `EmailAlreadyExistsError` | `POST /v1/users/register`, `POST /v1/users/register/passwordless` | `409` | `email_exists` |
 | `InvalidCredentialsError` | `POST /v1/users/login`, `POST /v1/users/refresh` | `401` | `invalid_credentials` |
 | `InvalidOtpError` | `POST /v1/users/otp/verify` | `401` | `invalid_otp` |
-| Not found (no error class — inline `404`) | `GET /v1/users/me`, `PATCH /v1/users/me` | `404` | `not_found` |
+| `InvalidResetCodeError` | `POST /v1/users/password/confirm` | `401` | `invalid_reset_code` — deliberately identical for an unknown email, a wrong code, and an expired code; see [Password reset](#password-reset). |
+| Not found (no error class — inline `404`) | `GET /v1/users/me`, `PATCH /v1/users/me`, `PATCH /v1/users/me/password` | `404` | `not_found` |
 
 `POST /v1/users/login` also returns `401 invalid_credentials` — the same generic code as a wrong
 password — when the looked-up user has `authType=PASSWORDLESS`. This is a deliberate reuse of the
@@ -120,6 +128,7 @@ Tables (all columns in `snake_case`; mapped to `camelCase`/`PascalCase` in the a
 | `phone_number` | `varchar` | Nullable |
 | `tags` | `text[]` | Array of labels; default `[]`. `E2E Source` marks records created by the Playwright E2E suite (see [[2026-06-28-users-service-design]]). |
 | `auth_type` | `enum` (`AuthType`: `PASSWORD` \| `PASSWORDLESS`) | Default `PASSWORD`. Exposed **read-only** in the API response (`UserSchema.authType`) — never a writable field on register/update. See [[passwordless-auth-type]]. |
+| `must_change_password` | `boolean` | Default `false`. Maps to `mustChangePassword`, read-only in the API. A durable user attribute (not an ephemeral credential, unlike the reset codes — see [[self-owned-password-reset-codes-in-redis]]), cleared by `PATCH /v1/users/me/password` or `POST /v1/users/password/confirm`. Migration `20260810032046_add_must_change_password`. |
 | `created_by` / `created_at` | `varchar` / `timestamptz` | |
 | `updated_by` / `updated_at` | `varchar` / `timestamptz` | |
 | `deleted_by` / `deleted_at` | `varchar` / `timestamptz` | Null = active; set = soft-deleted |
@@ -201,6 +210,51 @@ check is what makes the guarantee structural rather than cosmetic. Full rational
 Full design and the Floci feasibility evidence that ruled out native `EMAIL_OTP`:
 [[2026-08-05-passwordless-otp-auth-design]] and [[2026-08-05-passwordless-otp-auth]].
 
+## Password reset
+
+> [!info] Implemented and verified end to end through the gateway (2026-08-09)
+
+Three endpoints and one profile flag implement a **self-owned** password reset — Cognito's own
+`ForgotPassword`/`ConfirmForgotPassword` is not used anywhere in this flow. See
+[[ADR-0020-self-owned-password-reset]] for the full decision and the measured evidence that ruled
+Cognito's native flow out (it never returns its code to the caller, its `CustomMessage` trigger
+never fires on Floci, and it accepts only its own code at confirmation).
+
+- `POST /v1/users/password/forgot` mints a 6-digit code (`generateResetCode`,
+  `shared/auth/reset-code.ts`), stores its SHA-256 hash in Redis with a 10-minute native TTL
+  (`ResetCodeStore.store`), and publishes `PASSWORD_RESET_REQUESTED` for the events pipeline to
+  email (see [[events-pipeline-design#Email]] and [[email-templates]] for the `forgot-password`
+  template). **Always answers `202` with the same body**, whether or not the email belongs to an
+  account — a deliberate anti-enumeration property, not a missing `404` case.
+- `POST /v1/users/password/confirm` verifies `{ email, code, newPassword }` against the Redis
+  store (`ResetCodeStore.verifyAndConsume` — atomic verify-and-delete, so a code cannot be
+  replayed) and, on success, applies the password with `AdminSetUserPassword` and clears
+  `mustChangePassword`. Every rejection — unknown email, wrong code, expired code — returns the
+  identical `401 invalid_reset_code`, preserving the same anti-enumeration property.
+- `PATCH /v1/users/me/password` lets an already-authenticated caller set a new password directly
+  (no code involved), via `ChangePasswordCommand` — a **dedicated** command, deliberately not
+  folded into the general profile-update command, so a request meant to change a phone number can
+  never silently rewrite a credential. Clears `mustChangePassword`.
+- `GET /v1/users/me` exposes `mustChangePassword: boolean` (read-only), a **durable Postgres
+  column** — unlike the reset codes, which live in Redis and expire on their own. The frontend
+  reads this flag to force the user through the change-password screen before letting them
+  continue. See [[self-owned-password-reset-codes-in-redis]] for why the code and the flag live
+  in different stores.
+
+Full storage design (why Redis, key namespacing by `email_hash`, the verify-before-Cognito
+ordering, the best-effort publish that protects the anti-enumeration property against a queue
+outage): [[self-owned-password-reset-codes-in-redis]]. Infra for the Redis instance itself,
+including two Floci-only port/hostname traps: [[redis-elasticache-replication-group-floci]] and
+[[floci-elasticache-two-ports-and-provider-panic]].
+
+> [!warning] Open gap — the web-app checklist is stricter than the enforced policy
+> The forced set-new-password screens (`assets/web-app/web-app.pen`) render a password checklist
+> (10 chars, mixed case, number, symbol) that the Cognito pool does not actually enforce
+> (`minimum_length = 8`, all `require_*` flags `false`) — and the Zod schemas on both
+> `newPassword` fields mirror the pool deliberately, to avoid two independently-drifting rules.
+> This is a recorded, **not yet resolved** product decision — see
+> [[password-policy-checklist-gap]] for the mismatch table and the recommendation.
+
 ## Events
 
 `services/users/src/shared/messaging/event-publisher.ts` implements `SqsEventPublisher`, which
@@ -212,15 +266,26 @@ any environment that must not emit — it is not the production path.
 | Event | Trigger | Queue |
 |---|---|---|
 | `USER_CREATED` | `POST /v1/users/register` success | SQS, real publish via `SqsEventPublisher` |
+| `PASSWORD_RESET_REQUESTED` | `POST /v1/users/password/forgot`, for a known email only | SQS, real publish via `SqsEventPublisher`, best-effort inside `ForgotPasswordCommand` — see [Password reset](#password-reset) |
 
-The envelope carries `event_id` (generated in the publisher, the pipeline's idempotency key),
-`type`, `source`, `user_id`, `order_id: null`, an `author` object (`{ actor: AuditActor.Register,
-user_id, cognito_sub? }` — the same semantic actor already stamped into `createdBy`/`updatedBy`
-for this write, distinguishing WHO originated the event from `user_id`, which is its subject),
-and `payload: { email, fullName }`. A publish failure is logged (`user_created_publish_failed`)
-and swallowed, never rethrown: the user row and Cognito account already exist by the time
-publishing runs, so failing the request would return an error for a registration that actually
-succeeded. See [[events-pipeline-design]] for the consumer side and the full envelope contract.
+The `USER_CREATED` envelope carries `event_id` (generated in the publisher, the pipeline's
+idempotency key), `type`, `source`, `user_id`, `order_id: null`, an `author` object (`{ actor:
+AuditActor.Register, user_id, cognito_sub? }` — the same semantic actor already stamped into
+`createdBy`/`updatedBy` for this write, distinguishing WHO originated the event from `user_id`,
+which is its subject), and `payload: { email, fullName }`. A publish failure is logged
+(`user_created_publish_failed`) and swallowed, never rethrown: the user row and Cognito account
+already exist by the time publishing runs, so failing the request would return an error for a
+registration that actually succeeded. See [[events-pipeline-design]] for the consumer side and the
+full envelope contract.
+
+`PASSWORD_RESET_REQUESTED`'s payload is `{ email, fullName, code, ttlSeconds }` — the same shape
+as `AUTH_OTP_REQUESTED`'s, deliberately, since both carry the same four facts (see
+[[events-pipeline-design#Dispatch]] for why they are still two separate event types rather than
+one parameterized type). Its `code` is redacted before the event document reaches DocumentDB (see
+[[events-pipeline-design#Payload redaction — the one exception to "persist verbatim"]]) — it is
+`ForgotPasswordCommand`'s own `try/catch` around the publish call, not the publisher's generic
+swallow-and-log, that keeps a publish failure from ever surfacing as a `500` for a known email
+(see [[ADR-0020-self-owned-password-reset#Two security properties this flow is built around (load-bearing, tested)]]).
 
 ## OpenAPI autogen
 
@@ -318,6 +383,7 @@ column is schema-free `Json?`.
 | Env files generated, never hand-edited | [[env-files]] |
 | Three-layer testing (unit/integration, internal E2E, gateway E2E) | [[testing]] |
 | Distributed tracing backend | [[ADR-0019-distributed-tracing-opentelemetry]] |
+| Self-owned password reset (never Cognito's `ForgotPassword`) | [[ADR-0020-self-owned-password-reset]] |
 
 ## Observability
 
@@ -342,6 +408,8 @@ convention/pattern notes in `shared/`) live in `docs/domains/users/decisions/`:
 | Cognito identity webhook (shared capture use case, two entry paths) | [[cognito-identity-webhook]] |
 | OpenAPI spec generated from routes (`@fastify/swagger` + Zod) | [[openapi-autogen]] |
 | Passwordless OTP auth: `AuthType` enum, service-side login guard, 401-not-403 | [[passwordless-auth-type]] |
+| Password reset codes in Redis, not Postgres; `mustChangePassword` stays in Postgres | [[self-owned-password-reset-codes-in-redis]] |
+| Open gap: web-app password checklist stricter than the enforced Cognito policy | [[password-policy-checklist-gap]] |
 
 ## Related
 
@@ -384,10 +452,20 @@ convention/pattern notes in `shared/`) live in `docs/domains/users/decisions/`:
   HTTP call to Tracking's `POST /v1/trackings/init-tracking`.
 - [[events-pipeline-design]] — the consumer of `USER_CREATED`, the shared envelope contract, and
   the `author` object's role in the pipeline's `created_by`/`updated_by` audit split; also the
-  consumer of `AUTH_OTP_REQUESTED` for passwordless OTP email delivery.
+  consumer of `AUTH_OTP_REQUESTED` for passwordless OTP email delivery and
+  `PASSWORD_RESET_REQUESTED` for the reset flow.
 - [[2026-08-05-passwordless-otp-auth-design]] — the passwordless OTP design spec, including the
   Floci feasibility evidence for `CUSTOM_AUTH` over native `EMAIL_OTP`.
 - [[2026-08-05-passwordless-otp-auth]] — the implementation plan that shipped it.
 - [[passwordless-auth-type]] — the `AuthType` enum, service-side login guard, and 401-not-403
   decision.
-- [[cognito-custom-auth-triggers]] — the infra side: the OTP challenge Lambda and trigger wiring.
+- [[cognito-custom-auth-triggers]] — the infra side: the OTP challenge Lambda and trigger wiring,
+  extended by [[ADR-0020-self-owned-password-reset]] with the `CustomMessage` finding.
+- [[ADR-0020-self-owned-password-reset]] — why the password reset is self-owned rather than
+  Cognito's, and the two load-bearing security properties.
+- [[self-owned-password-reset-codes-in-redis]] — the Redis-vs-Postgres storage decision and the
+  four endpoints in implementation detail.
+- [[password-policy-checklist-gap]] — the open gap between the web-app's password checklist and
+  the enforced Cognito policy.
+- [[redis-elasticache-replication-group-floci]] — the infra module provisioning the Redis instance
+  this flow depends on.

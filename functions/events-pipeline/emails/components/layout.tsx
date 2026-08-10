@@ -142,8 +142,8 @@ export function EmailFooter() {
   );
 }
 
-// Prop contract unchanged (`{ children }`) so the four templates keep compiling
-// while they are redesigned. Children render INSIDE the white content card, so a
+// Prop contract is deliberately just `{ children }`, so every template keeps
+// compiling across redesigns. Children render INSIDE the white content card, so a
 // template supplies only its own body.
 export function EmailLayout({ children }: { children: ReactNode }) {
   return (

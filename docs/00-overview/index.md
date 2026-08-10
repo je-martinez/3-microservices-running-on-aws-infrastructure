@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-08-06
+updated: 2026-08-09
 tags:
   - type/spec
   - area/shared
@@ -73,6 +73,11 @@ related:
   - "[[floci-websocket-apigw-dynamodb-support]]"
   - "[[2026-08-06-multi-provider-agent-config-sync-design]]"
   - "[[2026-08-06-multi-provider-agent-config-sync]]"
+  - "[[ADR-0020-self-owned-password-reset]]"
+  - "[[self-owned-password-reset-codes-in-redis]]"
+  - "[[password-policy-checklist-gap]]"
+  - "[[redis-elasticache-replication-group-floci]]"
+  - "[[floci-elasticache-two-ports-and-provider-panic]]"
 ---
 
 # 3MRAI — Index
@@ -134,6 +139,10 @@ All ADRs use continuous global numbering and live in `docs/shared/decisions/`.
 
 - [[ADR-0010-cognito-auth]] — Amazon Cognito for authentication and JWT issuing.
 - [[ADR-0007-secrets-parameter-store]] — AWS Parameter Store for secrets management.
+- [[ADR-0020-self-owned-password-reset]] — Self-owned password reset (Users mints/stores/emails
+  the code and applies it via `AdminSetUserPassword`), not Cognito's `ForgotPassword` — measured
+  evidence that Cognito's `CustomMessage` trigger never fires on Floci and only Cognito's own
+  code passes `ConfirmForgotPassword`.
 
 ### Data & Persistence
 
@@ -263,6 +272,7 @@ Durable empirical findings from spikes, incidents, and experiments.
 - [[drawio-diagram-legibility]] — draw.io diagrams must use verified text/fill contrast and a canvas-fitting layout, checked by rendering to PNG — XML validity alone does not guarantee a legible diagram.
 - [[floci-sqs-lambda-docdb-support]] — Empirical probe of Floci's SQS, Lambda (SQS event source mapping), and DocumentDB support ahead of the events-pipeline milestone: all viable as designed, with three local-only findings (no multi-document DocumentDB transactions, a non-stable DocumentDB endpoint, and a silently-dropped `update-event-source-mapping` field).
 - [[floci-websocket-apigw-dynamodb-support]] — Empirical probe of Floci's WebSocket API Gateway + DynamoDB support for the realtime-events feature: the REQUEST authorizer's context genuinely propagates (unlike the HTTP API's claim-mapping gap), two undocumented local-only URL shapes, a Cognito JWT verifier issuer-from-configuration requirement, and an unresolved gateway E2E gap.
+- [[floci-elasticache-two-ports-and-provider-panic]] — Floci backs ElastiCache with a real Valkey container; the pinned AWS provider panics reading `NodeGroups[0]` on `CreateReplicationGroup`; no subnet-group API at all; and the container's own port (6379) disagrees with the host-side proxy port ElastiCache reports, requiring a moved proxy range (6479-6499) to coexist with a developer's local Redis.
 
 ---
 

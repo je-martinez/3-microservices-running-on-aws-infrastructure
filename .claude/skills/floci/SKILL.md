@@ -208,6 +208,22 @@ Source of truth with full evidence: [[floci-vs-ministack-spike-findings]]
       `DescribeCacheSubnetGroups` both return `UnsupportedOperation`, and unlike rds/docdb there
       is no `default` group to point at — create the group without one.
 
+15. **Floci-spawned containers are NOT grouped under the compose project in Docker UIs —
+    cosmetic, and there is no fix** (checked 2026-08-09). Docker Desktop/OrbStack group by the
+    `com.docker.compose.project` label, and Floci creates its containers through the Docker API
+    without it (`docker inspect floci-valkey-… -f '{{index .Config.Labels "com.docker.compose.project"}}'`
+    → empty, against `3mrai` for a compose service). So the ~13 `floci-*` containers — RDS,
+    DocumentDB, Valkey, the ECS nginx task, every Lambda — appear loose beside the project group
+    rather than inside it.
+    **Nothing is actually wrong:** they still join `3mrai_3mrai-network` and resolve by name, which
+    is what the stack depends on. Do not read the flat listing as a broken stack.
+    Two dead ends, both verified rather than assumed: Floci exposes **no env var for container
+    labels** (its environment-variables page documents `FLOCI_DOCKER_*` for socket, registry, log
+    rotation and a resource namespace, plus `FLOCI_SERVICES_*_DOCKER_NETWORK` — none for labels),
+    and **Docker labels are immutable after create** (`docker update` has no `--label`), so they
+    cannot be patched on afterwards. Recreating the containers to add labels would lose DB state
+    and detach them from the Floci that owns them — not worth a grouping box.
+
 ## Per-service knowledge
 
 See [references/services.md](references/services.md) — every Floci service with its

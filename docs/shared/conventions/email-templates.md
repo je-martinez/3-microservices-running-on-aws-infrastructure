@@ -4,7 +4,7 @@ type: convention
 area: events-pipeline
 status: active
 created: 2026-08-06
-updated: 2026-08-08
+updated: 2026-08-09
 tags: [type/convention, area/events-pipeline, status/active]
 related:
   - "[[events-pipeline-design]]"
@@ -12,17 +12,18 @@ related:
   - "[[testing]]"
   - "[[env-files]]"
   - "[[ADR-0014-env-validation-zod]]"
+  - "[[ADR-0020-self-owned-password-reset]]"
 ---
 
 # Email Templates
 
 How to build a transactional email template in events-pipeline (`functions/events-pipeline/emails/`)
 without re-discovering — or silently violating — the client-support constraints the existing
-four templates were built around. Read this before adding a fifth `.tsx` file, a "sixth
-template" in the sense of the next one after all of `user-created`, `order-created`,
-`tracking-status-changed`, and `auth-otp` (the last of these fans out to five catalog entries;
-see [[events-pipeline-design#Email]]). `forgot-password` is designed in
-[[#Design source]] but not yet built — it is the most likely candidate.
+five templates were built around. Read this before adding a sixth `.tsx` file. The five built
+today are `user-created`, `order-created`, `tracking-status-changed` (fans out to five catalog
+entries), `auth-otp`, and `forgot-password` — see [[events-pipeline-design#Email]].
+`forgot-password` was the last frame in `emails.pen` with no `.tsx` component; it shipped
+2026-08-09 for `PASSWORD_RESET_REQUESTED` (see [[ADR-0020-self-owned-password-reset]]).
 
 ## Client-support constraints — why the code looks like it does
 
@@ -193,26 +194,39 @@ still looks correct to a human, but the test can no longer extract the code and 
 `tests/email/catalog.test.ts` guards this by snapshotting the rendered entry, so a change to
 that sentence shows up as a diff to review, not a silent E2E failure days later.
 
+**`forgot-password.tsx` follows the same rule, for the same reason.** It also renders its code
+twice — a contiguous plain-text sentence plus six boxed digits — so the gateway E2E can scrape a
+reset code the same way it scrapes an OTP one. See [[ADR-0020-self-owned-password-reset]] for the
+flow this code authorizes and why leaking it matters more than an OTP leak (a reset code hands
+over the account, not one session).
+
 ## Known gap — rounded corners in Outlook Windows
 
 Deferred, not a bug: `border-radius` has 82.92% client support and **no support in any version
 of Outlook Windows (2003–2019)**
 ([caniemail.com/features/css-border-radius](https://www.caniemail.com/features/css-border-radius/)).
 Outlook simply ignores the property — nothing breaks, a rounded shape just renders with square
-corners. There are 14 usages across the four templates as of this writing; what matters for
-visibility is whether the radius is *circular* (radius = half the side, so a square corner is
-obvious) or a *soft corner* on a larger rectangular panel (a few px flattening is easy to miss).
+corners. There were 14 usages across the four templates as of the last audit (2026-08-08, before
+`forgot-password` shipped); what matters for visibility is whether the radius is *circular*
+(radius = half the side, so a square corner is obvious) or a *soft corner* on a larger
+rectangular panel (a few px flattening is easy to miss). `forgot-password.tsx` was not
+re-audited against this count — it very likely repeats the same header-icon-circle and
+boxed-digit patterns as `auth-otp.tsx`, since it reuses the same layout primitives, but that is
+an inference, not a re-measurement; treat the "14" and the lists below as **four-template**
+figures until someone re-runs the audit against all five.
 
-**Visibly affected — a circle becomes a square:**
+**Visibly affected in the original four-template audit — a circle becomes a square:**
 - The 64×64 header icon circle in each of the four templates (`user-created.tsx`,
   `order-created.tsx`, `tracking-status-changed.tsx`, `auth-otp.tsx` — one per template, each
   with its own accent tint).
 - The 20×20 amber-bordered badge in `auth-otp.tsx`'s "Wasn't you?" security notice.
 
-**Barely noticeable — an 8px corner flattens on a larger panel:**
-- The white content card in `emails/components/layout.tsx` (affects all four templates via
-  `EmailLayout`).
-- The CTA button in `emails/components/button.tsx` (every template with a CTA).
+**Barely noticeable in the original four-template audit — an 8px corner flattens on a larger panel:**
+- The white content card in `emails/components/layout.tsx` (affects all templates via
+  `EmailLayout`, including `forgot-password.tsx`).
+- The CTA button in `emails/components/button.tsx` — moot for `forgot-password.tsx`, which has no
+  CTA button (see [[events-pipeline-design#Email]] design-source note: its tokenised link/CTA was
+  dropped in favor of the boxed-digit code, matching what the backend can actually deliver).
 - The "YOUR ACCOUNT" panel in `user-created.tsx`.
 - The line-items panel and the "SHIPPING TO" panel in `order-created.tsx`.
 - The timeline panel in `tracking-status-changed.tsx`.
@@ -248,17 +262,22 @@ in one declining client, not a fix for broken mail.
 
 ## Design source
 
-- Design frames: `assets/email/emails.pen` (Pencil).
+- Design frames: `assets/email/emails.pen` (Pencil). The design was revised to a code-based flow
+  while `forgot-password.tsx` was being built: the frame's original CTA button and tokenised link
+  were replaced with the same six boxed digits `auth-otp` already renders, to match what the
+  backend can actually deliver — Cognito's/the self-owned flow's code is a six-digit value, not a
+  link, and there is no frontend URL to land on. The `lock`/`timer` glyphs the earlier frame used
+  went with the blocks they belonged to and are deliberately left unregistered in `assets.ts`.
 - Design system doc: `assets/email/DESIGN.md` — layout structure, colour/typography tokens,
   iconography inventory, and component patterns (icon circle, CTA button, key-value row,
-  security notice, tracking timeline, OTP digit display). It currently documents five templates
-  including `forgot-password`, which has a designed frame and token entries but no `.tsx`
-  component yet.
+  security notice, tracking timeline, OTP digit display). It documents all five templates,
+  `forgot-password` included, which now has both a designed frame and a built `.tsx` component
+  (`emails/forgot-password.tsx`, shipped 2026-08-09).
 
 ## Related
 
 - [[events-pipeline-design]] — the service spec; `## Email` documents the catalog registry and
-  the four currently-built templates.
+  all five currently-built templates.
 - [[tightened-schemas-need-producer-first-deploys]] — the deploy-order lesson triggered by
   widening producer payloads to feed richer templates; step 5 above exists because of it.
 - [[testing]] — the three-layer testing convention this service's email screenshot E2E
@@ -267,3 +286,5 @@ in one declining client, not a fix for broken mail.
   Terraform outputs → `generate_env_files.py`); see [[#The asset pipeline]].
 - [[ADR-0014-env-validation-zod]] — why a missing `ASSETS_BASE_URL` fails Lambda boot instead of
   rendering broken image links.
+- [[ADR-0020-self-owned-password-reset]] — the flow `forgot-password.tsx` serves, and why its
+  code must never reach the events collection.
