@@ -13,6 +13,14 @@ export enum AuditActor {
   Register = "users_api:register",
   RegisterPasswordless = "users_api:register_passwordless",
   UpdateProfile = "users_api:update_profile",
+  // Three distinct password actions, not one: they answer different questions in
+  // an audit trail. `password_reset_requested` stamps the minted code row,
+  // `password_reset_confirmed` the consumption + forced-flag clear, and
+  // `change_password` the authenticated self-service change at
+  // PATCH /v1/users/me/password.
+  PasswordResetRequested = "users_api:password_reset_requested",
+  PasswordResetConfirmed = "users_api:password_reset_confirmed",
+  ChangePassword = "users_api:change_password",
   IdentityCapture = "users_api:identity_capture",
   E2eCleanup = "users_api:e2e_cleanup",
 }

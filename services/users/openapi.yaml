@@ -118,6 +118,53 @@ components:
         address: {}
         phoneNumber:
           type: string
+    ForgotPasswordInput:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: "#/components/schemas/ForgotPasswordInput"
+      type: object
+      properties:
+        email:
+          description: Email of the account to reset
+          type: string
+          format: email
+          pattern: ^(?!\.)(?!.*\.\.)([A-Za-z0-9_'+\-\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$
+      required:
+        - email
+    ConfirmPasswordResetInput:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: "#/components/schemas/ConfirmPasswordResetInput"
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          pattern: ^(?!\.)(?!.*\.\.)([A-Za-z0-9_'+\-\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$
+        code:
+          type: string
+          minLength: 6
+          maxLength: 6
+          pattern: ^\d{6}$
+        newPassword:
+          description: The new plaintext password. Validated against the Cognito user
+            pool's password policy.
+          type: string
+          minLength: 8
+      required:
+        - email
+        - code
+        - newPassword
+    ChangePasswordInput:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: "#/components/schemas/ChangePasswordInput"
+      type: object
+      properties:
+        newPassword:
+          description: The new plaintext password. Validated against the Cognito user
+            pool's password policy.
+          type: string
+          minLength: 8
+      required:
+        - newPassword
     User:
       $schema: https://json-schema.org/draft/2020-12/schema
       $id: "#/components/schemas/User"
@@ -151,6 +198,11 @@ components:
           enum:
             - PASSWORD
             - PASSWORDLESS
+        mustChangePassword:
+          description: Read-only. True when the frontend MUST send the user through PATCH
+            /v1/users/me/password before letting them continue. Cleared by that
+            endpoint and by POST /v1/users/password/confirm.
+          type: boolean
         createdBy:
           anyOf:
             - type: string
@@ -181,6 +233,7 @@ components:
         - phoneNumber
         - tags
         - authType
+        - mustChangePassword
         - createdBy
         - createdAt
         - updatedBy
@@ -214,6 +267,28 @@ components:
           type: string
       required:
         - error
+      additionalProperties: false
+    PasswordResetAccepted:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: "#/components/schemas/PasswordResetAccepted"
+      type: object
+      properties:
+        status:
+          type: string
+          const: accepted
+      required:
+        - status
+      additionalProperties: false
+    PasswordResetConfirmed:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: "#/components/schemas/PasswordResetConfirmed"
+      type: object
+      properties:
+        status:
+          type: string
+          const: password_updated
+      required:
+        - status
       additionalProperties: false
 paths:
   /v1/health:
@@ -403,6 +478,52 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /v1/users/password/forgot:
+    post:
+      operationId: forgotPassword
+      summary: Request a password reset code by email
+      tags:
+        - users
+      description: Always answers 202 with the same body, whether or not the email
+        belongs to an account — the response deliberately does not reveal which.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForgotPasswordInput"
+      responses:
+        "202":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasswordResetAccepted"
+  /v1/users/password/confirm:
+    post:
+      operationId: confirmPasswordReset
+      summary: Confirm a password reset with the emailed code
+      tags:
+        - users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmPasswordResetInput"
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasswordResetConfirmed"
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /v1/users/me:
     get:
       operationId: getMe
@@ -442,6 +563,43 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/UpdateProfileInput"
+      parameters:
+        - schema:
+            type: string
+          in: header
+          name: x-user-id
+          required: false
+          description: Cognito subject forwarded by the API Gateway authorizer. Required
+            in practice — a request without it resolves no current user and is
+            answered 404 (not a 400).
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /v1/users/me/password:
+    patch:
+      operationId: changeMyPassword
+      summary: Change the current user's password
+      tags:
+        - users
+      description: Sets a new password for the authenticated caller and clears
+        mustChangePassword. Accepts no other user fields — use PATCH
+        /v1/users/me for profile changes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordInput"
       parameters:
         - schema:
             type: string

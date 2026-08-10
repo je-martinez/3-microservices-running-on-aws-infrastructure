@@ -32,8 +32,33 @@ export interface UserCreatedPayload {
   cognitoSub?: string;
 }
 
+// The seam for PASSWORD_RESET_REQUESTED. `code` is a LIVE CREDENTIAL travelling
+// through this interface: it is the one thing the email exists to deliver, and
+// the one thing that must never appear in a log line, an error message, or a
+// persisted event document (the pipeline redacts it before storing — see
+// `#domain/redact-payload` there).
+//
+// `fullName` mirrors USER_CREATED's requirement: the handler's Zod schema
+// demands the key be present, and the template greets by name. It tolerates an
+// empty string (a nameless greeting) rather than rejecting the envelope and
+// costing the user their reset code over a missing greeting.
+//
+// `ttlSeconds` rides the seam instead of being hardcoded in the publisher
+// because the value that must reach the email is the SAME one that decided the
+// stored row's `expiresAt`. Passing it keeps a single source of truth: what the
+// user reads is what the database will enforce, by construction.
+export interface PasswordResetRequestedPayload {
+  userId: string;
+  email: string;
+  fullName: string;
+  code: string;
+  ttlSeconds: number;
+  cognitoSub?: string;
+}
+
 export interface EventPublisher {
   publishUserCreated(payload: UserCreatedPayload): Promise<void>;
+  publishPasswordResetRequested(payload: PasswordResetRequestedPayload): Promise<void>;
 }
 
 // Kept deliberately (it is NOT dead code): tests and any environment that must
@@ -42,10 +67,15 @@ export class NoopEventPublisher implements EventPublisher {
   async publishUserCreated(_payload: UserCreatedPayload): Promise<void> {
     return;
   }
+
+  async publishPasswordResetRequested(_payload: PasswordResetRequestedPayload): Promise<void> {
+    return;
+  }
 }
 
 const EVENT_ID_PREFIX = "evt_";
 const EVENT_TYPE = "USER_CREATED";
+const PASSWORD_RESET_EVENT_TYPE = "PASSWORD_RESET_REQUESTED";
 const EVENT_SOURCE = "users";
 
 // Real implementation. `event_id` is generated INSIDE the publisher so the seam
@@ -156,6 +186,83 @@ export class SqsEventPublisher implements EventPublisher {
           email_hash: hashEmail(payload.email),
         },
         "USER_CREATED publish failed (non-fatal): the user was created but no event was emitted",
+      );
+    }
+  }
+
+  // Emits the event whose ONLY consumer is the forgot-password email
+  // (functions/events-pipeline/src/handlers/password-reset-requested.ts).
+  //
+  // The `payload` shape is fixed by that handler's Zod schema and is NOT ours to
+  // restyle: exactly `{ email, full_name, code, ttlSeconds }`, including its
+  // mixed casing (`full_name` snake, `ttlSeconds` camel). Renaming any of the
+  // four would make every reset email fail validation as a PermanentError — the
+  // message consumed, the document recorded FAILED, and the user simply never
+  // receiving their code. The oddity is documented at the consumer; this side
+  // just has to match it.
+  //
+  // No extra keys are added: this payload carries a live credential, and the
+  // pipeline's redaction is keyed to the fields it knows about. Anything smuggled
+  // in alongside would be persisted verbatim.
+  async publishPasswordResetRequested(payload: PasswordResetRequestedPayload): Promise<void> {
+    const envelope = {
+      event_id: generateId(EVENT_ID_PREFIX),
+      type: PASSWORD_RESET_EVENT_TYPE,
+      source: EVENT_SOURCE,
+      // The SUBJECT of the event: whose password is being reset.
+      user_id: payload.userId,
+      // Present-and-null, not omitted — the pipeline's EnvelopeSchema declares
+      // `order_id` nullable rather than optional, so a missing key is rejected.
+      order_id: null,
+      // WHO originated it. A password reset is self-service, so author and
+      // subject are the same person here — as with USER_CREATED, and unlike
+      // events with no human author at all. `cognito_sub` is OMITTED when absent
+      // (a user row can exist before its identity is captured), never null:
+      // JSON.stringify drops undefined-valued properties, null would serialize.
+      author: {
+        actor: AuditActor.PasswordResetRequested,
+        user_id: payload.userId,
+        ...(payload.cognitoSub ? { cognito_sub: payload.cognitoSub } : {}),
+      },
+      payload: {
+        email: payload.email,
+        full_name: payload.fullName,
+        code: payload.code,
+        ttlSeconds: payload.ttlSeconds,
+      },
+    };
+
+    try {
+      await this.client.send(
+        new SendMessageCommand({
+          QueueUrl: this.queueUrl,
+          MessageBody: JSON.stringify(envelope),
+          MessageAttributes: {
+            type: { DataType: "String", StringValue: envelope.type },
+            source: { DataType: "String", StringValue: envelope.source },
+          },
+        }),
+      );
+    } catch (err) {
+      // Same best-effort stance as USER_CREATED, for the same reason: the code
+      // row is already persisted when this runs, so rethrowing would report a
+      // failure for a reset that is, on our side, entirely successful — and the
+      // caller cannot tell the difference anyway, because the endpoint answers
+      // identically whether or not the email exists (no enumeration). A queue
+      // outage costs the user their email, not a broken flow.
+      //
+      // NEVER log the code (it is the credential) and NEVER the plaintext email:
+      // only `email_hash` and `user_id` identify anyone here. `err` is a SQS SDK
+      // error and carries none of the message body.
+      appLogger.error(
+        {
+          err,
+          app_event: "password_reset_requested_publish_failed",
+          reason: "sqs_send_failed",
+          user_id: payload.userId,
+          email_hash: hashEmail(payload.email),
+        },
+        "PASSWORD_RESET_REQUESTED publish failed (non-fatal): the code was stored but no email was requested",
       );
     }
   }

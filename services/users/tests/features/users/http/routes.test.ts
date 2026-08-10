@@ -9,6 +9,7 @@ import {
   InvalidCredentialsError,
   EmailAlreadyExistsError,
   InvalidOtpError,
+  InvalidResetCodeError,
 } from "#shared/auth/auth-errors";
 
 // Full-shaped fixture matching the domain `User` type (see domain/user.ts):
@@ -29,6 +30,7 @@ function fakeUser(overrides: Record<string, unknown> = {}) {
     phoneNumber: null,
     tags: [] as string[],
     authType: "PASSWORD" as const,
+    mustChangePassword: false,
     createdBy: "usr_1",
     createdAt: FIXED_DATE,
     updatedBy: "usr_1",
@@ -83,6 +85,14 @@ function testContainer(e2eEnabled: boolean) {
     } as any),
     userQueryService: asValue({ getMe: vi.fn(), getUserById: vi.fn() } as any),
     updateProfileCommand: asValue({ execute: vi.fn() } as any),
+    // The password-reset trio. `forgotPasswordCommand` resolves to undefined on
+    // purpose: the command returns nothing whether or not the email exists, and
+    // the route's fixed 202 must not depend on anything it returns.
+    forgotPasswordCommand: asValue({ execute: vi.fn(async () => undefined) } as any),
+    confirmPasswordResetCommand: asValue({ execute: vi.fn(async () => undefined) } as any),
+    changePasswordCommand: asValue({
+      execute: vi.fn(async () => fakeUser({ mustChangePassword: false })),
+    } as any),
     e2eCleanupCommand: asValue({ execute: vi.fn(async () => ({ count: 3 })) } as any),
   });
   return container;
@@ -480,6 +490,173 @@ describe("routes", () => {
     expect(res.json()).toEqual({ error: "invalid_credentials" });
   });
 
+  // ---- Password reset (self-owned flow, codes in Redis) --------------------
+  describe("POST /v1/users/password/forgot", () => {
+    it("returns 202 with a fixed body for a known email", async () => {
+      const app = buildApp(testContainer(false));
+      const res = await app.inject({
+        method: "POST", url: "/v1/users/password/forgot",
+        payload: { email: "a@b.co" },
+      });
+      expect(res.statusCode).toBe(202);
+      expect(res.json()).toEqual({ status: "accepted" });
+    });
+
+    // ==== NO USER ENUMERATION ====
+    // The reason this endpoint exists in this shape. If a future change makes
+    // an unknown email answer differently — 404, a different body, a different
+    // status — this test is the one that must fail.
+    it("answers IDENTICALLY for an unknown email (no enumeration)", async () => {
+      const known = buildApp(testContainer(false));
+      const knownRes = await known.inject({
+        method: "POST", url: "/v1/users/password/forgot",
+        payload: { email: "a@b.co" },
+      });
+
+      const c = testContainer(false);
+      // The command resolves without doing anything for an unknown email — the
+      // route cannot tell the two apart, which is the point.
+      c.register({ forgotPasswordCommand: asValue({ execute: vi.fn(async () => undefined) } as any) });
+      const unknown = buildApp(c);
+      const unknownRes = await unknown.inject({
+        method: "POST", url: "/v1/users/password/forgot",
+        payload: { email: "nobody@nowhere.co" },
+      });
+
+      expect(unknownRes.statusCode).toBe(knownRes.statusCode);
+      expect(unknownRes.json()).toEqual(knownRes.json());
+    });
+
+    it("is public — no x-user-id required", async () => {
+      const app = buildApp(testContainer(false));
+      const res = await app.inject({
+        method: "POST", url: "/v1/users/password/forgot",
+        payload: { email: "a@b.co" },
+      });
+      expect(res.statusCode).not.toBe(401);
+    });
+
+    it("rejects a malformed email with 400", async () => {
+      const app = buildApp(testContainer(false));
+      const res = await app.inject({
+        method: "POST", url: "/v1/users/password/forgot",
+        payload: { email: "not-an-email" },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+  });
+
+  describe("POST /v1/users/password/confirm", () => {
+    const valid = { email: "a@b.co", code: "123456", newPassword: "N3wP@ssw0rd!" };
+
+    it("returns 200 when the code is accepted", async () => {
+      const app = buildApp(testContainer(false));
+      const res = await app.inject({
+        method: "POST", url: "/v1/users/password/confirm", payload: valid,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ status: "password_updated" });
+    });
+
+    it("returns 401 invalid_reset_code when the command rejects", async () => {
+      const c = testContainer(false);
+      c.register({
+        confirmPasswordResetCommand: asValue({
+          execute: vi.fn(async () => { throw new InvalidResetCodeError(); }),
+        } as any),
+      });
+      const app = buildApp(c);
+      const res = await app.inject({
+        method: "POST", url: "/v1/users/password/confirm", payload: valid,
+      });
+      expect(res.statusCode).toBe(401);
+      expect(res.json()).toEqual({ error: "invalid_reset_code" });
+    });
+
+    it("is public — no x-user-id required", async () => {
+      const app = buildApp(testContainer(false));
+      const res = await app.inject({
+        method: "POST", url: "/v1/users/password/confirm", payload: valid,
+      });
+      expect(res.statusCode).not.toBe(401);
+    });
+
+    it("rejects a non-6-digit code with 400", async () => {
+      const app = buildApp(testContainer(false));
+      const res = await app.inject({
+        method: "POST", url: "/v1/users/password/confirm",
+        payload: { ...valid, code: "12ab" },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+  });
+
+  describe("PATCH /v1/users/me/password", () => {
+    it("returns 200 with the updated user", async () => {
+      const app = buildApp(testContainer(false));
+      const res = await app.inject({
+        method: "PATCH", url: "/v1/users/me/password",
+        headers: { "x-user-id": "usr_1" },
+        payload: { newPassword: "N3wP@ssw0rd!" },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().mustChangePassword).toBe(false);
+    });
+
+    // Unlike the two reset routes, this one is AUTHENTICATED — it is the
+    // sibling that must 401 without an identity.
+    it("returns 401 without x-user-id", async () => {
+      const app = buildApp(testContainer(false));
+      const res = await app.inject({
+        method: "PATCH", url: "/v1/users/me/password",
+        payload: { newPassword: "N3wP@ssw0rd!" },
+      });
+      expect(res.statusCode).toBe(401);
+    });
+
+    it("returns 404 when the caller resolves to no user", async () => {
+      const c = testContainer(false);
+      c.register({ changePasswordCommand: asValue({ execute: vi.fn(async () => null) } as any) });
+      const app = buildApp(c);
+      const res = await app.inject({
+        method: "PATCH", url: "/v1/users/me/password",
+        headers: { "x-user-id": "nope" },
+        payload: { newPassword: "N3wP@ssw0rd!" },
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json()).toEqual({ error: "not_found" });
+    });
+
+    // The endpoint must NOT double as a profile update: a body carrying
+    // `fullName` must not rewrite it. Fastify strips unknown keys, so the proof
+    // is that the command receives ONLY `newPassword`.
+    it("ignores profile fields — the command receives only newPassword", async () => {
+      const execute = vi.fn(async () => fakeUser());
+      const c = testContainer(false);
+      c.register({ changePasswordCommand: asValue({ execute } as any) });
+      const app = buildApp(c);
+
+      await app.inject({
+        method: "PATCH", url: "/v1/users/me/password",
+        headers: { "x-user-id": "usr_1" },
+        payload: { newPassword: "N3wP@ssw0rd!", fullName: "Hacked", tags: ["x"] },
+      });
+
+      const [, body] = execute.mock.calls[0]!;
+      expect(body).toEqual({ newPassword: "N3wP@ssw0rd!" });
+    });
+
+    it("rejects a too-short password with 400", async () => {
+      const app = buildApp(testContainer(false));
+      const res = await app.inject({
+        method: "PATCH", url: "/v1/users/me/password",
+        headers: { "x-user-id": "usr_1" },
+        payload: { newPassword: "short" },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+  });
+
   it("POST /v1/users/refresh returns 400 when refreshToken is missing", async () => {
     const app = buildApp(testContainer(false));
     const res = await app.inject({ method: "POST", url: "/v1/users/refresh", payload: {} });
@@ -795,6 +972,7 @@ describe("openapi spec generation", () => {
       "/v1/health", "/v1/users/register", "/v1/users/register/passwordless",
       "/v1/users/login", "/v1/users/otp/start", "/v1/users/otp/verify",
       "/v1/users/me", "/v1/webhooks/cognito",
+      "/v1/users/password/forgot", "/v1/users/password/confirm", "/v1/users/me/password",
       "/v1/users/e2e-cleanup", "/v1/users/e2e-identity",
     ]));
     expect(spec.components.schemas.User).toBeDefined();

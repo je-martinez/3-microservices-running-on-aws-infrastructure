@@ -33,6 +33,21 @@ const schema = z.object({
   // .env.local.users from the Terraform output, because Floci remints the queue
   // URL on every apply (see [[env-files]]).
   EVENTS_QUEUE_URL: z.string().url(),
+  // ElastiCache Redis, the store for password-reset codes. Both are REQUIRED
+  // (no default host): a missing value must fail at boot with a named Zod error
+  // rather than silently defaulting to "localhost" and producing ECONNREFUSED
+  // on the first password-reset request — see [[ADR-0014-env-validation-zod]].
+  //
+  // ==== REDIS_HOST IS THE BACKING CONTAINER NAME, NEVER "localhost" ====
+  // Locally, Floci backs the replication group with a real `valkey/valkey:8`
+  // container on the compose network, and the endpoint the ElastiCache API
+  // reports is literally "localhost" — which, resolved from inside the `users`
+  // container, is the `users` container itself (measured: ECONNREFUSED). So the
+  // value written into .env.local.users is the `floci-valkey-<id>` hostname,
+  // derived by `make env-file` from a Terraform output. Do not "fix" this to
+  // localhost. Same shape as the DOCDB_HOST quirk in the events-pipeline.
+  REDIS_HOST: z.string().min(1),
+  REDIS_PORT: z.coerce.number().int().positive(),
   // Feeds the schema logger's `deployment_environment` base field (see
   // shared/logging/logger.ts). Defaults to "local" for dev/test; prod deploys
   // set it explicitly.

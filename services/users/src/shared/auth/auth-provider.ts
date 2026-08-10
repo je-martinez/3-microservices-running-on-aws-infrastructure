@@ -38,4 +38,16 @@ export interface AuthProvider {
   // credential-adjacent (it is what buys tokens) and is never logged.
   startOtpChallenge(email: string): Promise<{ session: string }>;
   respondToOtpChallenge(email: string, session: string, code: string): Promise<AuthTokens>;
+  // Sets a permanent password for an existing account, administratively — the
+  // caller has ALREADY been authorized by the time this runs (a verified reset
+  // code, or an authenticated /me request). This is deliberately NOT Cognito's
+  // ForgotPassword/ConfirmForgotPassword pair: that flow mints and emails its
+  // own code, never returns it to the caller, and rejects any code this service
+  // minted (`CodeMismatchException`) — verified empirically, including a control
+  // invocation proving the probe itself worked. Owning the whole reset flow means
+  // owning the final write too.
+  //
+  // Throws InvalidCredentialsError when the account does not exist, so an
+  // unknown email cannot be distinguished from a wrong code by status alone.
+  setPassword(email: string, newPassword: string): Promise<void>;
 }
