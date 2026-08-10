@@ -116,14 +116,18 @@ Source of truth with full evidence: [[floci-vs-ministack-spike-findings]]
    (`infra/environments/local/`).
 9. **A second `terraform apply` FAILS.** Floci's `UpdateTags` breaks for API GW v2 stages
    (`NotFoundException: Invalid API id`) and RDS clusters (`DBInstanceNotFound`). Only a
-   from-scratch apply works. To re-apply: `docker compose down && rm -rf data/floci &&
-   rm -f infra/environments/local/terraform.tfstate* && make bootstrap`. See
+   from-scratch apply works. To re-apply: `make clean && make bootstrap` — `clean` runs
+   `docker compose down -v`, which destroys the `floci-state` volume along with the
+   containers (see quirk 17 for why the two must go together; the old `rm -rf data/floci`
+   no longer applies, that state is not a bind mount any more). See
    [[floci-rds-apigw-limits]].
 10. **`FLOCI_STORAGE_MODE=persistent`, never `hybrid`.** Floci's README recommends `hybrid`
     for local dev, but its 5s async flush loses writes on an unclean stop (measured:
     write → SIGKILL@0.5s → restart; `persistent` and `wal` survive, `hybrid` does not).
     Floci can also leave a **truncated `.tmp`** state file, which it then silently ignores
-    at boot — the symptom is "state vanished" with no log line. Check `ls data/floci/*.tmp`.
+    at boot — the symptom is "state vanished" with no log line. Check with
+    `docker compose exec floci ls /app/data | grep '\.tmp$'` (the state lives in the
+    `floci-state` volume now, not under `./data`).
     See [[floci-storage-modes-and-tmp-corruption]].
 11. **Postgres is reached at `floci:7001`** (Floci's RDS proxy), not at `:4566` and never by
     container IP — Floci reassigns those on every recreation. Writer and reader endpoints
@@ -249,6 +253,35 @@ Source of truth with full evidence: [[floci-vs-ministack-spike-findings]]
       `make clean && make bootstrap` is cheaper than unpicking it.
     **Practical rule: after editing the `floci` service in docker-compose.yml, plan on a full
     `make bootstrap`** — do not assume an `up -d` is a cheap in-place change.
+
+17. **⚠️ Floci's persisted state must die WITH its containers, or a from-scratch rebuild
+    silently half-works** (verified 2026-08-10 — the general case behind quirk 16). Any
+    teardown that removes the backing containers while KEEPING the emulator state produces
+    phantom resources: Floci boots, loads the state, and answers `available` for clusters
+    whose containers no longer exist. `terraform apply` then asks "does it exist?", is told
+    yes, and **creates nothing** — reporting success. Nothing fails until a service dials the
+    resource and gets `getaddrinfo ENOTFOUND floci-docdb-…`.
+    - **It is selective, which is what makes it look intermittent.** Floci relaunches RDS
+      containers from persisted state at boot (`RdsContainerManager` logs
+      *"Starting RDS backend container for instance…"*). **DocumentDB and ElastiCache have no
+      such reconciler** — they load state and launch nothing. So one `make clean &&
+      make bootstrap` leaves Postgres/MySQL healthy and DocumentDB/ElastiCache phantom.
+    - **A bind mount cannot be cleared by compose.** `docker compose down -v` removes named
+      volumes but never bind mounts, so state under `./data` outlives every teardown. 3MRAI
+      moved Floci's state to the **`floci-state` named volume** for exactly this reason, and
+      `make clean` now runs `down -v` unconditionally (it used to prompt, defaulting to
+      KEEPING the state — that default is what made rebuilds non-deterministic).
+    - **Recovery without a full rebuild**, if a phantom is already there: delete the resource
+      through its own API (`aws docdb delete-db-cluster --skip-final-snapshot`,
+      `aws elasticache delete-replication-group`), then `terraform taint` the module's
+      `terraform_data.*_via_cli` resource and re-apply that target. A plain `-target` apply
+      does **nothing** — the awscli-fallback resources only re-run when their trigger changes.
+    - **`make doctor` now cross-checks this**: every declared DocumentDB/ElastiCache resource
+      against `docker ps`, failing loudly instead of leaving it to surface at runtime.
+    - **Do not read DocumentDB's cluster list from `aws docdb describe-db-clusters`** — it
+      returns the RDS clusters (mysql, postgres) and omits the DocumentDB one entirely, so it
+      yields both false phantoms and a missed real one. The generated `DOCDB_HOST` **is** the
+      container name; check that instead.
 
 ## Per-service knowledge
 

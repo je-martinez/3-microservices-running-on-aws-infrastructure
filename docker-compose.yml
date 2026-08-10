@@ -12,6 +12,37 @@ networks:
   3mrai-network:
     driver: bridge
 
+# RULE: runtime-generated state goes in a NAMED VOLUME, never a ./data bind
+# mount. Versioned files a container reads (configs, source) stay bind mounts —
+# those you want to edit in the repo and see take effect; see the collector's
+# `:ro` config mount below for the one legitimate case.
+#
+# The reason is `docker compose down -v`: it removes named volumes and CANNOT
+# remove a bind mount. Under the old ./data layout there was no compose command
+# that cleared this state — it outlived every teardown and had to be deleted by
+# hand, through a `make clean` prompt that DEFAULTED TO KEEPING IT.
+#
+# That default caused a silent, hard-to-diagnose failure. A teardown destroys
+# the backing containers (DocumentDB, ElastiCache, RDS) but left Floci's state
+# claiming they exist. On the next apply Terraform asked "is there a cluster?",
+# Floci answered `available` from the stale JSON, and Terraform created
+# nothing — leaving a cluster that is `available` in the API with no container
+# behind it. Nothing failed until a service dialled it and got
+# `getaddrinfo ENOTFOUND floci-docdb-…`.
+#
+# It only bites SOME services, which is why it looked intermittent: Floci
+# relaunches RDS containers from persisted state at boot (`RdsContainerManager`),
+# but has no equivalent for DocumentDB or ElastiCache — so one teardown leaves
+# some resources real and others phantom.
+#
+# `make clean` now runs `down -v`, so state and containers die together, and
+# `make doctor` cross-checks the two if they ever drift again.
+volumes:
+  # What resources Floci believes exist (its emulated control plane).
+  floci-state:
+  # OpenObserve's log store — observability profile only, but the same rule.
+  openobserve-data:
+
 services:
   # Local AWS emulator (ADR-0017) — replaced Ministack on :4566.
   # MIT, single-port emulator. Launches ECS tasks as real Docker containers and
@@ -72,7 +103,8 @@ services:
       # on 6379 and this emulator can run at the same time.
       - FLOCI_SERVICES_ELASTICACHE_PROXY_BASE_PORT=6479
       - FLOCI_SERVICES_ELASTICACHE_PROXY_MAX_PORT=6499
-      # Persist state across restarts under ./data/floci (git-ignored).
+      # Persist state across restarts in the `floci-state` NAMED VOLUME (see the
+      # top-level `volumes:` block for why it is not a ./data bind mount).
       # `persistent` flushes on every write; `hybrid` batches on a 5s async timer
       # and loses writes on an unclean stop — do not "optimize" this to hybrid.
       # See docs/lessons/floci-storage-modes-and-tmp-corruption.md
@@ -92,7 +124,7 @@ services:
       - FLOCI_SERVICES_SES_SMTP_HOST=mailpit
       - FLOCI_SERVICES_SES_SMTP_PORT=1025
     volumes:
-      - ./data/floci:/app/data
+      - floci-state:/app/data
       - /var/run/docker.sock:/var/run/docker.sock
     networks: [3mrai-network]
     depends_on:
@@ -175,7 +207,11 @@ services:
     ports:
       - "5080:5080"   # UI + OTLP HTTP ingest
     volumes:
-      - ./data/openobserve:/data
+      # Named volume, same rule as `floci-state`: runtime-generated state is
+      # never a ./data bind mount, so `docker compose down -v` can actually
+      # clear it. (The collector's config mount above stays a bind mount on
+      # purpose — that one is versioned source, not state.)
+      - openobserve-data:/data
     networks: [3mrai-network]
 
   # Real Users service (Fastify + Prisma).

@@ -391,11 +391,24 @@ bootstrap-converge: scripts-setup ## Phase 2 of bootstrap: migrations + services
 	@# the first attempt instead of racing a container that started seconds ago.
 	$(PY) $(TF_LOCAL_DIR)/bootstrap.py
 
-clean: ## Tear down infra + compose (prompts before removing ./data)
+clean: ## Tear down infra + compose, including the emulator state volume
+	@# `down -v` — the -v is load-bearing, not a convenience. It removes the
+	@# `floci-state` volume holding what resources Floci BELIEVES exist, and that
+	@# has to die in the same breath as the containers backing them.
+	@#
+	@# This used to ask before deleting ./data, DEFAULTING TO KEEPING IT, which
+	@# made a from-scratch teardown non-deterministic: the containers went away
+	@# and the state claiming they existed stayed. The next apply then read
+	@# `available` from that stale state and skipped creating DocumentDB and
+	@# ElastiCache, leaving clusters with no container behind them — a failure
+	@# that surfaced only later, as `getaddrinfo ENOTFOUND floci-docdb-…` inside
+	@# a Lambda. No prompt now: clean means clean.
+	@#
+	@# (RDS survived that same teardown because Floci relaunches ITS containers
+	@# from persisted state at boot; DocumentDB and ElastiCache have no such
+	@# reconciler. That asymmetry is what made it look intermittent.)
 	-$(TF) destroy -auto-approve
-	$(COMPOSE) down
-	@printf "Remove ./data (local emulator state)? [y/N] "; read ans; \
-		if [ "$$ans" = "y" ] || [ "$$ans" = "Y" ]; then rm -rf ./data && echo "removed ./data"; else echo "kept ./data"; fi
+	$(COMPOSE) down -v
 
 observability-up: ## Start OpenObserve + the OTel collector (opt-in; ~512MB-1.5GB RAM)
 	# --force-recreate, scoped to just these two services: they sit outside the main

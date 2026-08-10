@@ -29,17 +29,24 @@ Exit codes: 0 everything checked passed, 1 at least one check failed.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 from lib3mrai.console import inf, no, ok
 from lib3mrai.db import COMPOSE_NETWORK, discover_port
 
 FLOCI_URL = "http://localhost:4566"
 NGINX_ALIAS = "nginx-stable"
+
+# Repo root, derived from this file's location (infra/scripts/doctor.py) rather
+# than the working directory, so the check reads the same env file no matter
+# where the doctor is invoked from.
+ROOT = Path(__file__).resolve().parents[2]
 
 # Database -> the tables its migrations are expected to have created. Checked by
 # name rather than counted: a partially-applied migration set is a real state,
@@ -134,6 +141,107 @@ def check_containers(report: Report) -> None:
                 f"container '{service}' is not running",
                 f"docker compose up -d {service}",
             )
+
+
+def check_docdb_host(report: Report) -> None:
+    """Assert the container DOCDB_HOST names actually exists.
+
+    Read from the generated env file rather than the AWS API because Floci's
+    docdb API does not report this cluster (see check_phantom_resources). The
+    events-pipeline resolves this exact hostname over Docker DNS, so a missing
+    container here IS the `getaddrinfo ENOTFOUND floci-docdb-…` that aborts
+    every batch — and the reason no email is ever sent.
+    """
+    env_file = ROOT / ".env.local.events-pipeline"
+    if not env_file.exists():
+        inf(f"    DocumentDB: {env_file.name} not generated yet (skipped)")
+        return
+
+    host = ""
+    for line in env_file.read_text().splitlines():
+        if line.startswith("DOCDB_HOST="):
+            host = line.split("=", 1)[1].strip()
+    if not host:
+        inf(f"    DocumentDB: no DOCDB_HOST in {env_file.name} (skipped)")
+        return
+
+    if _docker("ps", "--filter", f"name={host}", "-q").stdout.strip():
+        report.passed(f"DocumentDB container '{host}' running")
+    else:
+        report.failed(
+            f"DOCDB_HOST '{host}' has NO container — the events pipeline cannot "
+            "resolve it, so no email will ever be sent",
+            "make clean && make bootstrap",
+        )
+
+
+def check_phantom_resources(report: Report) -> None:
+    """Catch resources the emulator reports `available` with no container behind them.
+
+    The same blind spot as the database-without-tables check above, one layer
+    down: Floci answers `available` from its persisted state, so a resource whose
+    backing container is gone still looks healthy to every AWS API call —
+    including the ones Terraform makes. A `terraform apply` against that state
+    creates NOTHING and reports success. The gap surfaces much later and far from
+    its cause, as `getaddrinfo ENOTFOUND floci-docdb-…` inside a Lambda.
+
+    Only DocumentDB and ElastiCache are checked, and that is not an arbitrary
+    subset: Floci relaunches RDS containers from persisted state at boot
+    (`RdsContainerManager`), and Lambda containers respawn on the next
+    invocation. These two have no such reconciler, so they are the two that go
+    phantom — which is exactly why the failure looked intermittent (a teardown
+    left some resources real and others not).
+
+    The container names are deterministic — Floci derives them from identifiers
+    WE choose — so they can be asserted rather than discovered.
+
+    DocumentDB is NOT read from its own AWS API, and that is deliberate. Floci's
+    `docdb describe-db-clusters` does not list the DocumentDB cluster at all — it
+    answers with the RDS ones (mysql, postgres) instead, so querying it yields
+    both false phantoms and a missed real one (measured, not hypothesised). The
+    generated env file is the honest source: DOCDB_HOST *is* the container name
+    the events-pipeline actually dials, so checking it asks the only question
+    that matters — can the thing the service connects to be found?
+    """
+    check_docdb_host(report)
+
+    probes = (
+        ("ElastiCache", "elasticache", "describe-replication-groups",
+         "ReplicationGroups[].ReplicationGroupId", "floci-valkey-"),
+    )
+
+    for label, service, action, query, prefix in probes:
+        result = subprocess.run(
+            ["aws", "--endpoint-url", FLOCI_URL, service, action,
+             "--query", query, "--output", "text"],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "AWS_ACCESS_KEY_ID": "test",
+                 "AWS_SECRET_ACCESS_KEY": "test", "AWS_DEFAULT_REGION": "us-east-1"},
+        )
+        if result.returncode != 0:
+            # Not a failure: the resource may legitimately not exist yet (a
+            # bootstrap that has not reached it). Reporting it as broken would
+            # make the doctor cry wolf on a half-built stack.
+            inf(f"    {label}: could not query (skipped)")
+            continue
+
+        identifiers = [i for i in result.stdout.split() if i and i != "None"]
+        if not identifiers:
+            inf(f"    {label}: no clusters declared (skipped)")
+            continue
+
+        for identifier in identifiers:
+            container = f"{prefix}{identifier}"
+            found = _docker("ps", "--filter", f"name={container}", "-q")
+            if found.stdout.strip():
+                report.passed(f"{label} '{identifier}' has a running container")
+            else:
+                report.failed(
+                    f"{label} '{identifier}' reports available but has NO container "
+                    f"({container}) — stale emulator state",
+                    "make clean && make bootstrap",
+                )
 
 
 def check_nginx_alias(report: Report) -> None:
@@ -258,6 +366,9 @@ def main() -> int:
 
     print("\n== Containers ==")
     check_containers(report)
+
+    print("\n== Emulator state vs reality ==")
+    check_phantom_resources(report)
 
     print("\n== Gateway routing ==")
     check_nginx_alias(report)
