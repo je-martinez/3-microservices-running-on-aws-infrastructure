@@ -13,8 +13,9 @@ same bucket and the same manifest. There is no "already uploaded" bookkeeping to
 get out of sync — re-running is the repair mechanism.
 
 Output is a manifest JSON in assets/ mapping each logical asset name to its
-public URL plus the dimensions, so a consumer (the email templates, later) reads
-a URL instead of reconstructing one from a bucket name and an endpoint style.
+public URL plus the dimensions and a BlurHash placeholder, so a consumer (the
+email templates; the Orders product seed) reads a URL instead of reconstructing
+one from a bucket name and an endpoint style.
 
 WHY NO WEBP. Deliberately not generated, and this comment is here so nobody adds
 it later "for performance". WebP is not usable in email: Outlook on Windows (the
@@ -39,6 +40,7 @@ from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 
+import blurhash
 from PIL import Image
 
 from lib3mrai import aws
@@ -80,6 +82,19 @@ CACHE_CONTROL = "public, max-age=31536000"
 RESIZE_TARGETS = {
     "img/standalone-logo.png": 168,
     "img/logo.png": 168,
+    # The product photos are 1080px display masters, which is already their native
+    # width — so these entries are deliberately a NO-OP today. thumbnail() never
+    # upscales, so listing them costs nothing and bounds a 4000px master someone
+    # drops in later instead of uploading it whole. The web-app card renders them
+    # 300px tall with background-size: cover.
+    "products/runner-low-canvas.jpg": 1080,
+    "products/field-tote-18l.jpg": 1080,
+    "products/trail-shell-jacket.jpg": 1080,
+    "products/everyday-backpack.jpg": 1080,
+    "products/linen-cap.jpg": 1080,
+    "products/wool-runner-mid.jpg": 1080,
+    "products/leather-card-holder.jpg": 1080,
+    "products/steel-bottle-750ml.jpg": 1080,
 }
 
 # Files under assets/ that are not web assets: design sources and shader
@@ -95,6 +110,7 @@ class SyncedAsset:
     url: str
     width: int | None
     height: int | None
+    blurhash: str | None
     content_type: str
     bytes_before: int
     bytes_after: int
@@ -122,17 +138,17 @@ def _iter_images(assets_dir: Path):
             yield path, rel.as_posix()
 
 
-def _optimise(path: Path, key: str) -> tuple[bytes, int | None, int | None]:
-    """Return (body, width, height) for one asset.
+def _optimise(path: Path, key: str) -> tuple[bytes, int | None, int | None, str | None]:
+    """Return (body, width, height, blurhash) for one asset.
 
     Non-raster formats (SVG, GIF) and anything Pillow cannot read are returned
-    byte-for-byte, with no dimensions claimed rather than guessed.
+    byte-for-byte, with no dimensions or hash claimed rather than guessed.
     """
     raw = path.read_bytes()
     suffix = path.suffix.lower()
 
     if suffix not in OPTIMISABLE:
-        return raw, None, None
+        return raw, None, None, None
 
     with Image.open(BytesIO(raw)) as img:
         img.load()
@@ -155,7 +171,14 @@ def _optimise(path: Path, key: str) -> tuple[bytes, int | None, int | None]:
             img.convert("RGB").save(
                 buf, format="JPEG", quality=85, optimize=True, progressive=True
             )
-        return buf.getvalue(), img.size[0], img.size[1]
+
+        body = buf.getvalue()
+        # Computed from the OPTIMISED bytes, not the master: the hash must describe
+        # the image a client will actually fetch. 4x3 components is the common
+        # default — enough structure to read as the photo, small enough to inline
+        # in a JSON payload.
+        hashed = blurhash.encode(BytesIO(body), x_components=4, y_components=3)
+        return body, img.size[0], img.size[1], hashed
 
 
 def sync(bucket: str, base_url: str, assets_dir: Path, manifest_path: Path) -> int:
@@ -164,7 +187,7 @@ def sync(bucket: str, base_url: str, assets_dir: Path, manifest_path: Path) -> i
 
     for path, key in _iter_images(assets_dir):
         before = path.stat().st_size
-        body, width, height = _optimise(path, key)
+        body, width, height, hashed = _optimise(path, key)
         content_type = CONTENT_TYPES[path.suffix.lower()]
 
         s3.put_object(
@@ -181,6 +204,7 @@ def sync(bucket: str, base_url: str, assets_dir: Path, manifest_path: Path) -> i
                 url=f"{base_url.rstrip('/')}/{key}",
                 width=width,
                 height=height,
+                blurhash=hashed,
                 content_type=content_type,
                 bytes_before=before,
                 bytes_after=len(body),
@@ -205,6 +229,7 @@ def sync(bucket: str, base_url: str, assets_dir: Path, manifest_path: Path) -> i
                 "content_type": a.content_type,
                 "width": a.width,
                 "height": a.height,
+                "blurhash": a.blurhash,
                 "bytes": a.bytes_after,
             }
             for a in synced

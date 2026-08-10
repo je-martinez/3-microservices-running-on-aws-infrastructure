@@ -109,6 +109,9 @@ public abstract class OrdersE2eApiFactoryBase : WebApplicationFactory<Program>, 
         // Well-formed placeholder so the SQS client can be constructed. Nothing is
         // ever sent to it: NoopEventPublisher replaces the real publisher below.
         builder.UseSetting("EVENTS_QUEUE_URL", "http://localhost:4566/000000000000/events");
+        // Base URL the product read service prefixes onto each image's bucket key.
+        // Placeholder — nothing here fetches the composed URL.
+        builder.UseSetting("ASSETS_BASE_URL", "http://localhost:4566/test-assets");
 
         builder.ConfigureTestServices(services =>
         {

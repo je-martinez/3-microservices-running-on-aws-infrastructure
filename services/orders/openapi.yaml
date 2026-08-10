@@ -272,6 +272,8 @@ components:
         - description
         - unitPriceCents
         - unitsInStock
+        - categories
+        - image
       type: object
       properties:
         id:
@@ -292,6 +294,38 @@ components:
             - integer
             - string
           format: uint32
+        categories:
+          type: array
+          items:
+            type: string
+        image:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/ProductImageDto'
+    ProductImageDto:
+      required:
+        - uri
+        - width
+        - height
+        - blurhash
+      type: object
+      properties:
+        uri:
+          type: string
+        width:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: int32
+        height:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: int32
+        blurhash:
+          type: string
     TrackingDto:
       required:
         - id

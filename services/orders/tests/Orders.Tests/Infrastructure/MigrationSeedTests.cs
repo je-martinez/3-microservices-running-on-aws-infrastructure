@@ -30,13 +30,25 @@ public class MigrationSeedTests : IAsyncLifetime
         await db.Database.MigrateAsync();
         await ProductSeed.ApplyAsync(db);
 
-        Assert.Equal(3, await db.Products.CountAsync());
+        Assert.Equal(8, await db.Products.CountAsync());
         Assert.All(await db.Products.ToListAsync(), p =>
         {
             Assert.StartsWith("prd_", p.Id);
             // The audit interceptor stamps the semantic seed actor, not "system".
             Assert.Equal(AuditActor.ProductSeed, p.CreatedBy);
             Assert.Equal(AuditActor.ProductSeed, p.UpdatedBy);
+
+            // Every seeded product is fully specified: a category and artwork.
+            Assert.NotEmpty(p.Categories);
+            Assert.NotNull(p.Image);
+
+            // The relative-uri invariant, ENFORCED rather than documented: the stored
+            // uri is a bucket key, never an absolute URL. An absolute one would be dead
+            // data after the next `make clean` re-mints the bucket.
+            Assert.StartsWith("products/", p.Image!.Uri);
+            Assert.DoesNotContain("://", p.Image.Uri);
+            Assert.NotEmpty(p.Image.Blurhash);
+            Assert.True(p.Image.Width > 0 && p.Image.Height > 0);
         });
     }
 

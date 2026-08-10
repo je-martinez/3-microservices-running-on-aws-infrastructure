@@ -58,6 +58,58 @@ test("GET v1/products is 401 without a Bearer token (it's a protected route)", a
   expect(res.status()).toBe(401);
 });
 
+test("GET v1/products serves the eight seeded products with categories and artwork", async () => {
+  const { token } = await getGatewayToken();
+  const api = await gatewayClient(token);
+  const res = await api.get("v1/products");
+  expect(res.status()).toBe(200);
+  const list = await res.json();
+
+  // Assert on the NAMES, not just the count: "expected 8, got 3" cannot tell a
+  // broken system from a stale seed, whereas the actual list names the problem.
+  expect(list.map((p: { name: string }) => p.name).sort()).toEqual([
+    "Everyday Backpack",
+    "Field Tote 18L",
+    "Leather Card Holder",
+    "Linen Cap",
+    "Runner Low Canvas",
+    "Steel Bottle 750ml",
+    "Trail Shell Jacket",
+    "Wool Runner Mid",
+  ]);
+
+  for (const p of list) {
+    expect(p.categories, `${p.name} has no categories`).not.toHaveLength(0);
+    expect(p.image, `${p.name} has no image`).toBeTruthy();
+    // ABSOLUTE url: the row stores a bucket-relative key and the service composes
+    // this from ASSETS_BASE_URL. A relative value here means that wiring is broken.
+    expect(p.image.uri, `${p.name} image uri is not absolute`).toMatch(
+      /^https?:\/\/.+\/products\/.+\.jpg$/,
+    );
+    expect(p.image.blurhash, `${p.name} has no blurhash`).toBeTruthy();
+    expect(p.image.width).toBeGreaterThan(0);
+    expect(p.image.height).toBeGreaterThan(0);
+  }
+});
+
+test("the image URL v1/products advertises actually serves a JPEG", async () => {
+  // The ONLY layer that proves the seeded key, the uploaded object and the base URL
+  // all agree — a seed typo passes every in-process test and 404s only here.
+  const { token } = await getGatewayToken();
+  const api = await gatewayClient(token);
+  const res = await api.get("v1/products");
+  const [first] = await res.json();
+
+  // Fetched directly, not through the gateway client: image.uri is an absolute
+  // bucket URL, not an API route.
+  const image = await fetch(first.image.uri);
+  expect(
+    image.status,
+    `${first.image.uri} did not serve an image — run \`make post-infra && make assets-sync\``,
+  ).toBe(200);
+  expect(image.headers.get("content-type")).toBe("image/jpeg");
+});
+
 test("POST v1/orders with a nonexistent product returns 404 unknown_product", async () => {
   const { token } = await getGatewayToken();
   const api = await gatewayClient(token);
