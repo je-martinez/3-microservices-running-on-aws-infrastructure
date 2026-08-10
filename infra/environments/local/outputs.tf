@@ -85,6 +85,30 @@ output "events_lambda_function_name" {
   value       = module.lambda_events_pipeline.function_name
 }
 
+# ─── Redis / ElastiCache (Users password-reset codes) ───────────────────────────
+# Consumed by `make env-file` to write REDIS_HOST / REDIS_PORT into
+# .env.local.users.
+#
+# redis_host is the BACKING CONTAINER NAME locally (floci-valkey-<id>), NOT the
+# endpoint ElastiCache reports — Floci returns ConfigurationEndpoint.Address =
+# "localhost", which from inside the Docker network resolves to the calling
+# service's own container. Same shape as docdb_cluster_identifier above, except
+# the module does the derivation so consumers read one ready-to-use value.
+output "redis_host" {
+  description = "Host the Users service connects to for Redis. LOCAL: the floci-valkey-<id> container name over Docker DNS — never 'localhost'. PROD: the ElastiCache primary endpoint."
+  value       = module.redis.redis_host
+}
+
+output "redis_port" {
+  description = "Redis port (6379 both locally and in AWS)."
+  value       = module.redis.redis_port
+}
+
+output "redis_replication_group_id" {
+  description = "ElastiCache replication group id — derives the floci-valkey-<id> container name. Changing it renames that container and invalidates every REDIS_HOST consumer."
+  value       = module.redis.replication_group_id
+}
+
 # ─── Realtime WebSocket ─────────────────────────────────────────────────────────
 # ws://localhost:4566/ws/{apiId}/{stage} — the HOST-facing data plane, NOT the
 # restapis/<id>/$default/_user_request_/ shape the HTTP API uses. Consumed by the

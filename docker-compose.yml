@@ -31,10 +31,42 @@ services:
       # and any SQL client — can reach the DBs at localhost:<port>. In-network
       # containers still use floci:<port>.
       - "7000-7010:7000-7010"
+      # ElastiCache proxy ports — the SAME proxy arrangement as the RDS range
+      # above: Floci launches a real `valkey/valkey:8` container per replication
+      # group and PROXIES TCP to it, so a host-side client can reach it at
+      # localhost:<port>. Publishing the range is REQUIRED for that; without it
+      # the port is simply closed, which reads exactly like "the emulator doesn't
+      # really serve Redis" (it does — see the floci skill, quirk 14).
+      #
+      # DELIBERATELY NOT FLOCI'S 6379-6399 DEFAULT. 6379 is Redis's well-known
+      # port, so the default range collides with any local Redis a developer runs
+      # (here: a `redis_alpine` container publishing 6379). Whoever binds first
+      # wins and the other silently fails — Floci refusing to start with "port is
+      # already allocated", or worse, a client reaching the WRONG Redis. Moved to
+      # 6479-6499: same 21-port width, clear of both 6379 and this machine's other
+      # 6xxx listeners.
+      #
+      # The published range and FLOCI_SERVICES_ELASTICACHE_PROXY_BASE_PORT/
+      # _MAX_PORT below MUST agree — publishing ports Floci does not allocate from
+      # (or vice versa) yields a closed port with no error anywhere.
+      #
+      # THIS RANGE IS HOST-SIDE ONLY, and that is why REDIS_PORT stays 6379.
+      # In-network containers (users, and anything else on 3mrai-network) do not
+      # go through this proxy at all: they dial the backing container directly at
+      # `floci-valkey-<replication-group-id>:6379`, which is unaffected by the
+      # range chosen here. Only clients on the HOST — redis-cli, a GUI, a test run
+      # outside Docker — use these ports. Do not "fix" REDIS_PORT to 6479.
+      - "6479-6499:6479-6499"
     environment:
       # ECS tasks launched by Floci join the compose network and can resolve
       # other compose containers (users) by service name via Docker DNS.
       - FLOCI_SERVICES_ECS_DOCKER_NETWORK=3mrai_3mrai-network
+      # ElastiCache proxy range — must match the published ports above exactly.
+      # Floci allocates one port per replication group from this range, starting
+      # at BASE. Moved off the 6379-6399 default so a developer's own local Redis
+      # on 6379 and this emulator can run at the same time.
+      - FLOCI_SERVICES_ELASTICACHE_PROXY_BASE_PORT=6479
+      - FLOCI_SERVICES_ELASTICACHE_PROXY_MAX_PORT=6499
       # Persist state across restarts under ./data/floci (git-ignored).
       # `persistent` flushes on every write; `hybrid` batches on a 5s async timer
       # and loses writes on an unclean stop — do not "optimize" this to hybrid.

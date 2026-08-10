@@ -61,10 +61,13 @@ e2e/screenshots/
 # Local-only Cognito client descriptor (modules/cognito manage_client_via_provider
 # = false fallback, Floci only — see modules/cognito/main.tf), the DocumentDB
 # cluster descriptor (modules/docdb manage_cluster_via_provider = false
-# fallback, same pattern), and bootstrap.sh's generated app DB user password
-# (local Floci only — never a real secret store).
+# fallback, same pattern), the ElastiCache Redis replication group descriptor
+# (modules/redis manage_via_provider = false fallback, same pattern again), and
+# bootstrap.sh's generated app DB user password (local Floci only — never a real
+# secret store).
 **/.terraform-cognito/
 **/.terraform-docdb/
+**/.terraform-redis/
 infra/environments/local/.app-db-secret
 infra/environments/local/.orders-app-db-secret
 
