@@ -7,4 +7,6 @@ public record ProductDto(
     string Name,
     string Description,
     long UnitPriceCents,
-    uint UnitsInStock);
+    uint UnitsInStock,
+    IReadOnlyList<string> Categories,
+    ProductImageDto? Image);

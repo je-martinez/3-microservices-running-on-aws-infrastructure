@@ -71,7 +71,27 @@ var readerCs = builder.Configuration["DATABASE_READER_URL"]!;
 builder.Services.AddDbContext<OrdersReadDbContext>(o =>
     o.UseMySql(readerCs, ServerVersion.AutoDetect(readerCs)));
 builder.Services.AddScoped<OrderReadService>();
-builder.Services.AddScoped<ProductReadService>();
+// Assets base URL for product artwork. Rows store bucket-relative keys and the read
+// service composes the absolute URL, so the bucket name is never persisted (Floci
+// re-mints it on every apply). Locally this comes from .env.local.orders, which
+// generate_env_files.py fills from phase 2's assets_base_url output, falling back to
+// the derived value when `make post-infra` has not run.
+// Deliberately NOT `["ASSETS_BASE_URL"]!` and deliberately NOT a throw.
+//
+// The `!` was worse: a missing value reached the first request, TrimEnd threw, and
+// GET /v1/products answered a bare 500 naming nothing (how this surfaced in the API
+// tests). But throwing here is wrong too — the build-time OpenAPI generator boots
+// this very host to read its endpoint metadata (Microsoft.Extensions.ApiDescription
+// .Server, see the service's CLAUDE.md 2a), with no env file in scope, so a throw
+// breaks `dotnet build` itself.
+//
+// So: fall back to the derived local bucket URL, which is the same value
+// generate_env_files.py writes when phase 2 has not been applied. A wrong-but-shaped
+// URL degrades to an image that 404s; an empty one crashes the request.
+var assetsBaseUrl = builder.Configuration["ASSETS_BASE_URL"]
+    ?? "http://localhost:4566/post-3mrai-local-post-assets";
+builder.Services.AddScoped(sp => new ProductReadService(
+    sp.GetRequiredService<OrdersReadDbContext>(), assetsBaseUrl));
 
 // Write side (write replica in prod; same MySQL locally).
 var writerCs = builder.Configuration["DATABASE_WRITER_URL"]!;
