@@ -63,6 +63,22 @@ locals {
       otp_verify            = { key = "POST /v1/users/otp/verify", path = "/v1/users/otp/verify", auth = false }
       register_passwordless = { key = "POST /v1/users/register/passwordless", path = "/v1/users/register/passwordless", auth = false }
 
+      # Self-owned password reset. `auth = false` on both halves for the reason
+      # login/register/otp carry it: a user who has forgotten their password
+      # holds no token, so requiring one would make the flow unreachable.
+      #
+      # The forgot endpoint answers identically for a known and an unknown email
+      # (no user enumeration) — nothing at this layer changes that, but do not
+      # add a gateway-level response mapping that could.
+      password_forgot  = { key = "POST /v1/users/password/forgot", path = "/v1/users/password/forgot", auth = false }
+      password_confirm = { key = "POST /v1/users/password/confirm", path = "/v1/users/password/confirm", auth = false }
+
+      # The AUTHENTICATED sibling — `auth = true`, unlike the two above. This is
+      # the dedicated change-password endpoint for a caller who already holds a
+      # token; the service also 401s it on a missing x-user-id, so the two layers
+      # agree.
+      patch_me_password = { key = "PATCH /v1/users/me/password", path = "/v1/users/me/password", auth = true }
+
       # Per-service health (replaces the bare GET /v1/health, which used to hit
       # Users only). nginx rewrites each to the service's unprefixed /v1/health.
       users_health  = { key = "GET /v1/users/health", path = "/v1/users/health", auth = false }

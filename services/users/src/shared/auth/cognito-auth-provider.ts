@@ -144,6 +144,36 @@ export class CognitoAuthProvider implements AuthProvider {
     };
   }
 
+  // The final write of the self-owned reset flow. `Permanent: true` matters: a
+  // temporary password would put the account into FORCE_CHANGE_PASSWORD, and the
+  // very next login would come back with a NEW_PASSWORD_REQUIRED challenge this
+  // service has no path to answer — the user would be locked out by the act of
+  // resetting their password. The "must change password" signal we DO want lives
+  // in our own column (`users.must_change_password`), which the frontend reads,
+  // not in Cognito's account status.
+  //
+  // Authorization is the CALLER's responsibility and has already happened: either
+  // a reset code was verified against our store, or the request carried an
+  // authenticated identity. Nothing about this method checks it.
+  async setPassword(email: string, newPassword: string): Promise<void> {
+    try {
+      await this.client.send(
+        new AdminSetUserPasswordCommand({
+          UserPoolId: this.userPoolId,
+          Username: email,
+          Password: newPassword,
+          Permanent: true,
+        }),
+      );
+    } catch (e: any) {
+      // Mapped to the same 401 an unknown/failed credential gets, so this call
+      // cannot be turned into an account-existence oracle by a caller who
+      // somehow reaches it with an unknown email.
+      if (e?.name === "UserNotFoundException") throw new InvalidCredentialsError();
+      throw e;
+    }
+  }
+
   async refresh(refreshToken: string): Promise<RefreshedTokens> {
     let res;
     try {

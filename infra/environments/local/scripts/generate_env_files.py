@@ -172,6 +172,16 @@ def build(repo_root: Path) -> dict[Path, dict]:
     # Tracking ever moves to its own cluster.
     tracking_db_host = terraform_output(tf_dir, "tracking_db_writer_endpoint")
 
+    # Redis (ElastiCache) — the Users service's short-lived store for
+    # password-reset codes. `redis_host` is already the value to connect to: the
+    # module resolves it to Floci's BACKING CONTAINER NAME (floci-valkey-<id>),
+    # not to the endpoint the ElastiCache API reports. Floci returns
+    # ConfigurationEndpoint.Address = "localhost", which from inside a container
+    # is that container itself — so nothing here derives a host from the endpoint.
+    # Same class of quirk as DOCDB_HOST below.
+    redis_host = terraform_output(tf_dir, "redis_host")
+    redis_port = terraform_output(tf_dir, "redis_port")
+
     # Events pipeline (SQS + DocumentDB).
     events_queue_url = terraform_output(tf_dir, "events_queue_url")
     docdb_cluster_identifier = terraform_output(tf_dir, "docdb_cluster_identifier")
@@ -282,6 +292,20 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 "COGNITO_USER_POOL_ID": pool_id,
                 "COGNITO_CLIENT_ID": client_id,
                 "GRPC_API_KEY": GRPC_API_KEY,
+                # Short-lived store for password-reset codes (10-minute TTL),
+                # backed by ElastiCache Redis. Deliberately not a Postgres table:
+                # the codes are regenerable and expire on their own, so Redis's
+                # native TTL replaces a sweeper job.
+                #
+                # REDIS_HOST is the floci-valkey-<id> CONTAINER NAME on the
+                # Docker network, NOT the endpoint the ElastiCache API reports —
+                # that one is literally "localhost", which inside the users
+                # container is the users container. Do not "fix" this to
+                # localhost; the value comes from a terraform output that already
+                # did the derivation. Same rule as DOCDB_HOST for the
+                # events-pipeline.
+                "REDIS_HOST": redis_host,
+                "REDIS_PORT": redis_port,
                 # Users publishes USER_CREATED here (its Zod env schema requires
                 # this, so the service will not boot without it).
                 "EVENTS_QUEUE_URL": events_queue_url,

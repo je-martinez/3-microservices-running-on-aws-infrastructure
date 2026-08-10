@@ -27,6 +27,11 @@ process.env.WEBHOOK_SECRET ??= "generate-openapi";
 // default, so the eager parse above fails without them.
 process.env.GRPC_API_KEY ??= "generate-openapi";
 process.env.EVENTS_QUEUE_URL ??= "http://localhost:4566/000000000000/generate-openapi";
+// Redis (password-reset code store). Placeholders only — no connection is ever
+// opened here: the ioredis client is built by the `redis` SINGLETON, which this
+// throwaway container never registers or resolves.
+process.env.REDIS_HOST ??= "localhost";
+process.env.REDIS_PORT ??= "6379";
 
 const { buildApp } = await import("./routes.ts");
 

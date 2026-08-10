@@ -8,7 +8,7 @@ deciders: ["Jose E. Martinez"]
 supersedes: null
 superseded-by: null
 created: 2026-08-05
-updated: 2026-08-05
+updated: 2026-08-09
 tags: [type/adr, area/infra, status/accepted, issue/JE-83]
 related:
   - "[[ADR-0010-cognito-auth]]"
@@ -21,6 +21,7 @@ related:
   - "[[passwordless-auth-type]]"
   - "[[2026-08-05-passwordless-otp-auth-design]]"
   - "[[2026-08-05-passwordless-otp-auth]]"
+  - "[[ADR-0020-self-owned-password-reset]]"
 ---
 
 # Cognito CUSTOM_AUTH triggers: one Lambda, three challenge triggers, over native EMAIL_OTP
@@ -63,6 +64,23 @@ it does **not** hold for the three `CUSTOM_AUTH` challenge triggers, which this 
 Floci genuinely invokes (`InvalidUserPoolConfigurationException: DefineAuthChallenge trigger is
 not configured` when unwired; real `ChallengeName: CUSTOM_CHALLENGE` + Lambda-computed
 `publicChallengeParameters` when wired).
+
+> [!danger] Extended 2026-08-09 — `CustomMessage`, a *messaging* trigger, is also dead
+> While designing the self-owned password reset ([[ADR-0020-self-owned-password-reset]]), the
+> same empirical method was applied to Cognito's `CustomMessage` trigger — the hook that would
+> let a `ForgotPassword` call customize the email Cognito sends. **It does not fire on Floci
+> either.** A probe Lambda wired to `CustomMessage` logged **0** invocations from a real
+> `ForgotPassword` API call, while a **direct control invoke of the same Lambda logged 1** —
+> proving the probe itself was correctly wired and reachable, and that `ForgotPassword` genuinely
+> never reaches it. This means the accurate scoping of "which Cognito Lambda triggers does Floci
+> invoke" is narrower than the first narrowing above stated: **only the three `CUSTOM_AUTH`
+> challenge triggers fire. Both sign-up triggers (`PostConfirmation`/`PreSignUp`) and messaging
+> triggers (`CustomMessage`) are dead on this emulator.** This is also why
+> [[ADR-0020-self-owned-password-reset]] could not simply hook `CustomMessage` to brand Cognito's
+> native reset email — there is no hook to hang branding on, so the reset flow is self-owned
+> end to end instead. The `floci` skill's quirk #7 needs a second narrowing pass to add
+> `CustomMessage` explicitly (tracked here, not yet edited in the skill file itself — same
+> open item the first narrowing below already flags for the skill).
 
 ## Decision — one Lambda serving all three triggers
 
@@ -135,7 +153,11 @@ actually exercised day to day.
 - Adding a fourth `CUSTOM_AUTH`-style trigger in the future is one more `case` in the existing
   Lambda's `triggerSource` switch, not a new function/role/log-group.
 - The `floci` skill's quirk #7 needs narrowing (tracked here, not yet edited in the skill file
-  itself) to scope "triggers stored but never invoked" to `PostConfirmation`/`PreSignUp` only.
+  itself) to scope "triggers stored but never invoked" to `PostConfirmation`/`PreSignUp`/
+  `CustomMessage` (updated 2026-08-09 — see the callout above) rather than sign-up triggers only.
+- The `CustomMessage` finding is what forced [[ADR-0020-self-owned-password-reset]] to own the
+  entire password-reset flow rather than customizing Cognito's native `ForgotPassword` email:
+  there is no working hook to hang branding, a code, or [[logging-context]]-style flow logs on.
 
 ## Related
 
@@ -144,6 +166,7 @@ actually exercised day to day.
 - [[awscli-fallback-for-floci]]
 - [[nginx-njs-x-user-id-injection]]
 - [[ADR-0017-floci-local]]
+- [[ADR-0020-self-owned-password-reset]] — the decision this `CustomMessage` finding fed into.
 - [[users-service-design]]
 - [[events-pipeline-design]]
 - [[passwordless-auth-type]]

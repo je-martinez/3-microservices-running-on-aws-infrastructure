@@ -48,6 +48,12 @@ module "label_realtime" {
   environment = var.environment
   name        = "realtime"
 }
+module "label_cache" {
+  source      = "../../modules/label"
+  namespace   = "3mrai"
+  environment = var.environment
+  name        = "cache"
+}
 
 # ─── Networking ─────────────────────────────────────────────────────────────────
 # NOTE (reconciliation): the networking module's `subnets` variable is
@@ -293,6 +299,64 @@ module "docdb" {
   # Same reasoning as the cognito module's python_bin: resolved from THIS root
   # (path.root = environments/local), because the shared module cannot know its
   # distance to the repo root. `make scripts-setup` — a prerequisite of every
+  # apply target — guarantees it exists.
+  python_bin = abspath("${path.root}/../../../.venv/bin/python")
+  # Traceability log for the fallback provisioner. The module defaults this to
+  # "" (record nothing), which is what prod wants — there the script never runs.
+  execution_log_table = var.execution_log_table
+}
+
+# ─── Redis / ElastiCache (Users password-reset codes) ───────────────────────────
+# A short-lived store for password-reset codes (10-minute TTL). Deliberately NOT
+# a Postgres table: the data is regenerable, single-key, and expires on its own —
+# Redis's native TTL does the cleanup that a table would need a sweeper job for.
+#
+# Same letter-led-id reasoning as rds_aurora/rds_mysql/docdb: module.label_cache.id
+# is "3mrai-local-cache" (digit-leading), and the module interpolates context.id
+# into the replication group id, which AWS rejects unless it starts with a
+# letter — so prefix with "cache-". Resulting replication group id:
+# cache-3mrai-local-cache-redis.
+#
+# THAT ID IS A CONTRACT, not decoration. Floci names the backing container
+# `floci-valkey-<replication_group_id>` (image valkey/valkey:8, attached to
+# 3mrai-network with NO host port published), and that container name is the ONLY
+# way a service reaches Redis — the API reports ConfigurationEndpoint.Address =
+# "localhost", which from inside the network is the caller's own container.
+# Changing this identifier renames the container and invalidates every consumer
+# of REDIS_HOST. Exactly the DocumentDB quirk above, one data store over.
+#
+# manage_via_provider = false (LOCAL ONLY): the native
+# aws_elasticache_replication_group resource CRASHES the provider against Floci —
+#   panic: runtime error: index out of range [0] with length 0
+#   .../internal/service/elasticache/replication_group.go:632
+#   Error: The terraform-provider-aws_v5.31.0_x5 plugin crashed!
+# The provider reads NodeGroups[0] after create to populate the primary endpoint;
+# Floci's response carries no NodeGroups array at all. Worse than a plain error:
+# the group IS created before the panic but nothing lands in state, so the retry
+# fails with ReplicationGroupAlreadyExistsFault and the root is wedged. The
+# identical boto3 call succeeds and returns Status "available" (verified
+# 2026-08-09). Prod keeps the default (true) and the native resource. See
+# docs/shared/patterns/awscli-fallback-for-floci.md.
+#
+# create_subnet_group = false, and NO subnet_group_name: unlike rds-aurora/docdb
+# there is no "default" group to fall back to, because Floci implements no
+# subnet-group API at all — CreateCacheSubnetGroup and DescribeCacheSubnetGroups
+# both answer UnsupportedOperation. The group is created without one; Floci
+# attaches the container to the compose network directly.
+module "redis" {
+  source              = "../../modules/redis"
+  context             = { id = "cache-${module.label_cache.id}", tags = module.label_cache.tags }
+  description         = "Short-lived codes (password reset) for the Users service"
+  manage_via_provider = false
+  create_subnet_group = false
+  # Floci terminates no TLS (same as its RDS proxy), so the local client dials
+  # plain redis://. Production opts in per environment — see the variable.
+  transit_encryption_enabled = false
+  aws_cli_endpoint_url       = "http://localhost:4566"
+  region                     = local.region
+  # Same reasoning as the cognito/docdb modules' python_bin: resolved from THIS
+  # root (path.root = environments/local), because the shared module cannot know
+  # its distance to the repo root. `make scripts-setup` — a prerequisite of every
   # apply target — guarantees it exists.
   python_bin = abspath("${path.root}/../../../.venv/bin/python")
   # Traceability log for the fallback provisioner. The module defaults this to

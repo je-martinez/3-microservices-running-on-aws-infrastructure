@@ -23,6 +23,16 @@ describe("isPublicRoute", () => {
     expect(isPublicRoute("GET", "/v1/users/e2e-cleanup")).toBe(false);
     expect(isPublicRoute("POST", "/v1/users/e2e-cleanup")).toBe(false);
   });
+  it("exempts both halves of the password reset (the caller has no token yet)", () => {
+    expect(isPublicRoute("POST", "/v1/users/password/forgot")).toBe(true);
+    expect(isPublicRoute("POST", "/v1/users/password/confirm")).toBe(true);
+  });
+  it("does NOT exempt the authenticated password change", () => {
+    // The sibling route: PATCH /v1/users/me/password is the AUTHENTICATED
+    // change and must 401 without an identity. Adding it to the allowlist would
+    // let anyone rewrite any account's password by knowing an id.
+    expect(isPublicRoute("PATCH", "/v1/users/me/password")).toBe(false);
+  });
   it("protects everything else", () => {
     expect(isPublicRoute("GET", "/v1/users/me")).toBe(false);
     expect(isPublicRoute("PATCH", "/v1/users/me")).toBe(false);

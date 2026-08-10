@@ -14,6 +14,12 @@ export interface UserRow {
   // request body. Set by the registration path (PASSWORD by default), not by
   // any update.
   authType: "PASSWORD" | "PASSWORDLESS";
+  // Read-only at the API boundary, like `authType`: exposed on GET /v1/users/me
+  // so the FRONTEND knows it must route the user through
+  // PATCH /v1/users/me/password, never accepted from a request body. It is
+  // cleared by the two commands that set a password (confirm-password-reset,
+  // change-password) — nothing else writes it.
+  mustChangePassword: boolean;
   createdBy: string | null;
   createdAt: Date;
   updatedBy: string | null;

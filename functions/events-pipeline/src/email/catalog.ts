@@ -5,6 +5,9 @@ import TrackingStatusChangedEmail, {
   type TrackingStatusChangedEmailProps,
 } from "../../emails/tracking-status-changed.tsx";
 import AuthOtpEmail, { type AuthOtpEmailProps } from "../../emails/auth-otp.tsx";
+import ForgotPasswordEmail, {
+  type ForgotPasswordEmailProps,
+} from "../../emails/forgot-password.tsx";
 
 // The single registry: template key → component + sample props. Three consumers
 // read THIS object and nothing else — handlers (to render), the preview server
@@ -182,5 +185,23 @@ export const catalog: EmailCatalog = {
   "auth-otp": defineTemplate<AuthOtpEmailProps>({
     component: AuthOtpEmail,
     sampleProps: { code: "042817", ttlMinutes: 5, fullName: "" },
+  }),
+  // Same shape as `auth-otp` and for the same reasons: `code` is a made-up
+  // constant (this object is rendered by the preview server and reachable from
+  // a committed snapshot, so anything here is public by construction), and
+  // `fullName` is "" because Cognito populates no name attribute today — the
+  // empty greeting IS the production path, and the preview should show what
+  // users actually receive.
+  //
+  // A DIFFERENT sample code from auth-otp's on purpose: a preview or a failing
+  // assertion that mentions "042817" then names exactly one template instead of
+  // two that render six digits in identical boxes.
+  //
+  // `ttlMinutes: 30` matches Cognito's own reset-code lifetime and the `.pen`
+  // frame. It is still a PROP end to end — the handler derives it from the
+  // payload's `ttlSeconds` — so this is a sample value, not a default.
+  "forgot-password": defineTemplate<ForgotPasswordEmailProps>({
+    component: ForgotPasswordEmail,
+    sampleProps: { code: "720486", ttlMinutes: 10, fullName: "" },
   }),
 };

@@ -4,7 +4,7 @@ type: spec
 area: infra
 status: active
 created: 2026-06-26
-updated: 2026-08-06
+updated: 2026-08-09
 tags: [type/spec, area/infra, status/active]
 related:
   - ADR-0001-terraform-cloudposse-naming
@@ -20,6 +20,8 @@ related:
   - "[[events-pipeline-design]]"
   - "[[2026-08-05-realtime-tracking-events-websocket-design]]"
   - "[[2026-08-05-realtime-tracking-events-websocket]]"
+  - "[[redis-elasticache-replication-group-floci]]"
+  - "[[self-owned-password-reset-codes-in-redis]]"
 ---
 
 # Terraform Modules
@@ -61,6 +63,7 @@ The real module inventory under `infra/modules/`:
 | `infra/modules/tf-backend` | create-once bootstrap: the remote-state S3 bucket + versioning, the state-lock DynamoDB table, and the `execution_log` DynamoDB table every awscli-fallback `local-exec` script records its run to — see [[terraform-remote-state-backend]] |
 | `infra/modules/dynamodb` | the `websocket_connections` table backing the realtime fan-out: PK `connection_id`, GSI `by-cognito-sub`, TTL on `ttl` as a safety net (not the cleanup mechanism); see [[events-pipeline-design#Realtime WebSocket fan-out (second output of TRACKING_STATUS_CHANGED)]] |
 | `infra/modules/api-gateway-ws` | a **separate** WebSocket API (`aws_apigatewayv2_api`, `protocol_type = "WEBSOCKET"`), its stage, a REQUEST authorizer on `$connect` only, and the four `realtime-events` Lambda functions declared directly inside this module — see [Why `api-gateway-ws` is a new module, and why `lambda/` was not reused](#why-api-gateway-ws-is-a-new-module-and-why-lambda-was-not-reused) below |
+| `infra/modules/redis` | ElastiCache `aws_elasticache_replication_group` (never `aws_elasticache_cluster`) backing Users' password-reset codes; awscli fallback for Floci (provider panics on `NodeGroups[0]`), no subnet-group support on Floci at all, and two Floci-only ports that must not be conflated — see [[redis-elasticache-replication-group-floci]] |
 
 There is no `ecs-service`, `secrets`, or `ecr` module — those are not part of the current
 inventory.
@@ -108,8 +111,14 @@ provider version: the Cognito App Client and the Pre-Token-Generation V2 trigger
 ### Local composition and its follow-on decisions
 
 `infra/environments/local` composes `label`, `networking`, `rds-aurora`, `cognito`, `compute`,
-`api-gateway`, `messaging`, `docdb`, `lambda`, `dynamodb`, and `api-gateway-ws` against Floci.
-Several decisions layered on top of that initial composition:
+`api-gateway`, `messaging`, `docdb`, `lambda`, `dynamodb`, `api-gateway-ws`, and `redis` against
+Floci. Several decisions layered on top of that initial composition:
+
+- **`redis` follows the same awscli-fallback shape as `docdb`'s Floci path** — a third verified
+  case of [[awscli-fallback-for-floci]] in this repo — because the pinned AWS provider panics
+  creating the ElastiCache replication group against Floci's response shape; see
+  [[redis-elasticache-replication-group-floci]] for the module decision and
+  [[floci-elasticache-two-ports-and-provider-panic]] for the empirical findings behind it.
 
 - **`rds-aurora` has a switchable engine** (`var.engine`, default `aurora-postgresql`) so local
   can instantiate real Floci Postgres/MySQL containers instead of Aurora, which Floci does not
@@ -171,3 +180,6 @@ Resource names are derived via `module.label.id` (e.g. `3mrai-prod-users`). Tags
   `api-gateway-ws`, including why the latter is a new module and why `lambda/` was not reused.
 - [[2026-08-05-realtime-tracking-events-websocket]] — the implementation plan that shipped both
   modules.
+- [[redis-elasticache-replication-group-floci]] — the `redis` module: why a replication group,
+  the awscli fallback for Floci, and the two-ports trap.
+- [[self-owned-password-reset-codes-in-redis]] — the Users-side consumer of this module's output.

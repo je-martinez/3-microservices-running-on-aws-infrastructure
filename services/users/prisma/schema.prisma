@@ -24,6 +24,21 @@ model User {
   phoneNumber String?   @map("phone_number")
   tags        String[]  @default([])
   authType    AuthType  @default(PASSWORD) @map("auth_type")
+  // Forced password change. A boolean the FRONTEND reads off GET /v1/users/me
+  // to know it must send the user through PATCH /v1/users/me/password before
+  // letting them do anything else. It is a FLAG, not a credential: the
+  // enforcement it drives lives in the client, and nothing here blocks other
+  // routes on it (that would be a separate, breaking decision).
+  //
+  // This is a durable USER ATTRIBUTE, which is why it belongs in Postgres while
+  // the reset CODES do not: a code is a ten-minute secret that expires on its
+  // own (Redis, see `shared/cache/reset-code-store.ts`), whereas this flag has
+  // no expiry, is read on every profile fetch, and must survive anything.
+  //
+  // Defaults to false so every pre-existing row keeps its current behaviour,
+  // exactly like `authType` did.
+  mustChangePassword Boolean @default(false) @map("must_change_password")
+
   createdBy   String?   @map("created_by")
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedBy   String?   @map("updated_by")

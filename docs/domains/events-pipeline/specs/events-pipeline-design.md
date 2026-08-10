@@ -4,7 +4,7 @@ type: spec
 area: events-pipeline
 status: accepted
 created: 2026-06-26
-updated: 2026-08-07
+updated: 2026-08-09
 tags: [type/spec, area/events-pipeline, status/accepted]
 related:
   - "[[cqrs]]"
@@ -28,6 +28,8 @@ related:
   - "[[2026-08-05-realtime-tracking-events-websocket-design]]"
   - "[[2026-08-05-realtime-tracking-events-websocket]]"
   - "[[user-id-vs-cognito-sub-ownership-key]]"
+  - "[[ADR-0020-self-owned-password-reset]]"
+  - "[[email-templates]]"
 ---
 
 # Events Pipeline Design
@@ -108,6 +110,7 @@ const handlers: HandlerMap = {
   ORDER_CREATED: orderCreatedHandler,
   TRACKING_STATUS_CHANGED: trackingStatusChangedHandler,
   AUTH_OTP_REQUESTED: authOtpRequestedHandler,
+  PASSWORD_RESET_REQUESTED: passwordResetRequestedHandler,
 };
 ```
 
@@ -117,6 +120,20 @@ the only event type in this pipeline whose producer is a Cognito Lambda, not a m
 renders the `auth-otp` template (built on the existing plain `EmailLayout`) with the OTP code
 and TTL. See [[users-service-design#Passwordless OTP authentication]] and
 [[cognito-custom-auth-triggers]] for the producer side.
+
+`PASSWORD_RESET_REQUESTED` (added 2026-08-09) is published by Users' `ForgotPasswordCommand`
+(`POST /v1/users/password/forgot`, a normal HTTP route, unlike `AUTH_OTP_REQUESTED`'s Lambda
+producer). Its payload — `{ email, full_name, code, ttlSeconds }` — is **deliberately identical
+in shape** to `AUTH_OTP_REQUESTED`'s, since both carry the same four facts, but it is kept as a
+**separate event type** rather than a variant of `AUTH_OTP_REQUESTED`: the two are different
+flows with different Cognito APIs behind them (`AdminInitiateAuth`/`CUSTOM_AUTH` vs
+`AdminSetUserPassword`), different TTLs (300s vs 600s), and different consequences if the mail
+goes astray — collapsing them would mean a runtime branch deciding which email a recipient gets,
+on a payload that cannot distinguish the two. It renders the `forgot-password` template (the
+fifth, see [[email-templates]]) and, like `AUTH_OTP_REQUESTED`, has its `code` redacted before
+persistence (see [Payload redaction](#payload-redaction--the-one-exception-to-persist-verbatim)
+below). See [[users-service-design#Password reset]] and [[ADR-0020-self-owned-password-reset]]
+for the producer side and why the reset is self-owned rather than Cognito's.
 
 Execution flow per SQS record (`src/pipeline/process-record.ts`, AWS-SDK-free and unit-testable
 without the emulator):
@@ -168,17 +185,20 @@ and never the whole batch.
 ## Payload redaction — the one exception to "persist verbatim"
 
 Every other event type persists its `payload` to DocumentDB verbatim — that is the audit trail,
-by design (see [Data Model](#data-model)). `AUTH_OTP_REQUESTED` is the **one exception**: its
-payload carries a live, unexpired OTP code, and a copy of that code sitting in the `events`
-collection would be a second, weaker copy of the authentication surface.
+by design (see [Data Model](#data-model)). `AUTH_OTP_REQUESTED` and `PASSWORD_RESET_REQUESTED`
+are the **two exceptions**: each payload carries a live, unexpired credential code, and a copy of
+either sitting in the `events` collection would be a second, weaker copy of the authentication
+surface. `PASSWORD_RESET_REQUESTED` is if anything the stricter of the two — its code does not
+merely sign a user in, it authorises **choosing a new password**, so a leaked one hands over the
+account rather than one session.
 
 `redactPayload(type, payload)` (`src/domain/redact-payload.ts`) is applied **once**, at the exact
 point `process-record.ts` builds the document it persists (`doc.payload = redactPayload(event.type,
 event.payload)`) — never at the envelope the handler receives. The handler still gets the intact
 envelope (with the real code) so it can render the email; only the persisted copy is stripped. A
-per-type field map (`{ AUTH_OTP_REQUESTED: ["code"] }`), not a blanket "strip any field named
-`code`", keeps the redaction explicit and auditable — adding a new event type never accidentally
-redacts a legitimate field just because it happens to share a name.
+per-type field map (`{ AUTH_OTP_REQUESTED: ["code"], PASSWORD_RESET_REQUESTED: ["code"] }`), not a
+blanket "strip any field named `code`", keeps the redaction explicit and auditable — adding a new
+event type never accidentally redacts a legitimate field just because it happens to share a name.
 
 ## Status Machine
 
@@ -243,7 +263,7 @@ invite disagreement.
 | `event_id` | string | Producer-generated idempotency key; the event's only identifier. Uniquely indexed — a redelivered SQS message collides on this index and is treated as already-processed. Not minted by the pipeline. |
 | `order_id` | string \| null | ID of the related order (null for non-order events such as `USER_CREATED`). |
 | `user_id` | string | ID of the originating user. |
-| `type` | string (enum) | `USER_CREATED`, `ORDER_CREATED`, `TRACKING_STATUS_CHANGED`, `AUTH_OTP_REQUESTED`. |
+| `type` | string (enum) | `USER_CREATED`, `ORDER_CREATED`, `TRACKING_STATUS_CHANGED`, `AUTH_OTP_REQUESTED`, `PASSWORD_RESET_REQUESTED`. |
 | `source` | string | Which microservice emitted the event (`users`, `orders`, `tracking`). |
 | `payload` | object | Full event payload as-received; structure varies by `type`, validated per-type by Zod. |
 | `status` | string (enum) | Current state: `STARTED` \| `IN_PROGRESS` \| `COMPLETED` \| `FAILED`. |
@@ -323,6 +343,11 @@ Registered templates:
   visible text, not obfuscated or as an image — deliberately, so E2E can extract it from the
   message body without OCR or fragile markup scraping. See
   [[users-service-design#Passwordless OTP authentication]].
+- `forgot-password` — one component, one entry, added 2026-08-09 for
+  `PASSWORD_RESET_REQUESTED`, the fifth template overall. Same code-visibility rule as `auth-otp`:
+  the code is rendered twice, once as contiguous plain text and once as six boxed digits, so the
+  gateway E2E can scrape it — see [[email-templates#One rule that is easy to break by "tidying"]].
+  See [[users-service-design#Password reset]] and [[ADR-0020-self-owned-password-reset]].
 
 ### Preview & local inbox
 
@@ -333,7 +358,7 @@ email the Lambda sends lands in a real, inspectable inbox rather than a mock.
 
 ## Producers and their publish-failure policy
 
-Four producers publish to the one shared queue. Each generates its own `event_id` and builds
+Five producers publish to the one shared queue. Each generates its own `event_id` and builds
 the full envelope; each sets `type` and `source` as SQS message attributes (so the queue can be
 inspected without deserializing the body) in addition to the body itself.
 
@@ -343,8 +368,9 @@ inspected without deserializing the body) in addition to the body itself.
 | Orders | `ORDER_CREATED` | Generated at publish time (one event per order). |
 | Tracking | `TRACKING_STATUS_CHANGED` | Derived **deterministically** from `(order_id, status)` — see below. |
 | Users' `otp-challenge-lambda` (Cognito `CreateAuthChallenge` trigger) | `AUTH_OTP_REQUESTED` | `otp_<sub>_<timestamp>`, generated once per challenge (a same-session retry reuses the code and does not republish). |
+| Users' `ForgotPasswordCommand` (`POST /v1/users/password/forgot`) | `PASSWORD_RESET_REQUESTED` | Generated at publish time (one event per reset request for a known email; an unknown email publishes nothing at all — see [[ADR-0020-self-owned-password-reset]]). |
 
-All four producers share the same publish-failure policy — **log and swallow, never
+All five producers share the same publish-failure policy — **log and swallow, never
 re-raise** — for reasons that differ by call site:
 
 - **Users** logs and swallows because the user row and the Cognito account already exist by the
@@ -360,6 +386,14 @@ re-raise** — for reasons that differ by call site:
 - The **OTP challenge Lambda** is a Cognito trigger, not an HTTP handler — a publish failure there
   surfaces as a failed `CreateAuthChallenge` invocation, which Cognito itself retries/fails per its
   own trigger semantics, outside this pipeline's control. See [[cognito-custom-auth-triggers]].
+- **`ForgotPasswordCommand`** logs and swallows for a *security* reason, not merely a reliability
+  one: an unawaited publish rejection surfacing as a 500 would only ever happen for an email that
+  **exists**, which would turn the endpoint back into a user-enumeration oracle by a different
+  route than the one `POST /v1/users/password/forgot`'s identical-response behavior already
+  closes. The `try/catch` lives in the command itself, not delegated to the publisher's own
+  swallow-and-log, because the property being protected belongs to the command, not to a
+  collaborator whose behavior could change independently. See
+  [[ADR-0020-self-owned-password-reset#Two security properties this flow is built around (load-bearing, tested)]].
 
 The Noop implementations (`NoopEventPublisher` in Users and Orders; a Noop-equivalent in
 Tracking) stay in the codebase for tests that must not emit.
@@ -579,3 +613,5 @@ for the full evidence trail.
 - [[2026-08-05-realtime-tracking-events-websocket]] — the implementation plan that shipped it.
 - [[user-id-vs-cognito-sub-ownership-key]] — why the fan-out keys the GSI lookup by
   `author.cognito_sub`, never `envelope.user_id`.
+- [[ADR-0020-self-owned-password-reset]] — why `PASSWORD_RESET_REQUESTED` exists, its producer
+  (`ForgotPasswordCommand`), and the two security properties its best-effort publish protects.

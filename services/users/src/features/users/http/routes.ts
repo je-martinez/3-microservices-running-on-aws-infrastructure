@@ -59,6 +59,8 @@ import {
   RegisterInputSchema, RegisterPasswordlessInputSchema, LoginInputSchema, UpdateProfileInputSchema,
   RefreshInputSchema, RefreshedTokensSchema,
   OtpStartInputSchema, OtpStartResponseSchema, OtpVerifyInputSchema,
+  ForgotPasswordInputSchema, ConfirmPasswordResetInputSchema, ChangePasswordInputSchema,
+  PasswordResetAcceptedSchema, PasswordResetConfirmedSchema,
   UserSchema, AuthTokensSchema, ErrorSchema,
   HealthResponseSchema, E2ECleanupResponseSchema,
   UserIdHeader, WebhookSecretHeader,
@@ -335,6 +337,48 @@ export function buildApp(
       return reply.send(tokens);
     });
 
+    // Password reset, step 1 of 2. SELF-OWNED flow: this service mints, stores
+    // (hashed) and later verifies the code itself — Cognito's ForgotPassword is
+    // not called anywhere, because it emails its own code, never returns it, and
+    // accepts only its own at ConfirmForgotPassword.
+    //
+    // ==== ALWAYS 202, EVEN FOR AN UNKNOWN EMAIL ====
+    // The response is a fixed body and a fixed status whether or not the address
+    // belongs to an account. That is a SECURITY PROPERTY (no user enumeration),
+    // not a missing error case — do not "improve" it into a 404. See the same
+    // note in commands/forgot-password.ts, which is where the branch actually is.
+    r.post("/v1/users/password/forgot", {
+      schema: {
+        tags: ["users"], operationId: "forgotPassword",
+        summary: "Request a password reset code by email",
+        description:
+          "Always answers 202 with the same body, whether or not the email belongs to an " +
+          "account — the response deliberately does not reveal which.",
+        body: ForgotPasswordInputSchema,
+        response: { 202: PasswordResetAcceptedSchema },
+      },
+    }, async (req, reply) => {
+      const { forgotPasswordCommand } = req.diScope.cradle;
+      await forgotPasswordCommand.execute(req.body);
+      return reply.code(202).send({ status: "accepted" as const });
+    });
+
+    // Password reset, step 2 of 2. A wrong code, an expired code, a
+    // already-consumed code and an unknown email all return the SAME 401
+    // `invalid_reset_code` — anything else would undo step 1's non-enumeration.
+    r.post("/v1/users/password/confirm", {
+      schema: {
+        tags: ["users"], operationId: "confirmPasswordReset",
+        summary: "Confirm a password reset with the emailed code",
+        body: ConfirmPasswordResetInputSchema,
+        response: { 200: PasswordResetConfirmedSchema, 401: ErrorSchema },
+      },
+    }, async (req, reply) => {
+      const { confirmPasswordResetCommand } = req.diScope.cradle;
+      await confirmPasswordResetCommand.execute(req.body);
+      return reply.send({ status: "password_updated" as const });
+    });
+
     r.get("/v1/users/me", {
       schema: {
         tags: ["users"], operationId: "getMe", summary: "Get the current user's profile",
@@ -357,6 +401,36 @@ export function buildApp(
     }, async (req, reply) => {
       const { updateProfileCommand, currentUser } = req.diScope.cradle;
       const updated = await updateProfileCommand.execute(currentUser, req.body);
+      return updated
+        ? reply.send(serializeUser(updated))
+        : reply.code(404).send({ error: "not_found" });
+    });
+
+    // The DEDICATED change-password endpoint. It does ONE thing: set the new
+    // password (and clear `mustChangePassword`, which that act satisfies). It is
+    // separate from PATCH /v1/users/me on purpose and MUST STAY separate — its
+    // body accepts exactly one field, so a profile update can never
+    // double as a credential rewrite, and the audit trail can always say which
+    // of the two a given call was (`users_api:change_password` vs
+    // `users_api:update_profile`).
+    //
+    // Authenticated like the other /me routes: identity comes from `x-user-id`,
+    // put there by the gateway's JWT authorizer, and the onRequest hook 401s a
+    // request without it before this handler runs.
+    r.patch("/v1/users/me/password", {
+      schema: {
+        tags: ["users"], operationId: "changeMyPassword",
+        summary: "Change the current user's password",
+        description:
+          "Sets a new password for the authenticated caller and clears mustChangePassword. " +
+          "Accepts no other user fields — use PATCH /v1/users/me for profile changes.",
+        headers: UserIdHeader,
+        body: ChangePasswordInputSchema,
+        response: { 200: UserSchema, 404: ErrorSchema },
+      },
+    }, async (req, reply) => {
+      const { changePasswordCommand, currentUser } = req.diScope.cradle;
+      const updated = await changePasswordCommand.execute(currentUser, req.body);
       return updated
         ? reply.send(serializeUser(updated))
         : reply.code(404).send({ error: "not_found" });

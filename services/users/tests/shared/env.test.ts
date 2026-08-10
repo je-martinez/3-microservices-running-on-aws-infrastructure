@@ -11,6 +11,8 @@ const base = {
   WEBHOOK_SECRET: "s3cret",
   GRPC_API_KEY: "local-dev-grpc-key",
   EVENTS_QUEUE_URL: "http://localhost:4566/000000000000/3mrai-local-events",
+  REDIS_HOST: "floci-valkey-cache-3mrai-local-cache-redis",
+  REDIS_PORT: "6379",
 };
 
 describe("parseEnv", () => {
@@ -79,5 +81,29 @@ describe("parseEnv", () => {
 
   it("parses EVENTS_QUEUE_URL", () => {
     expect(parseEnv(base).EVENTS_QUEUE_URL).toBe("http://localhost:4566/000000000000/3mrai-local-events");
+  });
+
+  // REDIS_* has NO default on purpose (see the schema comment): the endpoint the
+  // ElastiCache API reports locally is literally "localhost", so a default would
+  // be a plausible-looking value that fails only later, on the first password
+  // reset. Boot-time failure is the point of [[ADR-0014-env-validation-zod]].
+  it("requires REDIS_HOST", () => {
+    const { REDIS_HOST: _omit, ...without } = base;
+    expect(() => parseEnv(without)).toThrow();
+  });
+
+  it("requires REDIS_PORT", () => {
+    const { REDIS_PORT: _omit, ...without } = base;
+    expect(() => parseEnv(without)).toThrow();
+  });
+
+  it("coerces REDIS_PORT to a number", () => {
+    const env = parseEnv(base);
+    expect(env.REDIS_PORT).toBe(6379);
+    expect(env.REDIS_HOST).toBe("floci-valkey-cache-3mrai-local-cache-redis");
+  });
+
+  it("rejects a non-numeric REDIS_PORT", () => {
+    expect(() => parseEnv({ ...base, REDIS_PORT: "not-a-port" })).toThrow();
   });
 });

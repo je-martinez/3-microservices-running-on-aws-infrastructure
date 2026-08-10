@@ -12,6 +12,12 @@ const EXACT: ReadonlyArray<{ method: string; path: string }> = [
   // the caller has no token yet, which is the whole point of the flow.
   { method: "POST", path: "/v1/users/otp/start" },
   { method: "POST", path: "/v1/users/otp/verify" },
+  // Both halves of the password reset are pre-authentication by definition: a
+  // user who has forgotten their password cannot hold a token. Note the SIBLING
+  // route PATCH /v1/users/me/password is deliberately NOT here — that one is the
+  // authenticated change, and it must 401 without an identity.
+  { method: "POST", path: "/v1/users/password/forgot" },
+  { method: "POST", path: "/v1/users/password/confirm" },
   // The E2E harness's global teardown, which runs once with no user session and
   // so cannot send an x-user-id. It deletes by TAG ("E2E Source"), never by
   // caller, so an identity would tell it nothing anyway.
