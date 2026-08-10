@@ -224,6 +224,32 @@ Source of truth with full evidence: [[floci-vs-ministack-spike-findings]]
     cannot be patched on afterwards. Recreating the containers to add labels would lose DB state
     and detach them from the Floci that owns them — not worth a grouping box.
 
+16. **⚠️ RECREATING the floci container DESTROYS its backing containers, and the API keeps
+    reporting them `available`** (verified 2026-08-09). `docker compose up -d floci` — which
+    recreates the container after any compose edit — takes the RDS, DocumentDB and ElastiCache
+    containers down with it. `docker compose stop floci && docker compose start floci` does
+    **not**: the same three survived a stop/start intact. So the trigger is RECREATION, not
+    restart.
+    This is by design, not a bug: Floci documents `KEEP_RUNNING_ON_SHUTDOWN` for OpenSearch, ECR
+    and EKS — and **offers no such setting for RDS, DocumentDB or ElastiCache**.
+    **The dangerous part is the lying state.** `describe-replication-groups` /
+    `describe-db-clusters` still answer `Status: available` for a resource whose container no
+    longer exists; nothing surfaces the gap until a service dials it and gets
+    `getaddrinfo ENOTFOUND floci-docdb-…`. Never trust `available` after touching the floci
+    container — check `docker ps` for the backing container.
+    Recovery is uneven, so know which you are dealing with:
+    - **Lambdas** relaunch themselves on the next invocation. But they come back from the zip
+      Terraform deployed, silently discarding any later `update-function-code` — the symptom is
+      a handler reverting to `"reason":"Unknown event type"`.
+    - **ElastiCache** recovers by deleting and recreating the replication group with the SAME id
+      (the id is ours, so `REDIS_HOST` stays valid).
+    - **DocumentDB can WEDGE.** The cluster survives in state without a container, and
+      `delete-db-cluster` refuses with `InvalidDBClusterStateFault: it still has DB instances`
+      while those instances have no backing container either. At that point a from-scratch
+      `make clean && make bootstrap` is cheaper than unpicking it.
+    **Practical rule: after editing the `floci` service in docker-compose.yml, plan on a full
+    `make bootstrap`** — do not assume an `up -d` is a cheap in-place change.
+
 ## Per-service knowledge
 
 See [references/services.md](references/services.md) — every Floci service with its

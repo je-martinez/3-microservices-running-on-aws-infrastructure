@@ -60,6 +60,11 @@ services:
     environment:
       # ECS tasks launched by Floci join the compose network and can resolve
       # other compose containers (users) by service name via Docker DNS.
+      # The GENERIC network setting, documented as "Docker network name used by
+      # all container-backed services" — RDS, DocumentDB, ElastiCache, Lambda and
+      # ECS alike. The ECS-specific one below is kept because it is the setting
+      # the nginx reverse-proxy task depends on and the one this repo verified.
+      - FLOCI_SERVICES_DOCKER_NETWORK=3mrai_3mrai-network
       - FLOCI_SERVICES_ECS_DOCKER_NETWORK=3mrai_3mrai-network
       # ElastiCache proxy range — must match the published ports above exactly.
       # Floci allocates one port per replication group from this range, starting
