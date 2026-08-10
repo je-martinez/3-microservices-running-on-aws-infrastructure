@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-08-09
+updated: 2026-08-10
 tags:
   - type/spec
   - area/shared
@@ -78,6 +78,7 @@ related:
   - "[[password-policy-checklist-gap]]"
   - "[[redis-elasticache-replication-group-floci]]"
   - "[[floci-elasticache-two-ports-and-provider-panic]]"
+  - "[[2026-08-10-product-catalogue-image-categories-design]]"
 ---
 
 # 3MRAI — Index
@@ -256,6 +257,7 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-08-05-realtime-tracking-events-websocket-design]] — Design for pushing `TRACKING_STATUS_CHANGED` to connected clients over an AWS API Gateway WebSocket API alongside the existing email notification: fan-out from the existing events-pipeline Lambda, a new `functions/realtime-events/` connection-lifecycle package, a DynamoDB connections table keyed by `cognito_sub` (not `user_id`), and a new `infra/modules/api-gateway-ws/` module; per [[events-pipeline-design]], [[tracking-service-design]], [[user-id-vs-cognito-sub-ownership-key]].
 - [[2026-08-06-multi-provider-agent-config-sync-design]] — Design of `ai-config-sync`, a subagent keeping this repo's agent configuration consistent across AI coding providers (Codex, Cursor, Copilot, Gemini CLI, OpenCode, Windsurf) via [lnai](https://lnai.sh/): `.claude/` stays source of truth and always real, `.ai/` is derived and disposable, subagents are projected into an `AGENTS.md` roles appendix since lnai has no subagent concept, and every non-portable element is reported explicitly in a loss report; see [[skills-catalog]] for the skill-sharing allowlist.
 - [[2026-08-06-multi-provider-agent-config-sync]] — Implementation plan for the sync pipeline: the frontmatter normalizer, lnai initialization with Claude Code disabled as a sync target, the `ai-config-sync` subagent and projection manifest, `make ai-sync`/`make ai-sync-check`, and vault propagation.
+- [[2026-08-10-product-catalogue-image-categories-design]] — Design replacing the Orders placeholder catalogue (`Widget`/`Gadget`/`Gizmo`) with the web-app design's eight real products, adding a nullable `ProductImage` value object (relative bucket key, dimensions, blurhash) and an uppercase `Categories` array, both stored as MySQL `json` columns following the `Order.Tags` converter/comparer pattern; per [[orders-service-design]], [[db-naming]], [[soft-delete]], [[env-files]], [[testing]], [[nano-id]].
 
 ---
 
@@ -350,3 +352,4 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[floci-websocket-apigw-dynamodb-support]]
 - [[2026-08-06-multi-provider-agent-config-sync-design]]
 - [[2026-08-06-multi-provider-agent-config-sync]]
+- [[2026-08-10-product-catalogue-image-categories-design]]
