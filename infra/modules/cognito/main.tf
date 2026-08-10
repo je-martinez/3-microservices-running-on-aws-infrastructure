@@ -28,6 +28,26 @@ resource "aws_cognito_user_pool" "this" {
     }
   }
 
+  # Mirror of the app's `users.must_change_password` column, read by the same
+  # Pre-Token-Generation V2 Lambda and emitted as a `must_change_password`
+  # token claim. Postgres remains the source of truth: Users writes the column
+  # and then mirrors it here, so the trigger needs no database access.
+  #
+  # String, not Boolean: Cognito has no boolean attribute type — the values are
+  # the strings "true"/"false", and the Lambda compares against "true".
+  # `mutable = true` is load-bearing here in a way it is not for app_user_id:
+  # this value genuinely changes over an account's life (set on a forced reset,
+  # cleared when the user picks their own password).
+  schema {
+    name                = "must_change_password"
+    attribute_data_type = "String"
+    mutable             = true
+    string_attribute_constraints {
+      min_length = 1
+      max_length = 5
+    }
+  }
+
   tags = var.context.tags
 }
 

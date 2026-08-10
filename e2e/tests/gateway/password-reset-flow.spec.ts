@@ -173,3 +173,51 @@ test("GET v1/users/me exposes mustChangePassword through the gateway", async () 
   expect(res.status()).toBe(200);
   expect(await res.json()).toHaveProperty("mustChangePassword", false);
 });
+
+// ==== THE TOKEN CLAIM ====
+// GET /v1/users/me answers from Postgres; these assert the value ALSO reaches
+// the JWT, which is a different path entirely: Users writes
+// custom:must_change_password onto the Cognito account, and the
+// Pre-Token-Generation V2 Lambda copies it into the claim at token issue. A
+// test that only read /me would pass with the Lambda or the attribute missing.
+test("a real JWT carries the must_change_password claim", async () => {
+  const { token } = await getGatewayToken();
+
+  const claims = decodeJwtPayload(token);
+  // Present and a real boolean — never absent, so a consumer can tell "no
+  // forced change" from "this token predates the feature".
+  expect(claims).toHaveProperty("must_change_password");
+  expect(typeof claims.must_change_password).toBe("boolean");
+  // A freshly registered user has nothing to change.
+  expect(claims.must_change_password).toBe(false);
+});
+
+test("the claim stays false on a token issued after a password change", async () => {
+  // Exercises the mirror write in ChangePasswordCommand end to end: the flag is
+  // cleared in Postgres AND on the Cognito account, so the NEXT token still
+  // says false. A mirror that silently failed would not show up here as long as
+  // it was already false — this pins the round trip, not just the value.
+  const { token, email } = await getGatewayToken();
+  const api = await gatewayClient(token);
+
+  const newPassword = `Ch4ng3dP@ss${Date.now()}!`;
+  expect((await api.patch("v1/users/me/password", { data: { newPassword } })).status()).toBe(200);
+
+  const login = await api.post("v1/users/login", { data: { email, password: newPassword } });
+  expect(login.status()).toBe(200);
+  const { accessToken, idToken } = await login.json();
+
+  // Both tokens: the Lambda writes the claim into each generation block
+  // independently, so one can be wired and the other not.
+  expect(decodeJwtPayload(accessToken).must_change_password).toBe(false);
+  expect(decodeJwtPayload(idToken).must_change_password).toBe(false);
+});
+
+// Decodes WITHOUT verifying: these tests assert what the gateway-accepted token
+// carries, and the gateway's JWT authorizer has already validated the signature
+// by the time any of the requests above returned anything but a 401.
+function decodeJwtPayload(jwt: string): Record<string, unknown> {
+  const payload = jwt.split(".")[1];
+  if (!payload) throw new Error("not a JWT: missing payload segment");
+  return JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+}

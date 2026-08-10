@@ -1,6 +1,7 @@
 import {
   AdminCreateUserCommand,
   AdminSetUserPasswordCommand,
+  AdminUpdateUserAttributesCommand,
   AdminInitiateAuthCommand,
   RespondToAuthChallengeCommand,
   type CognitoIdentityProviderClient,
@@ -32,6 +33,13 @@ export class CognitoAuthProvider implements AuthProvider {
             { Name: "email", Value: email },
             { Name: "email_verified", Value: "true" },
             { Name: "custom:app_user_id", Value: appUserId },
+            // Mirrors the `must_change_password` column's default for a new
+            // row. Written inline rather than through setMustChangePassword()
+            // so registration costs no extra Cognito round trip, and so the
+            // attribute exists from the account's first token — the Lambda
+            // treats a missing attribute as false anyway, but an explicit
+            // value keeps the account state readable in the console.
+            { Name: "custom:must_change_password", Value: "false" },
             // The standard OIDC `name` claim. Written for ONE consumer: the OTP
             // challenge Lambda, which greets the user in the login-code email
             // and can read nothing but Cognito's own attributes (see the port's
@@ -169,6 +177,34 @@ export class CognitoAuthProvider implements AuthProvider {
       // Mapped to the same 401 an unknown/failed credential gets, so this call
       // cannot be turned into an account-existence oracle by a caller who
       // somehow reaches it with an unknown email.
+      if (e?.name === "UserNotFoundException") throw new InvalidCredentialsError();
+      throw e;
+    }
+  }
+
+  // Projects the `users.must_change_password` column onto the Cognito account so
+  // the Pre-Token-Generation trigger can emit it as a claim (see the port's note
+  // in auth-provider.ts). Cognito has no boolean attribute type, so the value is
+  // the string "true"/"false" — matching what the Lambda compares against.
+  //
+  // Note this does NOT re-issue existing tokens: a token already in the user's
+  // hands keeps the value it was minted with until it expires or is refreshed.
+  // That is inherent to putting mutable state in a JWT and is why Postgres, read
+  // through GET /v1/users/me, remains the authoritative answer.
+  async setMustChangePassword(email: string, mustChangePassword: boolean): Promise<void> {
+    try {
+      await this.client.send(
+        new AdminUpdateUserAttributesCommand({
+          UserPoolId: this.userPoolId,
+          Username: email,
+          UserAttributes: [
+            { Name: "custom:must_change_password", Value: String(mustChangePassword) },
+          ],
+        }),
+      );
+    } catch (e: any) {
+      // Same mapping as setPassword: an unknown account must not be
+      // distinguishable from any other failure by the error type alone.
       if (e?.name === "UserNotFoundException") throw new InvalidCredentialsError();
       throw e;
     }
