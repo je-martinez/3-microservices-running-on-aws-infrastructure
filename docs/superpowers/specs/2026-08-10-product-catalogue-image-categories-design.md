@@ -78,10 +78,12 @@ The blurhash is computed from the image bytes, so the image pipeline is the only
 can compute it correctly. `sync_assets.py` gains a `blurhash` field per raster asset in
 `assets.manifest.json`.
 
-The **seed** carries the values as C# constants rather than reading the manifest at runtime.
-Reading it would mean mounting `assets/assets.manifest.json` into the Orders container and
-adding a boot-time failure mode — for a file that `make bootstrap` does not even guarantee
-exists, because it is written by phase 2 (`make post-infra`).
+The **seed** carries the values as C# constants — describing the **optimised** objects the
+sync uploads, not the original masters (see [Catalogue contents](#catalogue-contents)) —
+rather than reading the manifest at runtime. Reading it would mean mounting
+`assets/assets.manifest.json` into the Orders container and adding a boot-time failure mode —
+for a file that `make bootstrap` does not even guarantee exists, because it is written by
+phase 2 (`make post-infra`).
 
 The drift risk this creates is closed by a test (see [Testing](#testing)) that compares the
 seed's eight hashes and dimensions against the manifest and fails if they diverge.
@@ -238,13 +240,19 @@ the actual image bytes. Stock is tiered 100/50/25 (preserving the current seed's
 | Product | Cents | Stock | Category | W×H | Blurhash |
 | --- | --- | --- | --- | --- | --- |
 | Runner Low Canvas | 8900 | 100 | FOOTWEAR | 1080×720 | `LWMj?rRjD%of*0j[ofj@Mcfkf6ax` |
-| Field Tote 18L | 12800 | 50 | BAGS | 1080×1620 | `LUE.hJ~CR49ENFM_xuxu9aE2o~R+` |
-| Trail Shell Jacket | 21500 | 25 | OUTERWEAR | 1080×1437 | `LGC7W+U_57F0^jEzVrrr~pD%I9i^` |
+| Field Tote 18L | 12800 | 50 | BAGS | 720×1080 | `LUEy0r~CR49ENFM_xuxu9aE2o~R+` |
+| Trail Shell Jacket | 21500 | 25 | OUTERWEAR | 812×1080 | `LGC7W+U_57F0^jEzVrrr~pD%I9i^` |
 | Everyday Backpack | 14900 | 100 | BAGS | 1080×720 | `L86[5Oxu00M{azoft7ay8{WB?bt7` |
-| Linen Cap | 3900 | 50 | ACCESSORIES | 1080×1620 | `LA7KSX55nig3NGxaWVn%0K-pozaK` |
-| Wool Runner Mid | 11900 | 25 | FOOTWEAR | 1080×1620 | `LOHVPM_4Mxbcx^V@WBog.8E1RPtR` |
-| Leather Card Holder | 5900 | 100 | ACCESSORIES | 1080×721 | `L88NLkngDh^*-on#Rjt80f$*-V9t` |
-| Steel Bottle 750ml | 3400 | 50 | ACCESSORIES | 1080×1531 | `LHD96e-BW-%M0Lt7RjIo%fI:Rk$*` |
+| Linen Cap | 3900 | 50 | ACCESSORIES | 720×1080 | `LA7KSX55nig3NGxaWVn%0K-pozaK` |
+| Wool Runner Mid | 11900 | 25 | FOOTWEAR | 720×1080 | `LOHVPL_4Mxbcx^V@WBog.8E1RPtR` |
+| Leather Card Holder | 5900 | 100 | ACCESSORIES | 1080×721 | `L88NLkngDh~B-on#Rjt80f$*%L9t` |
+| Steel Bottle 750ml | 3400 | 50 | ACCESSORIES | 762×1080 | `LHD96e-UW-%M0Lt7RjIo%fI:Rkxa` |
+
+These dimensions and hashes describe the **optimised** objects `sync_assets.py` uploads, not
+the masters under `assets/products/`, because `RESIZE_TARGETS` caps the long edge at 1080 via
+`max(width, height) > target` — a 1080×1620 master is served at 720×1080. The practical upside
+is real: `field-tote-18l` drops from 316KB to 118KB, and the card renders 300px tall, so no
+visible detail is lost.
 
 Image keys are the kebab-cased product name: `products/runner-low-canvas.jpg`, etc.
 Descriptions are written to match the existing terse register (e.g. *"Low-profile canvas
@@ -259,9 +267,14 @@ called out because it is the one surprising consequence of the change.
 
 1. **Eight files land in `assets/products/*.jpg`**, extracted from the design. They enter
    `sync_assets.py`'s walk automatically — `SKIP_DIRS` only excludes `web-app`.
-2. **`RESIZE_TARGETS` gains eight entries at 1080**, their native width. `thumbnail()` never
-   upscales, so this is explicitly a no-op today; it exists so a 4000px master dropped in
-   later is bounded rather than uploaded whole. Cards render at 300px tall with
+2. **`RESIZE_TARGETS` gains eight entries at 1080**, capping the long edge via
+   `max(width, height) > target`. This is a no-op only for the three landscape photos (Runner
+   Low Canvas, Everyday Backpack, Leather Card Holder — 1080×720, 1080×720, 1080×721), whose
+   long edge is already at or under 1080. It actively **downscales** the five portrait masters
+   (Field Tote 18L, Trail Shell Jacket, Linen Cap, Wool Runner Mid, Steel Bottle 750ml), whose
+   masters run 1080px wide by up to 1620px tall — see [Catalogue contents](#catalogue-contents)
+   for the served dimensions. The entry still earns its keep: it also bounds a larger master
+   dropped in later, landscape or portrait. Cards render at 300px tall with
    `background-size: cover`.
 3. **`sync_assets.py` computes a blurhash** for every optimisable raster and adds it to each
    manifest entry:
