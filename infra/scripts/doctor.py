@@ -143,6 +143,63 @@ def check_containers(report: Report) -> None:
             )
 
 
+def check_assets(report: Report) -> None:
+    """Assert the email templates' images are actually being served.
+
+    Same shape of blind spot as the tables-without-a-database check: every
+    service reports healthy, the emails send, and the defect appears only in a
+    DELIVERED message, as broken-image placeholders where the logo and icons
+    should be. Nothing else in the stack notices, because nothing else reads
+    these objects.
+
+    The bucket lives in the PHASE-2 root, so the failure this catches is a
+    bootstrap that never ran phase 2 — which was the whole reason `bootstrap`
+    now calls `post-infra` itself. Kept as a check anyway: `make clean` destroys
+    the bucket, and a resume through `bootstrap-converge` does not recreate it.
+
+    One object is fetched rather than the bucket listed. A bucket can exist and
+    be empty (created, never synced), and an empty bucket renders exactly the
+    same broken images as a missing one.
+    """
+    env_file = ROOT / ".env.local.events-pipeline"
+    if not env_file.exists():
+        inf(f"    Assets: {env_file.name} not generated yet (skipped)")
+        return
+
+    base = ""
+    for line in env_file.read_text().splitlines():
+        if line.startswith("ASSETS_BASE_URL="):
+            base = line.split("=", 1)[1].strip()
+    if not base:
+        inf(f"    Assets: no ASSETS_BASE_URL in {env_file.name} (skipped)")
+        return
+
+    # The header logo: present in every template, so its absence is the whole
+    # email family broken, not one image.
+    url = f"{base.rstrip('/')}/email/logo.png"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as response:
+            status = response.status
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+    except (urllib.error.URLError, OSError) as exc:
+        report.failed(
+            f"assets are not reachable at {base} ({exc}) — email templates will "
+            "render with broken images",
+            "make post-infra && make assets-sync",
+        )
+        return
+
+    if status == 200:
+        report.passed("email assets are being served")
+    else:
+        report.failed(
+            f"assets returned HTTP {status} for {url} — email templates will "
+            "render with broken images",
+            "make post-infra && make assets-sync",
+        )
+
+
 def check_docdb_host(report: Report) -> None:
     """Assert the container DOCDB_HOST names actually exists.
 
@@ -369,6 +426,9 @@ def main() -> int:
 
     print("\n== Emulator state vs reality ==")
     check_phantom_resources(report)
+
+    print("\n== Email assets ==")
+    check_assets(report)
 
     print("\n== Gateway routing ==")
     check_nginx_alias(report)

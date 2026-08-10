@@ -4,7 +4,7 @@ type: runbook
 area: infra
 status: active
 created: 2026-07-12
-updated: 2026-07-31
+updated: 2026-08-10
 integration-status: verified
 verified-on: 2026-07-15
 verified-by: Jose E. Martinez
@@ -73,12 +73,24 @@ This runs, in order:
    `nginx-stable` Docker alias used by the reverse-proxy path (see [[ADR-0016-local-apigw-nginx-ecs]]).
    As of 2026-07-30, MySQL app-user creation (`orders_app`, `tracking_app`) has moved to the
    Terraform phase-2 root (`enabled_app_users` now includes `mysql`) — see
-   [[two-phase-terraform-apply]] — rather than being created here by bash. Phase 2 has not yet
-   been applied, so those users do not exist in the local database yet.
+   [[two-phase-terraform-apply]] — rather than being created here by bash.
+7. **`make post-infra`** — as of 2026-08-10, `bootstrap` calls this as its last step (see
+   [[two-phase-terraform-apply#Update 2026-08-10 — `bootstrap` calls `post-infra` again; the split narrows, not reverses]]),
+   so a plain `make bootstrap` once again produces a *complete* environment in one command:
+   phase-2's least-privilege DB app-users are created, and the assets bucket
+   (`infra/environments/local/post/assets.tf`) the email templates load their images from is
+   provisioned and synced. Without this step, every service still reports healthy and emails
+   still send — the only symptom is broken-image placeholders in a delivered message, which
+   `make doctor`'s `check_assets` now catches (see below).
 
 The order matters precisely because of step 3→4→5: infra must exist before `.env` has real
 Cognito ids, `.env` must be correct before the Users container starts (it fails Zod validation
 otherwise), and migrations must run before the service can use the database.
+
+`post-infra` also remains a standalone command — see
+[`bootstrap-provision` / `bootstrap-converge`](#bootstrap-provision--bootstrap-converge--the-two-halves-of-bootstrap)
+below for when to run it separately (after a `bootstrap-converge` resume, or to re-apply phase 2
+on its own).
 
 ## Other Make targets
 
@@ -112,20 +124,22 @@ otherwise), and migrations must run before the service can use the database.
 
 | Target | Purpose |
 |---|---|
-| `make bootstrap` | Bring the whole local chain up from scratch, in dependency order (see above) |
+| `make bootstrap` | Bring the whole local chain up from scratch, in dependency order, **and** run `post-infra` as its last step (see above) — one command produces a complete, hardened environment |
 | `make bootstrap-provision` | Phase 1 of `bootstrap`: Floci + Terraform apply + env files. **Not** safely re-runnable — see below |
-| `make bootstrap-converge` | Phase 2 of `bootstrap`: migrations + services + nginx alias. **Safe to re-run** — resumes a partial `bootstrap` |
+| `make bootstrap-converge` | Phase 2 of `bootstrap`: migrations + services + nginx alias. **Safe to re-run** — resumes a partial `bootstrap`. Does **not** include `post-infra` — see below |
 | `make doctor` | Read-only diagnosis of the local stack — see below |
-| `make post-infra` | Phase 2 Terraform apply: least-privilege DB app-users (see [[two-phase-terraform-apply]]) |
+| `make post-infra` | Phase 2 Terraform apply: least-privilege DB app-users and the assets bucket (see [[two-phase-terraform-apply]]). Called automatically by `bootstrap`; still standalone and re-runnable on its own |
 | `make clean` | Tear down infra + compose; **prompts** before removing `./data` (Floci's persisted state) |
 
 #### `bootstrap-provision` / `bootstrap-converge` — the two halves of `bootstrap`
 
-`make bootstrap` is `bootstrap-provision` followed by `bootstrap-converge`. They exist as
-separate targets because only the first half is irrepeatable: a **second** phase-1
-`terraform apply` against the same Floci state fails on `UpdateTags` (JE-113, see
-[[floci-rds-apigw-limits]] below). So a run that dies partway through `bootstrap` is resumed
-with `bootstrap-converge` alone, never by re-running `bootstrap-provision`'s apply.
+`make bootstrap` is `bootstrap-provision` followed by `bootstrap-converge`, followed by
+`post-infra` (see [[two-phase-terraform-apply#Update 2026-08-10 — `bootstrap` calls `post-infra` again; the split narrows, not reverses]]).
+`bootstrap-provision`/`bootstrap-converge` exist as separate targets because only the first
+half is irrepeatable: a **second** phase-1 `terraform apply` against the same Floci state fails
+on `UpdateTags` (JE-113, see [[floci-rds-apigw-limits]] below). So a run that dies partway
+through `bootstrap` is resumed with `bootstrap-converge` alone, never by re-running
+`bootstrap-provision`'s apply.
 
 - **`bootstrap-provision`** — `docker compose up -d floci` → wait for Floci → `backend-up` →
   `infra-init` → `infra-up` (Terraform apply, then `env-file`).
@@ -135,6 +149,13 @@ with `bootstrap-converge` alone, never by re-running `bootstrap-provision`'s app
   `migrate` → start `users` → start `orders` → `migrate-tracking` → start `tracking` →
   `bootstrap.py` (the nginx alias, last — see the resolved limitation below for why). Every
   step here is idempotent, so re-running it costs time and nothing else.
+
+`post-infra` is deliberately **not** part of `bootstrap-converge`: `bootstrap-converge` is the
+resume path for a run that died partway, and every step in it is idempotent against state that
+already exists, whereas `post-infra` reads phase-1 remote state a partial run may never have
+written — folding it in would make a resume fail for a reason unrelated to what it's resuming.
+**After resuming with `bootstrap-converge`, run `make post-infra` yourself** to get the
+app-users and assets bucket.
 
 #### `make doctor` — read-only diagnosis
 
@@ -151,6 +172,16 @@ that gap reports healthy — the container starts, `/v1/health` answers 200, `SH
 lists `tracking` — right up until the first real query fails with `Table 'tracking.tracking'
 doesn't exist`. This is exactly the state a bootstrap that died before `migrate-tracking`
 leaves behind (JE-112, see the resolved limitation below).
+
+As of 2026-08-10, `doctor` also runs `check_assets`: it fetches the header logo through
+`ASSETS_BASE_URL` and fails (exit 1) if the fetch does not return 200, pointing at
+`make post-infra && make assets-sync`. This catches the same shape of silent gap as the
+missing-tables check above — a stack that reports healthy everywhere a shallow check looks
+(every service up, `/v1/health` green) but is missing state a deeper check can see, in this
+case the assets bucket `post-infra` provisions (see
+[[two-phase-terraform-apply#Update 2026-08-10 — `bootstrap` calls `post-infra` again; the split narrows, not reverses]]).
+It fetches **one object** rather than listing the bucket, because a bucket that exists but is
+empty renders exactly the same broken-image placeholders as a missing bucket.
 
 Run it any time the stack's state is unclear — after a partial `bootstrap`, before filing a
 bug against a service, or as a sanity check before `make post-infra`.
