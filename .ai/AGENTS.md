@@ -94,6 +94,22 @@ Stay within what was asked. **No unrequested features, files, or refactors**
 
 Full rule for both: `.ai/rules/language-and-scope.md`.
 
+### Local AWS emulator (Floci)
+
+The local stack runs an AWS emulator whose state lives in the **`floci-state`
+named volume** and must be destroyed together with its containers. `make clean`
+runs `docker compose down -v` **unconditionally — it is destructive and does not
+prompt**, which is what makes a from-scratch rebuild deterministic; do not
+reintroduce a confirmation or a "keep the data" option.
+
+A surviving state with dead containers produces **phantom resources**: the
+emulator reports them `available`, `terraform apply` creates nothing and reports
+success, and nothing fails until a service dials the resource. Never trust
+`available` after touching the emulator container — check `docker ps`, or run
+`make doctor`, which cross-checks the two.
+
+Full rule: `.ai/rules/local-emulator-state.md`.
+
 ### Documentation vault
 
 The Obsidian vault under `docs/` is the source of truth for technical content:
