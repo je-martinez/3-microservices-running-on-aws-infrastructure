@@ -4693,6 +4693,32 @@
               "alignItems": "center",
               "children": [
                 {
+                  "type": "frame",
+                  "id": "lMzl8",
+                  "x": 0,
+                  "y": 0,
+                  "name": "Back Button",
+                  "enabled": false,
+                  "width": 32,
+                  "height": 32,
+                  "fill": "$bg-subtle",
+                  "cornerRadius": 8,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "MumT3",
+                      "name": "Back Icon",
+                      "width": 16,
+                      "height": 16,
+                      "icon": "chevron-left",
+                      "library": "lucide",
+                      "fill": "$text-primary"
+                    }
+                  ]
+                },
+                {
                   "type": "text",
                   "id": "rCWlq",
                   "name": "Drawer Title",
@@ -4830,6 +4856,707 @@
                   "content": "$39.00"
                 }
               }
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "JlaWD",
+          "x": 0,
+          "y": 0,
+          "name": "Payment Body",
+          "enabled": false,
+          "width": "fill_container(0)",
+          "height": "fill_container(0)",
+          "layout": "vertical",
+          "gap": 16,
+          "padding": [
+            22,
+            24
+          ],
+          "children": [
+            {
+              "type": "frame",
+              "id": "g2eDuY",
+              "name": "Deliver To",
+              "width": "fill_container",
+              "fill": "$bg-subtle",
+              "cornerRadius": "$radius-md",
+              "stroke": "$border-color",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "gap": 6,
+              "padding": 14,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "J9rmGu",
+                  "name": "Address Top",
+                  "width": "fill_container",
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "kAh4N",
+                      "name": "Address Label",
+                      "gap": 7,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "eAU3i",
+                          "name": "Pin Icon",
+                          "width": 15,
+                          "height": 15,
+                          "icon": "map-pin",
+                          "library": "lucide",
+                          "fill": "$text-secondary"
+                        },
+                        {
+                          "type": "text",
+                          "id": "It7P7",
+                          "name": "Deliver To",
+                          "fill": "$text-secondary",
+                          "content": "Deliver to",
+                          "fontFamily": "$font-body",
+                          "fontSize": 12.5,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "J9iYFi",
+                      "name": "Change Link",
+                      "fill": "$brand-navy",
+                      "content": "Change",
+                      "fontFamily": "$font-body",
+                      "fontSize": 12.5,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "hSGiJ",
+                  "name": "Address Text",
+                  "fill": "$text-primary",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "Jose Martinez · Av. Rómulo Betancourt 1204, Apto 5B, Santo Domingo 10604, DO",
+                  "lineHeight": 1.5,
+                  "fontFamily": "$font-body",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "xQqgD",
+              "name": "Payment Section",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 12,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "zaSpD",
+                  "name": "Section Top",
+                  "width": "fill_container",
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "sxNaV",
+                      "name": "Section Label",
+                      "fill": "$text-muted",
+                      "content": "PAYMENT",
+                      "fontFamily": "$font-body",
+                      "fontSize": 11.5,
+                      "fontWeight": "600",
+                      "letterSpacing": 1.4
+                    },
+                    {
+                      "type": "frame",
+                      "id": "abeqs",
+                      "name": "Secure Badge",
+                      "gap": 5,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "w2KuRD",
+                          "name": "Lock Icon",
+                          "width": 12,
+                          "height": 12,
+                          "icon": "lock",
+                          "library": "lucide",
+                          "fill": "$text-muted"
+                        },
+                        {
+                          "type": "text",
+                          "id": "A92NaZ",
+                          "name": "Secure Text",
+                          "fill": "$text-muted",
+                          "content": "Encrypted",
+                          "fontFamily": "$font-body",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "T3zGof",
+                  "name": "Stripe Payment Element",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 13,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "OLnVW",
+                      "name": "Method Tabs",
+                      "width": "fill_container",
+                      "gap": 7,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "y7l9D",
+                          "name": "Tab Card",
+                          "width": "fill_container",
+                          "height": 58,
+                          "fill": "#F7941D14",
+                          "cornerRadius": 6,
+                          "stroke": "$brand-orange",
+                          "strokeWidth": 1.5,
+                          "layout": "vertical",
+                          "gap": 6,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "lfzy0",
+                              "name": "Tab Icon",
+                              "width": 18,
+                              "height": 18,
+                              "icon": "credit-card",
+                              "library": "lucide",
+                              "fill": "$brand-orange-text"
+                            },
+                            {
+                              "type": "text",
+                              "id": "r4Ngwu",
+                              "name": "Tab Label",
+                              "fill": "$text-primary",
+                              "content": "Card",
+                              "fontFamily": "$font-body",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Yggzm",
+                          "name": "Tab Apple Pay",
+                          "width": "fill_container",
+                          "height": 58,
+                          "fill": "$bg-white",
+                          "cornerRadius": 6,
+                          "stroke": "$border-color",
+                          "strokeWidth": 1,
+                          "layout": "vertical",
+                          "gap": 6,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "l6zUs",
+                              "name": "Tab Icon",
+                              "width": 18,
+                              "height": 18,
+                              "icon": "apple",
+                              "library": "lucide",
+                              "fill": "$text-secondary"
+                            },
+                            {
+                              "type": "text",
+                              "id": "S7rZXR",
+                              "name": "Tab Label",
+                              "fill": "$text-secondary",
+                              "content": "Apple Pay",
+                              "fontFamily": "$font-body",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "PKBin",
+                          "name": "Tab Link",
+                          "width": "fill_container",
+                          "height": 58,
+                          "fill": "$bg-white",
+                          "cornerRadius": 6,
+                          "stroke": "$border-color",
+                          "strokeWidth": 1,
+                          "layout": "vertical",
+                          "gap": 6,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "l75XS",
+                              "name": "Tab Icon",
+                              "width": 18,
+                              "height": 18,
+                              "icon": "link",
+                              "library": "lucide",
+                              "fill": "$text-secondary"
+                            },
+                            {
+                              "type": "text",
+                              "id": "R0A4fw",
+                              "name": "Tab Label",
+                              "fill": "$text-secondary",
+                              "content": "Link",
+                              "fontFamily": "$font-body",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Buyb8",
+                      "name": "SField Card number",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 6,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "YGngy",
+                          "name": "SField Label",
+                          "fill": "$text-primary",
+                          "content": "Card number",
+                          "fontFamily": "$font-body",
+                          "fontSize": 12.5,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "c6YslL",
+                          "name": "SField Box",
+                          "width": "fill_container",
+                          "height": 46,
+                          "fill": "$bg-white",
+                          "cornerRadius": 6,
+                          "stroke": "$border-color",
+                          "strokeWidth": 1,
+                          "gap": 9,
+                          "padding": [
+                            0,
+                            12
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "STl4G",
+                              "name": "Lead Icon",
+                              "width": 16,
+                              "height": 16,
+                              "icon": "credit-card",
+                              "library": "lucide",
+                              "fill": "$text-muted"
+                            },
+                            {
+                              "type": "text",
+                              "id": "S9TUV6",
+                              "name": "SField Value",
+                              "fill": "$text-muted",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "1234 1234 1234 1234",
+                              "fontFamily": "$font-body",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "asfqS",
+                      "name": "Row Expiry CVC",
+                      "width": "fill_container",
+                      "gap": 10,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "b3DMf0",
+                          "name": "SField Expiration date",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "LfoE0",
+                              "name": "SField Label",
+                              "fill": "$text-primary",
+                              "content": "Expiration date",
+                              "fontFamily": "$font-body",
+                              "fontSize": 12.5,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "leGdW",
+                              "name": "SField Box",
+                              "width": "fill_container",
+                              "height": 46,
+                              "fill": "$bg-white",
+                              "cornerRadius": 6,
+                              "stroke": "$border-color",
+                              "strokeWidth": 1,
+                              "gap": 9,
+                              "padding": [
+                                0,
+                                12
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "LqM4N",
+                                  "name": "SField Value",
+                                  "fill": "$text-muted",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "MM / YY",
+                                  "fontFamily": "$font-body",
+                                  "fontSize": 14,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "CLLfn",
+                          "name": "SField Security code",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "d5VFJv",
+                              "name": "SField Label",
+                              "fill": "$text-primary",
+                              "content": "Security code",
+                              "fontFamily": "$font-body",
+                              "fontSize": 12.5,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "L6jZ44",
+                              "name": "SField Box",
+                              "width": "fill_container",
+                              "height": 46,
+                              "fill": "$bg-white",
+                              "cornerRadius": 6,
+                              "stroke": "$border-color",
+                              "strokeWidth": 1,
+                              "gap": 9,
+                              "padding": [
+                                0,
+                                12
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "OB9BL",
+                                  "name": "SField Value",
+                                  "fill": "$text-muted",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "CVC",
+                                  "fontFamily": "$font-body",
+                                  "fontSize": 14,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "icon",
+                                  "id": "hEJ9T",
+                                  "name": "Trail Icon",
+                                  "width": 15,
+                                  "height": 15,
+                                  "icon": "info",
+                                  "library": "lucide",
+                                  "fill": "$text-muted"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "m0cT38",
+                      "name": "Row Country ZIP",
+                      "width": "fill_container",
+                      "gap": 10,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "ip2bn",
+                          "name": "SField Country",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "PWsXu",
+                              "name": "SField Label",
+                              "fill": "$text-primary",
+                              "content": "Country",
+                              "fontFamily": "$font-body",
+                              "fontSize": 12.5,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "Dq8pZ",
+                              "name": "SField Box",
+                              "width": "fill_container",
+                              "height": 46,
+                              "fill": "$bg-white",
+                              "cornerRadius": 6,
+                              "stroke": "$border-color",
+                              "strokeWidth": 1,
+                              "gap": 9,
+                              "padding": [
+                                0,
+                                12
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "O4oeA",
+                                  "name": "SField Value",
+                                  "fill": "$text-primary",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Dominican Rep.",
+                                  "fontFamily": "$font-body",
+                                  "fontSize": 14,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "icon",
+                                  "id": "WLy3E",
+                                  "name": "Trail Icon",
+                                  "width": 15,
+                                  "height": 15,
+                                  "icon": "chevron-down",
+                                  "library": "lucide",
+                                  "fill": "$text-muted"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "O0Rs0",
+                          "name": "SField ZIP",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "h7mdMr",
+                              "name": "SField Label",
+                              "fill": "$text-primary",
+                              "content": "ZIP",
+                              "fontFamily": "$font-body",
+                              "fontSize": 12.5,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "CLJPW",
+                              "name": "SField Box",
+                              "width": "fill_container",
+                              "height": 46,
+                              "fill": "$bg-white",
+                              "cornerRadius": 6,
+                              "stroke": "$border-color",
+                              "strokeWidth": 1,
+                              "gap": 9,
+                              "padding": [
+                                0,
+                                12
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "bqkS5",
+                                  "name": "SField Value",
+                                  "fill": "$text-primary",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "10604",
+                                  "fontFamily": "$font-body",
+                                  "fontSize": 14,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Q5wv0j",
+                      "name": "Save Info Row",
+                      "width": "fill_container",
+                      "gap": 9,
+                      "padding": [
+                        2,
+                        0,
+                        0,
+                        0
+                      ],
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "H77SL",
+                          "name": "Checkbox",
+                          "width": 18,
+                          "height": 18,
+                          "fill": "$brand-orange",
+                          "cornerRadius": 4,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "P2GUd",
+                              "name": "Check",
+                              "width": 12,
+                              "height": 12,
+                              "icon": "check",
+                              "library": "lucide",
+                              "fill": "#FFFFFF"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "aIiOB",
+                          "name": "Save Text",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "b8Y8Ne",
+                              "name": "Save Title",
+                              "fill": "$text-primary",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "Save my payment info for faster checkout",
+                              "fontFamily": "$font-body",
+                              "fontSize": 13,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "text",
+                              "id": "EksxR",
+                              "name": "Save Sub",
+                              "fill": "$text-secondary",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "Stored securely by Stripe — never on 3MRAI servers.",
+                              "lineHeight": 1.5,
+                              "fontFamily": "$font-body",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "rectangle",
+                      "id": "NxOEl",
+                      "name": "Element Divider",
+                      "fill": "$border-color",
+                      "width": "fill_container",
+                      "height": 1
+                    },
+                    {
+                      "type": "frame",
+                      "id": "T1Z7RC",
+                      "name": "Stripe Badge",
+                      "width": "fill_container",
+                      "gap": 5,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "sCSwj",
+                          "name": "Powered By",
+                          "fill": "$text-muted",
+                          "content": "Powered by",
+                          "fontFamily": "$font-body",
+                          "fontSize": 11.5,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "V9OE8",
+                          "name": "Stripe Wordmark",
+                          "fill": "$text-secondary",
+                          "content": "Stripe",
+                          "fontFamily": "$font-heading",
+                          "fontSize": 12.5,
+                          "fontWeight": "700",
+                          "letterSpacing": -0.3
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
             }
           ]
         },
@@ -5145,7 +5872,7 @@
               "height": 58,
               "descendants": {
                 "G7D9G": {
-                  "content": "Place order"
+                  "content": "Continue to payment"
                 },
                 "X0hR6V": {
                   "enabled": true,
@@ -6195,7 +6922,7 @@
               "enabled": true
             },
             "bXgRD/G7D9G": {
-              "content": "Save address & place order"
+              "content": "Save address & continue"
             }
           }
         }
@@ -6204,7 +6931,7 @@
     {
       "type": "frame",
       "id": "hZ87b",
-      "x": 4680,
+      "x": 6240,
       "y": 3008,
       "name": "Profile",
       "clip": true,
@@ -6754,7 +7481,7 @@
     {
       "type": "frame",
       "id": "H2A9g",
-      "x": 6240,
+      "x": 7800,
       "y": 3008,
       "name": "Home — Account Menu",
       "clip": true,
@@ -7462,7 +8189,7 @@
     {
       "type": "frame",
       "id": "rGwBO",
-      "x": 7800,
+      "x": 9360,
       "y": 3008,
       "name": "Orders — List",
       "clip": true,
@@ -7790,7 +8517,7 @@
     {
       "type": "frame",
       "id": "x7ABM",
-      "x": 9360,
+      "x": 10920,
       "y": 3008,
       "name": "Orders — Detail",
       "clip": true,
@@ -9953,7 +10680,7 @@
               "enabled": true
             },
             "bXgRD/G7D9G": {
-              "content": "Save address & place order"
+              "content": "Save address & continue"
             }
           }
         }
@@ -9962,7 +10689,7 @@
     {
       "type": "frame",
       "id": "pD15E",
-      "x": 1470,
+      "x": 1960,
       "y": 4400,
       "name": "Mobile — Account Menu",
       "clip": true,
@@ -10700,7 +11427,7 @@
     {
       "type": "frame",
       "id": "OoNex",
-      "x": 1960,
+      "x": 2450,
       "y": 4400,
       "name": "Mobile — Orders List",
       "clip": true,
@@ -11010,7 +11737,7 @@
     {
       "type": "frame",
       "id": "eq3Tk",
-      "x": 2450,
+      "x": 2940,
       "y": 4400,
       "name": "Mobile — Orders Detail",
       "clip": true,
@@ -11999,7 +12726,7 @@
     {
       "type": "frame",
       "id": "nyVEI",
-      "x": 2940,
+      "x": 3430,
       "y": 4400,
       "name": "Mobile — Profile",
       "clip": true,
@@ -12728,7 +13455,7 @@
     {
       "type": "frame",
       "id": "mSssa",
-      "x": 10920,
+      "x": 12480,
       "y": 3008,
       "name": "Home — Notifications (Unread)",
       "clip": true,
@@ -13218,7 +13945,7 @@
     {
       "type": "frame",
       "id": "YZIGp",
-      "x": 12480,
+      "x": 14040,
       "y": 3008,
       "name": "Home — Notifications (Read)",
       "clip": true,
@@ -13790,7 +14517,7 @@
     {
       "type": "frame",
       "id": "MP3DR",
-      "x": 3430,
+      "x": 3920,
       "y": 4400,
       "name": "Mobile — Notifications (Unread)",
       "clip": true,
@@ -14109,7 +14836,7 @@
     {
       "type": "frame",
       "id": "b6S5Bl",
-      "x": 3920,
+      "x": 4410,
       "y": 4400,
       "name": "Mobile — Notifications (Read)",
       "clip": true,
@@ -14622,7 +15349,7 @@
     {
       "type": "frame",
       "id": "IQCEF",
-      "x": 14040,
+      "x": 15600,
       "y": 3008,
       "name": "Home — Notification Toast",
       "clip": true,
@@ -15112,7 +15839,7 @@
     {
       "type": "frame",
       "id": "UpmOQ",
-      "x": 4410,
+      "x": 4900,
       "y": 4400,
       "name": "Mobile — Notification Toast",
       "clip": true,
@@ -16985,6 +17712,3170 @@
               ]
             }
           ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "DOtD2",
+      "x": 17160,
+      "y": 3008,
+      "name": "Checkout — Payment",
+      "clip": true,
+      "width": 1440,
+      "height": 1120,
+      "fill": "$bg-body",
+      "layout": "vertical",
+      "children": [
+        {
+          "id": "y8Dkid",
+          "type": "ref",
+          "ref": "EMNqu",
+          "name": "App Header",
+          "width": "fill_container"
+        },
+        {
+          "type": "frame",
+          "id": "o8qnfH",
+          "name": "Body",
+          "width": "fill_container",
+          "height": "fill_container",
+          "fill": "$bg-body",
+          "layout": "vertical",
+          "padding": [
+            36,
+            48
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "Ucmha",
+              "name": "Checkout Column",
+              "width": 1040,
+              "layout": "vertical",
+              "gap": 22,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "PD4z2",
+                  "name": "Back Link",
+                  "gap": 7,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "LpG2o",
+                      "name": "Back Icon",
+                      "width": 16,
+                      "height": 16,
+                      "icon": "chevron-left",
+                      "library": "lucide",
+                      "fill": "$text-secondary"
+                    },
+                    {
+                      "type": "text",
+                      "id": "wv5bP",
+                      "name": "Back Label",
+                      "fill": "$text-secondary",
+                      "content": "Back to cart",
+                      "fontFamily": "$font-body",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "eigVD",
+                  "name": "Checkout Header",
+                  "width": "fill_container",
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "w7vZP",
+                      "name": "Header Titles",
+                      "layout": "vertical",
+                      "gap": 4,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "VD0Mp",
+                          "name": "Page Title",
+                          "fill": "$text-primary",
+                          "content": "Checkout",
+                          "fontFamily": "$font-heading",
+                          "fontSize": 30,
+                          "fontWeight": "700",
+                          "letterSpacing": -0.8
+                        },
+                        {
+                          "type": "text",
+                          "id": "IQP77",
+                          "name": "Page Sub",
+                          "fill": "$text-secondary",
+                          "content": "3 items · $256.00 total",
+                          "fontFamily": "$font-body",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Z2znpH",
+                      "name": "Steps",
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "QeZy2",
+                          "name": "Step Cart",
+                          "gap": 8,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "u7jR72",
+                              "name": "Step Dot",
+                              "width": 22,
+                              "height": 22,
+                              "fill": "$brand-navy",
+                              "cornerRadius": 11,
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "vxhGv",
+                                  "name": "Step Glyph",
+                                  "width": 12,
+                                  "height": 12,
+                                  "icon": "check",
+                                  "library": "lucide",
+                                  "fill": "#FFFFFF"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "e7img",
+                              "name": "Step Label",
+                              "fill": "$text-secondary",
+                              "content": "Cart",
+                              "fontFamily": "$font-body",
+                              "fontSize": 13.5,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "rectangle",
+                          "id": "RNaUm",
+                          "name": "Step Sep",
+                          "fill": "$border-strong",
+                          "width": 20,
+                          "height": 1
+                        },
+                        {
+                          "type": "frame",
+                          "id": "LvAw1",
+                          "name": "Step Address",
+                          "gap": 8,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "lNwDv",
+                              "name": "Step Dot",
+                              "width": 22,
+                              "height": 22,
+                              "fill": "$brand-navy",
+                              "cornerRadius": 11,
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "Gmpw5",
+                                  "name": "Step Glyph",
+                                  "width": 12,
+                                  "height": 12,
+                                  "icon": "check",
+                                  "library": "lucide",
+                                  "fill": "#FFFFFF"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "yQVeF",
+                              "name": "Step Label",
+                              "fill": "$text-secondary",
+                              "content": "Address",
+                              "fontFamily": "$font-body",
+                              "fontSize": 13.5,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "rectangle",
+                          "id": "M1FWp",
+                          "name": "Step Sep",
+                          "fill": "$border-strong",
+                          "width": 20,
+                          "height": 1
+                        },
+                        {
+                          "type": "frame",
+                          "id": "MSlZJ",
+                          "name": "Step Payment",
+                          "gap": 8,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "P5bXHq",
+                              "name": "Step Dot",
+                              "width": 22,
+                              "height": 22,
+                              "fill": "$brand-orange",
+                              "cornerRadius": 11,
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "shokM",
+                                  "name": "Step Glyph",
+                                  "width": 12,
+                                  "height": 12,
+                                  "icon": "credit-card",
+                                  "library": "lucide",
+                                  "fill": "#FFFFFF"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "D4sxSe",
+                              "name": "Step Label",
+                              "fill": "$text-primary",
+                              "content": "Payment",
+                              "fontFamily": "$font-body",
+                              "fontSize": 13.5,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "bnplZ",
+                  "name": "Checkout Row",
+                  "width": "fill_container",
+                  "gap": 24,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "Ys8G1",
+                      "name": "Main Column",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 20,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "Kc3vQ",
+                          "name": "Card DELIVERY ADDRESS",
+                          "width": "fill_container",
+                          "fill": "$bg-white",
+                          "cornerRadius": 12,
+                          "stroke": "$border-color",
+                          "strokeWidth": 1,
+                          "layout": "vertical",
+                          "gap": 16,
+                          "padding": 20,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "SEXcf",
+                              "name": "Card Top",
+                              "width": "fill_container",
+                              "justifyContent": "space_between",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "MN1iM",
+                                  "name": "Card Label",
+                                  "fill": "$text-muted",
+                                  "content": "DELIVERY ADDRESS",
+                                  "fontFamily": "$font-body",
+                                  "fontSize": 12,
+                                  "fontWeight": "600",
+                                  "letterSpacing": 1.5
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "jiCiS",
+                                  "name": "Change Link",
+                                  "fill": "$brand-navy",
+                                  "content": "Change",
+                                  "fontFamily": "$font-body",
+                                  "fontSize": 13,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "wMUNA",
+                              "name": "Address Name",
+                              "fill": "$text-primary",
+                              "content": "Jose Martinez",
+                              "fontFamily": "$font-body",
+                              "fontSize": 14.5,
+                              "fontWeight": "600"
+                            },
+                            {
+                              "type": "text",
+                              "id": "h583d",
+                              "name": "Address Text",
+                              "fill": "$text-secondary",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "Av. Rómulo Betancourt 1204, Apto 5B\nSanto Domingo 10604, DO · +1 809 555 0142",
+                              "lineHeight": 1.6,
+                              "fontFamily": "$font-body",
+                              "fontSize": 13.5,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "v2Agp",
+                          "name": "Card PAYMENT",
+                          "width": "fill_container",
+                          "fill": "$bg-white",
+                          "cornerRadius": 12,
+                          "stroke": "$border-color",
+                          "strokeWidth": 1,
+                          "layout": "vertical",
+                          "gap": 16,
+                          "padding": 20,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "DRJnU",
+                              "name": "Card Top",
+                              "width": "fill_container",
+                              "justifyContent": "space_between",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "l9M7d",
+                                  "name": "Card Label",
+                                  "fill": "$text-muted",
+                                  "content": "PAYMENT",
+                                  "fontFamily": "$font-body",
+                                  "fontSize": 12,
+                                  "fontWeight": "600",
+                                  "letterSpacing": 1.5
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "Zd1PZ",
+                                  "name": "Secure Badge",
+                                  "gap": 6,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "icon",
+                                      "id": "z7FlX",
+                                      "name": "Lock Icon",
+                                      "width": 13,
+                                      "height": 13,
+                                      "icon": "lock",
+                                      "library": "lucide",
+                                      "fill": "$text-muted"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "E2H7Y",
+                                      "name": "Secure Text",
+                                      "fill": "$text-muted",
+                                      "content": "Encrypted",
+                                      "fontFamily": "$font-body",
+                                      "fontSize": 12.5,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "mx05a",
+                              "name": "Stripe Payment Element",
+                              "width": "fill_container",
+                              "layout": "vertical",
+                              "gap": 14,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "Gx8kW",
+                                  "name": "Method Tabs",
+                                  "width": "fill_container",
+                                  "gap": 8,
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "c3dlp",
+                                      "name": "Tab Card",
+                                      "width": "fill_container",
+                                      "height": 60,
+                                      "fill": "#F7941D14",
+                                      "cornerRadius": 6,
+                                      "stroke": "$brand-orange",
+                                      "strokeWidth": 1.5,
+                                      "layout": "vertical",
+                                      "gap": 6,
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "icon",
+                                          "id": "j0qKn",
+                                          "name": "Tab Icon",
+                                          "width": 19,
+                                          "height": 19,
+                                          "icon": "credit-card",
+                                          "library": "lucide",
+                                          "fill": "$brand-orange-text"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "HXNkn",
+                                          "name": "Tab Label",
+                                          "fill": "$text-primary",
+                                          "content": "Card",
+                                          "fontFamily": "$font-body",
+                                          "fontSize": 12.5,
+                                          "fontWeight": "600"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "nTX1z",
+                                      "name": "Tab Apple Pay",
+                                      "width": "fill_container",
+                                      "height": 60,
+                                      "fill": "$bg-white",
+                                      "cornerRadius": 6,
+                                      "stroke": "$border-color",
+                                      "strokeWidth": 1,
+                                      "layout": "vertical",
+                                      "gap": 6,
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "icon",
+                                          "id": "mtYmB",
+                                          "name": "Tab Icon",
+                                          "width": 19,
+                                          "height": 19,
+                                          "icon": "apple",
+                                          "library": "lucide",
+                                          "fill": "$text-secondary"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "cyqsi",
+                                          "name": "Tab Label",
+                                          "fill": "$text-secondary",
+                                          "content": "Apple Pay",
+                                          "fontFamily": "$font-body",
+                                          "fontSize": 12.5,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "YJbXP",
+                                      "name": "Tab Link",
+                                      "width": "fill_container",
+                                      "height": 60,
+                                      "fill": "$bg-white",
+                                      "cornerRadius": 6,
+                                      "stroke": "$border-color",
+                                      "strokeWidth": 1,
+                                      "layout": "vertical",
+                                      "gap": 6,
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "icon",
+                                          "id": "IFbF2",
+                                          "name": "Tab Icon",
+                                          "width": 19,
+                                          "height": 19,
+                                          "icon": "link",
+                                          "library": "lucide",
+                                          "fill": "$text-secondary"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "O3yBY",
+                                          "name": "Tab Label",
+                                          "fill": "$text-secondary",
+                                          "content": "Link",
+                                          "fontFamily": "$font-body",
+                                          "fontSize": 12.5,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "PLATK",
+                                  "name": "SField Card number",
+                                  "width": "fill_container",
+                                  "layout": "vertical",
+                                  "gap": 6,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "yvm8c",
+                                      "name": "SField Label",
+                                      "fill": "$text-primary",
+                                      "content": "Card number",
+                                      "fontFamily": "$font-body",
+                                      "fontSize": 13,
+                                      "fontWeight": "500"
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "DTwDH",
+                                      "name": "SField Box",
+                                      "width": "fill_container",
+                                      "height": 46,
+                                      "fill": "$bg-white",
+                                      "cornerRadius": 6,
+                                      "stroke": "$border-color",
+                                      "strokeWidth": 1,
+                                      "gap": 10,
+                                      "padding": [
+                                        0,
+                                        12
+                                      ],
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "icon",
+                                          "id": "YUW9x",
+                                          "name": "Lead Icon",
+                                          "width": 17,
+                                          "height": 17,
+                                          "icon": "credit-card",
+                                          "library": "lucide",
+                                          "fill": "$text-muted"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "W9HXLh",
+                                          "name": "SField Value",
+                                          "fill": "$text-muted",
+                                          "textGrowth": "fixed-width",
+                                          "width": "fill_container",
+                                          "content": "1234 1234 1234 1234",
+                                          "fontFamily": "$font-body",
+                                          "fontSize": 14.5,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "g1PiDh",
+                                  "name": "Row Expiry CVC",
+                                  "width": "fill_container",
+                                  "gap": 12,
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "uBnBD",
+                                      "name": "SField Expiration date",
+                                      "width": "fill_container",
+                                      "layout": "vertical",
+                                      "gap": 6,
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "LSTUL",
+                                          "name": "SField Label",
+                                          "fill": "$text-primary",
+                                          "content": "Expiration date",
+                                          "fontFamily": "$font-body",
+                                          "fontSize": 13,
+                                          "fontWeight": "500"
+                                        },
+                                        {
+                                          "type": "frame",
+                                          "id": "jAb8a",
+                                          "name": "SField Box",
+                                          "width": "fill_container",
+                                          "height": 46,
+                                          "fill": "$bg-white",
+                                          "cornerRadius": 6,
+                                          "stroke": "$border-color",
+                                          "strokeWidth": 1,
+                                          "gap": 10,
+                                          "padding": [
+                                            0,
+                                            12
+                                          ],
+                                          "alignItems": "center",
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "ZIiOD",
+                                              "name": "SField Value",
+                                              "fill": "$text-muted",
+                                              "textGrowth": "fixed-width",
+                                              "width": "fill_container",
+                                              "content": "MM / YY",
+                                              "fontFamily": "$font-body",
+                                              "fontSize": 14.5,
+                                              "fontWeight": "normal"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "igEmZ",
+                                      "name": "SField Security code",
+                                      "width": "fill_container",
+                                      "layout": "vertical",
+                                      "gap": 6,
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "F9pyqi",
+                                          "name": "SField Label",
+                                          "fill": "$text-primary",
+                                          "content": "Security code",
+                                          "fontFamily": "$font-body",
+                                          "fontSize": 13,
+                                          "fontWeight": "500"
+                                        },
+                                        {
+                                          "type": "frame",
+                                          "id": "rpkD1",
+                                          "name": "SField Box",
+                                          "width": "fill_container",
+                                          "height": 46,
+                                          "fill": "$bg-white",
+                                          "cornerRadius": 6,
+                                          "stroke": "$border-color",
+                                          "strokeWidth": 1,
+                                          "gap": 10,
+                                          "padding": [
+                                            0,
+                                            12
+                                          ],
+                                          "alignItems": "center",
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "o2QHQ",
+                                              "name": "SField Value",
+                                              "fill": "$text-muted",
+                                              "textGrowth": "fixed-width",
+                                              "width": "fill_container",
+                                              "content": "CVC",
+                                              "fontFamily": "$font-body",
+                                              "fontSize": 14.5,
+                                              "fontWeight": "normal"
+                                            },
+                                            {
+                                              "type": "icon",
+                                              "id": "b8c5mL",
+                                              "name": "Trail Icon",
+                                              "width": 16,
+                                              "height": 16,
+                                              "icon": "info",
+                                              "library": "lucide",
+                                              "fill": "$text-muted"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "h0CU3",
+                                  "name": "Row Country ZIP",
+                                  "width": "fill_container",
+                                  "gap": 12,
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "bAj7E",
+                                      "name": "SField Country or region",
+                                      "width": "fill_container",
+                                      "layout": "vertical",
+                                      "gap": 6,
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "evYG5",
+                                          "name": "SField Label",
+                                          "fill": "$text-primary",
+                                          "content": "Country or region",
+                                          "fontFamily": "$font-body",
+                                          "fontSize": 13,
+                                          "fontWeight": "500"
+                                        },
+                                        {
+                                          "type": "frame",
+                                          "id": "qeKEK",
+                                          "name": "SField Box",
+                                          "width": "fill_container",
+                                          "height": 46,
+                                          "fill": "$bg-white",
+                                          "cornerRadius": 6,
+                                          "stroke": "$border-color",
+                                          "strokeWidth": 1,
+                                          "gap": 10,
+                                          "padding": [
+                                            0,
+                                            12
+                                          ],
+                                          "alignItems": "center",
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "NtGqN",
+                                              "name": "SField Value",
+                                              "fill": "$text-primary",
+                                              "textGrowth": "fixed-width",
+                                              "width": "fill_container",
+                                              "content": "Dominican Republic",
+                                              "fontFamily": "$font-body",
+                                              "fontSize": 14.5,
+                                              "fontWeight": "normal"
+                                            },
+                                            {
+                                              "type": "icon",
+                                              "id": "sP5i5",
+                                              "name": "Trail Icon",
+                                              "width": 16,
+                                              "height": 16,
+                                              "icon": "chevron-down",
+                                              "library": "lucide",
+                                              "fill": "$text-muted"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "pYwbj",
+                                      "name": "SField ZIP",
+                                      "width": "fill_container",
+                                      "layout": "vertical",
+                                      "gap": 6,
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "xgmLq",
+                                          "name": "SField Label",
+                                          "fill": "$text-primary",
+                                          "content": "ZIP",
+                                          "fontFamily": "$font-body",
+                                          "fontSize": 13,
+                                          "fontWeight": "500"
+                                        },
+                                        {
+                                          "type": "frame",
+                                          "id": "lzU3b",
+                                          "name": "SField Box",
+                                          "width": "fill_container",
+                                          "height": 46,
+                                          "fill": "$bg-white",
+                                          "cornerRadius": 6,
+                                          "stroke": "$border-color",
+                                          "strokeWidth": 1,
+                                          "gap": 10,
+                                          "padding": [
+                                            0,
+                                            12
+                                          ],
+                                          "alignItems": "center",
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "wkb3K",
+                                              "name": "SField Value",
+                                              "fill": "$text-primary",
+                                              "textGrowth": "fixed-width",
+                                              "width": "fill_container",
+                                              "content": "10604",
+                                              "fontFamily": "$font-body",
+                                              "fontSize": 14.5,
+                                              "fontWeight": "normal"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "VFQ48",
+                                  "name": "Save Info Row",
+                                  "width": "fill_container",
+                                  "gap": 10,
+                                  "padding": [
+                                    4,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "oMEvK",
+                                      "name": "Checkbox",
+                                      "width": 18,
+                                      "height": 18,
+                                      "fill": "$brand-orange",
+                                      "cornerRadius": 4,
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "icon",
+                                          "id": "C8eI3",
+                                          "name": "Check",
+                                          "width": 12,
+                                          "height": 12,
+                                          "icon": "check",
+                                          "library": "lucide",
+                                          "fill": "#FFFFFF"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "SMC8E",
+                                      "name": "Save Text",
+                                      "width": "fill_container",
+                                      "layout": "vertical",
+                                      "gap": 2,
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "hlI97",
+                                          "name": "Save Title",
+                                          "fill": "$text-primary",
+                                          "content": "Save my payment info for faster checkout",
+                                          "fontFamily": "$font-body",
+                                          "fontSize": 13.5,
+                                          "fontWeight": "500"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "i7eii",
+                                          "name": "Save Sub",
+                                          "fill": "$text-secondary",
+                                          "textGrowth": "fixed-width",
+                                          "width": "fill_container",
+                                          "content": "Pay faster next time with Link. Your card is stored securely by Stripe — never on 3MRAI servers.",
+                                          "lineHeight": 1.5,
+                                          "fontFamily": "$font-body",
+                                          "fontSize": 12.5,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "p9KiO",
+                                  "name": "Element Divider",
+                                  "fill": "$border-color",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "Jy1g3",
+                                  "name": "Stripe Badge",
+                                  "width": "fill_container",
+                                  "gap": 5,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "NzdpZ",
+                                      "name": "Powered By",
+                                      "fill": "$text-muted",
+                                      "content": "Powered by",
+                                      "fontFamily": "$font-body",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "jFNz4",
+                                      "name": "Stripe Wordmark",
+                                      "fill": "$text-secondary",
+                                      "content": "Stripe",
+                                      "fontFamily": "$font-heading",
+                                      "fontSize": 13,
+                                      "fontWeight": "700",
+                                      "letterSpacing": -0.3
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "id": "IHwS0",
+                          "type": "ref",
+                          "ref": "sHl96",
+                          "name": "Pay Button",
+                          "width": "fill_container",
+                          "height": 58,
+                          "descendants": {
+                            "G7D9G": {
+                              "content": "Pay $256.00"
+                            },
+                            "X0hR6V": {
+                              "enabled": true,
+                              "icon": "lock"
+                            }
+                          }
+                        },
+                        {
+                          "type": "frame",
+                          "id": "uumWL",
+                          "name": "Pay Note",
+                          "width": "fill_container",
+                          "gap": 8,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "erW4F",
+                              "name": "Note Icon",
+                              "width": 14,
+                              "height": 14,
+                              "icon": "shield-check",
+                              "library": "lucide",
+                              "fill": "$text-muted"
+                            },
+                            {
+                              "type": "text",
+                              "id": "Q1njXa",
+                              "name": "Note Text",
+                              "fill": "$text-muted",
+                              "content": "You'll be charged $256.00. Free returns within 30 days.",
+                              "fontFamily": "$font-body",
+                              "fontSize": 12.5,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "djwkw",
+                      "name": "Side Column",
+                      "width": 340,
+                      "layout": "vertical",
+                      "gap": 20,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "x7j30d",
+                          "name": "Card ORDER SUMMARY",
+                          "width": "fill_container",
+                          "fill": "$bg-white",
+                          "cornerRadius": 12,
+                          "stroke": "$border-color",
+                          "strokeWidth": 1,
+                          "layout": "vertical",
+                          "gap": 16,
+                          "padding": 20,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "z6s8vG",
+                              "name": "Card Label",
+                              "fill": "$text-muted",
+                              "content": "ORDER SUMMARY",
+                              "fontFamily": "$font-body",
+                              "fontSize": 12,
+                              "fontWeight": "600",
+                              "letterSpacing": 1.5
+                            },
+                            {
+                              "id": "ffK3s",
+                              "type": "ref",
+                              "ref": "L5XVFs",
+                              "name": "Item Runner Low Canvas",
+                              "width": "fill_container",
+                              "descendants": {
+                                "GNGrm": {
+                                  "fill": {
+                                    "type": "image",
+                                    "enabled": true,
+                                    "url": "https://images.unsplash.com/photo-1700853006150-05595d465c6d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzIyNzR8&ixlib=rb-4.1.0&q=80&w=1080",
+                                    "mode": "fill"
+                                  },
+                                  "width": 56,
+                                  "height": 64
+                                },
+                                "sBnXN": {
+                                  "height": 64
+                                },
+                                "Jxw5w": {
+                                  "content": "Runner Low Canvas",
+                                  "fontSize": 13.5
+                                },
+                                "Jr5X9": {
+                                  "content": "Size 42 · Sand · Qty 1",
+                                  "fontSize": 12
+                                },
+                                "FmJBg": {
+                                  "justifyContent": "end"
+                                },
+                                "R5sATb": {
+                                  "enabled": false
+                                },
+                                "o8xcY": {
+                                  "content": "$89.00",
+                                  "fontSize": 13.5
+                                }
+                              }
+                            },
+                            {
+                              "id": "eQU3x",
+                              "type": "ref",
+                              "ref": "L5XVFs",
+                              "name": "Item Field Tote 18L",
+                              "width": "fill_container",
+                              "descendants": {
+                                "GNGrm": {
+                                  "fill": {
+                                    "type": "image",
+                                    "enabled": true,
+                                    "url": "https://images.unsplash.com/photo-1506094222795-f04d8e06ed23?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzIyMTh8&ixlib=rb-4.1.0&q=80&w=1080",
+                                    "mode": "fill"
+                                  },
+                                  "width": 56,
+                                  "height": 64
+                                },
+                                "sBnXN": {
+                                  "height": 64
+                                },
+                                "Jxw5w": {
+                                  "content": "Field Tote 18L",
+                                  "fontSize": 13.5
+                                },
+                                "Jr5X9": {
+                                  "content": "One size · Ecru · Qty 1",
+                                  "fontSize": 12
+                                },
+                                "FmJBg": {
+                                  "justifyContent": "end"
+                                },
+                                "R5sATb": {
+                                  "enabled": false
+                                },
+                                "o8xcY": {
+                                  "content": "$128.00",
+                                  "fontSize": 13.5
+                                }
+                              }
+                            },
+                            {
+                              "id": "QE29Z",
+                              "type": "ref",
+                              "ref": "L5XVFs",
+                              "name": "Item Linen Cap",
+                              "width": "fill_container",
+                              "descendants": {
+                                "GNGrm": {
+                                  "fill": {
+                                    "type": "image",
+                                    "enabled": true,
+                                    "url": "https://images.unsplash.com/photo-1731616808491-e43fbe6257c6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzIyMTh8&ixlib=rb-4.1.0&q=80&w=1080",
+                                    "mode": "fill"
+                                  },
+                                  "width": 56,
+                                  "height": 64
+                                },
+                                "sBnXN": {
+                                  "height": 64
+                                },
+                                "Jxw5w": {
+                                  "content": "Linen Cap",
+                                  "fontSize": 13.5
+                                },
+                                "Jr5X9": {
+                                  "content": "One size · Navy · Qty 1",
+                                  "fontSize": 12
+                                },
+                                "FmJBg": {
+                                  "justifyContent": "end"
+                                },
+                                "R5sATb": {
+                                  "enabled": false
+                                },
+                                "o8xcY": {
+                                  "content": "$39.00",
+                                  "fontSize": 13.5
+                                }
+                              }
+                            },
+                            {
+                              "type": "rectangle",
+                              "id": "InYbO",
+                              "name": "Summary Divider",
+                              "fill": "$border-color",
+                              "width": "fill_container",
+                              "height": 1
+                            },
+                            {
+                              "type": "frame",
+                              "id": "vP6v3",
+                              "name": "Sum Subtotal",
+                              "width": "fill_container",
+                              "justifyContent": "space_between",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "vGtek",
+                                  "name": "Sum Label",
+                                  "fill": "$text-secondary",
+                                  "content": "Subtotal",
+                                  "fontFamily": "$font-body",
+                                  "fontSize": 14,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "tgQaw",
+                                  "name": "Sum Value",
+                                  "fill": "$text-primary",
+                                  "content": "$256.00",
+                                  "fontFamily": "$font-body",
+                                  "fontSize": 14,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "c6uqVp",
+                              "name": "Sum Shipping",
+                              "width": "fill_container",
+                              "justifyContent": "space_between",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "W5zfd",
+                                  "name": "Sum Label",
+                                  "fill": "$text-secondary",
+                                  "content": "Shipping",
+                                  "fontFamily": "$font-body",
+                                  "fontSize": 14,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "Ubd5o",
+                                  "name": "Sum Value",
+                                  "fill": "$text-primary",
+                                  "content": "Free",
+                                  "fontFamily": "$font-body",
+                                  "fontSize": 14,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "K0brLK",
+                              "name": "Sum Taxes",
+                              "width": "fill_container",
+                              "justifyContent": "space_between",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "Y3cHR",
+                                  "name": "Sum Label",
+                                  "fill": "$text-secondary",
+                                  "content": "Taxes",
+                                  "fontFamily": "$font-body",
+                                  "fontSize": 14,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "phGPa",
+                                  "name": "Sum Value",
+                                  "fill": "$text-primary",
+                                  "content": "$0.00",
+                                  "fontFamily": "$font-body",
+                                  "fontSize": 14,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "PZYLn",
+                              "name": "Sum Total",
+                              "width": "fill_container",
+                              "justifyContent": "space_between",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "DqZtv",
+                                  "name": "Sum Label",
+                                  "fill": "$text-primary",
+                                  "content": "Total",
+                                  "fontFamily": "$font-body",
+                                  "fontSize": 15.5,
+                                  "fontWeight": "700"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "sRsre",
+                                  "name": "Sum Value",
+                                  "fill": "$text-primary",
+                                  "content": "$256.00",
+                                  "fontFamily": "$font-heading",
+                                  "fontSize": 18,
+                                  "fontWeight": "700",
+                                  "letterSpacing": -0.3
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "P0lhqj",
+      "x": 5390,
+      "y": 4400,
+      "name": "Mobile — Checkout Payment",
+      "clip": true,
+      "width": 390,
+      "fill": "$bg-body",
+      "layout": "vertical",
+      "children": [
+        {
+          "id": "N7Eue",
+          "type": "ref",
+          "ref": "fguH5",
+          "name": "App Header",
+          "width": "fill_container"
+        },
+        {
+          "type": "frame",
+          "id": "oZWgC",
+          "name": "Body",
+          "width": "fill_container",
+          "fill": "$bg-body",
+          "layout": "vertical",
+          "gap": 16,
+          "padding": [
+            16,
+            20,
+            28,
+            20
+          ],
+          "children": [
+            {
+              "type": "frame",
+              "id": "KVul2",
+              "name": "Back Link",
+              "gap": 6,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon",
+                  "id": "YU8Hp",
+                  "name": "Back Icon",
+                  "width": 16,
+                  "height": 16,
+                  "icon": "chevron-left",
+                  "library": "lucide",
+                  "fill": "$text-secondary"
+                },
+                {
+                  "type": "text",
+                  "id": "exEN6",
+                  "name": "Back Label",
+                  "fill": "$text-secondary",
+                  "content": "Back to cart",
+                  "fontFamily": "$font-body",
+                  "fontSize": 13.5,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "t2hYX",
+              "name": "Header",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 4,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "flw5l",
+                  "name": "Page Title",
+                  "fill": "$text-primary",
+                  "content": "Checkout",
+                  "fontFamily": "$font-heading",
+                  "fontSize": 26,
+                  "fontWeight": "700",
+                  "letterSpacing": -0.5
+                },
+                {
+                  "type": "text",
+                  "id": "qzcVU",
+                  "name": "Page Sub",
+                  "fill": "$text-secondary",
+                  "content": "3 items · $256.00 total",
+                  "fontFamily": "$font-body",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "X1Z8tn",
+              "name": "Steps",
+              "width": "fill_container",
+              "gap": 8,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "gpMJi",
+                  "name": "Step Cart",
+                  "gap": 6,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "mmwtp",
+                      "name": "Step Dot",
+                      "width": 20,
+                      "height": 20,
+                      "fill": "$brand-navy",
+                      "cornerRadius": 10,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "lGz10",
+                          "name": "Step Glyph",
+                          "width": 11,
+                          "height": 11,
+                          "icon": "check",
+                          "library": "lucide",
+                          "fill": "#FFFFFF"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "ldqkE",
+                      "name": "Step Label",
+                      "fill": "$text-secondary",
+                      "content": "Cart",
+                      "fontFamily": "$font-body",
+                      "fontSize": 12.5,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "rectangle",
+                  "id": "QTAXv",
+                  "name": "Step Sep",
+                  "fill": "$border-strong",
+                  "width": 14,
+                  "height": 1
+                },
+                {
+                  "type": "frame",
+                  "id": "n4tZ62",
+                  "name": "Step Address",
+                  "gap": 6,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "az2S9",
+                      "name": "Step Dot",
+                      "width": 20,
+                      "height": 20,
+                      "fill": "$brand-navy",
+                      "cornerRadius": 10,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "j85Ev7",
+                          "name": "Step Glyph",
+                          "width": 11,
+                          "height": 11,
+                          "icon": "check",
+                          "library": "lucide",
+                          "fill": "#FFFFFF"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "wbZbh",
+                      "name": "Step Label",
+                      "fill": "$text-secondary",
+                      "content": "Address",
+                      "fontFamily": "$font-body",
+                      "fontSize": 12.5,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "rectangle",
+                  "id": "fP9ry",
+                  "name": "Step Sep",
+                  "fill": "$border-strong",
+                  "width": 14,
+                  "height": 1
+                },
+                {
+                  "type": "frame",
+                  "id": "tANXO",
+                  "name": "Step Payment",
+                  "gap": 6,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "e8Qxq",
+                      "name": "Step Dot",
+                      "width": 20,
+                      "height": 20,
+                      "fill": "$brand-orange",
+                      "cornerRadius": 10,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "zpU1e",
+                          "name": "Step Glyph",
+                          "width": 11,
+                          "height": 11,
+                          "icon": "credit-card",
+                          "library": "lucide",
+                          "fill": "#FFFFFF"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "NOAHU",
+                      "name": "Step Label",
+                      "fill": "$text-primary",
+                      "content": "Payment",
+                      "fontFamily": "$font-body",
+                      "fontSize": 12.5,
+                      "fontWeight": "600"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "N6hMOT",
+              "name": "Card DELIVERY ADDRESS",
+              "width": "fill_container",
+              "fill": "$bg-white",
+              "cornerRadius": 12,
+              "stroke": "$border-color",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "gap": 14,
+              "padding": 16,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "jABJ6",
+                  "name": "Card Top",
+                  "width": "fill_container",
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "l4IDM",
+                      "name": "Card Label",
+                      "fill": "$text-muted",
+                      "content": "DELIVERY ADDRESS",
+                      "fontFamily": "$font-body",
+                      "fontSize": 11.5,
+                      "fontWeight": "600",
+                      "letterSpacing": 1.4
+                    },
+                    {
+                      "type": "text",
+                      "id": "CdtEE",
+                      "name": "Change Link",
+                      "fill": "$brand-navy",
+                      "content": "Change",
+                      "fontFamily": "$font-body",
+                      "fontSize": 13,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "R4NAF",
+                  "name": "Address Name",
+                  "fill": "$text-primary",
+                  "content": "Jose Martinez",
+                  "fontFamily": "$font-body",
+                  "fontSize": 14,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "OrZvV",
+                  "name": "Address Text",
+                  "fill": "$text-secondary",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "Av. Rómulo Betancourt 1204, Apto 5B\nSanto Domingo 10604, DO",
+                  "lineHeight": 1.6,
+                  "fontFamily": "$font-body",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "UF3nG",
+              "name": "Card PAYMENT",
+              "width": "fill_container",
+              "fill": "$bg-white",
+              "cornerRadius": 12,
+              "stroke": "$border-color",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "gap": 14,
+              "padding": 16,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "Q4nrh",
+                  "name": "Card Top",
+                  "width": "fill_container",
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "IERIt",
+                      "name": "Card Label",
+                      "fill": "$text-muted",
+                      "content": "PAYMENT",
+                      "fontFamily": "$font-body",
+                      "fontSize": 11.5,
+                      "fontWeight": "600",
+                      "letterSpacing": 1.4
+                    },
+                    {
+                      "type": "frame",
+                      "id": "vqQNf",
+                      "name": "Secure Badge",
+                      "gap": 5,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "O2JHtZ",
+                          "name": "Lock Icon",
+                          "width": 12,
+                          "height": 12,
+                          "icon": "lock",
+                          "library": "lucide",
+                          "fill": "$text-muted"
+                        },
+                        {
+                          "type": "text",
+                          "id": "h14b9",
+                          "name": "Secure Text",
+                          "fill": "$text-muted",
+                          "content": "Encrypted",
+                          "fontFamily": "$font-body",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "W4R9Qz",
+                  "name": "Stripe Payment Element",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 13,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "nZ4CP",
+                      "name": "Method Tabs",
+                      "width": "fill_container",
+                      "gap": 7,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "tc8hX",
+                          "name": "Tab Card",
+                          "width": "fill_container",
+                          "height": 56,
+                          "fill": "#F7941D14",
+                          "cornerRadius": 6,
+                          "stroke": "$brand-orange",
+                          "strokeWidth": 1.5,
+                          "layout": "vertical",
+                          "gap": 5,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "V3rGT",
+                              "name": "Tab Icon",
+                              "width": 18,
+                              "height": 18,
+                              "icon": "credit-card",
+                              "library": "lucide",
+                              "fill": "$brand-orange-text"
+                            },
+                            {
+                              "type": "text",
+                              "id": "xcpjY",
+                              "name": "Tab Label",
+                              "fill": "$text-primary",
+                              "content": "Card",
+                              "fontFamily": "$font-body",
+                              "fontSize": 11.5,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "xUzGI",
+                          "name": "Tab Apple Pay",
+                          "width": "fill_container",
+                          "height": 56,
+                          "fill": "$bg-white",
+                          "cornerRadius": 6,
+                          "stroke": "$border-color",
+                          "strokeWidth": 1,
+                          "layout": "vertical",
+                          "gap": 5,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "bmHrx",
+                              "name": "Tab Icon",
+                              "width": 18,
+                              "height": 18,
+                              "icon": "apple",
+                              "library": "lucide",
+                              "fill": "$text-secondary"
+                            },
+                            {
+                              "type": "text",
+                              "id": "c69kT",
+                              "name": "Tab Label",
+                              "fill": "$text-secondary",
+                              "content": "Apple Pay",
+                              "fontFamily": "$font-body",
+                              "fontSize": 11.5,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "t9f2Jk",
+                          "name": "Tab Link",
+                          "width": "fill_container",
+                          "height": 56,
+                          "fill": "$bg-white",
+                          "cornerRadius": 6,
+                          "stroke": "$border-color",
+                          "strokeWidth": 1,
+                          "layout": "vertical",
+                          "gap": 5,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "w0BIun",
+                              "name": "Tab Icon",
+                              "width": 18,
+                              "height": 18,
+                              "icon": "link",
+                              "library": "lucide",
+                              "fill": "$text-secondary"
+                            },
+                            {
+                              "type": "text",
+                              "id": "j98CDR",
+                              "name": "Tab Label",
+                              "fill": "$text-secondary",
+                              "content": "Link",
+                              "fontFamily": "$font-body",
+                              "fontSize": 11.5,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "eBW8j",
+                      "name": "SField Card number",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 6,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "eCBng",
+                          "name": "SField Label",
+                          "fill": "$text-primary",
+                          "content": "Card number",
+                          "fontFamily": "$font-body",
+                          "fontSize": 12.5,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "cHKei",
+                          "name": "SField Box",
+                          "width": "fill_container",
+                          "height": 46,
+                          "fill": "$bg-white",
+                          "cornerRadius": 6,
+                          "stroke": "$border-color",
+                          "strokeWidth": 1,
+                          "gap": 9,
+                          "padding": [
+                            0,
+                            12
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "mm0KK",
+                              "name": "Lead Icon",
+                              "width": 16,
+                              "height": 16,
+                              "icon": "credit-card",
+                              "library": "lucide",
+                              "fill": "$text-muted"
+                            },
+                            {
+                              "type": "text",
+                              "id": "CMFlP",
+                              "name": "SField Value",
+                              "fill": "$text-muted",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "1234 1234 1234 1234",
+                              "fontFamily": "$font-body",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "u8siD",
+                      "name": "Row Expiry CVC",
+                      "width": "fill_container",
+                      "gap": 10,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "e2oyP",
+                          "name": "SField Expiration date",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Z86Tz",
+                              "name": "SField Label",
+                              "fill": "$text-primary",
+                              "content": "Expiration date",
+                              "fontFamily": "$font-body",
+                              "fontSize": 12.5,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "mDlO6",
+                              "name": "SField Box",
+                              "width": "fill_container",
+                              "height": 46,
+                              "fill": "$bg-white",
+                              "cornerRadius": 6,
+                              "stroke": "$border-color",
+                              "strokeWidth": 1,
+                              "gap": 9,
+                              "padding": [
+                                0,
+                                12
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "CAwI4",
+                                  "name": "SField Value",
+                                  "fill": "$text-muted",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "MM / YY",
+                                  "fontFamily": "$font-body",
+                                  "fontSize": 14,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Yv5aS",
+                          "name": "SField Security code",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "PeLQT",
+                              "name": "SField Label",
+                              "fill": "$text-primary",
+                              "content": "Security code",
+                              "fontFamily": "$font-body",
+                              "fontSize": 12.5,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "lD3rE",
+                              "name": "SField Box",
+                              "width": "fill_container",
+                              "height": 46,
+                              "fill": "$bg-white",
+                              "cornerRadius": 6,
+                              "stroke": "$border-color",
+                              "strokeWidth": 1,
+                              "gap": 9,
+                              "padding": [
+                                0,
+                                12
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "BxrFv",
+                                  "name": "SField Value",
+                                  "fill": "$text-muted",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "CVC",
+                                  "fontFamily": "$font-body",
+                                  "fontSize": 14,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "icon",
+                                  "id": "Y9CvNM",
+                                  "name": "Trail Icon",
+                                  "width": 15,
+                                  "height": 15,
+                                  "icon": "info",
+                                  "library": "lucide",
+                                  "fill": "$text-muted"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "i12BN7",
+                      "name": "Row Country ZIP",
+                      "width": "fill_container",
+                      "gap": 10,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "seAaV",
+                          "name": "SField Country",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "SBZ3i",
+                              "name": "SField Label",
+                              "fill": "$text-primary",
+                              "content": "Country",
+                              "fontFamily": "$font-body",
+                              "fontSize": 12.5,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "G5M4J8",
+                              "name": "SField Box",
+                              "width": "fill_container",
+                              "height": 46,
+                              "fill": "$bg-white",
+                              "cornerRadius": 6,
+                              "stroke": "$border-color",
+                              "strokeWidth": 1,
+                              "gap": 9,
+                              "padding": [
+                                0,
+                                12
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "RQYgW",
+                                  "name": "SField Value",
+                                  "fill": "$text-primary",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Dominican Rep.",
+                                  "fontFamily": "$font-body",
+                                  "fontSize": 14,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "icon",
+                                  "id": "z9rvY",
+                                  "name": "Trail Icon",
+                                  "width": 15,
+                                  "height": 15,
+                                  "icon": "chevron-down",
+                                  "library": "lucide",
+                                  "fill": "$text-muted"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "MlViQ",
+                          "name": "SField ZIP",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "UvEK2",
+                              "name": "SField Label",
+                              "fill": "$text-primary",
+                              "content": "ZIP",
+                              "fontFamily": "$font-body",
+                              "fontSize": 12.5,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "H41uR",
+                              "name": "SField Box",
+                              "width": "fill_container",
+                              "height": 46,
+                              "fill": "$bg-white",
+                              "cornerRadius": 6,
+                              "stroke": "$border-color",
+                              "strokeWidth": 1,
+                              "gap": 9,
+                              "padding": [
+                                0,
+                                12
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "fd9KW",
+                                  "name": "SField Value",
+                                  "fill": "$text-primary",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "10604",
+                                  "fontFamily": "$font-body",
+                                  "fontSize": 14,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "VPmQz",
+                      "name": "Save Info Row",
+                      "width": "fill_container",
+                      "gap": 9,
+                      "padding": [
+                        4,
+                        0,
+                        0,
+                        0
+                      ],
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "OC1Q5",
+                          "name": "Checkbox",
+                          "width": 18,
+                          "height": 18,
+                          "fill": "$brand-orange",
+                          "cornerRadius": 4,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "iJFVg",
+                              "name": "Check",
+                              "width": 12,
+                              "height": 12,
+                              "icon": "check",
+                              "library": "lucide",
+                              "fill": "#FFFFFF"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "E1ZBon",
+                          "name": "Save Text",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "JvwlZ",
+                              "name": "Save Title",
+                              "fill": "$text-primary",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "Save my payment info for faster checkout",
+                              "fontFamily": "$font-body",
+                              "fontSize": 13,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "text",
+                              "id": "MX3gc",
+                              "name": "Save Sub",
+                              "fill": "$text-secondary",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "Your card is stored securely by Stripe — never on 3MRAI servers.",
+                              "lineHeight": 1.5,
+                              "fontFamily": "$font-body",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "rectangle",
+                      "id": "S6R5c",
+                      "name": "Element Divider",
+                      "fill": "$border-color",
+                      "width": "fill_container",
+                      "height": 1
+                    },
+                    {
+                      "type": "frame",
+                      "id": "v1XxN5",
+                      "name": "Stripe Badge",
+                      "width": "fill_container",
+                      "gap": 5,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "nBEtC",
+                          "name": "Powered By",
+                          "fill": "$text-muted",
+                          "content": "Powered by",
+                          "fontFamily": "$font-body",
+                          "fontSize": 11.5,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "A7kIc",
+                          "name": "Stripe Wordmark",
+                          "fill": "$text-secondary",
+                          "content": "Stripe",
+                          "fontFamily": "$font-heading",
+                          "fontSize": 12.5,
+                          "fontWeight": "700",
+                          "letterSpacing": -0.3
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "oMZcF",
+              "name": "Card ORDER SUMMARY",
+              "width": "fill_container",
+              "fill": "$bg-white",
+              "cornerRadius": 12,
+              "stroke": "$border-color",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "gap": 14,
+              "padding": 16,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "Ubips",
+                  "name": "Card Label",
+                  "fill": "$text-muted",
+                  "content": "ORDER SUMMARY",
+                  "fontFamily": "$font-body",
+                  "fontSize": 11.5,
+                  "fontWeight": "600",
+                  "letterSpacing": 1.4
+                },
+                {
+                  "id": "Dp5Qm",
+                  "type": "ref",
+                  "ref": "L5XVFs",
+                  "name": "Item Runner Low Canvas",
+                  "width": "fill_container",
+                  "descendants": {
+                    "GNGrm": {
+                      "fill": {
+                        "type": "image",
+                        "enabled": true,
+                        "url": "https://images.unsplash.com/photo-1700853006150-05595d465c6d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzIyNzR8&ixlib=rb-4.1.0&q=80&w=1080",
+                        "mode": "fill"
+                      },
+                      "width": 52,
+                      "height": 60
+                    },
+                    "sBnXN": {
+                      "height": 60
+                    },
+                    "Jxw5w": {
+                      "content": "Runner Low Canvas",
+                      "fontSize": 13.5
+                    },
+                    "Jr5X9": {
+                      "content": "Size 42 · Sand · Qty 1",
+                      "fontSize": 12
+                    },
+                    "FmJBg": {
+                      "justifyContent": "end"
+                    },
+                    "R5sATb": {
+                      "enabled": false
+                    },
+                    "o8xcY": {
+                      "content": "$89.00",
+                      "fontSize": 13.5
+                    }
+                  }
+                },
+                {
+                  "id": "JlUtX",
+                  "type": "ref",
+                  "ref": "L5XVFs",
+                  "name": "Item Field Tote 18L",
+                  "width": "fill_container",
+                  "descendants": {
+                    "GNGrm": {
+                      "fill": {
+                        "type": "image",
+                        "enabled": true,
+                        "url": "https://images.unsplash.com/photo-1506094222795-f04d8e06ed23?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzIyMTh8&ixlib=rb-4.1.0&q=80&w=1080",
+                        "mode": "fill"
+                      },
+                      "width": 52,
+                      "height": 60
+                    },
+                    "sBnXN": {
+                      "height": 60
+                    },
+                    "Jxw5w": {
+                      "content": "Field Tote 18L",
+                      "fontSize": 13.5
+                    },
+                    "Jr5X9": {
+                      "content": "One size · Ecru · Qty 1",
+                      "fontSize": 12
+                    },
+                    "FmJBg": {
+                      "justifyContent": "end"
+                    },
+                    "R5sATb": {
+                      "enabled": false
+                    },
+                    "o8xcY": {
+                      "content": "$128.00",
+                      "fontSize": 13.5
+                    }
+                  }
+                },
+                {
+                  "id": "z2gU2",
+                  "type": "ref",
+                  "ref": "L5XVFs",
+                  "name": "Item Linen Cap",
+                  "width": "fill_container",
+                  "descendants": {
+                    "GNGrm": {
+                      "fill": {
+                        "type": "image",
+                        "enabled": true,
+                        "url": "https://images.unsplash.com/photo-1731616808491-e43fbe6257c6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzIyMTh8&ixlib=rb-4.1.0&q=80&w=1080",
+                        "mode": "fill"
+                      },
+                      "width": 52,
+                      "height": 60
+                    },
+                    "sBnXN": {
+                      "height": 60
+                    },
+                    "Jxw5w": {
+                      "content": "Linen Cap",
+                      "fontSize": 13.5
+                    },
+                    "Jr5X9": {
+                      "content": "One size · Navy · Qty 1",
+                      "fontSize": 12
+                    },
+                    "FmJBg": {
+                      "justifyContent": "end"
+                    },
+                    "R5sATb": {
+                      "enabled": false
+                    },
+                    "o8xcY": {
+                      "content": "$39.00",
+                      "fontSize": 13.5
+                    }
+                  }
+                },
+                {
+                  "type": "rectangle",
+                  "id": "aIxdt",
+                  "name": "Summary Divider",
+                  "fill": "$border-color",
+                  "width": "fill_container",
+                  "height": 1
+                },
+                {
+                  "type": "frame",
+                  "id": "BoRYZ",
+                  "name": "Sum Subtotal",
+                  "width": "fill_container",
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "KRVOa",
+                      "name": "Sum Label",
+                      "fill": "$text-secondary",
+                      "content": "Subtotal",
+                      "fontFamily": "$font-body",
+                      "fontSize": 13.5,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "rqcnc",
+                      "name": "Sum Value",
+                      "fill": "$text-primary",
+                      "content": "$256.00",
+                      "fontFamily": "$font-body",
+                      "fontSize": 13.5,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "T4dVq",
+                  "name": "Sum Shipping",
+                  "width": "fill_container",
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "K55YDy",
+                      "name": "Sum Label",
+                      "fill": "$text-secondary",
+                      "content": "Shipping",
+                      "fontFamily": "$font-body",
+                      "fontSize": 13.5,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "Qa22j",
+                      "name": "Sum Value",
+                      "fill": "$text-primary",
+                      "content": "Free",
+                      "fontFamily": "$font-body",
+                      "fontSize": 13.5,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "y6I2P",
+                  "name": "Sum Taxes",
+                  "width": "fill_container",
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "a2oKLG",
+                      "name": "Sum Label",
+                      "fill": "$text-secondary",
+                      "content": "Taxes",
+                      "fontFamily": "$font-body",
+                      "fontSize": 13.5,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "E8RnVP",
+                      "name": "Sum Value",
+                      "fill": "$text-primary",
+                      "content": "$0.00",
+                      "fontFamily": "$font-body",
+                      "fontSize": 13.5,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "VTT0A",
+                  "name": "Sum Total",
+                  "width": "fill_container",
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "i9KTlh",
+                      "name": "Sum Label",
+                      "fill": "$text-primary",
+                      "content": "Total",
+                      "fontFamily": "$font-body",
+                      "fontSize": 15,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "text",
+                      "id": "ShF7D",
+                      "name": "Sum Value",
+                      "fill": "$text-primary",
+                      "content": "$256.00",
+                      "fontFamily": "$font-heading",
+                      "fontSize": 17,
+                      "fontWeight": "700",
+                      "letterSpacing": -0.3
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "Wo0Am",
+              "type": "ref",
+              "ref": "sHl96",
+              "name": "Pay Button",
+              "width": "fill_container",
+              "height": 56,
+              "descendants": {
+                "G7D9G": {
+                  "content": "Pay $256.00",
+                  "fontSize": 15
+                },
+                "X0hR6V": {
+                  "enabled": true,
+                  "icon": "lock"
+                }
+              }
+            },
+            {
+              "type": "frame",
+              "id": "r5zge",
+              "name": "Pay Note",
+              "width": "fill_container",
+              "gap": 7,
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon",
+                  "id": "tQyCh",
+                  "name": "Note Icon",
+                  "width": 13,
+                  "height": 13,
+                  "icon": "shield-check",
+                  "library": "lucide",
+                  "fill": "$text-muted"
+                },
+                {
+                  "type": "text",
+                  "id": "GL5k0",
+                  "name": "Note Text",
+                  "fill": "$text-muted",
+                  "content": "Free returns within 30 days.",
+                  "fontFamily": "$font-body",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "hed4V",
+      "x": 4680,
+      "y": 3008,
+      "name": "Home — Cart Payment (Stripe)",
+      "clip": true,
+      "width": 1440,
+      "height": 1120,
+      "fill": "$bg-white",
+      "layout": "none",
+      "children": [
+        {
+          "type": "frame",
+          "id": "l0Bcbv",
+          "x": 0,
+          "y": 0,
+          "name": "Page",
+          "clip": true,
+          "width": 1440,
+          "height": 1120,
+          "fill": "$bg-white",
+          "layout": "vertical",
+          "children": [
+            {
+              "id": "GtGFR",
+              "type": "ref",
+              "ref": "EMNqu",
+              "name": "App Header",
+              "width": "fill_container"
+            },
+            {
+              "type": "frame",
+              "id": "B2Ayxk",
+              "name": "Body",
+              "width": "fill_container",
+              "height": "fill_container",
+              "fill": "$bg-white",
+              "layout": "vertical",
+              "gap": 28,
+              "padding": [
+                36,
+                48
+              ],
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "La8OC",
+                  "name": "Toolbar",
+                  "width": "fill_container",
+                  "justifyContent": "space_between",
+                  "alignItems": "end",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "N31I2",
+                      "name": "Title Block",
+                      "layout": "vertical",
+                      "gap": 5,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "RNqZj",
+                          "name": "Page Title",
+                          "fill": "$text-primary",
+                          "content": "New arrivals",
+                          "fontFamily": "$font-heading",
+                          "fontSize": 28,
+                          "fontWeight": "700",
+                          "letterSpacing": -0.7
+                        },
+                        {
+                          "type": "text",
+                          "id": "Cnomc",
+                          "name": "Page Meta",
+                          "fill": "$text-secondary",
+                          "content": "42 products · updated today",
+                          "fontFamily": "$font-body",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "iv6sl",
+                      "name": "Filters",
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "Gpjfp",
+                          "name": "Pill All",
+                          "height": 38,
+                          "fill": "$brand-navy",
+                          "cornerRadius": 19,
+                          "stroke": "$brand-navy",
+                          "strokeWidth": 1,
+                          "padding": [
+                            0,
+                            17
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "jPrzd",
+                              "name": "Pill Label",
+                              "fill": "#FFFFFF",
+                              "content": "All",
+                              "fontFamily": "$font-body",
+                              "fontSize": 13.5,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "E6mB9",
+                          "name": "Pill Footwear",
+                          "height": 38,
+                          "fill": "$bg-white",
+                          "cornerRadius": 19,
+                          "stroke": "$border-strong",
+                          "strokeWidth": 1,
+                          "padding": [
+                            0,
+                            17
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "V51u7i",
+                              "name": "Pill Label",
+                              "fill": "$text-secondary",
+                              "content": "Footwear",
+                              "fontFamily": "$font-body",
+                              "fontSize": 13.5,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "VYDQ2",
+                          "name": "Pill Bags",
+                          "height": 38,
+                          "fill": "$bg-white",
+                          "cornerRadius": 19,
+                          "stroke": "$border-strong",
+                          "strokeWidth": 1,
+                          "padding": [
+                            0,
+                            17
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "fOti3",
+                              "name": "Pill Label",
+                              "fill": "$text-secondary",
+                              "content": "Bags",
+                              "fontFamily": "$font-body",
+                              "fontSize": 13.5,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "SNC3p",
+                          "name": "Pill Accessories",
+                          "height": 38,
+                          "fill": "$bg-white",
+                          "cornerRadius": 19,
+                          "stroke": "$border-strong",
+                          "strokeWidth": 1,
+                          "padding": [
+                            0,
+                            17
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "OE1LB",
+                              "name": "Pill Label",
+                              "fill": "$text-secondary",
+                              "content": "Accessories",
+                              "fontFamily": "$font-body",
+                              "fontSize": 13.5,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "pSND2",
+                          "name": "Sort",
+                          "height": 38,
+                          "fill": "$bg-white",
+                          "cornerRadius": 19,
+                          "stroke": "$border-strong",
+                          "strokeWidth": 1,
+                          "gap": 8,
+                          "padding": [
+                            0,
+                            14
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "OrXYt",
+                              "name": "Sort Label",
+                              "fill": "$text-primary",
+                              "content": "Featured",
+                              "fontFamily": "$font-body",
+                              "fontSize": 13.5,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "icon",
+                              "id": "igOSK",
+                              "name": "Sort Icon",
+                              "width": 15,
+                              "height": 15,
+                              "icon": "chevron-down",
+                              "library": "lucide",
+                              "fill": "$text-secondary"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "pZo3F",
+                  "name": "Product Grid",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 36,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "UP3cq",
+                      "name": "Grid Row 1",
+                      "width": "fill_container",
+                      "gap": 24,
+                      "children": [
+                        {
+                          "id": "cuhuA",
+                          "type": "ref",
+                          "ref": "QmNIg",
+                          "name": "Card Runner Low Canvas",
+                          "width": "fill_container",
+                          "descendants": {
+                            "LrLUx": {
+                              "fill": {
+                                "type": "image",
+                                "enabled": true,
+                                "url": "https://images.unsplash.com/photo-1722489292294-426912777649?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMDh8&ixlib=rb-4.1.0&q=80&w=1080",
+                                "mode": "fill"
+                              }
+                            },
+                            "x2OOG": {
+                              "content": "FOOTWEAR"
+                            },
+                            "o7HV9J": {
+                              "content": "Runner Low Canvas"
+                            },
+                            "Z1A44P": {
+                              "content": "$89.00"
+                            }
+                          }
+                        },
+                        {
+                          "id": "rmIOR",
+                          "type": "ref",
+                          "ref": "QmNIg",
+                          "name": "Card Field Tote 18L",
+                          "width": "fill_container",
+                          "descendants": {
+                            "LrLUx": {
+                              "fill": {
+                                "type": "image",
+                                "enabled": true,
+                                "url": "https://images.unsplash.com/photo-1661148800433-7e0004fa3b08?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzZ8&ixlib=rb-4.1.0&q=80&w=1080",
+                                "mode": "fill"
+                              }
+                            },
+                            "x2OOG": {
+                              "content": "BAGS"
+                            },
+                            "o7HV9J": {
+                              "content": "Field Tote 18L"
+                            },
+                            "Z1A44P": {
+                              "content": "$128.00"
+                            }
+                          }
+                        },
+                        {
+                          "id": "Nus8L",
+                          "type": "ref",
+                          "ref": "QmNIg",
+                          "name": "Card Trail Shell Jacket",
+                          "width": "fill_container",
+                          "descendants": {
+                            "LrLUx": {
+                              "fill": {
+                                "type": "image",
+                                "enabled": true,
+                                "url": "https://images.unsplash.com/photo-1773932545972-2b00bfae7046?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzZ8&ixlib=rb-4.1.0&q=80&w=1080",
+                                "mode": "fill"
+                              }
+                            },
+                            "x2OOG": {
+                              "content": "OUTERWEAR"
+                            },
+                            "o7HV9J": {
+                              "content": "Trail Shell Jacket"
+                            },
+                            "Z1A44P": {
+                              "content": "$215.00"
+                            }
+                          }
+                        },
+                        {
+                          "id": "T8DLmz",
+                          "type": "ref",
+                          "ref": "QmNIg",
+                          "name": "Card Everyday Backpack",
+                          "width": "fill_container",
+                          "descendants": {
+                            "LrLUx": {
+                              "fill": {
+                                "type": "image",
+                                "enabled": true,
+                                "url": "https://images.unsplash.com/photo-1568247067952-eab2ce84a349?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzd8&ixlib=rb-4.1.0&q=80&w=1080",
+                                "mode": "fill"
+                              }
+                            },
+                            "x2OOG": {
+                              "content": "BAGS"
+                            },
+                            "o7HV9J": {
+                              "content": "Everyday Backpack"
+                            },
+                            "Z1A44P": {
+                              "content": "$149.00"
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "s7unwQ",
+                      "name": "Grid Row 2",
+                      "width": "fill_container",
+                      "gap": 24,
+                      "children": [
+                        {
+                          "id": "QN4Jf",
+                          "type": "ref",
+                          "ref": "QmNIg",
+                          "name": "Card Linen Cap",
+                          "width": "fill_container",
+                          "descendants": {
+                            "LrLUx": {
+                              "fill": {
+                                "type": "image",
+                                "enabled": true,
+                                "url": "https://images.unsplash.com/photo-1633069387153-983ac0f13ab0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzh8&ixlib=rb-4.1.0&q=80&w=1080",
+                                "mode": "fill"
+                              }
+                            },
+                            "x2OOG": {
+                              "content": "ACCESSORIES"
+                            },
+                            "o7HV9J": {
+                              "content": "Linen Cap"
+                            },
+                            "Z1A44P": {
+                              "content": "$39.00"
+                            }
+                          }
+                        },
+                        {
+                          "id": "THOzE",
+                          "type": "ref",
+                          "ref": "QmNIg",
+                          "name": "Card Wool Runner Mid",
+                          "width": "fill_container",
+                          "descendants": {
+                            "LrLUx": {
+                              "fill": {
+                                "type": "image",
+                                "enabled": true,
+                                "url": "https://images.unsplash.com/photo-1581727113174-dd8ad9c3a6d3?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMTF8&ixlib=rb-4.1.0&q=80&w=1080",
+                                "mode": "fill"
+                              }
+                            },
+                            "x2OOG": {
+                              "content": "FOOTWEAR"
+                            },
+                            "o7HV9J": {
+                              "content": "Wool Runner Mid"
+                            },
+                            "Z1A44P": {
+                              "content": "$119.00"
+                            }
+                          }
+                        },
+                        {
+                          "id": "YePku",
+                          "type": "ref",
+                          "ref": "QmNIg",
+                          "name": "Card Leather Card Holder",
+                          "width": "fill_container",
+                          "descendants": {
+                            "LrLUx": {
+                              "fill": {
+                                "type": "image",
+                                "enabled": true,
+                                "url": "https://images.unsplash.com/photo-1614260937422-f93aec4da8c5?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMTJ8&ixlib=rb-4.1.0&q=80&w=1080",
+                                "mode": "fill"
+                              }
+                            },
+                            "x2OOG": {
+                              "content": "ACCESSORIES"
+                            },
+                            "o7HV9J": {
+                              "content": "Leather Card Holder"
+                            },
+                            "Z1A44P": {
+                              "content": "$59.00"
+                            }
+                          }
+                        },
+                        {
+                          "id": "SGXve",
+                          "type": "ref",
+                          "ref": "QmNIg",
+                          "name": "Card Steel Bottle 750ml",
+                          "width": "fill_container",
+                          "descendants": {
+                            "LrLUx": {
+                              "fill": {
+                                "type": "image",
+                                "enabled": true,
+                                "url": "https://images.unsplash.com/photo-1709133706825-8d2f0bdd7465?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzNTh8&ixlib=rb-4.1.0&q=80&w=1080",
+                                "mode": "fill"
+                              }
+                            },
+                            "x2OOG": {
+                              "content": "ACCESSORIES"
+                            },
+                            "o7HV9J": {
+                              "content": "Steel Bottle 750ml"
+                            },
+                            "Z1A44P": {
+                              "content": "$34.00"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "rectangle",
+          "id": "Vlzcc",
+          "x": 0,
+          "y": 0,
+          "name": "Scrim",
+          "fill": "#12161FA6",
+          "width": 1440,
+          "height": 1120
+        },
+        {
+          "id": "BinKm",
+          "type": "ref",
+          "ref": "ET6dr",
+          "name": "Cart Drawer — Payment",
+          "x": 920,
+          "y": 0,
+          "width": 520,
+          "height": 1120,
+          "descendants": {
+            "lMzl8": {
+              "enabled": true
+            },
+            "rCWlq": {
+              "content": "Payment"
+            },
+            "zzGWk": {
+              "content": "Step 2 of 2"
+            },
+            "yzd2z": {
+              "enabled": false
+            },
+            "JlaWD": {
+              "enabled": true
+            },
+            "KwIzw": {
+              "enabled": false
+            },
+            "uVI3j": {
+              "enabled": false
+            },
+            "bXgRD/G7D9G": {
+              "content": "Pay $256.00"
+            },
+            "bXgRD/X0hR6V": {
+              "enabled": true,
+              "icon": "lock"
+            },
+            "baA6j": {
+              "content": "Secure checkout · You'll be charged $256.00"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "NfXeq",
+      "x": 1470,
+      "y": 4400,
+      "name": "Mobile — Cart Payment (Stripe)",
+      "clip": true,
+      "width": 390,
+      "height": 900,
+      "fill": "$bg-white",
+      "layout": "vertical",
+      "children": [
+        {
+          "id": "J1VGA",
+          "type": "ref",
+          "ref": "ET6dr",
+          "name": "Cart Sheet — Payment",
+          "width": "fill_container",
+          "height": "fill_container",
+          "effect": {
+            "type": "shadow",
+            "shadowType": "outer",
+            "enabled": false,
+            "color": "#000000"
+          },
+          "descendants": {
+            "S8cRj": {
+              "padding": [
+                18,
+                20
+              ]
+            },
+            "lMzl8": {
+              "enabled": true
+            },
+            "rCWlq": {
+              "content": "Payment"
+            },
+            "zzGWk": {
+              "content": "Step 2 of 2"
+            },
+            "yzd2z": {
+              "enabled": false
+            },
+            "JlaWD": {
+              "padding": [
+                18,
+                20
+              ],
+              "gap": 14,
+              "enabled": true
+            },
+            "E3bcY": {
+              "padding": [
+                18,
+                20
+              ],
+              "gap": 16
+            },
+            "KwIzw": {
+              "enabled": false
+            },
+            "uVI3j": {
+              "enabled": false
+            },
+            "bXgRD/G7D9G": {
+              "content": "Pay $256.00"
+            },
+            "bXgRD/X0hR6V": {
+              "enabled": true,
+              "icon": "lock"
+            },
+            "baA6j": {
+              "content": "Secure checkout · You'll be charged $256.00"
+            }
+          }
         }
       ]
     }
