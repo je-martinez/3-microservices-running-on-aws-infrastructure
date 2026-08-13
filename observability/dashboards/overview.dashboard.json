@@ -17,7 +17,7 @@
           "title": "Request volume per service",
           "description": "Total requests grouped by service",
           "config": {
-            "show_legends": true,
+            "show_legends": false,
             "decimals": 0
           },
           "queryType": "sql",
@@ -30,7 +30,7 @@
                 "stream_type": "logs",
                 "x": [
                   {
-                    "label": "",
+                    "label": "service",
                     "alias": "x_axis_1",
                     "column": "x_axis_1",
                     "color": null,
@@ -41,7 +41,7 @@
                 ],
                 "y": [
                   {
-                    "label": "y_axis_1",
+                    "label": "log records",
                     "alias": "y_axis_1",
                     "column": "y_axis_1",
                     "color": "#4caf50",
@@ -79,7 +79,7 @@
           "title": "Error count per service (status >= 400)",
           "description": "4xx/5xx responses grouped by service",
           "config": {
-            "show_legends": true,
+            "show_legends": false,
             "decimals": 0
           },
           "queryType": "sql",
@@ -92,7 +92,7 @@
                 "stream_type": "logs",
                 "x": [
                   {
-                    "label": "",
+                    "label": "service",
                     "alias": "x_axis_1",
                     "column": "x_axis_1",
                     "color": null,
@@ -103,7 +103,7 @@
                 ],
                 "y": [
                   {
-                    "label": "y_axis_1",
+                    "label": "errors",
                     "alias": "y_axis_1",
                     "column": "y_axis_1",
                     "color": "#4caf50",
@@ -141,7 +141,7 @@
           "title": "p95 latency per service (ms)",
           "description": "95th-percentile duration_ms grouped by service",
           "config": {
-            "show_legends": true,
+            "show_legends": false,
             "decimals": 2,
             "unit": "milliseconds"
           },
@@ -155,7 +155,7 @@
                 "stream_type": "logs",
                 "x": [
                   {
-                    "label": "",
+                    "label": "service",
                     "alias": "x_axis_1",
                     "column": "x_axis_1",
                     "color": null,
@@ -166,7 +166,7 @@
                 ],
                 "y": [
                   {
-                    "label": "y_axis_1",
+                    "label": "p95 ms",
                     "alias": "y_axis_1",
                     "column": "y_axis_1",
                     "color": "#4caf50",

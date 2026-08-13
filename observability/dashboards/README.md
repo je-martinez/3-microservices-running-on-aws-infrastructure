@@ -238,8 +238,13 @@ embedded in OpenObserve's own JS bundle:
 - **`alias` and `column` must equal the SQL's output column name.** With
   `isDerived: true` that name can be anything the query produces — `y_axis_1`,
   `p50`, whatever — as long as the three agree.
-- **`label` is what the legend shows.** Give multi-series panels real labels
-  (`p50`/`p95`/`p99`), not the raw alias.
+- **`label` is what the legend and axis show — never leave it as the alias.**
+  Copying the SQL alias into `label` puts a literal **`y_axis_1`** in the legend.
+  Name what the series measures (`requests`, `p95`, `errors`), and label the x
+  field with its dimension (`time`, `route`, `status code`).
+- **Turn `show_legends` off on single-series panels.** One line needs no legend —
+  the panel title already names it, and the legend only steals plot width. Turn
+  it on where two or more series share a chart.
 - **`table` panels take `x: []`, `y: []`** — they render raw columns and declare
   no axes.
 - **PromQL panels take no x/y descriptors either** — their series come from the

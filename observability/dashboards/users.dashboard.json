@@ -17,7 +17,7 @@
           "title": "Request rate",
           "description": "Requests per interval",
           "config": {
-            "show_legends": true,
+            "show_legends": false,
             "decimals": 0
           },
           "queryType": "sql",
@@ -30,7 +30,7 @@
                 "stream_type": "logs",
                 "x": [
                   {
-                    "label": "",
+                    "label": "time",
                     "alias": "x_axis_1",
                     "column": "x_axis_1",
                     "color": null,
@@ -41,7 +41,7 @@
                 ],
                 "y": [
                   {
-                    "label": "y_axis_1",
+                    "label": "requests",
                     "alias": "y_axis_1",
                     "column": "y_axis_1",
                     "color": "#4caf50",
@@ -79,7 +79,7 @@
           "title": "Responses by status code",
           "description": "Count grouped by HTTP status",
           "config": {
-            "show_legends": true,
+            "show_legends": false,
             "decimals": 0
           },
           "queryType": "sql",
@@ -92,7 +92,7 @@
                 "stream_type": "logs",
                 "x": [
                   {
-                    "label": "",
+                    "label": "status code",
                     "alias": "x_axis_1",
                     "column": "x_axis_1",
                     "color": null,
@@ -103,7 +103,7 @@
                 ],
                 "y": [
                   {
-                    "label": "y_axis_1",
+                    "label": "responses",
                     "alias": "y_axis_1",
                     "column": "y_axis_1",
                     "color": "#4caf50",
@@ -155,7 +155,7 @@
                 "stream_type": "logs",
                 "x": [
                   {
-                    "label": "",
+                    "label": "time",
                     "alias": "x_axis_1",
                     "column": "x_axis_1",
                     "color": null,
@@ -222,7 +222,7 @@
           "title": "Top routes by volume",
           "description": "Requests grouped by route template",
           "config": {
-            "show_legends": true,
+            "show_legends": false,
             "decimals": 0
           },
           "queryType": "sql",
@@ -235,7 +235,7 @@
                 "stream_type": "logs",
                 "x": [
                   {
-                    "label": "",
+                    "label": "route",
                     "alias": "x_axis_1",
                     "column": "x_axis_1",
                     "color": null,
@@ -246,7 +246,7 @@
                 ],
                 "y": [
                   {
-                    "label": "y_axis_1",
+                    "label": "requests",
                     "alias": "y_axis_1",
                     "column": "y_axis_1",
                     "color": "#4caf50",
