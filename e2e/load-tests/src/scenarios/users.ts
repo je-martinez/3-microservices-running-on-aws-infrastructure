@@ -3,6 +3,16 @@ import { http, status } from "@gatling.io/http";
 import { fakeUser } from "../support/config.js";
 
 /**
+ * The Authorization header must be a FUNCTION.
+ *
+ * A plain template string is evaluated once when the scenario is built, so every
+ * virtual user would send whatever the first one happened to have — or nothing.
+ */
+const authHeader = (session: { get: (k: string) => unknown }) =>
+  `Bearer ${session.get("token")}`;
+
+
+/**
  * The Users journey: register → login → read profile → update profile.
  *
  * Endpoint shapes were taken from services/users/openapi.yaml rather than
@@ -69,17 +79,58 @@ export const login = exec(
       ),
     )
     .asJson()
+    .check(
+      status().is(200),
+      jsonPath("$.accessToken").saveAs("token"),
+      // Kept so the refresh step below has something to exchange.
+      jsonPath("$.refreshToken").saveAs("refreshToken"),
+    ),
+);
+
+/**
+ * Exchange the refresh token for a new access token.
+ *
+ * Worth loading rather than skipping as plumbing: a real client hits this every
+ * time its access token expires, so under sustained traffic it is one of the
+ * most-called auth endpoints — and it goes to Cognito, unlike most reads.
+ */
+export const refreshToken = exec(
+  http("POST /v1/users/refresh")
+    .post("v1/users/refresh")
+    .body(
+      StringBody((session) =>
+        JSON.stringify({ refreshToken: session.get("refreshToken") }),
+      ),
+    )
+    .asJson()
+    // Replace the token, so later steps use the refreshed one and the exchange
+    // is proven to have produced something usable rather than merely a 200.
     .check(status().is(200), jsonPath("$.accessToken").saveAs("token")),
 );
 
 /**
- * The Authorization header must be a FUNCTION.
+ * Change the password while authenticated.
  *
- * A plain template string is evaluated once when the scenario is built, so every
- * virtual user would send whatever the first one happened to have — or nothing.
+ * Distinct from the reset flow: no email, no code — just a logged-in user
+ * setting a new password. It takes ONLY `newPassword`; this endpoint is
+ * deliberately not a general profile update.
  */
-const authHeader = (session: { get: (k: string) => unknown }) =>
-  `Bearer ${session.get("token")}`;
+export const changePassword = exec(
+  http("PATCH /v1/users/me/password")
+    .patch("v1/users/me/password")
+    .header("Authorization", authHeader)
+    .body(
+      StringBody((session) =>
+        // Derived from the email so it is unique per virtual user and stays
+        // within the Cognito password policy (upper, lower, digit, symbol).
+        JSON.stringify({
+          newPassword: `Cc3#${session.get("email")}`.slice(0, 24),
+        }),
+      ),
+    )
+    .asJson()
+    .check(status().is(200)),
+);
 
 export const readProfile = exec(
   http("GET /v1/users/me")

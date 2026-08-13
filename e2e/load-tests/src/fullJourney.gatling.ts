@@ -5,6 +5,7 @@ import {
   nothingFor,
   rampUsers,
   constantUsersPerSec,
+  percent,
   global,
   details,
 } from "@gatling.io/core";
@@ -14,6 +15,8 @@ import {
   seedIdentity,
   register,
   login,
+  refreshToken,
+  changePassword,
   readProfile,
   updateProfile,
   unauthorizedProfileRead,
@@ -21,6 +24,7 @@ import {
 import {
   listProducts,
   createOrder,
+  createMultiLineOrder,
   listMyOrders,
   listMyOrdersWithTracking,
   readOrder,
@@ -60,10 +64,20 @@ export default simulation((setUp) => {
     .pause(1)
     .exec(readProfile)
     .exec(updateProfile)
+    // A real client refreshes its access token as it expires; under sustained
+    // load this is one of the busiest auth endpoints.
+    .exec(refreshToken)
     .pause(2)
     .exec(listProducts)
     .pause(2)
-    .exec(createOrder)
+    // Most baskets hold one item; a third are multi-line. Modelling the split
+    // rather than picking one keeps both code paths under load — the multi-line
+    // order locks three product rows in a single transaction.
+    .randomSwitch()
+    .on(
+      percent(70).then(createOrder),
+      percent(30).then(createMultiLineOrder),
+    )
     .pause(1)
     .exec(listMyOrders)
     // Everything below needs an order id, and a create that lost the stock race
@@ -92,7 +106,9 @@ export default simulation((setUp) => {
     .exec(listProducts)
     .pause(2)
     .exec(listMyOrders)
-    .exec(readProfile);
+    .exec(readProfile)
+    // Authenticated password change — no email, no code, unlike the reset flow.
+    .exec(changePassword);
 
   // Deliberate failures, so the error panels have a shape. Each is checked for
   // the status it should return, so they count as successful requests here —

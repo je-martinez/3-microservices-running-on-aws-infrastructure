@@ -31,7 +31,15 @@ export const listProducts = exec(
   http("GET /v1/products")
     .get("v1/products")
     .header("Authorization", authHeader)
-    .check(status().is(200), jsonPath("$[*].id").findRandom().saveAs("productId")),
+    .check(
+      status().is(200),
+      jsonPath("$[*].id").findRandom().saveAs("productId"),
+      // Three DISTINCT ids for the multi-line order below. findRandom(n) draws
+      // without replacement, which matters: the same product twice in one order
+      // is a different code path (and a 400 in some services), not the
+      // multi-line case this is meant to exercise.
+      jsonPath("$[*].id").findRandom(3).saveAs("productIds"),
+    ),
 );
 
 /**
@@ -64,6 +72,42 @@ export const createOrder = exec(
     .check(
       status().in(201, 409),
       // Only present on a 201 — `optional()` keeps a 409 from failing the check.
+      jsonPath("$.id").optional().saveAs("orderId"),
+    ),
+);
+
+/**
+ * A basket: three different products, varying quantities.
+ *
+ * Worth exercising separately from the single-line order, because it is a
+ * genuinely different path — order creation locks EVERY line's product row
+ * `FOR UPDATE` inside one transaction, so a three-line order holds three locks
+ * at once and touches the pricing/subtotal arithmetic a one-line order never
+ * stresses. It is also what a real basket looks like.
+ *
+ * Accepts 409 for the same reason the single-line order does, and more so:
+ * three locks means three chances to lose a stock race.
+ */
+export const createMultiLineOrder = exec(
+  http("POST /v1/orders (multi-line)")
+    .post("v1/orders")
+    .header("Authorization", authHeader)
+    .body(
+      StringBody((session) => {
+        const ids = session.get("productIds") as string[];
+        return JSON.stringify({
+          lines: ids.map((productId, i) => ({
+            productId,
+            // 1, 2, 3 — a mix rather than a uniform quantity, so the subtotal
+            // arithmetic is actually exercised.
+            quantity: i + 1,
+          })),
+        });
+      }),
+    )
+    .asJson()
+    .check(
+      status().in(201, 409),
       jsonPath("$.id").optional().saveAs("orderId"),
     ),
 );
