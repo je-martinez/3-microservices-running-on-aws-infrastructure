@@ -1,6 +1,7 @@
 import type { Db } from "#shared/db/prisma";
 import type { AuthProvider } from "#shared/auth/auth-provider";
 import type { ResetCodeStore } from "#shared/cache/reset-code-store";
+import type { MetricsPublisher } from "#shared/metrics/cloudwatch-metrics";
 import { runAsActor } from "#shared/audit/actor-context";
 import { AuditActor } from "#shared/audit/audit-actor";
 import { appLogger } from "#shared/logging/app-logger";
@@ -25,19 +26,23 @@ export class ConfirmPasswordResetCommand {
   private readonly db: Db;
   private readonly auth: AuthProvider;
   private readonly resetCodeStore: ResetCodeStore;
+  private readonly metrics: MetricsPublisher;
 
   constructor({
     db,
     auth,
     resetCodeStore,
+    metricsPublisher,
   }: {
     db: Db;
     auth: AuthProvider;
     resetCodeStore: ResetCodeStore;
+    metricsPublisher: MetricsPublisher;
   }) {
     this.db = db;
     this.auth = auth;
     this.resetCodeStore = resetCodeStore;
+    this.metrics = metricsPublisher;
   }
 
   async execute(input: ConfirmPasswordResetInput): Promise<void> {
@@ -128,6 +133,12 @@ export class ConfirmPasswordResetCommand {
       },
       "Password reset confirmed and new password applied",
     );
+
+    // Counted on CONFIRM, not on request: /password/forgot answers 202 even for an
+    // unknown email (deliberate non-enumeration), so counting requests there would
+    // count resets that never happened. Reaching this line means a password was
+    // actually changed. The call never throws (see MetricsPublisher).
+    await this.metrics.publish("password_resets_total", 1, { Service: "users" });
   }
 
   // `never` return type: this always throws, which lets the call sites above

@@ -26,6 +26,9 @@ function deps(overrides: Record<string, unknown> = {}) {
       login: vi.fn(),
     },
     events: { publishUserCreated: vi.fn(async () => {}) },
+    // Default double so every test in this file can construct the command; the
+    // counter assertion below overrides it with its own spy.
+    metricsPublisher: { publish: vi.fn(async () => {}) },
     env: { NODE_ENV: "development", AWS_REGION: "us-east-1" },
     captureCognitoIdentityCommand: { execute: vi.fn(async () => ({ status: "captured" as const })) },
     _created: created,
@@ -120,6 +123,23 @@ describe("RegisterUserCommand", () => {
     expect(appUserIdArg).toMatch(/^usr_/);
     expect(created.id).toBe(appUserIdArg);
   });
+
+  it("publishes users_registered_total on success", async () => {
+    const publish = vi.fn(async () => {});
+    const d = deps({ metricsPublisher: { publish } });
+    const cmd = new RegisterUserCommand(d as any);
+
+    await cmd.execute({
+      email: "ada@example.com",
+      password: "Complexpass#123",
+      fullName: "Ada Lovelace",
+      e2eSource: false,
+    });
+
+    // The exact dimension set is asserted, not just the name: dashboards query
+    // { Service: "users" } and a mismatch returns silently-empty results.
+    expect(publish).toHaveBeenCalledWith("users_registered_total", 1, { Service: "users" });
+  });
 });
 
 function identityDeps(nodeEnv: "development" | "production", capture = vi.fn(async () => ({ status: "captured" as const }))) {
@@ -136,6 +156,7 @@ function identityDeps(nodeEnv: "development" | "production", capture = vi.fn(asy
       login: vi.fn(),
     } as any,
     events: { publishUserCreated: vi.fn() } as any,
+    metricsPublisher: { publish: vi.fn(async () => {}) } as any,
     env: { NODE_ENV: nodeEnv, AWS_REGION: "us-east-1" } as any,
     captureCognitoIdentityCommand: { execute: capture } as any,
   };

@@ -41,6 +41,7 @@ function deps(overrides: Record<string, unknown> = {}) {
       })),
     },
     events: { publishUserCreated: vi.fn(async () => undefined) },
+    metricsPublisher: { publish: vi.fn(async () => undefined) },
     env: { NODE_ENV: "development", AWS_REGION: "us-east-1" },
     captureCognitoIdentityCommand: { execute: vi.fn(async () => ({ status: "captured" as const })) },
     _created: created,
@@ -174,5 +175,17 @@ describe("RegisterPasswordlessCommand", () => {
     });
     const user = await new RegisterPasswordlessCommand(d).execute(input);
     expect(user.email).toBe("a@b.co");
+  });
+
+  it("publishes users_registered_total on success — the same series as the password path", async () => {
+    const publish = vi.fn(async () => undefined);
+    const d = deps({ metricsPublisher: { publish } });
+
+    await new RegisterPasswordlessCommand(d).execute(input);
+
+    // Same name AND same dimensions as register.ts: a passwordless signup is
+    // still a registration. The split lives in users_total's HasPassword
+    // dimension, not in a second counter.
+    expect(publish).toHaveBeenCalledWith("users_registered_total", 1, { Service: "users" });
   });
 });

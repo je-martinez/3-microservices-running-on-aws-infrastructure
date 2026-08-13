@@ -1,3 +1,4 @@
+import { CloudWatchClient } from "@aws-sdk/client-cloudwatch";
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
 import { SQSClient } from "@aws-sdk/client-sqs";
 import { diContainer } from "@fastify/awilix";
@@ -7,6 +8,7 @@ import { db, type Db } from "../db/prisma.ts";
 // `NoopEventPublisher` stays imported and exported from that module — it is
 // still registered by tests that must not emit.
 import { SqsEventPublisher, type EventPublisher } from "../messaging/event-publisher.ts";
+import { MetricsPublisher } from "../metrics/cloudwatch-metrics.ts";
 import { CognitoAuthProvider } from "../auth/cognito-auth-provider.ts";
 import type { AuthProvider } from "../auth/auth-provider.ts";
 import { createRedisClient, type RedisClient } from "../cache/redis.ts";
@@ -34,8 +36,10 @@ declare module "@fastify/awilix" {
     db: Db;
     cognitoClient: CognitoIdentityProviderClient;
     sqsClient: SQSClient;
+    cloudwatchClient: CloudWatchClient;
     auth: AuthProvider;
     events: EventPublisher;
+    metricsPublisher: MetricsPublisher;
     redis: RedisClient;
     resetCodeStore: ResetCodeStore;
     registerUserCommand: RegisterUserCommand;
@@ -101,6 +105,17 @@ export function registerSingletons(): void {
         new SqsEventPublisher(sqsClient, cradleEnv.EVENTS_QUEUE_URL),
       { lifetime: Lifetime.SINGLETON },
     ),
+    cloudwatchClient: asFunction(
+      ({ env: cradleEnv }: { env: Env }) =>
+        new CloudWatchClient({
+          region: cradleEnv.AWS_REGION,
+          endpoint: cradleEnv.AWS_ENDPOINT_URL,
+        }),
+      { lifetime: Lifetime.SINGLETON },
+    ),
+    // Stateless wrapper over `cloudwatchClient` — SINGLETON alongside the client
+    // it holds, like the other infra collaborators here.
+    metricsPublisher: asClass(MetricsPublisher, { lifetime: Lifetime.SINGLETON }),
     // SINGLETON, like every other connection-holding client here: ioredis owns a
     // real TCP socket and its own reconnect state machine, so a per-request
     // instance would open (and leak) a connection per request.

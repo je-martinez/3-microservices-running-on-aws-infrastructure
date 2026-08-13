@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { Db } from "#shared/db/prisma";
 import type { AuthProvider } from "#shared/auth/auth-provider";
 import type { EventPublisher } from "#shared/messaging/event-publisher";
+import type { MetricsPublisher } from "#shared/metrics/cloudwatch-metrics";
 import type { Env } from "#shared/config/env";
 import { MODEL_ID_PREFIXES, generateId } from "#shared/id/nano-id";
 import { runAsActor } from "#shared/audit/actor-context";
@@ -43,6 +44,7 @@ export class RegisterPasswordlessCommand {
   private readonly db: Db;
   private readonly auth: AuthProvider;
   private readonly events: EventPublisher;
+  private readonly metrics: MetricsPublisher;
   private readonly env: Env;
   private readonly captureCognitoIdentityCommand: CaptureCognitoIdentityCommand;
 
@@ -50,18 +52,21 @@ export class RegisterPasswordlessCommand {
     db,
     auth,
     events,
+    metricsPublisher,
     env,
     captureCognitoIdentityCommand,
   }: {
     db: Db;
     auth: AuthProvider;
     events: EventPublisher;
+    metricsPublisher: MetricsPublisher;
     env: Env;
     captureCognitoIdentityCommand: CaptureCognitoIdentityCommand;
   }) {
     this.db = db;
     this.auth = auth;
     this.events = events;
+    this.metrics = metricsPublisher;
     this.env = env;
     this.captureCognitoIdentityCommand = captureCognitoIdentityCommand;
   }
@@ -178,6 +183,11 @@ export class RegisterPasswordlessCommand {
       },
       "Passwordless user registration completed",
     );
+
+    // The SAME metric name and the SAME dimensions as register.ts: both paths are
+    // registrations. The password/passwordless split is carried by `users_total`'s
+    // `HasPassword` dimension, not by a second counter.
+    await this.metrics.publish("users_registered_total", 1, { Service: "users" });
 
     return toDomain(row as any);
   }
