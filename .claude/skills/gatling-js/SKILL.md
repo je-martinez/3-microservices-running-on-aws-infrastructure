@@ -47,14 +47,21 @@ do not.** `npx gatling run` downloads the Gatling runtime bundle itself, and
 `@gatling.io/cli`'s own npm dependencies are pure Node (esbuild, archiver,
 commander). The requirement is Node + npm, nothing else.
 
+Observed rather than inferred: on a machine with no JDK, `gatling build` produced
+`target/bundle.js` and the CLI unpacked its runtime into
+`~/.gatling/gatling-js-bundle/<version>/`. If a build fails, that directory is
+worth checking before suspecting a missing Java.
+
 The docs state **Node.js LTS >24 with npm 11+**; the demo project's README says
 Node 20+/npm 10+. Treat the docs' figure as the supported floor and check
 `node -v && npm -v` before blaming a failure on your code.
 
 This repo pins **24.18.0** in `.nvmrc`, which clears that bar — but the pin only
-applies once `nvm use` has run. Note that `npm install` succeeds on older
-versions too, so a stale shell fails later and more confusingly than it would if
-install had rejected it.
+applies once `nvm use` has run. `npm install` succeeds on older versions too, so
+a stale shell fails later and more confusingly than it would if install had
+rejected it. One run here hit `ERR_REQUIRE_ESM` on Node 20.18.3 while 20.19.0
+built fine, so the failure mode is version-specific rather than a clean
+"Node 20 is unsupported" — reach for `nvm use` before debugging it.
 
 ## Community Edition — what is and is not available
 
@@ -70,6 +77,36 @@ write simulations, run them locally, and read the HTML report is included.
 
 If a task seems to need `enterprise-*`, it needs a paid account — say so rather
 than scripting around it.
+
+> [!warning] Parts of the Enterprise line are silent no-ops, not errors
+> `feeder.shard()` is the one to know: it type-checks, runs, and logs nothing —
+> and does nothing outside Enterprise. The SDK's own types say so
+> (`core/target/population.d.ts`): *"Only effective when the test is running with
+> Gatling Enterprise, noop otherwise."*
+>
+> That matters because sharding is what stops every injector replaying the same
+> feeder rows. Believing it worked, you would hammer one row set from N machines
+> and read the resulting contention as a latency problem in the service under
+> test. On Community, split the data yourself.
+>
+> The general lesson: a Community/Enterprise boundary can fail quietly. When an
+> API relates to distribution, sharding or orchestration, check its `.d.ts`
+> comment before trusting it.
+
+**Two escape hatches that used to exist and no longer do.** Both appear in older
+blog posts and Stack Overflow answers, so they are worth knowing before
+suggesting either:
+
+- **Merging reports from several machines.** Before 3.11, `simulation.log` was a
+  text format and people merged files from parallel runs into one report. **3.11
+  made it binary**, and the community merger tools target the dead format. So
+  running the same simulation on five machines yields five separate reports —
+  and percentiles cannot be averaged, so there is no honest way to combine them.
+- **Free trend dashboards via Graphite/InfluxDB.** Gatling shipped a data writer
+  that fed Grafana, which is how teams got trending without Enterprise. **3.12
+  dropped it.** Confirmed in the demo project's own `gatling.conf`:
+  `currently supported : console, file` — nothing else. Trending on Community
+  means shipping the run's own output somewhere yourself.
 
 ## Project layout
 
@@ -116,7 +153,10 @@ Everything lives inside one `simulation((setUp) => { … })` callback: an HTTP
 protocol, one or more scenarios, and an injection profile passed to `setUp`.
 
 ```ts
-import { simulation, scenario, constantUsersPerSec, getParameter } from "@gatling.io/core";
+import {
+  simulation, scenario, constantUsersPerSec,
+  getParameter, getEnvironmentVariable,
+} from "@gatling.io/core";
 import { http, status } from "@gatling.io/http";
 
 export default simulation((setUp) => {
@@ -127,7 +167,7 @@ export default simulation((setUp) => {
   const duration = parseInt(getParameter("duration", "60"));
 
   const httpProtocol = http
-    .baseUrl("https://api.example.com")
+    .baseUrl(getEnvironmentVariable("BASE_URL", "https://api.example.com"))
     .acceptHeader("application/json");
 
   const scn = scenario("Browse")
@@ -143,6 +183,30 @@ export default simulation((setUp) => {
 **Name every request** (`http("GET session")`). That string is the row label in
 the report and in `details(...)` assertions — unnamed or duplicated names make a
 report you cannot read.
+
+> [!warning] `process.env` does not exist — use `getEnvironmentVariable`
+> This is the costliest mistake here because nothing catches it early: with
+> `@types/node` installed, `process.env.BASE_URL` type-checks, bundles, and then
+> dies at runtime with **`ReferenceError: process is not defined`** before a
+> single request is sent. Simulations execute in GraalVM, not Node.
+>
+> The SDK's own accessors are the answer — both from `@gatling.io/core`:
+>
+> | Source | Function | Set by |
+> |---|---|---|
+> | environment | `getEnvironmentVariable("BASE_URL", "default")` | `BASE_URL=... npx gatling run` |
+> | CLI parameter | `getParameter("usersPerSec", "10")` | `npx gatling run usersPerSec=10` |
+>
+> Both return **strings**, so numeric knobs need `parseInt`. Leaving
+> `@types/node` out of the project turns any future `process.*` into a type
+> error rather than a runtime surprise.
+
+Two import details worth pinning down, both easy to get backwards:
+
+- **`jsonPath` comes from `@gatling.io/core`**, not `@gatling.io/http` — checks
+  live in core even though you use them on HTTP responses.
+- **`exec()` takes a session function OR request builders, never both in one
+  call.** Chain them instead: `exec(fn).exec(http(...))`.
 
 ## Injection profiles — open vs closed
 
