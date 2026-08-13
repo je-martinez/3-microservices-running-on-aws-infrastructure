@@ -14,6 +14,42 @@ each provider's native rule format.
 
 ## Working rules
 
+### GOLDEN RULE — the vault is the source of truth, never a private memory file
+
+When the user establishes a **convention**, a **decision**, or a **durable
+lesson**, it goes into the **vault** under `docs/` first
+(`docs/shared/conventions/`, `docs/shared/decisions/`, `docs/lessons/`).
+Recording it **only** in an assistant memory store — a memory tool, a saved-context
+file, a scratch note only you can read — is **wrong**.
+
+The vault is versioned, reviewable in a pull request, and readable by every human
+and agent on the project. A private memory file is invisible to the team,
+unreviewable, and silently diverges from the repo. **A rule the user had to state
+twice, because the first capture was invisible to them, is a rule that was not
+captured.**
+
+Order of operations: **vault note first**, then optionally a short memory pointer.
+Never memory instead of the vault, and never memory before it.
+
+Applies to anything durable, not just big decisions — the test is *"would a
+teammate need to know this next month?"* Note that you do **not** write to `docs/`
+yourself: propose the note and wait for confirmation (see
+[Prohibitions](#prohibitions)).
+
+Full rule: `.ai/rules/vault-over-memory.md`.
+
+### Package manager — pnpm only
+
+**pnpm is the package manager. Never `npm`, never `yarn`** — including for
+brand-new sub-projects. A bare `npm install` corrupts the pnpm tree and leaves a
+stray `package-lock.json` beside `pnpm-lock.yaml`.
+
+Use `pnpm add`, `pnpm run`, `pnpm exec`, `pnpm dlx` (in place of `npx`), and
+`pnpm --filter <pkg> <script>`. **A vendor's own docs using `npm` is not a reason
+to deviate** — translate their commands.
+
+Full rule: `.ai/rules/package-manager.md`.
+
 ### Git — confirm every write
 
 **Never commit, push, merge, or open a pull request without explicit user
@@ -80,7 +116,14 @@ Cognito JWT**. Internal tests fake the authorizer and never touch the gateway, s
 they miss gateway-only bugs. An endpoint without gateway E2E is an **incomplete
 change**.
 
-Full rule: `.ai/rules/testing.md`.
+**Load testing is a separate surface** in `e2e/load-tests/` (Gatling JS), beside
+the Playwright suite in `e2e/`. It answers a different question — not "is it
+correct?" but "what shape does it have under sustained traffic?" — and
+deliberately sends **neither** `x-e2e-source` nor `x-test-mode`, so its data
+persists like real data and deliveries advance only through the carrier webhook.
+
+Full rule, including the load-simulation traps that cost real debugging time:
+`.ai/rules/testing.md`.
 
 ### Language
 
@@ -223,6 +266,27 @@ the working tree for the main session to commit.
 Read/Write/Edit/Bash/Glob/Grep. In this environment that restriction is
 not tool-enforceable — treat it as a norm.*
 
+### e2e-impl
+
+Test implementer for the 3MRAI testing surface: Playwright E2E specs (internal +
+gateway) and Gatling JS load simulations. Use to add or fix a gateway spec, an
+internal E2E spec, or a load scenario. Writes **ONLY test and simulation code** —
+never touches git or Linear. Reads `e2e/CLAUDE.md` for its stack and conventions,
+verifies endpoint contracts against the services' `openapi.yaml` rather than
+guessing them, runs what it wrote, and leaves the work in the working tree for the
+main session to commit.
+
+Two restrictions carry extra weight here. **Never modify service source to make a
+test pass** — if a test fails because the service is wrong, say so and stop; a
+green suite bought by editing the thing under test is worse than a red one. And
+**read the run output, not the exit code alone**: a spec that cannot fail is not a
+test, and a load run whose journey short-circuited early reports a global count
+that hides it.
+
+*In Claude Code this is a subagent whose tools are restricted to
+Read/Write/Edit/Bash/Glob/Grep/Skill. In this environment that restriction is
+not tool-enforceable — treat it as a norm.*
+
 ### solutions-architect
 
 Planner and coordinator for 3MRAI implementation. Turns raw design output
@@ -242,8 +306,15 @@ to: produce the plan, do not start executing it.*
 Parts of the source configuration have **no equivalent here** and did not travel.
 Do not assume parity with Claude Code:
 
-- **`tools:` allowlists on 9 subagents** — an enforced restriction in Claude
+- **`tools:` allowlists on 10 subagents** — an enforced restriction in Claude
   Code; here only the prose norm stated in each role above.
+- **Nested per-directory `CLAUDE.md` files** (`services/<svc>/CLAUDE.md`,
+  `infra/CLAUDE.md`, `functions/<name>/CLAUDE.md`, `e2e/CLAUDE.md`) — Claude Code
+  loads these automatically when work touches that directory; no target provider
+  has an equivalent auto-loading mechanism. **They are still the source of truth
+  for that area's stack and conventions — read the one for the directory you are
+  working in before you start.** The rules in `.ai/rules/` carry the portable
+  parts, not the whole file.
 - **Per-subagent context isolation** — no equivalent in any target provider. A
   section in this file is not an isolated context window.
 - **The A/B/C/D/E confirmation menu rendered via `AskUserQuestion`** — the

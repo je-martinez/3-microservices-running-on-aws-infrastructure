@@ -1,0 +1,26 @@
+{
+  "skill_name": "gatling-js",
+  "evals": [
+    {
+      "id": 0,
+      "name": "first-simulation-from-scratch",
+      "prompt": "I need to load test our local API. Set up a Gatling load testing project from scratch in a folder called load-tests/ — TypeScript. One simulation that hits GET http://localhost:3001/v1/products, ramps up to a steady rate, and fails the run if more than 1% of requests error out. Tell me the exact command to run it and what I need installed first.",
+      "expected_output": "A runnable Gatling JS project: package.json with @gatling.io/core+http+cli, tsconfig, a *.gatling.ts simulation using injectOpen with a ramp then constant rate, assertions on success rate, named requests, and the npx gatling run command. Prerequisites should be Node+npm only — NOT a JDK.",
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "auth-correlation-and-unique-data",
+      "prompt": "Write a Gatling simulation that registers a new user then logs in and fetches their profile. Each virtual user needs a unique email or registration will collide, and the profile call needs the JWT the login returns. Base URL comes from an env var.",
+      "expected_output": "A simulation using a session function or feeder for unique per-user data, check(...).saveAs to capture the token from the login response, and a function-based Authorization header reading it back from the session.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "community-edition-boundary",
+      "prompt": "We're on the free version of Gatling. I want to run our load test across several machines to generate more traffic, and see the results trending over time in a dashboard. How do I set that up?",
+      "expected_output": "Should state plainly that distributed/multi-injector runs and hosted trend dashboards are Gatling Enterprise Edition features, not available in Community, rather than inventing a way to do it. Should offer what IS possible locally (single-machine runs, the local HTML report).",
+      "files": []
+    }
+  ]
+}

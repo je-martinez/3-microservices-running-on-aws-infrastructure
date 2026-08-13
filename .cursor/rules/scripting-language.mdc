@@ -14,7 +14,7 @@ alwaysApply: false
 - **Python by default** for new scripts: infra scripting, Terraform pre/post
   effects, and anything touching AWS, JSON, or non-trivial control flow.
 - **JavaScript** only when the task already lives in the Node ecosystem present
-  here (vault tooling, the pnpm workspace, npm dependencies). That is why
+  here (vault tooling, the pnpm workspace, its dependencies). That is why
   `scripts/*.mjs` stay JS.
 - **Bash** only with an explicitly documented limitation, recorded in a comment
   inside the script itself. The repo currently has **zero `.sh` files** — keep it
@@ -36,5 +36,8 @@ Shared helpers live in `infra/scripts/lib3mrai/` (`aws.py`, `console.py`,
 ## Node.js version
 
 The repo pins Node via `.nvmrc` (currently **24.18.0**). Activate the pinned
-version before running any Node command (`node`, `npm`, `npx`, global installs).
-With nvm: `nvm use && node scripts/validate-vault.mjs`.
+version before running any Node command (`node`, `pnpm`, `pnpm dlx`, global
+installs). With nvm: `nvm use && node scripts/validate-vault.mjs`.
+
+The package manager is **pnpm — never `npm` or `yarn`**. Full rule:
+`.ai/rules/package-manager.md`.
