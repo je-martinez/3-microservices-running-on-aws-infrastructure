@@ -1,6 +1,6 @@
 import { exec, jsonPath, StringBody } from "@gatling.io/core";
 import { http, status } from "@gatling.io/http";
-import { uniqueSuffix } from "../support/config.js";
+import { fakeUser } from "../support/config.js";
 
 /**
  * The Users journey: register → login → read profile → update profile.
@@ -14,13 +14,23 @@ import { uniqueSuffix } from "../support/config.js";
  * data. It also means nothing cleans this up — see the README.
  */
 
-/** Seeds one virtual user's identity. Runs once per user, before any request. */
+/**
+ * Seeds one virtual user's identity. Runs once per user, before any request.
+ *
+ * The whole identity comes from Chance.js — real names, streets, cities and
+ * phone numbers rather than synthetic strings, so the traffic exercises the
+ * same validation and encoding paths a real signup does.
+ */
 export const seedIdentity = exec((session) => {
-  const suffix = uniqueSuffix();
+  const user = fakeUser(session.userId());
   return session
-    .set("email", `loadtest-${suffix}@example.com`)
-    .set("password", `Aa1!${suffix}Xy`)
-    .set("fullName", `Load Test ${suffix}`);
+    .set("email", user.email)
+    .set("password", user.password)
+    .set("fullName", user.fullName)
+    .set("phoneNumber", user.phoneNumber)
+    .set("addressLine1", user.address.line1)
+    .set("city", user.address.city)
+    .set("country", user.address.country);
 });
 
 /** Register. 201 only — tolerating 409 would let a collision pass as healthy. */
@@ -84,18 +94,19 @@ export const updateProfile = exec(
     .patch("v1/users/me")
     .header("Authorization", authHeader)
     .body(
-      StringBody((session) => {
-        const suffix = uniqueSuffix();
-        return JSON.stringify({
-          fullName: `${session.get("fullName")} Updated`,
-          phoneNumber: `+1555${String(1000000 + (parseInt(suffix.split("-")[1] ?? "1") % 9000000))}`,
+      StringBody((session) =>
+        JSON.stringify({
+          // Chance-generated values seeded on this virtual user, so the update
+          // carries the same realistic shape the registration did.
+          fullName: session.get("fullName"),
+          phoneNumber: session.get("phoneNumber"),
           address: {
-            line1: `${100 + (parseInt(suffix.split("-")[1] ?? "1") % 900)} Load Test Street`,
-            city: "Springfield",
-            country: "United States",
+            line1: session.get("addressLine1"),
+            city: session.get("city"),
+            country: session.get("country"),
           },
-        });
-      }),
+        }),
+      ),
     )
     .asJson()
     .check(status().is(200)),

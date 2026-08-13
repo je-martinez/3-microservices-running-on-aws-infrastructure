@@ -3,3 +3,4 @@ packages:
   - "functions/events-pipeline"
   - "functions/realtime-events"
   - "e2e"
+  - "e2e/load-tests"
