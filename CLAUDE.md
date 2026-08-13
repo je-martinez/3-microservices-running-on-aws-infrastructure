@@ -69,12 +69,19 @@ dropped path param, method mismatch). An endpoint without gateway E2E is an inco
 change. Full convention: `docs/shared/conventions/testing.md` → [[testing]]; per-service
 specifics in each `services/<svc>/CLAUDE.md` §2b.
 
+**Load testing lives beside E2E** in `e2e/load-tests/` (Gatling JS + Chance.js), and answers a
+different question: not "is it correct?" but "what shape does it have under sustained traffic?".
+It deliberately sends **neither** `x-e2e-source` nor `x-test-mode`, so its data persists like real
+data and deliveries advance only through the carrier webhook. Both surfaces are implemented by
+**`e2e-impl`**, whose stack and conventions live in `e2e/CLAUDE.md`.
+
 ### Subagents
 Custom subagents own their write domains. `linear-pm` (Linear) and `obsidian-vault` (`docs/`) are **single writers** of their tools. `github-ops` is an **optional** git helper (the main session may run git directly — see [[git-workflow]]). The external-write agents **read freely but propose every write and wait for explicit confirmation**.
 
 - **`linear-pm`** (`.claude/agents/linear-pm.md`) — project manager for Linear: milestones, issues, projects, labels, comments, status updates, reporting. Uses the **plugin** Linear MCP server (`mcp__plugin_linear_linear__*`).
 - **`github-ops`** (`.claude/agents/github-ops.md`) — **optional** git & GitHub helper for complex batches: commits, branches, pushes, PRs, merges. Uses `git` + `gh`. The main session may also run git directly; conventions live in [[git-workflow]].
 - **`obsidian-vault`** (`.claude/agents/obsidian-vault.md`) — **sole writer of the `docs/` vault.** All note creation/edits go through it so structure, frontmatter, tags, and wikilinks stay consistent. Has the Obsidian skills preloaded. **No other agent (including the main session) writes to `docs/` — route vault writes here.**
+- **`e2e-impl`** (`.claude/agents/e2e-impl.md`) — the testing surface: Playwright specs (internal + gateway) and Gatling JS load simulations. Reads `e2e/CLAUDE.md`. Verifies endpoint contracts against each service's `openapi.yaml` instead of guessing them, and **never edits service source to make a test pass** — a green suite bought that way is worse than a red one.
 
 When `github-ops` is used, it coordinates with `linear-pm`: it needs milestone/issue IDs to name branches/PRs and reports merges back so `linear-pm` can update issue status. Route Linear↔GitHub work through the parent, which relays between them. (The main session, running git directly, does the same coordination inline.)
 
@@ -83,7 +90,7 @@ When `github-ops` is used, it coordinates with `linear-pm`: it needs milestone/i
 Two layers of agents (see `docs/superpowers/specs/2026-06-26-implementation-workflow-design.md`):
 
 - **Tool layer:** `obsidian-vault` (docs/) and `linear-pm` (Linear) are single writers. `github-ops` (git/GitHub) is **optional** — the main session may run git directly (see [[git-workflow]]).
-- **Domain layer:** `solutions-architect` (read-only planner — returns a **Coordination Plan**, writes nothing) and five **code-only** implementers: `users-impl`, `orders-impl`, `tracking-impl`, `events-pipeline-impl`, `infra-impl`.
+- **Domain layer:** `solutions-architect` (read-only planner — returns a **Coordination Plan**, writes nothing) and six **code-only** implementers: `users-impl`, `orders-impl`, `tracking-impl`, `events-pipeline-impl`, `infra-impl`, and `e2e-impl` (Playwright specs + Gatling load simulations; reads `e2e/CLAUDE.md`).
 
 **Invariant:** implementers write **only source code** — they never run git or touch Linear, and they leave work in the working tree for the **main session** to commit (which may optionally delegate a complex git batch to `github-ops`). The architect writes nothing. A subagent cannot spawn another subagent, so the **parent** routes the architect's Coordination Plan to each hand.
 
