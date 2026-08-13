@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-03
-updated: 2026-07-31
+updated: 2026-08-13
 tags:
   - type/convention
   - area/shared
@@ -16,6 +16,7 @@ related:
   - "[[floci-storage-modes-and-tmp-corruption]]"
   - "[[2026-07-03-local-dev-tooling-design]]"
   - "[[2026-07-03-local-dev-tooling]]"
+  - "[[package-manager]]"
 ---
 
 # Local Development
@@ -75,3 +76,4 @@ a new service needs local testing.
 - [[floci-storage-modes-and-tmp-corruption]]
 - [[2026-07-03-local-dev-tooling-design]] — the design spec that introduced the Makefile + `.http` convention.
 - [[2026-07-03-local-dev-tooling]] — the implementation plan for that design.
+- [[package-manager]] — pnpm as the repo's only Node package manager.

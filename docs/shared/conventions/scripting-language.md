@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-19
-updated: 2026-07-19
+updated: 2026-08-13
 tags:
   - type/convention
   - area/shared
@@ -13,6 +13,7 @@ related:
   - "[[2026-07-19-scripts-to-python-migration-design]]"
   - "[[developer-experience-milestone]]"
   - "[[local-dev]]"
+  - "[[package-manager]]"
 ---
 
 # Scripting Language
@@ -76,3 +77,4 @@ re-implemented per script.
 - [[2026-07-19-scripts-to-python-migration-design]]
 - [[developer-experience-milestone]]
 - [[local-dev]]
+- [[package-manager]] — sibling convention for the Node package manager (pnpm), same evidence-first shape.

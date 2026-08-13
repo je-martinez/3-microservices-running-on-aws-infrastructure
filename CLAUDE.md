@@ -16,7 +16,8 @@ These rules take precedence over default agent/skill behavior.
 
 ### Node.js
 - This repo pins Node via [`.nvmrc`](.nvmrc) (currently **24.18.0**).
-- Before running ANY Node.js command (`node`, `npm`, `npx`, global installs, `scripts/validate-vault.mjs`), run `nvm use` first so the pinned version is active. Example: `nvm use && node scripts/validate-vault.mjs`.
+- Before running ANY Node.js command (`node`, `pnpm`, `pnpm dlx`, global installs, `scripts/validate-vault.mjs`), run `nvm use` first so the pinned version is active. Example: `nvm use && node scripts/validate-vault.mjs`.
+- **pnpm is the package manager — never `npm` or `yarn`**, including for brand-new sub-projects. A bare `npm install` corrupts the pnpm tree and leaves a stray `package-lock.json` beside `pnpm-lock.yaml`. Use `pnpm add`, `pnpm run`, `pnpm exec`, `pnpm dlx` (in place of `npx`), and `pnpm --filter <pkg> <script>`. **A vendor's own docs using `npm` is not a reason to deviate** — translate their commands. Full convention: `docs/shared/conventions/package-manager.md` → [[package-manager]].
 
 ### Scripting language — Python first
 - New scripts are **Python** by default (infra scripting, Terraform pre/post effects, anything touching AWS, JSON, or non-trivial control flow). **JavaScript** when the task already lives in the Node ecosystem present here (vault tooling, pnpm workspace, npm deps) — that is why `scripts/*.mjs` stay JS. **Bash** only with an explicitly documented limitation, recorded in a comment in the script itself. The repo currently has **zero `.sh` files**.
@@ -37,6 +38,13 @@ These rules take precedence over default agent/skill behavior.
 - Flow logs use `app_event` (`<flow>_started|_succeeded|_failed`) plus `reason` on failures. There is **no SUCCESS severity** — success is `INFO` + `app_event=*_succeeded` (SUCCESS is not an OTel level).
 - **OTel config goes in environment variables, not code** — endpoint, protocol, and disabling the metrics/logs exporters. Three silent failures in this repo came from configuring the SDK in code. A new service needs no endpoint code, only the env vars.
 - Full convention: `docs/shared/conventions/logging-context.md` → [[logging-context]]. Backend decision: [[ADR-0019-distributed-tracing-opentelemetry]] (logs → OpenObserve, traces → Jaeger).
+
+### GOLDEN RULE — the vault is the source of truth, never a private memory file
+- **When the user establishes a convention, a decision, or a durable lesson, it goes into the VAULT first** (`docs/shared/conventions/`, `docs/shared/decisions/`, `docs/lessons/`), routed through `obsidian-vault`. Writing it only to an assistant memory store is **wrong** and is the failure mode this rule exists to prevent.
+- **Why:** the vault is versioned, reviewable in a PR, readable by every human and every agent on the project, and survives independently of any one assistant's memory. A private memory file is invisible to the team, cannot be reviewed, and silently diverges from the repo. A rule the user had to state twice because the first capture was invisible to them is a rule that was not captured.
+- **Order of operations:** vault note first (with `## Related` links and validator green) → then, optionally, a short assistant-memory pointer if it genuinely helps recall mid-session. Never memory instead of the vault, and never memory before it.
+- **Applies to anything durable**, not just big decisions: package-manager choice, naming, a gotcha that cost debugging time, a workflow correction. If the answer to "would a teammate need to know this next month?" is yes, it belongs in `docs/`.
+- The nested `CLAUDE.md` files and this one are for **rules that govern agent behaviour**; the vault is for **project knowledge**. A convention usually deserves both: the note in `docs/`, and a one-line pointer here when it changes how work is done.
 
 ### Documentation propagation — superpowers output must feed the vault
 - `docs/superpowers/{specs,plans}/` is where decisions are **made**; the organized vault (`docs/domains/`, `docs/shared/`, `docs/infrastructure/`, `docs/00-overview/`) is where they **live**. A spec/plan is **not done when written** — it is done when its decisions have propagated into the category folders they belong to.
