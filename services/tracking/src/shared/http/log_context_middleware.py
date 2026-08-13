@@ -27,12 +27,21 @@ the only place in this service that sees the final status of every response —
 including a 404 produced by Starlette's router, which no handler and no
 dependency ever runs for. Only 4xx/5xx are counted; a metric per 2xx would be a
 request-rate metric the request log already provides.
+
+For the same reason it emits the per-request `request completed` log line: this
+is the one layer that observes the final status and the wall time of EVERY
+request, and the field names are a cross-service schema (Users emits the
+identical five keys from its Fastify `onResponse` hook), so one dashboard query
+covers all three services. Without it Tracking published no `http_route` and no
+`duration_ms` at all, leaving its dashboard unable to show request rate,
+latency or top routes.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from src.shared.config.settings import metrics_enabled
 from src.shared.logging.log_context import reset_log_context, set_log_context
@@ -87,6 +96,7 @@ class LogContextMiddleware:
         # a fresh empty context per request is what stops one request's
         # identity leaking into the next through a reused context.
         token = set_log_context(cognito_sub=cognito_sub)
+        started = time.perf_counter()
         try:
             await self.app(scope, receive, send_wrapper)
         except Exception:
@@ -102,16 +112,70 @@ class LogContextMiddleware:
             # Counting it here is what keeps the 5xx series from missing exactly
             # the failures it exists to count. Re-raised immediately: the error
             # response is still ServerErrorMiddleware's to produce.
+            #
+            # The request log is emitted here too, for the same reason: a handler
+            # that raised is the request most worth having a line for, and the
+            # `else` branch below never runs for it.
+            self._log_request(scope, 500, started)
             await self._publish_http_error(500)
             raise
         else:
             status = status_holder.get("status")
+            self._log_request(scope, status, started)
             if status is not None and status >= 400:
                 await self._publish_http_error(status)
         finally:
             # Reset LAST, so a publish failure's own log line still carries the
             # request's identity.
             reset_log_context(token)
+
+    def _log_request(self, scope, status: int | None, started: float) -> None:  # noqa: ANN001 - ASGI scope
+        """Emit the one `request completed` line for this request. Never raises.
+
+        INFO for every request including 4xx/5xx: the status code carries the
+        outcome, so raising the severity would double-encode it and make an error
+        rate computed from `severity_text` disagree with one computed from
+        `http_response_status_code`. Users emits these at INFO for the same
+        reason. Health checks are logged like anything else — a probe that starts
+        failing is worth seeing, and an exemption list is one more thing to keep
+        correct.
+
+        Wrapped like `_publish_http_error` below: the response has already been
+        sent (or, on the 500 path, the original exception is about to be
+        re-raised), so an observation of it must never become the request's
+        failure — nor replace the exception the application actually raised.
+        """
+        try:
+            # `scope["route"]` is set by FastAPI's `APIRoute.matches`, and it is
+            # the matched TEMPLATE (`/v1/trackings/{order_id}`) rather than the
+            # concrete URL. Logging the raw path instead would make every order id
+            # its own "route" and blow up dashboard cardinality — the field would
+            # stop being groupable, which is the only reason it exists.
+            #
+            # It is absent whenever nothing matched (a 404 from the router), so the
+            # raw path is the fallback: those requests still deserve a line, and the
+            # cardinality risk is bounded by the fact that they hit no route at all.
+            route = scope.get("route")
+            http_route = getattr(route, "path", None) or scope.get("path", "")
+            duration_ms = (time.perf_counter() - started) * 1000
+
+            logger.info(
+                "request completed",
+                extra={
+                    "http_request_method": scope.get("method", ""),
+                    "http_route": http_route,
+                    "http_response_status_code": status,
+                    "duration_ms": duration_ms,
+                },
+            )
+        except Exception:  # noqa: BLE001 - swallowed on purpose, see docstring
+            logger.exception(
+                "request_log_failed",
+                extra={
+                    "app_event": "request_log_failed",
+                    "reason": "log_raised",
+                },
+            )
 
     async def _publish_http_error(self, status: int) -> None:
         """Count one 4xx/5xx. Never raises — the response has already been sent.
