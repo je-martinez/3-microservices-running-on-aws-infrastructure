@@ -33,6 +33,16 @@ export const baseUrl = (): string => {
 export const carrierApiKey = (): string =>
   getEnvironmentVariable("TRACKING_CARRIER_API_KEY", "");
 
+/**
+ * Mailpit's HTTP API — the local inbox the OTP and reset codes land in.
+ *
+ * An ABSOLUTE url, because these requests do not go through the gateway: they
+ * read a mailbox rather than call the product. Gatling's `baseUrl` still
+ * applies to every relative path, so mixing the two in one simulation is fine.
+ */
+export const mailpitBaseUrl = (): string =>
+  getEnvironmentVariable("MAILPIT_API_URL", "http://localhost:8025/api/v1");
+
 /** Load profile knobs — `npx gatling run key=value`, no file edit needed. */
 export const profile = {
   /** Steady arrival rate during the measurement window. */

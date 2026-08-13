@@ -21,9 +21,16 @@ Both variables come from files `make bootstrap` generates:
 export API_GATEWAY_URL=$(grep -m1 API_GATEWAY_URL ../../.env.local.infra | cut -d= -f2-)
 export TRACKING_CARRIER_API_KEY=$(grep -m1 TRACKING_CARRIER_API_KEY ../../.env.local.tracking | cut -d= -f2-)
 
-pnpm run smoke   # ~30s, low rate — a sanity check
-pnpm run load    # the default profile
-pnpm run users   # the Users journey alone
+pnpm run smoke       # ~30s, low rate — a sanity check
+pnpm run load        # the default profile
+pnpm run users       # the Users journey alone
+pnpm run auth-codes  # OTP login + password reset (needs MAILPIT_API_URL)
+```
+
+The email-code flows also need Mailpit:
+
+```bash
+export MAILPIT_API_URL=$(grep -m1 MAILPIT_API_URL ../../.env.local.infra | cut -d= -f2-)
 ```
 
 Tune any profile without editing a file:
@@ -46,6 +53,24 @@ Three populations run together, because real traffic is not uniform:
   rate.
 - **Error traffic** — deliberate 401s, a missing order, and a rejected status
   transition, so the error panels carry signal instead of sitting empty.
+
+## The email-code flows live in their own simulation
+
+`authCodes` covers passwordless OTP login and password reset end to end — it
+reads the six-digit code out of Mailpit's HTTP API, the way a person reads their
+inbox.
+
+It is separate from `fullJourney` because every virtual user there waits for an
+email to travel service → SQS → Lambda → SES → Mailpit, which takes seconds.
+Mixed into the main run those seconds would inflate its percentiles with latency
+that is not ours. Here they are isolated, and the polling request is named
+`GET mailpit (wait for code)` so it occupies its own row in the report.
+
+That separation is what keeps the numbers honest: in a verified run,
+`otp/start` answered in **26ms** and `password/forgot` in **15ms** while the
+inbox wait ran into seconds. Assertions cover our endpoints only — holding the
+Mailpit wait to a latency budget would fail the run for something this
+simulation does not measure.
 
 ## Deliberately unlike the E2E suite
 
