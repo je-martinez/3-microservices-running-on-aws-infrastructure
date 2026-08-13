@@ -9,6 +9,7 @@ import { db, type Db } from "../db/prisma.ts";
 // still registered by tests that must not emit.
 import { SqsEventPublisher, type EventPublisher } from "../messaging/event-publisher.ts";
 import { MetricsPublisher } from "../metrics/cloudwatch-metrics.ts";
+import { BusinessMetricsPoller } from "../metrics/business-metrics.ts";
 import { CognitoAuthProvider } from "../auth/cognito-auth-provider.ts";
 import type { AuthProvider } from "../auth/auth-provider.ts";
 import { createRedisClient, type RedisClient } from "../cache/redis.ts";
@@ -40,6 +41,7 @@ declare module "@fastify/awilix" {
     auth: AuthProvider;
     events: EventPublisher;
     metricsPublisher: MetricsPublisher;
+    businessMetricsPoller: BusinessMetricsPoller;
     redis: RedisClient;
     resetCodeStore: ResetCodeStore;
     registerUserCommand: RegisterUserCommand;
@@ -116,6 +118,11 @@ export function registerSingletons(): void {
     // Stateless wrapper over `cloudwatchClient` — SINGLETON alongside the client
     // it holds, like the other infra collaborators here.
     metricsPublisher: asClass(MetricsPublisher, { lifetime: Lifetime.SINGLETON }),
+    // SINGLETON because it owns a single interval timer: a second instance would
+    // mean a second timer publishing the same series twice per window. Registered
+    // here but NEVER started here — `server.ts` starts it, so the test suite's
+    // buildApp() never spins up a live timer against the database.
+    businessMetricsPoller: asClass(BusinessMetricsPoller, { lifetime: Lifetime.SINGLETON }),
     // SINGLETON, like every other connection-holding client here: ioredis owns a
     // real TCP socket and its own reconnect state machine, so a per-request
     // instance would open (and leak) a connection per request.
