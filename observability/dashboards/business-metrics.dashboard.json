@@ -47,8 +47,8 @@
           "layout": {
             "x": 0,
             "y": 0,
-            "w": 12,
-            "h": 13,
+            "w": 64,
+            "h": 15,
             "i": 1
           }
         },
@@ -58,7 +58,7 @@
           "title": "Users by auth type",
           "description": "Live user count split by whether the account has a password (the OTP flow creates users with none). A GAUGE, so max() — sum() would add every sample in the window and report a multiple of the real count. Both series are always published, zero included, so a value with no users reads as 0 rather than as a gap.",
           "config": {
-            "show_legends": false,
+            "show_legends": true,
             "decimals": 0
           },
           "queryType": "promql",
@@ -86,10 +86,10 @@
             }
           ],
           "layout": {
-            "x": 12,
+            "x": 64,
             "y": 0,
-            "w": 12,
-            "h": 13,
+            "w": 64,
+            "h": 15,
             "i": 2
           }
         },
@@ -127,10 +127,10 @@
             }
           ],
           "layout": {
-            "x": 0,
-            "y": 13,
-            "w": 12,
-            "h": 13,
+            "x": 128,
+            "y": 0,
+            "w": 64,
+            "h": 15,
             "i": 3
           }
         },
@@ -140,7 +140,7 @@
           "title": "Orders — finished vs in progress (Tracking service)",
           "description": "DELIVERED is the tracking state machine's terminal status, so 'finished' is the domain's own invariant rather than a convention invented for this metric. One tracking per order (uq_tracking_order_id), so counting trackings is counting orders.",
           "config": {
-            "show_legends": false,
+            "show_legends": true,
             "decimals": 0
           },
           "queryType": "promql",
@@ -168,10 +168,10 @@
             }
           ],
           "layout": {
-            "x": 12,
-            "y": 13,
-            "w": 12,
-            "h": 13,
+            "x": 0,
+            "y": 15,
+            "w": 64,
+            "h": 15,
             "i": 4
           }
         },
@@ -209,10 +209,10 @@
             }
           ],
           "layout": {
-            "x": 0,
-            "y": 26,
-            "w": 12,
-            "h": 13,
+            "x": 64,
+            "y": 15,
+            "w": 64,
+            "h": 15,
             "i": 5
           }
         },
@@ -222,7 +222,7 @@
           "title": "Email failures — permanent vs transient",
           "description": "PERMANENT means the email is LOST: a missing template raises PermanentError, the record is not retried, and the customer never receives it. Any non-zero permanent value is a real incident. TRANSIENT is an SES failure SQS retries, so small numbers are expected noise. Empty while nothing is failing, which is the healthy state.",
           "config": {
-            "show_legends": false,
+            "show_legends": true,
             "decimals": 0
           },
           "queryType": "promql",
@@ -250,10 +250,10 @@
             }
           ],
           "layout": {
-            "x": 12,
-            "y": 26,
-            "w": 12,
-            "h": 13,
+            "x": 128,
+            "y": 15,
+            "w": 64,
+            "h": 15,
             "i": 6
           }
         },
@@ -263,7 +263,7 @@
           "title": "HTTP errors by service and class",
           "description": "4xx/5xx only — a per-2xx series would be a request-rate metric the logs already provide. The events-pipeline is absent by design: it is a Lambda with no HTTP surface. Tracking's 5xx are captured through an explicit exception branch, because Starlette's ServerErrorMiddleware sits outside every add_middleware layer and its 500 never reaches a send wrapper (docs/lessons/2026-08-12-server-error-middleware-outside-pure-asgi-middleware.md).",
           "config": {
-            "show_legends": false,
+            "show_legends": true,
             "decimals": 0
           },
           "queryType": "promql",
@@ -292,9 +292,9 @@
           ],
           "layout": {
             "x": 0,
-            "y": 39,
-            "w": 24,
-            "h": 14,
+            "y": 30,
+            "w": 64,
+            "h": 15,
             "i": 7
           }
         },
@@ -332,10 +332,10 @@
             }
           ],
           "layout": {
-            "x": 0,
-            "y": 53,
-            "w": 24,
-            "h": 13,
+            "x": 64,
+            "y": 30,
+            "w": 64,
+            "h": 15,
             "i": 8
           }
         }

@@ -1,8 +1,8 @@
 {
   "version": 8,
   "dashboardId": "",
-  "title": "Orders \u2014 Golden Signals",
-  "description": "Request rate, errors, latency, and top routes for the Orders service (derived from structured logs). Managed as code \u2014 see observability/dashboards/.",
+  "title": "Orders — Golden Signals",
+  "description": "Request rate, errors, latency, and top routes for the Orders service (derived from structured logs). Managed as code — see observability/dashboards/.",
   "role": "",
   "owner": "admin@3mrai.local",
   "created": "2026-07-16T00:00:00Z",
@@ -47,8 +47,8 @@
           "layout": {
             "x": 0,
             "y": 0,
-            "w": 12,
-            "h": 9,
+            "w": 96,
+            "h": 15,
             "i": 1
           }
         },
@@ -86,10 +86,10 @@
             }
           ],
           "layout": {
-            "x": 12,
+            "x": 96,
             "y": 0,
-            "w": 12,
-            "h": 9,
+            "w": 96,
+            "h": 15,
             "i": 2
           }
         },
@@ -129,9 +129,9 @@
           ],
           "layout": {
             "x": 0,
-            "y": 9,
-            "w": 12,
-            "h": 9,
+            "y": 15,
+            "w": 96,
+            "h": 15,
             "i": 3
           }
         },
@@ -169,10 +169,10 @@
             }
           ],
           "layout": {
-            "x": 12,
-            "y": 9,
-            "w": 12,
-            "h": 9,
+            "x": 96,
+            "y": 15,
+            "w": 96,
+            "h": 15,
             "i": 4
           }
         },
@@ -210,9 +210,9 @@
           ],
           "layout": {
             "x": 0,
-            "y": 18,
-            "w": 24,
-            "h": 9,
+            "y": 30,
+            "w": 192,
+            "h": 15,
             "i": 5
           }
         }
