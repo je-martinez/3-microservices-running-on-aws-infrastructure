@@ -19,6 +19,9 @@ receivers:
         endpoint: 0.0.0.0:4317
 
   # Polls CloudWatch. AWS_ENDPOINT_URL redirects it to Floci locally.
+  # ONE receiver, TWO signals: `logs` (ECS/RDS log groups) and `metrics` (the
+  # services' custom business metrics). The same component does both — adding
+  # metrics needed no new receiver.
   aws_cloudwatch:
     region: ${env:AWS_REGION}
     logs:
@@ -27,6 +30,133 @@ receivers:
         autodiscover:
           limit: 50
           prefix: /ecs/
+
+    # Custom business metrics, read with GetMetricData. The services publish them
+    # with PutMetricData; see the design spec for why CloudWatch is the source of
+    # truth rather than a bypassed intermediary.
+    metrics:
+      # LOCAL values. Real AWS uses 60s/60s (CloudWatch's standard resolution) and
+      # keeps the default delay.
+      #
+      # collection_interval MUST be >= period — the receiver validates this at
+      # startup and refuses to boot otherwise. That is a loud failure, which is
+      # what we want.
+      collection_interval: 15s
+      period: 15s
+      # LOCAL ONLY, and load-bearing. The default is 10 MINUTES: it shifts the
+      # query window back to compensate for real CloudWatch's publication latency.
+      # Floci has no such latency, so leaving the default means NOTHING appears
+      # for the first ten minutes — indistinguishable from a broken pipeline, with
+      # no error anywhere. Do not remove this line locally.
+      delay: 0s
+      queries:
+        # `dimensions` is a MAP here ({Service: users}), NOT the AWS CLI's
+        # list-of-{Name,Value} form.
+        #
+        # Every query MUST name the EXACT dimension set the metric was published
+        # with. Floci does not aggregate across dimensions: a query whose
+        # dimensions differ returns an EMPTY result with StatusCode "Complete" —
+        # a silent no-data, not an error. Real CloudWatch would aggregate, so a
+        # query written against AWS semantics renders green and empty here.
+        #
+        # `stats` choice is NOT cosmetic:
+        #   - counters  -> Sum      (add up the events in the window)
+        #   - gauges    -> Maximum  (report the single sample in the window)
+        # Summing a gauge ADDS every sample in the window, so two publishes
+        # landing in one window report DOUBLE the real count. That is the easiest
+        # way to produce a plausible wrong number in this pipeline.
+
+        # --- Users -----------------------------------------------------------
+        - namespace: "3MRAI"
+          metric_name: "users_registered_total"
+          dimensions: { Service: users }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "password_resets_total"
+          dimensions: { Service: users }
+          stats: [Sum]
+        # Two series, one per HasPassword value. Both are always published (zero
+        # included) so a value with no users reads as 0 rather than as "no data".
+        - namespace: "3MRAI"
+          metric_name: "users_total"
+          dimensions: { Service: users, HasPassword: "true" }
+          stats: [Maximum]
+        - namespace: "3MRAI"
+          metric_name: "users_total"
+          dimensions: { Service: users, HasPassword: "false" }
+          stats: [Maximum]
+
+        # --- Orders ----------------------------------------------------------
+        # The TRUE order count, from Orders' own table. Together with the two
+        # tracking series below it exposes the Orders<->Tracking integration
+        # health: orders_total - (DELIVERED + IN_PROGRESS) is the number of
+        # orders whose init-tracking call failed. Normally 0.
+        - namespace: "3MRAI"
+          metric_name: "orders_total"
+          dimensions: { Service: orders }
+          stats: [Maximum]
+
+        # --- Tracking --------------------------------------------------------
+        # Finished vs unfinished orders, keyed on the tracking state machine's
+        # terminal status.
+        - namespace: "3MRAI"
+          metric_name: "orders_by_tracking_status_total"
+          dimensions: { Service: tracking, Status: DELIVERED }
+          stats: [Maximum]
+        - namespace: "3MRAI"
+          metric_name: "orders_by_tracking_status_total"
+          dimensions: { Service: tracking, Status: IN_PROGRESS }
+          stats: [Maximum]
+
+        # --- events-pipeline -------------------------------------------------
+        # EmailType: ALL is a SEPARATELY PUBLISHED series, not a query-time
+        # rollup — see the no-aggregation note above. Per-template series are
+        # deliberately not listed yet (nine keys x sent/failed x failure kind is
+        # a long list that would need editing on every new template); JE-150
+        # decides between listing them and switching to `discovery`.
+        - namespace: "3MRAI"
+          metric_name: "emails_sent_total"
+          dimensions: { Service: events-pipeline, EmailType: ALL }
+          stats: [Sum]
+        # permanent = the email is LOST (not retried). transient = SQS will retry.
+        # Splitting them is the difference between an incident and expected noise.
+        - namespace: "3MRAI"
+          metric_name: "emails_failed_total"
+          dimensions: { Service: events-pipeline, EmailType: ALL, FailureKind: permanent }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "emails_failed_total"
+          dimensions: { Service: events-pipeline, EmailType: ALL, FailureKind: transient }
+          stats: [Sum]
+
+        # --- HTTP errors, all three HTTP services ----------------------------
+        # 4xx/5xx only. A per-2xx metric would be a request-rate metric, which
+        # the logs already provide. The events-pipeline is absent on purpose: it
+        # is a Lambda with no HTTP surface.
+        - namespace: "3MRAI"
+          metric_name: "http_errors_total"
+          dimensions: { Service: users, StatusClass: 4xx }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "http_errors_total"
+          dimensions: { Service: users, StatusClass: 5xx }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "http_errors_total"
+          dimensions: { Service: orders, StatusClass: 4xx }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "http_errors_total"
+          dimensions: { Service: orders, StatusClass: 5xx }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "http_errors_total"
+          dimensions: { Service: tracking, StatusClass: 4xx }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "http_errors_total"
+          dimensions: { Service: tracking, StatusClass: 5xx }
+          stats: [Sum]
 
 processors:
   # Parse the service's JSON stdout line (carried in body) into top-level
@@ -213,6 +343,25 @@ exporters:
     tls:
       insecure: true
 
+  # Metrics to OpenObserve, its own stream — same instance and auth as logs,
+  # differing only in the stream-name header, exactly like the sql split above.
+  #
+  # WHY THIS WORKS WHEN TRACES DID NOT: ADR-0019 records OpenObserve rejecting
+  # every trace batch the collector sent with HTTP 400, which is why traces go to
+  # Jaeger. Its METRICS ingest does not have that problem — verified end to end
+  # before this config was written: the stream is created and the data points come
+  # back queryable.
+  #
+  # Note for dashboard authors: OpenObserve PREFIXES AND LOWERCASES the CloudWatch
+  # dimensions on ingest. A dimension published as `Service` is queried here as
+  # `dimensions_service`. The metric name becomes the stream name, sanitized:
+  # amazonaws.com/3MRAI/orders_total -> amazonaws_com_3mrai_orders_total.
+  otlp_http/openobserve_metrics:
+    endpoint: http://openobserve:5080/api/default
+    headers:
+      Authorization: "Basic ${env:O2_BASIC_AUTH}"
+      stream-name: metrics
+
 service:
   telemetry:
     logs:
@@ -244,3 +393,14 @@ service:
       receivers: [otlp]
       processors: [batch]
       exporters: [otlp/jaeger]
+
+    # Custom business metrics: CloudWatch -> OpenObserve. Same receiver as the
+    # logs pipeline, different signal — the receiver's `metrics` block above is
+    # what this pipeline consumes.
+    #
+    # No transform/parse_body, for the same reason as traces: metrics arrive
+    # already structured, unlike the services' stdout JSON.
+    metrics:
+      receivers: [aws_cloudwatch]
+      processors: [batch]
+      exporters: [otlp_http/openobserve_metrics]
