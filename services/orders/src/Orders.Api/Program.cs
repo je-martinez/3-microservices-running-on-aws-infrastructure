@@ -1,6 +1,8 @@
+using Amazon.CloudWatch;
 using Amazon.SQS;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
+using Orders.Api.BackgroundServices;
 using Orders.Api.Endpoints;
 using Orders.Api.Identity;
 using Orders.Api.Logging;
@@ -11,6 +13,7 @@ using Orders.Application.Tracking;
 using Orders.Infrastructure.Config;
 using Orders.Infrastructure.Grpc;
 using Orders.Infrastructure.Messaging;
+using Orders.Infrastructure.Metrics;
 using Orders.Infrastructure.Orders;
 using Orders.Infrastructure.Persistence;
 using Orders.Infrastructure.Tracking;
@@ -157,6 +160,36 @@ builder.Services.AddScoped<IEventPublisher>(sp => new SqsEventPublisher(
     sp.GetRequiredService<IAmazonSQS>(),
     eventsQueueUrl,
     sp.GetRequiredService<ILogger<SqsEventPublisher>>()));
+
+// Custom business metrics -> CloudWatch (Floci locally), scraped by the OTel
+// collector into OpenObserve. One client per process (Singleton), same
+// endpoint-override pattern as the SQS client above.
+builder.Services.AddSingleton<IAmazonCloudWatch>(_ =>
+{
+    var config = new AmazonCloudWatchConfig
+    {
+        RegionEndpoint = Amazon.RegionEndpoint.GetBySystemName(
+            builder.Configuration["AWS_REGION"] ?? "us-east-1"),
+    };
+    var endpointUrl = builder.Configuration["AWS_ENDPOINT_URL"];
+    if (!string.IsNullOrWhiteSpace(endpointUrl))
+    {
+        config.ServiceURL = endpointUrl;
+    }
+    return new AmazonCloudWatchClient(config);
+});
+
+builder.Services.AddSingleton<IMetricsPublisher>(sp => new CloudWatchMetricsPublisher(
+    sp.GetRequiredService<IAmazonCloudWatch>(),
+    sp.GetRequiredService<ILogger<CloudWatchMetricsPublisher>>()));
+
+// Skipped during build-time OpenAPI generation: GetDocument.Insider builds the app
+// to read its endpoint metadata, and a hosted service would start a real timer and
+// hit a database that is not there.
+if (!isDocumentGeneration)
+{
+    builder.Services.AddHostedService<OrdersMetricsPublisher>();
+}
 
 // Tracking HTTP client (POST /v1/trackings/init-tracking). Typed client so the
 // base address and timeout are configured once, in the composition root, and

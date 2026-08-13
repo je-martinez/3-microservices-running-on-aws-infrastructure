@@ -8,6 +8,7 @@ using Orders.Application.Identity;
 using Orders.Domain.Entities;
 using Orders.Infrastructure.Id;
 using Orders.Infrastructure.Messaging;
+using Orders.Infrastructure.Metrics;
 using Orders.Infrastructure.Persistence;
 using Testcontainers.MySql;
 
@@ -97,6 +98,17 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
             var events = services.Single(d => d.ServiceType == typeof(IEventPublisher));
             services.Remove(events);
             services.AddScoped<IEventPublisher, NoopEventPublisher>();
+
+            // Same reason as the publisher above: the OrdersMetricsPublisher hosted
+            // service ticks while these tests run, and the real client would attempt a
+            // PutMetricData against a CloudWatch that is not there.
+            var metricsDescriptor = services.SingleOrDefault(
+                d => d.ServiceType == typeof(IMetricsPublisher));
+            if (metricsDescriptor is not null)
+            {
+                services.Remove(metricsDescriptor);
+            }
+            services.AddSingleton<IMetricsPublisher>(new NoopMetricsPublisher());
         });
     }
 

@@ -6,6 +6,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Same v4 SDK line as AWSSDK.SQS below: mixing v3 and v4 AWS SDK packages in
+         one project causes assembly-binding conflicts. The patch number differs
+         because each AWS service package versions independently — there is no
+         AWSSDK.CloudWatch 4.0.100.7, and asking for one makes NuGet float to the
+         next available version (NU1603) instead of pinning. -->
+    <PackageReference Include="AWSSDK.CloudWatch" Version="4.0.101" />
     <PackageReference Include="AWSSDK.SQS" Version="4.0.100.7" />
     <PackageReference Include="Google.Protobuf" Version="3.35.1" />
     <PackageReference Include="Grpc.Net.Client" Version="2.80.0" />
