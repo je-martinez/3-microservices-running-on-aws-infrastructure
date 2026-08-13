@@ -821,11 +821,18 @@ In `services/orders/src/Orders.Infrastructure/Orders.Infrastructure.csproj`, bes
 `AWSSDK.SQS`:
 
 ```xml
-    <PackageReference Include="AWSSDK.CloudWatch" Version="4.0.100.7" />
+    <PackageReference Include="AWSSDK.CloudWatch" Version="4.0.101" />
 ```
 
 Match the **v4 SDK line** the existing `AWSSDK.SQS` uses — mixing v3 and v4 AWS SDK packages in
 one project causes assembly-binding conflicts.
+
+> [!warning] Do not copy `AWSSDK.SQS`'s exact version number
+> Each AWS service package versions **independently**. `4.0.100.7` is SQS's version and does not
+> exist for CloudWatch; asking for it makes NuGet silently float to the nearest match
+> (`NU1603`) while the csproj claims a pin it does not have. Verify a version exists before
+> pinning it: `curl -s https://api.nuget.org/v3-flatcontainer/awssdk.cloudwatch/index.json`.
+> The v4-not-v3 constraint is the one that matters; the exact patch is not.
 
 - [ ] **Step 2: Write the failing test**
 
