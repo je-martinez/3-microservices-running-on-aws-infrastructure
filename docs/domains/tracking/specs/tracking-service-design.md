@@ -4,7 +4,7 @@ type: spec
 area: tracking
 status: accepted
 created: 2026-06-26
-updated: 2026-08-07
+updated: 2026-08-12
 tags: [type/spec, area/tracking, status/accepted]
 related:
   - "[[soft-delete]]"
@@ -30,6 +30,7 @@ related:
   - "[[2026-08-03-events-pipeline-milestone-design]]"
   - "[[2026-08-05-realtime-tracking-events-websocket-design]]"
   - "[[2026-08-05-realtime-tracking-events-websocket]]"
+  - "[[2026-08-12-custom-business-metrics-cloudwatch-design]]"
 ---
 
 # Tracking Service Design
@@ -641,6 +642,43 @@ error taxonomy that decides whether a publish-side failure downstream gets retri
 `tracking-status-changed` email template family (one event type, five rendered variants selected
 by `payload.status`).
 
+## Metrics
+
+> [!info] Shipped 2026-08-12 — Custom Business Metrics milestone
+> Full design and the Floci/OpenObserve gotchas that constrain this metric:
+> [[2026-08-12-custom-business-metrics-cloudwatch-design]]; the CloudWatch-not-OTLP pipeline and
+> the shared query gotchas are in [[logging-context#Metrics — the third pillar, and why it does
+> NOT go over OTLP]].
+
+| Metric | Type | Dimensions |
+|---|---|---|
+| `orders_by_tracking_status_total` | gauge | `Service=tracking`, `Status=DELIVERED\|IN_PROGRESS` |
+
+A gauge, split into `DELIVERED` (finished) and `IN_PROGRESS` (everything else — `PLACED`,
+`PROCESSING`, `SHIPPED`, `OUT_FOR_DELIVERY`), published by a periodic task that `GROUP BY`s
+`Tracking.status` on Tracking's own database.
+
+**`DELIVERED` is the state machine's terminal status ([Tracking statuses](#tracking-statuses)),
+so "finished" is the domain's own invariant, not a convention invented for this metric.** Nothing
+follows `DELIVERED` and no update is accepted against it (see [State machine & update
+guards](#state-machine--update-guards)).
+
+**Counting trackings is counting orders, without double-counting.** `Tracking.order_id` carries
+`UniqueConstraint("order_id", name="uq_tracking_order_id")` — strictly one tracking per order, so
+a `GROUP BY status` over `Tracking` is exactly a count of orders by their tracking status, with no
+join or dedup needed.
+
+Together with Orders' `orders_total` ([[orders-service-design#Metrics]]), this metric is one half
+of the Orders→Tracking integration health indicator: `orders_total − (DELIVERED + IN_PROGRESS)`
+should be 0 in normal operation. See [[orders-service-design#Metrics]] for the full reasoning and
+the deliberately-accepted failure mode it surfaces.
+
+**`src/main.py` now has a `lifespan` — it previously had none.** The module's own docstring used
+to say "there is nothing to start or stop"; that is no longer true. The lifespan starts the
+periodic gauge-publishing task for the life of the process, gated on `METRICS_ENABLED`: `main.py`'s
+`create_app()` is also called by `tests/conftest.py` for every REST test, and an ungated task would
+open a real database session and reach for CloudWatch on every test run.
+
 ## Change impact — renaming a delivery status
 
 Renaming a value in the delivery-status enum ([Tracking statuses](#tracking-statuses)) touches
@@ -785,3 +823,6 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
 - [[2026-08-05-realtime-tracking-events-websocket-design]] — the design that added
   `author.cognito_sub` to this publisher's envelope, and the DynamoDB GSI it exists to serve.
 - [[2026-08-05-realtime-tracking-events-websocket]] — the implementation plan that shipped it.
+- [[2026-08-12-custom-business-metrics-cloudwatch-design]] — the design for
+  `orders_by_tracking_status_total`, the DELIVERED/IN_PROGRESS split, and the `main.py` lifespan
+  it added.

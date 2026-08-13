@@ -23,6 +23,7 @@ related:
   - "[[2026-08-05-passwordless-otp-auth-design]]"
   - "[[2026-08-05-passwordless-otp-auth]]"
   - "[[passwordless-auth-type]]"
+  - "[[2026-08-12-custom-business-metrics-cloudwatch-design]]"
 ---
 
 # Logging Context
@@ -140,6 +141,80 @@ before any module body runs. The OTel SDK must be loaded via `node --import`, no
 "first" inside the entrypoint file — otherwise instrumented libraries are already in the module
 graph before `sdk.start()` runs, and their instrumentation silently never patches.
 
+## Metrics — the third pillar, and why it does NOT go over OTLP
+
+Logs (OpenObserve, [[ADR-0018-observability-openobserve]]) and traces (Jaeger,
+[[ADR-0019-distributed-tracing-opentelemetry]]) travel over OTLP. Metrics deliberately do not:
+`OTEL_METRICS_EXPORTER=none` in every service is **correct and remains in place** — turning it on
+would open a second, parallel metrics path with different semantics for the same numbers. Instead,
+metrics are custom business/error counters and gauges published straight to **Amazon CloudWatch**
+(`PutMetricData`), which the collector's existing `aws_cloudwatch` receiver polls
+(`GetMetricData`) and re-exports into OpenObserve as its own signal, alongside logs and traces but
+through a different mechanism. Full design and the spike that established it:
+[[2026-08-12-custom-business-metrics-cloudwatch-design]].
+
+**Namespace and dimensions.** Every metric in every service publishes under the single namespace
+`3MRAI`. `Service` is a dimension (`users`, `orders`, `tracking`, `events-pipeline`), never a
+namespace split — this keeps discovery and dashboard queries uniform. Dimensions are low-cardinality
+labels only — never a user id, email, or order id.
+
+**Publishers never break the operation that produced the metric.** Every metric-publishing call is
+log-and-swallow on failure, the same stance `SqsEventPublisher`/the events-pipeline's producers
+already take for event publishing (see [[events-pipeline-design#Producers and their
+publish-failure policy]]) — a metrics backend being down must never fail a registration, an order,
+or an email.
+
+### Three verified Floci/OpenObserve gotchas for metrics (load-bearing)
+
+> [!warning] (a) Floci's CloudWatch does NOT aggregate across dimensions — and fails silently
+> A metric published with a given dimension set (e.g. `Service=orders`) is only readable by
+> querying that **exact** dimension set. Querying the same metric name with a different or omitted
+> dimension set does not error — it returns `Values: []` with `StatusCode: "Complete"`, i.e. "query
+> fine, no data." Real CloudWatch would aggregate across the dimension; Floci does not. Two
+> consequences: every dashboard query must name the exact published dimension set, and **a "total"
+> across a breakdown must be published as its own series** with a sentinel dimension value (e.g.
+> `EmailType=ALL`), never derived by omitting a dimension at query time.
+
+> [!warning] (b) OpenObserve prefixes and lowercases dimensions, and sanitizes the metric name into the stream name
+> A CloudWatch dimension `Service=orders` arrives in OpenObserve as **`dimensions_service`**
+> (prefixed with `dimensions_` and lowercased) — the unprefixed `Service` form only applies on the
+> CloudWatch side (`GetMetricData`, the collector's `queries` block). The metric name is sanitized
+> into the stream name the same way: `amazonaws.com/3MRAI/orders_total` becomes the stream
+> `amazonaws_com_3mrai_orders_total`. Every dashboard query must use the OpenObserve-side prefixed,
+> lowercased, sanitized names — the CloudWatch-side names will silently return nothing there.
+
+> [!warning] (c) Query gauges with `max()`, counters with `sum()` — never the other way round
+> A gauge published once per collection window has exactly one sample in that window, so `max()`
+> (CloudWatch stat `Maximum`) returns that sample's value. Using `sum()`/`Sum` on a gauge **adds**
+> every sample that landed in the window — if two publishes land in one window, the reported value
+> is a multiple of the real count, not the real count. This is the single easiest way to produce a
+> plausible-looking wrong number on a dashboard here. Counters use `sum()`/`Sum`, as usual for a
+> range query over an incrementing value.
+
+> [!warning] (d) A metrics dashboard panel must use PromQL, not SQL
+> The OpenObserve UI dispatches on the panel's `queryType`: it reaches metric streams through
+> `prometheus/api/v1/query_range`, while the SQL path is built for log streams. A metrics panel
+> declaring `queryType: "sql"` renders **"Error Loading Data" and never issues a search request at
+> all** — the access log shows the dashboard being fetched and then nothing.
+>
+> The trap is that **the SQL is not wrong**: it returns correct rows through the
+> `_search?type=metrics` API, which is the right way to verify the *ingest pipeline*. Verifying
+> there proves the data arrived; it does **not** prove the panel renders. The query path and the
+> render path fail independently.
+
+These four, plus the receiver's `delay` (10m default — real AWS latency compensation Floci does
+not have, and which must be `0s` locally or nothing appears for the first ten minutes) and the
+`collection_interval >= period` startup validation, are recorded in full with worked examples in
+[[2026-08-12-custom-business-metrics-cloudwatch-design]] — this section is the short form referenced
+by every service's metrics section rather than restated in each one.
+
+> [!info] Dashboard authoring is documented separately
+> The panel-level rules — the **192-column** grid (not 24), the **required `fields.x`/`fields.y`**
+> declarations that `customQuery: true` does *not* exempt, and the difference between
+> "Error Loading Data" and "No Data" — live in `observability/dashboards/README.md`, beside the
+> dashboards themselves. Each of those cost a debugging session because the README previously
+> stated the wrong value.
+
 ## Severity must reach the record's native fields
 
 Writing `severity_text`/`severity_number` only as log attributes leaves them queryable but
@@ -239,3 +314,6 @@ reach the shared schema.
 - [[2026-08-05-passwordless-otp-auth]] — the implementation plan that shipped it.
 - [[passwordless-auth-type]] — the `AuthType`/login-guard decision, whose failure reason
   (`passwordless_user`) is logged but never the credential itself.
+- [[2026-08-12-custom-business-metrics-cloudwatch-design]] — the metrics pillar this note's
+  "Metrics" section summarizes: the CloudWatch-not-OTLP pipeline, the namespace/dimension
+  conventions, and the full detail behind the three Floci/OpenObserve gotchas above.

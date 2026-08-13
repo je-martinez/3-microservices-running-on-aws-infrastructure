@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-17
-updated: 2026-08-06
+updated: 2026-08-12
 tags: [type/convention, area/shared, status/active]
 related:
   - "[[ADR-0010-cognito-auth]]"
@@ -19,6 +19,7 @@ related:
   - "[[passwordless-auth-type]]"
   - "[[2026-08-05-realtime-tracking-events-websocket-design]]"
   - "[[2026-08-05-realtime-tracking-events-websocket]]"
+  - "[[2026-08-12-custom-business-metrics-cloudwatch-design]]"
 ---
 
 # Testing
@@ -203,6 +204,44 @@ itself works.
 > not swept into "pass eventually" — it is documented as outstanding until the root cause is
 > found.
 
+## Adapting the three layers to metrics publishing (non-HTTP surfaces)
+
+Custom business metrics (see [[2026-08-12-custom-business-metrics-cloudwatch-design]] and
+[[logging-context#Metrics — the third pillar, and why it does NOT go over OTLP]]) are published by
+every service, but a metric publish is not an HTTP endpoint — there is no request/response to
+assert and no gateway to route through. The three-layer rule is adapted the same way it was for
+the events-pipeline and the WebSocket surface above:
+
+1. **Unit** — the publishing helper in each service: correct namespace (`3MRAI`), correct metric
+   name, and the **exact** dimension set. The dimension set is asserted literally (not through a
+   builder or a partial match), because it is the part that silently breaks a dashboard per
+   [[logging-context#Metrics — the third pillar, and why it does NOT go over OTLP]] gotcha (a).
+2. **Integration** — publish against Floci with `PutMetricData`, then read back with
+   `GetMetricData` **using the same dimension set the dashboard will use**. This is the layer that
+   would have caught the dimension-aggregation gotcha during the original spike, and it carries one
+   non-negotiable assertion:
+
+   > [!warning] Assert a NON-EMPTY value, never merely `StatusCode: "Complete"`
+   > Floci's silent-empty failure mode (gotcha (a)) returns `StatusCode: "Complete"` with an
+   > **empty** `Values` list when the query's dimension set does not match what was published —
+   > that is not an error response, it looks exactly like "query succeeded, nothing there yet." A
+   > test that only checks the status code passes identically whether the metric arrived or the
+   > query is silently wrong. The integration test must assert the returned value is present and
+   > non-empty, not just that the call succeeded.
+
+3. **Pipeline verification** — with the observability profile up, confirm the metric arrives in
+   OpenObserve, under its prefixed/lowercased dimension names and sanitized stream name (gotcha
+   (b)). Observe across **at least two** `collection_interval` windows, never one — a check whose
+   duration equals the export period can pass or fail purely on where it lands in the cycle, per
+   [[2026-08-12-custom-business-metrics-cloudwatch-design#Testing]] and this repo's own prior
+   verify-across-a-full-cycle lesson. Derive the wait from the configured interval rather than
+   hardcoding seconds.
+
+**Gauge correctness is verified against the database**, not self-referentially: the published
+value must equal a `COUNT(*)`/`GROUP BY` against a known fixture, and a gauge must be queried with
+`max()`/`Maximum`, never `sum()`/`Sum` — summing a gauge across samples in one window reports a
+multiple of the real count (gotcha (c)).
+
 ### A test must never assert a mock's own configured behaviour
 
 Found three times independently during the events-pipeline milestone, each a false-green test
@@ -295,3 +334,6 @@ Every service implements the underlying delete as a soft-delete, per [[soft-dele
 - [[2026-08-05-passwordless-otp-auth]] — the implementation plan that shipped both mandatory
   anti-false-PASS guards at all three test layers.
 - [[passwordless-auth-type]] — the service-side login guard one of those guards verifies.
+- [[2026-08-12-custom-business-metrics-cloudwatch-design]] — the metrics-adapted three-layer
+  rule above, including the non-empty-value assertion the silent-empty Floci failure mode
+  requires.

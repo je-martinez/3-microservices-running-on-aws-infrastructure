@@ -4,7 +4,7 @@ type: spec
 area: users
 status: active
 created: 2026-06-26
-updated: 2026-08-10
+updated: 2026-08-12
 tags: [type/spec, area/users, status/active]
 related:
   - "[[soft-delete]]"
@@ -46,6 +46,7 @@ related:
   - "[[self-owned-password-reset-codes-in-redis]]"
   - "[[password-policy-checklist-gap]]"
   - "[[redis-elasticache-replication-group-floci]]"
+  - "[[2026-08-12-custom-business-metrics-cloudwatch-design]]"
 ---
 
 # Users Service Design
@@ -324,6 +325,42 @@ one parameterized type). Its `code` is redacted before the event document reache
 swallow-and-log, that keeps a publish failure from ever surfacing as a `500` for a known email
 (see [[ADR-0020-self-owned-password-reset#Two security properties this flow is built around (load-bearing, tested)]]).
 
+## Metrics
+
+> [!info] Shipped 2026-08-12 — Custom Business Metrics milestone
+> Full design and the Floci/OpenObserve gotchas that constrain every metric here:
+> [[2026-08-12-custom-business-metrics-cloudwatch-design]]; the CloudWatch-not-OTLP pipeline and
+> the shared query gotchas are in [[logging-context#Metrics — the third pillar, and why it does
+> NOT go over OTLP]].
+
+Users publishes three metrics to CloudWatch, namespace `3MRAI`:
+
+| Metric | Type | Dimensions |
+|---|---|---|
+| `users_registered_total` | counter | `Service=users` |
+| `users_total` | gauge | `Service=users`, `HasPassword=true\|false` |
+| `password_resets_total` | counter | `Service=users` |
+
+`users_registered_total` increments once per successful `POST /v1/users/register` and
+`POST /v1/users/register/passwordless` — both are registrations, so they share the same metric
+name and dimensions; the password/passwordless split lives in `users_total`'s `HasPassword`
+dimension, not in a second counter.
+
+`users_total` is a gauge published by a `BusinessMetricsPoller` that runs a periodic `COUNT(*)`
+against Users' own database, split by whether the user has a password — covering the passwordless
+flow ([[2026-08-05-passwordless-otp-auth-design]]), which creates users with none.
+
+**`password_resets_total` is counted on CONFIRM (`POST /v1/users/password/confirm`), not on
+request (`POST /v1/users/password/forgot`).** `POST /v1/users/password/forgot` always answers
+`202` with the same body whether or not the email exists — a deliberate anti-enumeration property
+(see [Password reset](#password-reset)) — so counting at the request step would count resets that
+never actually happened, for emails that don't even belong to an account.
+
+**The `BusinessMetricsPoller` is started in `server.ts`, never in `buildApp()`.** `buildApp()` is
+also called by the test suite; a live periodic timer started there would hit the database from
+outside any test's control on every test run. `server.ts` runs only for the real process, so the
+poller only ever ticks there.
+
 ## OpenAPI autogen
 
 `services/users/openapi.yaml` is **generated**, not hand-maintained: it is built from the Fastify route Zod schemas (`http/schemas.ts`) via `@fastify/swagger` + `fastify-type-provider-zod`, running `pnpm generate:openapi`. It is the artifact imported into Apidog (see `docs/infrastructure/runbooks/mcp-servers.md`). Any route or schema change requires regenerating and committing `openapi.yaml` in the same change. See [[2026-07-10-users-openapi-autogen-design]] for the generator design (including orphan-component pruning for the `*Input` schema variants).
@@ -506,3 +543,5 @@ convention/pattern notes in `shared/`) live in `docs/domains/users/decisions/`:
   the enforced Cognito policy.
 - [[redis-elasticache-replication-group-floci]] — the infra module provisioning the Redis instance
   this flow depends on.
+- [[2026-08-12-custom-business-metrics-cloudwatch-design]] — the design for the three CloudWatch
+  metrics Users publishes and the `BusinessMetricsPoller`'s start-in-`server.ts` constraint.

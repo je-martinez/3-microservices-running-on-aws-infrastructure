@@ -4,7 +4,7 @@ type: spec
 area: orders
 status: accepted
 created: 2026-06-26
-updated: 2026-08-05
+updated: 2026-08-12
 tags: [type/spec, area/orders, status/accepted]
 related:
   - "[[soft-delete]]"
@@ -28,6 +28,7 @@ related:
   - "[[tracking-service-design]]"
   - "[[users-service-design]]"
   - "[[events-pipeline-design]]"
+  - "[[2026-08-12-custom-business-metrics-cloudwatch-design]]"
 ---
 
 # Orders Service Design
@@ -220,6 +221,35 @@ Publish failures are logged and swallowed, never rethrown, because the publish c
 paid-for order over a notification failure. See [[events-pipeline-design]] for the consumer
 side and the full envelope contract.
 
+## Metrics
+
+> [!info] Shipped 2026-08-12 — Custom Business Metrics milestone
+> Full design and the Floci/OpenObserve gotchas that constrain this metric:
+> [[2026-08-12-custom-business-metrics-cloudwatch-design]]; the CloudWatch-not-OTLP pipeline and
+> the shared query gotchas are in [[logging-context#Metrics — the third pillar, and why it does
+> NOT go over OTLP]].
+
+| Metric | Type | Dimensions |
+|---|---|---|
+| `orders_total` | gauge | `Service=orders` |
+
+`orders_total` is a gauge — the true count of live orders — published by
+`OrdersMetricsPublisher`, a `BackgroundService` polling Orders' own database on the same interval
+as every other service's gauge poller (15s locally, 60s in real AWS). This is the service's
+**first** `BackgroundService`; there were none before this milestone.
+
+**`orders_total` minus Tracking's `(DELIVERED + IN_PROGRESS)`
+([[tracking-service-design#Metrics]]) is a health indicator for the Orders→Tracking
+integration.** In the normal flow every order gets a tracking row at creation time
+(`POST /v1/trackings/init-tracking`, called during `POST /v1/orders`), so the difference is 0. The
+gap this metric would surface is not a bug — it is the **deliberately-accepted failure mode**
+documented verbatim in `services/orders/src/Orders.Application/Tracking/TrackingInitResult.cs`:
+four of the six `TrackingInitOutcome` values (`UnknownUser`, `Unauthorized`, `Failed`,
+`Unreachable`) leave a committed order with no tracking, on purpose — failing the order after
+stock was decremented would invite a double purchase. `TrackingInitResult.cs`'s own comment
+promises this stays observable through a log; this metric is what makes it visible at a glance
+and alarmable, rather than only discoverable by reading logs after the fact.
+
 ## Cross-cutting rules
 
 This service follows all shared conventions defined once in the vault:
@@ -294,3 +324,5 @@ Full milestone design: [[2026-07-14-orders-service-milestone-design]].
   snapshots onto `Order.shipping_address`.
 - [[events-pipeline-design]] — the consumer of `ORDER_CREATED`, the shared envelope contract,
   and the `author` object carried alongside the order payload.
+- [[2026-08-12-custom-business-metrics-cloudwatch-design]] — the design for `orders_total` and
+  the `orders_total`-minus-Tracking health indicator for the Orders→Tracking integration.
