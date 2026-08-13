@@ -42,8 +42,11 @@ other.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 
@@ -58,11 +61,56 @@ from src.features.tracking.api.errors import (
     RejectedStatusUpdate,
     rejected_status_update_handler,
 )
-from src.shared.config.settings import e2e_testing_enabled
+from src.features.tracking.commands.publish_metrics import run_metrics_publisher
+from src.shared.config.settings import (
+    e2e_testing_enabled,
+    metrics_enabled,
+    metrics_interval_seconds,
+)
 from src.shared.http.log_context_middleware import LogContextMiddleware
 from src.shared.logging import configure_logging
 
 logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Run the periodic metrics publisher for the lifetime of the process.
+
+    GATED on `METRICS_ENABLED`, and that gate is load-bearing: `create_app()` is
+    also called by `tests/conftest.py` for every REST test, and `TestClient`
+    enters the lifespan — an ungated task would open a real database session and
+    reach for CloudWatch on every test run. The suite sets `METRICS_ENABLED=false`
+    process-wide.
+
+    The flag and the interval are read straight from the environment rather than
+    through `get_settings()`, for the same reason `e2e_testing_enabled()` is:
+    `Settings()` raises on an incomplete environment, and the test suite builds
+    the app without the DB/gRPC/carrier variables. Making startup depend on a
+    fully-valid environment because of an observability task would be the tail
+    wagging the dog.
+
+    Cancelled on shutdown and awaited, so the task is actually finished before
+    the process exits rather than left to surface as a "Task was destroyed but it
+    is pending" warning.
+    """
+    task: asyncio.Task[None] | None = None
+
+    if metrics_enabled():
+        task = asyncio.create_task(
+            run_metrics_publisher(interval=metrics_interval_seconds())
+        )
+
+    try:
+        yield
+    finally:
+        if task is not None:
+            task.cancel()
+            # The loop re-raises CancelledError by design; awaiting it here is
+            # what retrieves that outcome so it is never reported as an
+            # unretrieved task exception.
+            with suppress(asyncio.CancelledError):
+                await task
 
 
 def create_app() -> FastAPI:
@@ -72,10 +120,11 @@ def create_app() -> FastAPI:
     overridden dependencies (sessions bound to the test engine, a test carrier key)
     without touching the process-wide one.
 
-    No `lifespan`: there is nothing to start or stop. The gRPC server that used to
-    be bound at startup is gone (JE-108), and with it the event-loop registration it
-    needed — TestMode progression is now scheduled from an `async` handler that is
-    already on uvicorn's loop, so nothing has to be published to it in advance.
+    The `lifespan` starts exactly ONE thing: the periodic metrics publisher (see
+    `_lifespan`). It is not a general startup hook — the gRPC server that used to
+    be bound at startup is gone (JE-108), and with it the event-loop registration
+    it needed, so TestMode progression is scheduled from an `async` handler that
+    is already on uvicorn's loop and needs nothing published in advance.
     """
     # Before anything else, so no line escapes in uvicorn's plain-text default.
     # Structured JSON is what makes `order_id` / `user_id` filterable in the
@@ -94,6 +143,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Tracking Service API",
         version="1.0.0",
+        lifespan=_lifespan,
     )
 
     # Outermost: seeds the per-request log context so EVERY line of the request

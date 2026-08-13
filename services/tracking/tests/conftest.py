@@ -171,10 +171,26 @@ def session(engine: Engine) -> Iterator[Session]:
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Make `src.…` importable without installing the service as a package."""
+    """Make `src.…` importable, and keep the metrics publisher out of the suite.
+
+    Two unrelated jobs, both of which must happen before any test module is
+    imported:
+
+    * `src.…` importable without installing the service as a package.
+    * `METRICS_ENABLED=false`. `create_app()` now installs a lifespan that starts
+      the periodic metrics publisher, and `TestClient` is used as a context
+      manager (deliberately — see the `client` fixture), which ENTERS that
+      lifespan. Left on, every REST test would spawn a loop opening real
+      database sessions and reaching for CloudWatch, outside any test's control.
+      Set here rather than in a fixture because the flag is read at app startup,
+      and `test_settings.py` clears it per test so its own assertions still see
+      the field's default.
+    """
     service_root = str(Path(__file__).resolve().parents[1])
     if service_root not in sys.path:
         sys.path.insert(0, service_root)
+
+    os.environ.setdefault("METRICS_ENABLED", "false")
 
 
 @pytest.fixture
