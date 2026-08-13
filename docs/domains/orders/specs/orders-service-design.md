@@ -4,7 +4,7 @@ type: spec
 area: orders
 status: accepted
 created: 2026-06-26
-updated: 2026-08-05
+updated: 2026-08-12
 tags: [type/spec, area/orders, status/accepted]
 related:
   - "[[soft-delete]]"
@@ -28,6 +28,7 @@ related:
   - "[[tracking-service-design]]"
   - "[[users-service-design]]"
   - "[[events-pipeline-design]]"
+  - "[[2026-08-10-product-catalogue-image-categories-design]]"
 ---
 
 # Orders Service Design
@@ -43,7 +44,9 @@ related:
 >
 > **Not yet built:** Orders' own gRPC **server** surface (`GetOrderById`) and Product CRUD — both
 > explicitly out of scope for the shipped milestone. `ORDER_CREATED` SQS publish shipped in a
-> later commit (`528153c`) — see [Events](#events) below.
+> later commit (`528153c`) — see [Events](#events) below. The product catalogue's display image
+> and category facets shipped later (PR #65) — see the note under [Product](#product) below;
+> category **filtering** on `GET /v1/products` remains out of scope.
 
 ## Summary
 
@@ -154,6 +157,8 @@ Catalog of available products. Used by `OrderDetails` to record what was ordered
 | `description` | `text` | |
 | `unit_price` | `decimal(10,2)` | |
 | `units_in_stock` | `int unsigned` | |
+| `image` | `json` | Nullable. Display artwork as `{uri, width, height, blurhash}`. `uri` is a bucket key **relative** to the assets base URL (e.g. `products/runner-low-canvas.jpg`), never absolute — see the note below. |
+| `categories` | `json` | Non-nullable, defaults to `[]`. Array of UPPERCASE facet strings, e.g. `["FOOTWEAR"]`. |
 | `created_by` | `varchar(26)` | audit |
 | `created_at` | `datetime` | audit |
 | `updated_by` | `varchar(26)` | audit |
@@ -162,6 +167,36 @@ Catalog of available products. Used by `OrderDetails` to record what was ordered
 | `deleted_at` | `datetime` | audit — null means active |
 
 Computed property `isDeleted` returns `true` when `deleted_at` is not null.
+
+> [!note] `image`/`categories` shipped in the Product Catalogue Enrichment milestone (PR #65)
+> Both columns follow the same `ValueConverter`+`ValueComparer` treatment as `Order.Tags` above —
+> the `ValueComparer` is **mandatory**, not optional: without it EF Core compares `List<string>`
+> (and the `ProductImage` record) by reference and silently skips the `UPDATE`. `ProductImage` is
+> a value object (a C# `record`, no `Id`, no table, no audit fields), embedded in the `image`
+> column, not a separate entity.
+>
+> **`uri` is always relative, never absolute**, and this is enforced by a test
+> (`MigrationSeedTests` asserts every seeded `uri` starts with `products/` and contains no
+> `://`), not merely documented: Floci re-mints the assets bucket on every apply and `make clean`
+> destroys it, so a persisted absolute URL is dead data after a rebuild, and it would bake an
+> infrastructure detail into the domain. `ProductReadService` composes the absolute form on read
+> from `ASSETS_BASE_URL` — written to `.env.local.orders` by `generate_env_files.py`, reusing the
+> pre-existing `discover_assets_base_url()` and its derived fallback
+> `http://localhost:4566/post-3mrai-local-post-assets`; see [[env-files]]. `GET /v1/products`'s
+> response body grows to match (additive — no route/status/auth change): `ProductDto` gains
+> `Categories` and `Image` (`{Uri, Width, Height, Blurhash}`, `Uri` served **absolute**).
+>
+> Blurhashes are computed by `infra/modules/assets-bucket/scripts/sync_assets.py` from the
+> **optimised** served objects (not the masters under `assets/products/` — `RESIZE_TARGETS` caps
+> the long edge at 1080) and embedded in the seed as C# constants; `ProductSeedManifestTests`
+> guards against the two drifting apart. The catalogue itself is now the eight products from the
+> web-app design (stock tiered 100/50/25), replacing the original `Widget`/`Gadget`/`Gizmo`
+> placeholders — an existing local database keeps its old rows until a rebuild (`make clean` +
+> `make bootstrap`), since the seed only plants rows into an empty table.
+>
+> Not built: category filtering on `GET /v1/products`, product search, admin CRUD, image upload,
+> multiple images per product, a `FEATURED` facet — see the callout at the top of this note. Full
+> design and reasoning: [[2026-08-10-product-catalogue-image-categories-design]].
 
 ### Order
 
@@ -294,3 +329,6 @@ Full milestone design: [[2026-07-14-orders-service-milestone-design]].
   snapshots onto `Order.shipping_address`.
 - [[events-pipeline-design]] — the consumer of `ORDER_CREATED`, the shared envelope contract,
   and the `author` object carried alongside the order payload.
+- [[2026-08-10-product-catalogue-image-categories-design]] — full design and reasoning for the
+  `image`/`categories` columns, the eight-product reseed, and the `ASSETS_BASE_URL` wiring
+  documented under [Product](#product) above.
