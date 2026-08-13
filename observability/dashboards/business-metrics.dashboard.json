@@ -2,7 +2,7 @@
   "version": 8,
   "dashboardId": "business_metrics",
   "title": "Business Metrics",
-  "description": "Custom business and HTTP error metrics, published to CloudWatch with PutMetricData and scraped into OpenObserve by the collector's aws_cloudwatch receiver. NOTE ON QUERIES: OpenObserve prefixes and lowercases the CloudWatch dimensions on ingest, so a dimension published as `Service` is queried here as `dimensions_service`. The metric name becomes the stream name, sanitized: amazonaws.com/3MRAI/orders_total -> amazonaws_com_3mrai_orders_total. Gauges are published once per interval and queried with max(value); counters are summed.",
+  "description": "Custom business and HTTP error metrics: services publish with PutMetricData to CloudWatch, the collector's aws_cloudwatch receiver scrapes them with GetMetricData, and they land in OpenObserve as metric streams. PANELS USE PromQL, NOT SQL: the UI dispatches on queryType, and a metrics stream queried with queryType sql renders 'Error Loading Data' without ever issuing a search request. Dimension names arrive prefixed and lowercased (CloudWatch `Service` -> `dimensions_service`), and the metric name becomes the stream name (amazonaws.com/3MRAI/orders_total -> amazonaws_com_3mrai_orders_total). Gauges use max(); counters use sum().",
   "role": "",
   "owner": "3MRAI",
   "created": "2026-08-12T00:00:00.000Z",
@@ -15,12 +15,12 @@
           "id": "users_registered",
           "type": "line",
           "title": "Users registered",
-          "description": "New registrations per interval, both password and passwordless paths (one counter, split by users_total's HasPassword dimension rather than by a second metric).",
+          "description": "New registrations. Both the password and passwordless paths increment this one counter — the split is carried by users_total's HasPassword dimension, not by a second metric.",
           "config": { "show_legends": false, "decimals": 0 },
-          "queryType": "sql",
+          "queryType": "promql",
           "queries": [
             {
-              "query": "SELECT histogram(_timestamp) AS x_axis_1, sum(value) AS y_axis_1 FROM \"amazonaws_com_3mrai_users_registered_total\" GROUP BY x_axis_1",
+              "query": "amazonaws_com_3mrai_users_registered_total",
               "customQuery": true,
               "fields": {
                 "stream": "amazonaws_com_3mrai_users_registered_total",
@@ -30,7 +30,7 @@
                 "z": [],
                 "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
               },
-              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+              "config": { "promql_legend": "registrations", "layer_type": "scatter", "weight_fixed": 1 }
             }
           ],
           "layout": { "x": 0, "y": 0, "w": 12, "h": 9, "i": 1 }
@@ -39,12 +39,12 @@
           "id": "users_by_auth_type",
           "type": "line",
           "title": "Users by auth type",
-          "description": "Live user count split by whether the account has a password. A GAUGE: max(value) reports the single sample in each window — sum() would add every sample and report a multiple of the real count. Both series are always published, zero included, so a value with no users reads as 0 rather than as a gap.",
+          "description": "Live user count split by whether the account has a password (the OTP flow creates users with none). A GAUGE, so max() — sum() would add every sample in the window and report a multiple of the real count. Both series are always published, zero included, so a value with no users reads as 0 rather than as a gap.",
           "config": { "show_legends": true, "decimals": 0 },
-          "queryType": "sql",
+          "queryType": "promql",
           "queries": [
             {
-              "query": "SELECT histogram(_timestamp) AS x_axis_1, max(value) AS y_axis_1, dimensions_haspassword AS breakdown_1 FROM \"amazonaws_com_3mrai_users_total\" GROUP BY x_axis_1, breakdown_1",
+              "query": "max by (dimensions_haspassword) (amazonaws_com_3mrai_users_total)",
               "customQuery": true,
               "fields": {
                 "stream": "amazonaws_com_3mrai_users_total",
@@ -54,7 +54,7 @@
                 "z": [],
                 "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
               },
-              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+              "config": { "promql_legend": "has password: {dimensions_haspassword}", "layer_type": "scatter", "weight_fixed": 1 }
             }
           ],
           "layout": { "x": 12, "y": 0, "w": 12, "h": 9, "i": 2 }
@@ -63,12 +63,12 @@
           "id": "password_resets",
           "type": "line",
           "title": "Password resets completed",
-          "description": "Counted on CONFIRM, not on request: POST /v1/users/password/forgot always answers 202 whether or not the email exists (a deliberate non-enumeration guarantee), so counting requests would count resets that never happened.",
+          "description": "Counted on CONFIRM, not on request: POST /v1/users/password/forgot always answers 202 whether or not the email exists (a deliberate non-enumeration guarantee), so counting requests would count resets that never happened. Empty until a reset is actually completed.",
           "config": { "show_legends": false, "decimals": 0 },
-          "queryType": "sql",
+          "queryType": "promql",
           "queries": [
             {
-              "query": "SELECT histogram(_timestamp) AS x_axis_1, sum(value) AS y_axis_1 FROM \"amazonaws_com_3mrai_password_resets_total\" GROUP BY x_axis_1",
+              "query": "amazonaws_com_3mrai_password_resets_total",
               "customQuery": true,
               "fields": {
                 "stream": "amazonaws_com_3mrai_password_resets_total",
@@ -78,7 +78,7 @@
                 "z": [],
                 "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
               },
-              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+              "config": { "promql_legend": "resets", "layer_type": "scatter", "weight_fixed": 1 }
             }
           ],
           "layout": { "x": 0, "y": 9, "w": 8, "h": 9, "i": 3 }
@@ -87,12 +87,12 @@
           "id": "orders_total",
           "type": "line",
           "title": "Orders — total (Orders service)",
-          "description": "The true live order count, from Orders' own table. Compare against the tracked total in the next panel: the difference is the Orders<->Tracking health indicator.",
+          "description": "The true live order count, from Orders' own table. Compare with the next panel: orders_total minus (DELIVERED + IN_PROGRESS) is the number of orders whose init-tracking call failed — a failure mode TrackingInitResult.cs documents as deliberately accepted. Normally zero.",
           "config": { "show_legends": false, "decimals": 0 },
-          "queryType": "sql",
+          "queryType": "promql",
           "queries": [
             {
-              "query": "SELECT histogram(_timestamp) AS x_axis_1, max(value) AS y_axis_1 FROM \"amazonaws_com_3mrai_orders_total\" GROUP BY x_axis_1",
+              "query": "max(amazonaws_com_3mrai_orders_total)",
               "customQuery": true,
               "fields": {
                 "stream": "amazonaws_com_3mrai_orders_total",
@@ -102,7 +102,7 @@
                 "z": [],
                 "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
               },
-              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+              "config": { "promql_legend": "orders", "layer_type": "scatter", "weight_fixed": 1 }
             }
           ],
           "layout": { "x": 8, "y": 9, "w": 8, "h": 9, "i": 4 }
@@ -111,12 +111,12 @@
           "id": "orders_by_tracking_status",
           "type": "line",
           "title": "Orders — finished vs in progress (Tracking service)",
-          "description": "DELIVERED is the tracking state machine's terminal status, so 'finished' is the domain's own invariant rather than a convention invented for this metric. IN_PROGRESS is every other status. One tracking per order (unique constraint), so counting trackings is counting orders. DELIVERED + IN_PROGRESS should EQUAL the orders_total panel; any gap is an order whose init-tracking call failed.",
+          "description": "DELIVERED is the tracking state machine's terminal status, so 'finished' is the domain's own invariant rather than a convention invented for this metric. One tracking per order (uq_tracking_order_id), so counting trackings is counting orders.",
           "config": { "show_legends": true, "decimals": 0 },
-          "queryType": "sql",
+          "queryType": "promql",
           "queries": [
             {
-              "query": "SELECT histogram(_timestamp) AS x_axis_1, max(value) AS y_axis_1, dimensions_status AS breakdown_1 FROM \"amazonaws_com_3mrai_orders_by_tracking_status_total\" GROUP BY x_axis_1, breakdown_1",
+              "query": "max by (dimensions_status) (amazonaws_com_3mrai_orders_by_tracking_status_total)",
               "customQuery": true,
               "fields": {
                 "stream": "amazonaws_com_3mrai_orders_by_tracking_status_total",
@@ -126,7 +126,7 @@
                 "z": [],
                 "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
               },
-              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+              "config": { "promql_legend": "{dimensions_status}", "layer_type": "scatter", "weight_fixed": 1 }
             }
           ],
           "layout": { "x": 16, "y": 9, "w": 8, "h": 9, "i": 5 }
@@ -137,10 +137,10 @@
           "title": "Emails sent",
           "description": "The EmailType=ALL rollup, which is a SEPARATELY PUBLISHED series rather than a query-time aggregate: CloudWatch under Floci does not aggregate across dimensions, so a query omitting EmailType returns an empty result with StatusCode 'Complete'. NOTE: this counts handoff to SES, not inbox delivery — bounces and complaints are invisible here.",
           "config": { "show_legends": false, "decimals": 0 },
-          "queryType": "sql",
+          "queryType": "promql",
           "queries": [
             {
-              "query": "SELECT histogram(_timestamp) AS x_axis_1, sum(value) AS y_axis_1 FROM \"amazonaws_com_3mrai_emails_sent_total\" WHERE dimensions_emailtype = 'ALL' GROUP BY x_axis_1",
+              "query": "sum(amazonaws_com_3mrai_emails_sent_total{dimensions_emailtype=\"ALL\"})",
               "customQuery": true,
               "fields": {
                 "stream": "amazonaws_com_3mrai_emails_sent_total",
@@ -150,7 +150,7 @@
                 "z": [],
                 "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
               },
-              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+              "config": { "promql_legend": "emails sent", "layer_type": "scatter", "weight_fixed": 1 }
             }
           ],
           "layout": { "x": 0, "y": 18, "w": 12, "h": 9, "i": 6 }
@@ -159,12 +159,12 @@
           "id": "emails_failed_by_kind",
           "type": "line",
           "title": "Email failures — permanent vs transient",
-          "description": "PERMANENT means the email is LOST: a missing template raises PermanentError, the record is not retried, and the customer never receives it. Any non-zero permanent value is a real incident. TRANSIENT is an SES failure that SQS retries, so small numbers are expected noise. Without this split, 'N emails failed' would conflate the two.",
+          "description": "PERMANENT means the email is LOST: a missing template raises PermanentError, the record is not retried, and the customer never receives it. Any non-zero permanent value is a real incident. TRANSIENT is an SES failure SQS retries, so small numbers are expected noise. Empty while nothing is failing, which is the healthy state.",
           "config": { "show_legends": true, "decimals": 0 },
-          "queryType": "sql",
+          "queryType": "promql",
           "queries": [
             {
-              "query": "SELECT histogram(_timestamp) AS x_axis_1, sum(value) AS y_axis_1, dimensions_failurekind AS breakdown_1 FROM \"amazonaws_com_3mrai_emails_failed_total\" WHERE dimensions_emailtype = 'ALL' GROUP BY x_axis_1, breakdown_1",
+              "query": "sum by (dimensions_failurekind) (amazonaws_com_3mrai_emails_failed_total{dimensions_emailtype=\"ALL\"})",
               "customQuery": true,
               "fields": {
                 "stream": "amazonaws_com_3mrai_emails_failed_total",
@@ -174,7 +174,7 @@
                 "z": [],
                 "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
               },
-              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+              "config": { "promql_legend": "{dimensions_failurekind}", "layer_type": "scatter", "weight_fixed": 1 }
             }
           ],
           "layout": { "x": 12, "y": 18, "w": 12, "h": 9, "i": 7 }
@@ -183,12 +183,12 @@
           "id": "http_errors",
           "type": "line",
           "title": "HTTP errors by service and class",
-          "description": "4xx/5xx only — a per-2xx series would be a request-rate metric the logs already provide. The events-pipeline is absent by design: it is a Lambda with no HTTP surface. Tracking's 5xx are captured through an explicit exception branch, because Starlette's ServerErrorMiddleware sits outside every add_middleware layer and its 500 never reaches a send wrapper (see docs/lessons/2026-08-12-server-error-middleware-outside-pure-asgi-middleware.md).",
+          "description": "4xx/5xx only — a per-2xx series would be a request-rate metric the logs already provide. The events-pipeline is absent by design: it is a Lambda with no HTTP surface. Tracking's 5xx are captured through an explicit exception branch, because Starlette's ServerErrorMiddleware sits outside every add_middleware layer and its 500 never reaches a send wrapper (docs/lessons/2026-08-12-server-error-middleware-outside-pure-asgi-middleware.md).",
           "config": { "show_legends": true, "decimals": 0 },
-          "queryType": "sql",
+          "queryType": "promql",
           "queries": [
             {
-              "query": "SELECT histogram(_timestamp) AS x_axis_1, sum(value) AS y_axis_1, concat(dimensions_service, ' ', dimensions_statusclass) AS breakdown_1 FROM \"amazonaws_com_3mrai_http_errors_total\" GROUP BY x_axis_1, breakdown_1",
+              "query": "sum by (dimensions_service, dimensions_statusclass) (amazonaws_com_3mrai_http_errors_total)",
               "customQuery": true,
               "fields": {
                 "stream": "amazonaws_com_3mrai_http_errors_total",
@@ -198,7 +198,7 @@
                 "z": [],
                 "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
               },
-              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+              "config": { "promql_legend": "{dimensions_service} {dimensions_statusclass}", "layer_type": "scatter", "weight_fixed": 1 }
             }
           ],
           "layout": { "x": 0, "y": 27, "w": 24, "h": 9, "i": 8 }
