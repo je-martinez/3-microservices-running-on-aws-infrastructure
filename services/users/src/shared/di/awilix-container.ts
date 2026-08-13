@@ -117,7 +117,20 @@ export function registerSingletons(): void {
     ),
     // Stateless wrapper over `cloudwatchClient` — SINGLETON alongside the client
     // it holds, like the other infra collaborators here.
-    metricsPublisher: asClass(MetricsPublisher, { lifetime: Lifetime.SINGLETON }),
+    //
+    // asFunction, NOT asClass, and that distinction is load-bearing: PROXY
+    // injection hands the constructor the whole cradle and resolves each
+    // destructured name as a cradle KEY. This constructor takes `{ client }`,
+    // and there is no `client` registration — so asClass here throws
+    // `AwilixResolutionError: Could not resolve 'client'` at RESOLUTION time,
+    // which is startup, not import. No unit test catches it (they construct the
+    // class directly with a double), and the service died on boot with the
+    // container healthy. Map the cradle key to the parameter name explicitly.
+    metricsPublisher: asFunction(
+      ({ cloudwatchClient }: { cloudwatchClient: CloudWatchClient }) =>
+        new MetricsPublisher({ client: cloudwatchClient }),
+      { lifetime: Lifetime.SINGLETON },
+    ),
     // SINGLETON because it owns a single interval timer: a second instance would
     // mean a second timer publishing the same series twice per window. Registered
     // here but NEVER started here — `server.ts` starts it, so the test suite's
