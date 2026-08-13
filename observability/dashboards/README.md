@@ -194,6 +194,49 @@ proves the data is there; it does **not** prove the panel will render.
   `amazonaws_com_3mrai_orders_total`. Guessing either name yields an empty panel
   with no error.
 
+## "Error Loading Data" ≠ "No Data" — and every chart series must be `y_axis_N`
+
+These two messages mean different things, and conflating them sends you looking
+in the wrong place:
+
+| Panel shows | Meaning | Where to look |
+|---|---|---|
+| **No Data** | the query ran and returned zero rows | the data — see the section below |
+| **Error Loading Data** | the query failed, OR the result could not be charted | the panel definition |
+
+A `line`/`bar` panel builds its series from columns named **`y_axis_1`,
+`y_axis_2`, …** against the x column **`x_axis_1`**. A result with an x column
+and no `y_axis_N` at all cannot be charted, and the panel reports **Error
+Loading Data even though the query succeeded** — which is exactly what made this
+hard to find: `_search` returned HTTP 200 with five rows of real data.
+
+The latency panels hit this by aliasing their three series naturally:
+
+```sql
+-- BROKEN: charts nothing, reports "Error Loading Data"
+approx_percentile_cont(duration_ms, 0.5)  AS p50,
+approx_percentile_cont(duration_ms, 0.95) AS p95,
+approx_percentile_cont(duration_ms, 0.99) AS p99
+
+-- CORRECT: three series on one chart
+approx_percentile_cont(duration_ms, 0.5)  AS y_axis_1,
+approx_percentile_cont(duration_ms, 0.95) AS y_axis_2,
+approx_percentile_cont(duration_ms, 0.99) AS y_axis_3
+```
+
+**`table` panels are the exception** — they render raw columns and need no axis
+aliases at all.
+
+Check a panel's shape rather than only its row count:
+
+```bash
+# every line/bar panel must return at least one y_axis_N column
+curl -s -X POST -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" \
+  "http://localhost:5080/api/default/_search?type=logs" \
+  -d "{\"query\":{\"sql\":\"<panel sql>\",\"start_time\":$START,\"end_time\":$NOW,\"size\":5}}" \
+| python3 -c "import sys,json;h=json.load(sys.stdin)['hits'];print(sorted(h[0].keys()) if h else 'no rows')"
+```
+
 ## An empty panel usually means no traffic, not a broken dashboard
 
 Before editing a panel that shows nothing, check whether the data exists at all.

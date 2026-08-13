@@ -106,7 +106,7 @@
           "queryType": "sql",
           "queries": [
             {
-              "query": "SELECT histogram(_timestamp) AS x_axis_1, approx_percentile_cont(duration_ms, 0.5) AS p50, approx_percentile_cont(duration_ms, 0.95) AS p95, approx_percentile_cont(duration_ms, 0.99) AS p99 FROM logs WHERE service_name = 'orders' AND duration_ms IS NOT NULL GROUP BY x_axis_1",
+              "query": "SELECT histogram(_timestamp) AS x_axis_1, approx_percentile_cont(duration_ms, 0.5) AS y_axis_1, approx_percentile_cont(duration_ms, 0.95) AS y_axis_2, approx_percentile_cont(duration_ms, 0.99) AS y_axis_3 FROM logs WHERE service_name = 'orders' AND duration_ms IS NOT NULL GROUP BY x_axis_1",
               "customQuery": true,
               "fields": {
                 "stream": "logs",
