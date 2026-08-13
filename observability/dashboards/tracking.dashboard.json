@@ -1,0 +1,130 @@
+{
+  "version": 8,
+  "dashboardId": "tracking_golden",
+  "title": "Tracking — Golden Signals",
+  "description": "Delivery state and error rate for the Tracking service. NOTE ON WHY THIS IS NOT SHAPED LIKE THE USERS/ORDERS DASHBOARDS: Tracking emits no per-request log line — it has no 'request completed' log, so http_route and duration_ms are absent from its records and the usual request-rate/latency/top-routes panels would all be empty. It is instead built on the CloudWatch metrics it does publish (hence PromQL, not SQL), plus its SQLAlchemy statement stream. Adding a request log to the service would make the log-based panels possible; see the note on the last panel.",
+  "role": "",
+  "owner": "3MRAI",
+  "created": "2026-08-13T00:00:00Z",
+  "tabs": [
+    {
+      "tabId": "default",
+      "name": "Default",
+      "panels": [
+        {
+          "id": "tracking_orders_by_status",
+          "type": "line",
+          "title": "Orders — finished vs in progress",
+          "description": "DELIVERED is the state machine's terminal status, so 'finished' is the domain's own invariant. One tracking per order (uq_tracking_order_id), so these counts are order counts. A gauge, hence max() — sum() would add every sample in the window and report a multiple of the truth.",
+          "config": { "show_legends": true, "decimals": 0 },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "max by (dimensions_status) (amazonaws_com_3mrai_orders_by_tracking_status_total)",
+              "customQuery": true,
+              "fields": {
+                "stream": "amazonaws_com_3mrai_orders_by_tracking_status_total",
+                "stream_type": "metrics",
+                "x": [], "y": [], "z": [], "breakdown": [],
+                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+              },
+              "config": { "promql_legend": "{dimensions_status}", "layer_type": "scatter", "weight_fixed": 1 }
+            }
+          ],
+          "layout": { "x": 0, "y": 0, "w": 96, "h": 15, "i": 1 }
+        },
+        {
+          "id": "tracking_total_tracked",
+          "type": "line",
+          "title": "Orders with a tracking record",
+          "description": "DELIVERED + IN_PROGRESS — every order Tracking knows about. Compare against orders_total on the Business Metrics dashboard: the difference is orders whose init-tracking call failed, a failure mode Orders accepts deliberately rather than failing the order. Normally zero.",
+          "config": { "show_legends": false, "decimals": 0 },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum(amazonaws_com_3mrai_orders_by_tracking_status_total)",
+              "customQuery": true,
+              "fields": {
+                "stream": "amazonaws_com_3mrai_orders_by_tracking_status_total",
+                "stream_type": "metrics",
+                "x": [], "y": [], "z": [], "breakdown": [],
+                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+              },
+              "config": { "promql_legend": "tracked orders", "layer_type": "scatter", "weight_fixed": 1 }
+            }
+          ],
+          "layout": { "x": 96, "y": 0, "w": 96, "h": 15, "i": 2 }
+        },
+        {
+          "id": "tracking_http_errors",
+          "type": "line",
+          "title": "HTTP errors by class",
+          "description": "4xx/5xx only. The 5xx series is captured through an explicit exception branch in the ASGI middleware: Starlette's ServerErrorMiddleware sits outside every add_middleware layer, so an unhandled exception's 500 never reaches a send wrapper and would otherwise go uncounted (see docs/lessons/2026-08-12-server-error-middleware-outside-pure-asgi-middleware.md).",
+          "config": { "show_legends": true, "decimals": 0 },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum by (dimensions_statusclass) (amazonaws_com_3mrai_http_errors_total{dimensions_service=\"tracking\"})",
+              "customQuery": true,
+              "fields": {
+                "stream": "amazonaws_com_3mrai_http_errors_total",
+                "stream_type": "metrics",
+                "x": [], "y": [], "z": [], "breakdown": [],
+                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+              },
+              "config": { "promql_legend": "{dimensions_statusclass}", "layer_type": "scatter", "weight_fixed": 1 }
+            }
+          ],
+          "layout": { "x": 0, "y": 15, "w": 96, "h": 15, "i": 3 }
+        },
+        {
+          "id": "tracking_log_volume",
+          "type": "line",
+          "title": "Log volume",
+          "description": "Records per interval from the tracking container. Mostly SQLAlchemy statement echo today — including the metrics gauge's own COUNT every 15s — because the service emits no per-request log. Useful as a liveness signal: a flat line means the service stopped logging.",
+          "config": { "show_legends": false, "decimals": 0 },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT histogram(_timestamp) AS x_axis_1, COUNT(*) AS y_axis_1 FROM logs WHERE service_name = 'tracking' GROUP BY x_axis_1",
+              "customQuery": true,
+              "fields": {
+                "stream": "logs",
+                "stream_type": "logs",
+                "x": [{ "label": "time", "alias": "x_axis_1", "column": "x_axis_1", "color": null, "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true }],
+                "y": [{ "label": "records", "alias": "y_axis_1", "column": "y_axis_1", "color": "#2196f3", "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true }],
+                "z": [], "breakdown": [],
+                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+              },
+              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+            }
+          ],
+          "layout": { "x": 96, "y": 15, "w": 96, "h": 15, "i": 4 }
+        },
+        {
+          "id": "tracking_recent_errors",
+          "type": "table",
+          "title": "Recent warnings and errors",
+          "description": "Severity-based rather than status-based, because Tracking logs no HTTP status. KNOWN GAP: this service has no per-request log line, so a failing request only appears here if it also logged an error. Adding a 'request completed' log (as Users and Orders have) would let this dashboard carry the same request-rate, latency and top-routes panels they do.",
+          "config": { "show_legends": false, "decimals": 0 },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT _timestamp, severity_text, message FROM logs WHERE service_name = 'tracking' AND severity_text IN ('WARN', 'ERROR', 'FATAL') ORDER BY _timestamp DESC",
+              "customQuery": true,
+              "fields": {
+                "stream": "logs",
+                "stream_type": "logs",
+                "x": [], "y": [], "z": [], "breakdown": [],
+                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+              },
+              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+            }
+          ],
+          "layout": { "x": 0, "y": 30, "w": 192, "h": 15, "i": 5 }
+        }
+      ]
+    }
+  ],
+  "variables": { "list": [] }
+}

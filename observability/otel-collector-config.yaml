@@ -29,7 +29,16 @@ receivers:
       groups:
         autodiscover:
           limit: 50
-          prefix: /ecs/
+          # NO prefix: discover every log group, not just /ecs/.
+          #
+          # This used to be `prefix: /ecs/`, which silently excluded the
+          # events-pipeline: it is a Lambda, so its logs land in
+          # /aws/lambda/<fn> and nothing about the pipeline ever reached
+          # OpenObserve. The service looked instrumented — it logs plenty — and
+          # only a "why is there no data for this service" query surfaced it.
+          #
+          # The `limit` still caps discovery, so a runaway number of groups
+          # cannot flood the collector.
 
     # Custom business metrics, read with GetMetricData. The services publish them
     # with PutMetricData; see the design spec for why CloudWatch is the source of
