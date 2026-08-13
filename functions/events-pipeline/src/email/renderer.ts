@@ -1,6 +1,7 @@
 import { render } from "@react-email/render";
 import { catalog } from "#email/catalog";
 import { PermanentError } from "#pipeline/errors";
+import { publishEmailMetric } from "#shared/metrics/cloudwatch-metrics";
 
 // Renders a registered template to an HTML string. The renderer knows nothing
 // about individual templates — it only reads the catalog — so Tasks 11 and 12
@@ -18,6 +19,13 @@ export async function renderTemplate(templateKey: string, props: unknown): Promi
     : undefined;
 
   if (!entry) {
+    // A missing template is PERMANENT: the record will not be retried and the
+    // email is lost. This counter is the only signal that a customer never got
+    // their mail, which is why it is emitted HERE and split from the transient
+    // SES failures counted in #email/sender.
+    await publishEmailMetric("emails_failed_total", templateKey, {
+      FailureKind: "permanent",
+    });
     // The key is ours (a template name), never user input — safe to log/persist.
     throw new PermanentError(`missing template: ${templateKey}`);
   }

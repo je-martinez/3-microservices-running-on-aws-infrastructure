@@ -112,5 +112,6 @@ export async function orderCreatedHandler(envelope: Envelope): Promise<void> {
     to: result.data.email,
     subject: "Order confirmed",
     html,
+    templateKey: "order-created",
   });
 }

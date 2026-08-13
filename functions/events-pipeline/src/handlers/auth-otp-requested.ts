@@ -67,5 +67,6 @@ export async function authOtpRequestedHandler(envelope: Envelope): Promise<void>
     to: result.data.email,
     subject: "Your one-time code",
     html,
+    templateKey: "auth-otp",
   });
 }

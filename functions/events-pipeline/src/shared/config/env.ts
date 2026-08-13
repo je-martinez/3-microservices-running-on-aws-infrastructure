@@ -43,6 +43,12 @@ const EnvSchema = z.object({
   // it explicitly. Same name, shape and default as Users' env schema — the
   // field is part of the shared log schema, so it must not drift.
   DEPLOYMENT_ENVIRONMENT: z.string().default("local"),
+  // Kill switch for CloudWatch custom-metric publication. Defaulted to true so
+  // no Terraform block, env file or test stub breaks by omitting it — the
+  // publisher already swallows every failure, so the flag exists to stop the
+  // calls entirely (e.g. a suite that must not reach the SDK), not to protect
+  // the caller.
+  METRICS_ENABLED: z.coerce.boolean().default(true),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

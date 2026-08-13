@@ -70,5 +70,6 @@ export async function passwordResetRequestedHandler(envelope: Envelope): Promise
     to: result.data.email,
     subject: "Reset your password",
     html,
+    templateKey: "forgot-password",
   });
 }

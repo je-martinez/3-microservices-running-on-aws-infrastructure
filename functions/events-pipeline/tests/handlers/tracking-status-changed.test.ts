@@ -1,5 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// #shared/config/env parses process.env at MODULE LOAD (ADR-0014). The renderer
+// (which this suite runs for real) now reaches it through
+// #shared/metrics/cloudwatch-metrics, so the schema must be satisfied even though
+// nothing here publishes a metric. Mirrors tests/handlers/user-created.test.ts.
+vi.stubEnv("DOCDB_HOST", "docdb-test");
+vi.stubEnv("DOCDB_USERNAME", "root");
+vi.stubEnv("DOCDB_PASSWORD", "secret");
+vi.stubEnv("SES_FROM_ADDRESS", "noreply@example.com");
+// The renderer reads this to build every <img src>; nothing here fetches it.
+vi.stubEnv("ASSETS_BASE_URL", "http://assets.test/bucket");
+// No metric may leave this suite: the missing-template path emits the
+// permanent-failure counter, and with this unset it would try to reach a real
+// CloudWatch endpoint.
+vi.stubEnv("METRICS_ENABLED", "");
+
 // The sender is the ONLY mocked collaborator: it is the process boundary (SES
 // over the network). The renderer and the catalog run for real, so a template
 // that throws fails this test rather than passing against a stub. Same
@@ -16,12 +31,17 @@ vi.mock("#email/sender", () => ({ sendEmail: vi.fn(async () => {}) }));
 const { publishToUser } = vi.hoisted(() => ({ publishToUser: vi.fn(async () => {}) }));
 vi.mock("#shared/realtime/websocket-publisher", () => ({ publishToUser }));
 
-import { trackingStatusChangedHandler } from "#handlers/tracking-status-changed";
-import { handlers } from "#handlers/index";
 import { sendEmail } from "#email/sender";
-import { renderTemplate } from "#email/renderer";
 import { PermanentError } from "#pipeline/errors";
 import type { Envelope } from "#domain/envelope";
+
+// Dynamic imports, AFTER the vi.stubEnv calls above: static imports are hoisted
+// above all other module code (including vi.stubEnv), so importing the handler or
+// the renderer at the top of the file would evaluate #shared/config/env before the
+// stubs exist. Mirrors tests/handlers/user-created.test.ts.
+const { trackingStatusChangedHandler } = await import("#handlers/tracking-status-changed");
+const { handlers } = await import("#handlers/index");
+const { renderTemplate } = await import("#email/renderer");
 
 // The forward-only progression a shipment walks, oldest first. Declared once so
 // every fixture below describes the same parcel rather than five different ones.
