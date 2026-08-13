@@ -272,6 +272,12 @@ app.UseSerilogRequestLogging(options =>
     };
 });
 
+// Publishes http_errors_total for every 4xx/5xx. Placed immediately after the
+// request logger, and therefore OUTSIDE everything below it, so it observes the
+// final status of the completed response — including CallerContextMiddleware's
+// short-circuiting 401 and every per-endpoint result.
+app.UseMiddleware<HttpErrorMetricsMiddleware>();
+
 // Explicit UseRouting() so endpoint resolution happens BEFORE
 // CallerContextMiddleware runs. ctx.GetEndpoint() (used by the middleware and by
 // PublicRoutes.IsPublic to recognize GET /v1/health) is only populated once

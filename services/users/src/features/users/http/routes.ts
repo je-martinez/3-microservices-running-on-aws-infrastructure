@@ -124,6 +124,31 @@ export function buildApp(
       },
       "request completed",
     );
+
+    // Error-rate metric. ONLY 4xx/5xx are counted: a metric per 2xx would be a
+    // request-rate metric, which the log line above already provides, and it
+    // would multiply the published series for no added signal.
+    const status = reply.statusCode;
+    if (status >= 400) {
+      // The whole hook is guarded: an observation of a response that already
+      // went out must never become an error of its own. Resolution itself can
+      // throw (a test container that registers no `metricsPublisher`), which
+      // Fastify would otherwise surface as a request error on an already-sent
+      // response.
+      try {
+        // Deliberately NOT awaited: `onResponse` runs after the response has
+        // been sent, and awaiting here would delay the connection teardown for
+        // the duration of a PutMetricData round trip. `publish()` never rejects
+        // (it logs and swallows), so there is no unhandled rejection to catch.
+        void req.diScope.cradle.metricsPublisher.publish("http_errors_total", 1, {
+          Service: "users",
+          StatusClass: status >= 500 ? "5xx" : "4xx",
+        });
+      } catch {
+        // Intentionally silent — see above.
+      }
+    }
+
     done();
   });
 

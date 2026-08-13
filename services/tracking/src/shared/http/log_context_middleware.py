@@ -21,21 +21,46 @@ The header is NOT trusted for authorization here — this is logging only.
 Authorization stays with `require_caller_sub` (shared/http/identity.py), which
 is where an absent or empty sub must be rejected. Seeding a context field
 never grants access to anything.
+
+This middleware ALSO publishes the `http_errors_total` counter, because it is
+the only place in this service that sees the final status of every response —
+including a 404 produced by Starlette's router, which no handler and no
+dependency ever runs for. Only 4xx/5xx are counted; a metric per 2xx would be a
+request-rate metric the request log already provides.
 """
 
 from __future__ import annotations
 
+import asyncio
+import logging
+
+from src.shared.config.settings import metrics_enabled
 from src.shared.logging.log_context import reset_log_context, set_log_context
+from src.shared.metrics.cloudwatch_metrics import (
+    SERVICE_DIMENSION,
+    MetricsPublisher,
+    shared_metrics_publisher,
+)
+
+logger = logging.getLogger(__name__)
 
 # The header the gateway injects, carrying the JWT's `sub` — never the usr_ id.
 USER_ID_HEADER = b"x-user-id"
+
+#: The counter published for every 4xx/5xx response.
+HTTP_ERRORS_METRIC = "http_errors_total"
 
 
 class LogContextMiddleware:
     """ASGI middleware seeding the log context for each HTTP request."""
 
-    def __init__(self, app) -> None:
+    def __init__(self, app, metrics: MetricsPublisher | None = None) -> None:
         self.app = app
+        # Injected by tests so they record instead of reaching for the
+        # `lru_cache`d boto3 client (which would leak across the whole run).
+        # Left None in production and resolved lazily per error response, so
+        # constructing the app never builds an AWS client.
+        self._metrics = metrics
 
     async def __call__(self, scope, receive, send) -> None:
         if scope["type"] != "http":
@@ -48,11 +73,97 @@ class LogContextMiddleware:
                 cognito_sub = value.decode("latin-1")
                 break
 
+        # `http.response.start` is the ONLY message carrying the status, so the
+        # status has to be captured off the wire here — there is no response
+        # object at this layer to read it from afterwards.
+        status_holder: dict[str, int] = {}
+
+        async def send_wrapper(message) -> None:
+            if message["type"] == "http.response.start":
+                status_holder["status"] = message["status"]
+            await send(message)
+
         # Set even when the sub is absent (health checks, the carrier PUT):
         # a fresh empty context per request is what stops one request's
         # identity leaking into the next through a reused context.
         token = set_log_context(cognito_sub=cognito_sub)
         try:
-            await self.app(scope, receive, send)
+            await self.app(scope, receive, send_wrapper)
+        except Exception:
+            # `Exception`, not `BaseException`: a cancellation (the client hung
+            # up mid-request) produces no response at all, so counting it as a
+            # server error would inflate the 5xx series with disconnects.
+            #
+            # An unhandled exception IS a 500, and it is the one case this
+            # middleware cannot read off the wire: Starlette's
+            # ServerErrorMiddleware sits OUTSIDE every `add_middleware` layer, so
+            # it builds that 500 response after the exception has already passed
+            # through here — `send_wrapper` never sees an `http.response.start`.
+            # Counting it here is what keeps the 5xx series from missing exactly
+            # the failures it exists to count. Re-raised immediately: the error
+            # response is still ServerErrorMiddleware's to produce.
+            await self._publish_http_error(500)
+            raise
+        else:
+            status = status_holder.get("status")
+            if status is not None and status >= 400:
+                await self._publish_http_error(status)
         finally:
+            # Reset LAST, so a publish failure's own log line still carries the
+            # request's identity.
             reset_log_context(token)
+
+    async def _publish_http_error(self, status: int) -> None:
+        """Count one 4xx/5xx. Never raises — the response has already been sent.
+
+        An INJECTED publisher is used unconditionally (that is a test saying
+        exactly what it wants). Only the fallback to the process-wide one is
+        gated on `METRICS_ENABLED` and guarded: resolving it goes through
+        `get_settings()`, which raises `ValidationError` on an incomplete
+        environment — the same reason the lifespan reads the flag straight from
+        `os.environ` rather than through the model. Turning a 404 into a 500
+        because a metric could not be built would be exactly the failure mode the
+        publisher's own log-and-swallow policy exists to prevent.
+        """
+        publisher = self._metrics
+        if publisher is None:
+            if not metrics_enabled():
+                return
+            try:
+                publisher = shared_metrics_publisher()
+            except Exception:  # noqa: BLE001 - swallowed on purpose, see docstring
+                logger.exception(
+                    "metric_publish_failed",
+                    extra={
+                        "app_event": "metric_publish_failed",
+                        "reason": "publisher_unavailable",
+                        "metric_name": HTTP_ERRORS_METRIC,
+                    },
+                )
+                return
+
+        try:
+            # boto3 is blocking: publishing inline would stall the event loop (and
+            # therefore every other in-flight request) for a full HTTP round trip.
+            await asyncio.to_thread(
+                publisher.publish,
+                HTTP_ERRORS_METRIC,
+                1,
+                {
+                    "Service": SERVICE_DIMENSION,
+                    "StatusClass": "5xx" if status >= 500 else "4xx",
+                },
+            )
+        except Exception:  # noqa: BLE001 - swallowed on purpose, see docstring
+            # `CloudWatchMetricsPublisher.publish` already swallows its own
+            # failures, so this only fires for an injected publisher that does
+            # not. It matters on the 500 path, where raising here would REPLACE
+            # the application's original exception with a metrics error.
+            logger.exception(
+                "metric_publish_failed",
+                extra={
+                    "app_event": "metric_publish_failed",
+                    "reason": "publish_raised",
+                    "metric_name": HTTP_ERRORS_METRIC,
+                },
+            )
