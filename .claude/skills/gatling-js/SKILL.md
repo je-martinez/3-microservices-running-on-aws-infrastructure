@@ -338,12 +338,25 @@ report. With them, the CLI exits non-zero and the test is usable in CI.
 setUp(...)
   .assertions(
     global().successfulRequests().percent().gt(99),
-    details("Browse", "Search").responseTime().percentile3().lt(1500)
+    details("Search").responseTime().percentile3().lt(1500)
   )
 ```
 
 Prefer percentiles to means. A mean hides the tail, and the tail is what users
 actually complain about.
+
+> [!warning] `details(...)` is a stats PATH, and a wrong one fails every run
+> Its signature is variadic (`details(...parts: string[])`), so
+> `details("Browse", "Search")` — scenario name plus request name — compiles and
+> type-checks happily. At runtime it fails with **`Could not find stats matching
+> assertion path`**, and because an unsatisfiable assertion fails, the suite goes
+> red on every run no matter how healthy the endpoint is.
+>
+> The parts spell a path through **groups**, not scenarios: pass just the request
+> name (`details("Search")`), or `details("Group", "Request")` when the request
+> really is inside a `group(...)`. The docs' own example uses the two-argument
+> form, which is what makes this easy to copy wrong — only running it reveals the
+> mismatch.
 
 ## Running
 
