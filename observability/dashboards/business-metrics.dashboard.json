@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 8,
   "dashboardId": "business_metrics",
   "title": "Business Metrics",
   "description": "Custom business and HTTP error metrics, published to CloudWatch with PutMetricData and scraped into OpenObserve by the collector's aws_cloudwatch receiver. NOTE ON QUERIES: OpenObserve prefixes and lowercases the CloudWatch dimensions on ingest, so a dimension published as `Service` is queried here as `dimensions_service`. The metric name becomes the stream name, sanitized: amazonaws.com/3MRAI/orders_total -> amazonaws_com_3mrai_orders_total. Gauges are published once per interval and queried with max(value); counters are summed.",
@@ -207,7 +207,6 @@
     }
   ],
   "variables": {
-    "list": [],
-    "showDynamicFilters": false
+    "list": []
   }
 }
