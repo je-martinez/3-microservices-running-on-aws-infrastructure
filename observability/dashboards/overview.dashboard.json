@@ -28,14 +28,35 @@
               "fields": {
                 "stream": "logs",
                 "stream_type": "logs",
-                "x": [],
-                "y": [],
+                "x": [
+                  {
+                    "label": "",
+                    "alias": "x_axis_1",
+                    "column": "x_axis_1",
+                    "color": null,
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "y_axis_1",
+                    "alias": "y_axis_1",
+                    "column": "y_axis_1",
+                    "color": "#4caf50",
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
+                ],
                 "z": [],
                 "filter": {
                   "filterType": "group",
                   "logicalOperator": "AND",
                   "conditions": []
-                }
+                },
+                "breakdown": []
               },
               "config": {
                 "promql_legend": "",
@@ -69,14 +90,35 @@
               "fields": {
                 "stream": "logs",
                 "stream_type": "logs",
-                "x": [],
-                "y": [],
+                "x": [
+                  {
+                    "label": "",
+                    "alias": "x_axis_1",
+                    "column": "x_axis_1",
+                    "color": null,
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "y_axis_1",
+                    "alias": "y_axis_1",
+                    "column": "y_axis_1",
+                    "color": "#4caf50",
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
+                ],
                 "z": [],
                 "filter": {
                   "filterType": "group",
                   "logicalOperator": "AND",
                   "conditions": []
-                }
+                },
+                "breakdown": []
               },
               "config": {
                 "promql_legend": "",
@@ -111,14 +153,35 @@
               "fields": {
                 "stream": "logs",
                 "stream_type": "logs",
-                "x": [],
-                "y": [],
+                "x": [
+                  {
+                    "label": "",
+                    "alias": "x_axis_1",
+                    "column": "x_axis_1",
+                    "color": null,
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "y_axis_1",
+                    "alias": "y_axis_1",
+                    "column": "y_axis_1",
+                    "color": "#4caf50",
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
+                ],
                 "z": [],
                 "filter": {
                   "filterType": "group",
                   "logicalOperator": "AND",
                   "conditions": []
-                }
+                },
+                "breakdown": []
               },
               "config": {
                 "promql_legend": "",
@@ -158,7 +221,8 @@
                   "filterType": "group",
                   "logicalOperator": "AND",
                   "conditions": []
-                }
+                },
+                "breakdown": []
               },
               "config": {
                 "promql_legend": "",

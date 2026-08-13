@@ -28,14 +28,35 @@
               "fields": {
                 "stream": "logs",
                 "stream_type": "logs",
-                "x": [],
-                "y": [],
+                "x": [
+                  {
+                    "label": "",
+                    "alias": "x_axis_1",
+                    "column": "x_axis_1",
+                    "color": null,
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "y_axis_1",
+                    "alias": "y_axis_1",
+                    "column": "y_axis_1",
+                    "color": "#4caf50",
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
+                ],
                 "z": [],
                 "filter": {
                   "filterType": "group",
                   "logicalOperator": "AND",
                   "conditions": []
-                }
+                },
+                "breakdown": []
               },
               "config": {
                 "promql_legend": "",
@@ -69,14 +90,35 @@
               "fields": {
                 "stream": "logs",
                 "stream_type": "logs",
-                "x": [],
-                "y": [],
+                "x": [
+                  {
+                    "label": "",
+                    "alias": "x_axis_1",
+                    "column": "x_axis_1",
+                    "color": null,
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "y_axis_1",
+                    "alias": "y_axis_1",
+                    "column": "y_axis_1",
+                    "color": "#4caf50",
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
+                ],
                 "z": [],
                 "filter": {
                   "filterType": "group",
                   "logicalOperator": "AND",
                   "conditions": []
-                }
+                },
+                "breakdown": []
               },
               "config": {
                 "promql_legend": "",
@@ -111,14 +153,53 @@
               "fields": {
                 "stream": "logs",
                 "stream_type": "logs",
-                "x": [],
-                "y": [],
+                "x": [
+                  {
+                    "label": "",
+                    "alias": "x_axis_1",
+                    "column": "x_axis_1",
+                    "color": null,
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "p50",
+                    "alias": "y_axis_1",
+                    "column": "y_axis_1",
+                    "color": "#4caf50",
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  },
+                  {
+                    "label": "p95",
+                    "alias": "y_axis_2",
+                    "column": "y_axis_2",
+                    "color": "#cddc39",
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  },
+                  {
+                    "label": "p99",
+                    "alias": "y_axis_3",
+                    "column": "y_axis_3",
+                    "color": "#ff9800",
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
+                ],
                 "z": [],
                 "filter": {
                   "filterType": "group",
                   "logicalOperator": "AND",
                   "conditions": []
-                }
+                },
+                "breakdown": []
               },
               "config": {
                 "promql_legend": "",
@@ -152,14 +233,35 @@
               "fields": {
                 "stream": "logs",
                 "stream_type": "logs",
-                "x": [],
-                "y": [],
+                "x": [
+                  {
+                    "label": "",
+                    "alias": "x_axis_1",
+                    "column": "x_axis_1",
+                    "color": null,
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "y_axis_1",
+                    "alias": "y_axis_1",
+                    "column": "y_axis_1",
+                    "color": "#4caf50",
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
+                ],
                 "z": [],
                 "filter": {
                   "filterType": "group",
                   "logicalOperator": "AND",
                   "conditions": []
-                }
+                },
+                "breakdown": []
               },
               "config": {
                 "promql_legend": "",
@@ -199,7 +301,8 @@
                   "filterType": "group",
                   "logicalOperator": "AND",
                   "conditions": []
-                }
+                },
+                "breakdown": []
               },
               "config": {
                 "promql_legend": "",

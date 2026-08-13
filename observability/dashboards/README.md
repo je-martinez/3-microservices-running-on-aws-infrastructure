@@ -85,9 +85,16 @@ Panels live **inside a tab**, not at the dashboard root. There is no root-level
       "fields": {
         "stream": "logs",
         "stream_type": "logs",
-        "x": [],
-        "y": [],
+        "x": [
+          { "label": "", "alias": "x_axis_1", "column": "x_axis_1", "color": null,
+            "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true }
+        ],
+        "y": [
+          { "label": "requests", "alias": "y_axis_1", "column": "y_axis_1", "color": "#4caf50",
+            "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true }
+        ],
         "z": [],
+        "breakdown": [],
         "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
       },
       "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
@@ -194,7 +201,51 @@ proves the data is there; it does **not** prove the panel will render.
   `amazonaws_com_3mrai_orders_total`. Guessing either name yields an empty panel
   with no error.
 
-## "Error Loading Data" ≠ "No Data" — and every chart series must be `y_axis_N`
+## `fields.x` / `fields.y` are REQUIRED — `customQuery: true` does not exempt them
+
+> [!warning] The single most misleading failure in this whole file
+> A chart panel with `"x": [], "y": []` renders **"Error Loading Data"** with the
+> detail **"Please select required fields to render the chart"** — even though
+> the SQL is correct, the API returns HTTP 200, and the rows are right there. The
+> UI validates the panel's *declared* axes before it ever looks at the result.
+>
+> `customQuery: true` means "use my SQL instead of building one from the fields".
+> It does **not** mean "infer the axes from the SQL". Both are required.
+
+Every `line`/`bar` panel must declare one x field and one y field per series,
+matching the SELECT aliases in order. The shape below is taken from the template
+embedded in OpenObserve's own JS bundle:
+
+```json
+"fields": {
+  "stream": "logs",
+  "stream_type": "logs",
+  "x": [
+    { "label": "", "alias": "x_axis_1", "column": "x_axis_1",
+      "color": null, "isDerived": true, "havingConditions": [],
+      "treatAsNonTimestamp": true }
+  ],
+  "y": [
+    { "label": "p50", "alias": "y_axis_1", "column": "y_axis_1",
+      "color": "#4caf50", "isDerived": true, "havingConditions": [],
+      "treatAsNonTimestamp": true }
+  ],
+  "z": [], "breakdown": [],
+  "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+}
+```
+
+- **`alias` and `column` must equal the SQL's output column name.** With
+  `isDerived: true` that name can be anything the query produces — `y_axis_1`,
+  `p50`, whatever — as long as the three agree.
+- **`label` is what the legend shows.** Give multi-series panels real labels
+  (`p50`/`p95`/`p99`), not the raw alias.
+- **`table` panels take `x: []`, `y: []`** — they render raw columns and declare
+  no axes.
+- **PromQL panels take no x/y descriptors either** — their series come from the
+  metric's labels, and the UI does not run this validation on them.
+
+## "Error Loading Data" ≠ "No Data"
 
 These two messages mean different things, and conflating them sends you looking
 in the wrong place:
@@ -204,28 +255,13 @@ in the wrong place:
 | **No Data** | the query ran and returned zero rows | the data — see the section below |
 | **Error Loading Data** | the query failed, OR the result could not be charted | the panel definition |
 
-A `line`/`bar` panel builds its series from columns named **`y_axis_1`,
-`y_axis_2`, …** against the x column **`x_axis_1`**. A result with an x column
-and no `y_axis_N` at all cannot be charted, and the panel reports **Error
-Loading Data even though the query succeeded** — which is exactly what made this
-hard to find: `_search` returned HTTP 200 with five rows of real data.
+The usual cause of **Error Loading Data on a query that works** is the section
+above: the panel declares no axes. The SQL column names themselves are free —
+`isDerived: true` lets a field point at any alias the query produces — so
+`AS p50` is fine as long as a `y` field declares `alias: "p50"`.
 
-The latency panels hit this by aliasing their three series naturally:
-
-```sql
--- BROKEN: charts nothing, reports "Error Loading Data"
-approx_percentile_cont(duration_ms, 0.5)  AS p50,
-approx_percentile_cont(duration_ms, 0.95) AS p95,
-approx_percentile_cont(duration_ms, 0.99) AS p99
-
--- CORRECT: three series on one chart
-approx_percentile_cont(duration_ms, 0.5)  AS y_axis_1,
-approx_percentile_cont(duration_ms, 0.95) AS y_axis_2,
-approx_percentile_cont(duration_ms, 0.99) AS y_axis_3
-```
-
-**`table` panels are the exception** — they render raw columns and need no axis
-aliases at all.
+The repo's panels use `x_axis_1` / `y_axis_N` purely as a convention, not because
+the UI requires those names.
 
 Check a panel's shape rather than only its row count:
 

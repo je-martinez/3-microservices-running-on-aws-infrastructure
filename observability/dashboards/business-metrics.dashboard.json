@@ -35,7 +35,8 @@
                   "filterType": "group",
                   "logicalOperator": "AND",
                   "conditions": []
-                }
+                },
+                "breakdown": []
               },
               "config": {
                 "promql_legend": "registrations",
@@ -76,7 +77,8 @@
                   "filterType": "group",
                   "logicalOperator": "AND",
                   "conditions": []
-                }
+                },
+                "breakdown": []
               },
               "config": {
                 "promql_legend": "has password: {dimensions_haspassword}",
@@ -117,7 +119,8 @@
                   "filterType": "group",
                   "logicalOperator": "AND",
                   "conditions": []
-                }
+                },
+                "breakdown": []
               },
               "config": {
                 "promql_legend": "orders",
@@ -158,7 +161,8 @@
                   "filterType": "group",
                   "logicalOperator": "AND",
                   "conditions": []
-                }
+                },
+                "breakdown": []
               },
               "config": {
                 "promql_legend": "{dimensions_status}",
@@ -199,7 +203,8 @@
                   "filterType": "group",
                   "logicalOperator": "AND",
                   "conditions": []
-                }
+                },
+                "breakdown": []
               },
               "config": {
                 "promql_legend": "emails sent",
@@ -240,7 +245,8 @@
                   "filterType": "group",
                   "logicalOperator": "AND",
                   "conditions": []
-                }
+                },
+                "breakdown": []
               },
               "config": {
                 "promql_legend": "{dimensions_failurekind}",
@@ -281,7 +287,8 @@
                   "filterType": "group",
                   "logicalOperator": "AND",
                   "conditions": []
-                }
+                },
+                "breakdown": []
               },
               "config": {
                 "promql_legend": "{dimensions_service} {dimensions_statusclass}",
@@ -322,7 +329,8 @@
                   "filterType": "group",
                   "logicalOperator": "AND",
                   "conditions": []
-                }
+                },
+                "breakdown": []
               },
               "config": {
                 "promql_legend": "resets",
