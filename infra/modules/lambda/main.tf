@@ -56,6 +56,23 @@ resource "aws_iam_role_policy" "lambda_exec" {
         Resource = "*"
       },
       {
+        Sid    = "CloudWatchPutMetricData"
+        Effect = "Allow"
+        # Custom business metrics (emails_sent_total / emails_failed_total).
+        #
+        # `Resource = "*"` is the ONLY valid value here, not a shortcut taken for
+        # convenience: PutMetricData supports no resource-level permissions at
+        # all. Access is narrowed with the `cloudwatch:namespace` condition key
+        # instead, which is what confines this function to our own namespace.
+        Action   = ["cloudwatch:PutMetricData"]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "cloudwatch:namespace" = "3MRAI"
+          }
+        }
+      },
+      {
         # Scoped to THIS function's log group only. `logs:CreateLogGroup` is
         # deliberately absent: the group is created explicitly below, so the
         # runtime never needs to create it. The `:*` suffix covers the log

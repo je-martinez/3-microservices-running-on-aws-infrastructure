@@ -458,7 +458,12 @@ module "lambda_events_pipeline" {
     # target database itself, so this is NOT set for production — see
     # DOCDB_AUTH_SOURCE in functions/events-pipeline/src/shared/config/env.ts.
     DOCDB_AUTH_SOURCE = "admin"
-    SES_FROM_ADDRESS  = var.ses_from_address
+    # Email sent/failed counters to CloudWatch. The function's IAM role grants
+    # cloudwatch:PutMetricData scoped to the 3MRAI namespace (see
+    # modules/lambda/main.tf). This is the DEPLOYED function's value — the
+    # .env.local.events-pipeline entry only serves local tests.
+    METRICS_ENABLED  = "true"
+    SES_FROM_ADDRESS = var.ses_from_address
     # Base URL the email templates append icon keys to. The templates render
     # REMOTE <img> tags (100% client support) rather than base64 data: URIs
     # (80.95%), so without this every icon in every email is a broken URL. The
