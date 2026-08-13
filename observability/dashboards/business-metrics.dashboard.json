@@ -16,7 +16,11 @@
           "type": "line",
           "title": "Users registered",
           "description": "New registrations. Both the password and passwordless paths increment this one counter — the split is carried by users_total's HasPassword dimension, not by a second metric.",
-          "config": { "show_legends": false, "decimals": 0 },
+          "config": {
+            "show_legends": true,
+            "decimals": 0,
+            "legends_position": "bottom"
+          },
           "queryType": "promql",
           "queries": [
             {
@@ -28,19 +32,37 @@
                 "x": [],
                 "y": [],
                 "z": [],
-                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
               },
-              "config": { "promql_legend": "registrations", "layer_type": "scatter", "weight_fixed": 1 }
+              "config": {
+                "promql_legend": "registrations",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
             }
           ],
-          "layout": { "x": 0, "y": 0, "w": 12, "h": 9, "i": 1 }
+          "layout": {
+            "x": 0,
+            "y": 0,
+            "w": 12,
+            "h": 13,
+            "i": 1
+          }
         },
         {
           "id": "users_by_auth_type",
           "type": "line",
           "title": "Users by auth type",
           "description": "Live user count split by whether the account has a password (the OTP flow creates users with none). A GAUGE, so max() — sum() would add every sample in the window and report a multiple of the real count. Both series are always published, zero included, so a value with no users reads as 0 rather than as a gap.",
-          "config": { "show_legends": true, "decimals": 0 },
+          "config": {
+            "show_legends": true,
+            "decimals": 0,
+            "legends_position": "bottom"
+          },
           "queryType": "promql",
           "queries": [
             {
@@ -52,43 +74,37 @@
                 "x": [],
                 "y": [],
                 "z": [],
-                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
               },
-              "config": { "promql_legend": "has password: {dimensions_haspassword}", "layer_type": "scatter", "weight_fixed": 1 }
+              "config": {
+                "promql_legend": "has password: {dimensions_haspassword}",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
             }
           ],
-          "layout": { "x": 12, "y": 0, "w": 12, "h": 9, "i": 2 }
-        },
-        {
-          "id": "password_resets",
-          "type": "line",
-          "title": "Password resets completed",
-          "description": "Counted on CONFIRM, not on request: POST /v1/users/password/forgot always answers 202 whether or not the email exists (a deliberate non-enumeration guarantee), so counting requests would count resets that never happened. Empty until a reset is actually completed.",
-          "config": { "show_legends": false, "decimals": 0 },
-          "queryType": "promql",
-          "queries": [
-            {
-              "query": "amazonaws_com_3mrai_password_resets_total",
-              "customQuery": true,
-              "fields": {
-                "stream": "amazonaws_com_3mrai_password_resets_total",
-                "stream_type": "metrics",
-                "x": [],
-                "y": [],
-                "z": [],
-                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
-              },
-              "config": { "promql_legend": "resets", "layer_type": "scatter", "weight_fixed": 1 }
-            }
-          ],
-          "layout": { "x": 0, "y": 9, "w": 8, "h": 9, "i": 3 }
+          "layout": {
+            "x": 12,
+            "y": 0,
+            "w": 12,
+            "h": 13,
+            "i": 2
+          }
         },
         {
           "id": "orders_total",
           "type": "line",
           "title": "Orders — total (Orders service)",
           "description": "The true live order count, from Orders' own table. Compare with the next panel: orders_total minus (DELIVERED + IN_PROGRESS) is the number of orders whose init-tracking call failed — a failure mode TrackingInitResult.cs documents as deliberately accepted. Normally zero.",
-          "config": { "show_legends": false, "decimals": 0 },
+          "config": {
+            "show_legends": true,
+            "decimals": 0,
+            "legends_position": "bottom"
+          },
           "queryType": "promql",
           "queries": [
             {
@@ -100,19 +116,37 @@
                 "x": [],
                 "y": [],
                 "z": [],
-                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
               },
-              "config": { "promql_legend": "orders", "layer_type": "scatter", "weight_fixed": 1 }
+              "config": {
+                "promql_legend": "orders",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
             }
           ],
-          "layout": { "x": 8, "y": 9, "w": 8, "h": 9, "i": 4 }
+          "layout": {
+            "x": 0,
+            "y": 13,
+            "w": 12,
+            "h": 13,
+            "i": 3
+          }
         },
         {
           "id": "orders_by_tracking_status",
           "type": "line",
           "title": "Orders — finished vs in progress (Tracking service)",
           "description": "DELIVERED is the tracking state machine's terminal status, so 'finished' is the domain's own invariant rather than a convention invented for this metric. One tracking per order (uq_tracking_order_id), so counting trackings is counting orders.",
-          "config": { "show_legends": true, "decimals": 0 },
+          "config": {
+            "show_legends": true,
+            "decimals": 0,
+            "legends_position": "bottom"
+          },
           "queryType": "promql",
           "queries": [
             {
@@ -124,19 +158,37 @@
                 "x": [],
                 "y": [],
                 "z": [],
-                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
               },
-              "config": { "promql_legend": "{dimensions_status}", "layer_type": "scatter", "weight_fixed": 1 }
+              "config": {
+                "promql_legend": "{dimensions_status}",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
             }
           ],
-          "layout": { "x": 16, "y": 9, "w": 8, "h": 9, "i": 5 }
+          "layout": {
+            "x": 12,
+            "y": 13,
+            "w": 12,
+            "h": 13,
+            "i": 4
+          }
         },
         {
           "id": "emails_sent",
           "type": "line",
           "title": "Emails sent",
           "description": "The EmailType=ALL rollup, which is a SEPARATELY PUBLISHED series rather than a query-time aggregate: CloudWatch under Floci does not aggregate across dimensions, so a query omitting EmailType returns an empty result with StatusCode 'Complete'. NOTE: this counts handoff to SES, not inbox delivery — bounces and complaints are invisible here.",
-          "config": { "show_legends": false, "decimals": 0 },
+          "config": {
+            "show_legends": true,
+            "decimals": 0,
+            "legends_position": "bottom"
+          },
           "queryType": "promql",
           "queries": [
             {
@@ -148,19 +200,37 @@
                 "x": [],
                 "y": [],
                 "z": [],
-                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
               },
-              "config": { "promql_legend": "emails sent", "layer_type": "scatter", "weight_fixed": 1 }
+              "config": {
+                "promql_legend": "emails sent",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
             }
           ],
-          "layout": { "x": 0, "y": 18, "w": 12, "h": 9, "i": 6 }
+          "layout": {
+            "x": 0,
+            "y": 26,
+            "w": 12,
+            "h": 13,
+            "i": 5
+          }
         },
         {
           "id": "emails_failed_by_kind",
           "type": "line",
           "title": "Email failures — permanent vs transient",
           "description": "PERMANENT means the email is LOST: a missing template raises PermanentError, the record is not retried, and the customer never receives it. Any non-zero permanent value is a real incident. TRANSIENT is an SES failure SQS retries, so small numbers are expected noise. Empty while nothing is failing, which is the healthy state.",
-          "config": { "show_legends": true, "decimals": 0 },
+          "config": {
+            "show_legends": true,
+            "decimals": 0,
+            "legends_position": "bottom"
+          },
           "queryType": "promql",
           "queries": [
             {
@@ -172,19 +242,37 @@
                 "x": [],
                 "y": [],
                 "z": [],
-                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
               },
-              "config": { "promql_legend": "{dimensions_failurekind}", "layer_type": "scatter", "weight_fixed": 1 }
+              "config": {
+                "promql_legend": "{dimensions_failurekind}",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
             }
           ],
-          "layout": { "x": 12, "y": 18, "w": 12, "h": 9, "i": 7 }
+          "layout": {
+            "x": 12,
+            "y": 26,
+            "w": 12,
+            "h": 13,
+            "i": 6
+          }
         },
         {
           "id": "http_errors",
           "type": "line",
           "title": "HTTP errors by service and class",
           "description": "4xx/5xx only — a per-2xx series would be a request-rate metric the logs already provide. The events-pipeline is absent by design: it is a Lambda with no HTTP surface. Tracking's 5xx are captured through an explicit exception branch, because Starlette's ServerErrorMiddleware sits outside every add_middleware layer and its 500 never reaches a send wrapper (docs/lessons/2026-08-12-server-error-middleware-outside-pure-asgi-middleware.md).",
-          "config": { "show_legends": true, "decimals": 0 },
+          "config": {
+            "show_legends": true,
+            "decimals": 0,
+            "legends_position": "bottom"
+          },
           "queryType": "promql",
           "queries": [
             {
@@ -196,12 +284,68 @@
                 "x": [],
                 "y": [],
                 "z": [],
-                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
               },
-              "config": { "promql_legend": "{dimensions_service} {dimensions_statusclass}", "layer_type": "scatter", "weight_fixed": 1 }
+              "config": {
+                "promql_legend": "{dimensions_service} {dimensions_statusclass}",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
             }
           ],
-          "layout": { "x": 0, "y": 27, "w": 24, "h": 9, "i": 8 }
+          "layout": {
+            "x": 0,
+            "y": 39,
+            "w": 24,
+            "h": 14,
+            "i": 7
+          }
+        },
+        {
+          "id": "password_resets",
+          "type": "line",
+          "title": "Password resets completed",
+          "description": "Counted on CONFIRM, not on request: POST /v1/users/password/forgot always answers 202 whether or not the email exists (a deliberate non-enumeration guarantee), so counting requests would count resets that never happened. Empty until a reset is actually completed.",
+          "config": {
+            "show_legends": true,
+            "decimals": 0,
+            "legends_position": "bottom"
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "amazonaws_com_3mrai_password_resets_total",
+              "customQuery": true,
+              "fields": {
+                "stream": "amazonaws_com_3mrai_password_resets_total",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "resets",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 53,
+            "w": 24,
+            "h": 13,
+            "i": 8
+          }
         }
       ]
     }
