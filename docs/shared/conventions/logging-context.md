@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-19
-updated: 2026-08-05
+updated: 2026-08-12
 tags:
   - type/convention
   - area/shared
@@ -18,6 +18,7 @@ related:
   - "[[2026-07-12-prisma-lazy-promise-als]]"
   - "[[2026-07-31-contextvars-lost-across-task-boundaries]]"
   - "[[2026-07-31-python-logging-extra-silently-dropped]]"
+  - "[[2026-08-12-server-error-middleware-outside-pure-asgi-middleware]]"
   - "[[events-pipeline-design]]"
   - "[[2026-08-05-passwordless-otp-auth-design]]"
   - "[[2026-08-05-passwordless-otp-auth]]"
@@ -208,6 +209,13 @@ reach the shared schema.
   > the offloaded call is discarded on return; Starlette's `BaseHTTPMiddleware` runs the app in
   > a sibling anyio task, so context a handler sets is invisible to that middleware. See
   > [[2026-07-31-contextvars-lost-across-task-boundaries]].
+  > [!warning] Pitfall — pure-ASGI middleware never sees a 5xx from an unhandled exception
+  > A `send` wrapper only observes responses that pass back down through it; an unhandled
+  > exception propagates up and out to Starlette's `ServerErrorMiddleware`, which sits outside
+  > every `add_middleware` layer. A metrics/log hook watching `send` alone silently never counts
+  > the 5xx unless it also catches `Exception` (never `BaseException` — that would count client
+  > disconnects) at its own boundary and re-raises. See
+  > [[2026-08-12-server-error-middleware-outside-pure-asgi-middleware]].
 
 ## Related
 
@@ -221,6 +229,9 @@ reach the shared schema.
   the Prisma/ALS lesson above.
 - [[2026-07-31-python-logging-extra-silently-dropped]] — why Tracking needed a custom
   formatter for `extra=` fields to reach the output at all.
+- [[2026-08-12-server-error-middleware-outside-pure-asgi-middleware]] — why Tracking's pure-ASGI
+  `LogContextMiddleware` needed an explicit `except Exception: ...; raise` to count 5xx from
+  unhandled exceptions at all.
 - [[events-pipeline-design]] — the `type` and `author_*` fields the pipeline emits on every
   per-record log line, and why it has no `trace_id`/`span_id` yet (JE-138).
 - [[2026-08-05-passwordless-otp-auth-design]] — the entropy reasoning behind the never-log-an-OTP
