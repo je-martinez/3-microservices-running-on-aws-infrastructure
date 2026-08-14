@@ -321,37 +321,73 @@ so "no errors" and "the exporter is down" look identical — the opposite of wha
 an incident card is for.
 
 Counters only emit when their event fires, so any quiet window is an empty
-window. Two things are needed, and **both** or neither:
+window.
 
-1. **Seed the counter at 0 on a fixed clock**, so the series always has points.
-   This must come from a periodic publisher (each service's metrics loop, or —
-   for the Lambda — the EventBridge tick in `infra/environments/local/main.tf`).
-   Seeding from inside the request/message path does NOT work: that path only
-   runs when traffic is already flowing, which is exactly when the zeros are not
-   needed. Measured: `emails_sent_total`, seeded inside the SQS handler, had
-   **zero points over 6h** while `users_total` had continuous coverage.
-2. **Aggregate over the window instead of sampling the last point.** Seeding
-   alone makes every card read `0`, because the freshest point is always a
-   seeded zero — the card stops erroring and starts lying, which is worse. A
-   counter card asks "how many in this range?", so it must sum:
+### Use SQL for cards, not PromQL
 
-   ```promql
-   max by (dimensions_service) (sum_over_time(<metric>[<range>]))
-   ```
+**PromQL cannot follow the dashboard's time picker.** OpenObserve has no
+`$__range` equivalent — the endpoint rejects `$` inside brackets, and its
+variable system offers only user-defined variables (query_values, custom,
+constant, textbox, dynamic_filters). A PromQL range selector is therefore a
+hardcoded literal: `[24h]` answers "in the last 24h" no matter what the picker
+says, which makes the picker decorative.
 
-   `max by(...)`, not `sum by(...)`: the collector stamps each scrape with its
-   own `start_time`, so the same logical series exists many times over and
-   `sum()` adds the duplicates. This is the same reason the services publish a
-   pre-summed `ALL` series rather than letting the dashboard add breakdowns up.
+**SQL over a metric stream does follow it**, because OpenObserve applies the
+picker's bounds as `start_time`/`end_time` at the API level. Measured on one
+counter: `5min=0, 30min=0, 120min=91, 1440min=628`.
 
-Sanity check before trusting a counter card — the value must MOVE with the range:
+So every card in `business-metrics` is `queryType: sql`:
+
+```sql
+-- counter: how many in the selected range
+SELECT COALESCE(SUM(CASE WHEN dimensions_emailtype = 'ALL' THEN value END), 0) AS total
+FROM "amazonaws_com_3mrai_emails_sent_total"
+
+-- gauge: the level, NOT a sum. The series republishes the same level every 15s,
+-- so SUM would multiply it by the number of samples in the range.
+SELECT COALESCE(MAX(CASE WHEN dimensions_haspassword = 'ALL' THEN value END), 0) AS total
+FROM "amazonaws_com_3mrai_users_total"
+```
+
+### The filter goes in `CASE WHEN`, never in `WHERE`
+
+This is the part that is easy to get wrong. A `WHERE` can eliminate every row,
+and **an aggregate over zero rows returns NO ROW AT ALL** — which is exactly what
+makes the panel throw. An unfiltered aggregate always returns exactly one row,
+and `COALESCE` turns its `NULL` into `0`.
+
+Verified against a window three days back containing no data whatsoever: with
+`WHERE` the response is `hits: []`; with `CASE WHEN` + `COALESCE` every card
+returns `{"total": 0.0}` and renders a clean zero.
+
+`fields.y` must name the aggregate's alias (`total`), or the panel reports
+"Please select required fields to render the chart". `promql_legend` must stay
+present in the query config even on a SQL panel — the v8 schema requires the
+field and the import fails with `HTTP 422 missing field promql_legend` without
+it; it is simply unused.
+
+### Seeding is still worth doing
+
+Publishing a 0 on a fixed clock (each service's metrics loop, or — for the
+Lambda — the EventBridge tick in `infra/environments/local/main.tf`) keeps the
+stream alive so it exists to be queried at all. Seeding from inside the
+request/message path does NOT work: that path runs only when traffic is already
+flowing, which is exactly when the zeros are not needed. Measured:
+`emails_sent_total`, seeded inside the SQS handler, had **zero points over 6h**
+while `users_total` had continuous coverage.
+
+Note the seeded zeros inflate `SampleCount`. Our cards use `SUM` and `MAX`, which
+are unaffected — but a panel using `AVG` over a seeded counter would read low.
+
+Sanity check before trusting a card — the value must MOVE with the range, and an
+empty range must return a row rather than nothing:
 
 ```bash
-# same query at 5min and 6h; identical answers mean it is not reading the window
-curl -s -u "$O2_USER:$O2_PASS" --get \
-  --data-urlencode 'query=max by (dimensions_service) (sum_over_time(<metric>[1h]))' \
-  --data "start=$START" --data "end=$END" --data step=60 \
-  "http://localhost:5080/api/$O2_ORG/prometheus/api/v1/query_range"
+curl -s -X POST -u "$O2_USER:$O2_PASS" -H 'Content-Type: application/json' \
+  -d '{"query":{"sql":"SELECT COALESCE(SUM(value),0) AS total FROM \"<stream>\"",
+       "start_time":<micros>,"end_time":<micros>,"size":10}}' \
+  "http://localhost:5080/api/$O2_ORG/_search?type=metrics"
+# hits: [] means the panel will throw — the aggregate is being eliminated by a WHERE
 ```
 
 ## Tab names

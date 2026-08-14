@@ -2,7 +2,7 @@
   "version": 8,
   "dashboardId": "business_metrics",
   "title": "Business Metrics",
-  "description": "Business signal only: registrations, users by auth type, orders and their delivery state, and email outcomes. HTTP status codes are deliberately NOT here \u2014 they are technical health, not business, and each service's own Golden Signals dashboard already carries them. Two tabs: \"At a glance\" for the current number of each metric, \"Trends\" for how it moved. PANELS USE PromQL, NOT SQL: the UI dispatches on queryType, and a metrics stream queried with queryType sql renders 'Error Loading Data' without ever issuing a search request. Dimension names arrive prefixed and lowercased (CloudWatch `Service` -> `dimensions_service`), and the metric name becomes the stream name (amazonaws.com/3MRAI/orders_total -> amazonaws_com_3mrai_orders_total). Gauges use max(); counters use sum().",
+  "description": "Business signal only: registrations, users by auth type, orders and their delivery state, and email outcomes. HTTP status codes are deliberately NOT here — they are technical health, not business, and each service's own Golden Signals dashboard already carries them. Two tabs: \"At a glance\" for the current number of each metric, \"Trends\" for how it moved. PANELS USE PromQL, NOT SQL: the UI dispatches on queryType, and a metrics stream queried with queryType sql renders 'Error Loading Data' without ever issuing a search request. Dimension names arrive prefixed and lowercased (CloudWatch `Service` -> `dimensions_service`), and the metric name becomes the stream name (amazonaws.com/3MRAI/orders_total -> amazonaws_com_3mrai_orders_total). Gauges use max(); counters use sum().",
   "role": "",
   "owner": "3MRAI",
   "created": "2026-08-12T00:00:00.000Z",
@@ -15,7 +15,7 @@
           "id": "users_registered",
           "type": "line",
           "title": "Users registered",
-          "description": "New registrations. Both the password and passwordless paths increment this one counter \u2014 the split is carried by users_total's HasPassword dimension, not by a second metric.",
+          "description": "New registrations. Both the password and passwordless paths increment this one counter — the split is carried by users_total's HasPassword dimension, not by a second metric.",
           "config": {
             "show_legends": false,
             "decimals": 0
@@ -56,8 +56,8 @@
         {
           "id": "users_by_auth_type",
           "type": "line",
-          "title": "Users by auth type",
-          "description": "Live user count split by whether the account has a password (the OTP flow creates users with none). A GAUGE, so max() \u2014 sum() would add every sample in the window and report a multiple of the real count. Both series are always published, zero included, so a value with no users reads as 0 rather than as a gap.",
+          "title": "Users by sign-in method",
+          "description": "Live user count split by HOW the account signs in: with a password, or with an emailed OTP code. Not 'has a password' — a passwordless account does have a Cognito password (signUp requires one, so registration generates a random one), but it is never given to the user and password login is rejected for them. The underlying dimension is still HasPassword=true/false; label_replace renames it at query time so historical data keeps working. The ALL series is excluded here — it is the pre-summed total and would dwarf both real series. A GAUGE, so max(): sum() would add every sample in the window and report a multiple of the real count.",
           "config": {
             "show_legends": true,
             "decimals": 0
@@ -65,7 +65,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "max by (dimensions_haspassword) (amazonaws_com_3mrai_users_total)",
+              "query": "label_replace(label_replace(max by (dimensions_haspassword) (amazonaws_com_3mrai_users_total{dimensions_haspassword!=\"ALL\"}), \"method\", \"Password login\", \"dimensions_haspassword\", \"true\"), \"method\", \"Email OTP\", \"dimensions_haspassword\", \"false\")",
               "customQuery": true,
               "fields": {
                 "stream": "amazonaws_com_3mrai_users_total",
@@ -81,7 +81,7 @@
                 "breakdown": []
               },
               "config": {
-                "promql_legend": "has password: {dimensions_haspassword}",
+                "promql_legend": "{method}",
                 "layer_type": "scatter",
                 "weight_fixed": 1
               }
@@ -98,8 +98,8 @@
         {
           "id": "orders_total",
           "type": "line",
-          "title": "Orders \u2014 total (Orders service)",
-          "description": "The true live order count, from Orders' own table. Compare with the next panel: orders_total minus (DELIVERED + IN_PROGRESS) is the number of orders whose init-tracking call failed \u2014 a failure mode TrackingInitResult.cs documents as deliberately accepted. Normally zero.",
+          "title": "Orders — total (Orders service)",
+          "description": "The true live order count, from Orders' own table. Compare with the next panel: orders_total minus (DELIVERED + IN_PROGRESS) is the number of orders whose init-tracking call failed — a failure mode TrackingInitResult.cs documents as deliberately accepted. Normally zero.",
           "config": {
             "show_legends": false,
             "decimals": 0
@@ -140,7 +140,7 @@
         {
           "id": "orders_by_tracking_status",
           "type": "line",
-          "title": "Orders \u2014 finished vs in progress (Tracking service)",
+          "title": "Orders — finished vs in progress (Tracking service)",
           "description": "DELIVERED is the tracking state machine's terminal status, so 'finished' is the domain's own invariant rather than a convention invented for this metric. One tracking per order (uq_tracking_order_id), so counting trackings is counting orders.",
           "config": {
             "show_legends": true,
@@ -183,7 +183,7 @@
           "id": "emails_sent",
           "type": "line",
           "title": "Emails sent",
-          "description": "The EmailType=ALL rollup, which is a SEPARATELY PUBLISHED series rather than a query-time aggregate: CloudWatch under Floci does not aggregate across dimensions, so a query omitting EmailType returns an empty result with StatusCode 'Complete'. NOTE: this counts handoff to SES, not inbox delivery \u2014 bounces and complaints are invisible here.",
+          "description": "The EmailType=ALL rollup, which is a SEPARATELY PUBLISHED series rather than a query-time aggregate: CloudWatch under Floci does not aggregate across dimensions, so a query omitting EmailType returns an empty result with StatusCode 'Complete'. NOTE: this counts handoff to SES, not inbox delivery — bounces and complaints are invisible here.",
           "config": {
             "show_legends": false,
             "decimals": 0
@@ -224,7 +224,7 @@
         {
           "id": "emails_failed_by_kind",
           "type": "line",
-          "title": "Email failures \u2014 permanent vs transient",
+          "title": "Email failures — permanent vs transient",
           "description": "PERMANENT means the email is LOST: a missing template raises PermanentError, the record is not retried, and the customer never receives it. Any non-zero permanent value is a real incident. TRANSIENT is an SES failure SQS retries, so small numbers are expected noise. Empty while nothing is failing, which is the healthy state.",
           "config": {
             "show_legends": true,
@@ -320,16 +320,26 @@
             "show_legends": false,
             "decimals": 0
           },
-          "queryType": "promql",
+          "queryType": "sql",
           "queries": [
             {
-              "query": "max by (dimensions_haspassword) (amazonaws_com_3mrai_users_total{dimensions_haspassword=\"ALL\"})",
+              "query": "SELECT COALESCE(MAX(CASE WHEN dimensions_haspassword = 'ALL' THEN value END),0) AS total FROM \"amazonaws_com_3mrai_users_total\"",
               "customQuery": true,
               "fields": {
-                "stream": "",
+                "stream": "amazonaws_com_3mrai_users_total",
                 "stream_type": "metrics",
                 "x": [],
-                "y": [],
+                "y": [
+                  {
+                    "label": "total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "isDerived": false,
+                    "havingConditions": []
+                  }
+                ],
                 "z": [],
                 "breakdown": [],
                 "filter": {
@@ -339,9 +349,9 @@
                 }
               },
               "config": {
-                "promql_legend": "users",
                 "layer_type": "scatter",
-                "weight_fixed": 1
+                "weight_fixed": 1,
+                "promql_legend": ""
               }
             }
           ],
@@ -356,22 +366,32 @@
         {
           "id": "card_users_with_password",
           "type": "metric",
-          "title": "With password",
+          "title": "Password login",
           "description": "Users holding a usable password.",
           "config": {
             "show_legends": false,
             "decimals": 0
           },
-          "queryType": "promql",
+          "queryType": "sql",
           "queries": [
             {
-              "query": "max by (dimensions_haspassword) (amazonaws_com_3mrai_users_total{dimensions_haspassword=\"true\"})",
+              "query": "SELECT COALESCE(MAX(CASE WHEN dimensions_haspassword = 'true' THEN value END),0) AS total FROM \"amazonaws_com_3mrai_users_total\"",
               "customQuery": true,
               "fields": {
-                "stream": "",
+                "stream": "amazonaws_com_3mrai_users_total",
                 "stream_type": "metrics",
                 "x": [],
-                "y": [],
+                "y": [
+                  {
+                    "label": "total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "isDerived": false,
+                    "havingConditions": []
+                  }
+                ],
                 "z": [],
                 "breakdown": [],
                 "filter": {
@@ -381,9 +401,9 @@
                 }
               },
               "config": {
-                "promql_legend": "with password",
                 "layer_type": "scatter",
-                "weight_fixed": 1
+                "weight_fixed": 1,
+                "promql_legend": ""
               }
             }
           ],
@@ -398,22 +418,32 @@
         {
           "id": "card_users_passwordless",
           "type": "metric",
-          "title": "Passwordless",
+          "title": "Email OTP",
           "description": "Users created through the OTP flow, who have no password at all.",
           "config": {
             "show_legends": false,
             "decimals": 0
           },
-          "queryType": "promql",
+          "queryType": "sql",
           "queries": [
             {
-              "query": "max by (dimensions_haspassword) (amazonaws_com_3mrai_users_total{dimensions_haspassword=\"false\"})",
+              "query": "SELECT COALESCE(MAX(CASE WHEN dimensions_haspassword = 'false' THEN value END),0) AS total FROM \"amazonaws_com_3mrai_users_total\"",
               "customQuery": true,
               "fields": {
-                "stream": "",
+                "stream": "amazonaws_com_3mrai_users_total",
                 "stream_type": "metrics",
                 "x": [],
-                "y": [],
+                "y": [
+                  {
+                    "label": "total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "isDerived": false,
+                    "havingConditions": []
+                  }
+                ],
                 "z": [],
                 "breakdown": [],
                 "filter": {
@@ -423,9 +453,9 @@
                 }
               },
               "config": {
-                "promql_legend": "passwordless",
                 "layer_type": "scatter",
-                "weight_fixed": 1
+                "weight_fixed": 1,
+                "promql_legend": ""
               }
             }
           ],
@@ -440,22 +470,32 @@
         {
           "id": "card_registrations",
           "type": "metric",
-          "title": "Registrations (24h)",
-          "description": "Total registrations in the selected window. A counter, so sum().",
+          "title": "Registrations",
+          "description": "Registrations completed in the selected time range. A counter, so SUM over the window — and SQL rather than PromQL because OpenObserve applies the dashboard's time picker to a SQL query, while a PromQL range selector would need a hardcoded window that ignores it. An empty range returns 0, not an error.",
           "config": {
             "show_legends": false,
             "decimals": 0
           },
-          "queryType": "promql",
+          "queryType": "sql",
           "queries": [
             {
-              "query": "max by (dimensions_service) (sum_over_time(amazonaws_com_3mrai_users_registered_total[24h]))",
+              "query": "SELECT COALESCE(SUM(value),0) AS total FROM \"amazonaws_com_3mrai_users_registered_total\"",
               "customQuery": true,
               "fields": {
-                "stream": "",
+                "stream": "amazonaws_com_3mrai_users_registered_total",
                 "stream_type": "metrics",
                 "x": [],
-                "y": [],
+                "y": [
+                  {
+                    "label": "total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "isDerived": false,
+                    "havingConditions": []
+                  }
+                ],
                 "z": [],
                 "breakdown": [],
                 "filter": {
@@ -465,9 +505,9 @@
                 }
               },
               "config": {
-                "promql_legend": "registrations",
                 "layer_type": "scatter",
-                "weight_fixed": 1
+                "weight_fixed": 1,
+                "promql_legend": ""
               }
             }
           ],
@@ -488,16 +528,26 @@
             "show_legends": false,
             "decimals": 0
           },
-          "queryType": "promql",
+          "queryType": "sql",
           "queries": [
             {
-              "query": "max by (dimensions_service) (amazonaws_com_3mrai_orders_total)",
+              "query": "SELECT COALESCE(MAX(value),0) AS total FROM \"amazonaws_com_3mrai_orders_total\"",
               "customQuery": true,
               "fields": {
-                "stream": "",
+                "stream": "amazonaws_com_3mrai_orders_total",
                 "stream_type": "metrics",
                 "x": [],
-                "y": [],
+                "y": [
+                  {
+                    "label": "total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "isDerived": false,
+                    "havingConditions": []
+                  }
+                ],
                 "z": [],
                 "breakdown": [],
                 "filter": {
@@ -507,9 +557,9 @@
                 }
               },
               "config": {
-                "promql_legend": "orders",
                 "layer_type": "scatter",
-                "weight_fixed": 1
+                "weight_fixed": 1,
+                "promql_legend": ""
               }
             }
           ],
@@ -525,21 +575,31 @@
           "id": "card_orders_delivered",
           "type": "metric",
           "title": "Delivered",
-          "description": "Orders whose tracking reached DELIVERED \u2014 the state machine's terminal status, so this is finished work by the domain's own definition.",
+          "description": "Orders whose tracking reached DELIVERED — the state machine's terminal status, so this is finished work by the domain's own definition.",
           "config": {
             "show_legends": false,
             "decimals": 0
           },
-          "queryType": "promql",
+          "queryType": "sql",
           "queries": [
             {
-              "query": "max by (dimensions_status) (amazonaws_com_3mrai_orders_by_tracking_status_total{dimensions_status=\"DELIVERED\"})",
+              "query": "SELECT COALESCE(MAX(CASE WHEN dimensions_status = 'DELIVERED' THEN value END),0) AS total FROM \"amazonaws_com_3mrai_orders_by_tracking_status_total\"",
               "customQuery": true,
               "fields": {
-                "stream": "",
+                "stream": "amazonaws_com_3mrai_orders_by_tracking_status_total",
                 "stream_type": "metrics",
                 "x": [],
-                "y": [],
+                "y": [
+                  {
+                    "label": "total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "isDerived": false,
+                    "havingConditions": []
+                  }
+                ],
                 "z": [],
                 "breakdown": [],
                 "filter": {
@@ -549,9 +609,9 @@
                 }
               },
               "config": {
-                "promql_legend": "delivered",
                 "layer_type": "scatter",
-                "weight_fixed": 1
+                "weight_fixed": 1,
+                "promql_legend": ""
               }
             }
           ],
@@ -572,16 +632,26 @@
             "show_legends": false,
             "decimals": 0
           },
-          "queryType": "promql",
+          "queryType": "sql",
           "queries": [
             {
-              "query": "max by (dimensions_status) (amazonaws_com_3mrai_orders_by_tracking_status_total{dimensions_status=\"IN_PROGRESS\"})",
+              "query": "SELECT COALESCE(MAX(CASE WHEN dimensions_status = 'IN_PROGRESS' THEN value END),0) AS total FROM \"amazonaws_com_3mrai_orders_by_tracking_status_total\"",
               "customQuery": true,
               "fields": {
-                "stream": "",
+                "stream": "amazonaws_com_3mrai_orders_by_tracking_status_total",
                 "stream_type": "metrics",
                 "x": [],
-                "y": [],
+                "y": [
+                  {
+                    "label": "total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "isDerived": false,
+                    "havingConditions": []
+                  }
+                ],
                 "z": [],
                 "breakdown": [],
                 "filter": {
@@ -591,9 +661,9 @@
                 }
               },
               "config": {
-                "promql_legend": "in progress",
                 "layer_type": "scatter",
-                "weight_fixed": 1
+                "weight_fixed": 1,
+                "promql_legend": ""
               }
             }
           ],
@@ -614,16 +684,26 @@
             "show_legends": false,
             "decimals": 0
           },
-          "queryType": "promql",
+          "queryType": "sql",
           "queries": [
             {
-              "query": "max by (dimensions_status) (amazonaws_com_3mrai_orders_by_tracking_status_total{dimensions_status=\"ALL\"})",
+              "query": "SELECT COALESCE(MAX(CASE WHEN dimensions_status = 'ALL' THEN value END),0) AS total FROM \"amazonaws_com_3mrai_orders_by_tracking_status_total\"",
               "customQuery": true,
               "fields": {
-                "stream": "",
+                "stream": "amazonaws_com_3mrai_orders_by_tracking_status_total",
                 "stream_type": "metrics",
                 "x": [],
-                "y": [],
+                "y": [
+                  {
+                    "label": "total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "isDerived": false,
+                    "havingConditions": []
+                  }
+                ],
                 "z": [],
                 "breakdown": [],
                 "filter": {
@@ -633,9 +713,9 @@
                 }
               },
               "config": {
-                "promql_legend": "tracked",
                 "layer_type": "scatter",
-                "weight_fixed": 1
+                "weight_fixed": 1,
+                "promql_legend": ""
               }
             }
           ],
@@ -650,22 +730,32 @@
         {
           "id": "card_emails_sent",
           "type": "metric",
-          "title": "Emails sent (24h)",
-          "description": "Handoffs to SES, NOT inbox deliveries \u2014 bounces are invisible here.",
+          "title": "Emails sent",
+          "description": "Handoffs to SES in the selected time range, NOT inbox deliveries — bounces are invisible here. Filtered to the pre-summed ALL series so the per-type breakdowns are not double counted.",
           "config": {
             "show_legends": false,
             "decimals": 0
           },
-          "queryType": "promql",
+          "queryType": "sql",
           "queries": [
             {
-              "query": "max by (dimensions_service) (sum_over_time(amazonaws_com_3mrai_emails_sent_total{dimensions_emailtype=\"ALL\"}[24h]))",
+              "query": "SELECT COALESCE(SUM(CASE WHEN dimensions_emailtype = 'ALL' THEN value END),0) AS total FROM \"amazonaws_com_3mrai_emails_sent_total\"",
               "customQuery": true,
               "fields": {
-                "stream": "",
+                "stream": "amazonaws_com_3mrai_emails_sent_total",
                 "stream_type": "metrics",
                 "x": [],
-                "y": [],
+                "y": [
+                  {
+                    "label": "total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "isDerived": false,
+                    "havingConditions": []
+                  }
+                ],
                 "z": [],
                 "breakdown": [],
                 "filter": {
@@ -675,9 +765,9 @@
                 }
               },
               "config": {
-                "promql_legend": "emails sent",
                 "layer_type": "scatter",
-                "weight_fixed": 1
+                "weight_fixed": 1,
+                "promql_legend": ""
               }
             }
           ],
@@ -692,22 +782,32 @@
         {
           "id": "card_emails_failed_permanent",
           "type": "metric",
-          "title": "Emails lost (24h)",
-          "description": "PERMANENT failures: not retried, so the customer never received the mail. Any non-zero value is a real incident.",
+          "title": "Emails lost",
+          "description": "Permanent send failures in the selected time range — mail that will never arrive. Transient failures are excluded: those are retried and usually succeed, so counting them here would report losses that did not happen.",
           "config": {
             "show_legends": false,
             "decimals": 0
           },
-          "queryType": "promql",
+          "queryType": "sql",
           "queries": [
             {
-              "query": "max by (dimensions_service) (sum_over_time(amazonaws_com_3mrai_emails_failed_total{dimensions_emailtype=\"ALL\",dimensions_failurekind=\"permanent\"}[24h]))",
+              "query": "SELECT COALESCE(SUM(CASE WHEN dimensions_failurekind = 'permanent' AND dimensions_emailtype = 'ALL' THEN value END),0) AS total FROM \"amazonaws_com_3mrai_emails_failed_total\"",
               "customQuery": true,
               "fields": {
-                "stream": "",
+                "stream": "amazonaws_com_3mrai_emails_failed_total",
                 "stream_type": "metrics",
                 "x": [],
-                "y": [],
+                "y": [
+                  {
+                    "label": "total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "isDerived": false,
+                    "havingConditions": []
+                  }
+                ],
                 "z": [],
                 "breakdown": [],
                 "filter": {
@@ -717,9 +817,9 @@
                 }
               },
               "config": {
-                "promql_legend": "lost",
                 "layer_type": "scatter",
-                "weight_fixed": 1
+                "weight_fixed": 1,
+                "promql_legend": ""
               }
             }
           ],
