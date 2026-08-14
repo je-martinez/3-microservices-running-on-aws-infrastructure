@@ -285,6 +285,41 @@ processors:
       log_record:
         - 'attributes["service_name"] == "nginx" and attributes["http_response_status_code"] != nil and attributes["http_response_status_code"] < 500'
 
+  # WiredTiger's internal storage-engine chatter, from the DocumentDB cluster's
+  # log group (/aws/docdb/cluster/<id>/audit).
+  #
+  # Despite the group name these are MongoDB's own server logs, not an audit
+  # trail: Floci backs DocumentDB with a stock mongo:7.0 container and ships its
+  # stdout under a docdb-shaped group. The checkpointer emits a line per cycle
+  # forever ("saving checkpoint snapshot min: 547, snapshot max: 547 …"),
+  # independent of any query the pipeline makes, and recovery does the same at
+  # startup. On a system doing nothing they were 141 of the group's ~250 lines.
+  #
+  # Matched on the WiredTiger verbose CATEGORY rather than on the log group,
+  # which is the whole point: that group also carries lines worth keeping —
+  # `***** SERVER RESTARTED *****`, `Connection not authenticating`, index
+  # builds, `createCollection`. Dropping the group wholesale would take the
+  # storage layer's only real signals with it. Checked before writing this:
+  # every restart and auth failure in the window clustered around a
+  # `make bootstrap`, and the container had been up for hours since — noise, not
+  # a fault, but noise worth being able to see next time.
+  #
+  # DEBUG_1 verbosity is not filtered on: severity here is "I" (info) on every
+  # line, so the category is the only field that separates them.
+  #
+  # The path is NESTED — attributes["attr"]["message"]["category"] — not the flat
+  # `attr_message_category` the field appears under in OpenObserve. transform/
+  # parse_body merges the parsed body with merge_maps, which preserves the JSON's
+  # own nesting; the underscore-joined name is created later, by OpenObserve's
+  # indexer. Filtering on the flat name silently matched nothing (verified: 2
+  # checkpoints emitted, 2 still arriving), because a nil lookup under
+  # error_mode: ignore drops the condition rather than raising.
+  filter/drop_wiredtiger_noise:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'attributes["attr"] != nil and attributes["attr"]["message"] != nil and attributes["attr"]["message"]["category"] != nil and IsMatch(attributes["attr"]["message"]["category"], "^WT_VERB_")'
+
   # The SQL-echo split. These two conditions MUST stay exact complements: a
   # record matching neither is lost, and one matching both is stored twice. They
   # are written against the same expression so the pair can be read as one rule.
@@ -303,17 +338,31 @@ processors:
   # Reads `attributes`, not `body`: transform/parse_body merges the parsed JSON
   # into attributes, so by the time a record reaches here the message lives
   # there. Same place the nginx filter above tests.
+  # Two shapes of SQL log reach here, and the pair of conditions below must
+  # recognise BOTH or the streams stop being complements:
+  #
+  #  - SQLAlchemy (tracking) echoes the bare statement, so `message` itself
+  #    starts with the keyword.
+  #  - EF Core (orders) wraps it: message is
+  #    "Executed DbCommand (4ms) [Parameters=[…]] SELECT COUNT(*) FROM …",
+  #    which does NOT match ^SELECT. It does, however, carry the bare statement
+  #    in its own `commandText` property, which is what the second clause tests.
+  #
+  # Without that second clause, raising EF Core back to Information would send
+  # every DbCommand into the MAIN stream — the exact noise this repo just
+  # removed — instead of the sql stream where tracking's equivalent already
+  # lives.
   filter/only_sql:
     error_mode: ignore
     logs:
       log_record:
-        - 'not (attributes["message"] != nil and IsMatch(attributes["message"], "^(SELECT|INSERT|UPDATE|DELETE|BEGIN|COMMIT|ROLLBACK)\\b"))'
+        - 'not ((attributes["message"] != nil and IsMatch(attributes["message"], "^(SELECT|INSERT|UPDATE|DELETE|BEGIN|COMMIT|ROLLBACK)\\b")) or (attributes["commandText"] != nil))'
 
   filter/drop_sql:
     error_mode: ignore
     logs:
       log_record:
-        - 'attributes["message"] != nil and IsMatch(attributes["message"], "^(SELECT|INSERT|UPDATE|DELETE|BEGIN|COMMIT|ROLLBACK)\\b")'
+        - '(attributes["message"] != nil and IsMatch(attributes["message"], "^(SELECT|INSERT|UPDATE|DELETE|BEGIN|COMMIT|ROLLBACK)\\b")) or (attributes["commandText"] != nil)'
 
   # Drop `start_time` from CloudWatch metrics before they reach OpenObserve.
   #
@@ -413,7 +462,7 @@ service:
       # Order matters: parse first so the filter can test real fields
       # (service_name, http_response_status_code) rather than pattern-match raw
       # text, then drop, then batch — so dropped records never reach the batcher.
-      processors: [transform/parse_body, filter/drop_nginx_noise, filter/drop_sql, batch]
+      processors: [transform/parse_body, filter/drop_nginx_noise, filter/drop_wiredtiger_noise, filter/drop_sql, batch]
       exporters: [otlp_http/openobserve]
 
     # SQL echo, same receivers, opposite filter, its own stream. Two pipelines
