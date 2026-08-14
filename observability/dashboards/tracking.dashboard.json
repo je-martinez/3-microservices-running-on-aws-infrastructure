@@ -23,7 +23,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "max by (dimensions_status) (amazonaws_com_3mrai_orders_by_tracking_status_total)",
+              "query": "max by (status) (amazonaws_com_3mrai_orders_by_tracking_status_total{status!=\"\"})",
               "customQuery": true,
               "fields": {
                 "stream": "amazonaws_com_3mrai_orders_by_tracking_status_total",
@@ -39,7 +39,7 @@
                 }
               },
               "config": {
-                "promql_legend": "{dimensions_status}",
+                "promql_legend": "{status}",
                 "layer_type": "scatter",
                 "weight_fixed": 1
               }
@@ -107,7 +107,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "sum by (dimensions_statusclass) (amazonaws_com_3mrai_http_errors_total{dimensions_service=\"tracking\"})",
+              "query": "sum by (statusclass) (amazonaws_com_3mrai_http_errors_total{service=\"tracking\",statusclass!=\"\"})",
               "customQuery": true,
               "fields": {
                 "stream": "amazonaws_com_3mrai_http_errors_total",
@@ -123,7 +123,7 @@
                 }
               },
               "config": {
-                "promql_legend": "{dimensions_statusclass}",
+                "promql_legend": "{statusclass}",
                 "layer_type": "scatter",
                 "weight_fixed": 1
               }

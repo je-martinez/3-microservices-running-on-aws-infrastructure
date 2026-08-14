@@ -364,24 +364,63 @@ processors:
       log_record:
         - '(attributes["message"] != nil and IsMatch(attributes["message"], "^(SELECT|INSERT|UPDATE|DELETE|BEGIN|COMMIT|ROLLBACK)\\b")) or (attributes["commandText"] != nil)'
 
-  # Drop `start_time` from CloudWatch metrics before they reach OpenObserve.
+  # Collapse `start_time` so a metric is ONE series, not one per scrape.
   #
-  # The aws_cloudwatch receiver stamps every scrape with the window's start
-  # time. In a time-series backend that becomes a LABEL, and a label whose value
-  # changes every scrape means every scrape starts a brand-new series: one
-  # metric with two real dimension values had produced **100 series** in twenty
-  # minutes, all carrying identical visible labels.
+  # The aws_cloudwatch receiver stamps every scrape with the query window's
+  # start. OpenObserve folds that into series identity, so each scrape became a
+  # brand-new series. The damage is arithmetic, not cosmetic: a __hash__ audit
+  # showed single hashes covering HasPassword true/false/ALL at once, which is
+  # how `users_total{HasPassword="true"}` came back as 5 — the ALL value. It also
+  # produced a "total users" card reading 9 beside its own breakdown reading 450.
   #
-  # The damage is not cosmetic, it is arithmetic. Any aggregate over that metric
-  # is wrong and looks plausible: `max()` returns whichever stale series happens
-  # to be highest, and `sum()` adds a hundred copies of the same reading. The
-  # symptom that exposed it was a "total users" card reading 9 while its own
-  # "with password" breakdown read 450 — a total smaller than one of its parts.
+  # Zeroing it (rather than deleting it) is what works, and the reason is worth
+  # keeping. Dumped from the receiver with the debug exporter rather than
+  # guessed:
   #
-  # Dropping the attribute collapses those scrapes back into one series per real
-  # dimension set, which is what makes sum()/max() mean what they say. The
-  # measurement's own timestamp is unaffected — that is the data point's time,
-  # not an attribute.
+  #     -> Name: amazonaws.com/3MRAI/users_total
+  #     Data point attributes:
+  #       -> Dimensions: Map({"HasPassword":"true","Service":"users"})
+  #     StartTimestamp: 2026-08-14 22:25:15 +0000 UTC   <- varies per scrape
+  #
+  # `start_time` is NOT an attribute — it is the data point's own
+  # StartTimestamp field. So no label-level processor can touch it:
+  # metricstransform's aggregate_labels operates on the label set and never sees
+  # it. Worse, the dimensions are ONE attribute called `Dimensions` holding a
+  # map, not separate labels, so a label_set of [Service, HasPassword] retains
+  # NOTHING and merges the three series into one with the breakdown gone
+  # (HasPassword=None carrying 5). Both were tried; both did exactly that.
+  #
+  # A datapoint-context transform reaches the field directly. Setting it to 0
+  # makes it constant across scrapes, which is all series identity needs — the
+  # measurement's own `Timestamp` and value are untouched, so nothing about when
+  # or what was measured changes. Verified against the debug exporter:
+  # StartTimestamp 1970-01-01 on every scrape, Value still 3.
+  transform/collapse_metric_start_time:
+    error_mode: propagate
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(start_time_unix_nano, 0)
+          # Zeroing start_time alone was NOT enough, and the __hash__ audit is
+          # what showed it: with start_time constant, all three HasPassword
+          # series still shared ONE hash, and PromQL returned a single series
+          # answering 5 (the ALL value) under the label `true`.
+          #
+          # The reason is above — the receiver puts every dimension inside a
+          # single `Dimensions` map attribute. A map is one attribute, so the
+          # values inside it never reach series identity, and three logically
+          # distinct series are indistinguishable to the backend.
+          #
+          # Promoting each entry to its own attribute is what separates them.
+          # Verified against the debug exporter: `-> HasPassword: Str(true)` and
+          # `-> Service: Str(users)` as siblings of Namespace/MetricName, rather
+          # than `-> Dimensions: Map({...})`.
+          - merge_maps(attributes, attributes["Dimensions"], "upsert") where attributes["Dimensions"] != nil
+          # Drop the map once flattened: leaving it would keep an attribute
+          # whose value differs per series, and OpenObserve would index a
+          # redundant column of stringified maps beside the real ones.
+          - delete_key(attributes, "Dimensions")
+
   batch: {}
 
 exporters:
@@ -492,5 +531,7 @@ service:
     # already structured, unlike the services' stdout JSON.
     metrics:
       receivers: [aws_cloudwatch]
-      processors: [batch]
+      # collapse_metric_start_time BEFORE batch: it is what makes a metric one
+      # series instead of one per scrape, so batching ships real series.
+      processors: [transform/collapse_metric_start_time, batch]
       exporters: [otlp_http/openobserve_metrics]
