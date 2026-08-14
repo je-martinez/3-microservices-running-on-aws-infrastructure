@@ -9,7 +9,7 @@
   "tabs": [
     {
       "tabId": "default",
-      "name": "Default",
+      "name": "Traffic & Errors",
       "panels": [
         {
           "id": "users_req_rate",

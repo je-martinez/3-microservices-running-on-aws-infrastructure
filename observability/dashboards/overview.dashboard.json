@@ -9,7 +9,7 @@
   "tabs": [
     {
       "tabId": "default",
-      "name": "Default",
+      "name": "Cross-Service Signals",
       "panels": [
         {
           "id": "overview_volume_per_service",

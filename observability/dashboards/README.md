@@ -305,6 +305,63 @@ FROM logs GROUP BY service_name
 
 `total > 0` with `with_route = 0` is case 1.
 
+## A `metric` card over a COUNTER needs a datapoint in every window
+
+A `metric` panel renders the **last point** of its series. That is right for a
+gauge (`users_total`, `orders_total`) — the current value IS the answer. It is
+wrong for a counter, and the failure is loud: with no point in the selected
+range, OpenObserve throws
+
+```
+Cannot read properties of undefined (reading 'values')
+```
+
+instead of rendering `0`. The card breaks **precisely when nothing happened**,
+so "no errors" and "the exporter is down" look identical — the opposite of what
+an incident card is for.
+
+Counters only emit when their event fires, so any quiet window is an empty
+window. Two things are needed, and **both** or neither:
+
+1. **Seed the counter at 0 on a fixed clock**, so the series always has points.
+   This must come from a periodic publisher (each service's metrics loop, or —
+   for the Lambda — the EventBridge tick in `infra/environments/local/main.tf`).
+   Seeding from inside the request/message path does NOT work: that path only
+   runs when traffic is already flowing, which is exactly when the zeros are not
+   needed. Measured: `emails_sent_total`, seeded inside the SQS handler, had
+   **zero points over 6h** while `users_total` had continuous coverage.
+2. **Aggregate over the window instead of sampling the last point.** Seeding
+   alone makes every card read `0`, because the freshest point is always a
+   seeded zero — the card stops erroring and starts lying, which is worse. A
+   counter card asks "how many in this range?", so it must sum:
+
+   ```promql
+   max by (dimensions_service) (sum_over_time(<metric>[<range>]))
+   ```
+
+   `max by(...)`, not `sum by(...)`: the collector stamps each scrape with its
+   own `start_time`, so the same logical series exists many times over and
+   `sum()` adds the duplicates. This is the same reason the services publish a
+   pre-summed `ALL` series rather than letting the dashboard add breakdowns up.
+
+Sanity check before trusting a counter card — the value must MOVE with the range:
+
+```bash
+# same query at 5min and 6h; identical answers mean it is not reading the window
+curl -s -u "$O2_USER:$O2_PASS" --get \
+  --data-urlencode 'query=max by (dimensions_service) (sum_over_time(<metric>[1h]))' \
+  --data "start=$START" --data "end=$END" --data step=60 \
+  "http://localhost:5080/api/$O2_ORG/prometheus/api/v1/query_range"
+```
+
+## Tab names
+
+Every tab carries a name describing what it groups (`Traffic & Errors`,
+`Delivery & Traffic`, `At a glance`). None is left as `Default` — OpenObserve's
+own placeholder tells a reader nothing, and it is the name shown in the UI even
+on a single-tab dashboard. The `tabId` stays `default`: it is referenced by
+panel layout entries, so renaming it would orphan them.
+
 ## Verifying a panel's query
 
 Before committing a panel, confirm its SQL returns rows via `_search` (NOT the

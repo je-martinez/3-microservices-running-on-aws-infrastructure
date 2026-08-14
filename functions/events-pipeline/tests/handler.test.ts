@@ -66,6 +66,15 @@ vi.mock("#shared/logging/app-logger", async () => {
   };
 });
 
+// Spied rather than left real: the scheduled-tick tests assert exactly WHICH
+// series get seeded, and a real publish would need a CloudWatch client.
+const publishMetric = vi.fn(async () => {});
+vi.mock("#shared/metrics/cloudwatch-metrics", () => ({
+  SERVICE_DIMENSION: "events-pipeline",
+  publishMetric: (...args: unknown[]) => publishMetric(...(args as [])),
+  publishEmailMetric: vi.fn(async () => {}),
+}));
+
 vi.mock("#handlers/index", () => ({
   handlers: {
     USER_CREATED: vi.fn(async () => {}),
@@ -604,6 +613,62 @@ describe("handler — log context", () => {
     expect(rawLines.join("\n")).not.toContain("leak@example.com");
     const started = emitted().find((l) => l.line.app_event === "event_processing_started");
     expect(started?.line.author_cognito_sub).toBe("a1b2-c3d4");
+  });
+
+  // The scheduled tick (EventBridge rate(1 minute), see infra/environments/local/main.tf).
+  // It exists because the email counters only emit when mail moves, so a quiet
+  // dashboard window had no datapoints at all and the metric panel threw
+  // instead of rendering 0.
+  describe("metrics tick", () => {
+    const tick = { "detail-type": "3mrai.metrics.tick" };
+
+    it("seeds every email counter at zero", async () => {
+      await handler(tick);
+
+      const seeded = publishMetric.mock.calls.map((c) => {
+        const [name, value, dims] = c as unknown as [string, number, Record<string, string>];
+        return { name, value, dims };
+      });
+
+      // Every seeded series carries 0 — a non-zero seed would inflate real counts.
+      expect(seeded.every((s) => s.value === 0)).toBe(true);
+
+      // Both failure KINDS, not just the metric: the dashboard has a card per
+      // kind, and seeding only one leaves the other throwing.
+      expect(
+        seeded.filter((s) => s.name === "emails_failed_total").map((s) => s.dims.FailureKind).sort(),
+      ).toEqual(["permanent", "transient"]);
+      expect(seeded.some((s) => s.name === "emails_sent_total")).toBe(true);
+    });
+
+    it("does not touch the database or process records", async () => {
+      await handler(tick);
+
+      // The whole point of the early return. A tick carries no records, so
+      // opening a connection would be per-minute waste — and any future work in
+      // the record loop would run on a schedule against an empty batch.
+      expect(getMongoClient).not.toHaveBeenCalled();
+      expect(insertStarted).not.toHaveBeenCalled();
+    });
+
+    it("still processes a normal SQS batch, and does NOT seed on that path", async () => {
+      // The regression this pair guards: seeding used to live at the top of the
+      // SQS path, where it ran only when mail was already flowing — publishing
+      // zeros exactly when they were not needed and nothing during the quiet
+      // windows they were meant to cover.
+      await handler({ Records: [sqsRecord("msg-1", envelope())] });
+
+      expect(insertStarted).toHaveBeenCalledOnce();
+      expect(publishMetric).not.toHaveBeenCalled();
+    });
+
+    it("treats a malformed SQS event as SQS, not as a tick", async () => {
+      // isMetricsTick matches on detail-type rather than on the ABSENCE of
+      // Records. If it matched on shape, a malformed delivery would be silently
+      // swallowed as a tick — dropped mail reported as success.
+      await expect(handler({ Records: undefined } as never)).rejects.toThrow();
+      expect(publishMetric).not.toHaveBeenCalled();
+    });
   });
 
   it("does not emit a SUCCESS severity — success is INFO plus app_event", async () => {

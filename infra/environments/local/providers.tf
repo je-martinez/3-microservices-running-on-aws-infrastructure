@@ -26,9 +26,15 @@ provider "aws" {
     # is invalid` — a message that reads like a Floci auth problem but means the
     # request never reached Floci at all. (The `backend/` root already declared
     # dynamodb for the state-lock table, which is why that one always worked.)
-    dynamodb         = "http://localhost:4566"
-    ec2              = "http://localhost:4566"
-    ecs              = "http://localhost:4566"
+    dynamodb = "http://localhost:4566"
+    ec2      = "http://localhost:4566"
+    ecs      = "http://localhost:4566"
+    # EventBridge, for the events-pipeline metrics tick (main.tf). Added after
+    # hitting exactly the failure the dynamodb comment above predicts: the rule
+    # was created fine by the AWS CLI (which reads AWS_ENDPOINT_URL) but
+    # Terraform sent it to real AWS and got `UnrecognizedClientException`. The
+    # provider's service key is `events`, not `eventbridge`.
+    events           = "http://localhost:4566"
     elbv2            = "http://localhost:4566"
     iam              = "http://localhost:4566"
     lambda           = "http://localhost:4566"

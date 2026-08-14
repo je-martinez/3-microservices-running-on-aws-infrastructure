@@ -9,7 +9,7 @@
   "tabs": [
     {
       "tabId": "default",
-      "name": "Default",
+      "name": "Processing & Failures",
       "panels": [
         {
           "id": "ep_events_processed",

@@ -9,7 +9,7 @@
   "tabs": [
     {
       "tabId": "default",
-      "name": "Default",
+      "name": "Delivery & Traffic",
       "panels": [
         {
           "id": "tracking_orders_by_status",
