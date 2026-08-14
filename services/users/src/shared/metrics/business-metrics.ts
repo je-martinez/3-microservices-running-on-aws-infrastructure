@@ -110,6 +110,25 @@ export class BusinessMetricsPoller {
           }),
         ),
       );
+
+      // The BUSINESS counters get the same treatment, for a subtler reason.
+      //
+      // These do fire in normal operation, so unlike the error counters their
+      // series does exist — but only while traffic is flowing. Narrow the
+      // dashboard's time range to a quiet hour and the series has no points in
+      // it, and the panel does not render "0": OpenObserve's metric panel
+      // throws `Cannot read properties of undefined (reading 'values')` and
+      // shows "Error Loading Data". So the card breaks precisely when the
+      // answer is the least alarming one — nobody registered in the last five
+      // minutes.
+      //
+      // Seeding keeps a datapoint in every window, which is what makes the
+      // time picker behave: a quiet range reads 0 instead of erroring. Summing
+      // a 0 changes no count.
+      await Promise.all([
+        this.metrics.publish("users_registered_total", 0, { Service: "users" }),
+        this.metrics.publish("password_resets_total", 0, { Service: "users" }),
+      ]);
     } catch (err) {
       appLogger.warn(
         {

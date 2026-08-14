@@ -174,15 +174,26 @@ export async function handler(event: SqsEvent): Promise<BatchResponse> {
   //
   // This is the only recurring hook available here. Unlike the HTTP services,
   // a Lambda has no long-lived process to host a periodic publisher.
-  await Promise.all(
-    (["permanent", "transient"] as const).map((failureKind) =>
+  await Promise.all([
+    ...(["permanent", "transient"] as const).map((failureKind) =>
       publishMetric("emails_failed_total", 0, {
         Service: SERVICE_DIMENSION,
         EmailType: "ALL",
         FailureKind: failureKind,
       }),
     ),
-  );
+    // emails_sent_total is seeded for a different reason than the failure
+    // counters: it DOES fire in normal operation, so its series exists — but
+    // only while mail is flowing. Narrow the dashboard to a quiet range and the
+    // series has no points there, and OpenObserve's metric panel throws
+    // `Cannot read properties of undefined (reading 'values')` rather than
+    // rendering 0. Seeding keeps a datapoint in every window, so a quiet hour
+    // reads zero instead of erroring.
+    publishMetric("emails_sent_total", 0, {
+      Service: SERVICE_DIMENSION,
+      EmailType: "ALL",
+    }),
+  ]);
 
   let repository: MongoEventsRepository;
   try {
