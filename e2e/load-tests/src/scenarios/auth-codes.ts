@@ -73,19 +73,30 @@ export const otpStart = exec(
  * puts enough of the body there that a second request for the full message is
  * unnecessary.
  */
-const fetchCodeFromMailbox = (saveAs: string) =>
+const fetchCodeFromMailbox = (saveAs: string, subject: string) =>
   exec(
     http("GET mailpit (wait for code)")
       .get(`${mailpitBaseUrl()}/search`)
+      // Filtered by SUBJECT as well as recipient, and that is load-bearing: a
+      // user who registers also receives "Welcome to 3MRAI", which carries no
+      // code. With `limit=1` and no subject filter, whichever mail happens to
+      // be first wins — measured at 64% failure, every one of them the regex
+      // finding nothing in a welcome email and the rest of the flow failing
+      // behind it.
       .queryParam(
         "query",
-        (session: { get: (k: string) => unknown }) => `to:${session.get("email")}`,
+        (session: { get: (k: string) => unknown }) =>
+          `to:${session.get("email")} subject:"${subject}"`,
       )
       .queryParam("limit", "1")
       .check(status().is(200), regex("\\b(\\d{6})\\b").saveAs(saveAs)),
   );
 
-export const waitForOtpCode = fetchCodeFromMailbox("otpCode");
+/** Subjects the events-pipeline sends — the discriminator for the search. */
+const OTP_SUBJECT = "Your one-time code";
+const RESET_SUBJECT = "Reset your password";
+
+export const waitForOtpCode = fetchCodeFromMailbox("otpCode", OTP_SUBJECT);
 
 /** Exchange the code for real tokens. */
 export const otpVerify = exec(
@@ -118,7 +129,7 @@ export const forgotPassword = exec(
     .check(status().is(202)),
 );
 
-export const waitForResetCode = fetchCodeFromMailbox("resetCode");
+export const waitForResetCode = fetchCodeFromMailbox("resetCode", RESET_SUBJECT);
 
 /** Set the new password, then prove it works by logging in with it. */
 export const confirmPasswordReset = exec(
