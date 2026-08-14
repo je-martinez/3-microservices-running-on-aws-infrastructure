@@ -64,8 +64,36 @@ builder.Services.AddOpenTelemetry()
 // The THREE-argument UseSerilog overload is required: the two-argument one has
 // no `services` parameter, so the enricher could not resolve
 // IHttpContextAccessor and the shared log context would never be attached.
+// The two Overrides below are NOISE SUPPRESSION, not a convenience — do not
+// remove them without re-reading this. Both categories are set to WARNING, not
+// None, ON PURPOSE: a failed trace export or a SQL error still surfaces. Only
+// the per-operation INFO chatter is silenced.
+//
+// Note these MUST live here, in code. This service has no
+// `ReadFrom.Configuration`, so Serilog never reads `Logging:LogLevel` from
+// appsettings.json — adding the categories there would silence nothing.
+//
+//  1. System.Net.Http.HttpClient.OtlpTraceExporter — SELF-REFERENTIAL telemetry.
+//     The OTLP exporter POSTs batches over HttpClient, and HttpClient logs each
+//     POST at INFO ("Start processing HTTP request", "Received HTTP response
+//     headers ... 200"). Those log lines are themselves exported, so exporting
+//     traces generates logs that generate more exporting. The volume scales with
+//     traffic and drowns the real orders logs. Scoped to the named
+//     OtlpTraceExporter client rather than the whole `System.Net.Http.HttpClient`
+//     prefix so genuine outbound-HTTP problems (the Users gRPC call, Tracking)
+//     still log normally. It covers both handler suffixes the category expands
+//     to — `.LogicalHandler` and `.ClientHandler` — because Serilog Overrides
+//     match on the source-context PREFIX.
+//
+//  2. Microsoft.EntityFrameworkCore.Database.Command — every DbCommand at INFO
+//     ("Executed DbCommand (4ms) ... SELECT ..."), including the full SQL. The
+//     orders_total gauge in OrdersMetricsPublisher polls `SELECT COUNT(*) FROM
+//     order` on a fixed interval, so this repeats forever even with ZERO user
+//     traffic. Warning still surfaces command failures.
 builder.Host.UseSerilog((_, services, cfg) => cfg
     .MinimumLevel.Information()
+    .MinimumLevel.Override("System.Net.Http.HttpClient.OtlpTraceExporter", Serilog.Events.LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.EntityFrameworkCore.Database.Command", Serilog.Events.LogEventLevel.Warning)
     .Enrich.With(new LogContextEnricher(services.GetRequiredService<IHttpContextAccessor>()))
     .WriteTo.Console(new SchemaLogFormatter("orders", deploymentEnvironment)));
 
