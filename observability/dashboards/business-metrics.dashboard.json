@@ -13,9 +13,9 @@
       "panels": [
         {
           "id": "users_registered",
-          "type": "line",
+          "type": "bar",
           "title": "Users registered",
-          "description": "New registrations. Both the password and passwordless paths increment this one counter — the split is carried by users_total's HasPassword dimension, not by a second metric.",
+          "description": "Registrations per 5-minute interval. A counter bucketed with sum_over_time so each bar is \"how many in this interval\" — the raw series carries one entry per collector start_time (779 of them over 2h), which is why it must be aggregated. max by(), not sum by(): those duplicate series would otherwise be added together and report a multiple of the truth. Empty intervals read 0 because the counter is seeded at 0 on a fixed clock.",
           "config": {
             "show_legends": false,
             "decimals": 0
@@ -23,7 +23,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "amazonaws_com_3mrai_users_registered_total",
+              "query": "max by (dimensions_service) (sum_over_time(amazonaws_com_3mrai_users_registered_total[5m]))",
               "customQuery": true,
               "fields": {
                 "stream": "amazonaws_com_3mrai_users_registered_total",
@@ -55,9 +55,9 @@
         },
         {
           "id": "users_by_auth_type",
-          "type": "line",
+          "type": "pie",
           "title": "Users by sign-in method",
-          "description": "Live user count split by HOW the account signs in: with a password, or with an emailed OTP code. Not 'has a password' — a passwordless account does have a Cognito password (signUp requires one, so registration generates a random one), but it is never given to the user and password login is rejected for them. The underlying dimension is still HasPassword=true/false; label_replace renames it at query time so historical data keeps working. The ALL series is excluded here — it is the pre-summed total and would dwarf both real series. A GAUGE, so max(): sum() would add every sample in the window and report a multiple of the real count.",
+          "description": "Current split of live users by HOW they sign in — a composition, so a pie: the two slices are parts of one whole. Not 'has a password': a passwordless account does have a Cognito password (signUp requires one), it is simply never given to the user and password login is rejected for them. The ALL series is excluded — it is the pre-summed total and would swallow the whole circle.",
           "config": {
             "show_legends": true,
             "decimals": 0
@@ -139,9 +139,9 @@
         },
         {
           "id": "orders_by_tracking_status",
-          "type": "line",
+          "type": "bar",
           "title": "Orders — finished vs in progress (Tracking service)",
-          "description": "DELIVERED is the tracking state machine's terminal status, so 'finished' is the domain's own invariant rather than a convention invented for this metric. One tracking per order (uq_tracking_order_id), so counting trackings is counting orders.",
+          "description": "Live orders split by whether tracking considers them finished. DELIVERED is the state machine's terminal status; everything else is IN_PROGRESS. The pre-summed ALL series is excluded — it is the sum of these two, so charting it alongside them would always give the tallest bar and flatten the comparison (the total has its own card). A GAUGE, so max(): sum() would add every sample in the window and report a multiple of the count.",
           "config": {
             "show_legends": true,
             "decimals": 0
@@ -149,7 +149,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "max by (dimensions_status) (amazonaws_com_3mrai_orders_by_tracking_status_total)",
+              "query": "max by (dimensions_status) (amazonaws_com_3mrai_orders_by_tracking_status_total{dimensions_status!=\"ALL\"})",
               "customQuery": true,
               "fields": {
                 "stream": "amazonaws_com_3mrai_orders_by_tracking_status_total",
@@ -180,94 +180,10 @@
           }
         },
         {
-          "id": "emails_sent",
-          "type": "line",
-          "title": "Emails sent",
-          "description": "The EmailType=ALL rollup, which is a SEPARATELY PUBLISHED series rather than a query-time aggregate: CloudWatch under Floci does not aggregate across dimensions, so a query omitting EmailType returns an empty result with StatusCode 'Complete'. NOTE: this counts handoff to SES, not inbox delivery — bounces and complaints are invisible here.",
-          "config": {
-            "show_legends": false,
-            "decimals": 0
-          },
-          "queryType": "promql",
-          "queries": [
-            {
-              "query": "sum(amazonaws_com_3mrai_emails_sent_total{dimensions_emailtype=\"ALL\"})",
-              "customQuery": true,
-              "fields": {
-                "stream": "amazonaws_com_3mrai_emails_sent_total",
-                "stream_type": "metrics",
-                "x": [],
-                "y": [],
-                "z": [],
-                "filter": {
-                  "filterType": "group",
-                  "logicalOperator": "AND",
-                  "conditions": []
-                },
-                "breakdown": []
-              },
-              "config": {
-                "promql_legend": "emails sent",
-                "layer_type": "scatter",
-                "weight_fixed": 1
-              }
-            }
-          ],
-          "layout": {
-            "x": 0,
-            "y": 30,
-            "w": 96,
-            "h": 15,
-            "i": 5
-          }
-        },
-        {
-          "id": "emails_failed_by_kind",
-          "type": "line",
-          "title": "Email failures — permanent vs transient",
-          "description": "PERMANENT means the email is LOST: a missing template raises PermanentError, the record is not retried, and the customer never receives it. Any non-zero permanent value is a real incident. TRANSIENT is an SES failure SQS retries, so small numbers are expected noise. Empty while nothing is failing, which is the healthy state.",
-          "config": {
-            "show_legends": true,
-            "decimals": 0
-          },
-          "queryType": "promql",
-          "queries": [
-            {
-              "query": "sum by (dimensions_failurekind) (amazonaws_com_3mrai_emails_failed_total{dimensions_emailtype=\"ALL\"})",
-              "customQuery": true,
-              "fields": {
-                "stream": "amazonaws_com_3mrai_emails_failed_total",
-                "stream_type": "metrics",
-                "x": [],
-                "y": [],
-                "z": [],
-                "filter": {
-                  "filterType": "group",
-                  "logicalOperator": "AND",
-                  "conditions": []
-                },
-                "breakdown": []
-              },
-              "config": {
-                "promql_legend": "{dimensions_failurekind}",
-                "layer_type": "scatter",
-                "weight_fixed": 1
-              }
-            }
-          ],
-          "layout": {
-            "x": 96,
-            "y": 30,
-            "w": 96,
-            "h": 15,
-            "i": 6
-          }
-        },
-        {
           "id": "password_resets",
           "type": "line",
           "title": "Password resets completed",
-          "description": "Counted on CONFIRM, not on request: POST /v1/users/password/forgot always answers 202 whether or not the email exists (a deliberate non-enumeration guarantee), so counting requests would count resets that never happened. Empty until a reset is actually completed.",
+          "description": "Completed password resets per 5-minute interval. Same shape as Users registered: a counter bucketed with sum_over_time, then collapsed across the per-start_time duplicate series with max by(). A flat zero line means nobody reset a password, not a broken panel.",
           "config": {
             "show_legends": false,
             "decimals": 0
@@ -275,7 +191,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "amazonaws_com_3mrai_password_resets_total",
+              "query": "max by (dimensions_service) (sum_over_time(amazonaws_com_3mrai_password_resets_total[5m]))",
               "customQuery": true,
               "fields": {
                 "stream": "amazonaws_com_3mrai_password_resets_total",
@@ -291,7 +207,7 @@
                 "breakdown": []
               },
               "config": {
-                "promql_legend": "resets",
+                "promql_legend": "password resets",
                 "layer_type": "scatter",
                 "weight_fixed": 1
               }
@@ -299,10 +215,10 @@
           ],
           "layout": {
             "x": 0,
-            "y": 45,
+            "y": 30,
             "w": 96,
             "h": 15,
-            "i": 7
+            "i": 5
           }
         }
       ]
