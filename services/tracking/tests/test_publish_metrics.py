@@ -103,7 +103,12 @@ async def test_one_tick_publishes_both_series_with_their_dimensions() -> None:
         ticks=1,
     )
 
-    assert publisher.published == [
+    gauge = [
+        row
+        for row in publisher.published
+        if row[0] == "orders_by_tracking_status_total"
+    ]
+    assert gauge == [
         (
             "orders_by_tracking_status_total",
             4,
@@ -135,7 +140,11 @@ async def test_both_series_are_published_even_when_a_count_is_zero() -> None:
 
     await _run_ticks(publisher, dict, ticks=1)
 
-    assert [(value, dims["Status"]) for _, value, dims in publisher.published] == [
+    assert [
+        (value, dims["Status"])
+        for name, value, dims in publisher.published
+        if name == "orders_by_tracking_status_total"
+    ] == [
         (0, "DELIVERED"),
         (0, "IN_PROGRESS"),
         (0, "ALL"),
@@ -157,9 +166,36 @@ async def test_the_all_series_equals_the_sum_of_the_breakdowns() -> None:
         ticks=1,
     )
 
-    by_status = {dims["Status"]: value for _, value, dims in publisher.published}
+    by_status = {
+        dims["Status"]: value
+        for name, value, dims in publisher.published
+        if name == "orders_by_tracking_status_total"
+    }
     assert by_status["ALL"] == by_status["DELIVERED"] + by_status["IN_PROGRESS"]
     assert by_status["ALL"] == 9
+
+
+async def test_error_counters_are_seeded_at_zero_every_tick() -> None:
+    """Every tick publishes http_errors_total at 0 for both status classes.
+
+    Without this the series only exists once something has failed, and a
+    dashboard panel over a stream that does not exist renders "Error Loading
+    Data" — so the card that should read "no errors" is the one that looks
+    broken, and a real outage is indistinguishable from a healthy system.
+
+    The zero costs nothing: CloudWatch sums within a period, so seeding never
+    changes a real count.
+    """
+    publisher = RecordingPublisher()
+
+    await _run_ticks(publisher, dict, ticks=1)
+
+    seeded = {
+        dims["StatusClass"]: value
+        for name, value, dims in publisher.published
+        if name == "http_errors_total"
+    }
+    assert seeded == {"4xx": 0, "5xx": 0}
 
 
 async def test_a_failing_query_does_not_end_the_loop() -> None:
@@ -181,7 +217,11 @@ async def test_a_failing_query_does_not_end_the_loop() -> None:
     # One tick's worth of series, not a hardcoded count: asserting a literal
     # number here breaks every time a series is added, which says nothing about
     # the behaviour under test (that the loop SURVIVED the failing tick).
-    statuses = {dims["Status"] for _, _, dims in publisher.published}
+    statuses = {
+        dims["Status"]
+        for name, _, dims in publisher.published
+        if name == "orders_by_tracking_status_total"
+    }
     assert statuses == {"DELIVERED", "IN_PROGRESS", "ALL"}
     assert publisher.published[0][1] == 1
 

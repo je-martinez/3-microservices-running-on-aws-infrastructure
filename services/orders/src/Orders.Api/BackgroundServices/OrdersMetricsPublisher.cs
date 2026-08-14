@@ -56,6 +56,31 @@ public class OrdersMetricsPublisher : BackgroundService
                     total,
                     new Dictionary<string, string> { ["Service"] = "orders" },
                     stoppingToken);
+
+                // Seed the failure counters at zero.
+                //
+                // http_errors_total is emitted from the error path only
+                // (HttpErrorMetricsMiddleware), so until something fails the
+                // series does not exist — and a panel over a non-existent
+                // stream renders "Error Loading Data". That is backwards for an
+                // incident card: the one that should read "no errors" is the
+                // one that looks broken, which makes a real outage
+                // indistinguishable from a healthy system.
+                //
+                // The zero is arithmetically free: CloudWatch sums within a
+                // period, so it never alters a real count.
+                foreach (var statusClass in new[] { "4xx", "5xx" })
+                {
+                    await _metrics.PublishAsync(
+                        "http_errors_total",
+                        0,
+                        new Dictionary<string, string>
+                        {
+                            ["Service"] = "orders",
+                            ["StatusClass"] = statusClass,
+                        },
+                        stoppingToken);
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

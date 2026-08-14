@@ -72,6 +72,12 @@ STATUS_IN_PROGRESS = "IN_PROGRESS"
 #: published series rather than something a dashboard adds up.
 STATUS_ALL = "ALL"
 
+#: The error counter this loop seeds at zero, and the classes it is split by.
+#: Must match what `log_context_middleware` publishes on the error path, or the
+#: seed and the real increments would land on different series.
+HTTP_ERRORS_METRIC = "http_errors_total"
+HTTP_ERROR_CLASSES = ("4xx", "5xx")
+
 
 def collect_status_counts(raw: dict[str, int]) -> tuple[int, int]:
     """Split raw per-status counts into `(delivered, in_progress)`.
@@ -180,6 +186,28 @@ async def run_metrics_publisher(
                     delivered + in_progress,
                     {"Service": SERVICE_DIMENSION, "Status": STATUS_ALL},
                 )
+
+                # Seed the failure counters at zero.
+                #
+                # `http_errors_total` is emitted from the error path only, so
+                # until something fails the series does not exist and a panel
+                # over it renders "Error Loading Data" — the incident card that
+                # should read "no errors" is the one that looks broken, which
+                # makes a real outage indistinguishable from a healthy system.
+                #
+                # A zero is arithmetically free: CloudWatch sums within a
+                # period, so it never changes a real count. Same rule already
+                # applied to the status breakdown above.
+                for status_class in HTTP_ERROR_CLASSES:
+                    await asyncio.to_thread(
+                        resolved.publish,
+                        HTTP_ERRORS_METRIC,
+                        0,
+                        {
+                            "Service": SERVICE_DIMENSION,
+                            "StatusClass": status_class,
+                        },
+                    )
             except asyncio.CancelledError:
                 # Cancellation must never be caught by the per-tick handler
                 # below: swallowing it would make this loop unkillable and hang

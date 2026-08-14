@@ -7,6 +7,7 @@ import { handlers } from "#handlers/index";
 import { env } from "#shared/config/env";
 import { appLogger } from "#shared/logging/app-logger";
 import { runWithLogContext, type LogContextStore } from "#shared/logging/log-context";
+import { publishMetric, SERVICE_DIMENSION } from "#shared/metrics/cloudwatch-metrics";
 
 // Minimal structural shape of the slice of the SQS event this function reads.
 // Deliberately not `SQSEvent` from @types/aws-lambda: only `messageId` and
@@ -158,6 +159,30 @@ function observe(
 // completed.
 export async function handler(event: SqsEvent): Promise<BatchResponse> {
   const batchItemFailures: { itemIdentifier: string }[] = [];
+
+  // Seed the failure counters at zero, once per invocation.
+  //
+  // emails_failed_total is only emitted when a send or a render fails, so on a
+  // healthy system the series never exists — and a dashboard panel over a
+  // non-existent stream renders "Error Loading Data". For an incident card that
+  // is exactly backwards: the card that should read "no emails lost" is the one
+  // that looks broken, so a real outage is indistinguishable from health.
+  //
+  // Once per INVOCATION rather than per record: the Lambda handles batches, and
+  // a zero per record would be pure noise. The zero is arithmetically free —
+  // CloudWatch sums within a period, so it never changes a real count.
+  //
+  // This is the only recurring hook available here. Unlike the HTTP services,
+  // a Lambda has no long-lived process to host a periodic publisher.
+  await Promise.all(
+    (["permanent", "transient"] as const).map((failureKind) =>
+      publishMetric("emails_failed_total", 0, {
+        Service: SERVICE_DIMENSION,
+        EmailType: "ALL",
+        FailureKind: failureKind,
+      }),
+    ),
+  );
 
   let repository: MongoEventsRepository;
   try {

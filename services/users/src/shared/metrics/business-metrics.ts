@@ -88,6 +88,28 @@ export class BusinessMetricsPoller {
         Service: "users",
         HasPassword: "ALL",
       });
+
+      // Seed the failure counters at zero on every tick.
+      //
+      // These are emitted from the error paths, so until something actually
+      // fails the series does not exist at all — and a panel over a
+      // non-existent stream renders "Error Loading Data". That is the worst
+      // possible behaviour for an incident card: the one that should read
+      // "no errors" is the one that looks broken, and a real outage is then
+      // indistinguishable from a healthy system.
+      //
+      // Publishing a 0 costs nothing arithmetically: CloudWatch sums the data
+      // within a period, so a zero alongside real increments leaves the count
+      // unchanged. The same reasoning already governs users_total's own
+      // breakdown — a value with no users publishes 0 rather than skipping.
+      await Promise.all(
+        ["4xx", "5xx"].map((statusClass) =>
+          this.metrics.publish("http_errors_total", 0, {
+            Service: "users",
+            StatusClass: statusClass,
+          }),
+        ),
+      );
     } catch (err) {
       appLogger.warn(
         {
