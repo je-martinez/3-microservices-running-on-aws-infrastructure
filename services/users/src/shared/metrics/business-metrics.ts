@@ -70,6 +70,24 @@ export class BusinessMetricsPoller {
         Service: "users",
         HasPassword: "false",
       });
+      // The TOTAL as its own published series, not something a dashboard adds
+      // up. Two independent reasons, and either alone would justify it:
+      //
+      // 1. CloudWatch under Floci does not aggregate across dimensions, so a
+      //    query omitting HasPassword returns empty — the same reason
+      //    emails_sent_total publishes an EmailType=ALL series.
+      // 2. Summing the two series in PromQL does not work either: the
+      //    collector stamps each scrape with a distinct start_time, so the two
+      //    breakdowns rarely share a timestamp and `sum()` silently returns
+      //    just one of them. That produced a "total users" card reading 9 while
+      //    its own "with password" breakdown read 450.
+      //
+      // Publishing the sum from here — one number, one timestamp, computed
+      // where the data actually lives — sidesteps both.
+      await this.metrics.publish("users_total", withPassword + withoutPassword, {
+        Service: "users",
+        HasPassword: "ALL",
+      });
     } catch (err) {
       appLogger.warn(
         {

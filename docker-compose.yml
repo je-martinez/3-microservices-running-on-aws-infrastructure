@@ -188,6 +188,19 @@ services:
       # base64("admin@3mrai.local:Complexpass#123") — the OpenObserve Basic auth
       # header value. Local dev only; prod injects this from Secrets Manager.
       - O2_BASIC_AUTH=YWRtaW5AM21yYWkubG9jYWw6Q29tcGxleHBhc3MjMTIz
+      # The OpenObserve organization everything lands in.
+      #
+      # It does not need creating: OpenObserve auto-creates an org on first
+      # ingestion for the root user (ZO_CREATE_ORG_THROUGH_INGESTION, default
+      # true), and the identifier is taken FROM THE URL — so ingesting into
+      # /api/3mrai/... yields the org `3mrai`, deterministically, on every
+      # rebuild.
+      #
+      # Creating it through POST /api/organizations instead would NOT work:
+      # that path generates a random identifier (e.g. 3HuXDuClKORqCzEQ7sOCIJ…)
+      # and ignores any identifier in the body, which would change on every
+      # `make clean` and force every consumer to discover it at runtime.
+      - O2_ORG=3mrai
     volumes:
       - ./observability/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
     networks: [3mrai-network]

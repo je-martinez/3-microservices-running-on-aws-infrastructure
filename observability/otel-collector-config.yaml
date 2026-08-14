@@ -94,6 +94,14 @@ receivers:
           metric_name: "users_total"
           dimensions: { Service: users, HasPassword: "false" }
           stats: [Maximum]
+        # The pre-summed total, published by the service rather than derived
+        # here: neither CloudWatch (no cross-dimension aggregation) nor PromQL
+        # (scrapes carry distinct start_times, so sum() sees one series) can
+        # compute it correctly downstream.
+        - namespace: "3MRAI"
+          metric_name: "users_total"
+          dimensions: { Service: users, HasPassword: "ALL" }
+          stats: [Maximum]
 
         # --- Orders ----------------------------------------------------------
         # The TRUE order count, from Orders' own table. Together with the two
@@ -115,6 +123,12 @@ receivers:
         - namespace: "3MRAI"
           metric_name: "orders_by_tracking_status_total"
           dimensions: { Service: tracking, Status: IN_PROGRESS }
+          stats: [Maximum]
+        # DELIVERED + IN_PROGRESS, pre-summed by the service. Same reasoning as
+        # users_total's ALL series above.
+        - namespace: "3MRAI"
+          metric_name: "orders_by_tracking_status_total"
+          dimensions: { Service: tracking, Status: ALL }
           stats: [Maximum]
 
         # --- events-pipeline -------------------------------------------------
@@ -301,13 +315,31 @@ processors:
       log_record:
         - 'attributes["message"] != nil and IsMatch(attributes["message"], "^(SELECT|INSERT|UPDATE|DELETE|BEGIN|COMMIT|ROLLBACK)\\b")'
 
+  # Drop `start_time` from CloudWatch metrics before they reach OpenObserve.
+  #
+  # The aws_cloudwatch receiver stamps every scrape with the window's start
+  # time. In a time-series backend that becomes a LABEL, and a label whose value
+  # changes every scrape means every scrape starts a brand-new series: one
+  # metric with two real dimension values had produced **100 series** in twenty
+  # minutes, all carrying identical visible labels.
+  #
+  # The damage is not cosmetic, it is arithmetic. Any aggregate over that metric
+  # is wrong and looks plausible: `max()` returns whichever stale series happens
+  # to be highest, and `sum()` adds a hundred copies of the same reading. The
+  # symptom that exposed it was a "total users" card reading 9 while its own
+  # "with password" breakdown read 450 — a total smaller than one of its parts.
+  #
+  # Dropping the attribute collapses those scrapes back into one series per real
+  # dimension set, which is what makes sum()/max() mean what they say. The
+  # measurement's own timestamp is unaffected — that is the data point's time,
+  # not an attribute.
   batch: {}
 
 exporters:
   # OpenObserve OTLP-HTTP ingest (ADR-0018). Use otlp_http — the otlphttp alias
   # is deprecated. Basic auth + stream-name are what OpenObserve requires.
   otlp_http/openobserve:
-    endpoint: http://openobserve:5080/api/default
+    endpoint: http://openobserve:5080/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: logs
@@ -325,7 +357,7 @@ exporters:
   # query can still be traced back to the request that issued it — the split is
   # about which stream you look at, not about losing the correlation.
   otlp_http/openobserve_sql:
-    endpoint: http://openobserve:5080/api/default
+    endpoint: http://openobserve:5080/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: sql
@@ -366,7 +398,7 @@ exporters:
   # `dimensions_service`. The metric name becomes the stream name, sanitized:
   # amazonaws.com/3MRAI/orders_total -> amazonaws_com_3mrai_orders_total.
   otlp_http/openobserve_metrics:
-    endpoint: http://openobserve:5080/api/default
+    endpoint: http://openobserve:5080/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: metrics

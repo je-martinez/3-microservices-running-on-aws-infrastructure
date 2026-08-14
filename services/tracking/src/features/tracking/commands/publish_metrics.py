@@ -68,6 +68,9 @@ DEFAULT_INTERVAL_SECONDS = 15.0
 METRIC_NAME = "orders_by_tracking_status_total"
 STATUS_DELIVERED = "DELIVERED"
 STATUS_IN_PROGRESS = "IN_PROGRESS"
+#: Sentinel for the pre-summed total — see the publish call for why it is a
+#: published series rather than something a dashboard adds up.
+STATUS_ALL = "ALL"
 
 
 def collect_status_counts(raw: dict[str, int]) -> tuple[int, int]:
@@ -159,6 +162,23 @@ async def run_metrics_publisher(
                     METRIC_NAME,
                     in_progress,
                     {"Service": SERVICE_DIMENSION, "Status": STATUS_IN_PROGRESS},
+                )
+                # The TOTAL as its own published series, for two independent
+                # reasons — either alone would justify it:
+                #
+                # 1. CloudWatch under Floci does not aggregate across
+                #    dimensions, so a query omitting Status comes back empty.
+                # 2. Summing the two series in PromQL does not work either: the
+                #    collector stamps each scrape with a distinct start_time, so
+                #    the breakdowns rarely share a timestamp and `sum()`
+                #    silently returns only one of them.
+                #
+                # One number, one timestamp, computed where the data lives.
+                await asyncio.to_thread(
+                    resolved.publish,
+                    METRIC_NAME,
+                    delivered + in_progress,
+                    {"Service": SERVICE_DIMENSION, "Status": STATUS_ALL},
                 )
             except asyncio.CancelledError:
                 # Cancellation must never be caught by the per-tick handler

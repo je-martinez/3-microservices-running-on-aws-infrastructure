@@ -114,11 +114,18 @@ async def test_one_tick_publishes_both_series_with_their_dimensions() -> None:
             5,
             {"Service": "tracking", "Status": "IN_PROGRESS"},
         ),
+        # The pre-summed total. Published rather than derived because neither
+        # CloudWatch nor PromQL can compute it downstream — see the publisher.
+        (
+            "orders_by_tracking_status_total",
+            9,
+            {"Service": "tracking", "Status": "ALL"},
+        ),
     ]
 
 
 async def test_both_series_are_published_even_when_a_count_is_zero() -> None:
-    """An empty table still publishes two datapoints, both 0.
+    """An empty table still publishes every series, all 0.
 
     This is the single most important behaviour in this module: skipping a
     zero-valued series makes a dashboard show a GAP, which reads as a broken
@@ -131,7 +138,28 @@ async def test_both_series_are_published_even_when_a_count_is_zero() -> None:
     assert [(value, dims["Status"]) for _, value, dims in publisher.published] == [
         (0, "DELIVERED"),
         (0, "IN_PROGRESS"),
+        (0, "ALL"),
     ]
+
+
+async def test_the_all_series_equals_the_sum_of_the_breakdowns() -> None:
+    """ALL must be DELIVERED + IN_PROGRESS, not an independently derived number.
+
+    Worth pinning: the whole reason this series exists is that a dashboard
+    cannot add the two together correctly, so a drift here would be invisible
+    downstream — the card would simply show a confident wrong total.
+    """
+    publisher = RecordingPublisher()
+
+    await _run_ticks(
+        publisher,
+        lambda: {"PLACED": 2, "SHIPPED": 3, "DELIVERED": 4},
+        ticks=1,
+    )
+
+    by_status = {dims["Status"]: value for _, value, dims in publisher.published}
+    assert by_status["ALL"] == by_status["DELIVERED"] + by_status["IN_PROGRESS"]
+    assert by_status["ALL"] == 9
 
 
 async def test_a_failing_query_does_not_end_the_loop() -> None:
@@ -150,7 +178,11 @@ async def test_a_failing_query_does_not_end_the_loop() -> None:
 
     # The first tick raised and was swallowed; the second still published.
     assert attempts == 2
-    assert len(publisher.published) == 2
+    # One tick's worth of series, not a hardcoded count: asserting a literal
+    # number here breaks every time a series is added, which says nothing about
+    # the behaviour under test (that the loop SURVIVED the failing tick).
+    statuses = {dims["Status"] for _, _, dims in publisher.published}
+    assert statuses == {"DELIVERED", "IN_PROGRESS", "ALL"}
     assert publisher.published[0][1] == 1
 
 

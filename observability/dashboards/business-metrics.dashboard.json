@@ -348,6 +348,516 @@
           }
         }
       ]
+    },
+    {
+      "tabId": "cards",
+      "name": "At a glance",
+      "panels": [
+        {
+          "id": "card_users_total",
+          "type": "metric",
+          "title": "Users",
+          "description": "Every live user, both password and passwordless. A gauge, so max() reports the current value rather than a sum of samples.",
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "max by (dimensions_haspassword) (amazonaws_com_3mrai_users_total{dimensions_haspassword=\"ALL\"})",
+              "customQuery": true,
+              "fields": {
+                "stream": "",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "users",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 0,
+            "w": 48,
+            "h": 8,
+            "i": 1
+          }
+        },
+        {
+          "id": "card_users_with_password",
+          "type": "metric",
+          "title": "With password",
+          "description": "Users holding a usable password.",
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "max by (dimensions_haspassword) (amazonaws_com_3mrai_users_total{dimensions_haspassword=\"true\"})",
+              "customQuery": true,
+              "fields": {
+                "stream": "",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "with password",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
+            }
+          ],
+          "layout": {
+            "x": 48,
+            "y": 0,
+            "w": 48,
+            "h": 8,
+            "i": 2
+          }
+        },
+        {
+          "id": "card_users_passwordless",
+          "type": "metric",
+          "title": "Passwordless",
+          "description": "Users created through the OTP flow, who have no password at all.",
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "max by (dimensions_haspassword) (amazonaws_com_3mrai_users_total{dimensions_haspassword=\"false\"})",
+              "customQuery": true,
+              "fields": {
+                "stream": "",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "passwordless",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 0,
+            "w": 48,
+            "h": 8,
+            "i": 3
+          }
+        },
+        {
+          "id": "card_registrations",
+          "type": "metric",
+          "title": "Registrations",
+          "description": "Total registrations in the selected window. A counter, so sum().",
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum by (dimensions_service) (amazonaws_com_3mrai_users_registered_total)",
+              "customQuery": true,
+              "fields": {
+                "stream": "",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "registrations",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
+            }
+          ],
+          "layout": {
+            "x": 144,
+            "y": 0,
+            "w": 48,
+            "h": 8,
+            "i": 4
+          }
+        },
+        {
+          "id": "card_orders_total",
+          "type": "metric",
+          "title": "Orders",
+          "description": "The true order count, from Orders' own table.",
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "max by (dimensions_service) (amazonaws_com_3mrai_orders_total)",
+              "customQuery": true,
+              "fields": {
+                "stream": "",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "orders",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 8,
+            "w": 48,
+            "h": 8,
+            "i": 5
+          }
+        },
+        {
+          "id": "card_orders_delivered",
+          "type": "metric",
+          "title": "Delivered",
+          "description": "Orders whose tracking reached DELIVERED — the state machine's terminal status, so this is finished work by the domain's own definition.",
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "max by (dimensions_status) (amazonaws_com_3mrai_orders_by_tracking_status_total{dimensions_status=\"DELIVERED\"})",
+              "customQuery": true,
+              "fields": {
+                "stream": "",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "delivered",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
+            }
+          ],
+          "layout": {
+            "x": 48,
+            "y": 8,
+            "w": 48,
+            "h": 8,
+            "i": 6
+          }
+        },
+        {
+          "id": "card_orders_in_progress",
+          "type": "metric",
+          "title": "In progress",
+          "description": "Orders whose tracking is anything other than DELIVERED.",
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "max by (dimensions_status) (amazonaws_com_3mrai_orders_by_tracking_status_total{dimensions_status=\"IN_PROGRESS\"})",
+              "customQuery": true,
+              "fields": {
+                "stream": "",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "in progress",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 8,
+            "w": 48,
+            "h": 8,
+            "i": 7
+          }
+        },
+        {
+          "id": "card_orders_tracked",
+          "type": "metric",
+          "title": "Tracked",
+          "description": "DELIVERED + IN_PROGRESS. Compare with the Orders card: a gap means an order whose init-tracking call failed, and normally there is none.",
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "max by (dimensions_status) (amazonaws_com_3mrai_orders_by_tracking_status_total{dimensions_status=\"ALL\"})",
+              "customQuery": true,
+              "fields": {
+                "stream": "",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "tracked",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
+            }
+          ],
+          "layout": {
+            "x": 144,
+            "y": 8,
+            "w": 48,
+            "h": 8,
+            "i": 8
+          }
+        },
+        {
+          "id": "card_emails_sent",
+          "type": "metric",
+          "title": "Emails sent",
+          "description": "Handoffs to SES, NOT inbox deliveries — bounces are invisible here.",
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum by (dimensions_emailtype) (amazonaws_com_3mrai_emails_sent_total{dimensions_emailtype=\"ALL\"})",
+              "customQuery": true,
+              "fields": {
+                "stream": "",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "emails sent",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 16,
+            "w": 48,
+            "h": 8,
+            "i": 9
+          }
+        },
+        {
+          "id": "card_emails_failed_permanent",
+          "type": "metric",
+          "title": "Emails lost",
+          "description": "PERMANENT failures: not retried, so the customer never received the mail. Any non-zero value is a real incident.",
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum by (dimensions_failurekind) (amazonaws_com_3mrai_emails_failed_total{dimensions_emailtype=\"ALL\",dimensions_failurekind=\"permanent\"})",
+              "customQuery": true,
+              "fields": {
+                "stream": "",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "lost",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
+            }
+          ],
+          "layout": {
+            "x": 48,
+            "y": 16,
+            "w": 48,
+            "h": 8,
+            "i": 10
+          }
+        },
+        {
+          "id": "card_errors_4xx",
+          "type": "metric",
+          "title": "4xx responses",
+          "description": "Client errors across Users, Orders and Tracking.",
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum by (dimensions_statusclass) (amazonaws_com_3mrai_http_errors_total{dimensions_statusclass=\"4xx\"})",
+              "customQuery": true,
+              "fields": {
+                "stream": "",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "4xx",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 16,
+            "w": 48,
+            "h": 8,
+            "i": 11
+          }
+        },
+        {
+          "id": "card_errors_5xx",
+          "type": "metric",
+          "title": "5xx responses",
+          "description": "Server errors across the three HTTP services. Unlike the 4xx card, a non-zero value here is always worth looking at.",
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum by (dimensions_statusclass) (amazonaws_com_3mrai_http_errors_total{dimensions_statusclass=\"5xx\"})",
+              "customQuery": true,
+              "fields": {
+                "stream": "",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "5xx",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
+            }
+          ],
+          "layout": {
+            "x": 144,
+            "y": 16,
+            "w": 48,
+            "h": 8,
+            "i": 12
+          }
+        }
+      ]
     }
   ],
   "variables": {

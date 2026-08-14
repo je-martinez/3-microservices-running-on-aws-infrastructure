@@ -449,7 +449,10 @@ observability-down: ## Stop the observability stack (leaves the rest running)
 	$(COMPOSE) stop openobserve otel-collector
 
 observability-dashboards: ## Import/update OpenObserve dashboards from observability/dashboards/*.dashboard.json (idempotent)
-	node scripts/import-dashboards.mjs
+	@# O2_ORG must match the collector's (docker-compose.yml), or the dashboards
+	@# import into one organization while the data lands in another — every panel
+	@# then renders empty with no error to explain why.
+	O2_ORG=$${O2_ORG:-3mrai} node scripts/import-dashboards.mjs
 
 ## --- Multi-provider agent config ---
 
