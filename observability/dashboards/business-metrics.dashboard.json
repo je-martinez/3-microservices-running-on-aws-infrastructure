@@ -2,14 +2,14 @@
   "version": 8,
   "dashboardId": "business_metrics",
   "title": "Business Metrics",
-  "description": "Custom business and HTTP error metrics: services publish with PutMetricData to CloudWatch, the collector's aws_cloudwatch receiver scrapes them with GetMetricData, and they land in OpenObserve as metric streams. PANELS USE PromQL, NOT SQL: the UI dispatches on queryType, and a metrics stream queried with queryType sql renders 'Error Loading Data' without ever issuing a search request. Dimension names arrive prefixed and lowercased (CloudWatch `Service` -> `dimensions_service`), and the metric name becomes the stream name (amazonaws.com/3MRAI/orders_total -> amazonaws_com_3mrai_orders_total). Gauges use max(); counters use sum().",
+  "description": "Business signal only: registrations, users by auth type, orders and their delivery state, and email outcomes. HTTP status codes are deliberately NOT here — they are technical health, not business, and each service's own Golden Signals dashboard already carries them. Two tabs: \"At a glance\" for the current number of each metric, \"Trends\" for how it moved. PANELS USE PromQL, NOT SQL: the UI dispatches on queryType, and a metrics stream queried with queryType sql renders 'Error Loading Data' without ever issuing a search request. Dimension names arrive prefixed and lowercased (CloudWatch `Service` -> `dimensions_service`), and the metric name becomes the stream name (amazonaws.com/3MRAI/orders_total -> amazonaws_com_3mrai_orders_total). Gauges use max(); counters use sum().",
   "role": "",
   "owner": "3MRAI",
   "created": "2026-08-12T00:00:00.000Z",
   "tabs": [
     {
-      "tabId": "default",
-      "name": "Default",
+      "tabId": "trends",
+      "name": "Trends",
       "panels": [
         {
           "id": "users_registered",
@@ -48,7 +48,7 @@
           "layout": {
             "x": 0,
             "y": 0,
-            "w": 64,
+            "w": 96,
             "h": 15,
             "i": 1
           }
@@ -88,9 +88,9 @@
             }
           ],
           "layout": {
-            "x": 64,
+            "x": 96,
             "y": 0,
-            "w": 64,
+            "w": 96,
             "h": 15,
             "i": 2
           }
@@ -130,9 +130,9 @@
             }
           ],
           "layout": {
-            "x": 128,
-            "y": 0,
-            "w": 64,
+            "x": 0,
+            "y": 15,
+            "w": 96,
             "h": 15,
             "i": 3
           }
@@ -172,9 +172,9 @@
             }
           ],
           "layout": {
-            "x": 0,
+            "x": 96,
             "y": 15,
-            "w": 64,
+            "w": 96,
             "h": 15,
             "i": 4
           }
@@ -214,9 +214,9 @@
             }
           ],
           "layout": {
-            "x": 64,
-            "y": 15,
-            "w": 64,
+            "x": 0,
+            "y": 30,
+            "w": 96,
             "h": 15,
             "i": 5
           }
@@ -256,53 +256,11 @@
             }
           ],
           "layout": {
-            "x": 128,
-            "y": 15,
-            "w": 64,
+            "x": 96,
+            "y": 30,
+            "w": 96,
             "h": 15,
             "i": 6
-          }
-        },
-        {
-          "id": "http_errors",
-          "type": "line",
-          "title": "HTTP errors by service and class",
-          "description": "4xx/5xx only — a per-2xx series would be a request-rate metric the logs already provide. The events-pipeline is absent by design: it is a Lambda with no HTTP surface. Tracking's 5xx are captured through an explicit exception branch, because Starlette's ServerErrorMiddleware sits outside every add_middleware layer and its 500 never reaches a send wrapper (docs/lessons/2026-08-12-server-error-middleware-outside-pure-asgi-middleware.md).",
-          "config": {
-            "show_legends": true,
-            "decimals": 0
-          },
-          "queryType": "promql",
-          "queries": [
-            {
-              "query": "sum by (dimensions_service, dimensions_statusclass) (amazonaws_com_3mrai_http_errors_total)",
-              "customQuery": true,
-              "fields": {
-                "stream": "amazonaws_com_3mrai_http_errors_total",
-                "stream_type": "metrics",
-                "x": [],
-                "y": [],
-                "z": [],
-                "filter": {
-                  "filterType": "group",
-                  "logicalOperator": "AND",
-                  "conditions": []
-                },
-                "breakdown": []
-              },
-              "config": {
-                "promql_legend": "{dimensions_service} {dimensions_statusclass}",
-                "layer_type": "scatter",
-                "weight_fixed": 1
-              }
-            }
-          ],
-          "layout": {
-            "x": 0,
-            "y": 30,
-            "w": 64,
-            "h": 15,
-            "i": 7
           }
         },
         {
@@ -340,11 +298,11 @@
             }
           ],
           "layout": {
-            "x": 64,
-            "y": 30,
-            "w": 64,
+            "x": 0,
+            "y": 45,
+            "w": 96,
             "h": 15,
-            "i": 8
+            "i": 7
           }
         }
       ]
@@ -390,7 +348,7 @@
           "layout": {
             "x": 0,
             "y": 0,
-            "w": 48,
+            "w": 38,
             "h": 8,
             "i": 1
           }
@@ -430,9 +388,9 @@
             }
           ],
           "layout": {
-            "x": 48,
+            "x": 38,
             "y": 0,
-            "w": 48,
+            "w": 38,
             "h": 8,
             "i": 2
           }
@@ -472,9 +430,9 @@
             }
           ],
           "layout": {
-            "x": 96,
+            "x": 76,
             "y": 0,
-            "w": 48,
+            "w": 38,
             "h": 8,
             "i": 3
           }
@@ -514,9 +472,9 @@
             }
           ],
           "layout": {
-            "x": 144,
+            "x": 114,
             "y": 0,
-            "w": 48,
+            "w": 38,
             "h": 8,
             "i": 4
           }
@@ -556,9 +514,9 @@
             }
           ],
           "layout": {
-            "x": 0,
-            "y": 8,
-            "w": 48,
+            "x": 152,
+            "y": 0,
+            "w": 40,
             "h": 8,
             "i": 5
           }
@@ -598,9 +556,9 @@
             }
           ],
           "layout": {
-            "x": 48,
+            "x": 0,
             "y": 8,
-            "w": 48,
+            "w": 38,
             "h": 8,
             "i": 6
           }
@@ -640,9 +598,9 @@
             }
           ],
           "layout": {
-            "x": 96,
+            "x": 38,
             "y": 8,
-            "w": 48,
+            "w": 38,
             "h": 8,
             "i": 7
           }
@@ -682,9 +640,9 @@
             }
           ],
           "layout": {
-            "x": 144,
+            "x": 76,
             "y": 8,
-            "w": 48,
+            "w": 38,
             "h": 8,
             "i": 8
           }
@@ -724,9 +682,9 @@
             }
           ],
           "layout": {
-            "x": 0,
-            "y": 16,
-            "w": 48,
+            "x": 114,
+            "y": 8,
+            "w": 38,
             "h": 8,
             "i": 9
           }
@@ -766,95 +724,11 @@
             }
           ],
           "layout": {
-            "x": 48,
-            "y": 16,
-            "w": 48,
+            "x": 152,
+            "y": 8,
+            "w": 40,
             "h": 8,
             "i": 10
-          }
-        },
-        {
-          "id": "card_errors_4xx",
-          "type": "metric",
-          "title": "4xx responses",
-          "description": "Client errors across Users, Orders and Tracking.",
-          "config": {
-            "show_legends": false,
-            "decimals": 0
-          },
-          "queryType": "promql",
-          "queries": [
-            {
-              "query": "sum by (dimensions_statusclass) (amazonaws_com_3mrai_http_errors_total{dimensions_statusclass=\"4xx\"})",
-              "customQuery": true,
-              "fields": {
-                "stream": "",
-                "stream_type": "metrics",
-                "x": [],
-                "y": [],
-                "z": [],
-                "breakdown": [],
-                "filter": {
-                  "filterType": "group",
-                  "logicalOperator": "AND",
-                  "conditions": []
-                }
-              },
-              "config": {
-                "promql_legend": "4xx",
-                "layer_type": "scatter",
-                "weight_fixed": 1
-              }
-            }
-          ],
-          "layout": {
-            "x": 96,
-            "y": 16,
-            "w": 48,
-            "h": 8,
-            "i": 11
-          }
-        },
-        {
-          "id": "card_errors_5xx",
-          "type": "metric",
-          "title": "5xx responses",
-          "description": "Server errors across the three HTTP services. Unlike the 4xx card, a non-zero value here is always worth looking at.",
-          "config": {
-            "show_legends": false,
-            "decimals": 0
-          },
-          "queryType": "promql",
-          "queries": [
-            {
-              "query": "sum by (dimensions_statusclass) (amazonaws_com_3mrai_http_errors_total{dimensions_statusclass=\"5xx\"})",
-              "customQuery": true,
-              "fields": {
-                "stream": "",
-                "stream_type": "metrics",
-                "x": [],
-                "y": [],
-                "z": [],
-                "breakdown": [],
-                "filter": {
-                  "filterType": "group",
-                  "logicalOperator": "AND",
-                  "conditions": []
-                }
-              },
-              "config": {
-                "promql_legend": "5xx",
-                "layer_type": "scatter",
-                "weight_fixed": 1
-              }
-            }
-          ],
-          "layout": {
-            "x": 144,
-            "y": 16,
-            "w": 48,
-            "h": 8,
-            "i": 12
           }
         }
       ]
