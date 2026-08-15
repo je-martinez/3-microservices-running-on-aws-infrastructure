@@ -225,7 +225,7 @@ public class TrackingHttpClientTests
     // lines carry the same request_id on either side of the seam. Seeded here the
     // way CallerContextMiddleware seeds it at ingress; AsyncLocal scopes the value
     // to this test's own async flow, so it cannot leak into a sibling test.
-    private const string RequestIdValue = "req_V1StGXR8_Z5jdHi6B-MyT";
+    private const string RequestIdValue = "req_V1StGXR8Z5jdHi6BMyTqWxYz";
 
     [Fact]
     public async Task Init_tracking_forwards_the_request_id_header()

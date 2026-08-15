@@ -137,7 +137,7 @@ public class SqsEventPublisherTests
     [Fact]
     public async Task Envelope_carries_the_request_id_as_a_root_field()
     {
-        const string RequestIdValue = "req_V1StGXR8_Z5jdHi6B-MyT";
+        const string RequestIdValue = "req_V1StGXR8Z5jdHi6BMyTqWxYz";
         AmbientRequestId.Set(RequestIdValue);
         var (publisher, sqs, _) = Build();
 

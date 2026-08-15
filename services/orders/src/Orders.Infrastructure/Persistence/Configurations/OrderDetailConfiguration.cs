@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Orders.Domain.Entities;
+using Orders.Infrastructure.Id;
 
 namespace Orders.Infrastructure.Persistence.Configurations;
 
@@ -10,10 +11,10 @@ public class OrderDetailConfiguration : IEntityTypeConfiguration<OrderDetail>
     {
         b.ToTable("order_details");
         b.HasKey(d => d.Id);
-        b.Property(d => d.Id).HasColumnName("id").HasMaxLength(26);
-        b.Property(d => d.OrderId).HasColumnName("order_id").HasMaxLength(26);
-        b.Property(d => d.ProductId).HasColumnName("product_id").HasMaxLength(26);
-        b.Property(d => d.UserId).HasColumnName("user_id").HasMaxLength(26);
+        b.Property(d => d.Id).HasColumnName("id").HasMaxLength(NanoIdConfig.TotalLength);
+        b.Property(d => d.OrderId).HasColumnName("order_id").HasMaxLength(NanoIdConfig.TotalLength);
+        b.Property(d => d.ProductId).HasColumnName("product_id").HasMaxLength(NanoIdConfig.TotalLength);
+        b.Property(d => d.UserId).HasColumnName("user_id").HasMaxLength(NanoIdConfig.TotalLength);
         b.Property(d => d.CognitoSub).HasColumnName("cognito_sub").HasMaxLength(255);
         b.Property(d => d.Quantity).HasColumnName("quantity");
         b.Property(d => d.SubtotalCents).HasColumnName("subtotal_cents").HasColumnType("bigint");

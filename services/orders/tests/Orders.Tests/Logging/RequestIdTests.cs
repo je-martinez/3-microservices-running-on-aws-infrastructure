@@ -8,19 +8,20 @@ namespace Orders.Tests.Logging;
 // security boundary and not a formatting preference (see RequestId.Resolve).
 public class RequestIdTests
 {
-    // A well-formed id: req_ + EXACTLY 21 characters of the default URL-safe
-    // alphabet, including the two non-alphanumerics it actually contains (_ and -).
-    private const string ValidId = "req_V1StGXR8_Z5jdHi6B-MyT";
+    // A well-formed id: req_ + EXACTLY 24 characters of the service's alphabet, which
+    // is letters and digits ONLY — nanoid's default `_` and `-` are deliberately not in
+    // it (see NanoIdConfig).
+    private const string ValidId = "req_V1StGXR8Z5jdHi6BMyTqWxYz";
 
     [Fact]
-    public void New_produces_a_prefixed_21_character_nano_id()
+    public void New_produces_a_prefixed_24_character_nano_id()
     {
         var id = RequestId.New();
 
         Assert.StartsWith("req_", id);
-        // 4 (prefix) + 21. Asserted as the total length rather than by re-deriving
+        // 4 (prefix) + 24. Asserted as the total length rather than by re-deriving
         // it, so a change to the size fails here instead of being computed away.
-        Assert.Equal(25, id.Length);
+        Assert.Equal(28, id.Length);
         // The generator must produce something its own validator accepts — the two
         // drifting apart would mean every generated id gets thrown away downstream.
         Assert.Equal(id, RequestId.Resolve(id));
@@ -47,32 +48,38 @@ public class RequestIdTests
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
-    // Correct 21-char body, WRONG PREFIX. Accepting these would let a caller pass
+    // Correct 24-char body, WRONG PREFIX. Accepting these would let a caller pass
     // off an order or user id as a correlation id and cross-contaminate log queries.
-    [InlineData("ord_V1StGXR8_Z5jdHi6B-MyT")]
-    [InlineData("usr_V1StGXR8_Z5jdHi6B-MyT")]
-    // No prefix at all — a bare 21-char nanoid.
-    [InlineData("V1StGXR8_Z5jdHi6B-MyT")]
+    [InlineData("ord_V1StGXR8Z5jdHi6BMyTqWxYz")]
+    [InlineData("usr_V1StGXR8Z5jdHi6BMyTqWxYz")]
+    // No prefix at all — a bare 24-char nanoid.
+    [InlineData("V1StGXR8Z5jdHi6BMyTqWxYz")]
     // Prefix casing: the comparison is case-sensitive on the prefix.
-    [InlineData("REQ_V1StGXR8_Z5jdHi6B-MyT")]
+    [InlineData("REQ_V1StGXR8Z5jdHi6BMyTqWxYz")]
     // Right prefix, WRONG LENGTH — one short and one long. The pattern is exact,
     // not a minimum, so neither may pass.
-    [InlineData("req_V1StGXR8_Z5jdHi6B-My")]
-    [InlineData("req_V1StGXR8_Z5jdHi6B-MyTT")]
+    [InlineData("req_V1StGXR8Z5jdHi6BMyTqWxY")]
+    [InlineData("req_V1StGXR8Z5jdHi6BMyTqWxYzA")]
+    // Right prefix and right LENGTH, but written in the OLD alphabet: `_` and `-` are
+    // no longer ours, so an id minted by a service still on the previous format must be
+    // discarded rather than carried onto the log stream as if it were one of ours.
+    [InlineData("req_V1StGXR8_Z5jdHi6B-MyTqWx")]
+    // The previous format outright: req_ + 21 default-alphabet characters.
+    [InlineData("req_V1StGXR8_Z5jdHi6B-MyT")]
     // Bare prefix.
     [InlineData("req_")]
     // Right length, but with a character OUTSIDE the alphabet: a space, a quote that
     // would break the JSON a dashboard parses, a newline that would forge a second
     // log record, and a percent-encoding attempt.
-    [InlineData("req_V1StGXR8 Z5jdHi6B-MyT")]
-    [InlineData("req_V1StGXR8\"Z5jdHi6B-MyT")]
-    [InlineData("req_V1StGXR8\nZ5jdHi6B-MyT")]
-    [InlineData("req_V1StGXR8%0AZ5jdHi6-MyT")]
+    [InlineData("req_V1StGXR8 Z5jdHi6BMyTqWxY")]
+    [InlineData("req_V1StGXR8\"Z5jdHi6BMyTqWxY")]
+    [InlineData("req_V1StGXR8\nZ5jdHi6BMyTqWxY")]
+    [InlineData("req_V1StGXR8%0AZ5jdHi6BMyTqW")]
     // Anchoring: a VALID id embedded in a longer string. Without both anchors these
     // would match and carry the surrounding junk onto every log line of the flow.
-    [InlineData("req_V1StGXR8_Z5jdHi6B-MyT extra")]
-    [InlineData("prefix req_V1StGXR8_Z5jdHi6B-MyT")]
-    [InlineData("req_V1StGXR8_Z5jdHi6B-MyT\nreq_V1StGXR8_Z5jdHi6B-MyT")]
+    [InlineData("req_V1StGXR8Z5jdHi6BMyTqWxYz extra")]
+    [InlineData("prefix req_V1StGXR8Z5jdHi6BMyTqWxYz")]
+    [InlineData("req_V1StGXR8Z5jdHi6BMyTqWxYz\nreq_V1StGXR8Z5jdHi6BMyTqWxYz")]
     public void Resolve_discards_anything_that_is_not_one_of_ours(string? headerValue)
     {
         var resolved = RequestId.Resolve(headerValue);
@@ -92,7 +99,7 @@ public class RequestIdTests
         // every log line of the flow. Sized well past any accident.
         var oversized = "req_" + new string('a', 10_000);
 
-        Assert.Equal(25, RequestId.Resolve(oversized).Length);
+        Assert.Equal(28, RequestId.Resolve(oversized).Length);
     }
 
     [Fact]

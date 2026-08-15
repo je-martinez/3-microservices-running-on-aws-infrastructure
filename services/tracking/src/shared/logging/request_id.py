@@ -13,9 +13,10 @@ no OTel SDK at all, so `trace_id` is absent on precisely the hops where
 reconstructing a flow end to end matters most.
 
 Generation reuses `shared/db/nano_id.new_id`, the same helper that mints `trk_`
-ids: the format is `prefix_nanoid` per [[nano-id]], so there is no second
-alphabet, no second dependency and no second notion of "21 characters" to keep
-in step.
+ids, and the validation pattern is DERIVED from `NanoIdConfig` rather than
+written out: the format is `prefix_nanoid` per [[nano-id]], so there is no second
+alphabet, no second dependency and no second notion of "how long an id is" to
+keep in step.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from __future__ import annotations
 import re
 from typing import Final
 
-from src.shared.db.nano_id import new_id
+from src.shared.db.nano_id import NanoIdConfig
 
 #: The header carrying the id between services, as BYTES.
 #:
@@ -35,19 +36,26 @@ from src.shared.db.nano_id import new_id
 REQUEST_ID_HEADER: Final[bytes] = b"x-request-id"
 
 #: The `prefix_nanoid` prefix for a correlation id — see [[nano-id]].
-REQUEST_ID_PREFIX: Final[str] = "req_"
+REQUEST_ID_PREFIX: Final[str] = NanoIdConfig.REQUEST
 
-#: `req_` followed by nanoid's default 21-character URL-safe alphabet.
+#: `req_` followed by exactly `NanoIdConfig.LENGTH` characters of the service's
+#: id alphabet (letters and digits only).
+#:
+#: DERIVED from the config, never written out: a hardcoded length or character
+#: class would keep matching the previous format after the generator moved on,
+#: and the failure is silent in the worst possible place — every one of our own
+#: ids would be judged "not ours", discarded, and re-minted at each hop, so the
+#: correlation breaks while every line still carries a plausible-looking id.
 #:
 #: `fullmatch` is used below rather than `match`, and the length is exact rather
 #: than a bound, because this pattern is the ONLY thing standing between an
 #: untrusted header and every log line the request produces.
-REQUEST_ID_PATTERN: Final[re.Pattern[str]] = re.compile(r"req_[A-Za-z0-9_-]{21}")
+REQUEST_ID_PATTERN: Final[re.Pattern[str]] = NanoIdConfig.pattern(REQUEST_ID_PREFIX)
 
 
 def generate_request_id() -> str:
-    """A fresh correlation id, e.g. `req_V1StGXR8Z5jdHi6BmyT8s`."""
-    return new_id(REQUEST_ID_PREFIX)
+    """A fresh correlation id, e.g. `req_7gK3mP1vXz9wLq2bN8rRt4Yc`."""
+    return NanoIdConfig.new_request_id()
 
 
 def resolve_request_id(header_value: bytes | str | None) -> str:

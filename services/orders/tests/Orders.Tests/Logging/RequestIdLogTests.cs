@@ -14,7 +14,7 @@ namespace Orders.Tests.Logging;
 [Collection(Orders.Tests.Api.OrdersApiCollection.Name)]
 public class RequestIdLogTests
 {
-    private const string ValidId = "req_V1StGXR8_Z5jdHi6B-MyT";
+    private const string ValidId = "req_V1StGXR8Z5jdHi6BMyTqWxYz";
 
     private readonly OrdersApiFactory _factory;
 
@@ -41,14 +41,14 @@ public class RequestIdLogTests
         // Absent is the common case and must never mean an uncorrelated line.
         Assert.NotNull(requestId);
         Assert.StartsWith("req_", requestId);
-        Assert.Equal(25, requestId!.Length);
+        Assert.Equal(28, requestId!.Length);
     }
 
     [Theory]
     // A forged/mangled header of every shape the validator rejects. None may reach
     // the log line: whatever appears in request_id is copied onto every record of
     // the flow and forwarded downstream.
-    [InlineData("ord_V1StGXR8_Z5jdHi6B-M")]
+    [InlineData("ord_V1StGXR8Z5jdHi6BMyTqWxYz")]
     [InlineData("not-a-request-id")]
     [InlineData("req_short")]
     public async Task A_forged_header_is_not_honoured(string forged)

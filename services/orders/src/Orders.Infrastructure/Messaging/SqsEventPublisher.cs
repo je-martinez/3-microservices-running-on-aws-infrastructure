@@ -37,7 +37,7 @@ namespace Orders.Infrastructure.Messaging;
 /// </remarks>
 public class SqsEventPublisher : IEventPublisher
 {
-    private const string EventIdPrefix = "evt_";
+    private const string EventIdPrefix = NanoIdConfig.EventPrefix;
     private const string EventType = "ORDER_CREATED";
     private const string EventSource = "orders";
 

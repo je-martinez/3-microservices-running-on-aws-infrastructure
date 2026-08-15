@@ -18,7 +18,7 @@ describe("request-id", () => {
     });
 
     it("generates a well-formed id when the header is absent", () => {
-      expect(resolveRequestId(undefined)).toMatch(/^req_[A-Za-z0-9_-]{21}$/);
+      expect(resolveRequestId(undefined)).toMatch(/^req_[A-Za-z0-9]{24}$/);
     });
 
     it.each([
@@ -32,7 +32,7 @@ describe("request-id", () => {
     ])("discards an invalid id (%s) and generates a fresh one", (_label, value) => {
       const resolved = resolveRequestId(value as unknown);
       expect(resolved).not.toBe(value);
-      expect(resolved).toMatch(/^req_[A-Za-z0-9_-]{21}$/);
+      expect(resolved).toMatch(/^req_[A-Za-z0-9]{24}$/);
     });
   });
 
@@ -65,7 +65,7 @@ describe("request-id", () => {
       await app.inject({ method: "GET", url: "/v1/users/me" });
 
       const reqLog = lines.map((l) => JSON.parse(l)).find((r) => r.http_route);
-      expect(reqLog.request_id).toMatch(/^req_[A-Za-z0-9_-]{21}$/);
+      expect(reqLog.request_id).toMatch(/^req_[A-Za-z0-9]{24}$/);
 
       await app.close();
     });
@@ -82,7 +82,7 @@ describe("request-id", () => {
       });
 
       const reqLog = lines.map((l) => JSON.parse(l)).find((r) => r.http_route);
-      expect(reqLog.request_id).toMatch(/^req_[A-Za-z0-9_-]{21}$/);
+      expect(reqLog.request_id).toMatch(/^req_[A-Za-z0-9]{24}$/);
 
       await app.close();
     });

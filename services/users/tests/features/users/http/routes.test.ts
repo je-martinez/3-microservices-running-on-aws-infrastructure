@@ -314,7 +314,7 @@ describe("routes", () => {
       // the store is matched by its identity fields rather than by equality —
       // an exact match here would break every time a new ambient field is added.
       expect(observed).toMatchObject({ cognito_sub: "usr_ctx_1" });
-      expect(observed.request_id).toMatch(/^req_[A-Za-z0-9_-]{21}$/);
+      expect(observed.request_id).toMatch(/^req_[A-Za-z0-9]{24}$/);
     });
 
     it("leaves the log context empty on a public route with no x-user-id", async () => {
@@ -353,7 +353,7 @@ describe("routes", () => {
 
       expect(res.statusCode).toBe(200);
       expect(observed).toMatchObject({ cognito_sub: "usr_ctx_2", user_id: "usr_resolved" });
-      expect(observed.request_id).toMatch(/^req_[A-Za-z0-9_-]{21}$/);
+      expect(observed.request_id).toMatch(/^req_[A-Za-z0-9]{24}$/);
     });
 
     // The regression this guards: `user_id` used to be set ONLY by the register

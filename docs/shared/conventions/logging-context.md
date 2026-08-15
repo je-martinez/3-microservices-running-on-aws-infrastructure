@@ -81,8 +81,10 @@ worse than the field's absence.
 > events-pipeline (3), confirming all three propagation hops (HTTP, gRPC, SQS). Test counts after
 > the change: users 353, orders 164, tracking 630, events-pipeline 210.
 
-Format: `req_` + a 21-character Nano ID, following the `prefix_nanoid` shape [[nano-id]] already
-establishes for entity ids (`ord_`, `usr_`, …).
+Format: `req_` + a 24-character Nano ID drawn from the custom letters+digits alphabet (28
+characters stored total), following the `prefix_nanoid` shape [[nano-id]] already establishes for
+entity ids (`ord_`, `usr_`, …). See [[nano-id#Format change (2026-08-15) — custom alphabet, 28
+characters stored]] for the full rationale.
 
 **Why it coexists with `trace_id` rather than replacing it.** The events-pipeline runs no OTel
 SDK at all (JE-138, see the warning above), and neither do the realtime WebSocket Lambdas — so
@@ -98,8 +100,10 @@ x-request-id present AND valid?  -> use it
 otherwise                        -> generate req_<nanoid>
 ```
 
-**Validation is a security control, not a format check.** Only `^req_[A-Za-z0-9_-]{21}$` is
-accepted; anything else is **discarded** and a fresh id is minted, silently — never a `400`.
+**Validation is a security control, not a format check.** Only `^req_[A-Za-z0-9]{24}$` is
+accepted (the pattern derived from [[nano-id]]'s config, per its "every regex is derived, never
+hand-written" rule); anything else is **discarded** and a fresh id is minted, silently — never a
+`400`.
 `x-request-id` is untrusted input that lands on every log line for the rest of that request and is
 forwarded downstream, so an unvalidated value could inject adversarial content into the log
 stream's most pervasively-present field. Rejecting silently (rather than failing the request) is

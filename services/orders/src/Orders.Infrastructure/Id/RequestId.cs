@@ -3,8 +3,9 @@ using System.Text.RegularExpressions;
 namespace Orders.Infrastructure.Id;
 
 /// <summary>
-/// The cross-service correlation id — <c>req_</c> + a 21-character nano-id —
-/// carried on every log line of a request and forwarded to every downstream hop.
+/// The cross-service correlation id — <c>req_</c> + a nano-id of
+/// <see cref="NanoIdConfig.Length"/> characters — carried on every log line of a request
+/// and forwarded to every downstream hop.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -18,7 +19,7 @@ namespace Orders.Infrastructure.Id;
 /// (services/orders/CLAUDE.md §3).
 /// </para>
 /// </remarks>
-public static partial class RequestId
+public static class RequestId
 {
     /// <summary>
     /// The header the id travels in, inbound and outbound.
@@ -31,7 +32,23 @@ public static partial class RequestId
     public const string HeaderName = "x-request-id";
 
     /// <summary>The <c>prefix_nanoid</c> prefix for a request id — see [[nano-id]].</summary>
-    public const string Prefix = "req_";
+    public const string Prefix = NanoIdConfig.RequestPrefix;
+
+    /// <summary>
+    /// <c>req_</c> followed by <see cref="NanoIdConfig.Length"/> characters of the
+    /// service's alphabet.
+    /// </summary>
+    /// <remarks>
+    /// DERIVED from <see cref="NanoIdConfig"/>, never written out: this expression is the
+    /// only thing standing between an untrusted header and every log line of the request,
+    /// and a hand-written copy would silently drift the day the id format changes —
+    /// rejecting every id the generator produces. Compiled once in a static field because
+    /// <c>[GeneratedRegex]</c> needs a literal pattern, which is exactly the drift being
+    /// avoided here.
+    /// </remarks>
+    private static readonly Regex Pattern = new(
+        NanoIdConfig.PatternFor(Prefix),
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     /// <summary>A new correlation id.</summary>
     public static string New() => NanoId.NewId(Prefix);
@@ -62,16 +79,5 @@ public static partial class RequestId
     /// </para>
     /// </remarks>
     public static string Resolve(string? headerValue) =>
-        headerValue is not null && Pattern().IsMatch(headerValue) ? headerValue : New();
-
-    /// <summary>
-    /// <c>req_</c> followed by 21 characters of nanoid's default URL-safe alphabet.
-    /// </summary>
-    /// <remarks>
-    /// Anchored at both ends and an EXACT length rather than a range: this expression is
-    /// the only thing standing between an untrusted header and every log line of the
-    /// request, so there is no room in it for "close enough".
-    /// </remarks>
-    [GeneratedRegex(@"^req_[A-Za-z0-9_-]{21}$")]
-    private static partial Regex Pattern();
+        headerValue is not null && Pattern.IsMatch(headerValue) ? headerValue : New();
 }

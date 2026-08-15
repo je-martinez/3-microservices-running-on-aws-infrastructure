@@ -1,4 +1,4 @@
-import { generateId } from "#shared/id/nano-id";
+import { NanoIdConfig, generateId } from "#shared/id/nano-id";
 
 /**
  * The header carrying the correlation id between services.
@@ -8,21 +8,27 @@ import { generateId } from "#shared/id/nano-id";
  */
 export const REQUEST_ID_HEADER = "x-request-id";
 
-/** The `prefix_nanoid` prefix for a request id — see [[nano-id]]. */
-const REQUEST_ID_PREFIX = "req_";
+/**
+ * The `prefix_nanoid` prefix for a request id, read from the shared config
+ * rather than declared here — see [[nano-id]]. Every prefix this service mints
+ * lives in that one map so they can be audited for collisions together.
+ */
+const REQUEST_ID_PREFIX = NanoIdConfig.PREFIXES.Request;
 
 /**
- * `req_` followed by nanoid's default 21-character alphabet.
+ * `req_` followed by the shared nano-id alphabet and length.
  *
- * Anchored at both ends, and the length is exact rather than a range: this is
- * the only thing standing between an untrusted header and every log line of the
- * request.
+ * DERIVED from NanoIdConfig rather than written out, so it cannot drift from
+ * what the generator produces — a hand-written pattern is how a service starts
+ * rejecting its own ids after the format changes. Anchored at both ends with an
+ * exact length: this is the only thing standing between an untrusted header and
+ * every log line of the request.
  */
-const REQUEST_ID_PATTERN = /^req_[A-Za-z0-9_-]{21}$/;
+const REQUEST_ID_PATTERN = NanoIdConfig.pattern(REQUEST_ID_PREFIX);
 
 /** A new correlation id. */
 export function generateRequestId(): string {
-  return generateId(REQUEST_ID_PREFIX);
+  return NanoIdConfig.newRequestId();
 }
 
 /**

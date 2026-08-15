@@ -64,10 +64,11 @@ from tests.conftest import TEST_API_KEY
 
 MIDDLEWARE_LOGGER = "src.shared.http.log_context_middleware"
 
-#: A well-formed inbound id — `req_` plus exactly 21 alphabet characters.
-#: Written out literally rather than generated, so the test pins the FORMAT and
-#: not whatever the generator happens to produce today.
-VALID_ID = "req_V1StGXR8Z5jdHi6B-yT8s"
+#: A well-formed inbound id — `req_` plus exactly 24 characters of the
+#: letters-and-digits alphabet. Written out literally rather than generated, so
+#: the test pins the FORMAT and not whatever the generator happens to produce
+#: today.
+VALID_ID = "req_V1StGXR8Z5jdHi6ByT8sQ7fL"
 
 
 def is_fresh(value: str, *, other_than: str | None = None) -> bool:
@@ -109,18 +110,23 @@ class TestResolveDiscardsAnythingElse:
             (None, "no header at all — the common case"),
             (b"", "present but empty, e.g. a proxy that stripped the value"),
             ("", "the decoded empty string"),
-            ("V1StGXR8Z5jdHi6B-yT8s", "right shape, no prefix"),
-            ("trk_V1StGXR8Z5jdHi6B-yT8s", "ANOTHER entity's prefix — would make "
-             "a log query correlate the wrong things"),
-            ("req_tooshort", "under 21 characters"),
+            ("V1StGXR8Z5jdHi6ByT8sQ7fL", "right shape, no prefix"),
+            ("trk_V1StGXR8Z5jdHi6ByT8sQ7fL", "ANOTHER entity's prefix — would "
+             "make a log query correlate the wrong things"),
+            ("req_tooshort", "under 24 characters"),
             ("req_" + "a" * 200, "unbounded: bloats every line of the flow"),
-            ("req_" + "a" * 22, "one character over — the length is exact"),
-            ("req_V1StGXR8Z5jdHi6B\nyT8", "a newline: forges a second log line"),
-            ("req_V1StGXR8Z5jdHi6B\x00yT8", "a NUL control character"),
-            ("req_V1StGXR8Z5jdHi6B yT8s", "a space is outside the alphabet"),
-            ('req_{"injected": true}xyz', "JSON, to corrupt a parsed stream"),
+            ("req_" + "a" * 25, "one character over — the length is exact"),
+            ("req_V1StGXR8Z5jdHi6B-yT8s", "the PREVIOUS 21-char format: a "
+             "service still minting it must not be silently trusted"),
+            ("req_V1StGXR8Z5jdHi6ByT8sQ7f-", "a `-` is outside the alphabet now, "
+             "even at the right length"),
+            ("req_V1StGXR8Z5jdHi6ByT8sQ7f_", "so is `_`"),
+            ("req_V1StGXR8Z5jdHi6ByT8sQ7\nL", "a newline: forges a second log line"),
+            ("req_V1StGXR8Z5jdHi6ByT8sQ7\x00L", "a NUL control character"),
+            ("req_V1StGXR8Z5jdHi6ByT8sQ7 L", "a space is outside the alphabet"),
+            ('req_{"injected": true}xyzabcd', "JSON, to corrupt a parsed stream"),
             (12345, "not a string at all — must not raise"),
-            (["req_V1StGXR8Z5jdHi6B-yT8s"], "a list — must not raise either"),
+            (["req_V1StGXR8Z5jdHi6ByT8sQ7fL"], "a list — must not raise either"),
         ],
     )
     def test_generates_a_fresh_id(self, header_value: object, why: str) -> None:
