@@ -208,16 +208,24 @@ processors:
           # format, so it previously fell through untagged and unclassified —
           # landing in the stream with severity 0 (UNSPECIFIED) and no
           # service_name, invisible to every schema-based filter.
-          # Guarded on the attribute being non-nil BEFORE IsMatch touches it.
-          # IsMatch on a nil value raises, and with error_mode: ignore that
-          # aborts the whole statement silently — which is why every nginx record
-          # was still arriving with no service_name despite this rule existing.
-          # Most records reaching here are NOT from CloudWatch and have no log
-          # group at all, so the nil case is the common one, not the exception.
+          # Reads the log group as a RESOURCE attribute with its DOT-separated
+          # key, and both halves are load-bearing. This rule spent a long time
+          # doing nothing because it tested a log-record
+          # `attributes["cloudwatch_log_group_name"]`: the receiver puts the group
+          # on the resource, and the underscored spelling is OpenObserve's indexer
+          # rename, not the real key. So the condition was always nil, no nginx
+          # record was ever tagged, and every one of them landed with no
+          # service_name, no method/route/status and severity 0 — exactly the
+          # symptom that motivated splitting this group out in the first place.
+          #
+          # Guarded on non-nil BEFORE IsMatch touches it. IsMatch on a nil value
+          # raises, and with error_mode: ignore that aborts the whole statement
+          # silently. Most records reaching here are NOT from CloudWatch and have
+          # no log group at all, so the nil case is the common one.
           - set(attributes["service_name"], "nginx")
             where attributes["service_name"] == nil
-              and attributes["cloudwatch_log_group_name"] != nil
-              and IsMatch(attributes["cloudwatch_log_group_name"], "nginx")
+              and resource.attributes["cloudwatch.log.group.name"] != nil
+              and IsMatch(resource.attributes["cloudwatch.log.group.name"], "nginx")
 
           # Access logs are the subset in combined format. Only these carry
           # method/route/status; the startup lines are classified further down.
@@ -331,28 +339,54 @@ processors:
           - set(severity_number, Int(attributes["severity_number"])) where attributes["severity_number"] != nil
           - set(severity_text, attributes["severity_text"]) where attributes["severity_text"] != nil
 
-  # Drop nginx access logs for requests that REACHED a service.
+  # The nginx split — the gateway's access log gets its own stream, the same
+  # shape as sql/redis/docdb.
   #
-  # WHY: for any 2xx/3xx/4xx the service already logs the same request with
-  # strictly more information — `POST /v1/users/login 401` from nginx duplicates
-  # `login_failed reason=invalid_credentials` from users. Keeping both doubles
-  # the volume and makes every count query ambiguous about what it is counting.
+  # WHAT THIS REPLACES, and why the change matters: this used to be
+  # `filter/drop_nginx_noise`, which DISCARDED every access log below 500. The
+  # reasoning was that a service already logs the same request with more detail,
+  # so keeping both doubles volume and makes count queries ambiguous. That is
+  # still true of the MAIN stream — but dropping was the wrong lever, because the
+  # gateway's view is not a duplicate of the service's:
   #
-  # WHY NOT ALL OF IT: nginx is the only source that sees a request which never
-  # reaches a service at all — a 502, a bad upstream, a route the gateway
-  # mis-resolves. Those produce no service log by definition, so dropping the
-  # whole group would create a blind spot at the edge precisely when it matters.
-  # 5xx and anything unparsed are therefore kept.
+  #   - It is the only place a request that never reached a service appears at
+  #     all (a bad upstream, a route the gateway mis-resolves, a 499 client
+  #     abort). The old rule kept 5xx for exactly that reason, and then threw
+  #     away every other edge-only record.
+  #   - It is the only source of the EDGE's own latency and byte counts, which no
+  #     service log carries.
+  #   - Comparing gateway status against service status is how a mismatch between
+  #     the two is found, and that comparison needs both sides retained.
   #
-  # This is also what removes the `THIS IS INVALID STREAM` rows: that string is
-  # a placeholder the aws_cloudwatch receiver substitutes when it cannot resolve
-  # a stream name (Floci's real streams are named 2026/07/20/nginx/<task-id>),
-  # so it is an emulator artifact carrying no signal.
-  filter/drop_nginx_noise:
+  # Routing costs nothing the drop was buying: the main stream is just as free of
+  # duplicate request lines, because every access log leaves through the other
+  # pipeline instead of this one.
+  #
+  # Matched on the LOG GROUP (a resource attribute), not on service_name. Same
+  # two silent-failure traps as redis/docdb, and the same reason they are called
+  # out again: read `resource.attributes["cloudwatch.log.group.name"]` — the
+  # receiver puts the group on the RESOURCE, and the key is DOT-separated. The
+  # underscored `cloudwatch_log_group_name` seen in OpenObserve is an indexer
+  # rename that matches nothing here.
+  #
+  # Note the group also carries the container's STARTUP output, which is not an
+  # access log. It goes to the same stream: it is nginx's, it is low-volume, and
+  # keeping the gateway's own lifecycle beside its traffic is useful when the
+  # question is "did the gateway restart?".
+  #
+  # These two conditions MUST stay exact complements. Nil guard FIRST: most
+  # records arrive over fluent_forward with no log group at all.
+  filter/only_nginx:
     error_mode: ignore
     logs:
       log_record:
-        - 'attributes["service_name"] == "nginx" and attributes["http_response_status_code"] != nil and attributes["http_response_status_code"] < 500'
+        - 'resource.attributes["cloudwatch.log.group.name"] == nil or not IsMatch(resource.attributes["cloudwatch.log.group.name"], "nginx")'
+
+  filter/drop_nginx:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'resource.attributes["cloudwatch.log.group.name"] != nil and IsMatch(resource.attributes["cloudwatch.log.group.name"], "nginx")'
 
   # WiredTiger's internal storage-engine chatter, from the DocumentDB cluster's
   # log group (/aws/docdb/cluster/<id>/audit).
@@ -671,6 +705,21 @@ exporters:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: docdb
 
+  # The gateway's access log, its own stream — same instance and auth, only the
+  # stream-name header differs, exactly like the splits above.
+  #
+  # Why separate rather than drop (which is what this replaced): the per-request
+  # lines duplicate what the services already log, so they do not belong in the
+  # main stream — but the gateway is the only place a request that never reached
+  # a service shows up, and the only source of edge latency and byte counts.
+  # Its own severity is set from the HTTP status in transform/parse_body, so this
+  # stream is filterable by ERROR/WARN like any other.
+  otlp_http/openobserve_nginx:
+    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    headers:
+      Authorization: "Basic ${env:O2_BASIC_AUTH}"
+      stream-name: nginx
+
   # Traces go to the SAME OpenObserve instance, a different stream. One backend
   # for both signals is what lets trace_id join a log line to its span without
   # querying across two systems (see the tracing ADR).
@@ -726,7 +775,7 @@ service:
       # filter/drop_wiredtiger_noise deliberately NOT listed here: once
       # filter/drop_docdb diverts the whole DocumentDB log group, that filter
       # would match nothing in this pipeline. It runs in logs/docdb instead.
-      processors: [transform/parse_body, filter/drop_nginx_noise, filter/drop_redis, filter/drop_docdb, filter/drop_sql, batch]
+      processors: [transform/parse_body, filter/drop_nginx, filter/drop_redis, filter/drop_docdb, filter/drop_sql, batch]
       exporters: [otlp_http/openobserve]
 
     # SQL echo, same receivers, opposite filter, its own stream. Two pipelines
@@ -785,6 +834,22 @@ service:
       receivers: [fluent_forward, aws_cloudwatch]
       processors: [transform/parse_body, filter/only_docdb, filter/drop_wiredtiger_noise, batch]
       exporters: [otlp_http/openobserve_docdb]
+
+    # The gateway's access log, its own stream. Same structure as the splits
+    # above: same receivers, the complementary filter, a different exporter.
+    #
+    # transform/parse_body is what makes this stream worth having rather than a
+    # pile of raw text — it is where the combined-format line becomes
+    # http_request_method / http_route / http_response_status_code and where the
+    # status becomes a severity. Without it these records would carry only
+    # `body`, which is the state they were in before any of this existed.
+    #
+    # filter/drop_nginx in the main pipeline and filter/only_nginx here are exact
+    # complements, so every record lands in exactly one of the two streams.
+    logs/nginx:
+      receivers: [fluent_forward, aws_cloudwatch]
+      processors: [transform/parse_body, filter/only_nginx, batch]
+      exporters: [otlp_http/openobserve_nginx]
 
     # No transform/parse_body here: OTLP traces arrive already structured, so
     # there is no JSON-in-a-string body to flatten as there is for stdout logs.
