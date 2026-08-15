@@ -17,6 +17,12 @@ call. It is added a moment later by `stamp_caller_user_id`
 and those two do not — so the exemption is structural rather than an allowlist
 this middleware would have to remember to keep correct.
 
+This is also the service's single ingress point for the cross-service
+`request_id` correlation id: the inbound `x-request-id` is honoured when it
+matches our format and replaced with a fresh one when it does not (see
+`shared/logging/request_id.py`), then seeded into the context for every line the
+request produces and every outbound hop it makes.
+
 The header is NOT trusted for authorization here — this is logging only.
 Authorization stays with `require_caller_sub` (shared/http/identity.py), which
 is where an absent or empty sub must be rejected. Seeding a context field
@@ -45,6 +51,7 @@ import time
 
 from src.shared.config.settings import metrics_enabled
 from src.shared.logging.log_context import reset_log_context, set_log_context
+from src.shared.logging.request_id import REQUEST_ID_HEADER, resolve_request_id
 from src.shared.metrics.cloudwatch_metrics import (
     SERVICE_DIMENSION,
     MetricsPublisher,
@@ -82,10 +89,20 @@ class LogContextMiddleware:
             return
 
         cognito_sub = None
+        raw_request_id: bytes | None = None
         for name, value in scope.get("headers", []):
-            if name.lower() == USER_ID_HEADER:
+            lowered = name.lower()
+            if lowered == USER_ID_HEADER:
                 cognito_sub = value.decode("latin-1")
-                break
+            elif lowered == REQUEST_ID_HEADER:
+                raw_request_id = value
+            # No early `break` any more: two headers are being looked for, and
+            # stopping at the first would drop whichever the client happened to
+            # send second.
+
+        # The caller's id when it is one of ours, otherwise a fresh one — the
+        # header is untrusted input, see `resolve_request_id`.
+        request_id = resolve_request_id(raw_request_id)
 
         # `http.response.start` is the ONLY message carrying the status, so the
         # status has to be captured off the wire here — there is no response
@@ -100,7 +117,15 @@ class LogContextMiddleware:
         # Set even when the sub is absent (health checks, the carrier PUT):
         # a fresh empty context per request is what stops one request's
         # identity leaking into the next through a reused context.
-        token = set_log_context(cognito_sub=cognito_sub)
+        #
+        # `request_id` is seeded UNCONDITIONALLY and here, at the outermost
+        # layer, rather than after any auth or routing step. The requests
+        # someone asks about afterwards are disproportionately the ones that did
+        # NOT reach a handler — a 401 from the carrier key check, a 404 from the
+        # router — and those are exactly the lines an id seeded further in would
+        # be missing. Users shipped that precise ordering bug (id seeded after
+        # the auth guard, so 401s had none) and a test caught it.
+        token = set_log_context(cognito_sub=cognito_sub, request_id=request_id)
         started = time.perf_counter()
         try:
             await self.app(scope, receive, send_wrapper)

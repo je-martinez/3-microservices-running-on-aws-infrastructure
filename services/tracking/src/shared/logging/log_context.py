@@ -50,6 +50,11 @@ _ALLOWED_KEYS = frozenset(
         "order_id",
         "tracking_id",
         "email_hash",   # non-reversible email id — never a plaintext email
+        # The cross-service correlation id (`req_<nanoid>`), seeded at ingress
+        # by LogContextMiddleware and forwarded on every outbound hop. Unlike
+        # the identity fields above it is ALWAYS present inside a request:
+        # `resolve_request_id` either honours the caller's or mints one.
+        "request_id",
     }
 )
 
