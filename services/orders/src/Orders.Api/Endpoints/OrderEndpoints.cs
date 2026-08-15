@@ -90,8 +90,12 @@ public static class OrderEndpoints
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status404NotFound);
 
+        // Tagged "health", not "Orders": it is mapped here only because this is
+        // where the top-level routes live, but it is not an order operation — it
+        // is the ALB/Fargate liveness probe, unauthenticated, and it files under
+        // its own tag in the spec exactly as it does in Users and Tracking.
         app.MapGet("/v1/health", () => Results.Ok(new { status = "ok" }))
-            .WithTags("Orders")
+            .WithTags("health")
             .WithName("Health")
             .WithSummary("Liveness probe.")
             .Produces(StatusCodes.Status200OK);

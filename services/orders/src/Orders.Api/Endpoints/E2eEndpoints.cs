@@ -83,7 +83,11 @@ public static class E2eEndpoints
             // lines were already gone.
             return Results.Ok(new E2eCleanupResponse(deleted, deletedDetails, restocked));
         })
-            .WithTags("Orders")
+            // Tagged "e2e", not "Orders": a flag-guarded, test-only surface that a
+            // reader must be able to spot as such in the spec without inferring it
+            // from the summary. Users and Tracking group their cleanup routes the
+            // same way.
+            .WithTags("e2e")
             .WithName("E2eCleanup")
             .WithSummary("Soft-delete every order tagged \"E2E Source\" and restore seed stock (only mapped when E2E_TESTING_ENABLED).")
             .Produces<E2eCleanupResponse>(StatusCodes.Status200OK);

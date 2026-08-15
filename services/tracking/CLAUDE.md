@@ -17,6 +17,35 @@ this first, every time. Cross-cutting rules are **referenced**, never duplicated
 - Lint: `ruff check .`
 - Run local (docker-watch): `docker compose up tracking --watch` (from repo root)
 - Migrate: `alembic upgrade head`
+- Regenerate the OpenAPI spec (from repo root — the `-v` mount is REQUIRED, the
+  image copies `src/` and `alembic/` but not `scripts/`):
+  `docker compose run --rm --no-deps -e E2E_TESTING_ENABLED=true -v "$PWD/services/tracking:/app" --entrypoint python tracking scripts/generate_openapi.py`
+
+## 2a. GOLDEN RULE — keep `openapi.yaml` in sync
+
+`services/tracking/openapi.yaml` is **generated** from the live FastAPI routes by
+`scripts/generate_openapi.py`, never hand-written and never hand-patched. It is a
+committed build artifact — the contract consumers import.
+
+**Any change to a route, its schemas, its status codes or its tags requires
+regenerating and committing `openapi.yaml` in the SAME change.** A route change
+without a matching spec update is an incomplete change.
+
+Two things the generator cannot do for you:
+
+- **Declare the failures FastAPI cannot infer.** It infers the success shape and
+  `422` only. A status raised by a dependency or inside a handler (`401` from
+  `require_caller_sub`, `404` from a not-found guard, `400` from a hand-rolled
+  check) appears in the document ONLY if the route declares it in `responses=`.
+  Both user-scoped reads shipped without their `401` for exactly this reason.
+- **Document-level metadata lives in `create_app()`** — `description`, `servers`
+  and `openapi_tags` in `src/main.py`. Patching them into the YAML afterwards
+  would make the file hand-maintained again.
+
+`tests/test_openapi_spec.py` regenerates and compares, so a stale spec fails the
+suite rather than reaching a consumer. It runs without a database.
+
+Full convention (all three services): [../../docs/shared/conventions/openapi-specs.md](../../docs/shared/conventions/openapi-specs.md)
 
 ## 3. Folder structure (screaming architecture)
 ```
