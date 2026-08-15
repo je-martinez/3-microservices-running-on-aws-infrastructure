@@ -15,6 +15,12 @@ ruff==0.9.2
 # the real app in-process (ASGI transport, no socket). Test-only — nothing under
 # src/ imports it.
 httpx==0.28.1
+# Spec generation only (`scripts/generate_openapi.py`), never imported at runtime
+# — FastAPI builds the OpenAPI document as a dict on its own; this only serializes
+# it to YAML. Kept OUT of requirements-runtime.txt for the same reason as
+# grpcio-tools below: the committed `openapi.yaml` is what consumers read, so the
+# runtime image needs no YAML writer.
+PyYAML==6.0.2
 # Codegen only (`scripts/generate_grpc_stubs.py`), never imported at runtime —
 # the stubs it produces are committed, so the image needs no protoc. Kept at the
 # SAME version as grpcio: grpc_tools emits a version guard into the generated

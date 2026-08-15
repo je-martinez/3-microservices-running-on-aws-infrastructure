@@ -1,7 +1,11 @@
 openapi: '3.1.1'
 info:
   title: Orders Service API
-  version: v1
+  description: 'HTTP API for the 3MRAI Orders microservice (.NET Minimal APIs + Aurora MySQL). Identity is enforced at the API Gateway authorizer, which forwards the Cognito subject as the x-user-id header.'
+  version: 1.0.0
+servers:
+  - url: http://localhost:3001
+    description: Local (docker compose / Floci)
 paths:
   /v1/orders:
     post:
@@ -82,7 +86,7 @@ paths:
   /v1/health:
     get:
       tags:
-        - Orders
+        - health
       summary: Liveness probe.
       operationId: Health
       responses:
@@ -91,7 +95,7 @@ paths:
   /v1/orders/e2e-cleanup:
     delete:
       tags:
-        - Orders
+        - e2e
       summary: Soft-delete every order tagged "E2E Source" and restore seed stock (only mapped when E2E_TESTING_ENABLED).
       operationId: E2eCleanup
       responses:
@@ -371,4 +375,6 @@ components:
           type: string
 tags:
   - name: Orders
+  - name: health
+  - name: e2e
   - name: Products
