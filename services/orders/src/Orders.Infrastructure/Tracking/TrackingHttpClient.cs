@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Orders.Application.Tracking;
+using Orders.Infrastructure.Id;
 using RestSharp;
 
 namespace Orders.Infrastructure.Tracking;
@@ -81,7 +82,8 @@ public class TrackingHttpClient : ITrackingInitiator, ITrackingReader
             // is "true", so an E2E run's rows are removable by tag on BOTH sides of the
             // seam. Tracking applies its own E2E_TESTING_ENABLED guard to it.
             .AddHeader("x-e2e-source", e2eSource ? "true" : "false")
-            .AddJsonBody(new InitTrackingRequest(orderId, ParseAddress(shippingAddressJson)));
+            .AddJsonBody(new InitTrackingRequest(orderId, ParseAddress(shippingAddressJson)))
+            .WithRequestId();
 
         // ExecuteAsync, not PostAsync: the Execute* family reports failure on the
         // response rather than throwing, which keeps every outcome — 2xx, 4xx, and no
@@ -234,7 +236,8 @@ public class TrackingHttpClient : ITrackingInitiator, ITrackingReader
             // Same identity mechanism initiation uses. Ownership is enforced on the
             // far side: Tracking filters by cognito_sub and silently omits ids that
             // belong to anyone else, so Orders adds no check of its own.
-            .AddHeader("x-user-id", cognitoSub);
+            .AddHeader("x-user-id", cognitoSub)
+            .WithRequestId();
 
         // ExecuteGetAsync deliberately, not GetAsync: the Execute* family REPORTS
         // failure in the response instead of throwing it, which is exactly the shape

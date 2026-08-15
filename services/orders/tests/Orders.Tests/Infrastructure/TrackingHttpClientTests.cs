@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using Orders.Application.Tracking;
+using Orders.Infrastructure.Id;
 using Orders.Infrastructure.Tracking;
 
 namespace Orders.Tests.Infrastructure;
@@ -218,6 +219,50 @@ public class TrackingHttpClientTests
         Assert.Equal(TrackingInitOutcome.Created, result.Outcome);
         using var body = JsonDocument.Parse(handler.Body!);
         Assert.Equal(JsonValueKind.Null, body.RootElement.GetProperty("shipping_address").ValueKind);
+    }
+
+    // The correlation id reaches Tracking on BOTH operations, so one flow's log
+    // lines carry the same request_id on either side of the seam. Seeded here the
+    // way CallerContextMiddleware seeds it at ingress; AsyncLocal scopes the value
+    // to this test's own async flow, so it cannot leak into a sibling test.
+    private const string RequestIdValue = "req_V1StGXR8_Z5jdHi6B-MyT";
+
+    [Fact]
+    public async Task Init_tracking_forwards_the_request_id_header()
+    {
+        AmbientRequestId.Set(RequestIdValue);
+        var (client, handler) = Build();
+
+        await client.InitTrackingAsync("ord_abc", null, "sub-123", testMode: false);
+
+        Assert.Equal(RequestIdValue, handler.Request!.Headers.GetValues("x-request-id").Single());
+    }
+
+    [Fact]
+    public async Task Batch_read_forwards_the_request_id_header()
+    {
+        AmbientRequestId.Set(RequestIdValue);
+        var (client, handler) = Build(HttpStatusCode.OK);
+
+        await client.GetTrackingsAsync(new[] { "ord_abc" }, "sub-123");
+
+        // The read is the hop most easily forgotten — nothing else would notice a
+        // gap in exactly one of the two calls.
+        Assert.Equal(RequestIdValue, handler.Request!.Headers.GetValues("x-request-id").Single());
+    }
+
+    [Fact]
+    public async Task Omits_the_request_id_header_when_there_is_none()
+    {
+        // No ambient id: a background publish, or a caller outside a request. The
+        // header is left off entirely rather than sent empty — Tracking would
+        // discard an empty value anyway, and an empty header reads in a capture as
+        // though a correlation id existed and was blank.
+        var (client, handler) = Build();
+
+        await client.InitTrackingAsync("ord_abc", null, "sub-123", testMode: false);
+
+        Assert.False(handler.Request!.Headers.Contains("x-request-id"));
     }
 
     // Records the outgoing request and replays a canned status (or throws).

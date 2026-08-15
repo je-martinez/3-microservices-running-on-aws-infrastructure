@@ -92,6 +92,15 @@ public class SqsEventPublisher : IEventPublisher
             Source: EventSource,
             UserId: userId,
             OrderId: orderId,
+            // Carries THIS order's correlation id onto the queue, so the confirmation
+            // email the pipeline sends can be traced back to the HTTP request that
+            // caused it. This hop is the whole reason the field exists: the pipeline
+            // Lambda runs no OTel SDK, so trace_id does not reach it and nothing else
+            // joins the two sides of the queue.
+            //
+            // Null outside a request (a background publish, a test that seeded no
+            // context) and OMITTED from the JSON when so — see EventEnvelope.
+            RequestId: AmbientRequestId.Current,
             // WHO originated the event, next to the UserId above, which is WHO it is
             // about. A real human acted here — the buyer placed their own order — so the
             // author carries both identities. `Actor` is the same semantic AuditActor
@@ -207,12 +216,22 @@ public class SqsEventPublisher : IEventPublisher
 
     // snake_case wire names are declared explicitly on each member — see the class
     // remarks: these names ARE the contract the consumer's Zod schemas validate.
+    //
+    // `request_id` is the one ROOT key that is genuinely OPTIONAL, and it is omitted rather
+    // than nulled by the same WhenWritingNull that handles author.cognito_sub. The consumer
+    // declares it `.optional()` for an operational reason: at deploy time the queue can
+    // still hold messages published before the field existed, and a REQUIRED field would
+    // make those fail envelope validation — which the pipeline classifies PermanentError,
+    // so the message is dead-lettered and its email silently never sent. A `null` would be
+    // no better on the way out: it reads as "correlation resolved to nothing" rather than
+    // "this message carries none".
     private sealed record EventEnvelope(
         [property: JsonPropertyName("event_id")] string EventId,
         [property: JsonPropertyName("type")] string Type,
         [property: JsonPropertyName("source")] string Source,
         [property: JsonPropertyName("user_id")] string UserId,
         [property: JsonPropertyName("order_id")] string? OrderId,
+        [property: JsonPropertyName("request_id")] string? RequestId,
         [property: JsonPropertyName("author")] EventAuthor Author,
         [property: JsonPropertyName("payload")] OrderCreatedPayload Payload);
 

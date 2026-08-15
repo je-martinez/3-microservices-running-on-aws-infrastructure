@@ -12,6 +12,7 @@ using Orders.Application.Identity;
 using Orders.Application.Tracking;
 using Orders.Infrastructure.Config;
 using Orders.Infrastructure.Grpc;
+using Orders.Infrastructure.Id;
 using Orders.Infrastructure.Messaging;
 using Orders.Infrastructure.Metrics;
 using Orders.Infrastructure.Orders;
@@ -314,6 +315,23 @@ builder.Services.AddScoped(sp => new CreateOrderService(
     sp.GetRequiredService<ILogger<CreateOrderService>>()));
 
 var app = builder.Build();
+
+// Opens the correlation scope FIRST, ahead of the request logger below. The id
+// itself is resolved later, by CallerContextMiddleware (which needs routing to
+// have run); this only installs the cell that middleware writes into.
+//
+// The two steps are split for a reason found by a failing test: an AsyncLocal set
+// in a middleware is invisible OUTSIDE it, because the value is restored as each
+// frame unwinds. UseSerilogRequestLogging writes "request completed" on the way
+// back OUT — after CallerContextMiddleware's frame is gone — so with a single
+// write deeper down, the most useful log line this service emits would have been
+// the one line missing request_id. Opening the scope here, outside everything,
+// is what lets the outer frame read the value the inner one resolved.
+app.Use(async (_, next) =>
+{
+    AmbientRequestId.Begin();
+    await next();
+});
 
 // Automatic HTTP request logging in the shared snake_case schema. Placed early
 // in the pipeline (right after Build) so it wraps every request. The elapsed
