@@ -84,6 +84,39 @@ builder.Services.AddOpenTelemetry()
 //     to — `.LogicalHandler` and `.ClientHandler` — because Serilog Overrides
 //     match on the source-context PREFIX.
 //
+//  2. Microsoft.AspNetCore.Hosting.Diagnostics — "Request starting" / "Request
+//     finished", one PAIR per request, both describing what
+//     `request completed` already reports with more detail (method, route,
+//     status, duration_ms, and the shared log context).
+//
+//  3. Microsoft.AspNetCore.Routing.EndpointMiddleware — "Executing endpoint" /
+//     "Executed endpoint", another pair per request. It names the handler the
+//     route resolved to, which is a framework-internal detail: the route itself
+//     is already on the request log.
+//
+//  4. Microsoft.AspNetCore.Http.Result — "Setting HTTP status code 400",
+//     "Writing value of type '<>f__AnonymousType0`2' as Json". The status is on
+//     the request log and the CLR type name of an anonymous DTO says nothing
+//     about the response. The override is on the `Http.Result` PREFIX so it
+//     covers every result type (BadRequestObjectResult, OkObjectResult,
+//     CreatedResult, …) rather than needing one entry per status.
+//
+// WHY THIS MATTERS, measured rather than assumed: of 101 orders lines in a
+// two-hour window, only THREE carried an app_event — the actual business events
+// (create_order_started, create_order_succeeded, init_tracking_succeeded). The
+// other 98 were the framework describing its own plumbing. The events-pipeline,
+// which has no such framework, sits at 93/93. A service whose business signal is
+// 3% of its own log volume is one where the interesting line is found by luck.
+//
+// All four are WARNING, not None, for the same reason as the exporter above: a
+// routing failure or a result that cannot be serialized still surfaces. Only the
+// per-request INFO chatter goes quiet.
+//
+// Serilog.AspNetCore.RequestLoggingMiddleware is deliberately NOT here. Its
+// single "request completed" line per request IS the signal these three
+// duplicate — it carries method, route, status, duration and the enriched
+// context. Silencing it would remove the one framework line worth keeping.
+//
 // EF Core's Database.Command is deliberately NOT overridden here, even though it
 // is just as noisy. Its DbCommand lines are ROUTED, not suppressed: the
 // collector's filter/only_sql sends them to the dedicated `sql` stream, which is
@@ -94,6 +127,9 @@ builder.Services.AddOpenTelemetry()
 builder.Host.UseSerilog((_, services, cfg) => cfg
     .MinimumLevel.Information()
     .MinimumLevel.Override("System.Net.Http.HttpClient.OtlpTraceExporter", Serilog.Events.LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.AspNetCore.Hosting.Diagnostics", Serilog.Events.LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.AspNetCore.Routing.EndpointMiddleware", Serilog.Events.LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.AspNetCore.Http.Result", Serilog.Events.LogEventLevel.Warning)
     .Enrich.With(new LogContextEnricher(services.GetRequiredService<IHttpContextAccessor>()))
     .WriteTo.Console(new SchemaLogFormatter("orders", deploymentEnvironment)));
 
