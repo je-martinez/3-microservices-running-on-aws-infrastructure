@@ -538,6 +538,29 @@ observability-up: ## Start OpenObserve + Jaeger + the OTel collector (opt-in; ~5
 	# ingest rejected them. So the only symptom a user sees is an empty Jaeger UI
 	# on a port with nothing listening.
 	$(COMPOSE) --profile observability up -d --force-recreate openobserve jaeger otel-collector
+	@# The dashboards live in the `openobserve-data` volume, which `make clean`
+	@# now deletes (that is the point of the -v). Nothing recreated them: this
+	@# target started the stack and `observability-dashboards` existed but was
+	@# invoked by NOTHING — not bootstrap, not here — so every from-scratch
+	@# rebuild left OpenObserve running with no dashboards at all, and the only
+	@# way back was remembering an undocumented manual command.
+	@#
+	@# Chained here rather than in bootstrap because this is the target that
+	@# creates the thing they live in. The importer keys on dashboard TITLE and
+	@# PUTs when one already exists, so running it on every up is a no-op when
+	@# they are current.
+	@#
+	@# The wait is not cosmetic: openobserve declares no healthcheck, so
+	@# `up -d` returns as soon as the container is created, well before it
+	@# accepts HTTP. Polling rather than sleeping a fixed guess — a sleep long
+	@# enough to be safe is mostly wasted, and one short enough to feel quick
+	@# fails on a cold start.
+	@printf 'Waiting for OpenObserve to accept requests'
+	@for i in $$(seq 1 60); do \
+		if curl -sf -o /dev/null http://localhost:5080/healthz 2>/dev/null; then break; fi; \
+		printf '.'; sleep 1; \
+	done; echo
+	@$(MAKE) --no-print-directory observability-dashboards
 	@echo "OpenObserve UI on http://localhost:5080 once it's healthy (~5s)."
 	@echo "Login: admin@3mrai.local / Complexpass#123"
 	@echo "Jaeger UI (traces) on http://localhost:16686"
