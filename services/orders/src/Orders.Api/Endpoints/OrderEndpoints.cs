@@ -16,6 +16,7 @@ public static class OrderEndpoints
             .WithSummary("Create an order for the caller, decrementing product stock.")
             .Accepts<CreateOrderRequest>("application/json")
             .Produces<OrderDto>(StatusCodes.Status201Created)
+            .Produces(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status404NotFound)
             .Produces(StatusCodes.Status409Conflict);
