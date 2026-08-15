@@ -320,6 +320,78 @@ processors:
       log_record:
         - 'attributes["attr"] != nil and attributes["attr"]["message"] != nil and attributes["attr"]["message"]["category"] != nil and IsMatch(attributes["attr"]["message"]["category"], "^WT_VERB_")'
 
+  # The Valkey/ElastiCache split — same shape as the SQL split below, and for the
+  # same reason: the engine log is high-volume and drowns the application events
+  # in the main stream, but it is worth keeping, so it gets its OWN stream rather
+  # than a drop rule.
+  #
+  # WHAT IS IN HERE: the cache cluster's engine log
+  # (/aws/elasticache/cluster/<id>/engine-log). Most of it is housekeeping —
+  # "DB 0: 7 keys (7 volatile) in 14 slots HT." every ~5s forever (activeExpireCycle,
+  # ~17k lines/day on a completely idle stack), plus an "Accepted <ip>" /
+  # "Client closed connection id=… cmd=ping" PAIR per health-check probe. In the
+  # 50-record sample that prompted this, 12 (24%) were that periodic dump while
+  # the system did nothing but run one E2E spec.
+  #
+  # WHY THE WHOLE GROUP AND NOT JUST THE NOISY LINES: the first attempt here was
+  # a drop rule matched on message shape (the approach filter/drop_wiredtiger_noise
+  # uses). Routing the group wholesale is better on both counts — nothing is lost,
+  # so the lines that DO matter (`Ready to accept connections`, the version banner,
+  # OOM-killer messages, `MISCONF`, replication and background-save failures) stay
+  # queryable in the `redis` stream instead of being weighed against the noise, and
+  # there is no pattern to keep in sync with a future Valkey release's wording.
+  #
+  # Matching on the LOG GROUP is what makes this safe to do wholesale: it is a
+  # routing decision, not a filtering one. The group name is stable (it comes from
+  # the cluster identifier, not from Floci's per-run ids) and holds exactly one
+  # source, so "everything from this group" and "everything from the cache engine"
+  # are the same set.
+  #
+  # These two conditions MUST stay exact complements, exactly like the SQL pair:
+  # a record matching neither is LOST, and one matching both is stored TWICE.
+  # `filter` DROPS what matches, so the sense is inverted in each — the redis
+  # pipeline drops everything that is NOT from the group, the main pipeline drops
+  # everything that IS.
+  #
+  # The nil guard comes FIRST and is load-bearing: most records reaching here
+  # arrive over fluent_forward and carry no log group at all, so nil is the common
+  # case, not the exception. IsMatch on a nil value raises, and under
+  # error_mode: ignore that aborts the whole statement silently — the same failure
+  # that left every nginx record untagged for so long (see transform/parse_body).
+  #
+  # TWO THINGS HERE ARE EASY TO GET WRONG, and both fail SILENTLY — the first
+  # attempt at this split got both, routed nothing, and produced no error:
+  #
+  #  1. SCOPE. The log group is a RESOURCE attribute, not a log-record one. The
+  #     receiver sets it on the resource:
+  #
+  #         resourceAttributes := resourceLogs.Resource().Attributes()
+  #         resourceAttributes.PutStr("cloudwatch.log.group.name", logGroupName)
+  #
+  #     while the log record itself gets only `id`. So this must be read as
+  #     `resource.attributes[...]`; a `log_record`-context `attributes[...]` is
+  #     always nil, every condition collapses, and every record takes the same
+  #     branch. Note the surrounding filters DO read log-record attributes
+  #     (service_name, message) — those are written by transform/parse_body, which
+  #     is why they work there and this one cannot be copied from them.
+  #
+  #  2. NAME. The real key is DOT-separated — `cloudwatch.log.group.name`. The
+  #     underscored `cloudwatch_log_group_name` seen in OpenObserve is created
+  #     later, by its indexer, exactly like the `dimensions_service` rename noted
+  #     on the metrics exporter below. Filtering on the name as it appears in the
+  #     UI matches nothing here.
+  filter/only_redis:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'resource.attributes["cloudwatch.log.group.name"] == nil or not IsMatch(resource.attributes["cloudwatch.log.group.name"], "/elasticache/")'
+
+  filter/drop_redis:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'resource.attributes["cloudwatch.log.group.name"] != nil and IsMatch(resource.attributes["cloudwatch.log.group.name"], "/elasticache/")'
+
   # The SQL-echo split. These two conditions MUST stay exact complements: a
   # record matching neither is lost, and one matching both is stored twice. They
   # are written against the same expression so the pair can be read as one rule.
@@ -450,6 +522,22 @@ exporters:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: sql
 
+  # The cache engine log gets its own stream too — same instance, same auth, only
+  # the stream-name header differs, exactly like the sql split above.
+  #
+  # Why separate rather than drop: the engine log is mostly housekeeping (see
+  # filter/only_redis for the volume), but it is the ONLY place the cache reports
+  # an OOM kill, a MISCONF that silently stops writes, or a background-save
+  # failure. Those are rare and quiet, which is precisely why they must not be
+  # weighed against thousands of expire-cycle lines in the main stream — and also
+  # why they must not be dropped. Splitting keeps them one query away without
+  # letting them set the volume of the stream everyone reads by default.
+  otlp_http/openobserve_redis:
+    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    headers:
+      Authorization: "Basic ${env:O2_BASIC_AUTH}"
+      stream-name: redis
+
   # Traces go to the SAME OpenObserve instance, a different stream. One backend
   # for both signals is what lets trace_id join a log line to its span without
   # querying across two systems (see the tracing ADR).
@@ -501,7 +589,7 @@ service:
       # Order matters: parse first so the filter can test real fields
       # (service_name, http_response_status_code) rather than pattern-match raw
       # text, then drop, then batch — so dropped records never reach the batcher.
-      processors: [transform/parse_body, filter/drop_nginx_noise, filter/drop_wiredtiger_noise, filter/drop_sql, batch]
+      processors: [transform/parse_body, filter/drop_nginx_noise, filter/drop_wiredtiger_noise, filter/drop_redis, filter/drop_sql, batch]
       exporters: [otlp_http/openobserve]
 
     # SQL echo, same receivers, opposite filter, its own stream. Two pipelines
@@ -516,6 +604,28 @@ service:
       receivers: [fluent_forward, aws_cloudwatch]
       processors: [transform/parse_body, filter/only_sql, batch]
       exporters: [otlp_http/openobserve_sql]
+
+    # Cache engine log, its own stream. Same structure as logs/sql: same
+    # receivers, the complementary filter, a different exporter.
+    #
+    # aws_cloudwatch is the only receiver that can actually produce a record
+    # here — the group attribute exists only on the CloudWatch path — but
+    # fluent_forward stays listed for symmetry with the pipelines above, and
+    # because filter/only_redis discards its records anyway (they carry no log
+    # group, so the nil branch drops them).
+    #
+    # transform/parse_body runs here too. The engine log is plain text, not JSON,
+    # so the parse is a no-op for these records — but each pipeline processes its
+    # OWN copy of every record, so omitting it would only make this pipeline
+    # inconsistent with the others for no gain.
+    #
+    # NOT in the main logs pipeline's drop list by accident: filter/drop_redis
+    # there and filter/only_redis here are exact complements, so every record
+    # lands in exactly one of the two streams.
+    logs/redis:
+      receivers: [fluent_forward, aws_cloudwatch]
+      processors: [transform/parse_body, filter/only_redis, batch]
+      exporters: [otlp_http/openobserve_redis]
     # No transform/parse_body here: OTLP traces arrive already structured, so
     # there is no JSON-in-a-string body to flatten as there is for stdout logs.
     traces:

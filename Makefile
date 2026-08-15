@@ -457,21 +457,95 @@ clean: ## Tear down infra + compose, including the emulator state volume
 	@# (RDS survived that same teardown because Floci relaunches ITS containers
 	@# from persisted state at boot; DocumentDB and ElastiCache have no such
 	@# reconciler. That asymmetry is what made it look intermittent.)
+	@# --profile is load-bearing here for the same reason -v is. `down` SKIPS
+	@# services behind a profile, so openobserve/otel-collector/jaeger survived
+	@# every `make clean` — still running, still holding `3mrai_openobserve-data`
+	@# and keeping the network alive so it could not be removed either. A
+	@# "from-scratch" rebuild therefore inherited the previous run's metric
+	@# series, which is how rows written under an OLD schema kept colliding with
+	@# new ones long after the change that caused it.
+	@# The volume sweep below is the third thing that turned out to be
+	@# load-bearing, alongside -v and --profile, and it fails in the same shape:
+	@# something survives a "from-scratch" teardown and the next run silently
+	@# inherits it.
+	@#
+	@# `down -v` removes only the volumes the CURRENT compose file DECLARES. A
+	@# volume compose itself created under an earlier version of this file is not
+	@# in that list any more, so it outlives every clean with no warning — it is
+	@# not dangling (a container may still mount it) and not orphaned in the sense
+	@# --remove-orphans handles (that flag is about containers, not volumes).
+	@#
+	@# Found exactly that: `3mrai_otelcol-storage`, carrying the CloudWatch
+	@# receiver's checkpoint file, created 2026-08-14 by a compose revision that
+	@# was never committed. Nothing writes it today — the config declares no
+	@# file_storage extension, so the receiver keeps its checkpoint in memory —
+	@# yet it sat there holding a stale read position for every log group.
+	@#
+	@# Filtering on compose's own project label is what makes this safe: it is
+	@# exactly the set compose would have removed had it still known about these
+	@# volumes, so it can never reach another project's data. `docker volume prune`
+	@# was the alternative and is strictly worse — it is scoped to the whole
+	@# daemon, not to this project.
+	@#
+	@# Runs AFTER `down -v` so the declared volumes are already gone and this only
+	@# catches the leftovers. `|| true`: an empty list is the healthy case, and a
+	@# volume still held by a container from another project must not fail clean.
 	-$(TF) destroy -auto-approve
-	$(COMPOSE) down -v
+	$(COMPOSE) --profile observability --profile preview down -v --remove-orphans
+	@echo "Removing compose volumes this project still owns but no longer declares…"
+	@docker volume ls -q --filter label=com.docker.compose.project=3mrai \
+		| xargs -r docker volume rm 2>/dev/null || true
+	@# Floci's OWN containers — the same leak, one layer up.
+	@#
+	@# Floci launches ECS tasks (and the RDS/DocDB/valkey backers) through the
+	@# mounted docker socket, so they are NOT compose services: they carry no
+	@# com.docker.compose.project label, `down` never sees them, and
+	@# --remove-orphans does not apply (it only removes containers compose itself
+	@# started for this project). They therefore outlive every teardown.
+	@#
+	@# Two consequences, both observed here rather than theorised: a nginx task
+	@# from a FOUR-HOUR-OLD run was still up after a full clean, and because it
+	@# held the network, `down` could not remove it either — "Network
+	@# 3mrai_3mrai-network Resource is still in use". The next bootstrap then
+	@# builds on a network it did not create, with a stale gateway task on it.
+	@#
+	@# Matched on the `floci-` name prefix, which Floci derives from the resource
+	@# identifier — the same naming the doctor check and DOCDB_HOST rely on.
+	@# Removing the network afterwards is what makes the next `up` recreate it
+	@# clean; `|| true` throughout because "nothing to remove" is the healthy case.
+	@echo "Removing Floci-launched containers (not compose services, so down misses them)…"
+	@docker ps -aq --filter "name=^floci-" | xargs -r docker rm -f 2>/dev/null || true
+	@docker network rm 3mrai_3mrai-network 2>/dev/null || true
 
-observability-up: ## Start OpenObserve + the OTel collector (opt-in; ~512MB-1.5GB RAM)
-	# --force-recreate, scoped to just these two services: they sit outside the main
+observability-up: ## Start OpenObserve + Jaeger + the OTel collector (opt-in; ~512MB-1.5GB RAM)
+	# --force-recreate, scoped to just these services: they sit outside the main
 	# up/down cycle, so a recreated stack network can leave them stranded on a dead
 	# network (exit 128, "network ... not found"). Recreating them re-attaches to the
 	# current network. Naming the services keeps --force-recreate from bouncing the
 	# whole app stack.
-	$(COMPOSE) --profile observability up -d --force-recreate openobserve otel-collector
+	#
+	# jaeger MUST be named here, and its absence is why traces silently went
+	# nowhere. Naming services is what makes --force-recreate surgical, but it also
+	# means a service the list forgets NEVER STARTS — the profile alone does not
+	# start it. jaeger sat in `profiles: [observability]` and in no target, so it
+	# was the one component of the tracing path that never ran.
+	#
+	# The failure is quiet on the trace path and loud only in the collector's own
+	# log: the exporter retries "no children to pick from" (gRPC for: the target
+	# resolved to no address) and after the retry budget logs "Exporting failed.
+	# Dropping data." Nothing surfaces in OpenObserve, because traces do not go
+	# there — ADR-0019 routes them to Jaeger precisely because OpenObserve's trace
+	# ingest rejected them. So the only symptom a user sees is an empty Jaeger UI
+	# on a port with nothing listening.
+	$(COMPOSE) --profile observability up -d --force-recreate openobserve jaeger otel-collector
 	@echo "OpenObserve UI on http://localhost:5080 once it's healthy (~5s)."
 	@echo "Login: admin@3mrai.local / Complexpass#123"
+	@echo "Jaeger UI (traces) on http://localhost:16686"
 
 observability-down: ## Stop the observability stack (leaves the rest running)
-	$(COMPOSE) stop openobserve otel-collector
+	@# jaeger included for the same reason it is in observability-up: it is part of
+	@# this stack, and a "down" that leaves it running contradicts the target name.
+	$(COMPOSE) stop openobserve jaeger otel-collector
 
 observability-dashboards: ## Import/update OpenObserve dashboards from observability/dashboards/*.dashboard.json (idempotent)
 	@# O2_ORG must match the collector's (docker-compose.yml), or the dashboards
