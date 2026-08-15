@@ -4,9 +4,10 @@ type: spec
 area: events-pipeline
 status: accepted
 created: 2026-06-26
-updated: 2026-08-12
+updated: 2026-08-15
 tags: [type/spec, area/events-pipeline, status/accepted]
 related:
+  - "[[2026-08-15-request-id-correlation-design]]"
   - "[[cqrs]]"
   - "[[ADR-0002-cqrs]]"
   - "[[nano-id]]"
@@ -629,10 +630,14 @@ for the full evidence trail.
 - **CQRS dispatch:** handler selection is by event `type`; commands and queries are never mixed in the same handler. See [[cqrs]] and [[ADR-0002-cqrs]].
 - **Env files:** the DocumentDB connection string and `EVENTS_QUEUE_URL` are generated, never hardcoded — see [[env-files]].
 - **Testing:** this component has no HTTP endpoints, so the repo's three-layer convention is adapted rather than applied literally — see [[testing]] and Tracking's producer-side testing in [[tracking-service-design]].
-- **Logging:** every line carries the shared cross-service context (`trace_id`, `user_id`, `order_id`, `event_id`); never the full payload or a plaintext email. See [[logging-context]].
+- **Logging:** every line carries the shared cross-service context (`request_id`, `trace_id`, `user_id`, `order_id`, `event_id`); never the full payload or a plaintext email. See [[logging-context]]. Unlike `trace_id`, which this service has never emitted (JE-138, no OTel SDK here — see [[logging-context]]'s warning), `request_id` **is** present: the pipeline is a pure **consumer** of it. It reads the optional root `request_id` field off the envelope in `envelopeContext()` per SQS record and never mints one of its own; when the field is absent (e.g. a message queued before this field existed), it is omitted from the log line, never logged as null. This is precisely the gap [[2026-08-15-request-id-correlation-design]] exists to close — the one hop with no `trace_id` at all now still gets a correlation id, sourced from whichever producer (Orders or Tracking) set it.
 
 ## Related
 
+- [[2026-08-15-request-id-correlation-design]] — the cross-service `request_id` correlation field.
+  This is the design's motivating service: with no OTel SDK (JE-138), the pipeline had no
+  correlation id at all until this shipped. It is a pure consumer — reads the optional envelope
+  field, never mints one.
 - [[cqrs]]
 - [[ADR-0002-cqrs]]
 - [[nano-id]]

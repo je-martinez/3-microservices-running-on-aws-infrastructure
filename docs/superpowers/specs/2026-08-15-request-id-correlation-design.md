@@ -2,13 +2,13 @@
 title: Cross-Service Request ID Correlation Design
 type: spec
 area: shared
-status: draft
+status: active
 created: 2026-08-15
 updated: 2026-08-15
 tags:
   - type/spec
   - area/shared
-  - status/draft
+  - status/active
 propagates-to:
   - "[[logging-context]]"
   - "[[users-service-design]]"

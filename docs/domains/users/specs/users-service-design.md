@@ -4,9 +4,10 @@ type: spec
 area: users
 status: active
 created: 2026-06-26
-updated: 2026-08-12
+updated: 2026-08-15
 tags: [type/spec, area/users, status/active]
 related:
+  - "[[2026-08-15-request-id-correlation-design]]"
   - "[[soft-delete]]"
   - "[[nano-id]]"
   - "[[audit-fields]]"
@@ -462,11 +463,16 @@ column is schema-free `Json?`.
 ## Observability
 
 The service participates in the repo-wide observability conventions, not a Users-specific
-scheme: structured logs carry the shared cross-service context (`trace_id`, `cognito_sub`,
-`user_id`, `email_hash`, `duration_ms`) per [[logging-context]] — auth flows log a masked
-email, never a plaintext one — and traces export to the backend decided in
+scheme: structured logs carry the shared cross-service context (`request_id`, `trace_id`,
+`cognito_sub`, `user_id`, `email_hash`, `duration_ms`) per [[logging-context]] — auth flows log a
+masked email, never a plaintext one — and traces export to the backend decided in
 [[ADR-0019-distributed-tracing-opentelemetry]] (Jaeger), configured entirely through
 environment variables, not code.
+
+**`request_id` is seeded at the Fastify `onRequest` hook, before the auth guard.** This is
+deliberate ordering, not incidental: the guard short-circuits a `401` with `return` rather than
+`done()`, so seeding after it would leave the `401`s — the requests people actually investigate —
+with no `request_id` at all. Full design: [[2026-08-15-request-id-correlation-design]].
 
 ## Service-local decisions
 
@@ -487,6 +493,8 @@ convention/pattern notes in `shared/`) live in `docs/domains/users/decisions/`:
 
 ## Related
 
+- [[2026-08-15-request-id-correlation-design]] — the cross-service `request_id` correlation
+  field: Users seeds it at the Fastify `onRequest` hook, before the auth guard.
 - [[soft-delete]]
 - [[nano-id]]
 - [[audit-fields]]

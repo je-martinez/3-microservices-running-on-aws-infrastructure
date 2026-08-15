@@ -10,6 +10,7 @@ tags:
   - area/shared
   - status/active
 related:
+  - "[[2026-08-15-request-id-correlation-design]]"
   - "[[2026-07-19-logging-context-and-tracing-design]]"
   - "[[2026-07-19-logging-context-and-tracing]]"
   - "[[ADR-0019-distributed-tracing-opentelemetry]]"
@@ -35,6 +36,7 @@ Every log line attaches the following fields, identically defined across service
 
 | Field | Source | Present when |
 |---|---|---|
+| `request_id` | inbound `x-request-id` if valid, else generated | **always**, every service, every line |
 | `trace_id` / `span_id` | OpenTelemetry SDK (W3C) | always, **except events-pipeline** (see below) |
 | `cognito_sub` | JWT / `x-user-id` | authenticated request |
 | `user_id` | internal resolution (`usr_…`) | once identity resolved |
@@ -70,6 +72,74 @@ worse than the field's absence.
 > `author_user_id`/`author_cognito_sub` are **omitted**, never null, when no human originated the
 > event (a carrier webhook, a TestMode timer); `author_actor` is always present — every event has
 > a producing actor, even a non-human one (e.g. `tracking_api:carrier_status_update`).
+
+## `request_id` — cross-service correlation without an OTel SDK
+
+> [!info] Implemented and verified end to end (2026-08-15)
+> Full design: [[2026-08-15-request-id-correlation-design]]. One request id followed across all
+> four services in a single flow: users (3 lines) → orders (12) → tracking (13) →
+> events-pipeline (3), confirming all three propagation hops (HTTP, gRPC, SQS). Test counts after
+> the change: users 353, orders 164, tracking 630, events-pipeline 210.
+
+Format: `req_` + a 21-character Nano ID, following the `prefix_nanoid` shape [[nano-id]] already
+establishes for entity ids (`ord_`, `usr_`, …).
+
+**Why it coexists with `trace_id` rather than replacing it.** The events-pipeline runs no OTel
+SDK at all (JE-138, see the warning above), and neither do the realtime WebSocket Lambdas — so
+`trace_id` is absent exactly where cross-service correlation is hardest. `request_id` has no SDK
+dependency and works identically in all four runtimes (Node, .NET, Python, Lambda) whether or not
+OTel is wired up. The two fields answer different questions and neither replaces the other: a
+service with full OTel coverage still carries both on the same line.
+
+**Rule, applied once at the outermost ingress point of each service:**
+
+```
+x-request-id present AND valid?  -> use it
+otherwise                        -> generate req_<nanoid>
+```
+
+**Validation is a security control, not a format check.** Only `^req_[A-Za-z0-9_-]{21}$` is
+accepted; anything else is **discarded** and a fresh id is minted, silently — never a `400`.
+`x-request-id` is untrusted input that lands on every log line for the rest of that request and is
+forwarded downstream, so an unvalidated value could inject adversarial content into the log
+stream's most pervasively-present field. Rejecting silently (rather than failing the request) is
+equally deliberate: a correlation header is a convenience, not a contract the caller must honor —
+it must never be able to fail an otherwise valid request.
+
+**Propagation across the three hops:**
+
+| Hop | Mechanism |
+|---|---|
+| orders → tracking | HTTP `x-request-id` header |
+| tracking → users | gRPC `x-request-id` metadata entry |
+| orders/tracking → events-pipeline | root `request_id` field on the SQS envelope |
+
+**The envelope field is `.optional()` with `.min(1)`.** A message already queued at deploy time
+carries none, and a required field would fail Zod validation as a `PermanentError` — dead-lettering
+the message and silently losing the notification email it was meant to trigger. Absent means the
+key is **omitted**, never null, on the consumer's log line — the same omitted-never-null rule the
+shared context table already follows.
+
+### Three implementation traps (all found by tests, all likely to recur on a new service)
+
+> [!warning] (1) Seed the id BEFORE the auth guard, not after
+> In Users the id was originally seeded after the auth guard, and that guard short-circuits a
+> `401` with `return` rather than `done()` — so `401`s, the requests people actually investigate,
+> had no `request_id` at all. Orders had the same trap. Seed correlation context at the very first
+> hook/middleware, before anything that can short-circuit the response.
+
+> [!warning] (2) .NET: `AsyncLocal` is only visible to frames BELOW the writer
+> Orders seeded the id in `CallerContextMiddleware`, but `UseSerilogRequestLogging` is the
+> **outermost** middleware and writes its `request completed` line on the way back out — by then
+> the inner frame that set the `AsyncLocal` value is already gone, so the single most useful log
+> line would have been the only one without an id. Fixed by installing a mutable holder in the
+> outermost middleware and filling it from within an inner one.
+
+> [!warning] (3) Tracking: an allow-list and a `break` both silently drop the field
+> Tracking's `_ALLOWED_KEYS` gates what reaches a log line; without adding `request_id` there,
+> `_clean` dropped it silently, with no error. Separately, its middleware's header-reading loop
+> `break`ed on the first header match — with two headers to read (e.g. `x-request-id` alongside
+> `x-user-id`), it lost whichever one arrived second.
 
 ## PII rules
 
@@ -299,6 +369,9 @@ reach the shared schema.
 
 ## Related
 
+- [[2026-08-15-request-id-correlation-design]] — the full design for `request_id`: format,
+  validation rationale, propagation mechanics, and the three implementation traps summarized
+  above.
 - [[2026-07-19-logging-context-and-tracing-design]]
 - [[2026-07-19-logging-context-and-tracing]] — the implementation plan for that design.
 - [[ADR-0019-distributed-tracing-opentelemetry]]

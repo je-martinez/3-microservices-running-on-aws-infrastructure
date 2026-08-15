@@ -4,9 +4,10 @@ type: spec
 area: tracking
 status: accepted
 created: 2026-06-26
-updated: 2026-08-12
+updated: 2026-08-15
 tags: [type/spec, area/tracking, status/accepted]
 related:
+  - "[[2026-08-15-request-id-correlation-design]]"
   - "[[soft-delete]]"
   - "[[nano-id]]"
   - "[[audit-fields]]"
@@ -380,6 +381,15 @@ reading the sub costs nothing, while resolving the internal id is an explicit, m
 A property getter that fired gRPC would make the log enricher — which reads identity on every
 event — a network dependency.
 
+> [!info] `request_id` correlation
+> Tracking seeds `request_id` in the existing ASGI `LogContextMiddleware`, the same hook that
+> already calls `set_log_context`. It propagates the value onward on this outbound `GetUserById`
+> call as `x-request-id` gRPC metadata, and as a root field on the `TRACKING_STATUS_CHANGED`
+> envelope. `request_id` must be added to `_ALLOWED_KEYS` for `_clean` to keep it — an omission
+> there drops the field silently, with no error — and the middleware's header-reading loop must
+> not `break` on the first header match, or a second header (e.g. `x-user-id`) is lost. Full
+> design: [[2026-08-15-request-id-correlation-design]].
+
 ## Data Model
 
 All IDs use prefixed nano-IDs ([[nano-id]]). All tables apply soft-delete ([[soft-delete]]), audit fields ([[audit-fields]]), and follow naming conventions ([[db-naming]]).
@@ -742,6 +752,7 @@ every already-persisted tracking, not only for code going forward.
 | Gateway routing (existing module, per-route local integrations) | [[local-gateway-per-route-integrations]] |
 | Event publishing (SQS, generated queue URL) | [[env-files]], [[events-pipeline-design]] |
 | `x-user-id` injection (local) | [[nginx-njs-x-user-id-injection]] |
+| Structured logging context, incl. `request_id` | [[logging-context]] |
 
 ## Deltas from the original design (superseded)
 
@@ -780,6 +791,9 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
 
 ## Related
 
+- [[2026-08-15-request-id-correlation-design]] — the cross-service `request_id` correlation
+  field: Tracking seeds it in `LogContextMiddleware`, propagates via gRPC metadata to Users and
+  as a root field on `TRACKING_STATUS_CHANGED`, and must list it in `_ALLOWED_KEYS`.
 - [[soft-delete]]
 - [[nano-id]]
 - [[audit-fields]]
