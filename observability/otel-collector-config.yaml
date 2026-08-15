@@ -230,25 +230,94 @@ processors:
             where attributes["nginx_log_kind"] == "access"
           - set(attributes["http_response_status_code"], Int(ExtractPatterns(body, "HTTP/[0-9.]+\" (?P<s>[0-9]{3})")["s"]))
             where attributes["nginx_log_kind"] == "access"
-          # Severity mirrors the services' OTel-aligned numbers so a
-          # severity-based filter behaves identically across every source.
-          - set(attributes["severity_text"], "ERROR")
-            where attributes["nginx_log_kind"] == "access" and attributes["http_response_status_code"] >= 500
-          - set(attributes["severity_text"], "WARN")
-            where attributes["nginx_log_kind"] == "access" and attributes["http_response_status_code"] >= 400 and attributes["http_response_status_code"] < 500
-          # Everything else from nginx — access 2xx/3xx AND the container's
-          # startup output — is informational. Without this the startup lines
-          # keep severity 0 (UNSPECIFIED), which is what put them outside every
-          # severity filter and rendered them uncoloured.
+          # Severity from the HTTP status, declared as a MAPPING rather than as a
+          # ladder of set()s. ParseSeverity takes the value and a table, so the
+          # status->level policy reads as data: 5xx is an error, 4xx a warning.
+          # Its "5xx"/"4xx" range placeholders exist for exactly this case.
+          - set(attributes["severity_text"], ParseSeverity(attributes["http_response_status_code"], {"ERROR":[{"range":"5xx"}],"WARN":[{"range":"4xx"}],"INFO":[{"range":"2xx"},{"range":"3xx"}]}))
+            where attributes["nginx_log_kind"] == "access"
+          # Everything else from nginx — the container's startup output — is
+          # informational. Without this those lines keep severity 0 (UNSPECIFIED),
+          # which is what put them outside every severity filter and rendered them
+          # uncoloured.
           - set(attributes["severity_text"], "INFO")
             where attributes["service_name"] == "nginx" and attributes["severity_text"] == nil
-          - set(attributes["severity_number"], 17) where attributes["severity_text"] == "ERROR" and attributes["service_name"] == "nginx"
-          - set(attributes["severity_number"], 13) where attributes["severity_text"] == "WARN" and attributes["service_name"] == "nginx"
-          - set(attributes["severity_number"], 9) where attributes["severity_text"] == "INFO" and attributes["service_name"] == "nginx"
+          # The matching NUMBER, from the same status. nginx is the one source
+          # this file is responsible for — it is the gateway, not one of our
+          # services, so there is no producer to fix — and a source that owns its
+          # severity owns BOTH fields, exactly as every service does.
+          - set(attributes["severity_number"], ParseSeverity(attributes["http_response_status_code"], {"17":[{"range":"5xx"}],"13":[{"range":"4xx"}],"9":[{"range":"2xx"},{"range":"3xx"}]}))
+            where attributes["nginx_log_kind"] == "access"
+          - set(attributes["severity_number"], 9)
+            where attributes["service_name"] == "nginx" and attributes["severity_number"] == nil
           # nginx startup lines: keep them, but mark them so the "log a request
           # once" filter below can tell them apart from access logs.
           - set(attributes["nginx_log_kind"], "startup")
             where attributes["service_name"] == "nginx" and attributes["nginx_log_kind"] == nil
+
+          # ---------------------------------------------------------------
+          # NO severity translation happens here, on purpose.
+          #
+          # CloudWatch log events carry no severity of their own — just a
+          # timestamp and a raw message — so anything arriving through the
+          # aws_cloudwatch receiver lands as SEVERITY_NUMBER_UNSPECIFIED (0)
+          # unless its own JSON body already carries the canonical
+          # `severity_text`/`severity_number` fields.
+          #
+          # The fix for that belongs in the PRODUCER, not in this file. A
+          # translation table here (Pino's 30/40/50, MongoDB's I/W/E, Python's
+          # WARNING) would leave every one of those services emitting a value
+          # that violates the shared schema and paper over it downstream: the
+          # next reader of this config cannot tell which producers are still
+          # wrong, `docker logs` on the service still shows the bad value, and
+          # the contract now has two sources of truth that drift independently.
+          #
+          # So each service emits `severity_text`/`severity_number` per
+          # [[logging-context]], and this file only PROMOTES them onto the
+          # record (see the two statements below). Adding a service means
+          # configuring its logger, not editing this table.
+          #
+          # Known gaps, tracked rather than patched here:
+          #   - realtime-events + events-pipeline (Pino) emit `level`
+          #   - DocumentDB/Valkey are third-party servers we do not control;
+          #     their engine logs keep severity 0 and now live in their own
+          #     `docdb`/`redis` streams, where it costs nothing.
+
+          # Valkey/ElastiCache is deliberately NOT mapped.
+          #
+          # Its level lives in a single char between the timestamp and the
+          # message (`#` warning, `*` notice, `-` verbose), which only a regex
+          # over the raw body can reach — and that regex has to survive YAML
+          # quoting on the way to OTTL. The first attempt here did not: `# `
+          # started a YAML comment and silently TRUNCATED the statement, while a
+          # sibling rule's `\*` arrived as a double-escaped `\\*` and matched
+          # nothing. Both were caught by `validate`, but a subtler variant of the
+          # same mistake is exactly the kind that parses fine and matches nothing
+          # forever (see filter/only_redis for one that did).
+          #
+          # The cost/benefit does not justify it: that group now routes to its
+          # own `redis` stream, where the severity column is a filter over
+          # housekeeping chatter nobody pages on. Left at 0 knowingly. If it ever
+          # matters, parse the char into an attribute in its own transform block
+          # (double-quoted YAML, single-escaped) rather than reintroducing an
+          # inline regex here.
+
+          # NOTE — deliberately NOT normalizing severity spellings here.
+          #
+          # Tracking used to emit Python's WARNING where every other service
+          # emits the OTel name WARN, and the tempting fix was a rewrite rule in
+          # this file. That is the wrong layer: it leaves the service emitting a
+          # value that violates the shared schema and hides it downstream, so the
+          # next reader of this config cannot tell whether any producer is still
+          # wrong, and anything reading the service's stdout directly (docker
+          # logs, a local run) still sees the bad name. Two sources of truth for
+          # one contract.
+          #
+          # Fixed at the producer instead — services/tracking/.../json_formatter.py
+          # maps levelno to the OTel name rather than passing record.levelname
+          # through. The mappings ABOVE are a different thing and belong here:
+          # they translate a FOREIGN vocabulary (Pino's numbers, MongoDB's letter)
+          # that those producers are correct to emit in their own terms.
 
           # Promote our severity onto the log record's NATIVE severity fields.
           #
