@@ -7,6 +7,7 @@ import { AuthError } from "#shared/auth/auth-errors";
 import { RecordNotFoundError } from "#shared/db/db-errors";
 import { buildLoggerOptions } from "#shared/logging/logger";
 import { logContext } from "#shared/logging/log-context";
+import { REQUEST_ID_HEADER, resolveRequestId } from "#shared/logging/request-id";
 import { env } from "#shared/config/env";
 import { isPublicRoute } from "#shared/http/public-routes";
 import { CurrentUser } from "#shared/auth/current-user";
@@ -264,6 +265,14 @@ export function buildApp(
     const actor = req.headers["x-user-id"] as string | undefined;
     const routePath = req.routeOptions?.url ?? req.url;
 
+    // Resolved and ATTACHED before the auth guard below, which short-circuits
+    // with `return` rather than `done()`. A 401 is a request someone will ask
+    // about, so it is the last one that should be missing its correlation id —
+    // and `enterWith` is what puts the id on the reply's own log line, since
+    // that branch never reaches the `logContext.run` wrapper further down.
+    const request_id = resolveRequestId(req.headers[REQUEST_ID_HEADER]);
+    logContext.enterWith({ request_id });
+
     if (actor === undefined && !isPublicRoute(req.method, routePath)) {
       reply.code(401).send({ error: "unauthenticated" });
       return; // do NOT call done() — the request is already finished
@@ -286,7 +295,10 @@ export function buildApp(
     // already wraps `done` in a store, so the log context wraps the same
     // continuation and both are live for the whole request.
     actorContext.run({ actor }, () => {
-      logContext.run(actor === undefined ? {} : { cognito_sub: actor }, done);
+      logContext.run(
+        actor === undefined ? { request_id } : { request_id, cognito_sub: actor },
+        done,
+      );
     });
   });
 

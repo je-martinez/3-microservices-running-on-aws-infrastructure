@@ -10,6 +10,15 @@ import { AsyncLocalStorage } from "node:async_hooks";
 // is worse than an absent key: it reads as a resolved value that happens to be
 // null, rather than "not known at this point in the request".
 export interface LogContextStore {
+  /**
+   * Correlation id for one logical request, `req_` + nanoid. Seeded at ingress
+   * from a valid `x-request-id` header or generated, then carried on every line
+   * and forwarded on every outbound hop — see [[request-id]].
+   *
+   * Distinct from `trace_id`, which comes from the OTel SDK: the events-pipeline
+   * and the realtime Lambdas run no SDK, so this is the only id that spans them.
+   */
+  request_id?: string;
   /** Raw Cognito sub, from the x-user-id header. */
   cognito_sub?: string;
   /** Internal `usr_` id, once identity has been resolved. */
