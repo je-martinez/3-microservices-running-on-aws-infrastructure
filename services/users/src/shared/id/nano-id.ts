@@ -19,6 +19,8 @@ const PREFIXES = {
   UsersCognitoEvent: "cge_",
   // Not persisted: the per-request correlation id ([[request-id]]).
   Request: "req_",
+  // Not persisted: the SQS envelope's idempotency key, minted per published event.
+  Event: "evt_",
 } as const;
 
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -91,6 +93,7 @@ export const NanoIdConfig = {
   newUsersCognitoDataId: () => mint(PREFIXES.UsersCognitoData),
   newUsersCognitoEventId: () => mint(PREFIXES.UsersCognitoEvent),
   newRequestId: () => mint(PREFIXES.Request),
+  newEventId: () => mint(PREFIXES.Event),
 } as const satisfies IdFactories & Record<string, unknown>;
 
 /**
@@ -108,7 +111,7 @@ function mint(prefix: string): string {
  * model name at runtime and so cannot use the typed factories above.
  *
  * Spelled out rather than derived from PREFIXES wholesale: that map also holds
- * non-model ids (`Request`), and handing Prisma a key that is not a model
+ * non-model ids (`Request`, `Event`), and handing Prisma a key that is not a model
  * would be a silent no-op waiting for someone to name a model `Request`.
  */
 export const MODEL_ID_PREFIXES: Record<string, string> = {

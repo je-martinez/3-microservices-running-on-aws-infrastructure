@@ -1,8 +1,9 @@
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import { appLogger } from "#shared/logging/app-logger";
 import { hashEmail } from "#shared/logging/email-hash";
-import { generateId } from "#shared/id/nano-id";
+import { NanoIdConfig } from "#shared/id/nano-id";
 import { AuditActor } from "#shared/audit/audit-actor";
+import { getLogContext } from "#shared/logging/log-context";
 
 // `fullName` is required by the pipeline: the events-pipeline USER_CREATED
 // handler validates the payload with a Zod schema that requires BOTH `fullName`
@@ -73,7 +74,8 @@ export class NoopEventPublisher implements EventPublisher {
   }
 }
 
-const EVENT_ID_PREFIX = "evt_";
+// The prefix lives in NanoIdConfig with every other one; this file mints through
+// `NanoIdConfig.newEventId()` rather than repeating the string.
 const EVENT_TYPE = "USER_CREATED";
 const PASSWORD_RESET_EVENT_TYPE = "PASSWORD_RESET_REQUESTED";
 const EVENT_SOURCE = "users";
@@ -95,7 +97,15 @@ export class SqsEventPublisher implements EventPublisher {
     // schema: the key must be present with a null value or the envelope is
     // rejected.
     const envelope = {
-      event_id: generateId(EVENT_ID_PREFIX),
+      event_id: NanoIdConfig.newEventId(),
+      // The correlation id of the request that produced this event, so the
+      // pipeline's log lines join back to the registration or reset that caused
+      // them. OMITTED, never null, when there is no active context (a background
+      // task, a test): the pipeline's schema declares it `.optional().min(1)`,
+      // so an explicit null or "" is a PermanentError there — the message is not
+      // retried and its email is lost. `undefined` is the right absence marker
+      // because JSON.stringify drops it, exactly as `author.cognito_sub` below.
+      request_id: getLogContext().request_id,
       type: EVENT_TYPE,
       source: EVENT_SOURCE,
       user_id: payload.id,
@@ -206,7 +216,15 @@ export class SqsEventPublisher implements EventPublisher {
   // in alongside would be persisted verbatim.
   async publishPasswordResetRequested(payload: PasswordResetRequestedPayload): Promise<void> {
     const envelope = {
-      event_id: generateId(EVENT_ID_PREFIX),
+      event_id: NanoIdConfig.newEventId(),
+      // The correlation id of the request that produced this event, so the
+      // pipeline's log lines join back to the registration or reset that caused
+      // them. OMITTED, never null, when there is no active context (a background
+      // task, a test): the pipeline's schema declares it `.optional().min(1)`,
+      // so an explicit null or "" is a PermanentError there — the message is not
+      // retried and its email is lost. `undefined` is the right absence marker
+      // because JSON.stringify drops it, exactly as `author.cognito_sub` below.
+      request_id: getLogContext().request_id,
       type: PASSWORD_RESET_EVENT_TYPE,
       source: EVENT_SOURCE,
       // The SUBJECT of the event: whose password is being reset.

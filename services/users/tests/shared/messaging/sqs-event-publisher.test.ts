@@ -3,6 +3,8 @@ import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import { SqsEventPublisher } from "#shared/messaging/event-publisher";
 import { appLogger } from "#shared/logging/app-logger";
 import { hashEmail } from "#shared/logging/email-hash";
+import { logContext } from "#shared/logging/log-context";
+import { NanoIdConfig } from "#shared/id/nano-id";
 
 const QUEUE_URL = "http://localhost:4566/000000000000/events";
 
@@ -28,6 +30,40 @@ const PAYLOAD = {
 };
 
 describe("SqsEventPublisher", () => {
+  // The correlation id has to travel ON THE ENVELOPE, not just in this service's
+  // own log lines: the events-pipeline runs no OTel SDK, so this field is the
+  // only thing tying the email it sends back to the request that caused it.
+  //
+  // This was a real gap — Users seeded request_id for HTTP but did not forward
+  // it, so an E2E run produced 309 pipeline lines with no correlation id, all of
+  // them from Users-published events (USER_CREATED, PASSWORD_RESET_REQUESTED,
+  // AUTH_OTP_REQUESTED) while Orders' and Tracking's carried one.
+  describe("request_id propagation", () => {
+    it("puts the active request's id on the envelope", async () => {
+      const client = fakeClient();
+      const request_id = NanoIdConfig.newRequestId();
+
+      await logContext.run({ request_id }, () =>
+        new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD),
+      );
+
+      const body = JSON.parse(sentCommand(client).input.MessageBody!);
+      expect(body.request_id).toBe(request_id);
+    });
+
+    it("OMITS the key entirely outside a request", async () => {
+      // Never null: the pipeline's schema is `.optional().min(1)`, so an
+      // explicit null or "" is a PermanentError there — the message is dropped
+      // without retry and its email is lost.
+      const client = fakeClient();
+
+      await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+
+      const body = JSON.parse(sentCommand(client).input.MessageBody!);
+      expect("request_id" in body).toBe(false);
+    });
+  });
+
   it("sends exactly one SendMessageCommand to the configured queue URL", async () => {
     const client = fakeClient();
     await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
