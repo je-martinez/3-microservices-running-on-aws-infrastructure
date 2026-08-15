@@ -236,6 +236,26 @@ data "archive_file" "otp_challenge" {
   type        = "zip"
   source_dir  = "${path.module}/otp-challenge-lambda"
   output_path = "${path.module}/otp-challenge-lambda.zip"
+
+  # The directory is a pnpm workspace so its tests actually RUN — they existed
+  # and nothing invoked them until this was wired up. That brings three files
+  # the Lambda must not ship, and `source_dir` zips everything it finds:
+  #
+  #   - node_modules/ is vitest and its tree. The runtime needs none of it: this
+  #     Lambda imports nothing outside node:crypto.
+  #   - package.json would make the nodejs runtime treat the directory as a
+  #     package and could change how index.mjs resolves.
+  #   - the test file is dead weight in a deployed artifact.
+  #
+  # Excluding them is not only about size. `source_code_hash` is computed from
+  # this archive, so without these lines every `pnpm install` that touched the
+  # dependency tree would change the hash and Terraform would redeploy a Lambda
+  # whose actual code never changed.
+  excludes = [
+    "node_modules",
+    "package.json",
+    "index.test.mjs",
+  ]
 }
 
 resource "aws_iam_role" "otp_challenge" {

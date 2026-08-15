@@ -1,0 +1,13 @@
+{
+  "name": "@3mrai/cognito-otp-challenge-lambda",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cognito CUSTOM_AUTH challenge Lambda. Packaged as a workspace ONLY so its tests run \u2014 the Lambda itself ships as a bare index.mjs zipped by Terraform's archive_file, with no node_modules, and depends on nothing outside node:crypto.",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^2.0.0"
+  }
+}

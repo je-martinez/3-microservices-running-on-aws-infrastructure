@@ -173,6 +173,12 @@ importers:
         specifier: ^2.0.0
         version: 2.1.9(@types/node@26.0.1)(terser@5.49.1)
 
+  infra/modules/cognito/otp-challenge-lambda:
+    devDependencies:
+      vitest:
+        specifier: ^2.0.0
+        version: 2.1.9(@types/node@26.0.1)(terser@5.49.1)
+
   services/users:
     dependencies:
       '@aws-sdk/client-cloudwatch':

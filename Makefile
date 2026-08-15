@@ -90,7 +90,7 @@ ps: ## Show container status
 
 ## --- Tests (the three-layer convention: docs/shared/conventions/testing.md) ---
 
-test-unit: ## Layer 1 — unit/integration for orders (dotnet), users + events-pipeline (vitest) + e2e typecheck. No stack needed.
+test-unit: ## Layer 1 — unit/integration for orders (dotnet), users + both Lambdas + the Cognito trigger (vitest), tracking (pytest) + e2e typecheck. No stack needed.
 	dotnet test services/orders/Orders.sln
 	pnpm --filter @3mrai/users test
 	# Safe in the no-stack layer: the events-pipeline suites that need real
@@ -99,6 +99,24 @@ test-unit: ## Layer 1 — unit/integration for orders (dotnet), users + events-p
 	# why and how to run them for real. Set EVENTS_PIPELINE_REQUIRE_INTEGRATION=1
 	# where the stack IS expected to turn those skips into hard failures.
 	pnpm --filter @3mrai/events-pipeline test
+	# These three existed and NOTHING ran them. A suite nobody invokes is worse
+	# than no suite: it reads as coverage in a review and cannot fail, so the
+	# code it guards drifts freely. Found when a logging change to the Cognito
+	# trigger needed its tests and the only way to run them was borrowing another
+	# package's vitest by hand.
+	#
+	# realtime-events was simply never listed. The Cognito trigger additionally
+	# had no package.json — it is a workspace now for this reason alone, and
+	# archive_file excludes what that adds so the deployed zip is unchanged (see
+	# infra/modules/cognito/main.tf).
+	pnpm --filter @3mrai/realtime-events test
+	pnpm --filter @3mrai/cognito-otp-challenge-lambda test
+	# Tracking's suite is pytest, not vitest, and runs from its own venv. It was
+	# absent here for the same reason as the others: nothing had a reason to add
+	# it. It talks to the shared local database (services/tracking/CLAUDE.md
+	# §5c-bis), so it belongs in this layer only because that database is part of
+	# the local stack anyone running tests already has.
+	cd services/tracking && .venv/bin/python -m pytest -q
 	pnpm --filter @3mrai/e2e typecheck
 
 test-e2e: ## Layers 2+3 — Playwright internal + gateway for both services. REQUIRES `make bootstrap` up.
