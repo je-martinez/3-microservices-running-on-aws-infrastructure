@@ -398,6 +398,16 @@ services:
     # normally, but produces no spans and no trace_id on any log line, while the
     # deployed image (running the unoverridden CMD) is fine. That divergence is
     # exactly the kind of thing that gets debugged as "Jaeger is broken".
+    # This REPLACES the image CMD, so every flag the image sets has to be
+    # repeated here — the same trap `opentelemetry-instrument` fell into. Drop
+    # `--log-config` and uvicorn's three startup lines go back to plain text
+    # LOCALLY while the deployed image stays correct, which is the hardest kind
+    # of divergence to notice.
+    #
+    # `--reload` is the reason this override exists at all: it is a local-dev
+    # tool (an extra watcher process) that must not follow the image into a
+    # deployment. It also makes two of those three lines appear — the reloader
+    # ones — but "Uvicorn running" is printed in every environment.
     command:
       [
         "opentelemetry-instrument",
@@ -408,6 +418,8 @@ services:
         "--port",
         "8000",
         "--reload",
+        "--log-config",
+        "uvicorn-log-config.yaml",
       ]
     develop:
       watch:

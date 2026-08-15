@@ -69,6 +69,10 @@ RUN groupadd --gid 1001 tracking \
 COPY --chown=tracking:tracking src ./src
 COPY --chown=tracking:tracking alembic ./alembic
 COPY --chown=tracking:tracking alembic.ini pyproject.toml ./
+# The uvicorn logging config. Copied explicitly because the CMD's --log-config
+# points at it: if it is missing the container does not start at all, it exits
+# with a config error — a loud failure, but one that only shows up at runtime.
+COPY --chown=tracking:tracking uvicorn-log-config.yaml ./
 
 USER tracking
 EXPOSE 8000
@@ -140,4 +144,10 @@ ENV OTEL_PYTHON_FASTAPI_EXCLUDED_URLS="/v1/health$"
 # NOTE for docker-watch: compose overrides `command:` for local dev. An override
 # that runs bare `uvicorn --reload` bypasses this wrapper and the container
 # emits no traces — the override must keep the `opentelemetry-instrument` prefix.
-CMD ["opentelemetry-instrument", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --log-config is what standardises uvicorn's OWN startup lines. Without it the
+# three it writes before importing the app ("Will watch for changes", "Started
+# reloader process", "Uvicorn running") go out as plain text: no service_name, no
+# severity_text, severity 0 downstream, invisible to every schema-based filter.
+# configure_logging() cannot reach them — it runs when the app is imported, which
+# is after uvicorn has already printed them.
+CMD ["opentelemetry-instrument", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-config", "uvicorn-log-config.yaml"]
