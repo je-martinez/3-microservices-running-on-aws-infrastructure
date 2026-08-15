@@ -178,13 +178,36 @@ function hashEmail(email) {
   return createHash("sha256").update(String(email).trim().toLowerCase()).digest("hex");
 }
 
+// OTel severity numbers (logs data model), identical to every other producer's
+// table so a line from this Lambda and a line from a service are
+// indistinguishable downstream.
+const SEVERITY_NUMBER = { DEBUG: 5, INFO: 9, WARN: 13, ERROR: 17, FATAL: 21 };
+
 // Structured log matching the repo's logging conventions: `app_event` naming,
 // unknown fields OMITTED rather than null. The OTP code is NEVER a field here —
 // not masked, not hashed, not truncated. A 6-digit code has only 1,000,000
 // possibilities, so no partial reveal of it is safe; `challenge_id` is the
 // correlator instead.
-function log(fields) {
-  const line = { level: "info", ...fields };
+//
+// Emits `severity_text`/`severity_number`, NOT the `level: "info"` this used to
+// hardcode. Two things were wrong with that: the field name is not the one the
+// shared schema uses, so the collector never promoted it and every line from
+// this Lambda reached OpenObserve at severity 0 (UNSPECIFIED); and the value was
+// a CONSTANT, so a failure logged as loudly as a success. `severity` is a
+// parameter now, defaulting to INFO — the level has to be a decision at the call
+// site, which is the only place that knows whether something went wrong.
+//
+// `service_name` is stamped here rather than at each call site: it is the field
+// dashboards group by, and this Lambda emitted none at all, so its records could
+// not be attributed to anything.
+function log(fields, severity = "INFO") {
+  const line = {
+    severity_text: severity,
+    severity_number: SEVERITY_NUMBER[severity] ?? SEVERITY_NUMBER.INFO,
+    service_name: "cognito-otp-challenge",
+    timestamp: new Date().toISOString(),
+    ...fields,
+  };
   for (const key of Object.keys(line)) {
     if (line[key] === undefined) delete line[key];
   }
@@ -333,16 +356,23 @@ function handleVerifyAuthChallengeResponse(event) {
     expected.length > 0 &&
     constantTimeEquals(expected, submitted);
 
-  log({
-    app_event: event.response.answerCorrect
-      ? "otp_challenge_verified"
-      : "otp_challenge_rejected",
-    email_hash: event.request.userAttributes?.email
-      ? hashEmail(event.request.userAttributes.email)
-      : undefined,
-    cognito_sub: event.request.userAttributes?.sub,
-    reason: event.response.answerCorrect ? undefined : "code_mismatch",
-  });
+  // A rejected code is a WARN, not an INFO. It is the line someone looks for
+  // when investigating a login someone could not complete — or a brute-force
+  // attempt — and at INFO it was indistinguishable from a success in every
+  // severity filter and every dashboard.
+  log(
+    {
+      app_event: event.response.answerCorrect
+        ? "otp_challenge_verified"
+        : "otp_challenge_rejected",
+      email_hash: event.request.userAttributes?.email
+        ? hashEmail(event.request.userAttributes.email)
+        : undefined,
+      cognito_sub: event.request.userAttributes?.sub,
+      reason: event.response.answerCorrect ? undefined : "code_mismatch",
+    },
+    event.response.answerCorrect ? "INFO" : "WARN",
+  );
 
   return event;
 }

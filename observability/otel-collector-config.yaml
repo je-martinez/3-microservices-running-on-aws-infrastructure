@@ -544,6 +544,43 @@ processors:
       log_record:
         - 'resource.attributes["cloudwatch.log.group.name"] != nil and IsMatch(resource.attributes["cloudwatch.log.group.name"], "/docdb/")'
 
+  # The RDS split — the two Aurora clusters' error logs, same shape as the
+  # redis/docdb splits above and for the same reason.
+  #
+  # WHAT IS IN HERE: /aws/rds/instance/<id>/error for both engines — Users'
+  # Postgres and Orders' MySQL. Despite the group name these are the servers'
+  # general logs, not an error-only feed: Postgres writes its startup banner,
+  # checkpoint and connection lines there at LOG level, and MySQL does the same.
+  # Measured before this split: 51 records in an hour on an idle stack, all at
+  # severity 0 because the engines' own level prefixes are not the shared schema.
+  #
+  # Routed rather than dropped, for the reason every one of these splits exists:
+  # this group is the ONLY place a database reports a failed start, a recovery,
+  # a connection storm or a disk-full — rare, quiet, and exactly what nobody
+  # wants to discover was filtered out. Splitting keeps the main stream free of
+  # engine chatter while leaving those one query away.
+  #
+  # Matched on the LOG GROUP (a resource attribute), which is what makes routing
+  # the whole group safe. Same two silent-failure traps as the other splits, and
+  # they have now bitten four times in this file: read
+  # `resource.attributes["cloudwatch.log.group.name"]` (the receiver puts the
+  # group on the RESOURCE) with its DOT-separated key (the underscored spelling
+  # is OpenObserve's indexer rename and matches nothing here).
+  #
+  # These two conditions MUST stay exact complements. Nil guard FIRST: most
+  # records arrive over fluent_forward with no log group at all.
+  filter/only_rds:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'resource.attributes["cloudwatch.log.group.name"] == nil or not IsMatch(resource.attributes["cloudwatch.log.group.name"], "/aws/rds/")'
+
+  filter/drop_rds:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'resource.attributes["cloudwatch.log.group.name"] != nil and IsMatch(resource.attributes["cloudwatch.log.group.name"], "/aws/rds/")'
+
   # The SQL-echo split. These two conditions MUST stay exact complements: a
   # record matching neither is lost, and one matching both is stored twice. They
   # are written against the same expression so the pair can be read as one rule.
@@ -720,6 +757,20 @@ exporters:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: nginx
 
+  # The database engine logs get their own stream — same instance and auth, only
+  # the stream-name header differs, exactly like the splits above.
+  #
+  # Why separate rather than drop: this is the only place either Aurora cluster
+  # reports a failed start, a recovery, or a connection problem. Those are rare
+  # and quiet, which is precisely why they must not be weighed against startup
+  # and checkpoint chatter in the stream everyone reads by default — and also
+  # why they must not be discarded.
+  otlp_http/openobserve_rds:
+    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    headers:
+      Authorization: "Basic ${env:O2_BASIC_AUTH}"
+      stream-name: rds
+
   # Traces go to the SAME OpenObserve instance, a different stream. One backend
   # for both signals is what lets trace_id join a log line to its span without
   # querying across two systems (see the tracing ADR).
@@ -775,7 +826,7 @@ service:
       # filter/drop_wiredtiger_noise deliberately NOT listed here: once
       # filter/drop_docdb diverts the whole DocumentDB log group, that filter
       # would match nothing in this pipeline. It runs in logs/docdb instead.
-      processors: [transform/parse_body, filter/drop_nginx, filter/drop_redis, filter/drop_docdb, filter/drop_sql, batch]
+      processors: [transform/parse_body, filter/drop_nginx, filter/drop_redis, filter/drop_docdb, filter/drop_rds, filter/drop_sql, batch]
       exporters: [otlp_http/openobserve]
 
     # SQL echo, same receivers, opposite filter, its own stream. Two pipelines
@@ -850,6 +901,16 @@ service:
       receivers: [fluent_forward, aws_cloudwatch]
       processors: [transform/parse_body, filter/only_nginx, batch]
       exporters: [otlp_http/openobserve_nginx]
+
+    # Database engine logs, their own stream. Same structure as logs/redis: same
+    # receivers, the complementary filter, a different exporter.
+    #
+    # filter/drop_rds in the main pipeline and filter/only_rds here are exact
+    # complements, so every record lands in exactly one of the two streams.
+    logs/rds:
+      receivers: [fluent_forward, aws_cloudwatch]
+      processors: [transform/parse_body, filter/only_rds, batch]
+      exporters: [otlp_http/openobserve_rds]
 
     # No transform/parse_body here: OTLP traces arrive already structured, so
     # there is no JSON-in-a-string body to flatten as there is for stdout logs.
