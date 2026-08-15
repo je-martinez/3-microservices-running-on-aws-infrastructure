@@ -50,6 +50,12 @@ function pruneOrphanComponents(openapiObject: ReturnType<typeof jsonSchemaTransf
 
 const transformObjectPruned: typeof jsonSchemaTransformObject = (input) =>
   pruneOrphanComponents(jsonSchemaTransformObject(input));
+
+/**
+ * The liveness probe's route. Only its 2xx responses are exempt from the request
+ * log — see the `onResponse` hook and [[health-check-logging]].
+ */
+const HEALTH_ROUTE = "/v1/health";
 // Side-effect import: `schemas.ts` registers `UserSchema`/`AuthTokensSchema`/
 // `ErrorSchema` in `z.globalRegistry` at module-eval time (see that file's
 // bottom `z.globalRegistry.add(...)` calls), which is how they surface under
@@ -105,25 +111,58 @@ export function buildApp(
     logger: opts?.logStream
       ? ({ ...loggerOptions, stream: opts.logStream } as never)
       : loggerOptions,
+    // Fastify's built-in request logging is OFF because the onResponse hook
+    // below replaces it. Without this the service emitted TWO lines per request,
+    // BOTH saying "request completed" — Fastify's own (carrying `res.statusCode`
+    // and `responseTime`) and the schema-aligned one (carrying `http_route`,
+    // `http_response_status_code`, `duration_ms`).
+    //
+    // That is worse than simple duplication: every request-rate figure computed
+    // from the message was DOUBLE the real count, and half the rows answered a
+    // `http_route` filter with nothing because they had no such field. Measured
+    // with a single registration request: 2 lines, one of each shape.
+    //
+    // The hook's comment always claimed it replaced the default. It did not —
+    // it added to it.
+    disableRequestLogging: true,
   });
 
   // Emits one schema-aligned log per response (OTel-style HTTP semantic
   // conventions), replacing Fastify's default per-request start/end logs.
   app.addHook("onResponse", (req, reply, done) => {
-    req.log.info(
-      {
-        http_request_method: req.method,
-        http_route: req.routeOptions?.url ?? req.url,
-        http_response_status_code: reply.statusCode,
-        duration_ms: reply.elapsedTime,
-        // NO `trace_id: req.id` here. Pino injects the REAL OTel trace_id and
-        // span_id on every line once the SDK is active, and explicit fields beat
-        // the ambient ones — so passing Fastify's local request counter would
-        // override the real id on the single most useful log line, breaking the
-        // join between logs and traces.
-      },
-      "request completed",
-    );
+    const route = req.routeOptions?.url ?? req.url;
+
+    // The liveness probe is exempt WHILE IT SUCCEEDS — see [[health-check-logging]].
+    // A succeeding probe is the one request whose log line carries nothing: the
+    // container being up already says it, and its duration is a constant. A
+    // FAILING one carries the status and latency that explain why, so it falls
+    // through and is logged like any other request.
+    //
+    // Scoped by status rather than by suppressing the route, which is what keeps
+    // the failure visible. Measured in Tracking before this was standardised
+    // across the services: 353 of 368 lines in an hour were this one request at
+    // 200, against 2 describing real work.
+    const isHealthySoak =
+      route === HEALTH_ROUTE &&
+      reply.statusCode >= 200 &&
+      reply.statusCode < 300;
+
+    if (!isHealthySoak) {
+      req.log.info(
+        {
+          http_request_method: req.method,
+          http_route: route,
+          http_response_status_code: reply.statusCode,
+          duration_ms: reply.elapsedTime,
+          // NO `trace_id: req.id` here. Pino injects the REAL OTel trace_id and
+          // span_id on every line once the SDK is active, and explicit fields beat
+          // the ambient ones — so passing Fastify's local request counter would
+          // override the real id on the single most useful log line, breaking the
+          // join between logs and traces.
+        },
+        "request completed",
+      );
+    }
 
     // Error-rate metric. ONLY 4xx/5xx are counted: a metric per 2xx would be a
     // request-rate metric, which the log line above already provides, and it

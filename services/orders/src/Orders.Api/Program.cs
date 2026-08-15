@@ -322,6 +322,29 @@ var app = builder.Build();
 app.UseSerilogRequestLogging(options =>
 {
     options.MessageTemplate = "request completed";
+    // The liveness probe is exempt WHILE IT SUCCEEDS — see the
+    // health-check-logging convention. A succeeding probe is the one request
+    // whose log line carries nothing: the container being up already says it,
+    // and its duration is a constant. A FAILING one carries the status and the
+    // latency that explain why, so it keeps the normal level and is logged.
+    //
+    // Verbose rather than a hard suppression: this service's minimum level is
+    // Information, so the line is filtered out before it reaches the sink, but
+    // the record still exists for anyone who lowers the level to debug a probe.
+    // Serilog's own error paths are preserved — `ex != null` and 5xx fall
+    // through to the default, so a probe that throws still logs at Error.
+    // The `: 500 -> Error` arm reproduces Serilog's own default, which assigning
+    // GetLevel replaces wholesale. Returning a flat Information would have
+    // quietly DOWNGRADED every server error on the request log — a regression
+    // introduced by a change meant to remove noise.
+    options.GetLevel = (http, _, ex) =>
+        ex == null
+        && http.Response.StatusCode is >= 200 and < 300
+        && (http.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText == PublicRoutes.HealthRoute
+            ? Serilog.Events.LogEventLevel.Verbose
+            : ex != null || http.Response.StatusCode >= 500
+                ? Serilog.Events.LogEventLevel.Error
+                : Serilog.Events.LogEventLevel.Information;
     options.EnrichDiagnosticContext = (diag, http) =>
     {
         diag.Set("http_request_method", http.Request.Method);

@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-19
-updated: 2026-08-12
+updated: 2026-08-15
 tags:
   - type/convention
   - area/shared
@@ -24,6 +24,7 @@ related:
   - "[[2026-08-05-passwordless-otp-auth]]"
   - "[[passwordless-auth-type]]"
   - "[[2026-08-12-custom-business-metrics-cloudwatch-design]]"
+  - "[[health-check-logging]]"
 ---
 
 # Logging Context
@@ -230,6 +231,10 @@ coloring and filters work as expected.
 > are ingested only for failures the application layer cannot observe — 5xx, upstream errors, and
 > anything the parser could not classify.
 
+A succeeding health-check probe is the other deliberate exception to "every request gets a
+`request completed` line": it is exempted while it returns 2xx, and logged like any other request
+otherwise. Full rule and per-service mechanism: [[health-check-logging]].
+
 nginx access logs under 500 are dropped by the collector: for a 2xx/3xx/4xx, the service already
 logs the same request with the *why*. 5xx are kept — verified by stopping the users container and
 hitting its route, which produced `nginx ERROR GET /v1/users/health 502`, a failure no service
@@ -317,3 +322,5 @@ reach the shared schema.
 - [[2026-08-12-custom-business-metrics-cloudwatch-design]] — the metrics pillar this note's
   "Metrics" section summarizes: the CloudWatch-not-OTLP pipeline, the namespace/dimension
   conventions, and the full detail behind the three Floci/OpenObserve gotchas above.
+- [[health-check-logging]] — the health-check exemption from the `request completed` line while
+  the probe succeeds, and why it is scoped by status rather than by suppressing the route.
