@@ -24,6 +24,16 @@ are declared here rather than driving `create_app()` because the real ones need 
 database, Cognito settings and a gRPC stub, none of which make the assertion
 truer and all of which would make this skip when Floci is down.
 
+## Health checks are the one exemption, and only while they succeed
+
+A successful `GET /v1/health` is NOT logged; a failing one is. This file used to
+assert the opposite, on the reasoning that a probe which starts failing is worth
+seeing and an exemption list is one more thing to keep correct — both still true,
+and neither requires logging the successes. What changed it was the ratio: 353 of
+this service's 368 lines in an hour were that one request at 200, against 2 lines
+describing actual tracking work. The pair of tests below is the contract; testing
+only the exemption would let a change that silences the route entirely pass.
+
 ## `http_route` is the TEMPLATE
 
 The parameterised route is requested with a concrete id and asserted to log
@@ -61,6 +71,24 @@ def client() -> TestClient:
     @app.get("/boom")
     async def boom() -> dict[str, str]:  # noqa: ANN202 - fixture route
         raise RuntimeError("boom")
+
+    app.add_middleware(LogContextMiddleware)
+    return TestClient(app, raise_server_exceptions=False)
+
+
+@pytest.fixture
+def failing_health_client() -> TestClient:
+    """An app whose health route FAILS, to prove the exemption is status-scoped.
+
+    A separate fixture rather than a flag on the one above: the exemption turns
+    on the response status, so the only honest way to test the failing branch is
+    a route that really returns one.
+    """
+    app = FastAPI()
+
+    @app.get("/v1/health")
+    async def health() -> dict[str, str]:  # noqa: ANN202 - fixture route
+        raise RuntimeError("probe down")
 
     app.add_middleware(LogContextMiddleware)
     return TestClient(app, raise_server_exceptions=False)
@@ -164,25 +192,6 @@ class TestFailuresAreLoggedToo:
         assert record.http_request_method == "GET"
 
 
-class TestHealthChecksAreLoggedLikeEverythingElse:
-    def test_the_health_check_emits_the_line(
-        self, client: TestClient, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Deliberately NOT exempted.
-
-        Users logs every request, and a health check that starts failing is worth
-        seeing; an exemption list would also be one more thing to keep correct.
-        """
-        with caplog.at_level(logging.INFO, logger=MIDDLEWARE_LOGGER):
-            response = client.get("/v1/health")
-
-        assert response.status_code == 200
-
-        record = only_line(caplog)
-        assert record.http_route == "/v1/health"
-        assert record.http_response_status_code == 200
-
-
 class TestTheLogNeverBreaksTheRequest:
     def test_a_logger_that_raises_does_not_fail_the_response(
         self,
@@ -205,3 +214,46 @@ class TestTheLogNeverBreaksTheRequest:
         response = client.get("/v1/trackings/ord_abc123")
 
         assert response.status_code == 200
+
+
+class TestHealthChecksAreExemptOnlyWhileTheySucceed:
+    """The liveness probe's 2xx responses are not logged; its failures are.
+
+    This pair is the whole contract. Testing only the first half would let a
+    change that silences the route ENTIRELY pass — which is the outcome the
+    exemption was deliberately designed to avoid, since a probe that starts
+    failing is the one health line worth having.
+    """
+
+    def test_a_successful_probe_is_not_logged(
+        self, client: TestClient, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """353 of 368 lines in an hour were this exact request. It carries no
+        information a healthy container does not already convey."""
+        with caplog.at_level(logging.INFO, logger=MIDDLEWARE_LOGGER):
+            response = client.get("/v1/health")
+
+        assert response.status_code == 200
+        assert request_lines(caplog) == []
+
+    def test_a_failing_probe_is_logged(
+        self, failing_health_client: TestClient, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The case the exemption exists to preserve: status and duration are
+        exactly what explains a probe that started failing."""
+        with caplog.at_level(logging.INFO, logger=MIDDLEWARE_LOGGER):
+            response = failing_health_client.get("/v1/health")
+
+        assert response.status_code == 500
+        record = only_line(caplog)
+        assert record.http_route == "/v1/health"
+        assert record.http_response_status_code == 500
+
+    def test_other_routes_are_still_logged(
+        self, client: TestClient, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The exemption is scoped to the health route, not to 2xx in general."""
+        with caplog.at_level(logging.INFO, logger=MIDDLEWARE_LOGGER):
+            client.get("/v1/trackings/ord_abc123")
+
+        assert only_line(caplog).http_response_status_code == 200

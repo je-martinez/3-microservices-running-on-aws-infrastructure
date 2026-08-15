@@ -59,6 +59,11 @@ USER_ID_HEADER = b"x-user-id"
 #: The counter published for every 4xx/5xx response.
 HTTP_ERRORS_METRIC = "http_errors_total"
 
+#: The liveness probe's route. Served UNPREFIXED (the gateway publishes it as
+#: /v1/tracking/health and nginx rewrites), so this is the path FastAPI matches.
+#: Only its 2xx responses are exempt from the request log — see _log_request.
+HEALTH_ROUTE = "/v1/health"
+
 
 class LogContextMiddleware:
     """ASGI middleware seeding the log context for each HTTP request."""
@@ -136,9 +141,30 @@ class LogContextMiddleware:
         outcome, so raising the severity would double-encode it and make an error
         rate computed from `severity_text` disagree with one computed from
         `http_response_status_code`. Users emits these at INFO for the same
-        reason. Health checks are logged like anything else — a probe that starts
-        failing is worth seeing, and an exemption list is one more thing to keep
-        correct.
+        reason.
+
+        HEALTH CHECKS ARE THE ONE EXCEPTION, and only while they SUCCEED. An
+        earlier version of this docstring argued against any exemption: a probe
+        that starts failing is worth seeing, and an exemption list is one more
+        thing to keep correct. Both halves still hold, and neither requires
+        logging the successes — so the rule keeps the first and drops the second.
+
+        What forced it was the ratio, measured rather than assumed: 353 of this
+        service's 368 log lines in an hour were `GET /v1/health -> 200`, 96% of
+        the stream, against 2 lines describing actual tracking work. The liveness
+        probe runs forever at a fixed interval, so that share only grows on an
+        idle system — it is volume that scales with uptime instead of with usage,
+        which is the definition of noise.
+
+        A SUCCEEDING probe is also the one request whose log line carries no
+        information: the container being up already says it, and its duration is
+        a constant. A FAILING one carries the status and the latency that explain
+        why, so it is logged like any other request.
+
+        Scoped by status rather than by a route list, which is what keeps the
+        original objection answered: there is no list to maintain, and the rule
+        reads as "successful probes are not events" rather than as "this path is
+        special".
 
         Wrapped like `_publish_http_error` below: the response has already been
         sent (or, on the 500 path, the original exception is about to be
@@ -158,6 +184,17 @@ class LogContextMiddleware:
             route = scope.get("route")
             http_route = getattr(route, "path", None) or scope.get("path", "")
             duration_ms = (time.perf_counter() - started) * 1000
+
+            # The health-check exemption — successes only. See the docstring.
+            # `status is not None` matters: a request that produced no response
+            # status at all (the 500 path re-raising before http.response.start)
+            # is NOT a success and must still be logged.
+            if (
+                http_route == HEALTH_ROUTE
+                and status is not None
+                and 200 <= status < 300
+            ):
+                return
 
             logger.info(
                 "request completed",
