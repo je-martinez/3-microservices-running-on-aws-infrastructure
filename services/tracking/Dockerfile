@@ -83,6 +83,42 @@ EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=5 \
     CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/v1/health', timeout=2).status == 200 else 1)"]
 
+# ── OpenTelemetry: the two settings the generated env file does NOT carry ────
+# Everything else the SDK needs — OTEL_EXPORTER_OTLP_ENDPOINT, _PROTOCOL,
+# OTEL_METRICS_EXPORTER=none, OTEL_LOGS_EXPORTER=none — already arrives via
+# .env.local.tracking (Terraform-generated, never hand-edited). These two are
+# absent there, so they are declared HERE, as image-level defaults.
+#
+# Still environment variables, NOT SDK-options-in-code: that is the whole point.
+# [[logging-context]] forbids configuring the SDK programmatically because three
+# silent failures in this repo came from it. An `ENV` is read by the same
+# auto-configuration as any other env var and is OVERRIDDEN by compose's
+# env_file if that file ever grows these keys — code would not be.
+#
+# OTEL_SERVICE_NAME: without it the resource falls back to
+# `unknown_service:python` and the service shows up in Jaeger under that name
+# instead of `tracking` — indistinguishable from any other unnamed Python
+# process. Matches the `service_name` the JSON log formatter already emits.
+ENV OTEL_SERVICE_NAME=tracking
+# OTEL_PYTHON_FASTAPI_EXCLUDED_URLS drops the liveness probe from TRACING only
+# (its LOG lines are a separate concern and deliberately untouched). GET
+# /v1/health is ~72% of this service's request volume — the compose/Fargate probe
+# hits it every 10s — and each hit would otherwise be a trace in Jaeger that
+# describes nothing.
+#
+# The value is matched with `re.search` against the FULL RECONSTRUCTED URL —
+# `http://127.0.0.1:8000/v1/health`, not `/v1/health`. That is not obvious and it
+# is the difference between this working and silently doing nothing: the natural
+# `^/v1/health$` compiles fine, matches nothing, and the exclusion just never
+# fires (measured — health spans kept arriving in Jaeger). So there is no leading
+# `^`. The trailing `$` is kept, so `/v1/healthcheck` or `/v1/health/deep` would
+# still be traced rather than swallowed by a prefix match.
+#
+# Kept as its own ENV rather than a line continuation because a `\`-continued ENV
+# cannot carry interleaved comments — the `#` line would be parsed as part of the
+# value.
+ENV OTEL_PYTHON_FASTAPI_EXCLUDED_URLS="/v1/health$"
+
 # `src.main:app` — the module-level app built by create_app() (src/main.py), which
 # is the command CLAUDE.md §2 documents. The factory exists for tests to build an
 # app with overridden dependencies; the process runs the singleton, so this is a
@@ -92,4 +128,16 @@ HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=5 \
 # Bound to 0.0.0.0: 127.0.0.1 would only be reachable from inside the container,
 # so the published port and every in-network caller (nginx) would get connection
 # refused.
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+#
+# `opentelemetry-instrument` is the ZERO-CODE path: it loads every installed
+# `opentelemetry_instrumentor` entry point (fastapi, sqlalchemy, grpc_client)
+# and configures the SDK entirely from the OTEL_* environment before importing
+# the app. Wrapping the command rather than calling `.instrument()` in Python is
+# what keeps this service's tracing config out of the source tree — and it is
+# also what guarantees the instrumentations patch fastapi/sqlalchemy/grpc BEFORE
+# src.main imports them. Instrumenting after import silently produces no spans.
+#
+# NOTE for docker-watch: compose overrides `command:` for local dev. An override
+# that runs bare `uvicorn --reload` bypasses this wrapper and the container
+# emits no traces — the override must keep the `opentelemetry-instrument` prefix.
+CMD ["opentelemetry-instrument", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]

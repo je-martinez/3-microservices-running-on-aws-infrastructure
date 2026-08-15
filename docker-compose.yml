@@ -391,8 +391,24 @@ services:
     # It lives HERE and not in the Dockerfile CMD on purpose: --reload is a
     # local-dev tool (extra watcher process, reload-on-touch) that must not follow
     # the image into a deployment.
+    #
+    # `opentelemetry-instrument` MUST be kept as the prefix: this override REPLACES
+    # the image CMD, which is where the wrapper lives. Dropping it here silently
+    # disables tracing for local dev only — the container starts, serves, and logs
+    # normally, but produces no spans and no trace_id on any log line, while the
+    # deployed image (running the unoverridden CMD) is fine. That divergence is
+    # exactly the kind of thing that gets debugged as "Jaeger is broken".
     command:
-      ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+      [
+        "opentelemetry-instrument",
+        "uvicorn",
+        "src.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--reload",
+      ]
     develop:
       watch:
         - action: sync
