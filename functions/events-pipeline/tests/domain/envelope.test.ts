@@ -13,6 +13,16 @@ describe("EnvelopeSchema", () => {
       payload: { id: "usr_abc123", email: "jo*****e@gmail.com" },
     });
     expect(result.success).toBe(true);
+    // The pre-request_id contract, unchanged: adding an optional root field
+    // must not alter how an existing producer's envelope parses.
+    expect(result.data).toMatchObject({
+      event_id: "evt_abc123",
+      type: "USER_CREATED",
+      source: "users",
+      user_id: "usr_abc123",
+      order_id: null,
+      author: { actor: "users_api:register", user_id: "usr_abc123", cognito_sub: "sub-1" },
+    });
   });
 
   it("rejects an envelope missing event_id", () => {
@@ -116,6 +126,59 @@ describe("EnvelopeSchema", () => {
       order_id: null,
       payload: {},
     });
+    expect(result.success).toBe(false);
+  });
+});
+
+// `request_id` is the cross-service correlation id, minted at the producing
+// service's HTTP ingress and carried on the envelope. This service never
+// generates one — it only reads what arrived.
+describe("EnvelopeSchema — request_id", () => {
+  function envelope(overrides: Record<string, unknown> = {}): unknown {
+    return {
+      event_id: "evt_abc123",
+      type: "USER_CREATED",
+      source: "users",
+      user_id: "usr_abc123",
+      order_id: null,
+      author: { actor: "users_api:register", user_id: "usr_abc123", cognito_sub: "sub-1" },
+      payload: {},
+      ...overrides,
+    };
+  }
+
+  it("accepts an envelope carrying a request_id", () => {
+    const result = EnvelopeSchema.safeParse(
+      envelope({ request_id: "req_V1StGXR8Z5jdHi6BmyT" }),
+    );
+    expect(result.success).toBe(true);
+    expect(result.data?.request_id).toBe("req_V1StGXR8Z5jdHi6BmyT");
+  });
+
+  it("ACCEPTS an envelope with no request_id at all — the in-flight message case", () => {
+    // The reason the field is `.optional()` and must stay that way. A message
+    // published before this field existed can still be sitting on the queue at
+    // deploy time; if the schema rejected it, the pipeline would classify that
+    // as a PermanentError, drop the record without a retry, and silently lose
+    // the notification email it was meant to send.
+    const result = EnvelopeSchema.safeParse(envelope());
+    expect(result.success).toBe(true);
+    // Absent, not defaulted to anything invented.
+    expect(result.data).not.toHaveProperty("request_id");
+  });
+
+  it("rejects an empty-string request_id (.min(1))", () => {
+    // `.min(1)` like every sibling field: an explicit "" is a producer bug, and
+    // accepting it would stamp a blank correlation id on a whole record's worth
+    // of log lines instead of honestly omitting the field.
+    const result = EnvelopeSchema.safeParse(envelope({ request_id: "" }));
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a NULL request_id — the key is omitted when unknown, never nulled", () => {
+    // `.optional()` (not `.nullable()`) is what makes this fail, matching the
+    // author fields and docs/shared/conventions/logging-context.md.
+    const result = EnvelopeSchema.safeParse(envelope({ request_id: null }));
     expect(result.success).toBe(false);
   });
 });

@@ -89,6 +89,12 @@ function envelopeContext(envelope: Envelope, messageId: string): LogContextStore
     ...(envelope.author.cognito_sub === undefined
       ? {}
       : { author_cognito_sub: envelope.author.cognito_sub }),
+    // The producer's correlation id, propagated — never generated here. Same
+    // spread-or-nothing rule: a message published before the producers started
+    // sending `request_id` simply has no key on its lines, which reads as "this
+    // message predates the field". `request_id: null` would instead read as
+    // "correlated, to nothing" — a different and misleading claim.
+    ...(envelope.request_id === undefined ? {} : { request_id: envelope.request_id }),
     message_id: messageId,
   };
 }

@@ -553,6 +553,65 @@ describe("handler — log context", () => {
     expect(started?.line).not.toHaveProperty("author_cognito_sub");
   });
 
+  it("carries the envelope's request_id on EVERY line of that record's processing", async () => {
+    // This function runs no OTel SDK, so there is no trace_id on these lines:
+    // request_id is the only thing tying the work back to the request that
+    // caused it. It is read off the envelope — this service never mints one.
+    await handler({
+      Records: [
+        sqsRecord("msg-1", envelope({ request_id: "req_V1StGXR8Z5jdHi6BmyT" })),
+      ],
+    });
+
+    const lines = emitted();
+    expect(lines.length).toBeGreaterThan(0);
+    // Every line, not just the flow logs — that is the whole point of putting
+    // it in the ALS store rather than on individual call sites.
+    for (const { line } of lines) {
+      expect(line.request_id).toBe("req_V1StGXR8Z5jdHi6BmyT");
+    }
+  });
+
+  it("OMITS request_id when the envelope has none — never emits it as null", async () => {
+    // The in-flight-message case: a record published before the producers sent
+    // this field. It must process completely normally, and its lines must have
+    // NO request_id key at all — a null would read as "correlated, to nothing"
+    // rather than "this message predates the field".
+    const result = await handler({ Records: [sqsRecord("msg-1", envelope())] });
+
+    expect(result.batchItemFailures).toEqual([]);
+    expect(insertStarted).toHaveBeenCalledOnce();
+
+    const lines = emitted();
+    expect(lines.length).toBeGreaterThan(0);
+    for (const { line } of lines) {
+      expect(line).not.toHaveProperty("request_id");
+    }
+    // And it really did run the whole flow, not just fail quietly.
+    expect(lines.some((l) => l.line.app_event === "event_processing_succeeded")).toBe(true);
+  });
+
+  it("does not carry one record's request_id onto the next record's lines", async () => {
+    // Per-record ALS scoping again, on the field where a leak is worst: a
+    // request_id bleeding onto a neighbouring record would attribute that
+    // record's work to a request that never caused it.
+    await handler({
+      Records: [
+        sqsRecord("msg-1", envelope({ event_id: "evt_a", request_id: "req_V1StGXR8Z5jdHi6BmyT" })),
+        sqsRecord("msg-2", envelope({ event_id: "evt_b" })),
+      ],
+    });
+
+    const byEvent = new Map(
+      emitted()
+        .filter((l) => l.line.app_event === "event_processing_started")
+        .map((l) => [l.line.event_id, l.line]),
+    );
+
+    expect(byEvent.get("evt_a")?.request_id).toBe("req_V1StGXR8Z5jdHi6BmyT");
+    expect(byEvent.get("evt_b")).not.toHaveProperty("request_id");
+  });
+
   it("does not carry one record's author onto the next record's lines", async () => {
     // Per-record ALS scoping, checked on the author the same way it is on
     // event_id: a store shared across the loop would leak the first author
