@@ -50,7 +50,7 @@ export EXECUTION_LOG_TABLE ?= 3mrai-local-tfstate-execution-log
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps test-unit test-e2e test-all backend-up infra-init infra-plan infra-up post-infra infra-down infra-output env-file migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean observability-up observability-down observability-dashboards scripts-setup ai-sync ai-sync-check
+.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke backend-up infra-init infra-plan infra-up post-infra infra-down infra-output env-file migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean observability-up observability-down observability-dashboards scripts-setup ai-sync ai-sync-check
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -103,6 +103,31 @@ test-unit: ## Layer 1 — unit/integration for orders (dotnet), users + events-p
 
 test-e2e: ## Layers 2+3 — Playwright internal + gateway for both services. REQUIRES `make bootstrap` up.
 	pnpm --filter @3mrai/e2e test
+
+load-test: ## Gatling load simulation (fullJourney). REQUIRES `make bootstrap` up.
+	@# Exports what the simulations read from the generated env files, because
+	@# Gatling runs on GraalVM and does NOT inherit a .env: `getEnvironmentVariable`
+	@# reads the real process environment only. Without this the run dies at load
+	@# time with "API_GATEWAY_URL is not set" — before a single request is sent.
+	@#
+	@# The value is quoted through: API_GATEWAY_URL contains a literal `$$default`
+	@# stage segment, and an unquoted expansion silently turns the URL into
+	@# .../restapis/<id>//_user_request_ — a 404 that looks like a routing bug.
+	@#
+	@# TRACKING_CARRIER_API_KEY (not CARRIER_API_KEY — the simulation reads the
+	@# prefixed name) drives the carrier webhook that advances deliveries. Load
+	@# tests deliberately send NEITHER x-e2e-source NOR x-test-mode, so their data
+	@# persists like real traffic and tracking advances only through that webhook.
+	cd e2e/load-tests && \
+	  API_GATEWAY_URL="$$(grep '^API_GATEWAY_URL=' ../../.env.local.infra | cut -d= -f2-)" \
+	  TRACKING_CARRIER_API_KEY="$$(grep '^TRACKING_CARRIER_API_KEY=' ../../.env.local.tracking | cut -d= -f2-)" \
+	  pnpm run load
+
+load-test-smoke: ## Short Gatling run (~20s) to check the simulation still works.
+	cd e2e/load-tests && \
+	  API_GATEWAY_URL="$$(grep '^API_GATEWAY_URL=' ../../.env.local.infra | cut -d= -f2-)" \
+	  TRACKING_CARRIER_API_KEY="$$(grep '^TRACKING_CARRIER_API_KEY=' ../../.env.local.tracking | cut -d= -f2-)" \
+	  pnpm run smoke
 
 test-all: ## All three layers for both services (unit + internal E2E + gateway E2E). E2E needs the stack up.
 	$(MAKE) test-unit
