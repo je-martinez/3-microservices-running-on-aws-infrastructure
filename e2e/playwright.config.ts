@@ -91,13 +91,32 @@ export default defineConfig({
     {
       name: "internal",
       testDir: "./tests",
-      testIgnore: "**/gateway/**",
+      // `testDir: "./tests"` is RECURSIVE, so every subdirectory that has its own
+      // project must also be ignored here or its specs run twice — once under
+      // their own project and once under `internal`. `gateway` established the
+      // pattern; `observability` follows it.
+      testIgnore: ["**/gateway/**", "**/observability/**"],
       use: { baseURL: process.env.USERS_BASE_URL ?? "http://localhost:3000" },
     },
     {
       name: "gateway",
       testDir: "./tests/gateway",
       use: { baseURL: process.env.API_GATEWAY_URL },
+    },
+    {
+      // Asserts the committed OpenObserve dashboards still reference fields the
+      // services actually emit. Unlike the other two projects this one needs the
+      // OBSERVABILITY STACK (`make observability-up`) on top of `make bootstrap`
+      // — OpenObserve on :5080. The spec skips with an explicit, named reason
+      // when that is unreachable, so a run without it reads as "prerequisite
+      // missing" rather than as a confusing connection failure.
+      //
+      // baseURL is the Users service because the spec generates its traffic
+      // through the direct-service clients (support/api-client.ts), which carry
+      // their own base URLs; nothing here resolves a relative path off baseURL.
+      name: "observability",
+      testDir: "./tests/observability",
+      use: { baseURL: process.env.USERS_BASE_URL ?? "http://localhost:3000" },
     },
   ],
 });
