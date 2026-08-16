@@ -532,17 +532,31 @@ processors:
   #
   # These two conditions MUST stay exact complements. Nil guard FIRST: most
   # records arrive over fluent_forward with no log group at all.
+  # TWO ways a record belongs to this stream, and the second is not a log group.
+  #
+  #  1. The DocumentDB cluster's own engine log, by log group — the original
+  #     reason this split exists.
+  #  2. A `db_statement` attribute, which the events-pipeline Lambda sets on the
+  #     Mongo commands it issues. Those reach the collector from
+  #     /aws/lambda/3mrai-local-events, so no log-group match can ever catch
+  #     them — yet a query against the event store belongs beside the engine
+  #     that served it, not in the application stream.
+  #
+  # `db_statement` and NOT `commandText`: that name is what filter/only_sql
+  # routes on, and a record carrying it would be claimed by the sql pipeline as
+  # well, landing in two streams at once. The sql pair and this pair are
+  # complements within their own pipelines, never across them.
   filter/only_docdb:
     error_mode: ignore
     logs:
       log_record:
-        - 'resource.attributes["cloudwatch.log.group.name"] == nil or not IsMatch(resource.attributes["cloudwatch.log.group.name"], "/docdb/")'
+        - '(resource.attributes["cloudwatch.log.group.name"] == nil or not IsMatch(resource.attributes["cloudwatch.log.group.name"], "/docdb/")) and attributes["db_statement"] == nil'
 
   filter/drop_docdb:
     error_mode: ignore
     logs:
       log_record:
-        - 'resource.attributes["cloudwatch.log.group.name"] != nil and IsMatch(resource.attributes["cloudwatch.log.group.name"], "/docdb/")'
+        - '(resource.attributes["cloudwatch.log.group.name"] != nil and IsMatch(resource.attributes["cloudwatch.log.group.name"], "/docdb/")) or attributes["db_statement"] != nil'
 
   # The RDS split — the two Aurora clusters' error logs, same shape as the
   # redis/docdb splits above and for the same reason.
