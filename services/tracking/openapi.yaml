@@ -1,0 +1,611 @@
+openapi: 3.1.0
+info:
+  title: Tracking Service API
+  description: 'HTTP API for the 3MRAI Tracking microservice (FastAPI + Aurora MySQL). Three
+    distinct auth schemes, documented per route rather than globally: the user-scoped reads
+    and creation take the gateway-injected x-user-id header (which carries the Cognito sub,
+    not the internal usr_ id); the carrier status update takes its own external x-api-key;
+    health and the E2E cleanup take neither.'
+  version: 1.0.0
+servers:
+- url: http://localhost:3002
+  description: Local (docker compose / Floci)
+paths:
+  /v1/health:
+    get:
+      tags:
+      - health
+      summary: Liveness/readiness probe
+      description: 'Return `200 {"status": "ok"}`.
+
+
+        `async def` is correct here precisely because there is nothing blocking to do —
+
+        no session, no query. Every other handler in this service is a plain `def`,
+
+        since pymysql is a blocking driver.'
+      operationId: health_v1_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /v1/trackings/e2e-cleanup:
+    delete:
+      tags:
+      - e2e
+      summary: '[E2E] Soft-delete every tracking tagged ''E2E Source'' (only mounted when
+        E2E_TESTING_ENABLED)'
+      description: 'Soft-delete every live tracking tagged as an E2E fixture.
+
+
+        The **write** session, not the read one: this mutates. Its generator
+
+        dependency owns the commit, so the stamps land during teardown after this
+
+        returns — a raise here leaves nothing behind.
+
+
+        No `cognito_sub` on the log line: there is no caller identity on this request,
+
+        and the convention omits unknown fields rather than emitting null.'
+      operationId: cleanup_v1_trackings_e2e_cleanup_delete
+      responses:
+        '200':
+          description: The tagged trackings are soft-deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/E2eCleanupResponse'
+  /v1/trackings/init-tracking:
+    post:
+      tags:
+      - trackings
+      summary: Create the tracking for one of the caller's orders
+      description: 'Create a tracking at `PLACED` with its first history row, in one transaction.
+
+
+        The whole blocking part — the Users gRPC resolution and both INSERTs — runs in
+
+        one `asyncio.to_thread` call rather than two. Splitting them would hop threads
+
+        twice for no benefit, and would put the resolution outside the block the write
+
+        session covers.
+
+
+        Never logs `payload.shipping_address`: it is PII ([[logging-context]]). The
+
+        success line carries `order_id`, `user_id`, `cognito_sub` and `tracking_id`,
+
+        all of which are shared-context fields.'
+      operationId: init_tracking_v1_trackings_init_tracking_post
+      parameters:
+      - name: x-user-id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: x-test-mode
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Test-Mode
+      - name: x-e2e-source
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-E2E-Source
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InitTrackingRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InitTrackingResponse'
+        '401':
+          description: Missing or empty x-user-id
+        '404':
+          description: Users has no such user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: The order already has a tracking
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/trackings:
+    get:
+      tags:
+      - trackings
+      summary: Read several of the caller's trackings by order id
+      description: 'Return the caller''s trackings among `order_ids`, each with its history.
+
+
+        Always `200`, even when nothing matches: "none of these are yours" is a
+
+        complete answer to the question asked, not a failure. An empty list is the
+
+        correct body, and it is deliberately indistinguishable from "none of these
+
+        exist" — see the ownership rule in the module docstring.'
+      operationId: get_trackings_v1_trackings_get
+      parameters:
+      - name: order_ids
+        in: query
+        required: true
+        schema:
+          type: string
+          description: Comma-separated order ids, e.g. `ord_a,ord_b`. Ids the caller does
+            not own are omitted from the response.
+          title: Order Ids
+        description: Comma-separated order ids, e.g. `ord_a,ord_b`. Ids the caller does not
+          own are omitted from the response.
+      - name: x-user-id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrackingListResponse'
+        '400':
+          description: More than 100 order_ids
+        '401':
+          description: Missing x-user-id (no caller identity)
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/trackings/{order_id}:
+    get:
+      tags:
+      - trackings
+      summary: Read one of the caller's trackings by order id
+      description: 'Return one of the caller''s trackings with its history, or `404`.
+
+
+        The `404` covers both "no such tracking" and "belongs to another user" — the
+
+        two are the same answer by design. The failure is logged with the machine-
+
+        readable `reason` the logging convention requires; `order_id` and
+
+        `cognito_sub` are part of the shared context and are safe to log, unlike the
+
+        shipping address, which this surface does not even carry.'
+      operationId: get_tracking_v1_trackings__order_id__get
+      parameters:
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          type: string
+          description: The order's id
+          title: Order Id
+        description: The order's id
+      - name: x-user-id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrackingResponse'
+        '401':
+          description: Missing x-user-id (no caller identity)
+        '404':
+          description: No such tracking, or it belongs to another user
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/trackings/{order_id}/status:
+    put:
+      tags:
+      - carrier
+      summary: Carrier status update (API-key authenticated)
+      description: 'Advance a tracking''s status and append the transition to its history.
+
+
+        The three failure modes map to distinct codes so a carrier can tell them apart
+
+        without parsing prose: `404` means the order has no tracking (retrying will not
+
+        help until one exists), while `400` means the tracking is there and refused the
+
+        move (retrying with the SAME status will never help — the state machine is
+
+        forward-only).
+
+
+        Both `400` paths carry a machine-readable `reason`, and both log a
+
+        `*_failed` event with that same token, per the logging convention. The
+
+        shipping address is never touched or logged here — it is PII and a status
+
+        update has no business with it.'
+      operationId: update_status_v1_trackings__order_id__status_put
+      parameters:
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          type: string
+          description: The order's id
+          title: Order Id
+        description: The order's id
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateStatusRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrackingResponse'
+        '400':
+          description: Rejected status transition
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid carrier API key
+        '404':
+          description: No tracking for that order id
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    E2eCleanupResponse:
+      properties:
+        deleted:
+          type: integer
+          title: Deleted
+      type: object
+      required:
+      - deleted
+      title: E2eCleanupResponse
+      description: '`200` payload of `DELETE /v1/trackings/e2e-cleanup`.
+
+
+        One field, and it earns its place: "the suite still sees its fixtures" and
+
+        "the cleanup matched nothing" look identical from the harness''s side, so a
+
+        bodiless `204` would leave it unable to tell a teardown that worked from one
+
+        that silently selected zero rows without reading this service''s logs. Users''
+
+        cleanup returns its `count` for the same reason.
+
+
+        Named `deleted` rather than `count` because it says what was counted.'
+    ErrorResponse:
+      properties:
+        detail:
+          type: string
+          title: Detail
+        reason:
+          type: string
+          title: Reason
+      type: object
+      required:
+      - detail
+      - reason
+      title: ErrorResponse
+      description: 'Failure payload.
+
+
+        `reason` is the machine-readable `TransitionRejectionReason`
+
+        (`already_delivered` / `backward_transition` / `not_strictly_forward`) or a
+
+        comparable code — the same value the `*_failed` log line carries, so a caller
+
+        debugging a rejection and an operator reading the logs see the same token.'
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    HealthResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+          default: ok
+      type: object
+      title: HealthResponse
+      description: '`GET /v1/health` — the exact body the design specifies.'
+    InitTrackingRequest:
+      properties:
+        order_id:
+          type: string
+          maxLength: 28
+          minLength: 1
+          title: Order Id
+          description: The order this tracking follows.
+        shipping_address:
+          anyOf:
+          - type: object
+          - type: 'null'
+          title: Shipping Address
+          description: Point-in-time delivery address snapshot. Never logged (PII).
+      additionalProperties: false
+      type: object
+      required:
+      - order_id
+      title: InitTrackingRequest
+      description: 'Body of `POST /v1/trackings/init-tracking` (JE-105).
+
+
+        ## Two fields, and deliberately no identity
+
+
+        `order_id` and `shipping_address`, nothing else. The caller''s identity is NOT
+
+        in the body and must never be: it arrives as the gateway-injected `x-user-id`
+
+        header, which the gateway derives from a verified Cognito JWT. A `user_id` (or
+
+        `cognito_sub`) field here would be an unauthenticated string a client chooses,
+
+        so anyone could create a tracking attributed to anyone — the body is client
+
+        input, the header is a gateway assertion. The service resolves the internal
+
+        `usr_` id itself, through Users, rather than believing a claim it was handed.
+
+
+        ## `test_mode` is not here either
+
+
+        It travels as the `x-test-mode` header — see the router''s docstring for why.
+
+
+        `model_config` forbids extra fields: a client sending `user_id` gets a `422`
+
+        naming the field, rather than having it silently ignored and later wondering
+
+        why the tracking belongs to someone else.'
+    InitTrackingResponse:
+      properties:
+        tracking:
+          $ref: '#/components/schemas/TrackingResponse'
+      type: object
+      required:
+      - tracking
+      title: InitTrackingResponse
+      description: '`201` payload: the created tracking, at `PLACED`, with its first history
+        row.
+
+
+        Reuses `TrackingResponse`''s shape rather than declaring a leaner one, so the
+
+        body a client gets from creating a tracking is identical to the one it gets
+
+        from reading it back — including the deliberate omissions (`shipping_address`
+
+        and `cognito_sub` are PII/identity and appear on neither).'
+    TrackingHistoryEntryResponse:
+      properties:
+        tracking_id:
+          type: string
+          title: Tracking Id
+        user_id:
+          type: string
+          title: User Id
+        order_id:
+          type: string
+          title: Order Id
+        status:
+          type: string
+          title: Status
+        datetime:
+          type: string
+          title: Datetime
+          description: ISO-8601 UTC timestamp of this transition
+      type: object
+      required:
+      - tracking_id
+      - user_id
+      - order_id
+      - status
+      - datetime
+      title: TrackingHistoryEntryResponse
+      description: 'One immutable status transition.
+
+
+        Carries no `shipping_address` — the address is fixed for a tracking''s
+
+        lifetime, so only the tracking itself would hold it (and this surface does not
+
+        expose it at all).'
+    TrackingListResponse:
+      properties:
+        trackings:
+          items:
+            $ref: '#/components/schemas/TrackingResponse'
+          type: array
+          title: Trackings
+      type: object
+      required:
+      - trackings
+      title: TrackingListResponse
+      description: 'The batch read''s payload.
+
+
+        An object with a `trackings` list rather than a bare top-level array: a bare
+
+        array is not extensible (there is nowhere to add a field later without a
+
+        breaking change) and is the shape most REST clients handle worst.
+
+
+        There is no `total`, and no per-id error entry. Non-owned and unknown ids are
+
+        silently omitted per the design''s ownership rule, so a count of what came back
+
+        is exactly `len(trackings)` and anything more would start describing what the
+
+        caller does NOT own.'
+    TrackingResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        user_id:
+          type: string
+          title: User Id
+        order_id:
+          type: string
+          title: Order Id
+        status:
+          type: string
+          title: Status
+        datetime:
+          type: string
+          title: Datetime
+          description: ISO-8601 UTC timestamp of the current status
+        history:
+          items:
+            $ref: '#/components/schemas/TrackingHistoryEntryResponse'
+          type: array
+          title: History
+      type: object
+      required:
+      - id
+      - user_id
+      - order_id
+      - status
+      - datetime
+      - history
+      title: TrackingResponse
+      description: 'A tracking together with its ordered history.
+
+
+        History is part of the payload rather than a separate endpoint because every
+
+        caller of these reads wants both — the design specifies the tracking "+ its
+
+        `Tracking_History`" for the single read and for the batch read alike.'
+    UpdateStatusRequest:
+      properties:
+        status:
+          type: string
+          title: Status
+      type: object
+      required:
+      - status
+      title: UpdateStatusRequest
+      description: 'Body of `PUT /v1/trackings/{order_id}/status`.
+
+
+        `status` is validated as a *string* here and parsed into `TrackingStatus` in
+
+        the handler via `parse_status`. Declaring it as the enum would let Pydantic
+
+        reject an unknown value with a 422 before the handler ran — but the design
+
+        specifies `400` for a rejected status, and routing invalid-value handling
+
+        through one place keeps the four failure reasons (unknown value plus the three
+
+        transition guards) answering with the same status code and shape.'
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+tags:
+- name: health
+  description: Liveness
+- name: trackings
+  description: Creation and the user-scoped reads (x-user-id)
+- name: carrier
+  description: Carrier status updates (external x-api-key)
+- name: e2e
+  description: Test-only routes (E2E_TESTING_ENABLED)

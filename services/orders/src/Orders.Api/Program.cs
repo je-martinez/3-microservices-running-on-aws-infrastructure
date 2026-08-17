@@ -298,7 +298,25 @@ builder.Services.AddOpenApi("v1", options =>
     options.AddDocumentTransformer((document, _, _) =>
     {
         document.Info.Title = "Orders Service API";
-        document.Info.Version = "v1";
+        // "1.0.0", not the document NAME "v1": this is the API's version and the
+        // three services state it identically (see the openapi-specs convention).
+        // The document name stays "v1" — it is what makes the generator emit a
+        // clean `openapi.json`, and it is a different thing entirely.
+        document.Info.Version = "1.0.0";
+        document.Info.Description =
+            "HTTP API for the 3MRAI Orders microservice (.NET Minimal APIs + Aurora "
+            + "MySQL). Identity is enforced at the API Gateway authorizer, which "
+            + "forwards the Cognito subject as the x-user-id header.";
+        // The local base URL, at parity with Users (3000) and Tracking (3002).
+        // Without it a consumer importing this file has no host to send to.
+        document.Servers =
+        [
+            new Microsoft.OpenApi.OpenApiServer
+            {
+                Url = "http://localhost:3001",
+                Description = "Local (docker compose / Floci)",
+            },
+        ];
         return Task.CompletedTask;
     });
 });
