@@ -58,6 +58,7 @@ rather than in Apidog.
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from pathlib import Path
@@ -112,8 +113,43 @@ def dump(spec: dict[str, Any]) -> str:
 
 
 def main() -> None:
+    # The SERVICE's logger, not a bare `print()`.
+    #
+    # This runs as `docker compose run … tracking`, which INHERITS the service's
+    # `logging: fluentd` driver — so whatever this script writes to stdout is
+    # shipped to the collector and lands in the `tracking` log stream exactly as
+    # if the service had logged it. A `print()` therefore produced a record with
+    # no service_name, no severity and no schema at all: severity 0,
+    # unfilterable, sitting among real application events. That line is what
+    # prompted this fix.
+    #
+    # Routing it through `configure_logging` is what makes it obey the same
+    # contract as every other line the collector receives ([[logging-context]]).
+    # The alternative considered was writing to stderr instead — that hides the
+    # line rather than fixing it, and leaves the next script to rediscover the
+    # same trap. `service_name` is the SCRIPT, not the service: this is tooling
+    # that happens to run in the service's image, and attributing its output to
+    # `tracking` would put build-time noise in the service's own dashboards.
+    #
+    # configure_logging depends only on stdlib logging plus its own formatter
+    # and filters — no settings, no engine — so importing it here costs nothing
+    # and cannot pull a database connection into a codegen script.
+    from src.shared.logging.config import configure_logging
+
+    # ORDER MATTERS, and the obvious order is the wrong one. `build_spec()`
+    # imports `src.main`, whose `create_app()` calls `configure_logging` itself —
+    # and that function is idempotent by REPLACING the root handler, so
+    # configuring before generating gets silently overwritten and the line comes
+    # out tagged `tracking` instead of naming this script. Verified by doing it
+    # the wrong way round first.
     OUTPUT_FILE.write_text(dump(build_spec()))
-    print(f"Wrote {OUTPUT_FILE}")
+
+    configure_logging(service_name="tracking-openapi-generator")
+    logger = logging.getLogger(__name__)
+    logger.info(
+        "openapi_spec_generated",
+        extra={"app_event": "openapi_spec_generated", "output_file": str(OUTPUT_FILE)},
+    )
 
 
 if __name__ == "__main__":

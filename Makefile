@@ -50,7 +50,7 @@ export EXECUTION_LOG_TABLE ?= 3mrai-local-tfstate-execution-log
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke backend-up infra-init infra-plan infra-up post-infra infra-down infra-output env-file migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean observability-up observability-down observability-dashboards scripts-setup ai-sync ai-sync-check
+.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke backend-up infra-init infra-plan infra-up post-infra infra-down infra-output env-file migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean observability-up observability-down observability-dashboards redeploy-lambdas scripts-setup ai-sync ai-sync-check
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -534,6 +534,31 @@ clean: ## Tear down infra + compose, including the emulator state volume
 	@echo "Removing Floci-launched containers (not compose services, so down misses them)…"
 	@docker ps -aq --filter "name=^floci-" | xargs -r docker rm -f 2>/dev/null || true
 	@docker network rm 3mrai_3mrai-network 2>/dev/null || true
+
+redeploy-lambdas: scripts-setup ## Rebuild and redeploy every local Lambda from the current source
+	@# A Lambda does NOT rebuild with `docker compose`. The services do, so the
+	@# habit the rest of this Makefile teaches is wrong for exactly these seven
+	@# functions — and the failure is SILENT: the source is correct, its tests
+	@# pass, and the deployed function keeps running whatever it ran before.
+	@#
+	@# That shipped a real bug. The Cognito trigger was fixed to emit
+	@# severity_text/severity_number instead of a hardcoded `level: "info"`, and
+	@# days later every otp_challenge_rejected — a wrong one-time code — was
+	@# still arriving at severity 0, because the deployed zip predated the fix.
+	@# Nothing reported it; only reading the deployed code revealed it.
+	@#
+	@# BUILD FIRST, then deploy. The two bundled functions are esbuild bundles;
+	@# uploading dist/ without rebuilding would deploy the previous bundle and
+	@# report success. The Cognito functions are bare .mjs with no build step.
+	@#
+	@# `terraform apply` would also redeploy these (archive_file's hash triggers
+	@# the update), but a second phase-1 apply fails against Floci on UpdateTags
+	@# — see docs/lessons/floci-rds-apigw-limits.md — so it is not the loop to
+	@# reach for after a code edit.
+	pnpm --filter @3mrai/events-pipeline build
+	pnpm --filter @3mrai/realtime-events build
+	$(PY) infra/scripts/redeploy_lambdas.py
+
 
 observability-up: ## Start OpenObserve + Jaeger + the OTel collector (opt-in; ~512MB-1.5GB RAM)
 	# --force-recreate, scoped to just these services: they sit outside the main
