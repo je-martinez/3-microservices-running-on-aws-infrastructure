@@ -85,17 +85,28 @@ Panels live **inside a tab**, not at the dashboard root. There is no root-level
       "fields": {
         "stream": "logs",
         "stream_type": "logs",
-        "x": [],
-        "y": [],
+        "x": [
+          { "label": "", "alias": "x_axis_1", "column": "x_axis_1", "color": null,
+            "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true }
+        ],
+        "y": [
+          { "label": "requests", "alias": "y_axis_1", "column": "y_axis_1", "color": "#4caf50",
+            "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true }
+        ],
         "z": [],
+        "breakdown": [],
         "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
       },
       "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
     }
   ],
-  "layout": { "x": 0, "y": 0, "w": 24, "h": 9, "i": 1 }
+  "layout": { "x": 0, "y": 0, "w": 96, "h": 15, "i": 1 }
 }
 ```
+
+> `w: 96` is HALF a row — the grid is **192** columns wide, not 24. See
+> [THE GRID IS 192 COLUMNS WIDE](#the-grid-is-192-columns-wide--not-24) below
+> before choosing any `w`.
 
 Notes for authoring panels (Tasks 9–10):
 
@@ -103,11 +114,289 @@ Notes for authoring panels (Tasks 9–10):
   with `missing field 'filter'`. Use the empty group above when the SQL already
   carries its own `WHERE`.
 - With `customQuery: true` the raw `query` SQL drives the panel. Alias the
-  x/time column `x_axis_1` and the value column `y_axis_1` (grid layout uses `w`
-  up to 24 columns).
+  x/time column `x_axis_1` and the value column `y_axis_1`.
 - `type` is the visualization: `line`, `bar`, `table`, `stat` (verify each new
   type by round-tripping it — the server validates on write).
-- Grid: `layout.w` max 24; stack panels by incrementing `layout.y` and `i`.
+
+## THE GRID IS 192 COLUMNS WIDE — not 24
+
+> [!warning] This section corrects a wrong claim that cost a full debugging session
+> This file previously stated "`layout.w` max 24". **That is false**, and every
+> dashboard in this repo was authored against it. A panel declaring `w: 12` was
+> asking for **6%** of the row, and a supposedly full-width `w: 24` asked for
+> **12.5%** — which is why panels rendered ~73px and ~153px wide with the rest of
+> the viewport empty, and why they looked "too small" no matter what `h` was set
+> to.
+>
+> The real width was established empirically: dragging panels to fill the row in
+> the OpenObserve UI and reading the layout back produced spans of `0-70`,
+> `70-141`, `141-192` — covering exactly **192**.
+
+**Rules:**
+
+| Panels per row | `w` each | Notes |
+|---|---|---|
+| 1 | `192` | tables, wide time series |
+| 2 | `96` | the default for log dashboards |
+| 3 | `64` | 192/3 exactly — no remainder |
+| 4 | `48` | only for very simple counters |
+
+- `x` is the column offset: the *n*-th panel in a row starts at `n * w`.
+- A row's panels must sum to exactly 192, or the row leaves dead space.
+- `h` is in units of **24px** (`rowHeight: 24` in the bundle), so `h: 15` ≈ 360px.
+  Increment `y` by the row's `h` for each new row.
+- **Verify after importing** by reading the layout back and checking that the
+  rightmost edge is 192:
+  ```bash
+  # every dashboard should print rightmost_edge=192
+  curl -s -H "Authorization: Basic $AUTH" \
+    "http://localhost:5080/api/default/dashboards" \
+  | python3 -c "
+  import sys,json
+  for x in json.load(sys.stdin).get('dashboards',[]):
+      i=x.get('v8') or {}
+      ps=i.get('tabs',[{}])[0].get('panels',[])
+      if ps: print(i['title'], max(p['layout']['x']+p['layout']['w'] for p in ps))
+  "
+  ```
+
+## Metrics panels MUST use PromQL, not SQL
+
+A metric stream queried with `queryType: "sql"` renders **"Error Loading Data"**
+and **never issues a search request at all** — the access log shows the dashboard
+being fetched and then nothing. The UI dispatches on `queryType`
+(`usePanelDataLoader.ts` branches on `queryType == "promql"`) and reaches metric
+streams through `prometheus/api/v1/query_range`; the SQL path is built for log
+streams.
+
+The confusing part: **the SQL is not wrong**. It returns correct rows through the
+`_search?type=metrics` API, which is the right way to verify the ingest
+pipeline — but it is not the path the dashboard UI uses. Verifying via `_search`
+proves the data is there; it does **not** prove the panel will render.
+
+```json
+{
+  "queryType": "promql",
+  "queries": [{
+    "query": "max by (dimensions_status) (amazonaws_com_3mrai_orders_by_tracking_status_total)",
+    "customQuery": true,
+    "fields": { "stream": "amazonaws_com_3mrai_orders_by_tracking_status_total",
+                "stream_type": "metrics", "x": [], "y": [], "z": [],
+                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] } },
+    "config": { "promql_legend": "{dimensions_status}", "layer_type": "scatter", "weight_fixed": 1 }
+  }]
+}
+```
+
+- **Aggregation goes in the PromQL**, not in SQL clauses: `max by (label) (metric)`
+  for gauges, `sum by (label) (metric)` for counters. **Summing a gauge adds every
+  sample in the window and reports a multiple of the real count.**
+- **Legends** come from `config.promql_legend` with `{label}` templating, not from
+  a SQL breakdown column. Turn `show_legends` on only where a panel plots more
+  than one series. Avoid `legends_position` — the working dashboards do not set
+  it, and the legend renders inside the plot area (`legend:{right:0}`).
+- **Stream and dimension names are transformed on ingest**: CloudWatch's
+  `Service` dimension is queried as `dimensions_service` (prefixed, lowercased),
+  and metric `amazonaws.com/3MRAI/orders_total` becomes stream
+  `amazonaws_com_3mrai_orders_total`. Guessing either name yields an empty panel
+  with no error.
+
+## `fields.x` / `fields.y` are REQUIRED — `customQuery: true` does not exempt them
+
+> [!warning] The single most misleading failure in this whole file
+> A chart panel with `"x": [], "y": []` renders **"Error Loading Data"** with the
+> detail **"Please select required fields to render the chart"** — even though
+> the SQL is correct, the API returns HTTP 200, and the rows are right there. The
+> UI validates the panel's *declared* axes before it ever looks at the result.
+>
+> `customQuery: true` means "use my SQL instead of building one from the fields".
+> It does **not** mean "infer the axes from the SQL". Both are required.
+
+Every `line`/`bar` panel must declare one x field and one y field per series,
+matching the SELECT aliases in order. The shape below is taken from the template
+embedded in OpenObserve's own JS bundle:
+
+```json
+"fields": {
+  "stream": "logs",
+  "stream_type": "logs",
+  "x": [
+    { "label": "", "alias": "x_axis_1", "column": "x_axis_1",
+      "color": null, "isDerived": true, "havingConditions": [],
+      "treatAsNonTimestamp": true }
+  ],
+  "y": [
+    { "label": "p50", "alias": "y_axis_1", "column": "y_axis_1",
+      "color": "#4caf50", "isDerived": true, "havingConditions": [],
+      "treatAsNonTimestamp": true }
+  ],
+  "z": [], "breakdown": [],
+  "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+}
+```
+
+- **`alias` and `column` must equal the SQL's output column name.** With
+  `isDerived: true` that name can be anything the query produces — `y_axis_1`,
+  `p50`, whatever — as long as the three agree.
+- **`label` is what the legend and axis show — never leave it as the alias.**
+  Copying the SQL alias into `label` puts a literal **`y_axis_1`** in the legend.
+  Name what the series measures (`requests`, `p95`, `errors`), and label the x
+  field with its dimension (`time`, `route`, `status code`).
+- **Turn `show_legends` off on single-series panels.** One line needs no legend —
+  the panel title already names it, and the legend only steals plot width. Turn
+  it on where two or more series share a chart.
+- **`table` panels take `x: []`, `y: []`** — they render raw columns and declare
+  no axes.
+- **PromQL panels take no x/y descriptors either** — their series come from the
+  metric's labels, and the UI does not run this validation on them.
+
+## "Error Loading Data" ≠ "No Data"
+
+These two messages mean different things, and conflating them sends you looking
+in the wrong place:
+
+| Panel shows | Meaning | Where to look |
+|---|---|---|
+| **No Data** | the query ran and returned zero rows | the data — see the section below |
+| **Error Loading Data** | the query failed, OR the result could not be charted | the panel definition |
+
+The usual cause of **Error Loading Data on a query that works** is the section
+above: the panel declares no axes. The SQL column names themselves are free —
+`isDerived: true` lets a field point at any alias the query produces — so
+`AS p50` is fine as long as a `y` field declares `alias: "p50"`.
+
+The repo's panels use `x_axis_1` / `y_axis_N` purely as a convention, not because
+the UI requires those names.
+
+Check a panel's shape rather than only its row count:
+
+```bash
+# every line/bar panel must return at least one y_axis_N column
+curl -s -X POST -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" \
+  "http://localhost:5080/api/default/_search?type=logs" \
+  -d "{\"query\":{\"sql\":\"<panel sql>\",\"start_time\":$START,\"end_time\":$NOW,\"size\":5}}" \
+| python3 -c "import sys,json;h=json.load(sys.stdin)['hits'];print(sorted(h[0].keys()) if h else 'no rows')"
+```
+
+## An empty panel usually means no traffic, not a broken dashboard
+
+Before editing a panel that shows nothing, check whether the data exists at all.
+Three real causes seen in this repo, none of which were dashboard bugs:
+
+1. **No HTTP traffic against that service.** Every log panel filters
+   `http_route IS NOT NULL`, which only matches real inbound requests. A service
+   sitting idle still logs plenty — OTel exporter chatter, EF Core `SELECT
+   COUNT(*)` from the metrics gauge — but none of it carries `http_route`. Hit
+   the service a few times and re-check.
+2. **The service started before the collector.** Services log through Docker's
+   fluentd driver with `fluentd-async: true`, which means a service that boots
+   while the collector is down **silently discards** its logs rather than
+   failing. `make observability-up` before generating traffic.
+3. **The time range predates the data.** The dashboards set no default range, so
+   the UI's own picker decides. A stack rebuilt minutes ago has nothing older
+   than the rebuild.
+
+Diagnose with one query rather than guessing:
+
+```sql
+SELECT service_name, COUNT(*) AS total, COUNT(http_route) AS with_route
+FROM logs GROUP BY service_name
+```
+
+`total > 0` with `with_route = 0` is case 1.
+
+## A `metric` card over a COUNTER needs a datapoint in every window
+
+A `metric` panel renders the **last point** of its series. That is right for a
+gauge (`users_total`, `orders_total`) — the current value IS the answer. It is
+wrong for a counter, and the failure is loud: with no point in the selected
+range, OpenObserve throws
+
+```
+Cannot read properties of undefined (reading 'values')
+```
+
+instead of rendering `0`. The card breaks **precisely when nothing happened**,
+so "no errors" and "the exporter is down" look identical — the opposite of what
+an incident card is for.
+
+Counters only emit when their event fires, so any quiet window is an empty
+window.
+
+### Use SQL for cards, not PromQL
+
+**PromQL cannot follow the dashboard's time picker.** OpenObserve has no
+`$__range` equivalent — the endpoint rejects `$` inside brackets, and its
+variable system offers only user-defined variables (query_values, custom,
+constant, textbox, dynamic_filters). A PromQL range selector is therefore a
+hardcoded literal: `[24h]` answers "in the last 24h" no matter what the picker
+says, which makes the picker decorative.
+
+**SQL over a metric stream does follow it**, because OpenObserve applies the
+picker's bounds as `start_time`/`end_time` at the API level. Measured on one
+counter: `5min=0, 30min=0, 120min=91, 1440min=628`.
+
+So every card in `business-metrics` is `queryType: sql`:
+
+```sql
+-- counter: how many in the selected range
+SELECT COALESCE(SUM(CASE WHEN dimensions_emailtype = 'ALL' THEN value END), 0) AS total
+FROM "amazonaws_com_3mrai_emails_sent_total"
+
+-- gauge: the level, NOT a sum. The series republishes the same level every 15s,
+-- so SUM would multiply it by the number of samples in the range.
+SELECT COALESCE(MAX(CASE WHEN dimensions_haspassword = 'ALL' THEN value END), 0) AS total
+FROM "amazonaws_com_3mrai_users_total"
+```
+
+### The filter goes in `CASE WHEN`, never in `WHERE`
+
+This is the part that is easy to get wrong. A `WHERE` can eliminate every row,
+and **an aggregate over zero rows returns NO ROW AT ALL** — which is exactly what
+makes the panel throw. An unfiltered aggregate always returns exactly one row,
+and `COALESCE` turns its `NULL` into `0`.
+
+Verified against a window three days back containing no data whatsoever: with
+`WHERE` the response is `hits: []`; with `CASE WHEN` + `COALESCE` every card
+returns `{"total": 0.0}` and renders a clean zero.
+
+`fields.y` must name the aggregate's alias (`total`), or the panel reports
+"Please select required fields to render the chart". `promql_legend` must stay
+present in the query config even on a SQL panel — the v8 schema requires the
+field and the import fails with `HTTP 422 missing field promql_legend` without
+it; it is simply unused.
+
+### Seeding is still worth doing
+
+Publishing a 0 on a fixed clock (each service's metrics loop, or — for the
+Lambda — the EventBridge tick in `infra/environments/local/main.tf`) keeps the
+stream alive so it exists to be queried at all. Seeding from inside the
+request/message path does NOT work: that path runs only when traffic is already
+flowing, which is exactly when the zeros are not needed. Measured:
+`emails_sent_total`, seeded inside the SQS handler, had **zero points over 6h**
+while `users_total` had continuous coverage.
+
+Note the seeded zeros inflate `SampleCount`. Our cards use `SUM` and `MAX`, which
+are unaffected — but a panel using `AVG` over a seeded counter would read low.
+
+Sanity check before trusting a card — the value must MOVE with the range, and an
+empty range must return a row rather than nothing:
+
+```bash
+curl -s -X POST -u "$O2_USER:$O2_PASS" -H 'Content-Type: application/json' \
+  -d '{"query":{"sql":"SELECT COALESCE(SUM(value),0) AS total FROM \"<stream>\"",
+       "start_time":<micros>,"end_time":<micros>,"size":10}}' \
+  "http://localhost:5080/api/$O2_ORG/_search?type=metrics"
+# hits: [] means the panel will throw — the aggregate is being eliminated by a WHERE
+```
+
+## Tab names
+
+Every tab carries a name describing what it groups (`Traffic & Errors`,
+`Delivery & Traffic`, `At a glance`). None is left as `Default` — OpenObserve's
+own placeholder tells a reader nothing, and it is the name shown in the UI even
+on a single-tab dashboard. The `tabId` stays `default`: it is referenced by
+panel layout entries, so renaming it would orphan them.
 
 ## Verifying a panel's query
 

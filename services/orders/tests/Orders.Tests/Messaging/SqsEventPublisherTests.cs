@@ -4,6 +4,7 @@ using Amazon.SQS.Model;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Orders.Application.Abstractions;
+using Orders.Infrastructure.Id;
 using Orders.Infrastructure.Messaging;
 
 namespace Orders.Tests.Messaging;
@@ -113,6 +114,10 @@ public class SqsEventPublisherTests
 
         // EnvelopeSchema requires all seven. `order_id` is nullable but NOT optional: an
         // absent key fails validation just as a wrong name would.
+        //
+        // `request_id` is absent from this list on purpose: no ambient correlation id is
+        // in scope here, and the field is OMITTED rather than nulled when so. Its two
+        // cases are pinned separately below.
         Assert.Equal(
             new[] { "author", "event_id", "order_id", "payload", "source", "type", "user_id" },
             body.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
@@ -123,6 +128,39 @@ public class SqsEventPublisherTests
         // Unlike USER_CREATED (which sends null), ORDER_CREATED carries the real order id.
         Assert.Equal(OrderId, body.GetProperty("order_id").GetString());
         Assert.False(string.IsNullOrWhiteSpace(body.GetProperty("event_id").GetString()));
+    }
+
+    // The correlation id crosses the queue as a ROOT envelope field, which is the hop the
+    // whole design exists for: the pipeline Lambda runs no OTel SDK, so trace_id never
+    // reaches it and nothing else joins the confirmation email to the HTTP request that
+    // caused it. Seeded here the way CallerContextMiddleware seeds it at ingress.
+    [Fact]
+    public async Task Envelope_carries_the_request_id_as_a_root_field()
+    {
+        const string RequestIdValue = "req_V1StGXR8Z5jdHi6BMyTqWxYz";
+        AmbientRequestId.Set(RequestIdValue);
+        var (publisher, sqs, _) = Build();
+
+        var body = await PublishAndReadBody(sqs, publisher);
+
+        // At the ROOT, not inside payload or author: the consumer reads it off the
+        // envelope, alongside event_id and type.
+        Assert.Equal(RequestIdValue, body.GetProperty("request_id").GetString());
+    }
+
+    [Fact]
+    public async Task Envelope_omits_request_id_entirely_when_there_is_none()
+    {
+        var (publisher, sqs, _) = Build();
+
+        var body = await PublishAndReadBody(sqs, publisher);
+
+        // OMITTED, never `"request_id": null` — the same WhenWritingNull rule
+        // author.cognito_sub follows. A null would read as "correlation resolved to
+        // nothing" rather than "this message carries none", and the consumer's schema
+        // declares the field optional precisely so pre-existing queued messages without
+        // it still validate instead of being dead-lettered.
+        Assert.False(body.TryGetProperty("request_id", out _));
     }
 
     [Fact]

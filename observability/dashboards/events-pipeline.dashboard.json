@@ -1,0 +1,147 @@
+{
+  "version": 8,
+  "dashboardId": "events_pipeline_golden",
+  "title": "Events Pipeline — Golden Signals",
+  "description": "SQS → Lambda → DocumentDB, plus the SES email send. Unlike the HTTP services, this one has no http_route or status code: it is a Lambda, and its signals are the per-record lifecycle (app_event) and the email outcome. Its logs arrive through the CloudWatch log group /aws/lambda/3mrai-local-events — the collector's autodiscover must NOT be prefixed to /ecs/ or none of this appears. Email counters also exist as CloudWatch metrics; see the Business Metrics dashboard.",
+  "role": "",
+  "owner": "3MRAI",
+  "created": "2026-08-13T00:00:00Z",
+  "tabs": [
+    {
+      "tabId": "default",
+      "name": "Processing & Failures",
+      "panels": [
+        {
+          "id": "ep_events_processed",
+          "type": "line",
+          "title": "Records processed",
+          "description": "Per-record pipeline outcomes over time. event_processing_succeeded is the healthy path; _failed and _skipped (duplicate) are the two it can end in instead.",
+          "config": { "show_legends": true, "decimals": 0 },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT histogram(_timestamp) AS x_axis_1, COUNT(*) AS y_axis_1, app_event AS breakdown_1 FROM logs WHERE service_name = 'events-pipeline' AND app_event LIKE 'event_processing_%' GROUP BY x_axis_1, breakdown_1",
+              "customQuery": true,
+              "fields": {
+                "stream": "logs",
+                "stream_type": "logs",
+                "x": [{ "label": "time", "alias": "x_axis_1", "column": "x_axis_1", "color": null, "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true }],
+                "y": [{ "label": "records", "alias": "y_axis_1", "column": "y_axis_1", "color": "#4caf50", "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true }],
+                "z": [],
+                "breakdown": [{ "label": "outcome", "alias": "breakdown_1", "column": "breakdown_1", "color": null, "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true }],
+                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+              },
+              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+            }
+          ],
+          "layout": { "x": 0, "y": 0, "w": 96, "h": 15, "i": 1 }
+        },
+        {
+          "id": "ep_by_event_type",
+          "type": "bar",
+          "title": "Events by lifecycle stage",
+          "description": "Every app_event the Lambda emits, ranked. Dominated by the STARTED → IN_PROGRESS → COMPLETED lifecycle plus the email send; a rising *_failed bar is the signal to look at.",
+          "config": { "show_legends": false, "decimals": 0 },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT app_event AS x_axis_1, COUNT(*) AS y_axis_1 FROM logs WHERE service_name = 'events-pipeline' AND app_event IS NOT NULL GROUP BY x_axis_1 ORDER BY y_axis_1 DESC",
+              "customQuery": true,
+              "fields": {
+                "stream": "logs",
+                "stream_type": "logs",
+                "x": [{ "label": "app_event", "alias": "x_axis_1", "column": "x_axis_1", "color": null, "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true }],
+                "y": [{ "label": "occurrences", "alias": "y_axis_1", "column": "y_axis_1", "color": "#2196f3", "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true }],
+                "z": [],
+                "breakdown": [],
+                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+              },
+              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+            }
+          ],
+          "layout": { "x": 96, "y": 0, "w": 96, "h": 15, "i": 2 }
+        },
+        {
+          "id": "ep_processing_latency",
+          "type": "line",
+          "title": "Processing latency",
+          "description": "How long a record takes end to end (insert → handler → COMPLETED), and how long the SES send inside it takes. A p99 climbing while p50 stays flat points at a slow dependency on a subset of records, not a general slowdown.",
+          "config": { "show_legends": true, "decimals": 0 },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT histogram(_timestamp) AS x_axis_1, approx_percentile_cont(duration_ms, 0.5) AS y_axis_1, approx_percentile_cont(duration_ms, 0.95) AS y_axis_2, approx_percentile_cont(duration_ms, 0.99) AS y_axis_3 FROM logs WHERE service_name = 'events-pipeline' AND duration_ms IS NOT NULL GROUP BY x_axis_1",
+              "customQuery": true,
+              "fields": {
+                "stream": "logs",
+                "stream_type": "logs",
+                "x": [{ "label": "time", "alias": "x_axis_1", "column": "x_axis_1", "color": null, "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true }],
+                "y": [
+                  { "label": "p50", "alias": "y_axis_1", "column": "y_axis_1", "color": "#4caf50", "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true },
+                  { "label": "p95", "alias": "y_axis_2", "column": "y_axis_2", "color": "#ff9800", "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true },
+                  { "label": "p99", "alias": "y_axis_3", "column": "y_axis_3", "color": "#f44336", "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+              },
+              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+            }
+          ],
+          "layout": { "x": 0, "y": 15, "w": 96, "h": 15, "i": 3 }
+        },
+        {
+          "id": "ep_by_producer",
+          "type": "bar",
+          "title": "Events by producing actor",
+          "description": "author_actor names WHO originated each event (users_api:register, tracking_api:carrier_status_update, …), as distinct from the user it is about. Shows which producer drives the pipeline's volume.",
+          "config": { "show_legends": false, "decimals": 0 },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT author_actor AS x_axis_1, COUNT(*) AS y_axis_1 FROM logs WHERE service_name = 'events-pipeline' AND author_actor IS NOT NULL GROUP BY x_axis_1 ORDER BY y_axis_1 DESC",
+              "customQuery": true,
+              "fields": {
+                "stream": "logs",
+                "stream_type": "logs",
+                "x": [{ "label": "producer", "alias": "x_axis_1", "column": "x_axis_1", "color": null, "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true }],
+                "y": [{ "label": "events", "alias": "y_axis_1", "column": "y_axis_1", "color": "#9c27b0", "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true }],
+                "z": [],
+                "breakdown": [],
+                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+              },
+              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+            }
+          ],
+          "layout": { "x": 96, "y": 15, "w": 96, "h": 15, "i": 4 }
+        },
+        {
+          "id": "ep_recent_failures",
+          "type": "table",
+          "title": "Recent failures",
+          "description": "Every failed record with its machine-readable reason. A PermanentError is NOT retried — the email is lost — while a TransientError will be redelivered by SQS, so `reason` is what tells the two apart.",
+          "config": { "show_legends": false, "decimals": 0 },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT _timestamp, app_event, reason, event_id, author_actor FROM logs WHERE service_name = 'events-pipeline' AND (app_event LIKE '%_failed' OR severity_text = 'ERROR') ORDER BY _timestamp DESC",
+              "customQuery": true,
+              "fields": {
+                "stream": "logs",
+                "stream_type": "logs",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+              },
+              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+            }
+          ],
+          "layout": { "x": 0, "y": 30, "w": 192, "h": 15, "i": 5 }
+        }
+      ]
+    }
+  ],
+  "variables": { "list": [] }
+}

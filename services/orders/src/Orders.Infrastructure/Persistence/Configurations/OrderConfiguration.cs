@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Orders.Domain.Entities;
+using Orders.Infrastructure.Id;
 
 namespace Orders.Infrastructure.Persistence.Configurations;
 
@@ -37,8 +38,8 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
     {
         b.ToTable("order");
         b.HasKey(o => o.Id);
-        b.Property(o => o.Id).HasColumnName("id").HasMaxLength(26);
-        b.Property(o => o.UserId).HasColumnName("user_id").HasMaxLength(26);
+        b.Property(o => o.Id).HasColumnName("id").HasMaxLength(NanoIdConfig.TotalLength);
+        b.Property(o => o.UserId).HasColumnName("user_id").HasMaxLength(NanoIdConfig.TotalLength);
         b.Property(o => o.CognitoSub).HasColumnName("cognito_sub").HasMaxLength(255);
         b.Property(o => o.SubtotalCents).HasColumnName("subtotal_cents").HasColumnType("bigint");
         b.Property(o => o.TaxCents).HasColumnName("tax_cents").HasColumnType("bigint");

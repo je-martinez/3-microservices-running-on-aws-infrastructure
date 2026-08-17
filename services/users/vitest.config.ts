@@ -31,6 +31,7 @@ export default defineConfig({
       // ioredis client (it is built lazily by the Awilix SINGLETON).
       REDIS_HOST: "localhost",
       REDIS_PORT: "6379",
+      METRICS_INTERVAL_MS: "15000",
     },
   },
 });

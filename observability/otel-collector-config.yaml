@@ -19,6 +19,9 @@ receivers:
         endpoint: 0.0.0.0:4317
 
   # Polls CloudWatch. AWS_ENDPOINT_URL redirects it to Floci locally.
+  # ONE receiver, TWO signals: `logs` (ECS/RDS log groups) and `metrics` (the
+  # services' custom business metrics). The same component does both — adding
+  # metrics needed no new receiver.
   aws_cloudwatch:
     region: ${env:AWS_REGION}
     logs:
@@ -26,7 +29,157 @@ receivers:
       groups:
         autodiscover:
           limit: 50
-          prefix: /ecs/
+          # NO prefix: discover every log group, not just /ecs/.
+          #
+          # This used to be `prefix: /ecs/`, which silently excluded the
+          # events-pipeline: it is a Lambda, so its logs land in
+          # /aws/lambda/<fn> and nothing about the pipeline ever reached
+          # OpenObserve. The service looked instrumented — it logs plenty — and
+          # only a "why is there no data for this service" query surfaced it.
+          #
+          # The `limit` still caps discovery, so a runaway number of groups
+          # cannot flood the collector.
+
+    # Custom business metrics, read with GetMetricData. The services publish them
+    # with PutMetricData; see the design spec for why CloudWatch is the source of
+    # truth rather than a bypassed intermediary.
+    metrics:
+      # LOCAL values. Real AWS uses 60s/60s (CloudWatch's standard resolution) and
+      # keeps the default delay.
+      #
+      # collection_interval MUST be >= period — the receiver validates this at
+      # startup and refuses to boot otherwise. That is a loud failure, which is
+      # what we want.
+      collection_interval: 15s
+      period: 15s
+      # LOCAL ONLY, and load-bearing. The default is 10 MINUTES: it shifts the
+      # query window back to compensate for real CloudWatch's publication latency.
+      # Floci has no such latency, so leaving the default means NOTHING appears
+      # for the first ten minutes — indistinguishable from a broken pipeline, with
+      # no error anywhere. Do not remove this line locally.
+      delay: 0s
+      queries:
+        # `dimensions` is a MAP here ({Service: users}), NOT the AWS CLI's
+        # list-of-{Name,Value} form.
+        #
+        # Every query MUST name the EXACT dimension set the metric was published
+        # with. Floci does not aggregate across dimensions: a query whose
+        # dimensions differ returns an EMPTY result with StatusCode "Complete" —
+        # a silent no-data, not an error. Real CloudWatch would aggregate, so a
+        # query written against AWS semantics renders green and empty here.
+        #
+        # `stats` choice is NOT cosmetic:
+        #   - counters  -> Sum      (add up the events in the window)
+        #   - gauges    -> Maximum  (report the single sample in the window)
+        # Summing a gauge ADDS every sample in the window, so two publishes
+        # landing in one window report DOUBLE the real count. That is the easiest
+        # way to produce a plausible wrong number in this pipeline.
+
+        # --- Users -----------------------------------------------------------
+        - namespace: "3MRAI"
+          metric_name: "users_registered_total"
+          dimensions: { Service: users }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "password_resets_total"
+          dimensions: { Service: users }
+          stats: [Sum]
+        # Two series, one per HasPassword value. Both are always published (zero
+        # included) so a value with no users reads as 0 rather than as "no data".
+        - namespace: "3MRAI"
+          metric_name: "users_total"
+          dimensions: { Service: users, HasPassword: "true" }
+          stats: [Maximum]
+        - namespace: "3MRAI"
+          metric_name: "users_total"
+          dimensions: { Service: users, HasPassword: "false" }
+          stats: [Maximum]
+        # The pre-summed total, published by the service rather than derived
+        # here: neither CloudWatch (no cross-dimension aggregation) nor PromQL
+        # (scrapes carry distinct start_times, so sum() sees one series) can
+        # compute it correctly downstream.
+        - namespace: "3MRAI"
+          metric_name: "users_total"
+          dimensions: { Service: users, HasPassword: "ALL" }
+          stats: [Maximum]
+
+        # --- Orders ----------------------------------------------------------
+        # The TRUE order count, from Orders' own table. Together with the two
+        # tracking series below it exposes the Orders<->Tracking integration
+        # health: orders_total - (DELIVERED + IN_PROGRESS) is the number of
+        # orders whose init-tracking call failed. Normally 0.
+        - namespace: "3MRAI"
+          metric_name: "orders_total"
+          dimensions: { Service: orders }
+          stats: [Maximum]
+
+        # --- Tracking --------------------------------------------------------
+        # Finished vs unfinished orders, keyed on the tracking state machine's
+        # terminal status.
+        - namespace: "3MRAI"
+          metric_name: "orders_by_tracking_status_total"
+          dimensions: { Service: tracking, Status: DELIVERED }
+          stats: [Maximum]
+        - namespace: "3MRAI"
+          metric_name: "orders_by_tracking_status_total"
+          dimensions: { Service: tracking, Status: IN_PROGRESS }
+          stats: [Maximum]
+        # DELIVERED + IN_PROGRESS, pre-summed by the service. Same reasoning as
+        # users_total's ALL series above.
+        - namespace: "3MRAI"
+          metric_name: "orders_by_tracking_status_total"
+          dimensions: { Service: tracking, Status: ALL }
+          stats: [Maximum]
+
+        # --- events-pipeline -------------------------------------------------
+        # EmailType: ALL is a SEPARATELY PUBLISHED series, not a query-time
+        # rollup — see the no-aggregation note above. Per-template series are
+        # deliberately not listed yet (nine keys x sent/failed x failure kind is
+        # a long list that would need editing on every new template); JE-150
+        # decides between listing them and switching to `discovery`.
+        - namespace: "3MRAI"
+          metric_name: "emails_sent_total"
+          dimensions: { Service: events-pipeline, EmailType: ALL }
+          stats: [Sum]
+        # permanent = the email is LOST (not retried). transient = SQS will retry.
+        # Splitting them is the difference between an incident and expected noise.
+        - namespace: "3MRAI"
+          metric_name: "emails_failed_total"
+          dimensions: { Service: events-pipeline, EmailType: ALL, FailureKind: permanent }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "emails_failed_total"
+          dimensions: { Service: events-pipeline, EmailType: ALL, FailureKind: transient }
+          stats: [Sum]
+
+        # --- HTTP errors, all three HTTP services ----------------------------
+        # 4xx/5xx only. A per-2xx metric would be a request-rate metric, which
+        # the logs already provide. The events-pipeline is absent on purpose: it
+        # is a Lambda with no HTTP surface.
+        - namespace: "3MRAI"
+          metric_name: "http_errors_total"
+          dimensions: { Service: users, StatusClass: 4xx }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "http_errors_total"
+          dimensions: { Service: users, StatusClass: 5xx }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "http_errors_total"
+          dimensions: { Service: orders, StatusClass: 4xx }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "http_errors_total"
+          dimensions: { Service: orders, StatusClass: 5xx }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "http_errors_total"
+          dimensions: { Service: tracking, StatusClass: 4xx }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "http_errors_total"
+          dimensions: { Service: tracking, StatusClass: 5xx }
+          stats: [Sum]
 
 processors:
   # Parse the service's JSON stdout line (carried in body) into top-level
@@ -55,16 +208,24 @@ processors:
           # format, so it previously fell through untagged and unclassified —
           # landing in the stream with severity 0 (UNSPECIFIED) and no
           # service_name, invisible to every schema-based filter.
-          # Guarded on the attribute being non-nil BEFORE IsMatch touches it.
-          # IsMatch on a nil value raises, and with error_mode: ignore that
-          # aborts the whole statement silently — which is why every nginx record
-          # was still arriving with no service_name despite this rule existing.
-          # Most records reaching here are NOT from CloudWatch and have no log
-          # group at all, so the nil case is the common one, not the exception.
+          # Reads the log group as a RESOURCE attribute with its DOT-separated
+          # key, and both halves are load-bearing. This rule spent a long time
+          # doing nothing because it tested a log-record
+          # `attributes["cloudwatch_log_group_name"]`: the receiver puts the group
+          # on the resource, and the underscored spelling is OpenObserve's indexer
+          # rename, not the real key. So the condition was always nil, no nginx
+          # record was ever tagged, and every one of them landed with no
+          # service_name, no method/route/status and severity 0 — exactly the
+          # symptom that motivated splitting this group out in the first place.
+          #
+          # Guarded on non-nil BEFORE IsMatch touches it. IsMatch on a nil value
+          # raises, and with error_mode: ignore that aborts the whole statement
+          # silently. Most records reaching here are NOT from CloudWatch and have
+          # no log group at all, so the nil case is the common one.
           - set(attributes["service_name"], "nginx")
             where attributes["service_name"] == nil
-              and attributes["cloudwatch_log_group_name"] != nil
-              and IsMatch(attributes["cloudwatch_log_group_name"], "nginx")
+              and resource.attributes["cloudwatch.log.group.name"] != nil
+              and IsMatch(resource.attributes["cloudwatch.log.group.name"], "nginx")
 
           # Access logs are the subset in combined format. Only these carry
           # method/route/status; the startup lines are classified further down.
@@ -77,25 +238,94 @@ processors:
             where attributes["nginx_log_kind"] == "access"
           - set(attributes["http_response_status_code"], Int(ExtractPatterns(body, "HTTP/[0-9.]+\" (?P<s>[0-9]{3})")["s"]))
             where attributes["nginx_log_kind"] == "access"
-          # Severity mirrors the services' OTel-aligned numbers so a
-          # severity-based filter behaves identically across every source.
-          - set(attributes["severity_text"], "ERROR")
-            where attributes["nginx_log_kind"] == "access" and attributes["http_response_status_code"] >= 500
-          - set(attributes["severity_text"], "WARN")
-            where attributes["nginx_log_kind"] == "access" and attributes["http_response_status_code"] >= 400 and attributes["http_response_status_code"] < 500
-          # Everything else from nginx — access 2xx/3xx AND the container's
-          # startup output — is informational. Without this the startup lines
-          # keep severity 0 (UNSPECIFIED), which is what put them outside every
-          # severity filter and rendered them uncoloured.
+          # Severity from the HTTP status, declared as a MAPPING rather than as a
+          # ladder of set()s. ParseSeverity takes the value and a table, so the
+          # status->level policy reads as data: 5xx is an error, 4xx a warning.
+          # Its "5xx"/"4xx" range placeholders exist for exactly this case.
+          - set(attributes["severity_text"], ParseSeverity(attributes["http_response_status_code"], {"ERROR":[{"range":"5xx"}],"WARN":[{"range":"4xx"}],"INFO":[{"range":"2xx"},{"range":"3xx"}]}))
+            where attributes["nginx_log_kind"] == "access"
+          # Everything else from nginx — the container's startup output — is
+          # informational. Without this those lines keep severity 0 (UNSPECIFIED),
+          # which is what put them outside every severity filter and rendered them
+          # uncoloured.
           - set(attributes["severity_text"], "INFO")
             where attributes["service_name"] == "nginx" and attributes["severity_text"] == nil
-          - set(attributes["severity_number"], 17) where attributes["severity_text"] == "ERROR" and attributes["service_name"] == "nginx"
-          - set(attributes["severity_number"], 13) where attributes["severity_text"] == "WARN" and attributes["service_name"] == "nginx"
-          - set(attributes["severity_number"], 9) where attributes["severity_text"] == "INFO" and attributes["service_name"] == "nginx"
+          # The matching NUMBER, from the same status. nginx is the one source
+          # this file is responsible for — it is the gateway, not one of our
+          # services, so there is no producer to fix — and a source that owns its
+          # severity owns BOTH fields, exactly as every service does.
+          - set(attributes["severity_number"], ParseSeverity(attributes["http_response_status_code"], {"17":[{"range":"5xx"}],"13":[{"range":"4xx"}],"9":[{"range":"2xx"},{"range":"3xx"}]}))
+            where attributes["nginx_log_kind"] == "access"
+          - set(attributes["severity_number"], 9)
+            where attributes["service_name"] == "nginx" and attributes["severity_number"] == nil
           # nginx startup lines: keep them, but mark them so the "log a request
           # once" filter below can tell them apart from access logs.
           - set(attributes["nginx_log_kind"], "startup")
             where attributes["service_name"] == "nginx" and attributes["nginx_log_kind"] == nil
+
+          # ---------------------------------------------------------------
+          # NO severity translation happens here, on purpose.
+          #
+          # CloudWatch log events carry no severity of their own — just a
+          # timestamp and a raw message — so anything arriving through the
+          # aws_cloudwatch receiver lands as SEVERITY_NUMBER_UNSPECIFIED (0)
+          # unless its own JSON body already carries the canonical
+          # `severity_text`/`severity_number` fields.
+          #
+          # The fix for that belongs in the PRODUCER, not in this file. A
+          # translation table here (Pino's 30/40/50, MongoDB's I/W/E, Python's
+          # WARNING) would leave every one of those services emitting a value
+          # that violates the shared schema and paper over it downstream: the
+          # next reader of this config cannot tell which producers are still
+          # wrong, `docker logs` on the service still shows the bad value, and
+          # the contract now has two sources of truth that drift independently.
+          #
+          # So each service emits `severity_text`/`severity_number` per
+          # [[logging-context]], and this file only PROMOTES them onto the
+          # record (see the two statements below). Adding a service means
+          # configuring its logger, not editing this table.
+          #
+          # Known gaps, tracked rather than patched here:
+          #   - realtime-events + events-pipeline (Pino) emit `level`
+          #   - DocumentDB/Valkey are third-party servers we do not control;
+          #     their engine logs keep severity 0 and now live in their own
+          #     `docdb`/`redis` streams, where it costs nothing.
+
+          # Valkey/ElastiCache is deliberately NOT mapped.
+          #
+          # Its level lives in a single char between the timestamp and the
+          # message (`#` warning, `*` notice, `-` verbose), which only a regex
+          # over the raw body can reach — and that regex has to survive YAML
+          # quoting on the way to OTTL. The first attempt here did not: `# `
+          # started a YAML comment and silently TRUNCATED the statement, while a
+          # sibling rule's `\*` arrived as a double-escaped `\\*` and matched
+          # nothing. Both were caught by `validate`, but a subtler variant of the
+          # same mistake is exactly the kind that parses fine and matches nothing
+          # forever (see filter/only_redis for one that did).
+          #
+          # The cost/benefit does not justify it: that group now routes to its
+          # own `redis` stream, where the severity column is a filter over
+          # housekeeping chatter nobody pages on. Left at 0 knowingly. If it ever
+          # matters, parse the char into an attribute in its own transform block
+          # (double-quoted YAML, single-escaped) rather than reintroducing an
+          # inline regex here.
+
+          # NOTE — deliberately NOT normalizing severity spellings here.
+          #
+          # Tracking used to emit Python's WARNING where every other service
+          # emits the OTel name WARN, and the tempting fix was a rewrite rule in
+          # this file. That is the wrong layer: it leaves the service emitting a
+          # value that violates the shared schema and hides it downstream, so the
+          # next reader of this config cannot tell whether any producer is still
+          # wrong, and anything reading the service's stdout directly (docker
+          # logs, a local run) still sees the bad name. Two sources of truth for
+          # one contract.
+          #
+          # Fixed at the producer instead — services/tracking/.../json_formatter.py
+          # maps levelno to the OTel name rather than passing record.levelname
+          # through. The mappings ABOVE are a different thing and belong here:
+          # they translate a FOREIGN vocabulary (Pino's numbers, MongoDB's letter)
+          # that those producers are correct to emit in their own terms.
 
           # Promote our severity onto the log record's NATIVE severity fields.
           #
@@ -109,28 +339,261 @@ processors:
           - set(severity_number, Int(attributes["severity_number"])) where attributes["severity_number"] != nil
           - set(severity_text, attributes["severity_text"]) where attributes["severity_text"] != nil
 
-  # Drop nginx access logs for requests that REACHED a service.
+  # The nginx split — the gateway's access log gets its own stream, the same
+  # shape as sql/redis/docdb.
   #
-  # WHY: for any 2xx/3xx/4xx the service already logs the same request with
-  # strictly more information — `POST /v1/users/login 401` from nginx duplicates
-  # `login_failed reason=invalid_credentials` from users. Keeping both doubles
-  # the volume and makes every count query ambiguous about what it is counting.
+  # WHAT THIS REPLACES, and why the change matters: this used to be
+  # `filter/drop_nginx_noise`, which DISCARDED every access log below 500. The
+  # reasoning was that a service already logs the same request with more detail,
+  # so keeping both doubles volume and makes count queries ambiguous. That is
+  # still true of the MAIN stream — but dropping was the wrong lever, because the
+  # gateway's view is not a duplicate of the service's:
   #
-  # WHY NOT ALL OF IT: nginx is the only source that sees a request which never
-  # reaches a service at all — a 502, a bad upstream, a route the gateway
-  # mis-resolves. Those produce no service log by definition, so dropping the
-  # whole group would create a blind spot at the edge precisely when it matters.
-  # 5xx and anything unparsed are therefore kept.
+  #   - It is the only place a request that never reached a service appears at
+  #     all (a bad upstream, a route the gateway mis-resolves, a 499 client
+  #     abort). The old rule kept 5xx for exactly that reason, and then threw
+  #     away every other edge-only record.
+  #   - It is the only source of the EDGE's own latency and byte counts, which no
+  #     service log carries.
+  #   - Comparing gateway status against service status is how a mismatch between
+  #     the two is found, and that comparison needs both sides retained.
   #
-  # This is also what removes the `THIS IS INVALID STREAM` rows: that string is
-  # a placeholder the aws_cloudwatch receiver substitutes when it cannot resolve
-  # a stream name (Floci's real streams are named 2026/07/20/nginx/<task-id>),
-  # so it is an emulator artifact carrying no signal.
-  filter/drop_nginx_noise:
+  # Routing costs nothing the drop was buying: the main stream is just as free of
+  # duplicate request lines, because every access log leaves through the other
+  # pipeline instead of this one.
+  #
+  # Matched on the LOG GROUP (a resource attribute), not on service_name. Same
+  # two silent-failure traps as redis/docdb, and the same reason they are called
+  # out again: read `resource.attributes["cloudwatch.log.group.name"]` — the
+  # receiver puts the group on the RESOURCE, and the key is DOT-separated. The
+  # underscored `cloudwatch_log_group_name` seen in OpenObserve is an indexer
+  # rename that matches nothing here.
+  #
+  # Note the group also carries the container's STARTUP output, which is not an
+  # access log. It goes to the same stream: it is nginx's, it is low-volume, and
+  # keeping the gateway's own lifecycle beside its traffic is useful when the
+  # question is "did the gateway restart?".
+  #
+  # These two conditions MUST stay exact complements. Nil guard FIRST: most
+  # records arrive over fluent_forward with no log group at all.
+  filter/only_nginx:
     error_mode: ignore
     logs:
       log_record:
-        - 'attributes["service_name"] == "nginx" and attributes["http_response_status_code"] != nil and attributes["http_response_status_code"] < 500'
+        - 'resource.attributes["cloudwatch.log.group.name"] == nil or not IsMatch(resource.attributes["cloudwatch.log.group.name"], "nginx")'
+
+  filter/drop_nginx:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'resource.attributes["cloudwatch.log.group.name"] != nil and IsMatch(resource.attributes["cloudwatch.log.group.name"], "nginx")'
+
+  # WiredTiger's internal storage-engine chatter, from the DocumentDB cluster's
+  # log group (/aws/docdb/cluster/<id>/audit).
+  #
+  # Despite the group name these are MongoDB's own server logs, not an audit
+  # trail: Floci backs DocumentDB with a stock mongo:7.0 container and ships its
+  # stdout under a docdb-shaped group. The checkpointer emits a line per cycle
+  # forever ("saving checkpoint snapshot min: 547, snapshot max: 547 …"),
+  # independent of any query the pipeline makes, and recovery does the same at
+  # startup. On a system doing nothing they were 141 of the group's ~250 lines.
+  #
+  # Matched on the WiredTiger verbose CATEGORY rather than on the log group,
+  # which is the whole point: that group also carries lines worth keeping —
+  # `***** SERVER RESTARTED *****`, `Connection not authenticating`, index
+  # builds, `createCollection`. Dropping the group wholesale would take the
+  # storage layer's only real signals with it. Checked before writing this:
+  # every restart and auth failure in the window clustered around a
+  # `make bootstrap`, and the container had been up for hours since — noise, not
+  # a fault, but noise worth being able to see next time.
+  #
+  # DEBUG_1 verbosity is not filtered on: severity here is "I" (info) on every
+  # line, so the category is the only field that separates them.
+  #
+  # The path is NESTED — attributes["attr"]["message"]["category"] — not the flat
+  # `attr_message_category` the field appears under in OpenObserve. transform/
+  # parse_body merges the parsed body with merge_maps, which preserves the JSON's
+  # own nesting; the underscore-joined name is created later, by OpenObserve's
+  # indexer. Filtering on the flat name silently matched nothing (verified: 2
+  # checkpoints emitted, 2 still arriving), because a nil lookup under
+  # error_mode: ignore drops the condition rather than raising.
+  #
+  # WHERE THIS RUNS: in the logs/docdb pipeline ONLY (see below), NOT in the
+  # main logs pipeline. Once filter/drop_docdb routes the whole group out of
+  # `logs`, leaving this filter there would silently match nothing — every
+  # WiredTiger line would already have been diverted. Keeping it on the docdb
+  # stream preserves the original intent: the noisy WT_VERB_ checkpoints stay
+  # out even of the dedicated stream, while restart/auth/index signals remain
+  # queryable there. Deleting the filter entirely would re-flood `docdb` with
+  # the same chatter that motivated this rule in the first place.
+  filter/drop_wiredtiger_noise:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'attributes["attr"] != nil and attributes["attr"]["message"] != nil and attributes["attr"]["message"]["category"] != nil and IsMatch(attributes["attr"]["message"]["category"], "^WT_VERB_")'
+
+  # The Valkey/ElastiCache split — same shape as the SQL split below, and for the
+  # same reason: the engine log is high-volume and drowns the application events
+  # in the main stream, but it is worth keeping, so it gets its OWN stream rather
+  # than a drop rule.
+  #
+  # WHAT IS IN HERE: the cache cluster's engine log
+  # (/aws/elasticache/cluster/<id>/engine-log). Most of it is housekeeping —
+  # "DB 0: 7 keys (7 volatile) in 14 slots HT." every ~5s forever (activeExpireCycle,
+  # ~17k lines/day on a completely idle stack), plus an "Accepted <ip>" /
+  # "Client closed connection id=… cmd=ping" PAIR per health-check probe. In the
+  # 50-record sample that prompted this, 12 (24%) were that periodic dump while
+  # the system did nothing but run one E2E spec.
+  #
+  # WHY THE WHOLE GROUP AND NOT JUST THE NOISY LINES: the first attempt here was
+  # a drop rule matched on message shape (the approach filter/drop_wiredtiger_noise
+  # uses). Routing the group wholesale is better on both counts — nothing is lost,
+  # so the lines that DO matter (`Ready to accept connections`, the version banner,
+  # OOM-killer messages, `MISCONF`, replication and background-save failures) stay
+  # queryable in the `redis` stream instead of being weighed against the noise, and
+  # there is no pattern to keep in sync with a future Valkey release's wording.
+  #
+  # Matching on the LOG GROUP is what makes this safe to do wholesale: it is a
+  # routing decision, not a filtering one. The group name is stable (it comes from
+  # the cluster identifier, not from Floci's per-run ids) and holds exactly one
+  # source, so "everything from this group" and "everything from the cache engine"
+  # are the same set.
+  #
+  # These two conditions MUST stay exact complements, exactly like the SQL pair:
+  # a record matching neither is LOST, and one matching both is stored TWICE.
+  # `filter` DROPS what matches, so the sense is inverted in each — the redis
+  # pipeline drops everything that is NOT from the group, the main pipeline drops
+  # everything that IS.
+  #
+  # The nil guard comes FIRST and is load-bearing: most records reaching here
+  # arrive over fluent_forward and carry no log group at all, so nil is the common
+  # case, not the exception. IsMatch on a nil value raises, and under
+  # error_mode: ignore that aborts the whole statement silently — the same failure
+  # that left every nginx record untagged for so long (see transform/parse_body).
+  #
+  # TWO THINGS HERE ARE EASY TO GET WRONG, and both fail SILENTLY — the first
+  # attempt at this split got both, routed nothing, and produced no error:
+  #
+  #  1. SCOPE. The log group is a RESOURCE attribute, not a log-record one. The
+  #     receiver sets it on the resource:
+  #
+  #         resourceAttributes := resourceLogs.Resource().Attributes()
+  #         resourceAttributes.PutStr("cloudwatch.log.group.name", logGroupName)
+  #
+  #     while the log record itself gets only `id`. So this must be read as
+  #     `resource.attributes[...]`; a `log_record`-context `attributes[...]` is
+  #     always nil, every condition collapses, and every record takes the same
+  #     branch. Note the surrounding filters DO read log-record attributes
+  #     (service_name, message) — those are written by transform/parse_body, which
+  #     is why they work there and this one cannot be copied from them.
+  #
+  #  2. NAME. The real key is DOT-separated — `cloudwatch.log.group.name`. The
+  #     underscored `cloudwatch_log_group_name` seen in OpenObserve is created
+  #     later, by its indexer, exactly like the `dimensions_service` rename noted
+  #     on the metrics exporter below. Filtering on the name as it appears in the
+  #     UI matches nothing here.
+  filter/only_redis:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'resource.attributes["cloudwatch.log.group.name"] == nil or not IsMatch(resource.attributes["cloudwatch.log.group.name"], "/elasticache/")'
+
+  filter/drop_redis:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'resource.attributes["cloudwatch.log.group.name"] != nil and IsMatch(resource.attributes["cloudwatch.log.group.name"], "/elasticache/")'
+
+  # The DocumentDB split — same shape as the redis/SQL splits above, and for the
+  # same reason: the engine log is the single largest source in the main `logs`
+  # stream (hundreds of records per hour, more than every application service
+  # combined), but it is worth keeping, so it gets its OWN stream rather than a
+  # drop rule.
+  #
+  # WHAT IS IN HERE: the DocumentDB cluster's audit log group
+  # (/aws/docdb/cluster/<id>/audit). Despite the name these are MongoDB server
+  # logs under Floci (see filter/drop_wiredtiger_noise): WiredTiger checkpoints,
+  # restarts, auth failures, index builds, createCollection. Routing the WHOLE
+  # group is deliberate — same rationale as redis. A per-message drop would
+  # force a pattern to stay in sync with future mongo wording, and the lines
+  # that DO matter (`***** SERVER RESTARTED *****`, `Connection not
+  # authenticating`) must stay queryable somewhere. The WiredTiger noise filter
+  # then runs INSIDE the docdb pipeline so checkpoints do not flood even that
+  # stream — see the comment on filter/drop_wiredtiger_noise for why it left
+  # the main pipeline.
+  #
+  # Matching on the LOG GROUP (resource attribute) is what makes this safe to do
+  # wholesale. Same two silent-failure traps as redis — both already cost time:
+  #
+  #  1. SCOPE. Read `resource.attributes["cloudwatch.log.group.name"]`, NOT a
+  #     log-record `attributes[...]`. The receiver puts the group on the resource.
+  #  2. NAME. DOT-separated key. The underscored OpenObserve column is an
+  #     indexer rename and matches nothing here.
+  #
+  # These two conditions MUST stay exact complements. Nil guard FIRST: most
+  # records arrive over fluent_forward with no log group at all.
+  # TWO ways a record belongs to this stream, and the second is not a log group.
+  #
+  #  1. The DocumentDB cluster's own engine log, by log group — the original
+  #     reason this split exists.
+  #  2. A `db_statement` attribute, which the events-pipeline Lambda sets on the
+  #     Mongo commands it issues. Those reach the collector from
+  #     /aws/lambda/3mrai-local-events, so no log-group match can ever catch
+  #     them — yet a query against the event store belongs beside the engine
+  #     that served it, not in the application stream.
+  #
+  # `db_statement` and NOT `commandText`: that name is what filter/only_sql
+  # routes on, and a record carrying it would be claimed by the sql pipeline as
+  # well, landing in two streams at once. The sql pair and this pair are
+  # complements within their own pipelines, never across them.
+  filter/only_docdb:
+    error_mode: ignore
+    logs:
+      log_record:
+        - '(resource.attributes["cloudwatch.log.group.name"] == nil or not IsMatch(resource.attributes["cloudwatch.log.group.name"], "/docdb/")) and attributes["db_statement"] == nil'
+
+  filter/drop_docdb:
+    error_mode: ignore
+    logs:
+      log_record:
+        - '(resource.attributes["cloudwatch.log.group.name"] != nil and IsMatch(resource.attributes["cloudwatch.log.group.name"], "/docdb/")) or attributes["db_statement"] != nil'
+
+  # The RDS split — the two Aurora clusters' error logs, same shape as the
+  # redis/docdb splits above and for the same reason.
+  #
+  # WHAT IS IN HERE: /aws/rds/instance/<id>/error for both engines — Users'
+  # Postgres and Orders' MySQL. Despite the group name these are the servers'
+  # general logs, not an error-only feed: Postgres writes its startup banner,
+  # checkpoint and connection lines there at LOG level, and MySQL does the same.
+  # Measured before this split: 51 records in an hour on an idle stack, all at
+  # severity 0 because the engines' own level prefixes are not the shared schema.
+  #
+  # Routed rather than dropped, for the reason every one of these splits exists:
+  # this group is the ONLY place a database reports a failed start, a recovery,
+  # a connection storm or a disk-full — rare, quiet, and exactly what nobody
+  # wants to discover was filtered out. Splitting keeps the main stream free of
+  # engine chatter while leaving those one query away.
+  #
+  # Matched on the LOG GROUP (a resource attribute), which is what makes routing
+  # the whole group safe. Same two silent-failure traps as the other splits, and
+  # they have now bitten four times in this file: read
+  # `resource.attributes["cloudwatch.log.group.name"]` (the receiver puts the
+  # group on the RESOURCE) with its DOT-separated key (the underscored spelling
+  # is OpenObserve's indexer rename and matches nothing here).
+  #
+  # These two conditions MUST stay exact complements. Nil guard FIRST: most
+  # records arrive over fluent_forward with no log group at all.
+  filter/only_rds:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'resource.attributes["cloudwatch.log.group.name"] == nil or not IsMatch(resource.attributes["cloudwatch.log.group.name"], "/aws/rds/")'
+
+  filter/drop_rds:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'resource.attributes["cloudwatch.log.group.name"] != nil and IsMatch(resource.attributes["cloudwatch.log.group.name"], "/aws/rds/")'
 
   # The SQL-echo split. These two conditions MUST stay exact complements: a
   # record matching neither is lost, and one matching both is stored twice. They
@@ -150,17 +613,88 @@ processors:
   # Reads `attributes`, not `body`: transform/parse_body merges the parsed JSON
   # into attributes, so by the time a record reaches here the message lives
   # there. Same place the nginx filter above tests.
+  # Two shapes of SQL log reach here, and the pair of conditions below must
+  # recognise BOTH or the streams stop being complements:
+  #
+  #  - SQLAlchemy (tracking) echoes the bare statement, so `message` itself
+  #    starts with the keyword.
+  #  - EF Core (orders) wraps it: message is
+  #    "Executed DbCommand (4ms) [Parameters=[…]] SELECT COUNT(*) FROM …",
+  #    which does NOT match ^SELECT. It does, however, carry the bare statement
+  #    in its own `commandText` property, which is what the second clause tests.
+  #
+  # Without that second clause, raising EF Core back to Information would send
+  # every DbCommand into the MAIN stream — the exact noise this repo just
+  # removed — instead of the sql stream where tracking's equivalent already
+  # lives.
   filter/only_sql:
     error_mode: ignore
     logs:
       log_record:
-        - 'not (attributes["message"] != nil and IsMatch(attributes["message"], "^(SELECT|INSERT|UPDATE|DELETE|BEGIN|COMMIT|ROLLBACK)\\b"))'
+        - 'not ((attributes["message"] != nil and IsMatch(attributes["message"], "^(SELECT|INSERT|UPDATE|DELETE|BEGIN|COMMIT|ROLLBACK)\\b")) or (attributes["commandText"] != nil))'
 
   filter/drop_sql:
     error_mode: ignore
     logs:
       log_record:
-        - 'attributes["message"] != nil and IsMatch(attributes["message"], "^(SELECT|INSERT|UPDATE|DELETE|BEGIN|COMMIT|ROLLBACK)\\b")'
+        - '(attributes["message"] != nil and IsMatch(attributes["message"], "^(SELECT|INSERT|UPDATE|DELETE|BEGIN|COMMIT|ROLLBACK)\\b")) or (attributes["commandText"] != nil)'
+
+  # Collapse `start_time` so a metric is ONE series, not one per scrape.
+  #
+  # The aws_cloudwatch receiver stamps every scrape with the query window's
+  # start. OpenObserve folds that into series identity, so each scrape became a
+  # brand-new series. The damage is arithmetic, not cosmetic: a __hash__ audit
+  # showed single hashes covering HasPassword true/false/ALL at once, which is
+  # how `users_total{HasPassword="true"}` came back as 5 — the ALL value. It also
+  # produced a "total users" card reading 9 beside its own breakdown reading 450.
+  #
+  # Zeroing it (rather than deleting it) is what works, and the reason is worth
+  # keeping. Dumped from the receiver with the debug exporter rather than
+  # guessed:
+  #
+  #     -> Name: amazonaws.com/3MRAI/users_total
+  #     Data point attributes:
+  #       -> Dimensions: Map({"HasPassword":"true","Service":"users"})
+  #     StartTimestamp: 2026-08-14 22:25:15 +0000 UTC   <- varies per scrape
+  #
+  # `start_time` is NOT an attribute — it is the data point's own
+  # StartTimestamp field. So no label-level processor can touch it:
+  # metricstransform's aggregate_labels operates on the label set and never sees
+  # it. Worse, the dimensions are ONE attribute called `Dimensions` holding a
+  # map, not separate labels, so a label_set of [Service, HasPassword] retains
+  # NOTHING and merges the three series into one with the breakdown gone
+  # (HasPassword=None carrying 5). Both were tried; both did exactly that.
+  #
+  # A datapoint-context transform reaches the field directly. Setting it to 0
+  # makes it constant across scrapes, which is all series identity needs — the
+  # measurement's own `Timestamp` and value are untouched, so nothing about when
+  # or what was measured changes. Verified against the debug exporter:
+  # StartTimestamp 1970-01-01 on every scrape, Value still 3.
+  transform/collapse_metric_start_time:
+    error_mode: propagate
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(start_time_unix_nano, 0)
+          # Zeroing start_time alone was NOT enough, and the __hash__ audit is
+          # what showed it: with start_time constant, all three HasPassword
+          # series still shared ONE hash, and PromQL returned a single series
+          # answering 5 (the ALL value) under the label `true`.
+          #
+          # The reason is above — the receiver puts every dimension inside a
+          # single `Dimensions` map attribute. A map is one attribute, so the
+          # values inside it never reach series identity, and three logically
+          # distinct series are indistinguishable to the backend.
+          #
+          # Promoting each entry to its own attribute is what separates them.
+          # Verified against the debug exporter: `-> HasPassword: Str(true)` and
+          # `-> Service: Str(users)` as siblings of Namespace/MetricName, rather
+          # than `-> Dimensions: Map({...})`.
+          - merge_maps(attributes, attributes["Dimensions"], "upsert") where attributes["Dimensions"] != nil
+          # Drop the map once flattened: leaving it would keep an attribute
+          # whose value differs per series, and OpenObserve would index a
+          # redundant column of stringified maps beside the real ones.
+          - delete_key(attributes, "Dimensions")
 
   batch: {}
 
@@ -168,7 +702,7 @@ exporters:
   # OpenObserve OTLP-HTTP ingest (ADR-0018). Use otlp_http — the otlphttp alias
   # is deprecated. Basic auth + stream-name are what OpenObserve requires.
   otlp_http/openobserve:
-    endpoint: http://openobserve:5080/api/default
+    endpoint: http://openobserve:5080/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: logs
@@ -186,10 +720,70 @@ exporters:
   # query can still be traced back to the request that issued it — the split is
   # about which stream you look at, not about losing the correlation.
   otlp_http/openobserve_sql:
-    endpoint: http://openobserve:5080/api/default
+    endpoint: http://openobserve:5080/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: sql
+
+  # The cache engine log gets its own stream too — same instance, same auth, only
+  # the stream-name header differs, exactly like the sql split above.
+  #
+  # Why separate rather than drop: the engine log is mostly housekeeping (see
+  # filter/only_redis for the volume), but it is the ONLY place the cache reports
+  # an OOM kill, a MISCONF that silently stops writes, or a background-save
+  # failure. Those are rare and quiet, which is precisely why they must not be
+  # weighed against thousands of expire-cycle lines in the main stream — and also
+  # why they must not be dropped. Splitting keeps them one query away without
+  # letting them set the volume of the stream everyone reads by default.
+  otlp_http/openobserve_redis:
+    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    headers:
+      Authorization: "Basic ${env:O2_BASIC_AUTH}"
+      stream-name: redis
+
+  # DocumentDB engine/audit log gets its own stream — same instance, same auth,
+  # only the stream-name header differs, exactly like the redis/sql splits.
+  #
+  # Why separate rather than drop: the group dwarfs application logs in volume
+  # (see filter/only_docdb), but it is the ONLY place the storage layer reports
+  # a restart, an auth failure, or an index build. Splitting keeps those one
+  # query away without letting WiredTiger chatter set the volume of the stream
+  # everyone reads by default. filter/drop_wiredtiger_noise still strips the
+  # checkpoint noise inside this stream.
+  otlp_http/openobserve_docdb:
+    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    headers:
+      Authorization: "Basic ${env:O2_BASIC_AUTH}"
+      stream-name: docdb
+
+  # The gateway's access log, its own stream — same instance and auth, only the
+  # stream-name header differs, exactly like the splits above.
+  #
+  # Why separate rather than drop (which is what this replaced): the per-request
+  # lines duplicate what the services already log, so they do not belong in the
+  # main stream — but the gateway is the only place a request that never reached
+  # a service shows up, and the only source of edge latency and byte counts.
+  # Its own severity is set from the HTTP status in transform/parse_body, so this
+  # stream is filterable by ERROR/WARN like any other.
+  otlp_http/openobserve_nginx:
+    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    headers:
+      Authorization: "Basic ${env:O2_BASIC_AUTH}"
+      stream-name: nginx
+
+  # The database engine logs get their own stream — same instance and auth, only
+  # the stream-name header differs, exactly like the splits above.
+  #
+  # Why separate rather than drop: this is the only place either Aurora cluster
+  # reports a failed start, a recovery, or a connection problem. Those are rare
+  # and quiet, which is precisely why they must not be weighed against startup
+  # and checkpoint chatter in the stream everyone reads by default — and also
+  # why they must not be discarded.
+  otlp_http/openobserve_rds:
+    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    headers:
+      Authorization: "Basic ${env:O2_BASIC_AUTH}"
+      stream-name: rds
 
   # Traces go to the SAME OpenObserve instance, a different stream. One backend
   # for both signals is what lets trace_id join a log line to its span without
@@ -213,6 +807,25 @@ exporters:
     tls:
       insecure: true
 
+  # Metrics to OpenObserve, its own stream — same instance and auth as logs,
+  # differing only in the stream-name header, exactly like the sql split above.
+  #
+  # WHY THIS WORKS WHEN TRACES DID NOT: ADR-0019 records OpenObserve rejecting
+  # every trace batch the collector sent with HTTP 400, which is why traces go to
+  # Jaeger. Its METRICS ingest does not have that problem — verified end to end
+  # before this config was written: the stream is created and the data points come
+  # back queryable.
+  #
+  # Note for dashboard authors: OpenObserve PREFIXES AND LOWERCASES the CloudWatch
+  # dimensions on ingest. A dimension published as `Service` is queried here as
+  # `dimensions_service`. The metric name becomes the stream name, sanitized:
+  # amazonaws.com/3MRAI/orders_total -> amazonaws_com_3mrai_orders_total.
+  otlp_http/openobserve_metrics:
+    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    headers:
+      Authorization: "Basic ${env:O2_BASIC_AUTH}"
+      stream-name: metrics
+
 service:
   telemetry:
     logs:
@@ -223,7 +836,11 @@ service:
       # Order matters: parse first so the filter can test real fields
       # (service_name, http_response_status_code) rather than pattern-match raw
       # text, then drop, then batch — so dropped records never reach the batcher.
-      processors: [transform/parse_body, filter/drop_nginx_noise, filter/drop_sql, batch]
+      #
+      # filter/drop_wiredtiger_noise deliberately NOT listed here: once
+      # filter/drop_docdb diverts the whole DocumentDB log group, that filter
+      # would match nothing in this pipeline. It runs in logs/docdb instead.
+      processors: [transform/parse_body, filter/drop_nginx, filter/drop_redis, filter/drop_docdb, filter/drop_rds, filter/drop_sql, batch]
       exporters: [otlp_http/openobserve]
 
     # SQL echo, same receivers, opposite filter, its own stream. Two pipelines
@@ -238,9 +855,93 @@ service:
       receivers: [fluent_forward, aws_cloudwatch]
       processors: [transform/parse_body, filter/only_sql, batch]
       exporters: [otlp_http/openobserve_sql]
+
+    # Cache engine log, its own stream. Same structure as logs/sql: same
+    # receivers, the complementary filter, a different exporter.
+    #
+    # aws_cloudwatch is the only receiver that can actually produce a record
+    # here — the group attribute exists only on the CloudWatch path — but
+    # fluent_forward stays listed for symmetry with the pipelines above, and
+    # because filter/only_redis discards its records anyway (they carry no log
+    # group, so the nil branch drops them).
+    #
+    # transform/parse_body runs here too. The engine log is plain text, not JSON,
+    # so the parse is a no-op for these records — but each pipeline processes its
+    # OWN copy of every record, so omitting it would only make this pipeline
+    # inconsistent with the others for no gain.
+    #
+    # NOT in the main logs pipeline's drop list by accident: filter/drop_redis
+    # there and filter/only_redis here are exact complements, so every record
+    # lands in exactly one of the two streams.
+    logs/redis:
+      receivers: [fluent_forward, aws_cloudwatch]
+      processors: [transform/parse_body, filter/only_redis, batch]
+      exporters: [otlp_http/openobserve_redis]
+
+    # DocumentDB engine/audit log, its own stream. Same structure as logs/redis:
+    # same receivers, the complementary filter, a different exporter.
+    #
+    # aws_cloudwatch is the only receiver that can produce a matching record —
+    # the group attribute exists only on the CloudWatch path — but fluent_forward
+    # stays listed for symmetry; filter/only_docdb discards its records via the
+    # nil branch.
+    #
+    # transform/parse_body runs here so WiredTiger's nested
+    # attr.message.category is available to filter/drop_wiredtiger_noise. That
+    # filter lives HERE (not in the main logs pipeline): after drop_docdb routes
+    # the group out of `logs`, the main pipeline has nothing left for it to act
+    # on. Keeping the filter on this stream strips checkpoint noise without
+    # losing restart/auth/index signals — see its definition for the full WHY.
+    #
+    # filter/drop_docdb in the main pipeline and filter/only_docdb here are exact
+    # complements, so every record lands in exactly one of the two streams.
+    logs/docdb:
+      receivers: [fluent_forward, aws_cloudwatch]
+      processors: [transform/parse_body, filter/only_docdb, filter/drop_wiredtiger_noise, batch]
+      exporters: [otlp_http/openobserve_docdb]
+
+    # The gateway's access log, its own stream. Same structure as the splits
+    # above: same receivers, the complementary filter, a different exporter.
+    #
+    # transform/parse_body is what makes this stream worth having rather than a
+    # pile of raw text — it is where the combined-format line becomes
+    # http_request_method / http_route / http_response_status_code and where the
+    # status becomes a severity. Without it these records would carry only
+    # `body`, which is the state they were in before any of this existed.
+    #
+    # filter/drop_nginx in the main pipeline and filter/only_nginx here are exact
+    # complements, so every record lands in exactly one of the two streams.
+    logs/nginx:
+      receivers: [fluent_forward, aws_cloudwatch]
+      processors: [transform/parse_body, filter/only_nginx, batch]
+      exporters: [otlp_http/openobserve_nginx]
+
+    # Database engine logs, their own stream. Same structure as logs/redis: same
+    # receivers, the complementary filter, a different exporter.
+    #
+    # filter/drop_rds in the main pipeline and filter/only_rds here are exact
+    # complements, so every record lands in exactly one of the two streams.
+    logs/rds:
+      receivers: [fluent_forward, aws_cloudwatch]
+      processors: [transform/parse_body, filter/only_rds, batch]
+      exporters: [otlp_http/openobserve_rds]
+
     # No transform/parse_body here: OTLP traces arrive already structured, so
     # there is no JSON-in-a-string body to flatten as there is for stdout logs.
     traces:
       receivers: [otlp]
       processors: [batch]
       exporters: [otlp/jaeger]
+
+    # Custom business metrics: CloudWatch -> OpenObserve. Same receiver as the
+    # logs pipeline, different signal — the receiver's `metrics` block above is
+    # what this pipeline consumes.
+    #
+    # No transform/parse_body, for the same reason as traces: metrics arrive
+    # already structured, unlike the services' stdout JSON.
+    metrics:
+      receivers: [aws_cloudwatch]
+      # collapse_metric_start_time BEFORE batch: it is what makes a metric one
+      # series instead of one per scrape, so batching ships real series.
+      processors: [transform/collapse_metric_start_time, batch]
+      exporters: [otlp_http/openobserve_metrics]

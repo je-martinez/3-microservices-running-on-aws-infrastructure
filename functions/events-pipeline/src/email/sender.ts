@@ -3,11 +3,14 @@ import { env } from "#shared/config/env";
 import { TransientError } from "#pipeline/errors";
 import { appLogger } from "#shared/logging/app-logger";
 import { hashEmail } from "#shared/logging/email-hash";
+import { publishEmailMetric } from "#shared/metrics/cloudwatch-metrics";
 
 export interface SendEmailParams {
   to: string;
   subject: string;
   html: string;
+  /** The catalog key that produced `html` — the EmailType metric dimension. */
+  templateKey: string;
 }
 
 // Module-scope singleton, created LAZILY — same shape and same reasons as
@@ -83,6 +86,18 @@ export async function sendEmail(params: SendEmailParams): Promise<void> {
       "SES send failed",
     );
 
+    // Every SES failure is transient — this catch only ever sees SES errors, and
+    // the throw below is unconditionally TransientError. A permanent failure
+    // comes from the RENDERER (a missing template), never from here, which is
+    // why the permanent counter lives there: counting both in one place would
+    // label every failure transient and destroy the split the metric exists for.
+    //
+    // Emitted BEFORE the throw, and awaited: publishEmailMetric never throws, so
+    // it cannot mask or replace the TransientError.
+    await publishEmailMetric("emails_failed_total", params.templateKey, {
+      FailureKind: "transient",
+    });
+
     throw new TransientError(`SES send failed: ${message}`);
   }
 
@@ -96,6 +111,8 @@ export async function sendEmail(params: SendEmailParams): Promise<void> {
     },
     "sent email",
   );
+
+  await publishEmailMetric("emails_sent_total", params.templateKey);
 }
 
 // Test seam: the module-scope client would otherwise leak configuration across

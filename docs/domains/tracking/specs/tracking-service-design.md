@@ -4,9 +4,10 @@ type: spec
 area: tracking
 status: accepted
 created: 2026-06-26
-updated: 2026-08-07
+updated: 2026-08-16
 tags: [type/spec, area/tracking, status/accepted]
 related:
+  - "[[2026-08-15-request-id-correlation-design]]"
   - "[[soft-delete]]"
   - "[[nano-id]]"
   - "[[audit-fields]]"
@@ -30,6 +31,7 @@ related:
   - "[[2026-08-03-events-pipeline-milestone-design]]"
   - "[[2026-08-05-realtime-tracking-events-websocket-design]]"
   - "[[2026-08-05-realtime-tracking-events-websocket]]"
+  - "[[2026-08-12-custom-business-metrics-cloudwatch-design]]"
 ---
 
 # Tracking Service Design
@@ -379,18 +381,39 @@ reading the sub costs nothing, while resolving the internal id is an explicit, m
 A property getter that fired gRPC would make the log enricher — which reads identity on every
 event — a network dependency.
 
+> [!info] `request_id` correlation
+> Tracking seeds `request_id` in the existing ASGI `LogContextMiddleware`, the same hook that
+> already calls `set_log_context`. It propagates the value onward on this outbound `GetUserById`
+> call as `x-request-id` gRPC metadata, and as a root field on the `TRACKING_STATUS_CHANGED`
+> envelope. `request_id` must be added to `_ALLOWED_KEYS` for `_clean` to keep it — an omission
+> there drops the field silently, with no error — and the middleware's header-reading loop must
+> not `break` on the first header match, or a second header (e.g. `x-user-id`) is lost. Full
+> design: [[2026-08-15-request-id-correlation-design]].
+
 ## Data Model
 
 All IDs use prefixed nano-IDs ([[nano-id]]). All tables apply soft-delete ([[soft-delete]]), audit fields ([[audit-fields]]), and follow naming conventions ([[db-naming]]).
+
+> [!note] Every id-bearing column is `VARCHAR(28)`, not `VARCHAR(21)`
+> This table previously listed id columns as `VARCHAR(21)` — that was wrong from the start, not a
+> regression from a prior-correct value: it recorded only the nanoid portion's length and omitted
+> the 4-character prefix (`trk_`, `usr_`, `ord_`), so it was never actually 26 either. The real
+> stored width is `PREFIX_LENGTH + LENGTH` = 4 + 24 = **28**, per [[nano-id]]. Getting this wrong
+> matters because MySQL truncates a too-long `varchar` silently rather than erroring — a
+> too-narrow column would corrupt every id written to it with nothing surfacing anywhere. Verified
+> live against `tracking`'s MySQL schema (2026-08-16): `id`, `user_id`, `order_id` on `Tracking`,
+> and `tracking_id`, `user_id`, `order_id` on `Tracking_History` are all `varchar(28)`.
+> `created_by`/`updated_by`/`deleted_by` on both tables are a separate, unrelated `varchar(64)` —
+> free-text audit-actor labels ([[audit-fields]]), not nano-ids, and out of scope here.
 
 ### `Tracking`
 
 | Column       | Type         | Notes                              |
 |--------------|--------------|------------------------------------|
-| `id`         | VARCHAR(21)  | Prefixed nano-ID, PK               |
-| `user_id`    | VARCHAR(21)  | The internal `usr_` id, as Orders resolved it from Users. For reporting/joins only — **not** the ownership key reads filter by (see `cognito_sub` below). |
+| `id`         | VARCHAR(28)  | Prefixed nano-ID, PK               |
+| `user_id`    | VARCHAR(28)  | The internal `usr_` id, as Orders resolved it from Users. For reporting/joins only — **not** the ownership key reads filter by (see `cognito_sub` below). |
 | `cognito_sub` | VARCHAR(255), nullable | **The ownership key every user-scoped REST read filters by** — see [[user-id-vs-cognito-sub-ownership-key]] and [Ownership & scoping](#ownership--scoping). Nullable: a row created before this field existed, or by a caller that omitted it, is simply unreachable over the user-scoped reads rather than mis-attributed to someone else. |
-| `order_id`   | VARCHAR(21)  | Reference to order, unique         |
+| `order_id`   | VARCHAR(28)  | Reference to order, unique         |
 | `status`     | VARCHAR(50)  | Current delivery status — enum: `PLACED`, `PROCESSING`, `SHIPPED`, `OUT_FOR_DELIVERY`, `DELIVERED` (see [Tracking statuses](#tracking-statuses)) |
 | `shipping_address` | JSON  | Snapshot of the delivery address, received as-is in the `init-tracking` request body — see [Delivery address snapshot](#delivery-address-snapshot) below. |
 | `tags`       | JSON, `NOT NULL DEFAULT (JSON_ARRAY())` | Free-form labels; today only `"E2E Source"` is ever written, by [`init-tracking`](#api--endpoints) when the request carries `x-e2e-source: true` under `E2E_TESTING_ENABLED` — see [E2E cleanup](#e2e-cleanup-delete-v1trackingse2e-cleanup). MySQL has no array type, so this is a JSON array queried with `JSON_CONTAINS` rather than a Postgres-style `text[]`. |
@@ -424,9 +447,9 @@ Immutable log of every status transition.
 
 | Column        | Type         | Notes                                   |
 |---------------|--------------|-----------------------------------------|
-| `tracking_id` | VARCHAR(21)  | FK → `Tracking.id` (part of PK)         |
-| `user_id`     | VARCHAR(21)  | Reference to user                       |
-| `order_id`    | VARCHAR(21)  | Reference to order                      |
+| `tracking_id` | VARCHAR(28)  | FK → `Tracking.id` (part of PK)         |
+| `user_id`     | VARCHAR(28)  | Reference to user                       |
+| `order_id`    | VARCHAR(28)  | Reference to order                      |
 | `cognito_sub` | VARCHAR(255), nullable | Denormalized off the parent `Tracking`, same as `user_id`/`order_id` above — a transition row needs its own ownership context to stay self-describing, and the read-scoping index below keys on it. |
 | `status`      | VARCHAR(50)  | Status at the time of the event — enum: `PLACED \| PROCESSING \| SHIPPED \| OUT_FOR_DELIVERY \| DELIVERED` (part of PK) |
 | `datetime`    | DATETIME     | Timestamp of this status transition     |
@@ -641,6 +664,43 @@ error taxonomy that decides whether a publish-side failure downstream gets retri
 `tracking-status-changed` email template family (one event type, five rendered variants selected
 by `payload.status`).
 
+## Metrics
+
+> [!info] Shipped 2026-08-12 — Custom Business Metrics milestone
+> Full design and the Floci/OpenObserve gotchas that constrain this metric:
+> [[2026-08-12-custom-business-metrics-cloudwatch-design]]; the CloudWatch-not-OTLP pipeline and
+> the shared query gotchas are in [[logging-context#Metrics — the third pillar, and why it does
+> NOT go over OTLP]].
+
+| Metric | Type | Dimensions |
+|---|---|---|
+| `orders_by_tracking_status_total` | gauge | `Service=tracking`, `Status=DELIVERED\|IN_PROGRESS` |
+
+A gauge, split into `DELIVERED` (finished) and `IN_PROGRESS` (everything else — `PLACED`,
+`PROCESSING`, `SHIPPED`, `OUT_FOR_DELIVERY`), published by a periodic task that `GROUP BY`s
+`Tracking.status` on Tracking's own database.
+
+**`DELIVERED` is the state machine's terminal status ([Tracking statuses](#tracking-statuses)),
+so "finished" is the domain's own invariant, not a convention invented for this metric.** Nothing
+follows `DELIVERED` and no update is accepted against it (see [State machine & update
+guards](#state-machine--update-guards)).
+
+**Counting trackings is counting orders, without double-counting.** `Tracking.order_id` carries
+`UniqueConstraint("order_id", name="uq_tracking_order_id")` — strictly one tracking per order, so
+a `GROUP BY status` over `Tracking` is exactly a count of orders by their tracking status, with no
+join or dedup needed.
+
+Together with Orders' `orders_total` ([[orders-service-design#Metrics]]), this metric is one half
+of the Orders→Tracking integration health indicator: `orders_total − (DELIVERED + IN_PROGRESS)`
+should be 0 in normal operation. See [[orders-service-design#Metrics]] for the full reasoning and
+the deliberately-accepted failure mode it surfaces.
+
+**`src/main.py` now has a `lifespan` — it previously had none.** The module's own docstring used
+to say "there is nothing to start or stop"; that is no longer true. The lifespan starts the
+periodic gauge-publishing task for the life of the process, gated on `METRICS_ENABLED`: `main.py`'s
+`create_app()` is also called by `tests/conftest.py` for every REST test, and an ungated task would
+open a real database session and reach for CloudWatch on every test run.
+
 ## Change impact — renaming a delivery status
 
 Renaming a value in the delivery-status enum ([Tracking statuses](#tracking-statuses)) touches
@@ -704,6 +764,7 @@ every already-persisted tracking, not only for code going forward.
 | Gateway routing (existing module, per-route local integrations) | [[local-gateway-per-route-integrations]] |
 | Event publishing (SQS, generated queue URL) | [[env-files]], [[events-pipeline-design]] |
 | `x-user-id` injection (local) | [[nginx-njs-x-user-id-injection]] |
+| Structured logging context, incl. `request_id` | [[logging-context]] |
 
 ## Deltas from the original design (superseded)
 
@@ -742,6 +803,9 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
 
 ## Related
 
+- [[2026-08-15-request-id-correlation-design]] — the cross-service `request_id` correlation
+  field: Tracking seeds it in `LogContextMiddleware`, propagates via gRPC metadata to Users and
+  as a root field on `TRACKING_STATUS_CHANGED`, and must list it in `_ALLOWED_KEYS`.
 - [[soft-delete]]
 - [[nano-id]]
 - [[audit-fields]]
@@ -785,3 +849,6 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
 - [[2026-08-05-realtime-tracking-events-websocket-design]] — the design that added
   `author.cognito_sub` to this publisher's envelope, and the DynamoDB GSI it exists to serve.
 - [[2026-08-05-realtime-tracking-events-websocket]] — the implementation plan that shipped it.
+- [[2026-08-12-custom-business-metrics-cloudwatch-design]] — the design for
+  `orders_by_tracking_status_total`, the DELIVERED/IN_PROGRESS split, and the `main.py` lifespan
+  it added.

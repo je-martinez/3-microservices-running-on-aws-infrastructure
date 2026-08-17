@@ -35,3 +35,45 @@ protobuf==7.35.1
 # (src/shared/messaging/sqs_event_publisher.py). Runtime, not dev: the carrier
 # webhook and TestMode both emit through it in a running container.
 boto3==1.40.41
+
+# --- OpenTelemetry (traces) ------------------------------------------------
+# Runtime, not dev: the spans are produced by the RUNNING container, and the
+# Dockerfile CMD wraps uvicorn in `opentelemetry-instrument`, which lives in
+# these packages. If they were in requirements.txt the image would not build a
+# working CMD at all.
+#
+# TWO version trains, and they are not interchangeable — this is the pinning
+# trap in the Python OTel ecosystem. The API/SDK/exporter are 1.x (stable);
+# every `-instrumentation-*` package is 0.x (beta) and is released in LOCKSTEP
+# with a specific 1.x: 0.65b0 ships alongside 1.44.0 and hard-pins its siblings
+# with `==0.65b0`. Bumping one train without the other is an unsatisfiable
+# resolution, so the two lines below move TOGETHER or not at all.
+#
+# Verified compatible with this file's existing pins before choosing them:
+#   fastapi 0.115.6   vs instrumentation-fastapi's    `fastapi~=0.92`      OK
+#   sqlalchemy 2.0.37 vs instrumentation-sqlalchemy's `sqlalchemy<2.1.0`   OK
+#   grpcio 1.83.0     vs instrumentation-grpc's       `grpcio>=1.42.0`     OK
+#   protobuf 7.35.1   vs opentelemetry-proto's        `protobuf<8.0,>=5.0` OK
+# That last one is the one that could have bitten: the committed gRPC stubs
+# force protobuf 7.x, and an older opentelemetry-proto capped it below 6.
+opentelemetry-sdk==1.44.0
+# HTTP exporter, not gRPC: OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf in the
+# generated .env.local.tracking, and the collector's OTLP endpoint is :4318.
+# Installing the grpc exporter instead would leave the configured protocol with
+# no implementation to select.
+opentelemetry-exporter-otlp-proto-http==1.44.0
+# `opentelemetry-instrument` (the zero-code CLI in the Dockerfile CMD) lives
+# here, together with the auto-configuration that reads the OTEL_* environment.
+opentelemetry-distro==0.65b0
+# The three instrumentations this service actually has surfaces for. Each one
+# registers an `opentelemetry_instrumentor` entry point, which is what
+# `opentelemetry-instrument` enumerates and loads — no Python bootstrap needed.
+# Deliberately NOT `opentelemetry-instrumentation` writ large / bootstrap -a:
+# an unpinned auto-discovered set is exactly the floating dependency this file's
+# header forbids.
+opentelemetry-instrumentation-fastapi==0.65b0
+opentelemetry-instrumentation-sqlalchemy==0.65b0
+# gRPC CLIENT instrumentation — the outbound `GetUserById` call to Users. It is
+# what injects the W3C traceparent into the gRPC metadata, so a Tracking request
+# and the Users work it triggers land in ONE trace instead of two disjoint ones.
+opentelemetry-instrumentation-grpc==0.65b0

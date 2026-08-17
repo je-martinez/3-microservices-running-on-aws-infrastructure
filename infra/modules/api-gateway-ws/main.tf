@@ -97,6 +97,26 @@ resource "aws_lambda_function" "fn" {
       WS_CONNECTIONS_TABLE = var.connections_table_name
       WS_CONNECTIONS_GSI   = "by-cognito-sub"
       AWS_ENDPOINT_URL     = var.aws_endpoint_url
+
+      # Silence the AWS SDK v3 maintenance notice at the SOURCE rather than
+      # filtering it downstream.
+      #
+      # The runtime here is nodejs20.x, and the SDK warns that releases after
+      # early 2027 will require node >=22. It emits that through
+      # process.emitWarning, which the Lambda runtime writes to stderr — and
+      # CloudWatch tags every stderr line ERROR. So a purely informational
+      # notice arrived in OpenObserve at the same severity as a real failure,
+      # once per cold start, on all four functions.
+      #
+      # This is the one env var that suppresses it (--no-deprecation does NOT:
+      # the notice is not a DeprecationWarning). Filtering it in the collector
+      # was the alternative and is strictly worse — the line would still be
+      # written, still be ERROR in CloudWatch, and the rule would have to
+      # survive every future SDK reword.
+      #
+      # This does not hide the underlying migration: the node 22 bump is real
+      # and tracked by the `runtime` field above, not by this line.
+      AWS_SDK_JS_SUPPRESS_MAINTENANCE_MODE_MESSAGE = "1"
     }
   }
 

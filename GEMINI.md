@@ -329,6 +329,53 @@ A new service needs no endpoint code at all, only the environment variables.
 
 ---
 
+## package-manager.md
+
+# Package manager — pnpm only
+
+**pnpm is the package manager. Never `npm`, never `yarn`** — including for
+brand-new sub-projects that do not exist in the workspace yet.
+
+A bare `npm install` corrupts the pnpm tree and leaves a stray
+`package-lock.json` sitting beside `pnpm-lock.yaml`, which is the state this rule
+exists to prevent. Once both lockfiles exist, the next person to install gets a
+different dependency graph than the one that was tested.
+
+## Command translation
+
+| Instead of | Use |
+|---|---|
+| `npm install` | `pnpm install` |
+| `npm install <pkg>` | `pnpm add <pkg>` |
+| `npm run <script>` | `pnpm run <script>` |
+| `npx <bin>` | `pnpm dlx <bin>` |
+| `npm exec` | `pnpm exec` |
+| workspace package script | `pnpm --filter <pkg> <script>` |
+
+## A vendor's docs are not an exception
+
+**A vendor's own documentation using `npm` is not a reason to deviate.** Nearly
+every upstream README writes its install line as `npm install`; that is the
+ecosystem default, not a requirement of the tool. Translate the command using the
+table above and carry on.
+
+This is the specific trap: an agent reads `npm install some-tool` in the official
+docs, treats it as the tool's supported path, and runs it verbatim. The tool
+installs fine — and the workspace is now inconsistent.
+
+## Node version
+
+The repo pins Node via `.nvmrc` (currently **24.18.0**). Activate the pinned
+version before any Node or pnpm command:
+
+```bash
+nvm use && pnpm install
+```
+
+Full convention: `docs/shared/conventions/package-manager.md`.
+
+---
+
 ## scripting-language.md
 
 # Scripting language — Python first
@@ -336,7 +383,7 @@ A new service needs no endpoint code at all, only the environment variables.
 - **Python by default** for new scripts: infra scripting, Terraform pre/post
   effects, and anything touching AWS, JSON, or non-trivial control flow.
 - **JavaScript** only when the task already lives in the Node ecosystem present
-  here (vault tooling, the pnpm workspace, npm dependencies). That is why
+  here (vault tooling, the pnpm workspace, its dependencies). That is why
   `scripts/*.mjs` stay JS.
 - **Bash** only with an explicitly documented limitation, recorded in a comment
   inside the script itself. The repo currently has **zero `.sh` files** — keep it
@@ -358,8 +405,11 @@ Shared helpers live in `infra/scripts/lib3mrai/` (`aws.py`, `console.py`,
 ## Node.js version
 
 The repo pins Node via `.nvmrc` (currently **24.18.0**). Activate the pinned
-version before running any Node command (`node`, `npm`, `npx`, global installs).
-With nvm: `nvm use && node scripts/validate-vault.mjs`.
+version before running any Node command (`node`, `pnpm`, `pnpm dlx`, global
+installs). With nvm: `nvm use && node scripts/validate-vault.mjs`.
+
+The package manager is **pnpm — never `npm` or `yarn`**. Full rule:
+`.ai/rules/package-manager.md`.
 
 ---
 
@@ -389,6 +439,52 @@ pending a nice-to-have.
 Per-service specifics live in each `services/<svc>/CLAUDE.md` (or the equivalent
 service instruction file), section 2b.
 
+## Load testing is a fourth, different surface
+
+Load tests live in `e2e/load-tests/` (Gatling JS + Chance.js), beside the
+Playwright suite in `e2e/`. They answer a **different question**: not "is it
+correct?" but "what shape does it have under sustained traffic?".
+
+They are **not** interchangeable with E2E specs, and reading one as the other is
+the common mistake — percentiles over four E2E requests are noise, and a load run
+proves nothing about correctness beyond status codes.
+
+### The two E2E-only headers, and why load tests omit them
+
+- **`x-e2e-source: true`** tags rows so cleanup can delete exactly what a run
+  created. It only takes effect when the flag `E2E_TESTING_ENABLED` is **also**
+  on — that conjunction is what stops an untrusted client tagging someone else's
+  rows for deletion.
+- **`x-test-mode: true`** (on order creation) makes a tracking advance itself
+  every 10s to DELIVERED, so a delivery flow can be asserted in ~40 seconds.
+
+**Load simulations deliberately send neither.** Their data is meant to persist
+like real data (reset with `make clean && make bootstrap`, not a cleanup pass),
+and without `x-test-mode` a tracking does not self-advance — which is why a
+simulation drives it through the **carrier webhook**, the way a real carrier
+does.
+
+### Load-simulation traps (measured, not guessed)
+
+- **Use `session.userId()`, never a module-level counter**, for anything that
+  must be unique per virtual user. Simulation modules are evaluated per execution
+  context, so module scope is not one shared sequence — a counter produced the
+  *same* email five times in one run. The cascade is what makes it expensive: a
+  duplicate email 409s registration, login then fails, and every authenticated
+  step after it 401s, so one data bug reads as a broken auth chain.
+- **`process.env` does not exist** in a simulation — use
+  `getEnvironmentVariable` / `getParameter` from `@gatling.io/core`. With
+  `@types/node` present the former type-checks and then dies at runtime.
+- **A 409 on order creation is expected under load** — creation locks each
+  product row `FOR UPDATE`, so concurrent buyers genuinely contend. Accept
+  201-or-409 and guard the steps needing an order id.
+- **Give each virtual user its own token.** A shared one collapses every
+  user-scoped read onto a single `cognito_sub` and hides the per-user query cost.
+- **Isolate slow dependencies behind their own request name**, so an inbox poll
+  measured in seconds never smears a service's real ~26ms latency.
+- **Assert only on our own endpoints** — holding a third party's latency to a
+  budget fails the run for something the simulation does not measure.
+
 ## Mocks hide schema bugs
 
 Mocked unit tests pass happily while the real schema or driver rejects the
@@ -398,3 +494,67 @@ write. Verify persistence paths against a live database, not only a mock.
 
 Count-only assertions ("got 3 of 4") cannot distinguish a broken system from a
 wrong expectation. Print **what** arrived, not just how many.
+
+---
+
+## vault-over-memory.md
+
+# GOLDEN RULE — the vault is the source of truth, never a private memory file
+
+When the user establishes a **convention**, a **decision**, or a **durable
+lesson**, it goes into the **vault** first:
+
+- `docs/shared/conventions/` — how we do a thing
+- `docs/shared/decisions/` — an ADR, why we chose it
+- `docs/lessons/` — a gotcha that cost real debugging time
+
+Writing it **only** to an assistant memory store is **wrong**, and is the exact
+failure mode this rule exists to prevent.
+
+## Why
+
+The vault is versioned, reviewable in a pull request, readable by every human and
+every agent on the project, and it survives independently of any one assistant's
+memory. A private memory file is:
+
+- **invisible to the team** — nobody can see what you recorded
+- **unreviewable** — it never appears in a diff
+- **silently divergent** — it drifts from the repo with nothing to catch it
+
+**A rule the user had to state twice, because the first capture was invisible to
+them, is a rule that was not captured.**
+
+This applies to *whatever* memory feature you happen to have — a rules file, a
+memory tool, a saved-context store, a scratch note only you can read. If the
+record lives somewhere the user cannot review in a PR, it does not count as
+recorded.
+
+## Order of operations
+
+1. **Vault note first** — with `## Related` wikilinks, and the validator green.
+2. *Then*, optionally, a short memory pointer if it genuinely helps recall
+   mid-session.
+
+**Never memory instead of the vault. Never memory before it.**
+
+## What counts as durable
+
+Not just the big architectural calls. Also: the package-manager choice, a naming
+convention, a gotcha that cost debugging time, a workflow correction.
+
+The test: **"would a teammate need to know this next month?"** If yes, it belongs
+in `docs/`.
+
+## Rules files vs. project knowledge
+
+Agent instruction files (this one, `AGENTS.md`, and the per-directory rules) are
+for **rules that govern agent behaviour**. The vault is for **project
+knowledge**. A convention usually deserves both: the note in `docs/`, and a
+one-line pointer in the instructions when it changes how work is done.
+
+## Writing to the vault
+
+**You do not write to `docs/` directly.** See the prohibition in `AGENTS.md`:
+propose the note and wait for explicit user confirmation. The golden rule tells
+you *where the knowledge must end up* — it does not grant you write access to
+get it there.

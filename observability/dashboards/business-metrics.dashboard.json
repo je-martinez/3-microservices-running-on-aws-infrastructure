@@ -1,0 +1,540 @@
+{
+  "version": 8,
+  "dashboardId": "business_metrics",
+  "title": "Business Metrics",
+  "description": "Current state of the business: users by sign-in method, orders by tracking status, and email delivery. Every card is a SQL query over a metrics stream, so it follows the dashboard's time picker and reads 0 over a quiet range instead of erroring. Counters (Registrations, Emails sent/lost) SUM over the selected range; gauges (Users, Orders, Delivered/In progress/Tracked) report the level with MAX. The per-service golden-signal dashboards carry the time-series view.",
+  "role": "",
+  "owner": "3MRAI",
+  "created": "2026-08-12T00:00:00.000Z",
+  "tabs": [
+    {
+      "tabId": "cards",
+      "name": "Business Metrics",
+      "panels": [
+        {
+          "id": "card_users_total",
+          "type": "metric",
+          "title": "Users",
+          "description": "Every live user, both password and passwordless. A gauge, so max() reports the current value rather than a sum of samples.",
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT COALESCE(MAX(CASE WHEN haspassword = 'ALL' THEN value END),0) AS total FROM \"amazonaws_com_3mrai_users_total\"",
+              "customQuery": true,
+              "fields": {
+                "stream": "amazonaws_com_3mrai_users_total",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [
+                  {
+                    "label": "total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "isDerived": false,
+                    "havingConditions": []
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "layer_type": "scatter",
+                "weight_fixed": 1,
+                "promql_legend": ""
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 0,
+            "w": 38,
+            "h": 8,
+            "i": 1
+          }
+        },
+        {
+          "id": "card_users_with_password",
+          "type": "metric",
+          "title": "Password login",
+          "description": "Users holding a usable password.",
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT COALESCE(MAX(CASE WHEN haspassword = 'true' THEN value END),0) AS total FROM \"amazonaws_com_3mrai_users_total\"",
+              "customQuery": true,
+              "fields": {
+                "stream": "amazonaws_com_3mrai_users_total",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [
+                  {
+                    "label": "total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "isDerived": false,
+                    "havingConditions": []
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "layer_type": "scatter",
+                "weight_fixed": 1,
+                "promql_legend": ""
+              }
+            }
+          ],
+          "layout": {
+            "x": 38,
+            "y": 0,
+            "w": 38,
+            "h": 8,
+            "i": 2
+          }
+        },
+        {
+          "id": "card_users_passwordless",
+          "type": "metric",
+          "title": "Email OTP",
+          "description": "Users created through the OTP flow, who have no password at all.",
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT COALESCE(MAX(CASE WHEN haspassword = 'false' THEN value END),0) AS total FROM \"amazonaws_com_3mrai_users_total\"",
+              "customQuery": true,
+              "fields": {
+                "stream": "amazonaws_com_3mrai_users_total",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [
+                  {
+                    "label": "total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "isDerived": false,
+                    "havingConditions": []
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "layer_type": "scatter",
+                "weight_fixed": 1,
+                "promql_legend": ""
+              }
+            }
+          ],
+          "layout": {
+            "x": 76,
+            "y": 0,
+            "w": 38,
+            "h": 8,
+            "i": 3
+          }
+        },
+        {
+          "id": "card_registrations",
+          "type": "metric",
+          "title": "Registrations",
+          "description": "Registrations completed in the selected time range. A counter, so SUM over the window — and SQL rather than PromQL because OpenObserve applies the dashboard's time picker to a SQL query, while a PromQL range selector would need a hardcoded window that ignores it. An empty range returns 0, not an error.",
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT COALESCE(SUM(value),0) AS total FROM \"amazonaws_com_3mrai_users_registered_total\"",
+              "customQuery": true,
+              "fields": {
+                "stream": "amazonaws_com_3mrai_users_registered_total",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [
+                  {
+                    "label": "total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "isDerived": false,
+                    "havingConditions": []
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "layer_type": "scatter",
+                "weight_fixed": 1,
+                "promql_legend": ""
+              }
+            }
+          ],
+          "layout": {
+            "x": 114,
+            "y": 0,
+            "w": 38,
+            "h": 8,
+            "i": 4
+          }
+        },
+        {
+          "id": "card_orders_total",
+          "type": "metric",
+          "title": "Orders",
+          "description": "The true order count, from Orders' own table.",
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT COALESCE(MAX(value),0) AS total FROM \"amazonaws_com_3mrai_orders_total\"",
+              "customQuery": true,
+              "fields": {
+                "stream": "amazonaws_com_3mrai_orders_total",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [
+                  {
+                    "label": "total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "isDerived": false,
+                    "havingConditions": []
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "layer_type": "scatter",
+                "weight_fixed": 1,
+                "promql_legend": ""
+              }
+            }
+          ],
+          "layout": {
+            "x": 152,
+            "y": 0,
+            "w": 40,
+            "h": 8,
+            "i": 5
+          }
+        },
+        {
+          "id": "card_orders_delivered",
+          "type": "metric",
+          "title": "Delivered",
+          "description": "Orders whose tracking reached DELIVERED — the state machine's terminal status, so this is finished work by the domain's own definition.",
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT COALESCE(MAX(CASE WHEN status = 'DELIVERED' THEN value END),0) AS total FROM \"amazonaws_com_3mrai_orders_by_tracking_status_total\"",
+              "customQuery": true,
+              "fields": {
+                "stream": "amazonaws_com_3mrai_orders_by_tracking_status_total",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [
+                  {
+                    "label": "total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "isDerived": false,
+                    "havingConditions": []
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "layer_type": "scatter",
+                "weight_fixed": 1,
+                "promql_legend": ""
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 8,
+            "w": 38,
+            "h": 8,
+            "i": 6
+          }
+        },
+        {
+          "id": "card_orders_in_progress",
+          "type": "metric",
+          "title": "In progress",
+          "description": "Orders whose tracking is anything other than DELIVERED.",
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT COALESCE(MAX(CASE WHEN status = 'IN_PROGRESS' THEN value END),0) AS total FROM \"amazonaws_com_3mrai_orders_by_tracking_status_total\"",
+              "customQuery": true,
+              "fields": {
+                "stream": "amazonaws_com_3mrai_orders_by_tracking_status_total",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [
+                  {
+                    "label": "total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "isDerived": false,
+                    "havingConditions": []
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "layer_type": "scatter",
+                "weight_fixed": 1,
+                "promql_legend": ""
+              }
+            }
+          ],
+          "layout": {
+            "x": 38,
+            "y": 8,
+            "w": 38,
+            "h": 8,
+            "i": 7
+          }
+        },
+        {
+          "id": "card_orders_tracked",
+          "type": "metric",
+          "title": "Tracked",
+          "description": "DELIVERED + IN_PROGRESS. Compare with the Orders card: a gap means an order whose init-tracking call failed, and normally there is none.",
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT COALESCE(MAX(CASE WHEN status = 'ALL' THEN value END),0) AS total FROM \"amazonaws_com_3mrai_orders_by_tracking_status_total\"",
+              "customQuery": true,
+              "fields": {
+                "stream": "amazonaws_com_3mrai_orders_by_tracking_status_total",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [
+                  {
+                    "label": "total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "isDerived": false,
+                    "havingConditions": []
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "layer_type": "scatter",
+                "weight_fixed": 1,
+                "promql_legend": ""
+              }
+            }
+          ],
+          "layout": {
+            "x": 76,
+            "y": 8,
+            "w": 38,
+            "h": 8,
+            "i": 8
+          }
+        },
+        {
+          "id": "card_emails_sent",
+          "type": "metric",
+          "title": "Emails sent",
+          "description": "Handoffs to SES in the selected time range, NOT inbox deliveries — bounces are invisible here. Filtered to the pre-summed ALL series so the per-type breakdowns are not double counted.",
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT COALESCE(SUM(CASE WHEN emailtype = 'ALL' THEN value END),0) AS total FROM \"amazonaws_com_3mrai_emails_sent_total\"",
+              "customQuery": true,
+              "fields": {
+                "stream": "amazonaws_com_3mrai_emails_sent_total",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [
+                  {
+                    "label": "total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "isDerived": false,
+                    "havingConditions": []
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "layer_type": "scatter",
+                "weight_fixed": 1,
+                "promql_legend": ""
+              }
+            }
+          ],
+          "layout": {
+            "x": 114,
+            "y": 8,
+            "w": 38,
+            "h": 8,
+            "i": 9
+          }
+        },
+        {
+          "id": "card_emails_failed_permanent",
+          "type": "metric",
+          "title": "Emails lost",
+          "description": "Permanent send failures in the selected time range — mail that will never arrive. Transient failures are excluded: those are retried and usually succeed, so counting them here would report losses that did not happen.",
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT COALESCE(SUM(CASE WHEN failurekind = 'permanent' AND emailtype = 'ALL' THEN value END),0) AS total FROM \"amazonaws_com_3mrai_emails_failed_total\"",
+              "customQuery": true,
+              "fields": {
+                "stream": "amazonaws_com_3mrai_emails_failed_total",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [
+                  {
+                    "label": "total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "isDerived": false,
+                    "havingConditions": []
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "layer_type": "scatter",
+                "weight_fixed": 1,
+                "promql_legend": ""
+              }
+            }
+          ],
+          "layout": {
+            "x": 152,
+            "y": 8,
+            "w": 40,
+            "h": 8,
+            "i": 10
+          }
+        }
+      ]
+    }
+  ],
+  "variables": {
+    "list": []
+  }
+}

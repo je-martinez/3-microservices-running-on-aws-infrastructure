@@ -7,6 +7,7 @@ import { handlers } from "#handlers/index";
 import { env } from "#shared/config/env";
 import { appLogger } from "#shared/logging/app-logger";
 import { runWithLogContext, type LogContextStore } from "#shared/logging/log-context";
+import { publishMetric, SERVICE_DIMENSION } from "#shared/metrics/cloudwatch-metrics";
 
 // Minimal structural shape of the slice of the SQS event this function reads.
 // Deliberately not `SQSEvent` from @types/aws-lambda: only `messageId` and
@@ -19,6 +20,23 @@ interface SqsRecord {
 
 interface SqsEvent {
   Records: SqsRecord[];
+}
+
+// The scheduled tick that seeds the email counters (EventBridge rule
+// `<name>-metrics-tick`, infra/modules/events_pipeline_schedule). Identified by
+// `detail-type` rather than by the ABSENCE of `Records`: "not an SQS event"
+// would also match a malformed SQS delivery, and silently treating that as a
+// tick would drop real messages while reporting success.
+const METRICS_TICK_DETAIL_TYPE = "3mrai.metrics.tick";
+
+interface MetricsTickEvent {
+  "detail-type": string;
+}
+
+type HandlerEvent = SqsEvent | MetricsTickEvent;
+
+function isMetricsTick(event: HandlerEvent): event is MetricsTickEvent {
+  return (event as MetricsTickEvent)["detail-type"] === METRICS_TICK_DETAIL_TYPE;
 }
 
 interface BatchResponse {
@@ -71,6 +89,12 @@ function envelopeContext(envelope: Envelope, messageId: string): LogContextStore
     ...(envelope.author.cognito_sub === undefined
       ? {}
       : { author_cognito_sub: envelope.author.cognito_sub }),
+    // The producer's correlation id, propagated — never generated here. Same
+    // spread-or-nothing rule: a message published before the producers started
+    // sending `request_id` simply has no key on its lines, which reads as "this
+    // message predates the field". `request_id: null` would instead read as
+    // "correlated, to nothing" — a different and misleading claim.
+    ...(envelope.request_id === undefined ? {} : { request_id: envelope.request_id }),
     message_id: messageId,
   };
 }
@@ -156,7 +180,55 @@ function observe(
 // docs/lessons/floci-sqs-lambda-docdb-support.md), retrying ONLY the listed
 // items. Throwing would retry the whole batch, redelivering records that already
 // completed.
-export async function handler(event: SqsEvent): Promise<BatchResponse> {
+/**
+ * Publishes a 0 for every email counter, so each series has a datapoint in
+ * every time window regardless of traffic.
+ *
+ * WHY the counters need seeding at all: they are only emitted when a mail is
+ * actually sent or fails, so in a quiet window their series has no points —
+ * and OpenObserve's `metric` panel throws `Cannot read properties of undefined
+ * (reading 'values')` instead of rendering 0. The card breaks precisely when
+ * the answer is the reassuring one, which makes "no emails lost" and "the
+ * pipeline is down" look identical on the dashboard.
+ *
+ * WHY it is driven by a SCHEDULE and not by the invocation itself: seeding used
+ * to run at the top of every SQS batch, which cannot work — that path only runs
+ * when mail is already flowing, so it published zeros exactly when they were not
+ * needed and nothing during the quiet windows it was meant to cover. Verified:
+ * `emails_sent_total` had ZERO points in the last 6h while `users_total`
+ * (published by a real periodic loop) had continuous coverage. A Lambda has no
+ * long-lived process to host a poller, so the clock has to come from outside —
+ * hence the EventBridge rule.
+ *
+ * The zero is arithmetically free: CloudWatch sums within a period, so it never
+ * alters a real count.
+ */
+async function seedEmailCounters(): Promise<void> {
+  await Promise.all([
+    ...(["permanent", "transient"] as const).map((failureKind) =>
+      publishMetric("emails_failed_total", 0, {
+        Service: SERVICE_DIMENSION,
+        EmailType: "ALL",
+        FailureKind: failureKind,
+      }),
+    ),
+    publishMetric("emails_sent_total", 0, {
+      Service: SERVICE_DIMENSION,
+      EmailType: "ALL",
+    }),
+  ]);
+}
+
+export async function handler(event: HandlerEvent): Promise<BatchResponse> {
+  // The scheduled tick seeds and returns. It must exit BEFORE the DocumentDB
+  // connection below: a tick carries no records, so continuing would open a
+  // connection for nothing every minute — and, worse, any future work added to
+  // the record loop would run on a schedule against an empty batch.
+  if (isMetricsTick(event)) {
+    await seedEmailCounters();
+    return { batchItemFailures: [] };
+  }
+
   const batchItemFailures: { itemIdentifier: string }[] = [];
 
   let repository: MongoEventsRepository;

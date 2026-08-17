@@ -141,6 +141,10 @@ export async function trackingStatusChangedHandler(envelope: Envelope): Promise<
     to: result.data.email,
     subject: `Order ${envelope.order_id}: ${result.data.status.replace(/_/g, " ").toLowerCase()}`,
     html,
+    // The SAME key that rendered `html` — one of the five TEMPLATE_BY_STATUS
+    // variants, not the event type. The EmailType dimension names the template
+    // that was actually sent, so the five variants stay distinguishable.
+    templateKey,
   });
 
   // Realtime fan-out, AFTER the email. Secondary to it in every sense: the

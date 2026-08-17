@@ -50,7 +50,7 @@ export EXECUTION_LOG_TABLE ?= 3mrai-local-tfstate-execution-log
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps test-unit test-e2e test-all backend-up infra-init infra-plan infra-up post-infra infra-down infra-output env-file migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean observability-up observability-down observability-dashboards scripts-setup ai-sync ai-sync-check
+.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke backend-up infra-init infra-plan infra-up post-infra infra-down infra-output env-file migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean observability-up observability-down observability-dashboards scripts-setup ai-sync ai-sync-check
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -90,7 +90,7 @@ ps: ## Show container status
 
 ## --- Tests (the three-layer convention: docs/shared/conventions/testing.md) ---
 
-test-unit: ## Layer 1 — unit/integration for orders (dotnet), users + events-pipeline (vitest) + e2e typecheck. No stack needed.
+test-unit: ## Layer 1 — unit/integration for orders (dotnet), users + both Lambdas + the Cognito trigger (vitest), tracking (pytest) + e2e typecheck. No stack needed.
 	dotnet test services/orders/Orders.sln
 	pnpm --filter @3mrai/users test
 	# Safe in the no-stack layer: the events-pipeline suites that need real
@@ -99,10 +99,53 @@ test-unit: ## Layer 1 — unit/integration for orders (dotnet), users + events-p
 	# why and how to run them for real. Set EVENTS_PIPELINE_REQUIRE_INTEGRATION=1
 	# where the stack IS expected to turn those skips into hard failures.
 	pnpm --filter @3mrai/events-pipeline test
+	# These three existed and NOTHING ran them. A suite nobody invokes is worse
+	# than no suite: it reads as coverage in a review and cannot fail, so the
+	# code it guards drifts freely. Found when a logging change to the Cognito
+	# trigger needed its tests and the only way to run them was borrowing another
+	# package's vitest by hand.
+	#
+	# realtime-events was simply never listed. The Cognito trigger additionally
+	# had no package.json — it is a workspace now for this reason alone, and
+	# archive_file excludes what that adds so the deployed zip is unchanged (see
+	# infra/modules/cognito/main.tf).
+	pnpm --filter @3mrai/realtime-events test
+	pnpm --filter @3mrai/cognito-otp-challenge-lambda test
+	# Tracking's suite is pytest, not vitest, and runs from its own venv. It was
+	# absent here for the same reason as the others: nothing had a reason to add
+	# it. It talks to the shared local database (services/tracking/CLAUDE.md
+	# §5c-bis), so it belongs in this layer only because that database is part of
+	# the local stack anyone running tests already has.
+	cd services/tracking && .venv/bin/python -m pytest -q
 	pnpm --filter @3mrai/e2e typecheck
 
 test-e2e: ## Layers 2+3 — Playwright internal + gateway for both services. REQUIRES `make bootstrap` up.
 	pnpm --filter @3mrai/e2e test
+
+load-test: ## Gatling load simulation (fullJourney). REQUIRES `make bootstrap` up.
+	@# Exports what the simulations read from the generated env files, because
+	@# Gatling runs on GraalVM and does NOT inherit a .env: `getEnvironmentVariable`
+	@# reads the real process environment only. Without this the run dies at load
+	@# time with "API_GATEWAY_URL is not set" — before a single request is sent.
+	@#
+	@# The value is quoted through: API_GATEWAY_URL contains a literal `$$default`
+	@# stage segment, and an unquoted expansion silently turns the URL into
+	@# .../restapis/<id>//_user_request_ — a 404 that looks like a routing bug.
+	@#
+	@# TRACKING_CARRIER_API_KEY (not CARRIER_API_KEY — the simulation reads the
+	@# prefixed name) drives the carrier webhook that advances deliveries. Load
+	@# tests deliberately send NEITHER x-e2e-source NOR x-test-mode, so their data
+	@# persists like real traffic and tracking advances only through that webhook.
+	cd e2e/load-tests && \
+	  API_GATEWAY_URL="$$(grep '^API_GATEWAY_URL=' ../../.env.local.infra | cut -d= -f2-)" \
+	  TRACKING_CARRIER_API_KEY="$$(grep '^TRACKING_CARRIER_API_KEY=' ../../.env.local.tracking | cut -d= -f2-)" \
+	  pnpm run load
+
+load-test-smoke: ## Short Gatling run (~20s) to check the simulation still works.
+	cd e2e/load-tests && \
+	  API_GATEWAY_URL="$$(grep '^API_GATEWAY_URL=' ../../.env.local.infra | cut -d= -f2-)" \
+	  TRACKING_CARRIER_API_KEY="$$(grep '^TRACKING_CARRIER_API_KEY=' ../../.env.local.tracking | cut -d= -f2-)" \
+	  pnpm run smoke
 
 test-all: ## All three layers for both services (unit + internal E2E + gateway E2E). E2E needs the stack up.
 	$(MAKE) test-unit
@@ -432,24 +475,124 @@ clean: ## Tear down infra + compose, including the emulator state volume
 	@# (RDS survived that same teardown because Floci relaunches ITS containers
 	@# from persisted state at boot; DocumentDB and ElastiCache have no such
 	@# reconciler. That asymmetry is what made it look intermittent.)
+	@# --profile is load-bearing here for the same reason -v is. `down` SKIPS
+	@# services behind a profile, so openobserve/otel-collector/jaeger survived
+	@# every `make clean` — still running, still holding `3mrai_openobserve-data`
+	@# and keeping the network alive so it could not be removed either. A
+	@# "from-scratch" rebuild therefore inherited the previous run's metric
+	@# series, which is how rows written under an OLD schema kept colliding with
+	@# new ones long after the change that caused it.
+	@# The volume sweep below is the third thing that turned out to be
+	@# load-bearing, alongside -v and --profile, and it fails in the same shape:
+	@# something survives a "from-scratch" teardown and the next run silently
+	@# inherits it.
+	@#
+	@# `down -v` removes only the volumes the CURRENT compose file DECLARES. A
+	@# volume compose itself created under an earlier version of this file is not
+	@# in that list any more, so it outlives every clean with no warning — it is
+	@# not dangling (a container may still mount it) and not orphaned in the sense
+	@# --remove-orphans handles (that flag is about containers, not volumes).
+	@#
+	@# Found exactly that: `3mrai_otelcol-storage`, carrying the CloudWatch
+	@# receiver's checkpoint file, created 2026-08-14 by a compose revision that
+	@# was never committed. Nothing writes it today — the config declares no
+	@# file_storage extension, so the receiver keeps its checkpoint in memory —
+	@# yet it sat there holding a stale read position for every log group.
+	@#
+	@# Filtering on compose's own project label is what makes this safe: it is
+	@# exactly the set compose would have removed had it still known about these
+	@# volumes, so it can never reach another project's data. `docker volume prune`
+	@# was the alternative and is strictly worse — it is scoped to the whole
+	@# daemon, not to this project.
+	@#
+	@# Runs AFTER `down -v` so the declared volumes are already gone and this only
+	@# catches the leftovers. `|| true`: an empty list is the healthy case, and a
+	@# volume still held by a container from another project must not fail clean.
 	-$(TF) destroy -auto-approve
-	$(COMPOSE) down -v
+	$(COMPOSE) --profile observability --profile preview down -v --remove-orphans
+	@echo "Removing compose volumes this project still owns but no longer declares…"
+	@docker volume ls -q --filter label=com.docker.compose.project=3mrai \
+		| xargs -r docker volume rm 2>/dev/null || true
+	@# Floci's OWN containers — the same leak, one layer up.
+	@#
+	@# Floci launches ECS tasks (and the RDS/DocDB/valkey backers) through the
+	@# mounted docker socket, so they are NOT compose services: they carry no
+	@# com.docker.compose.project label, `down` never sees them, and
+	@# --remove-orphans does not apply (it only removes containers compose itself
+	@# started for this project). They therefore outlive every teardown.
+	@#
+	@# Two consequences, both observed here rather than theorised: a nginx task
+	@# from a FOUR-HOUR-OLD run was still up after a full clean, and because it
+	@# held the network, `down` could not remove it either — "Network
+	@# 3mrai_3mrai-network Resource is still in use". The next bootstrap then
+	@# builds on a network it did not create, with a stale gateway task on it.
+	@#
+	@# Matched on the `floci-` name prefix, which Floci derives from the resource
+	@# identifier — the same naming the doctor check and DOCDB_HOST rely on.
+	@# Removing the network afterwards is what makes the next `up` recreate it
+	@# clean; `|| true` throughout because "nothing to remove" is the healthy case.
+	@echo "Removing Floci-launched containers (not compose services, so down misses them)…"
+	@docker ps -aq --filter "name=^floci-" | xargs -r docker rm -f 2>/dev/null || true
+	@docker network rm 3mrai_3mrai-network 2>/dev/null || true
 
-observability-up: ## Start OpenObserve + the OTel collector (opt-in; ~512MB-1.5GB RAM)
-	# --force-recreate, scoped to just these two services: they sit outside the main
+observability-up: ## Start OpenObserve + Jaeger + the OTel collector (opt-in; ~512MB-1.5GB RAM)
+	# --force-recreate, scoped to just these services: they sit outside the main
 	# up/down cycle, so a recreated stack network can leave them stranded on a dead
 	# network (exit 128, "network ... not found"). Recreating them re-attaches to the
 	# current network. Naming the services keeps --force-recreate from bouncing the
 	# whole app stack.
-	$(COMPOSE) --profile observability up -d --force-recreate openobserve otel-collector
+	#
+	# jaeger MUST be named here, and its absence is why traces silently went
+	# nowhere. Naming services is what makes --force-recreate surgical, but it also
+	# means a service the list forgets NEVER STARTS — the profile alone does not
+	# start it. jaeger sat in `profiles: [observability]` and in no target, so it
+	# was the one component of the tracing path that never ran.
+	#
+	# The failure is quiet on the trace path and loud only in the collector's own
+	# log: the exporter retries "no children to pick from" (gRPC for: the target
+	# resolved to no address) and after the retry budget logs "Exporting failed.
+	# Dropping data." Nothing surfaces in OpenObserve, because traces do not go
+	# there — ADR-0019 routes them to Jaeger precisely because OpenObserve's trace
+	# ingest rejected them. So the only symptom a user sees is an empty Jaeger UI
+	# on a port with nothing listening.
+	$(COMPOSE) --profile observability up -d --force-recreate openobserve jaeger otel-collector
+	@# The dashboards live in the `openobserve-data` volume, which `make clean`
+	@# now deletes (that is the point of the -v). Nothing recreated them: this
+	@# target started the stack and `observability-dashboards` existed but was
+	@# invoked by NOTHING — not bootstrap, not here — so every from-scratch
+	@# rebuild left OpenObserve running with no dashboards at all, and the only
+	@# way back was remembering an undocumented manual command.
+	@#
+	@# Chained here rather than in bootstrap because this is the target that
+	@# creates the thing they live in. The importer keys on dashboard TITLE and
+	@# PUTs when one already exists, so running it on every up is a no-op when
+	@# they are current.
+	@#
+	@# The wait is not cosmetic: openobserve declares no healthcheck, so
+	@# `up -d` returns as soon as the container is created, well before it
+	@# accepts HTTP. Polling rather than sleeping a fixed guess — a sleep long
+	@# enough to be safe is mostly wasted, and one short enough to feel quick
+	@# fails on a cold start.
+	@printf 'Waiting for OpenObserve to accept requests'
+	@for i in $$(seq 1 60); do \
+		if curl -sf -o /dev/null http://localhost:5080/healthz 2>/dev/null; then break; fi; \
+		printf '.'; sleep 1; \
+	done; echo
+	@$(MAKE) --no-print-directory observability-dashboards
 	@echo "OpenObserve UI on http://localhost:5080 once it's healthy (~5s)."
 	@echo "Login: admin@3mrai.local / Complexpass#123"
+	@echo "Jaeger UI (traces) on http://localhost:16686"
 
 observability-down: ## Stop the observability stack (leaves the rest running)
-	$(COMPOSE) stop openobserve otel-collector
+	@# jaeger included for the same reason it is in observability-up: it is part of
+	@# this stack, and a "down" that leaves it running contradicts the target name.
+	$(COMPOSE) stop openobserve jaeger otel-collector
 
 observability-dashboards: ## Import/update OpenObserve dashboards from observability/dashboards/*.dashboard.json (idempotent)
-	node scripts/import-dashboards.mjs
+	@# O2_ORG must match the collector's (docker-compose.yml), or the dashboards
+	@# import into one organization while the data lands in another — every panel
+	@# then renders empty with no error to explain why.
+	O2_ORG=$${O2_ORG:-3mrai} node scripts/import-dashboards.mjs
 
 ## --- Multi-provider agent config ---
 

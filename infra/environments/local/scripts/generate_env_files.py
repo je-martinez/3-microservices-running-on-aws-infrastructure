@@ -49,6 +49,15 @@ from lib3mrai.envfile import MissingValue, terraform_output, write_env_file
 AWS_ENDPOINT = "http://floci:4566"
 AWS_REGION = "us-east-1"
 OTLP_ENDPOINT = "http://otel-collector:4318"
+
+# Custom-metrics publication cadence (see the metrics design spec's "Polling
+# intervals"). 15s LOCALLY so a developer sees a metric land in seconds rather
+# than minutes; real AWS uses 60s, which is CloudWatch's standard resolution and
+# what its per-call billing is priced against. Two names for one setting because
+# each service expresses it in its own settings type's natural unit — the Node
+# and .NET services take milliseconds, Tracking's Pydantic float takes seconds.
+METRICS_INTERVAL_MS = "15000"
+METRICS_INTERVAL_SECONDS = "15"
 FLOCI_HOST = "floci"
 
 # Mailpit's HTTP API, HOST-facing, including the `/api/v1` prefix its endpoints
@@ -311,8 +320,16 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 "EVENTS_QUEUE_URL": events_queue_url,
                 "OTEL_EXPORTER_OTLP_ENDPOINT": OTLP_ENDPOINT,
                 "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+                # Metrics do NOT travel over OTLP: they go to CloudWatch via
+                # PutMetricData and are scraped from there by the collector.
+                # Turning this exporter on would create a second, parallel path
+                # for the same numbers with different semantics.
                 "OTEL_METRICS_EXPORTER": "none",
                 "OTEL_LOGS_EXPORTER": "none",
+                # How often the business-metrics gauge poller runs. 15s locally
+                # for a fast feedback loop; real AWS uses 60s, matching
+                # CloudWatch's standard resolution and its per-call billing.
+                "METRICS_INTERVAL_MS": METRICS_INTERVAL_MS,
             },
             custom_defaults={
                 "PORT": "3000",
@@ -353,6 +370,9 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 "OTEL_EXPORTER_OTLP_ENDPOINT": OTLP_ENDPOINT,
                 "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
                 "OTEL_DIAGNOSTICS__LOGLEVEL": "Error",
+                # Interval for the orders_total gauge BackgroundService. See the
+                # users block above for why local and AWS differ.
+                "METRICS_INTERVAL_MS": METRICS_INTERVAL_MS,
             },
             custom_defaults={
                 "SEED_ON_STARTUP": "true",
@@ -399,6 +419,15 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
                 "OTEL_METRICS_EXPORTER": "none",
                 "OTEL_LOGS_EXPORTER": "none",
+                # Interval for the orders-by-tracking-status gauge loop. Seconds
+                # here, milliseconds in the Node/.NET services — each matches its
+                # own settings type rather than forcing one unit across stacks.
+                "METRICS_INTERVAL_SECONDS": METRICS_INTERVAL_SECONDS,
+                # The lifespan starts the gauge loop only when this is true. The
+                # test suite sets it false: conftest builds the real app and
+                # TestClient enters the lifespan, so an ungated loop would open a
+                # database session on every test run.
+                "METRICS_ENABLED": "true",
             },
             custom_defaults={
                 # uvicorn's default port; 3000/8080 are taken by Users/Orders.
@@ -439,6 +468,10 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # itself, so this stays unset there — see DOCDB_AUTH_SOURCE in
                 # functions/events-pipeline/src/shared/config/env.ts.
                 "DOCDB_AUTH_SOURCE": "admin",
+                # Email sent/failed counters. No interval here: this is a Lambda
+                # with no long-lived process to host a poller, so its metrics are
+                # counters published during the invocation itself.
+                "METRICS_ENABLED": "true",
                 "SES_FROM_ADDRESS": "no-reply@3mrai.local",
                 # Base URL the email templates append icon keys to. They render
                 # REMOTE <img> tags (100% client support) rather than base64

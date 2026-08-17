@@ -4,6 +4,8 @@ globs:
   - "**/*.test.*"
   - "**/*.spec.*"
   - "**/test_*.py"
+  - "**/*.gatling.ts"
+  - "**/playwright.config.ts"
 alwaysApply: false
 ---
 
@@ -30,6 +32,52 @@ pending a nice-to-have.
 
 Per-service specifics live in each `services/<svc>/CLAUDE.md` (or the equivalent
 service instruction file), section 2b.
+
+## Load testing is a fourth, different surface
+
+Load tests live in `e2e/load-tests/` (Gatling JS + Chance.js), beside the
+Playwright suite in `e2e/`. They answer a **different question**: not "is it
+correct?" but "what shape does it have under sustained traffic?".
+
+They are **not** interchangeable with E2E specs, and reading one as the other is
+the common mistake — percentiles over four E2E requests are noise, and a load run
+proves nothing about correctness beyond status codes.
+
+### The two E2E-only headers, and why load tests omit them
+
+- **`x-e2e-source: true`** tags rows so cleanup can delete exactly what a run
+  created. It only takes effect when the flag `E2E_TESTING_ENABLED` is **also**
+  on — that conjunction is what stops an untrusted client tagging someone else's
+  rows for deletion.
+- **`x-test-mode: true`** (on order creation) makes a tracking advance itself
+  every 10s to DELIVERED, so a delivery flow can be asserted in ~40 seconds.
+
+**Load simulations deliberately send neither.** Their data is meant to persist
+like real data (reset with `make clean && make bootstrap`, not a cleanup pass),
+and without `x-test-mode` a tracking does not self-advance — which is why a
+simulation drives it through the **carrier webhook**, the way a real carrier
+does.
+
+### Load-simulation traps (measured, not guessed)
+
+- **Use `session.userId()`, never a module-level counter**, for anything that
+  must be unique per virtual user. Simulation modules are evaluated per execution
+  context, so module scope is not one shared sequence — a counter produced the
+  *same* email five times in one run. The cascade is what makes it expensive: a
+  duplicate email 409s registration, login then fails, and every authenticated
+  step after it 401s, so one data bug reads as a broken auth chain.
+- **`process.env` does not exist** in a simulation — use
+  `getEnvironmentVariable` / `getParameter` from `@gatling.io/core`. With
+  `@types/node` present the former type-checks and then dies at runtime.
+- **A 409 on order creation is expected under load** — creation locks each
+  product row `FOR UPDATE`, so concurrent buyers genuinely contend. Accept
+  201-or-409 and guard the steps needing an order id.
+- **Give each virtual user its own token.** A shared one collapses every
+  user-scoped read onto a single `cognito_sub` and hides the per-user query cost.
+- **Isolate slow dependencies behind their own request name**, so an inbox poll
+  measured in seconds never smears a service's real ~26ms latency.
+- **Assert only on our own endpoints** — holding a third party's latency to a
+  budget fails the run for something the simulation does not measure.
 
 ## Mocks hide schema bugs
 

@@ -51,6 +51,19 @@ export interface LogContextStore {
    * travels on `author`.
    */
   author_cognito_sub?: string;
+  /**
+   * The correlation id of the request that ultimately caused this event
+   * (`req_` + nanoid), read off the envelope — never minted here.
+   *
+   * This is the field that makes a flow reconstructable across services from
+   * the log stream alone, and it carries more weight in this function than
+   * anywhere else: with no OpenTelemetry SDK there is no `trace_id` on these
+   * lines, so `request_id` is the only link back to the originating request.
+   *
+   * Absent on messages published before the producers started sending it —
+   * omitted, never `request_id: null`.
+   */
+  request_id?: string;
   /** SQS message id, the key that ties a line to a batchItemFailures entry. */
   message_id?: string;
 }

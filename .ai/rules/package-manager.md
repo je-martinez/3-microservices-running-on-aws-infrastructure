@@ -1,0 +1,55 @@
+---
+name: package-manager
+description: pnpm is the package manager for this repo — never npm or yarn, including for brand-new sub-projects. A vendor's docs using npm is not a reason to deviate; translate their commands.
+paths:
+  - "**/package.json"
+  - "**/pnpm-lock.yaml"
+  - "**/pnpm-workspace.yaml"
+  - "**/*.ts"
+  - "**/*.tsx"
+  - "**/*.js"
+  - "**/*.mjs"
+---
+
+# Package manager — pnpm only
+
+**pnpm is the package manager. Never `npm`, never `yarn`** — including for
+brand-new sub-projects that do not exist in the workspace yet.
+
+A bare `npm install` corrupts the pnpm tree and leaves a stray
+`package-lock.json` sitting beside `pnpm-lock.yaml`, which is the state this rule
+exists to prevent. Once both lockfiles exist, the next person to install gets a
+different dependency graph than the one that was tested.
+
+## Command translation
+
+| Instead of | Use |
+|---|---|
+| `npm install` | `pnpm install` |
+| `npm install <pkg>` | `pnpm add <pkg>` |
+| `npm run <script>` | `pnpm run <script>` |
+| `npx <bin>` | `pnpm dlx <bin>` |
+| `npm exec` | `pnpm exec` |
+| workspace package script | `pnpm --filter <pkg> <script>` |
+
+## A vendor's docs are not an exception
+
+**A vendor's own documentation using `npm` is not a reason to deviate.** Nearly
+every upstream README writes its install line as `npm install`; that is the
+ecosystem default, not a requirement of the tool. Translate the command using the
+table above and carry on.
+
+This is the specific trap: an agent reads `npm install some-tool` in the official
+docs, treats it as the tool's supported path, and runs it verbatim. The tool
+installs fine — and the workspace is now inconsistent.
+
+## Node version
+
+The repo pins Node via `.nvmrc` (currently **24.18.0**). Activate the pinned
+version before any Node or pnpm command:
+
+```bash
+nvm use && pnpm install
+```
+
+Full convention: `docs/shared/conventions/package-manager.md`.

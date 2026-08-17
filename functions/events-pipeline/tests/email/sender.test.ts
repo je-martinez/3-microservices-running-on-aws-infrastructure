@@ -20,6 +20,19 @@ vi.mock("#shared/logging/app-logger", async () => {
   };
 });
 
+// The metrics module is mocked rather than left real: it would otherwise build a
+// CloudWatch client against the dead endpoint below and add a connection-refused
+// round trip to every case here. Mocking it also makes the emitted counters
+// directly assertable.
+const { publishEmailMetricMock } = vi.hoisted(() => ({
+  publishEmailMetricMock: vi.fn(async () => {}),
+}));
+vi.mock("#shared/metrics/cloudwatch-metrics", () => ({
+  publishEmailMetric: publishEmailMetricMock,
+  publishMetric: vi.fn(async () => {}),
+  resetMetricsClientForTests: vi.fn(),
+}));
+
 // Unit-level cover for #email/sender's OWN behaviour. The handler tests mock
 // this module, so without this file nothing exercises the code inside it —
 // verified by mutation: flipping its TransientError to PermanentError left the
@@ -65,6 +78,7 @@ describe("sendEmail failure classification", () => {
       to: "ada@example.com",
       subject: "Welcome to 3MRAI",
       html: "<p>hi</p>",
+      templateKey: "user-created",
     }).catch((err: unknown) => err as Error);
 
     // Both assertions, deliberately: `instanceof TransientError` alone would
@@ -81,6 +95,7 @@ describe("sendEmail failure classification", () => {
       to: "ada@example.com",
       subject: "Welcome to 3MRAI",
       html: "<p>hi</p>",
+      templateKey: "user-created",
     }).catch((err: unknown) => err as Error);
 
     expect(isTransient(error)).toBe(true);
@@ -96,10 +111,34 @@ describe("sendEmail failure classification", () => {
       to: "leaky-recipient@example.com",
       subject: "Welcome to 3MRAI",
       html: "<p>hi</p>",
+      templateKey: "user-created",
     }).catch((err: unknown) => err as Error);
 
     expect(error.message).not.toContain("leaky-recipient@example.com");
     expect(error.message).not.toContain("leaky-recipient");
+  }, 20000);
+
+  // The counter must carry FailureKind=transient, never permanent: this catch
+  // only ever sees SES errors and always throws TransientError. The permanent
+  // kind is emitted by #email/renderer for a missing template, and collapsing
+  // the two would label every failure transient.
+  it("publishes a transient failure metric when SES fails", async () => {
+    const { sendEmail } = await import("#email/sender");
+    const { TransientError } = await import("#pipeline/errors");
+    publishEmailMetricMock.mockClear();
+
+    await expect(
+      sendEmail({
+        to: "ada@example.com",
+        subject: "hi",
+        html: "<p>hi</p>",
+        templateKey: "user-created",
+      }),
+    ).rejects.toBeInstanceOf(TransientError);
+
+    expect(publishEmailMetricMock).toHaveBeenCalledWith("emails_failed_total", "user-created", {
+      FailureKind: "transient",
+    });
   }, 20000);
 });
 
@@ -121,6 +160,7 @@ describe("sendEmail logging — the recipient reaches the log only as a hash", (
       to: "leaky-recipient@example.com",
       subject: "Welcome to 3MRAI",
       html: "<p>hi</p>",
+      templateKey: "user-created",
     }).catch(() => {});
 
     const serialized = rawLines.join("\n");
@@ -146,6 +186,7 @@ describe("sendEmail logging — the recipient reaches the log only as a hash", (
       to: "  Leaky-Recipient@Example.COM  ",
       subject: "Welcome to 3MRAI",
       html: "<p>hi</p>",
+      templateKey: "user-created",
     }).catch(() => {});
 
     // Normalization happens inside hashEmail, so the same person correlates
@@ -162,7 +203,12 @@ describe("sendEmail logging — the recipient reaches the log only as a hash", (
     // no line may claim a severity outside the OTel set.
     const { sendEmail } = await import("#email/sender");
 
-    await sendEmail({ to: "ada@example.com", subject: "s", html: "<p>hi</p>" }).catch(() => {});
+    await sendEmail({
+      to: "ada@example.com",
+      subject: "s",
+      html: "<p>hi</p>",
+      templateKey: "user-created",
+    }).catch(() => {});
 
     for (const raw of rawLines) {
       const line = JSON.parse(raw) as Record<string, unknown>;

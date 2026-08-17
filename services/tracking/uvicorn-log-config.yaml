@@ -1,0 +1,81 @@
+# A dictConfig uvicorn applies BEFORE it writes its first line.
+#
+# WHY THIS EXISTS, GIVEN shared/logging/config.py ALREADY HANDLES UVICORN
+# -----------------------------------------------------------------------
+# `configure_logging()` strips uvicorn's handlers and lets its loggers propagate
+# to our JSON handler, which covers every line uvicorn writes once the app is
+# running. It cannot cover the ones written BEFORE that, and there are three:
+#
+#     INFO:     Will watch for changes in these directories: ['/app']
+#     INFO:     Started reloader process [1] using WatchFiles
+#     INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+#
+# uvicorn configures its own logging, prints those, and only THEN imports
+# `src.main:app` — which is when configure_logging() runs. By then they are out,
+# as plain text.
+#
+# Downstream that is not cosmetic: they reach OpenObserve with no service_name,
+# no severity_text and no shared context, so they land at severity 0 and are
+# invisible to every schema-based filter and dashboard panel — the same failure
+# the nginx and SQLAlchemy lines had before they were brought into the schema.
+# Tracking was the only service still emitting them; users and orders are 100%
+# JSON from their first line.
+#
+# The reloader pair is local-only (`--reload` comes from the compose override,
+# never the image CMD), but "Uvicorn running" is printed in every environment.
+#
+# WHY YAML AND NOT A PYTHON MODULE
+# --------------------------------
+# uvicorn's --log-config dispatches on the file extension: .json and .yaml/.yml
+# are loaded as a dictConfig, ANYTHING ELSE is handed to logging.fileConfig,
+# which parses it as INI. Pointing it at a .py file therefore fails at startup
+# with `MissingSectionHeaderError: File contains no section headers` — the
+# service does not boot. Verified by doing exactly that.
+version: 1
+
+# False on purpose: this config is applied while uvicorn starts, long before the
+# application's own loggers exist, and True would silence anything imported in
+# between.
+disable_existing_loggers: false
+
+formatters:
+  json:
+    # The SAME formatter the rest of the service uses, so these lines carry the
+    # identical field schema and one dashboard query covers the whole stream.
+    #
+    # The context filters are deliberately NOT attached here: LogContextFilter
+    # and TraceContextFilter read a per-request context that cannot exist during
+    # startup, so they would add nothing.
+    (): src.shared.logging.json_formatter.JsonFormatter
+    service_name: tracking
+    # Hardcoded rather than read from the environment: uvicorn loads this file
+    # before any of our settings code runs, and a startup line labelled with the
+    # wrong environment is worse than one labelled with the default. Matches
+    # configure_logging()'s own default.
+    deployment_environment: local
+
+handlers:
+  default:
+    class: logging.StreamHandler
+    formatter: json
+    # stdout, not uvicorn's default stderr. Docker's fluentd driver ships both,
+    # but `source: stderr` on an INFO line is a contradiction the reader has to
+    # resolve — these are informational startup lines, not errors.
+    stream: ext://sys.stdout
+
+loggers:
+  # The three uvicorn loggers, the same set config.py strips later. Access lines
+  # are included so a request logged before the app finishes starting renders
+  # identically to one logged after.
+  uvicorn:
+    handlers: [default]
+    level: INFO
+    propagate: false
+  uvicorn.error:
+    handlers: [default]
+    level: INFO
+    propagate: false
+  uvicorn.access:
+    handlers: [default]
+    level: INFO
+    propagate: false

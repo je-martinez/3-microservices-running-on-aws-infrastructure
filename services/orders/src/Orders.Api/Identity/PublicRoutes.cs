@@ -3,6 +3,18 @@ namespace Orders.Api.Identity;
 // Routes that don't require x-user-id. The auth middleware lets these through.
 public static class PublicRoutes
 {
+    /// <summary>
+    /// The liveness probe's route. Only its 2xx responses are exempt from the
+    /// request log — see UseSerilogRequestLogging in Program.cs and the
+    /// health-check-logging convention.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately a separate constant rather than reusing <see cref="IsPublic"/>:
+    /// that predicate also matches the E2E cleanup route, and exempting THAT from
+    /// the request log would hide a destructive operation.
+    /// </remarks>
+    public const string HealthRoute = "/v1/health";
+
     public static bool IsPublic(string method, string? routePath) =>
         (string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase)
             && routePath == "/v1/health")

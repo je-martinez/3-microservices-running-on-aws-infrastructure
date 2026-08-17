@@ -16,7 +16,9 @@ The AUTHORITY is the consumer, not this file:
   `author.cognito_sub` is present when the tracking row has one, because the
   pipeline routes the realtime WebSocket push by it; it is OMITTED (never null)
   when the row's nullable column holds NULL. There is no `author.source`: the
-  root `source` already names the producer.
+  root `source` already names the producer. The root `request_id` is the
+  cross-service correlation id and follows the same omitted-never-null rule,
+  for the same Zod reason — it is `.optional()` with `.min(1)`.
 * payload — `functions/events-pipeline/src/handlers/tracking-status-changed.ts`:
   `{ status, previous_status, changed_at, email }`, plus the enrichment fields
   `{ full_name, order_id, tracking_number, shipping_address?, history[] }`
@@ -76,6 +78,7 @@ import boto3
 from src.shared.audit.audit_actor import AuditActor
 from src.shared.config.settings import get_settings
 from src.shared.grpc.users_client import ResolvedUser, shared_users_client
+from src.shared.logging.log_context import get_log_context
 
 if TYPE_CHECKING:
     from src.features.tracking.domain.models import Tracking, TrackingHistory
@@ -359,7 +362,7 @@ class SqsEventPublisher:
             # it is strictly worse than sending nothing.
             author["cognito_sub"] = cognito_sub
 
-        envelope = {
+        envelope: dict[str, Any] = {
             "event_id": derive_event_id(order_id, status),
             "type": EVENT_TYPE,
             "source": EVENT_SOURCE,
@@ -380,6 +383,22 @@ class SqsEventPublisher:
                 email=email,
             ),
         }
+
+        # The correlation id for the flow that produced this transition, so the
+        # pipeline's own log lines (and the email it sends) join the carrier PUT
+        # or TestMode tick that caused them. Read from the ambient context
+        # rather than passed in, for the same reason the gRPC client reads it
+        # there: no signature change per hop for a value no caller cares about.
+        request_id = get_log_context().get("request_id")
+        if request_id:
+            # OMITTED, never null and never "". The pipeline's EnvelopeSchema
+            # declares this field `.optional()` with `.min(1)`, and Zod rejects
+            # BOTH an explicit null and an empty string for that shape. The
+            # handler turns a validation failure into a `PermanentError`, which
+            # consumes the record without retry — so a null here would not
+            # merely lose the correlation, it would lose the notification EMAIL.
+            # Exactly the trap `author.cognito_sub` above documents.
+            envelope["request_id"] = request_id
 
         try:
             self._client.send_message(

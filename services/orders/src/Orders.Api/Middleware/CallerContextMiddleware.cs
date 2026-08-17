@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Routing;
 using Orders.Api.Identity;
+using Orders.Infrastructure.Id;
 
 namespace Orders.Api.Middleware;
 
@@ -14,6 +15,18 @@ public sealed class CallerContextMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(HttpContext ctx, ICurrentCaller caller)
     {
+        // FIRST, and unconditionally — before the auth guard below, before anything can
+        // short-circuit. An unauthenticated request is exactly the one someone comes
+        // asking about later ("my call 401'd, what happened?"), so a 401 that carries no
+        // request_id is the one log line where the field is most missed. The equivalent
+        // ordering bug in the Users service was caught by a test for precisely this, and
+        // Orders pins it the same way.
+        //
+        // The caller's id is honoured only if it is one of ours; anything else is
+        // discarded in favour of a fresh one, silently, and never turned into a 400 —
+        // see RequestId.Resolve for why both halves of that are deliberate.
+        AmbientRequestId.Set(RequestId.Resolve(ctx.Request.Headers[RequestId.HeaderName].FirstOrDefault()));
+
         var sub = ctx.Request.Headers["x-user-id"].FirstOrDefault();
         var routePath = (ctx.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText;
 

@@ -16,7 +16,8 @@ These rules take precedence over default agent/skill behavior.
 
 ### Node.js
 - This repo pins Node via [`.nvmrc`](.nvmrc) (currently **24.18.0**).
-- Before running ANY Node.js command (`node`, `npm`, `npx`, global installs, `scripts/validate-vault.mjs`), run `nvm use` first so the pinned version is active. Example: `nvm use && node scripts/validate-vault.mjs`.
+- Before running ANY Node.js command (`node`, `pnpm`, `pnpm dlx`, global installs, `scripts/validate-vault.mjs`), run `nvm use` first so the pinned version is active. Example: `nvm use && node scripts/validate-vault.mjs`.
+- **pnpm is the package manager — never `npm` or `yarn`**, including for brand-new sub-projects. A bare `npm install` corrupts the pnpm tree and leaves a stray `package-lock.json` beside `pnpm-lock.yaml`. Use `pnpm add`, `pnpm run`, `pnpm exec`, `pnpm dlx` (in place of `npx`), and `pnpm --filter <pkg> <script>`. **A vendor's own docs using `npm` is not a reason to deviate** — translate their commands. Full convention: `docs/shared/conventions/package-manager.md` → [[package-manager]].
 
 ### Scripting language — Python first
 - New scripts are **Python** by default (infra scripting, Terraform pre/post effects, anything touching AWS, JSON, or non-trivial control flow). **JavaScript** when the task already lives in the Node ecosystem present here (vault tooling, pnpm workspace, npm deps) — that is why `scripts/*.mjs` stay JS. **Bash** only with an explicitly documented limitation, recorded in a comment in the script itself. The repo currently has **zero `.sh` files**.
@@ -37,6 +38,13 @@ These rules take precedence over default agent/skill behavior.
 - Flow logs use `app_event` (`<flow>_started|_succeeded|_failed`) plus `reason` on failures. There is **no SUCCESS severity** — success is `INFO` + `app_event=*_succeeded` (SUCCESS is not an OTel level).
 - **OTel config goes in environment variables, not code** — endpoint, protocol, and disabling the metrics/logs exporters. Three silent failures in this repo came from configuring the SDK in code. A new service needs no endpoint code, only the env vars.
 - Full convention: `docs/shared/conventions/logging-context.md` → [[logging-context]]. Backend decision: [[ADR-0019-distributed-tracing-opentelemetry]] (logs → OpenObserve, traces → Jaeger).
+
+### GOLDEN RULE — the vault is the source of truth, never a private memory file
+- **When the user establishes a convention, a decision, or a durable lesson, it goes into the VAULT first** (`docs/shared/conventions/`, `docs/shared/decisions/`, `docs/lessons/`), routed through `obsidian-vault`. Writing it only to an assistant memory store is **wrong** and is the failure mode this rule exists to prevent.
+- **Why:** the vault is versioned, reviewable in a PR, readable by every human and every agent on the project, and survives independently of any one assistant's memory. A private memory file is invisible to the team, cannot be reviewed, and silently diverges from the repo. A rule the user had to state twice because the first capture was invisible to them is a rule that was not captured.
+- **Order of operations:** vault note first (with `## Related` links and validator green) → then, optionally, a short assistant-memory pointer if it genuinely helps recall mid-session. Never memory instead of the vault, and never memory before it.
+- **Applies to anything durable**, not just big decisions: package-manager choice, naming, a gotcha that cost debugging time, a workflow correction. If the answer to "would a teammate need to know this next month?" is yes, it belongs in `docs/`.
+- The nested `CLAUDE.md` files and this one are for **rules that govern agent behaviour**; the vault is for **project knowledge**. A convention usually deserves both: the note in `docs/`, and a one-line pointer here when it changes how work is done.
 
 ### Documentation propagation — superpowers output must feed the vault
 - `docs/superpowers/{specs,plans}/` is where decisions are **made**; the organized vault (`docs/domains/`, `docs/shared/`, `docs/infrastructure/`, `docs/00-overview/`) is where they **live**. A spec/plan is **not done when written** — it is done when its decisions have propagated into the category folders they belong to.
@@ -61,12 +69,19 @@ dropped path param, method mismatch). An endpoint without gateway E2E is an inco
 change. Full convention: `docs/shared/conventions/testing.md` → [[testing]]; per-service
 specifics in each `services/<svc>/CLAUDE.md` §2b.
 
+**Load testing lives beside E2E** in `e2e/load-tests/` (Gatling JS + Chance.js), and answers a
+different question: not "is it correct?" but "what shape does it have under sustained traffic?".
+It deliberately sends **neither** `x-e2e-source` nor `x-test-mode`, so its data persists like real
+data and deliveries advance only through the carrier webhook. Both surfaces are implemented by
+**`e2e-impl`**, whose stack and conventions live in `e2e/CLAUDE.md`.
+
 ### Subagents
 Custom subagents own their write domains. `linear-pm` (Linear) and `obsidian-vault` (`docs/`) are **single writers** of their tools. `github-ops` is an **optional** git helper (the main session may run git directly — see [[git-workflow]]). The external-write agents **read freely but propose every write and wait for explicit confirmation**.
 
 - **`linear-pm`** (`.claude/agents/linear-pm.md`) — project manager for Linear: milestones, issues, projects, labels, comments, status updates, reporting. Uses the **plugin** Linear MCP server (`mcp__plugin_linear_linear__*`).
 - **`github-ops`** (`.claude/agents/github-ops.md`) — **optional** git & GitHub helper for complex batches: commits, branches, pushes, PRs, merges. Uses `git` + `gh`. The main session may also run git directly; conventions live in [[git-workflow]].
 - **`obsidian-vault`** (`.claude/agents/obsidian-vault.md`) — **sole writer of the `docs/` vault.** All note creation/edits go through it so structure, frontmatter, tags, and wikilinks stay consistent. Has the Obsidian skills preloaded. **No other agent (including the main session) writes to `docs/` — route vault writes here.**
+- **`e2e-impl`** (`.claude/agents/e2e-impl.md`) — the testing surface: Playwright specs (internal + gateway) and Gatling JS load simulations. Reads `e2e/CLAUDE.md`. Verifies endpoint contracts against each service's `openapi.yaml` instead of guessing them, and **never edits service source to make a test pass** — a green suite bought that way is worse than a red one.
 
 When `github-ops` is used, it coordinates with `linear-pm`: it needs milestone/issue IDs to name branches/PRs and reports merges back so `linear-pm` can update issue status. Route Linear↔GitHub work through the parent, which relays between them. (The main session, running git directly, does the same coordination inline.)
 
@@ -75,7 +90,7 @@ When `github-ops` is used, it coordinates with `linear-pm`: it needs milestone/i
 Two layers of agents (see `docs/superpowers/specs/2026-06-26-implementation-workflow-design.md`):
 
 - **Tool layer:** `obsidian-vault` (docs/) and `linear-pm` (Linear) are single writers. `github-ops` (git/GitHub) is **optional** — the main session may run git directly (see [[git-workflow]]).
-- **Domain layer:** `solutions-architect` (read-only planner — returns a **Coordination Plan**, writes nothing) and five **code-only** implementers: `users-impl`, `orders-impl`, `tracking-impl`, `events-pipeline-impl`, `infra-impl`.
+- **Domain layer:** `solutions-architect` (read-only planner — returns a **Coordination Plan**, writes nothing) and six **code-only** implementers: `users-impl`, `orders-impl`, `tracking-impl`, `events-pipeline-impl`, `infra-impl`, and `e2e-impl` (Playwright specs + Gatling load simulations; reads `e2e/CLAUDE.md`).
 
 **Invariant:** implementers write **only source code** — they never run git or touch Linear, and they leave work in the working tree for the **main session** to commit (which may optionally delegate a complex git batch to `github-ops`). The architect writes nothing. A subagent cannot spawn another subagent, so the **parent** routes the architect's Coordination Plan to each hand.
 

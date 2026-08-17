@@ -909,8 +909,9 @@ class TestValidation:
     def test_an_over_long_order_id_is_422_not_a_truncated_row(
         self, init_client: TestClient, known_caller: StubUsersServicer
     ) -> None:
-        """The column is VARCHAR(26). Rejecting at the edge beats letting MySQL
-        truncate an id into one that silently belongs to a different order."""
+        """The column is VARCHAR(28) — a full prefixed id and not a character
+        more. Rejecting at the edge beats letting MySQL truncate an id into one
+        that silently belongs to a different order."""
         assert create(init_client, "ord_" + "x" * 40).status_code == 422
 
 

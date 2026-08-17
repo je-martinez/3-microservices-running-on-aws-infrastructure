@@ -2,4 +2,10 @@ packages:
   - "services/users"
   - "functions/events-pipeline"
   - "functions/realtime-events"
+  # Not a deployable package: Terraform zips this Lambda's bare index.mjs with
+  # archive_file and it depends on nothing outside node:crypto. It is a
+  # workspace ONLY so `pnpm --filter` can run its tests — before this they
+  # existed and nothing invoked them.
+  - "infra/modules/cognito/otp-challenge-lambda"
   - "e2e"
+  - "e2e/load-tests"

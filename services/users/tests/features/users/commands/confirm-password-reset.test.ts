@@ -33,14 +33,16 @@ function build(
   const resetCodeStore = {
     verifyAndConsume: vi.fn(async () => overrides.accepted ?? true),
   };
+  const metricsPublisher = { publish: vi.fn(async () => undefined) };
 
   const command = new ConfirmPasswordResetCommand({
     db: db as never,
     auth: auth as never,
     resetCodeStore: resetCodeStore as never,
+    metricsPublisher: metricsPublisher as never,
   });
 
-  return { command, db, auth, resetCodeStore };
+  return { command, db, auth, resetCodeStore, metricsPublisher };
 }
 
 const input = { email: EMAIL, code: CODE, newPassword: NEW_PASSWORD };
@@ -126,5 +128,25 @@ describe("ConfirmPasswordResetCommand", () => {
 
     await expect(command.execute(input)).resolves.toBeUndefined();
     expect(db.user.update).toHaveBeenCalled();
+  });
+
+  it("publishes password_resets_total on success", async () => {
+    const { command, metricsPublisher } = build();
+
+    await command.execute(input);
+
+    expect(metricsPublisher.publish).toHaveBeenCalledWith("password_resets_total", 1, {
+      Service: "users",
+    });
+  });
+
+  it("does NOT count a reset that was rejected", async () => {
+    // The counter must mean "a password was actually changed". Counting a
+    // rejected code (or the always-202 /password/forgot request) would report
+    // resets that never happened.
+    const { command, metricsPublisher } = build({ accepted: false });
+
+    await expect(command.execute(input)).rejects.toThrow();
+    expect(metricsPublisher.publish).not.toHaveBeenCalled();
   });
 });

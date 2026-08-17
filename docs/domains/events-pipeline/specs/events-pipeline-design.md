@@ -4,9 +4,10 @@ type: spec
 area: events-pipeline
 status: accepted
 created: 2026-06-26
-updated: 2026-08-09
+updated: 2026-08-15
 tags: [type/spec, area/events-pipeline, status/accepted]
 related:
+  - "[[2026-08-15-request-id-correlation-design]]"
   - "[[cqrs]]"
   - "[[ADR-0002-cqrs]]"
   - "[[nano-id]]"
@@ -30,6 +31,7 @@ related:
   - "[[user-id-vs-cognito-sub-ownership-key]]"
   - "[[ADR-0020-self-owned-password-reset]]"
   - "[[email-templates]]"
+  - "[[2026-08-12-custom-business-metrics-cloudwatch-design]]"
 ---
 
 # Events Pipeline Design
@@ -356,6 +358,51 @@ behind a profile so it does not start with a normal `make up`; it hot-reloads on
 Mailpit is a compose service (web UI 8025, SMTP 1025) with Floci relaying SES sends to it — every
 email the Lambda sends lands in a real, inspectable inbox rather than a mock.
 
+## Metrics
+
+> [!info] Shipped 2026-08-12 — Custom Business Metrics milestone
+> Full design and the Floci/OpenObserve gotchas that constrain these metrics:
+> [[2026-08-12-custom-business-metrics-cloudwatch-design]]; the CloudWatch-not-OTLP pipeline and
+> the shared query gotchas are in [[logging-context#Metrics — the third pillar, and why it does
+> NOT go over OTLP]].
+
+| Metric | Type | Dimensions |
+|---|---|---|
+| `emails_sent_total` | counter | `EmailType=<template>` |
+| `emails_sent_total` | counter | `EmailType=ALL` |
+| `emails_failed_total` | counter | `EmailType=<template>`, `FailureKind=permanent\|transient` |
+| `emails_failed_total` | counter | `EmailType=ALL`, `FailureKind=permanent\|transient` |
+
+`EmailType` takes the template key from [`src/email/catalog.ts`](#srcemailcatalogts--the-registry)
+— `user-created`, `order-created`, `auth-otp-requested`, `password-reset-requested`, and the five
+`tracking-status-changed` variants — the template actually rendered and sent, not the event type.
+`EmailType=ALL` is a **separately published series**, not a query-time aggregate: Floci does not
+aggregate across dimensions, so a dimensionless query for the total returns an empty result. This
+is the events-pipeline's only gauge-free metric set: as a Lambda it has no long-lived process to
+host a periodic poller, so every metric here is a counter published during invocation.
+
+**Permanent and transient failures are emitted from different files, because they mean different
+things operationally.** `SendEmailParams` gained a **required** `templateKey` field so both call
+sites know which `EmailType` to publish:
+
+- **`permanent`** — emitted from `src/email/renderer.ts`, right before it throws
+  `PermanentError` for a missing template. The email is **lost**: [Error
+  taxonomy](#error-taxonomy-load-bearing) records this `FAILED` and consumes the SQS message; there
+  is no retry that would ever succeed. Any non-zero value here is a real incident — a customer
+  never got their mail.
+- **`transient`** — emitted from `src/email/sender.ts`, right before it throws `TransientError`
+  for an SES send failure. SQS retries the record per the same error taxonomy, so the email most
+  likely arrived on a later attempt. Small numbers are expected noise, not an incident.
+
+Without the split, "5 emails failed" would conflate "5 customers never got their receipt" with
+"SES hiccuped once and the retry worked" — two operationally opposite situations that a single
+undifferentiated counter cannot distinguish.
+
+> [!warning] This measures handoff to SES, not inbox delivery
+> `emails_sent_total` means SES accepted the message for sending. Bounces and complaints are
+> invisible to this metric; they would require SES event notifications, which are out of scope for
+> this milestone. A dashboard reading "1,000 sent" must not be read as "1,000 delivered."
+
 ## Producers and their publish-failure policy
 
 Five producers publish to the one shared queue. Each generates its own `event_id` and builds
@@ -583,10 +630,14 @@ for the full evidence trail.
 - **CQRS dispatch:** handler selection is by event `type`; commands and queries are never mixed in the same handler. See [[cqrs]] and [[ADR-0002-cqrs]].
 - **Env files:** the DocumentDB connection string and `EVENTS_QUEUE_URL` are generated, never hardcoded — see [[env-files]].
 - **Testing:** this component has no HTTP endpoints, so the repo's three-layer convention is adapted rather than applied literally — see [[testing]] and Tracking's producer-side testing in [[tracking-service-design]].
-- **Logging:** every line carries the shared cross-service context (`trace_id`, `user_id`, `order_id`, `event_id`); never the full payload or a plaintext email. See [[logging-context]].
+- **Logging:** every line carries the shared cross-service context (`request_id`, `trace_id`, `user_id`, `order_id`, `event_id`); never the full payload or a plaintext email. See [[logging-context]]. Unlike `trace_id`, which this service has never emitted (JE-138, no OTel SDK here — see [[logging-context]]'s warning), `request_id` **is** present: the pipeline is a pure **consumer** of it. It reads the optional root `request_id` field off the envelope in `envelopeContext()` per SQS record and never mints one of its own; when the field is absent (e.g. a message queued before this field existed), it is omitted from the log line, never logged as null. This is precisely the gap [[2026-08-15-request-id-correlation-design]] exists to close — the one hop with no `trace_id` at all now still gets a correlation id, sourced from whichever producer (Orders or Tracking) set it.
 
 ## Related
 
+- [[2026-08-15-request-id-correlation-design]] — the cross-service `request_id` correlation field.
+  This is the design's motivating service: with no OTel SDK (JE-138), the pipeline had no
+  correlation id at all until this shipped. It is a pure consumer — reads the optional envelope
+  field, never mints one.
 - [[cqrs]]
 - [[ADR-0002-cqrs]]
 - [[nano-id]]
@@ -615,3 +666,5 @@ for the full evidence trail.
   `author.cognito_sub`, never `envelope.user_id`.
 - [[ADR-0020-self-owned-password-reset]] — why `PASSWORD_RESET_REQUESTED` exists, its producer
   (`ForgotPasswordCommand`), and the two security properties its best-effort publish protects.
+- [[2026-08-12-custom-business-metrics-cloudwatch-design]] — the design for the email
+  sent/failed metrics, the permanent-vs-transient split, and the required `templateKey` field.

@@ -31,6 +31,12 @@ MANAGED_KEYS = (
     "ENVIRONMENT",
     "DEPLOYMENT_ENVIRONMENT",
     "E2E_TESTING_ENABLED",
+    # Cleared like every other managed key, and load-bearing here: the test
+    # suite sets METRICS_ENABLED=false process-wide (tests/conftest.py) so the
+    # lifespan starts no publisher, which would otherwise make these tests read
+    # that value instead of the field's own default.
+    "METRICS_ENABLED",
+    "METRICS_INTERVAL_SECONDS",
 )
 
 

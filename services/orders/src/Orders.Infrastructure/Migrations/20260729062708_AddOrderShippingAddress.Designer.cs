@@ -37,8 +37,8 @@ namespace Orders.Infrastructure.Migrations
                         .HasColumnName("created_at");
 
                     b.Property<string>("CreatedBy")
-                        .HasMaxLength(26)
-                        .HasColumnType("varchar(26)")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
                         .HasColumnName("created_by");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -46,8 +46,8 @@ namespace Orders.Infrastructure.Migrations
                         .HasColumnName("deleted_at");
 
                     b.Property<string>("DeletedBy")
-                        .HasMaxLength(26)
-                        .HasColumnType("varchar(26)")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
                         .HasColumnName("deleted_by");
 
                     b.Property<DateTime>("UpdatedAt")
@@ -55,8 +55,8 @@ namespace Orders.Infrastructure.Migrations
                         .HasColumnName("updated_at");
 
                     b.Property<string>("UpdatedBy")
-                        .HasMaxLength(26)
-                        .HasColumnType("varchar(26)")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
                         .HasColumnName("updated_by");
 
                     b.Property<string>("Value")
@@ -72,8 +72,8 @@ namespace Orders.Infrastructure.Migrations
             modelBuilder.Entity("Orders.Domain.Entities.Order", b =>
                 {
                     b.Property<string>("Id")
-                        .HasMaxLength(26)
-                        .HasColumnType("varchar(26)")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
                         .HasColumnName("id");
 
                     b.Property<string>("CognitoSub")
@@ -87,8 +87,8 @@ namespace Orders.Infrastructure.Migrations
                         .HasColumnName("created_at");
 
                     b.Property<string>("CreatedBy")
-                        .HasMaxLength(26)
-                        .HasColumnType("varchar(26)")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
                         .HasColumnName("created_by");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -96,8 +96,8 @@ namespace Orders.Infrastructure.Migrations
                         .HasColumnName("deleted_at");
 
                     b.Property<string>("DeletedBy")
-                        .HasMaxLength(26)
-                        .HasColumnType("varchar(26)")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
                         .HasColumnName("deleted_by");
 
                     b.Property<string>("ShippingAddress")
@@ -121,14 +121,14 @@ namespace Orders.Infrastructure.Migrations
                         .HasColumnName("updated_at");
 
                     b.Property<string>("UpdatedBy")
-                        .HasMaxLength(26)
-                        .HasColumnType("varchar(26)")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
                         .HasColumnName("updated_by");
 
                     b.Property<string>("UserId")
                         .IsRequired()
-                        .HasMaxLength(26)
-                        .HasColumnType("varchar(26)")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
                         .HasColumnName("user_id");
 
                     b.HasKey("Id");
@@ -148,8 +148,8 @@ namespace Orders.Infrastructure.Migrations
             modelBuilder.Entity("Orders.Domain.Entities.OrderDetail", b =>
                 {
                     b.Property<string>("Id")
-                        .HasMaxLength(26)
-                        .HasColumnType("varchar(26)")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
                         .HasColumnName("id");
 
                     b.Property<string>("CognitoSub")
@@ -163,8 +163,8 @@ namespace Orders.Infrastructure.Migrations
                         .HasColumnName("created_at");
 
                     b.Property<string>("CreatedBy")
-                        .HasMaxLength(26)
-                        .HasColumnType("varchar(26)")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
                         .HasColumnName("created_by");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -172,20 +172,20 @@ namespace Orders.Infrastructure.Migrations
                         .HasColumnName("deleted_at");
 
                     b.Property<string>("DeletedBy")
-                        .HasMaxLength(26)
-                        .HasColumnType("varchar(26)")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
                         .HasColumnName("deleted_by");
 
                     b.Property<string>("OrderId")
                         .IsRequired()
-                        .HasMaxLength(26)
-                        .HasColumnType("varchar(26)")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
                         .HasColumnName("order_id");
 
                     b.Property<string>("ProductId")
                         .IsRequired()
-                        .HasMaxLength(26)
-                        .HasColumnType("varchar(26)")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
                         .HasColumnName("product_id");
 
                     b.Property<uint>("Quantity")
@@ -209,14 +209,14 @@ namespace Orders.Infrastructure.Migrations
                         .HasColumnName("updated_at");
 
                     b.Property<string>("UpdatedBy")
-                        .HasMaxLength(26)
-                        .HasColumnType("varchar(26)")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
                         .HasColumnName("updated_by");
 
                     b.Property<string>("UserId")
                         .IsRequired()
-                        .HasMaxLength(26)
-                        .HasColumnType("varchar(26)")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
                         .HasColumnName("user_id");
 
                     b.HasKey("Id");
@@ -236,8 +236,8 @@ namespace Orders.Infrastructure.Migrations
             modelBuilder.Entity("Orders.Domain.Entities.Product", b =>
                 {
                     b.Property<string>("Id")
-                        .HasMaxLength(26)
-                        .HasColumnType("varchar(26)")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
                         .HasColumnName("id");
 
                     b.Property<DateTime>("CreatedAt")
@@ -245,8 +245,8 @@ namespace Orders.Infrastructure.Migrations
                         .HasColumnName("created_at");
 
                     b.Property<string>("CreatedBy")
-                        .HasMaxLength(26)
-                        .HasColumnType("varchar(26)")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
                         .HasColumnName("created_by");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -254,8 +254,8 @@ namespace Orders.Infrastructure.Migrations
                         .HasColumnName("deleted_at");
 
                     b.Property<string>("DeletedBy")
-                        .HasMaxLength(26)
-                        .HasColumnType("varchar(26)")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
                         .HasColumnName("deleted_by");
 
                     b.Property<string>("Description")
@@ -282,8 +282,8 @@ namespace Orders.Infrastructure.Migrations
                         .HasColumnName("updated_at");
 
                     b.Property<string>("UpdatedBy")
-                        .HasMaxLength(26)
-                        .HasColumnType("varchar(26)")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
                         .HasColumnName("updated_by");
 
                     b.HasKey("Id");

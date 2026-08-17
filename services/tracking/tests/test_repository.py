@@ -2,7 +2,7 @@
 
 Not mocks, and not SQLite. The things most likely to be wrong here — a JSON
 column, a composite primary key, a unique constraint, VARCHAR widths against
-25-char prefixed nano-IDs — are precisely the things a mocked session cannot
+28-char prefixed nano-IDs — are precisely the things a mocked session cannot
 check and a different dialect can silently accept.
 """
 
@@ -23,7 +23,7 @@ from src.features.tracking.domain.models import (
 from src.features.tracking.domain.repository import TrackingRepository
 from src.features.tracking.domain.status import TrackingStatus
 from src.shared.audit.audit_actor import AuditActor
-from src.shared.db.nano_id import TRACKING_PREFIX, new_tracking_id
+from src.shared.db.nano_id import TRACKING_PREFIX, NanoIdConfig, new_tracking_id
 from src.shared.db.tracking_number import (
     TRACKING_NUMBER_ALPHABET,
     TRACKING_NUMBER_LENGTH,
@@ -177,8 +177,8 @@ class TestSchema:
     def test_id_column_is_wide_enough_for_a_prefixed_nano_id(self, engine) -> None:
         """The regression guard for the spec's VARCHAR(21).
 
-        A real id is prefix (4) + nano-ID (21) = 25 chars, so a 21-wide column
-        would truncate every id it stored.
+        A real id is prefix (4) + nano-ID (24) = 28 chars, so any narrower
+        column would truncate every id it stored — silently, in MySQL.
         """
         column = next(
             c for c in inspect(engine).get_columns("tracking") if c["name"] == "id"
@@ -194,7 +194,7 @@ class TestCreate:
     ) -> None:
         tracking = make_tracking(repo, order_id="ord_create0000000000001")
         assert tracking.id.startswith(TRACKING_PREFIX)
-        assert len(tracking.id) == len(TRACKING_PREFIX) + 21
+        assert len(tracking.id) == NanoIdConfig.TOTAL_LENGTH
 
     def test_id_survives_a_round_trip_untruncated(
         self, repo: TrackingRepository, session: Session

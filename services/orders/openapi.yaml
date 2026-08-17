@@ -26,6 +26,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OrderDto'
+        '400':
+          description: Bad Request
         '401':
           description: Unauthorized
         '404':

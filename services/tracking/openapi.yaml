@@ -388,7 +388,7 @@ components:
       properties:
         order_id:
           type: string
-          maxLength: 26
+          maxLength: 28
           minLength: 1
           title: Order Id
           description: The order this tracking follows.

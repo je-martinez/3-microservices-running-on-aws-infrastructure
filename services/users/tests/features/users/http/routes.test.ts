@@ -310,7 +310,11 @@ describe("routes", () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(observed).toEqual({ cognito_sub: "usr_ctx_1" });
+      // `request_id` is seeded on EVERY request (see request-id.test.ts), so
+      // the store is matched by its identity fields rather than by equality —
+      // an exact match here would break every time a new ambient field is added.
+      expect(observed).toMatchObject({ cognito_sub: "usr_ctx_1" });
+      expect(observed.request_id).toMatch(/^req_[A-Za-z0-9]{24}$/);
     });
 
     it("leaves the log context empty on a public route with no x-user-id", async () => {
@@ -348,7 +352,8 @@ describe("routes", () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(observed).toEqual({ cognito_sub: "usr_ctx_2", user_id: "usr_resolved" });
+      expect(observed).toMatchObject({ cognito_sub: "usr_ctx_2", user_id: "usr_resolved" });
+      expect(observed.request_id).toMatch(/^req_[A-Za-z0-9]{24}$/);
     });
 
     // The regression this guards: `user_id` used to be set ONLY by the register
@@ -955,6 +960,63 @@ describe("POST /v1/webhooks/cognito", () => {
     expect(businessLog.userName).toBeUndefined();
 
     await app.close();
+  });
+});
+
+// The `onResponse` hook publishes `http_errors_total` for any status >= 400, and
+// nothing at all for 2xx/3xx. A metric per successful response would be a
+// request-rate metric, which the request log already provides.
+describe("http_errors_total", () => {
+  function containerWithMetrics(publish: ReturnType<typeof vi.fn>) {
+    const container = testContainer(false);
+    container.register({ metricsPublisher: asValue({ publish } as any) });
+    return container;
+  }
+
+  it("publishes http_errors_total with StatusClass 4xx on a 401", async () => {
+    const publish = vi.fn(async () => undefined);
+    const built = buildApp(containerWithMetrics(publish));
+    // No x-user-id: the onRequest hook short-circuits with 401 before any handler.
+    const res = await built.inject({ method: "GET", url: "/v1/users/me" });
+    expect(res.statusCode).toBe(401);
+    expect(publish).toHaveBeenCalledWith("http_errors_total", 1, {
+      Service: "users",
+      StatusClass: "4xx",
+    });
+    await built.close();
+  });
+
+  it("publishes http_errors_total with StatusClass 5xx on a 500", async () => {
+    const publish = vi.fn(async () => undefined);
+    const container = containerWithMetrics(publish);
+    container.register({
+      userQueryService: asValue({
+        getMe: vi.fn(async () => {
+          throw new Error("boom");
+        }),
+        getUserById: vi.fn(),
+      } as any),
+    });
+    const built = buildApp(container);
+    const res = await built.inject({
+      method: "GET", url: "/v1/users/me",
+      headers: { "x-user-id": "usr_actor_1" },
+    });
+    expect(res.statusCode).toBe(500);
+    expect(publish).toHaveBeenCalledWith("http_errors_total", 1, {
+      Service: "users",
+      StatusClass: "5xx",
+    });
+    await built.close();
+  });
+
+  it("publishes nothing on a 2xx", async () => {
+    const publish = vi.fn(async () => undefined);
+    const built = buildApp(containerWithMetrics(publish));
+    const res = await built.inject({ method: "GET", url: "/v1/health" });
+    expect(res.statusCode).toBe(200);
+    expect(publish).not.toHaveBeenCalled();
+    await built.close();
   });
 });
 

@@ -34,6 +34,10 @@ it validates no inbound key of its own since the served surface went away. It is
 passed per-call rather than baked into the channel so the channel stays a plain,
 inspectable object and the credential appears at exactly the place it is used.
 
+Alongside it travels `x-request-id`, the cross-service correlation id, which is
+per-call for a stronger reason: its value changes with every request, so a
+channel-level credential slot could not carry it at all. See `_call_metadata`.
+
 ## Blocking on purpose
 
 This is the SYNC grpcio API, not `grpc.aio`, matching the rest of the service: the
@@ -58,6 +62,7 @@ import grpc
 
 from src.shared.config.settings import get_settings
 from src.shared.grpc.generated import users_pb2, users_pb2_grpc
+from src.shared.logging.log_context import get_log_context
 
 #: Metadata key carrying the shared internal secret. gRPC lowercases metadata keys
 #: on the wire, so this must be lowercase to match what Users reads it as. Declared
@@ -65,6 +70,12 @@ from src.shared.grpc.generated import users_pb2, users_pb2_grpc
 #: constant was removed with the served surface (JE-108), and the only thing left
 #: that needs the key is this client.
 API_KEY_METADATA_KEY = "x-api-key"
+
+#: Metadata key propagating the correlation id onto the tracking -> users hop.
+#:
+#: Same spelling as the HTTP header, lowercase for the same reason the api key is
+#: — gRPC lowercases metadata keys on the wire, and Users reads it lowercase.
+REQUEST_ID_METADATA_KEY = "x-request-id"
 
 #: Seconds to wait for Users before giving up. A gRPC call with NO deadline waits
 #: forever, which in a request path means a hung Users pins a worker thread until
@@ -184,6 +195,33 @@ class UsersGrpcClient:
         """Close the underlying channel. Idempotent, per grpcio."""
         self._channel.close()
 
+    def _call_metadata(self) -> tuple[tuple[str, str], ...]:
+        """The metadata every outbound call carries: the api key, plus the id.
+
+        The api key is always present — the constructor refuses an empty one.
+
+        `x-request-id` is read from the ambient log context rather than passed
+        down through `resolve()`'s signature: the context is already how this
+        service carries per-request identity into depth (see
+        `shared/logging/log_context.py`), and threading a correlation argument
+        through every caller of a lookup would be a signature change per hop for
+        a value none of them care about.
+
+        The entry is OMITTED, not sent empty, when the context has no id. That
+        happens outside a request — the TestMode progression's background task
+        copies its own context, and any future CLI/startup call has none at all
+        — and an `x-request-id: ""` on the wire would be a correlation value
+        that correlates nothing, indistinguishable in Users' logs from a real
+        one until someone tried to search for it.
+        """
+        metadata: tuple[tuple[str, str], ...] = (
+            (API_KEY_METADATA_KEY, self._api_key),
+        )
+        request_id = get_log_context().get("request_id")
+        if request_id:
+            metadata += ((REQUEST_ID_METADATA_KEY, request_id),)
+        return metadata
+
     def resolve(self, identifier: str) -> ResolvedUser | None:
         """Look up a user by Cognito sub (or internal id), or None if unknown.
 
@@ -197,7 +235,7 @@ class UsersGrpcClient:
         try:
             response = self._stub.GetUserById(
                 users_pb2.GetUserByIdRequest(id=identifier),
-                metadata=((API_KEY_METADATA_KEY, self._api_key),),
+                metadata=self._call_metadata(),
                 timeout=self._timeout,
             )
         except grpc.RpcError as error:

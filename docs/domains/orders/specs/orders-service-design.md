@@ -4,9 +4,10 @@ type: spec
 area: orders
 status: accepted
 created: 2026-06-26
-updated: 2026-08-12
+updated: 2026-08-16
 tags: [type/spec, area/orders, status/accepted]
 related:
+  - "[[2026-08-15-request-id-correlation-design]]"
   - "[[soft-delete]]"
   - "[[nano-id]]"
   - "[[audit-fields]]"
@@ -29,6 +30,7 @@ related:
   - "[[users-service-design]]"
   - "[[events-pipeline-design]]"
   - "[[2026-08-10-product-catalogue-image-categories-design]]"
+  - "[[2026-08-12-custom-business-metrics-cloudwatch-design]]"
 ---
 
 # Orders Service Design
@@ -146,24 +148,31 @@ All fields follow snake_case naming in the database and are mapped to PascalCase
 > carry both `user_id` (internal) and `cognito_sub` (gateway-supplied) — the "double identity"
 > decision recorded in [[2026-07-14-orders-service-milestone-design]].
 
+> [!note] Every id-bearing column is `varchar(28)`, not `varchar(26)`
+> The width is `PREFIX_LENGTH + LENGTH` = 4 + 24 = **28**, per [[nano-id]]. A column sized for the
+> old, shorter nano-id would silently truncate every id MySQL stores in it — MySQL truncates a
+> too-long `varchar` rather than erroring, so a mismatch here surfaces nowhere until something
+> downstream fails to find a row. Verified live against `orders`' MySQL schema (2026-08-16): all 19
+> id/audit varchar columns across `product`, `order`, and `order_details` are `varchar(28)`.
+
 ### Product
 
 Catalog of available products. Used by `OrderDetails` to record what was ordered.
 
 | Column | Type | Notes |
 |---|---|---|
-| `id` | `varchar(26)` | `prd_` prefix, nano-id |
+| `id` | `varchar(28)` | `prd_` prefix, nano-id |
 | `name` | `varchar(255)` | |
 | `description` | `text` | |
 | `unit_price` | `decimal(10,2)` | |
 | `units_in_stock` | `int unsigned` | |
 | `image` | `json` | Nullable. Display artwork as `{uri, width, height, blurhash}`. `uri` is a bucket key **relative** to the assets base URL (e.g. `products/runner-low-canvas.jpg`), never absolute — see the note below. |
 | `categories` | `json` | Non-nullable, defaults to `[]`. Array of UPPERCASE facet strings, e.g. `["FOOTWEAR"]`. |
-| `created_by` | `varchar(26)` | audit |
+| `created_by` | `varchar(28)` | audit |
 | `created_at` | `datetime` | audit |
-| `updated_by` | `varchar(26)` | audit |
+| `updated_by` | `varchar(28)` | audit |
 | `updated_at` | `datetime` | audit |
-| `deleted_by` | `varchar(26)` | audit |
+| `deleted_by` | `varchar(28)` | audit |
 | `deleted_at` | `datetime` | audit — null means active |
 
 Computed property `isDeleted` returns `true` when `deleted_at` is not null.
@@ -204,17 +213,17 @@ One record per submitted order.
 
 | Column | Type | Notes |
 |---|---|---|
-| `id` | `varchar(26)` | `ord_` prefix, nano-id |
-| `user_id` | `varchar(26)` | FK → Users service (resolved via gRPC) |
+| `id` | `varchar(28)` | `ord_` prefix, nano-id |
+| `user_id` | `varchar(28)` | FK → Users service (resolved via gRPC) |
 | `subtotal` | `decimal(10,2)` | |
 | `tax` | `decimal(10,2)` | |
 | `total` | `decimal(10,2)` | |
 | `shipping_address` | `json` | Snapshot of the delivery address at order-creation time, resolved via Users' `GetUserById` (see [[users-service-design]]) and forwarded to Tracking's `init-tracking`. See [Delivery address flow](#delivery-address-flow-users--orders--tracking). Deliberately a point-in-time copy, not a live reference — see the snapshot-semantics note above. |
-| `created_by` | `varchar(26)` | audit |
+| `created_by` | `varchar(28)` | audit |
 | `created_at` | `datetime` | audit |
-| `updated_by` | `varchar(26)` | audit |
+| `updated_by` | `varchar(28)` | audit |
 | `updated_at` | `datetime` | audit |
-| `deleted_by` | `varchar(26)` | audit |
+| `deleted_by` | `varchar(28)` | audit |
 | `deleted_at` | `datetime` | audit — null means active |
 
 ### OrderDetails
@@ -223,18 +232,18 @@ Line items for each order. One row per product per order.
 
 | Column | Type | Notes |
 |---|---|---|
-| `id` | `varchar(26)` | `odd_` prefix, nano-id |
-| `product_id` | `varchar(26)` | FK → `products.id` |
-| `user_id` | `varchar(26)` | denormalized for query convenience |
+| `id` | `varchar(28)` | `odd_` prefix, nano-id |
+| `product_id` | `varchar(28)` | FK → `products.id` |
+| `user_id` | `varchar(28)` | denormalized for query convenience |
 | `quantity` | `int unsigned` | |
 | `subtotal` | `decimal(10,2)` | |
 | `tax` | `decimal(10,2)` | |
 | `total` | `decimal(10,2)` | |
-| `created_by` | `varchar(26)` | audit |
+| `created_by` | `varchar(28)` | audit |
 | `created_at` | `datetime` | audit |
-| `updated_by` | `varchar(26)` | audit |
+| `updated_by` | `varchar(28)` | audit |
 | `updated_at` | `datetime` | audit |
-| `deleted_by` | `varchar(26)` | audit |
+| `deleted_by` | `varchar(28)` | audit |
 | `deleted_at` | `datetime` | audit — null means active |
 
 ## Events
@@ -255,6 +264,35 @@ Publish failures are logged and swallowed, never rethrown, because the publish c
 paid-for order over a notification failure. See [[events-pipeline-design]] for the consumer
 side and the full envelope contract.
 
+## Metrics
+
+> [!info] Shipped 2026-08-12 — Custom Business Metrics milestone
+> Full design and the Floci/OpenObserve gotchas that constrain this metric:
+> [[2026-08-12-custom-business-metrics-cloudwatch-design]]; the CloudWatch-not-OTLP pipeline and
+> the shared query gotchas are in [[logging-context#Metrics — the third pillar, and why it does
+> NOT go over OTLP]].
+
+| Metric | Type | Dimensions |
+|---|---|---|
+| `orders_total` | gauge | `Service=orders` |
+
+`orders_total` is a gauge — the true count of live orders — published by
+`OrdersMetricsPublisher`, a `BackgroundService` polling Orders' own database on the same interval
+as every other service's gauge poller (15s locally, 60s in real AWS). This is the service's
+**first** `BackgroundService`; there were none before this milestone.
+
+**`orders_total` minus Tracking's `(DELIVERED + IN_PROGRESS)`
+([[tracking-service-design#Metrics]]) is a health indicator for the Orders→Tracking
+integration.** In the normal flow every order gets a tracking row at creation time
+(`POST /v1/trackings/init-tracking`, called during `POST /v1/orders`), so the difference is 0. The
+gap this metric would surface is not a bug — it is the **deliberately-accepted failure mode**
+documented verbatim in `services/orders/src/Orders.Application/Tracking/TrackingInitResult.cs`:
+four of the six `TrackingInitOutcome` values (`UnknownUser`, `Unauthorized`, `Failed`,
+`Unreachable`) leave a committed order with no tracking, on purpose — failing the order after
+stock was decremented would invite a double purchase. `TrackingInitResult.cs`'s own comment
+promises this stays observable through a log; this metric is what makes it visible at a glance
+and alarmable, rather than only discoverable by reading logs after the fact.
+
 ## Cross-cutting rules
 
 This service follows all shared conventions defined once in the vault:
@@ -265,7 +303,7 @@ This service follows all shared conventions defined once in the vault:
 - [[db-naming]] — snake_case in DB, PascalCase aliases in EF Core models.
 - [[cqrs]] — read queries routed to the read replica; write commands routed to the write replica.
 - [[versioning]] — all HTTP endpoints versioned under `/v1/`.
-- [[logging-context]] — every log line carries the shared cross-service context (`trace_id`, `cognito_sub`, `user_id`, `email_hash`, `order_id`, `duration_ms`); Orders attaches it via a Serilog enricher reading `ICurrentCaller` lazily (never cached — see `services/orders/CLAUDE.md` §4).
+- [[logging-context]] — every log line carries the shared cross-service context (`request_id`, `trace_id`, `cognito_sub`, `user_id`, `email_hash`, `order_id`, `duration_ms`); Orders attaches it via a Serilog enricher reading `ICurrentCaller` lazily (never cached — see `services/orders/CLAUDE.md` §4). `request_id` is seeded in `CallerContextMiddleware`, but the correlation scope is opened in the **outermost** middleware — `UseSerilogRequestLogging` writes its `request completed` line on the way back out, after the inner frame that would otherwise hold the `AsyncLocal` value is gone. Propagates to Tracking via the `x-request-id` HTTP header and as a root field on `ORDER_CREATED`. Full design: [[2026-08-15-request-id-correlation-design]].
 - [[env-files]] — Orders reads its config from `.env.local.orders`, generated by `make env-file`; nothing is hand-maintained.
 - [[testing]] — every endpoint needs all three test layers (unit/integration, internal E2E, gateway E2E with a real Cognito JWT); see [[domains/orders/testing/index]] for how Orders satisfies it.
 - [[ADR-0019-distributed-tracing-opentelemetry]] — traces export via OTel to Jaeger, logs to OpenObserve; OTel endpoint/protocol come from environment variables only, never set in code.
@@ -298,6 +336,9 @@ Full milestone design: [[2026-07-14-orders-service-milestone-design]].
 
 ## Related
 
+- [[2026-08-15-request-id-correlation-design]] — the cross-service `request_id` correlation
+  field: seeded in `CallerContextMiddleware`, correlation scope opened in the outermost
+  middleware, propagated to Tracking via HTTP header and to `ORDER_CREATED` as an envelope field.
 - [[soft-delete]]
 - [[nano-id]]
 - [[audit-fields]]
@@ -332,3 +373,5 @@ Full milestone design: [[2026-07-14-orders-service-milestone-design]].
 - [[2026-08-10-product-catalogue-image-categories-design]] — full design and reasoning for the
   `image`/`categories` columns, the eight-product reseed, and the `ASSETS_BASE_URL` wiring
   documented under [Product](#product) above.
+- [[2026-08-12-custom-business-metrics-cloudwatch-design]] — the design for `orders_total` and
+  the `orders_total`-minus-Tracking health indicator for the Orders→Tracking integration.

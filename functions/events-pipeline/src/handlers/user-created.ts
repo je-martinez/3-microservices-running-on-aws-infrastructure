@@ -54,5 +54,6 @@ export async function userCreatedHandler(envelope: Envelope): Promise<void> {
     to: result.data.email,
     subject: "Welcome to 3MRAI",
     html,
+    templateKey: "user-created",
   });
 }

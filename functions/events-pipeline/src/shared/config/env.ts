@@ -43,8 +43,45 @@ const EnvSchema = z.object({
   // it explicitly. Same name, shape and default as Users' env schema — the
   // field is part of the shared log schema, so it must not drift.
   DEPLOYMENT_ENVIRONMENT: z.string().default("local"),
+  // Kill switch for CloudWatch custom-metric publication. Defaulted to true so
+  // no Terraform block, env file or test stub breaks by omitting it — the
+  // publisher already swallows every failure, so the flag exists to stop the
+  // calls entirely (e.g. a suite that must not reach the SDK), not to protect
+  // the caller.
+  METRICS_ENABLED: z.coerce.boolean().default(true),
+  // Echo of the DocumentDB commands this Lambda issues (see
+  // #shared/db/command-logger). The equivalent of Tracking's `Settings.echo_sql`
+  // and, like it, ON OUTSIDE PRODUCTION BY DESIGN: locally these lines are the
+  // only answer to "what did this query do?", while in production they are
+  // per-operation volume nobody reads.
+  //
+  // Left UNSET, the default is derived below from DEPLOYMENT_ENVIRONMENT rather
+  // than hardcoded to true, so a prod deploy that sets only the environment (as
+  // every other switch here expects) gets the echo off without a second
+  // variable to remember. Setting it explicitly always wins, in either
+  // direction — including turning it on in production to debug something.
+  //
+  // Spelled as an explicit "true"/"false" enum rather than z.coerce.boolean():
+  // coercion follows JS truthiness, under which the STRING "false" is true, so
+  // `DOCDB_ECHO_COMMANDS=false` would silently enable the very thing it was
+  // written to disable.
+  DOCDB_ECHO_COMMANDS: z.enum(["true", "false"]).optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
 
-export const env: Env = EnvSchema.parse(process.env);
+const parsed = EnvSchema.parse(process.env);
+
+export const env: Env = parsed;
+
+/**
+ * Whether to emit a log line per DocumentDB command.
+ *
+ * A derived value rather than a schema field with a static default: the default
+ * depends on ANOTHER field (DEPLOYMENT_ENVIRONMENT), which a Zod `.default()`
+ * cannot see.
+ */
+export const docdbEchoCommands: boolean =
+  parsed.DOCDB_ECHO_COMMANDS !== undefined
+    ? parsed.DOCDB_ECHO_COMMANDS === "true"
+    : parsed.DEPLOYMENT_ENVIRONMENT !== "production";

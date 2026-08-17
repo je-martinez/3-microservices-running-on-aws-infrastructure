@@ -1,0 +1,26 @@
+{
+  "name": "@3mrai/load-tests",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Gatling JS load simulations that generate realistic traffic across every 3MRAI endpoint",
+  "main": "target/bundle",
+  "dependencies": {
+    "@gatling.io/core": "3.15.104",
+    "@gatling.io/http": "3.15.104",
+    "@types/chance": "^1.1.6",
+    "chance": "^1.1.12"
+  },
+  "devDependencies": {
+    "@gatling.io/cli": "3.15.104",
+    "typescript": "5.7.2"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "build": "tsc --noEmit && gatling build --typescript",
+    "clean": "rm -rf target",
+    "smoke": "tsc --noEmit && gatling run --typescript --simulation fullJourney usersPerSec=0.5 duration=20 rampUsers=3 rampDuration=5",
+    "load": "tsc --noEmit && gatling run --typescript --simulation fullJourney",
+    "users": "tsc --noEmit && gatling run --typescript --simulation usersJourney",
+    "auth-codes": "tsc --noEmit && gatling run --typescript --simulation authCodes"
+  }
+}

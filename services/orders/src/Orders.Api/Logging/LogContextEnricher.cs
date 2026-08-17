@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Orders.Api.Identity;
+using Orders.Infrastructure.Id;
 using Serilog.Core;
 using Serilog.Events;
 
@@ -37,6 +38,24 @@ public sealed class LogContextEnricher(IHttpContextAccessor accessor) : ILogEven
                 factory.CreateProperty("trace_id", activity.TraceId.ToString()));
             logEvent.AddPropertyIfAbsent(
                 factory.CreateProperty("span_id", activity.SpanId.ToString()));
+        }
+
+        // The cross-service correlation id, seeded at ingress by CallerContextMiddleware.
+        // Read fresh on every event for the same reason the caller is (see above) and
+        // omitted when absent — a startup or background line genuinely belongs to no
+        // request, and request_id: null would claim otherwise.
+        //
+        // Read BEFORE the HttpContext guard: the id lives in an AsyncLocal, not on the
+        // HttpContext, so work that flows out of a request still carries it even where
+        // IHttpContextAccessor no longer resolves.
+        //
+        // Deliberately NOT the same thing as trace_id above. trace_id is the OTel SDK's
+        // id and only reaches as far as the SDK does; this one is a plain value that costs
+        // one header, and it is what correlates hops the SDK never touches (the
+        // events-pipeline Lambda has no OTel SDK at all).
+        if (AmbientRequestId.Current is { Length: > 0 } requestId)
+        {
+            logEvent.AddPropertyIfAbsent(factory.CreateProperty("request_id", requestId));
         }
 
         var http = accessor.HttpContext;

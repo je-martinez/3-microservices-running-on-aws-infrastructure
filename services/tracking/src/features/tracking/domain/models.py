@@ -22,17 +22,23 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.features.tracking.domain.status import STATUS_ORDER
 from src.shared.db.base import AuditMixin, Base
+from src.shared.db.nano_id import NanoIdConfig
 from src.shared.db.tracking_number import TRACKING_NUMBER_LENGTH
 
-# Width of every id-bearing column.
+# Width of every id-bearing column: exactly what a full prefixed id occupies.
 #
-# The spec's Data Model tables say VARCHAR(21), but that is the width of the Nano
-# ID ALONE — it does not account for the 4-char `trk_` / `ord_` / `usr_` prefix the
-# nano-id convention mandates, so a real id (25 chars) would be TRUNCATED by it.
-# Orders hit the same thing and settled on VARCHAR(26) (verified live: its
-# `order.id` column is varchar(26) holding 25-char values). Matching that width
-# here keeps the two MySQL services identical and leaves one spare character.
-ID_LENGTH = 26
+# DERIVED from `NanoIdConfig`, never a literal. The width is prefix (4) + random
+# portion (24) = 28, and the arithmetic must never be restated here: MySQL
+# TRUNCATES an over-long value silently rather than erroring, so a column that
+# lags the generator does not fail — it stores a shortened id that still looks
+# like an id, and only stops matching the row it was supposed to identify.
+#
+# The spec's Data Model tables say VARCHAR(21), which was the width of the nano
+# ID alone under the old 21-char format and never accounted for the prefix at
+# all. Users and Orders pin the same 28 (see the cross-service contract in
+# `shared/db/nano_id.py`), so the three services agree on the stored width as
+# well as on the format.
+ID_LENGTH = NanoIdConfig.TOTAL_LENGTH
 
 # The spec's declared width for the status column.
 STATUS_LENGTH = 50

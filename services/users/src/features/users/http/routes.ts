@@ -7,6 +7,7 @@ import { AuthError } from "#shared/auth/auth-errors";
 import { RecordNotFoundError } from "#shared/db/db-errors";
 import { buildLoggerOptions } from "#shared/logging/logger";
 import { logContext } from "#shared/logging/log-context";
+import { REQUEST_ID_HEADER, resolveRequestId } from "#shared/logging/request-id";
 import { env } from "#shared/config/env";
 import { isPublicRoute } from "#shared/http/public-routes";
 import { CurrentUser } from "#shared/auth/current-user";
@@ -50,6 +51,12 @@ function pruneOrphanComponents(openapiObject: ReturnType<typeof jsonSchemaTransf
 
 const transformObjectPruned: typeof jsonSchemaTransformObject = (input) =>
   pruneOrphanComponents(jsonSchemaTransformObject(input));
+
+/**
+ * The liveness probe's route. Only its 2xx responses are exempt from the request
+ * log — see the `onResponse` hook and [[health-check-logging]].
+ */
+const HEALTH_ROUTE = "/v1/health";
 // Side-effect import: `schemas.ts` registers `UserSchema`/`AuthTokensSchema`/
 // `ErrorSchema` in `z.globalRegistry` at module-eval time (see that file's
 // bottom `z.globalRegistry.add(...)` calls), which is how they surface under
@@ -105,25 +112,83 @@ export function buildApp(
     logger: opts?.logStream
       ? ({ ...loggerOptions, stream: opts.logStream } as never)
       : loggerOptions,
+    // Fastify's built-in request logging is OFF because the onResponse hook
+    // below replaces it. Without this the service emitted TWO lines per request,
+    // BOTH saying "request completed" — Fastify's own (carrying `res.statusCode`
+    // and `responseTime`) and the schema-aligned one (carrying `http_route`,
+    // `http_response_status_code`, `duration_ms`).
+    //
+    // That is worse than simple duplication: every request-rate figure computed
+    // from the message was DOUBLE the real count, and half the rows answered a
+    // `http_route` filter with nothing because they had no such field. Measured
+    // with a single registration request: 2 lines, one of each shape.
+    //
+    // The hook's comment always claimed it replaced the default. It did not —
+    // it added to it.
+    disableRequestLogging: true,
   });
 
   // Emits one schema-aligned log per response (OTel-style HTTP semantic
   // conventions), replacing Fastify's default per-request start/end logs.
   app.addHook("onResponse", (req, reply, done) => {
-    req.log.info(
-      {
-        http_request_method: req.method,
-        http_route: req.routeOptions?.url ?? req.url,
-        http_response_status_code: reply.statusCode,
-        duration_ms: reply.elapsedTime,
-        // NO `trace_id: req.id` here. Pino injects the REAL OTel trace_id and
-        // span_id on every line once the SDK is active, and explicit fields beat
-        // the ambient ones — so passing Fastify's local request counter would
-        // override the real id on the single most useful log line, breaking the
-        // join between logs and traces.
-      },
-      "request completed",
-    );
+    const route = req.routeOptions?.url ?? req.url;
+
+    // The liveness probe is exempt WHILE IT SUCCEEDS — see [[health-check-logging]].
+    // A succeeding probe is the one request whose log line carries nothing: the
+    // container being up already says it, and its duration is a constant. A
+    // FAILING one carries the status and latency that explain why, so it falls
+    // through and is logged like any other request.
+    //
+    // Scoped by status rather than by suppressing the route, which is what keeps
+    // the failure visible. Measured in Tracking before this was standardised
+    // across the services: 353 of 368 lines in an hour were this one request at
+    // 200, against 2 describing real work.
+    const isHealthySoak =
+      route === HEALTH_ROUTE &&
+      reply.statusCode >= 200 &&
+      reply.statusCode < 300;
+
+    if (!isHealthySoak) {
+      req.log.info(
+        {
+          http_request_method: req.method,
+          http_route: route,
+          http_response_status_code: reply.statusCode,
+          duration_ms: reply.elapsedTime,
+          // NO `trace_id: req.id` here. Pino injects the REAL OTel trace_id and
+          // span_id on every line once the SDK is active, and explicit fields beat
+          // the ambient ones — so passing Fastify's local request counter would
+          // override the real id on the single most useful log line, breaking the
+          // join between logs and traces.
+        },
+        "request completed",
+      );
+    }
+
+    // Error-rate metric. ONLY 4xx/5xx are counted: a metric per 2xx would be a
+    // request-rate metric, which the log line above already provides, and it
+    // would multiply the published series for no added signal.
+    const status = reply.statusCode;
+    if (status >= 400) {
+      // The whole hook is guarded: an observation of a response that already
+      // went out must never become an error of its own. Resolution itself can
+      // throw (a test container that registers no `metricsPublisher`), which
+      // Fastify would otherwise surface as a request error on an already-sent
+      // response.
+      try {
+        // Deliberately NOT awaited: `onResponse` runs after the response has
+        // been sent, and awaiting here would delay the connection teardown for
+        // the duration of a PutMetricData round trip. `publish()` never rejects
+        // (it logs and swallows), so there is no unhandled rejection to catch.
+        void req.diScope.cradle.metricsPublisher.publish("http_errors_total", 1, {
+          Service: "users",
+          StatusClass: status >= 500 ? "5xx" : "4xx",
+        });
+      } catch {
+        // Intentionally silent — see above.
+      }
+    }
+
     done();
   });
 
@@ -200,6 +265,14 @@ export function buildApp(
     const actor = req.headers["x-user-id"] as string | undefined;
     const routePath = req.routeOptions?.url ?? req.url;
 
+    // Resolved and ATTACHED before the auth guard below, which short-circuits
+    // with `return` rather than `done()`. A 401 is a request someone will ask
+    // about, so it is the last one that should be missing its correlation id —
+    // and `enterWith` is what puts the id on the reply's own log line, since
+    // that branch never reaches the `logContext.run` wrapper further down.
+    const request_id = resolveRequestId(req.headers[REQUEST_ID_HEADER]);
+    logContext.enterWith({ request_id });
+
     if (actor === undefined && !isPublicRoute(req.method, routePath)) {
       reply.code(401).send({ error: "unauthenticated" });
       return; // do NOT call done() — the request is already finished
@@ -222,7 +295,10 @@ export function buildApp(
     // already wraps `done` in a store, so the log context wraps the same
     // continuation and both are live for the whole request.
     actorContext.run({ actor }, () => {
-      logContext.run(actor === undefined ? {} : { cognito_sub: actor }, done);
+      logContext.run(
+        actor === undefined ? { request_id } : { request_id, cognito_sub: actor },
+        done,
+      );
     });
   });
 

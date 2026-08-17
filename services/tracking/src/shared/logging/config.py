@@ -30,6 +30,7 @@ import sys
 
 from .context_filter import LogContextFilter
 from .json_formatter import JsonFormatter
+from .trace_filter import TraceContextFilter
 
 # uvicorn attaches its own handlers to these and sets propagate = False.
 _UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
@@ -72,6 +73,11 @@ def configure_logging(
     # single root handler sees everything that reaches it — including uvicorn's
     # records, which the propagation fix below routes here.
     handler.addFilter(LogContextFilter())
+    # Same placement, same reason: on the HANDLER, so uvicorn's and SQLAlchemy's
+    # records (routed here by the propagation fix below) are correlated too — a
+    # slow statement is only useful if it names the trace it belongs to. Adds
+    # `trace_id`/`span_id` when a span is active and NOTHING when one is not.
+    handler.addFilter(TraceContextFilter())
 
     root = logging.getLogger()
     # Remove existing handlers rather than adding to them — see the idempotency

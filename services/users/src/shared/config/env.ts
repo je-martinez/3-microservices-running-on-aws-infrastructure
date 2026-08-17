@@ -52,6 +52,10 @@ const schema = z.object({
   // shared/logging/logger.ts). Defaults to "local" for dev/test; prod deploys
   // set it explicitly.
   DEPLOYMENT_ENVIRONMENT: z.string().default("local"),
+  // How often BusinessMetricsPoller publishes its gauges: 15s locally; real AWS
+  // uses 60s. Defaulted so no existing env file, test, or deployment breaks by
+  // omitting it.
+  METRICS_INTERVAL_MS: z.coerce.number().int().positive().default(15_000),
 });
 
 export type Env = z.infer<typeof schema>;

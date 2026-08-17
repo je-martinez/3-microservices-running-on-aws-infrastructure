@@ -1,6 +1,8 @@
+using Amazon.CloudWatch;
 using Amazon.SQS;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
+using Orders.Api.BackgroundServices;
 using Orders.Api.Endpoints;
 using Orders.Api.Identity;
 using Orders.Api.Logging;
@@ -10,7 +12,9 @@ using Orders.Application.Identity;
 using Orders.Application.Tracking;
 using Orders.Infrastructure.Config;
 using Orders.Infrastructure.Grpc;
+using Orders.Infrastructure.Id;
 using Orders.Infrastructure.Messaging;
+using Orders.Infrastructure.Metrics;
 using Orders.Infrastructure.Orders;
 using Orders.Infrastructure.Persistence;
 using Orders.Infrastructure.Tracking;
@@ -61,8 +65,72 @@ builder.Services.AddOpenTelemetry()
 // The THREE-argument UseSerilog overload is required: the two-argument one has
 // no `services` parameter, so the enricher could not resolve
 // IHttpContextAccessor and the shared log context would never be attached.
+// The Override below is NOISE SUPPRESSION, not a convenience — do not remove it
+// without re-reading this. It is set to WARNING, not None, ON PURPOSE: a failed
+// trace export still surfaces. Only the per-operation INFO chatter is silenced.
+//
+// Note it MUST live here, in code. This service has no
+// `ReadFrom.Configuration`, so Serilog never reads `Logging:LogLevel` from
+// appsettings.json — adding the category there would silence nothing.
+//
+//  1. System.Net.Http.HttpClient.OtlpTraceExporter — SELF-REFERENTIAL telemetry.
+//     The OTLP exporter POSTs batches over HttpClient, and HttpClient logs each
+//     POST at INFO ("Start processing HTTP request", "Received HTTP response
+//     headers ... 200"). Those log lines are themselves exported, so exporting
+//     traces generates logs that generate more exporting. The volume scales with
+//     traffic and drowns the real orders logs. Scoped to the named
+//     OtlpTraceExporter client rather than the whole `System.Net.Http.HttpClient`
+//     prefix so genuine outbound-HTTP problems (the Users gRPC call, Tracking)
+//     still log normally. It covers both handler suffixes the category expands
+//     to — `.LogicalHandler` and `.ClientHandler` — because Serilog Overrides
+//     match on the source-context PREFIX.
+//
+//  2. Microsoft.AspNetCore.Hosting.Diagnostics — "Request starting" / "Request
+//     finished", one PAIR per request, both describing what
+//     `request completed` already reports with more detail (method, route,
+//     status, duration_ms, and the shared log context).
+//
+//  3. Microsoft.AspNetCore.Routing.EndpointMiddleware — "Executing endpoint" /
+//     "Executed endpoint", another pair per request. It names the handler the
+//     route resolved to, which is a framework-internal detail: the route itself
+//     is already on the request log.
+//
+//  4. Microsoft.AspNetCore.Http.Result — "Setting HTTP status code 400",
+//     "Writing value of type '<>f__AnonymousType0`2' as Json". The status is on
+//     the request log and the CLR type name of an anonymous DTO says nothing
+//     about the response. The override is on the `Http.Result` PREFIX so it
+//     covers every result type (BadRequestObjectResult, OkObjectResult,
+//     CreatedResult, …) rather than needing one entry per status.
+//
+// WHY THIS MATTERS, measured rather than assumed: of 101 orders lines in a
+// two-hour window, only THREE carried an app_event — the actual business events
+// (create_order_started, create_order_succeeded, init_tracking_succeeded). The
+// other 98 were the framework describing its own plumbing. The events-pipeline,
+// which has no such framework, sits at 93/93. A service whose business signal is
+// 3% of its own log volume is one where the interesting line is found by luck.
+//
+// All four are WARNING, not None, for the same reason as the exporter above: a
+// routing failure or a result that cannot be serialized still surfaces. Only the
+// per-request INFO chatter goes quiet.
+//
+// Serilog.AspNetCore.RequestLoggingMiddleware is deliberately NOT here. Its
+// single "request completed" line per request IS the signal these three
+// duplicate — it carries method, route, status, duration and the enriched
+// context. Silencing it would remove the one framework line worth keeping.
+//
+// EF Core's Database.Command is deliberately NOT overridden here, even though it
+// is just as noisy. Its DbCommand lines are ROUTED, not suppressed: the
+// collector's filter/only_sql sends them to the dedicated `sql` stream, which is
+// where SQLAlchemy's equivalent from Tracking already goes. Silencing them in
+// this service instead would leave the two services answering "what SQL did you
+// run?" differently — orders' statements would exist nowhere at all, while
+// tracking's stay queryable. See observability/otel-collector-config.yaml.
 builder.Host.UseSerilog((_, services, cfg) => cfg
     .MinimumLevel.Information()
+    .MinimumLevel.Override("System.Net.Http.HttpClient.OtlpTraceExporter", Serilog.Events.LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.AspNetCore.Hosting.Diagnostics", Serilog.Events.LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.AspNetCore.Routing.EndpointMiddleware", Serilog.Events.LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.AspNetCore.Http.Result", Serilog.Events.LogEventLevel.Warning)
     .Enrich.With(new LogContextEnricher(services.GetRequiredService<IHttpContextAccessor>()))
     .WriteTo.Console(new SchemaLogFormatter("orders", deploymentEnvironment)));
 
@@ -158,6 +226,36 @@ builder.Services.AddScoped<IEventPublisher>(sp => new SqsEventPublisher(
     eventsQueueUrl,
     sp.GetRequiredService<ILogger<SqsEventPublisher>>()));
 
+// Custom business metrics -> CloudWatch (Floci locally), scraped by the OTel
+// collector into OpenObserve. One client per process (Singleton), same
+// endpoint-override pattern as the SQS client above.
+builder.Services.AddSingleton<IAmazonCloudWatch>(_ =>
+{
+    var config = new AmazonCloudWatchConfig
+    {
+        RegionEndpoint = Amazon.RegionEndpoint.GetBySystemName(
+            builder.Configuration["AWS_REGION"] ?? "us-east-1"),
+    };
+    var endpointUrl = builder.Configuration["AWS_ENDPOINT_URL"];
+    if (!string.IsNullOrWhiteSpace(endpointUrl))
+    {
+        config.ServiceURL = endpointUrl;
+    }
+    return new AmazonCloudWatchClient(config);
+});
+
+builder.Services.AddSingleton<IMetricsPublisher>(sp => new CloudWatchMetricsPublisher(
+    sp.GetRequiredService<IAmazonCloudWatch>(),
+    sp.GetRequiredService<ILogger<CloudWatchMetricsPublisher>>()));
+
+// Skipped during build-time OpenAPI generation: GetDocument.Insider builds the app
+// to read its endpoint metadata, and a hosted service would start a real timer and
+// hit a database that is not there.
+if (!isDocumentGeneration)
+{
+    builder.Services.AddHostedService<OrdersMetricsPublisher>();
+}
+
 // Tracking HTTP client (POST /v1/trackings/init-tracking). Typed client so the
 // base address and timeout are configured once, in the composition root, and
 // HttpClientFactory owns handler lifetime/pooling. AddHttpClientInstrumentation
@@ -236,6 +334,23 @@ builder.Services.AddScoped(sp => new CreateOrderService(
 
 var app = builder.Build();
 
+// Opens the correlation scope FIRST, ahead of the request logger below. The id
+// itself is resolved later, by CallerContextMiddleware (which needs routing to
+// have run); this only installs the cell that middleware writes into.
+//
+// The two steps are split for a reason found by a failing test: an AsyncLocal set
+// in a middleware is invisible OUTSIDE it, because the value is restored as each
+// frame unwinds. UseSerilogRequestLogging writes "request completed" on the way
+// back OUT — after CallerContextMiddleware's frame is gone — so with a single
+// write deeper down, the most useful log line this service emits would have been
+// the one line missing request_id. Opening the scope here, outside everything,
+// is what lets the outer frame read the value the inner one resolved.
+app.Use(async (_, next) =>
+{
+    AmbientRequestId.Begin();
+    await next();
+});
+
 // Automatic HTTP request logging in the shared snake_case schema. Placed early
 // in the pipeline (right after Build) so it wraps every request. The elapsed
 // time Serilog attaches internally (`Elapsed`) is renamed to `duration_ms` by
@@ -243,6 +358,29 @@ var app = builder.Build();
 app.UseSerilogRequestLogging(options =>
 {
     options.MessageTemplate = "request completed";
+    // The liveness probe is exempt WHILE IT SUCCEEDS — see the
+    // health-check-logging convention. A succeeding probe is the one request
+    // whose log line carries nothing: the container being up already says it,
+    // and its duration is a constant. A FAILING one carries the status and the
+    // latency that explain why, so it keeps the normal level and is logged.
+    //
+    // Verbose rather than a hard suppression: this service's minimum level is
+    // Information, so the line is filtered out before it reaches the sink, but
+    // the record still exists for anyone who lowers the level to debug a probe.
+    // Serilog's own error paths are preserved — `ex != null` and 5xx fall
+    // through to the default, so a probe that throws still logs at Error.
+    // The `: 500 -> Error` arm reproduces Serilog's own default, which assigning
+    // GetLevel replaces wholesale. Returning a flat Information would have
+    // quietly DOWNGRADED every server error on the request log — a regression
+    // introduced by a change meant to remove noise.
+    options.GetLevel = (http, _, ex) =>
+        ex == null
+        && http.Response.StatusCode is >= 200 and < 300
+        && (http.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText == PublicRoutes.HealthRoute
+            ? Serilog.Events.LogEventLevel.Verbose
+            : ex != null || http.Response.StatusCode >= 500
+                ? Serilog.Events.LogEventLevel.Error
+                : Serilog.Events.LogEventLevel.Information;
     options.EnrichDiagnosticContext = (diag, http) =>
     {
         diag.Set("http_request_method", http.Request.Method);
@@ -256,6 +394,12 @@ app.UseSerilogRequestLogging(options =>
         // useful line — would keep ASP.NET's local, non-propagating identifier.
     };
 });
+
+// Publishes http_errors_total for every 4xx/5xx. Placed immediately after the
+// request logger, and therefore OUTSIDE everything below it, so it observes the
+// final status of the completed response — including CallerContextMiddleware's
+// short-circuiting 401 and every per-endpoint result.
+app.UseMiddleware<HttpErrorMetricsMiddleware>();
 
 // Explicit UseRouting() so endpoint resolution happens BEFORE
 // CallerContextMiddleware runs. ctx.GetEndpoint() (used by the middleware and by

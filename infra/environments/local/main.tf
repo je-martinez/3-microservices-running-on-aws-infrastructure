@@ -458,7 +458,12 @@ module "lambda_events_pipeline" {
     # target database itself, so this is NOT set for production — see
     # DOCDB_AUTH_SOURCE in functions/events-pipeline/src/shared/config/env.ts.
     DOCDB_AUTH_SOURCE = "admin"
-    SES_FROM_ADDRESS  = var.ses_from_address
+    # Email sent/failed counters to CloudWatch. The function's IAM role grants
+    # cloudwatch:PutMetricData scoped to the 3MRAI namespace (see
+    # modules/lambda/main.tf). This is the DEPLOYED function's value — the
+    # .env.local.events-pipeline entry only serves local tests.
+    METRICS_ENABLED  = "true"
+    SES_FROM_ADDRESS = var.ses_from_address
     # Base URL the email templates append icon keys to. The templates render
     # REMOTE <img> tags (100% client support) rather than base64 data: URIs
     # (80.95%), so without this every icon in every email is a broken URL. The
@@ -482,6 +487,56 @@ module "lambda_events_pipeline" {
     # to Floci's S3 handler — which looks nothing like an endpoint error.
     WS_MANAGEMENT_ENDPOINT = module.api_gateway_ws.management_endpoint_local
   }
+}
+
+# ─── events-pipeline metrics tick ───────────────────────────────────────────────
+# A clock for the email counters. The Lambda publishes emails_sent_total /
+# emails_failed_total, which only emit when mail actually moves — so in a quiet
+# window their series has no datapoints and OpenObserve's metric panel throws
+# `Cannot read properties of undefined (reading 'values')` instead of showing 0.
+#
+# Seeding those counters from inside the SQS path could not fix it: that path
+# runs only when mail is ALREADY flowing, which is exactly when the zeros are
+# not needed. Measured before this rule existed: emails_sent_total had zero
+# points over 6h while users_total — published by a real periodic loop — had
+# continuous coverage. Every other service hosts its own poller in a
+# long-running process; a Lambda has none, so the clock comes from EventBridge.
+#
+# Verified against Floci before being written (2026-08-14): a rate(1 minute)
+# rule DOES invoke the function, twice, 60s apart. Note Floci's Lambda runtime
+# emits no START lines, so counting them reads 0 — check the invocations
+# themselves, not that filter.
+#
+# rate(1 minute) is EventBridge's floor, coarser than the services' 15s
+# interval. That is sufficient here: the narrowest dashboard range is 5 minutes,
+# which gets five points.
+resource "aws_cloudwatch_event_rule" "events_pipeline_metrics_tick" {
+  name                = "${module.label_events.id}-metrics-tick"
+  description         = "Periodic tick so the events-pipeline seeds its email counters even with no mail traffic."
+  schedule_expression = "rate(1 minute)"
+  tags                = module.label_events.tags
+}
+
+resource "aws_cloudwatch_event_target" "events_pipeline_metrics_tick" {
+  rule      = aws_cloudwatch_event_rule.events_pipeline_metrics_tick.name
+  target_id = "events-pipeline-metrics-tick"
+  arn       = module.lambda_events_pipeline.function_arn
+
+  # The handler branches on `detail-type` to tell a tick from an SQS batch, so
+  # the constant here is a CONTRACT with src/handler.ts (METRICS_TICK_DETAIL_TYPE),
+  # not decoration. Matching on the shape instead — "no Records field" — would
+  # also swallow a malformed SQS delivery and report success on dropped mail.
+  input = jsonencode({
+    "detail-type" = "3mrai.metrics.tick"
+  })
+}
+
+resource "aws_lambda_permission" "events_pipeline_metrics_tick" {
+  statement_id  = "AllowExecutionFromEventBridgeMetricsTick"
+  action        = "lambda:InvokeFunction"
+  function_name = module.lambda_events_pipeline.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.events_pipeline_metrics_tick.arn
 }
 
 # ─── API Gateway ────────────────────────────────────────────────────────────────

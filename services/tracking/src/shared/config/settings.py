@@ -18,6 +18,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 #: Coerces an environment string to a bool exactly as a `bool` field would.
 _BOOL = TypeAdapter(bool)
 
+#: Seconds between two ticks of the periodic metrics publisher. Declared here
+#: rather than inline on the field so the field and the environment-reading
+#: helper below cannot drift to different defaults.
+DEFAULT_METRICS_INTERVAL_SECONDS = 15.0
+
 
 class Settings(BaseSettings):
     """Validated environment for the Tracking service."""
@@ -113,6 +118,25 @@ class Settings(BaseSettings):
     aws_endpoint_url: str | None = None
     aws_region: str = "us-east-1"
 
+    # --- custom business metrics (CloudWatch) --------------------------------
+    # Seconds between two ticks of the periodic gauge publisher
+    # (`features/tracking/commands/publish_metrics.py`). 15s locally; real AWS
+    # uses 60s.
+    #
+    # DEFAULTED, like everything optional here, and for the reason recorded at
+    # the top of this module: every name in this class is emitted into
+    # `.env.local.tracking` by `generate_env_files.py`, and a required field with
+    # no default would refuse to start for anyone who has not regenerated their
+    # env file.
+    metrics_interval_seconds: float = DEFAULT_METRICS_INTERVAL_SECONDS
+
+    # Whether the periodic publisher runs at all. ON by default so a real
+    # runtime publishes without opting in; the test environment turns it OFF
+    # (see `metrics_enabled()` below) because `create_app()` is built by every
+    # REST test and `TestClient` enters the lifespan — an ungated task would open
+    # a real database session and reach for CloudWatch on every test run.
+    metrics_enabled: bool = True
+
     # --- E2E test harness ----------------------------------------------------
     # Gates the flag-guarded cleanup route (`DELETE /v1/trackings/e2e-cleanup`),
     # the same name and the same meaning Users and Orders already read
@@ -148,6 +172,55 @@ def get_settings() -> Settings:
     need a different environment call `get_settings.cache_clear()`.
     """
     return Settings()  # type: ignore[call-arg]
+
+
+def metrics_enabled() -> bool:
+    """Whether the periodic metrics publisher should be started.
+
+    Read from the environment DIRECTLY rather than through `get_settings()`, for
+    exactly the same reason `e2e_testing_enabled()` is: this is consulted while
+    the application is STARTING UP, and `Settings()` raises `ValidationError` on
+    an incomplete environment. The whole REST test suite builds the app without
+    the DB/gRPC/carrier variables, so going through the model here would make the
+    lifespan — and therefore every `TestClient` — depend on a fully-valid
+    environment.
+
+    The `metrics_enabled` field on `Settings` above is still the DECLARATION of
+    the variable (its name, type and default, pinned by `test_settings.py`); this
+    is the one caller that cannot afford to validate everything else to read it.
+
+    Defaults to **True** when the variable is absent — the opposite direction
+    from `e2e_testing_enabled()`, and deliberately so: publishing a metric is
+    harmless, while forgetting the variable in a deployed environment would leave
+    the dashboards silently empty. The test suite opts OUT explicitly
+    (`METRICS_ENABLED=false` in `tests/conftest.py`). An unparseable value is
+    treated as ON for the same reason a malformed flag must not take a runtime
+    down.
+    """
+    raw = os.environ.get("METRICS_ENABLED")
+    if raw is None or raw == "":
+        return True
+    try:
+        return _BOOL.validate_python(raw)
+    except ValidationError:
+        return True
+
+
+def metrics_interval_seconds() -> float:
+    """The gauge publisher's tick interval, read directly from the environment.
+
+    Same rationale as `metrics_enabled()`: consulted at startup, where a full
+    `Settings()` validation is not available. Falls back to the field's own
+    default when the variable is absent or unparseable — a malformed interval is
+    not a reason to refuse to boot.
+    """
+    raw = os.environ.get("METRICS_INTERVAL_SECONDS")
+    if not raw:
+        return DEFAULT_METRICS_INTERVAL_SECONDS
+    try:
+        return float(raw)
+    except ValueError:
+        return DEFAULT_METRICS_INTERVAL_SECONDS
 
 
 def e2e_testing_enabled() -> bool:

@@ -18,22 +18,22 @@ namespace Orders.Infrastructure.Migrations
                 name: "order",
                 columns: table => new
                 {
-                    id = table.Column<string>(type: "varchar(26)", maxLength: 26, nullable: false)
+                    id = table.Column<string>(type: "varchar(28)", maxLength: 28, nullable: false)
                         .Annotation("MySql:CharSet", "utf8mb4"),
-                    user_id = table.Column<string>(type: "varchar(26)", maxLength: 26, nullable: false)
+                    user_id = table.Column<string>(type: "varchar(28)", maxLength: 28, nullable: false)
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     cognito_sub = table.Column<string>(type: "varchar(255)", maxLength: 255, nullable: false)
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     subtotal_cents = table.Column<long>(type: "bigint", nullable: false),
                     tax_cents = table.Column<long>(type: "bigint", nullable: false),
                     total_cents = table.Column<long>(type: "bigint", nullable: false),
-                    created_by = table.Column<string>(type: "varchar(26)", maxLength: 26, nullable: true)
+                    created_by = table.Column<string>(type: "varchar(28)", maxLength: 28, nullable: true)
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     created_at = table.Column<DateTime>(type: "datetime(6)", nullable: false),
-                    updated_by = table.Column<string>(type: "varchar(26)", maxLength: 26, nullable: true)
+                    updated_by = table.Column<string>(type: "varchar(28)", maxLength: 28, nullable: true)
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     updated_at = table.Column<DateTime>(type: "datetime(6)", nullable: false),
-                    deleted_by = table.Column<string>(type: "varchar(26)", maxLength: 26, nullable: true)
+                    deleted_by = table.Column<string>(type: "varchar(28)", maxLength: 28, nullable: true)
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     deleted_at = table.Column<DateTime>(type: "datetime(6)", nullable: true)
                 },
@@ -47,7 +47,7 @@ namespace Orders.Infrastructure.Migrations
                 name: "product",
                 columns: table => new
                 {
-                    id = table.Column<string>(type: "varchar(26)", maxLength: 26, nullable: false)
+                    id = table.Column<string>(type: "varchar(28)", maxLength: 28, nullable: false)
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     name = table.Column<string>(type: "varchar(255)", maxLength: 255, nullable: false)
                         .Annotation("MySql:CharSet", "utf8mb4"),
@@ -55,13 +55,13 @@ namespace Orders.Infrastructure.Migrations
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     unit_price_cents = table.Column<long>(type: "bigint", nullable: false),
                     units_in_stock = table.Column<uint>(type: "int unsigned", nullable: false),
-                    created_by = table.Column<string>(type: "varchar(26)", maxLength: 26, nullable: true)
+                    created_by = table.Column<string>(type: "varchar(28)", maxLength: 28, nullable: true)
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     created_at = table.Column<DateTime>(type: "datetime(6)", nullable: false),
-                    updated_by = table.Column<string>(type: "varchar(26)", maxLength: 26, nullable: true)
+                    updated_by = table.Column<string>(type: "varchar(28)", maxLength: 28, nullable: true)
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     updated_at = table.Column<DateTime>(type: "datetime(6)", nullable: false),
-                    deleted_by = table.Column<string>(type: "varchar(26)", maxLength: 26, nullable: true)
+                    deleted_by = table.Column<string>(type: "varchar(28)", maxLength: 28, nullable: true)
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     deleted_at = table.Column<DateTime>(type: "datetime(6)", nullable: true)
                 },
@@ -75,13 +75,13 @@ namespace Orders.Infrastructure.Migrations
                 name: "order_details",
                 columns: table => new
                 {
-                    id = table.Column<string>(type: "varchar(26)", maxLength: 26, nullable: false)
+                    id = table.Column<string>(type: "varchar(28)", maxLength: 28, nullable: false)
                         .Annotation("MySql:CharSet", "utf8mb4"),
-                    order_id = table.Column<string>(type: "varchar(26)", maxLength: 26, nullable: false)
+                    order_id = table.Column<string>(type: "varchar(28)", maxLength: 28, nullable: false)
                         .Annotation("MySql:CharSet", "utf8mb4"),
-                    product_id = table.Column<string>(type: "varchar(26)", maxLength: 26, nullable: false)
+                    product_id = table.Column<string>(type: "varchar(28)", maxLength: 28, nullable: false)
                         .Annotation("MySql:CharSet", "utf8mb4"),
-                    user_id = table.Column<string>(type: "varchar(26)", maxLength: 26, nullable: false)
+                    user_id = table.Column<string>(type: "varchar(28)", maxLength: 28, nullable: false)
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     cognito_sub = table.Column<string>(type: "varchar(255)", maxLength: 255, nullable: false)
                         .Annotation("MySql:CharSet", "utf8mb4"),
@@ -89,13 +89,13 @@ namespace Orders.Infrastructure.Migrations
                     subtotal_cents = table.Column<long>(type: "bigint", nullable: false),
                     tax_cents = table.Column<long>(type: "bigint", nullable: false),
                     total_cents = table.Column<long>(type: "bigint", nullable: false),
-                    created_by = table.Column<string>(type: "varchar(26)", maxLength: 26, nullable: true)
+                    created_by = table.Column<string>(type: "varchar(28)", maxLength: 28, nullable: true)
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     created_at = table.Column<DateTime>(type: "datetime(6)", nullable: false),
-                    updated_by = table.Column<string>(type: "varchar(26)", maxLength: 26, nullable: true)
+                    updated_by = table.Column<string>(type: "varchar(28)", maxLength: 28, nullable: true)
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     updated_at = table.Column<DateTime>(type: "datetime(6)", nullable: false),
-                    deleted_by = table.Column<string>(type: "varchar(26)", maxLength: 26, nullable: true)
+                    deleted_by = table.Column<string>(type: "varchar(28)", maxLength: 28, nullable: true)
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     deleted_at = table.Column<DateTime>(type: "datetime(6)", nullable: true)
                 },

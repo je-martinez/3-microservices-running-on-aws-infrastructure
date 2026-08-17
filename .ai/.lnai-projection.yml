@@ -38,6 +38,29 @@ rules:
   # status needs this, whichever CLI it is driven from.
   local-emulator-state: universal             # named volume; clean is destructive
 
+  # Added 2026-08-13.
+  #
+  # package-manager-pnpm: universal. A property of the repo's lockfile, not of
+  # any agent tool: `npm install` corrupts the pnpm tree and drops a stray
+  # package-lock.json whichever CLI ran it. Every provider installs deps.
+  #
+  # vault-over-memory (the GOLDEN RULE): universal, but note the seam. The
+  # POLICY — durable conventions/decisions/lessons belong in the versioned,
+  # reviewable vault, never only in an assistant's private memory store — holds
+  # for any assistant that has a memory feature (Cursor rules-memory, Copilot,
+  # Gemini's save_memory, OpenCode). Only the Claude-specific MECHANISM (the
+  # ~/.claude/ path and routing the write through `obsidian-vault`) is dropped;
+  # the prohibition on writing to docs/ directly already lives in
+  # ## Prohibitions. Projecting it makes the rule land where it is needed most,
+  # since every one of those providers has its own invisible memory store.
+  #
+  # load-testing-surface: universal. Where load tests live and why they omit the
+  # E2E headers is a property of the repo layout; the only Claude-specific part
+  # is the `e2e-impl` subagent, projected as a role.
+  package-manager-pnpm: universal
+  vault-over-memory: universal
+  load-testing-surface: universal
+
   # Claude-only: names a tool, skill, or plugin that exists only in Claude Code.
   # Note the seam — the POLICY "never commit without confirmation" is universal
   # (above); only its MECHANISM (the A/B/C/D/E menu rendered via
@@ -62,6 +85,16 @@ skills:
   floci: share
   terraform-skill: share
 
+  # Added 2026-08-13. Gatling JS conventions are vendor knowledge sourced from
+  # the official docs — nothing in it depends on Claude Code, and the repo's
+  # load simulations are code any provider may be asked to touch.
+  #
+  # NOTE: unlike floci, this one needs NO quoting fix — verified 2026-08-13 by
+  # parsing its frontmatter with js-yaml directly. Its description contains
+  # colons but never the ": " sequence that breaks a plain scalar. Re-verify
+  # after editing the source description rather than assuming either way.
+  gatling-js: share
+
   # Depend on Obsidian tooling other providers do not have.
   obsidian-bases: exclude
   obsidian-cli: exclude
@@ -77,6 +110,10 @@ subagents:
   events-pipeline-impl: role
   infra-impl: role
   solutions-architect: role
+
+  # Added 2026-08-13. Sixth code-only implementer; same shape as the others —
+  # writes only test/simulation code, never git, never Linear.
+  e2e-impl: role
 
   # Single writers. Projecting these as "available roles" would invite an agent
   # to believe it may write to Linear or docs/ itself. They become prohibitions.

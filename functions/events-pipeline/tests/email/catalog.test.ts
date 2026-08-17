@@ -1,7 +1,35 @@
-import { describe, it, expect } from "vitest";
-import { catalog } from "#email/catalog";
-import { renderTemplate } from "#email/renderer";
+import { describe, it, expect, vi } from "vitest";
+
+// #shared/config/env parses process.env at MODULE LOAD (ADR-0014). #email/renderer
+// now reaches it through #shared/metrics/cloudwatch-metrics (it publishes the
+// permanent-failure counter before throwing on a missing template), so the schema
+// must be satisfied here even though this suite never publishes a metric. Mirrors
+// tests/handlers/user-created.test.ts.
+vi.stubEnv("DOCDB_HOST", "docdb-test");
+vi.stubEnv("DOCDB_USERNAME", "root");
+vi.stubEnv("DOCDB_PASSWORD", "secret");
+vi.stubEnv("SES_FROM_ADDRESS", "noreply@example.com");
+// The renderer reads this to build every <img src>, so it lands INSIDE the
+// snapshot below. The value must therefore be the one the committed snapshot was
+// recorded with, not this file's usual http://assets.test/bucket placeholder.
+//
+// It was previously inherited by accident: sender.integration.test.ts sets this
+// same value with `??=` on the shared process env, so whether the snapshot
+// matched depended on FILE EXECUTION ORDER. Stubbing it explicitly here is what
+// makes the snapshot deterministic on its own.
+vi.stubEnv("ASSETS_BASE_URL", "http://localhost:4566/post-3mrai-local-post-assets");
+// No metric may leave this suite: the missing-template case below emits the
+// permanent-failure counter, and with this unset it would try to reach a real
+// CloudWatch endpoint.
+vi.stubEnv("METRICS_ENABLED", "");
+
 import { PermanentError } from "#pipeline/errors";
+
+// Dynamic imports, AFTER the vi.stubEnv calls above: static imports are hoisted
+// above all other module code (including vi.stubEnv), so importing the renderer
+// at the top of the file would evaluate #shared/config/env before the stubs exist.
+const { catalog } = await import("#email/catalog");
+const { renderTemplate } = await import("#email/renderer");
 
 describe("email catalog", () => {
   it("registers user-created with sample props", () => {

@@ -48,6 +48,25 @@ export const EnvelopeSchema = z.object({
   user_id: z.string().min(1),
   order_id: z.string().min(1).nullable(),
   author: AuthorSchema,
+  // Cross-service correlation id (`req_` + nanoid), minted at the producing
+  // service's HTTP ingress and carried here on the envelope. This Lambda is a
+  // CONSUMER: it never generates one, it only reads what the producer sent.
+  // It matters more here than anywhere else — this function runs no OTel SDK
+  // (JE-138), so `trace_id` is absent and `request_id` is the ONLY thing tying
+  // its work back to the request that caused it.
+  //
+  // OPTIONAL, AND IT MUST STAY OPTIONAL. Do not "tidy" this into a required
+  // field. At deploy time there can be messages already sitting on the queue
+  // that were published before this field existed. A required field would fail
+  // EnvelopeSchema for those in-flight messages, and per this pipeline's error
+  // handling a schema failure is a PermanentError: the record is NOT retried,
+  // and the notification email it was meant to send is LOST. Optional costs
+  // nothing for new messages and loses nothing for old ones.
+  //
+  // `.min(1)` like its siblings: an explicit `""` is a producer bug, and
+  // accepting it would put a blank correlation id on a whole record's worth of
+  // log lines rather than honestly omitting the field.
+  request_id: z.string().min(1).optional(),
   payload: z.record(z.string(), z.unknown()),
 });
 

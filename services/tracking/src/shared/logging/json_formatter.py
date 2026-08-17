@@ -50,6 +50,27 @@ _SEVERITY_NUMBER = {
     logging.CRITICAL: 21,
 }
 
+# OTel severity NAMES, which are not Python's.
+#
+# `record.levelname` is what this used to emit directly, and for two levels it
+# is wrong for our schema: Python says WARNING and CRITICAL where the OTel logs
+# data model — and every other service here — says WARN and FATAL. Both spellings
+# were reaching the backend at once (6 WARNING rows from this service beside 1
+# WARN row from orders), so a dashboard filtering on either one silently returned
+# half the matches. That is worse than no filter, because it looks like it worked.
+#
+# The collector normalizes WARNING -> WARN as well, as a safety net for any
+# future source. This mapping is the actual fix: the wrong name never leaves the
+# process. A level with no entry falls back to `levelname`, so a custom level
+# still logs something meaningful rather than disappearing.
+_SEVERITY_TEXT = {
+    logging.DEBUG: "DEBUG",
+    logging.INFO: "INFO",
+    logging.WARNING: "WARN",
+    logging.ERROR: "ERROR",
+    logging.CRITICAL: "FATAL",
+}
+
 # LogRecord attributes that are Python's own bookkeeping, never log fields. Any
 # attribute NOT in this set came from the call site's `extra` and is emitted.
 # Listing what to exclude (rather than what to include) is what lets a new
@@ -78,7 +99,7 @@ class JsonFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
-            "severity_text": record.levelname,
+            "severity_text": _SEVERITY_TEXT.get(record.levelno, record.levelname),
             "severity_number": _SEVERITY_NUMBER.get(record.levelno, 0),
             # UTC, ISO-8601 with milliseconds — the shape Users emits.
             "timestamp": _datetime.datetime.fromtimestamp(

@@ -1,3 +1,4 @@
+import { CloudWatchClient } from "@aws-sdk/client-cloudwatch";
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
 import { SQSClient } from "@aws-sdk/client-sqs";
 import { diContainer } from "@fastify/awilix";
@@ -7,6 +8,8 @@ import { db, type Db } from "../db/prisma.ts";
 // `NoopEventPublisher` stays imported and exported from that module — it is
 // still registered by tests that must not emit.
 import { SqsEventPublisher, type EventPublisher } from "../messaging/event-publisher.ts";
+import { MetricsPublisher } from "../metrics/cloudwatch-metrics.ts";
+import { BusinessMetricsPoller } from "../metrics/business-metrics.ts";
 import { CognitoAuthProvider } from "../auth/cognito-auth-provider.ts";
 import type { AuthProvider } from "../auth/auth-provider.ts";
 import { createRedisClient, type RedisClient } from "../cache/redis.ts";
@@ -34,8 +37,11 @@ declare module "@fastify/awilix" {
     db: Db;
     cognitoClient: CognitoIdentityProviderClient;
     sqsClient: SQSClient;
+    cloudwatchClient: CloudWatchClient;
     auth: AuthProvider;
     events: EventPublisher;
+    metricsPublisher: MetricsPublisher;
+    businessMetricsPoller: BusinessMetricsPoller;
     redis: RedisClient;
     resetCodeStore: ResetCodeStore;
     registerUserCommand: RegisterUserCommand;
@@ -101,6 +107,35 @@ export function registerSingletons(): void {
         new SqsEventPublisher(sqsClient, cradleEnv.EVENTS_QUEUE_URL),
       { lifetime: Lifetime.SINGLETON },
     ),
+    cloudwatchClient: asFunction(
+      ({ env: cradleEnv }: { env: Env }) =>
+        new CloudWatchClient({
+          region: cradleEnv.AWS_REGION,
+          endpoint: cradleEnv.AWS_ENDPOINT_URL,
+        }),
+      { lifetime: Lifetime.SINGLETON },
+    ),
+    // Stateless wrapper over `cloudwatchClient` — SINGLETON alongside the client
+    // it holds, like the other infra collaborators here.
+    //
+    // asFunction, NOT asClass, and that distinction is load-bearing: PROXY
+    // injection hands the constructor the whole cradle and resolves each
+    // destructured name as a cradle KEY. This constructor takes `{ client }`,
+    // and there is no `client` registration — so asClass here throws
+    // `AwilixResolutionError: Could not resolve 'client'` at RESOLUTION time,
+    // which is startup, not import. No unit test catches it (they construct the
+    // class directly with a double), and the service died on boot with the
+    // container healthy. Map the cradle key to the parameter name explicitly.
+    metricsPublisher: asFunction(
+      ({ cloudwatchClient }: { cloudwatchClient: CloudWatchClient }) =>
+        new MetricsPublisher({ client: cloudwatchClient }),
+      { lifetime: Lifetime.SINGLETON },
+    ),
+    // SINGLETON because it owns a single interval timer: a second instance would
+    // mean a second timer publishing the same series twice per window. Registered
+    // here but NEVER started here — `server.ts` starts it, so the test suite's
+    // buildApp() never spins up a live timer against the database.
+    businessMetricsPoller: asClass(BusinessMetricsPoller, { lifetime: Lifetime.SINGLETON }),
     // SINGLETON, like every other connection-holding client here: ioredis owns a
     // real TCP socket and its own reconnect state machine, so a per-request
     // instance would open (and leak) a connection per request.

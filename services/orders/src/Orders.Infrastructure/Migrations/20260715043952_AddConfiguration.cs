@@ -19,13 +19,13 @@ namespace Orders.Infrastructure.Migrations
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     value = table.Column<string>(type: "text", nullable: false)
                         .Annotation("MySql:CharSet", "utf8mb4"),
-                    created_by = table.Column<string>(type: "varchar(26)", maxLength: 26, nullable: true)
+                    created_by = table.Column<string>(type: "varchar(28)", maxLength: 28, nullable: true)
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     created_at = table.Column<DateTime>(type: "datetime(6)", nullable: false),
-                    updated_by = table.Column<string>(type: "varchar(26)", maxLength: 26, nullable: true)
+                    updated_by = table.Column<string>(type: "varchar(28)", maxLength: 28, nullable: true)
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     updated_at = table.Column<DateTime>(type: "datetime(6)", nullable: false),
-                    deleted_by = table.Column<string>(type: "varchar(26)", maxLength: 26, nullable: true)
+                    deleted_by = table.Column<string>(type: "varchar(28)", maxLength: 28, nullable: true)
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     deleted_at = table.Column<DateTime>(type: "datetime(6)", nullable: true)
                 },
