@@ -192,6 +192,28 @@ processors:
         statements:
           - merge_maps(attributes, ParseJSON(body), "upsert") where IsMatch(body, "^\\s*\\{")
 
+          # The SAME parse, for JSON that CloudWatch wrapped in its own prefix.
+          #
+          # A Lambda's stdout does not reach CloudWatch verbatim. The runtime
+          # prepends a timestamp, the request id and a level, tab-separated:
+          #
+          #   2026-08-17T05:00:27.457Z\t<requestId>\tINFO\t{"severity_text":…}
+          #
+          # So the body does NOT start with `{`, the statement above skips it,
+          # and a perfectly well-formed application log line arrives as opaque
+          # text: no service_name, no app_event, severity 0. That is the whole
+          # reason the Lambdas kept showing up unschema'd long after their
+          # loggers were fixed — the producers were correct and this parse never
+          # ran on them. Both halves had to be right, and only one was.
+          #
+          # Anchored on the runtime's exact prefix shape rather than "find a {
+          # anywhere", so a line that merely CONTAINS a brace — a stack trace, a
+          # message quoting JSON — is not silently reinterpreted as structure.
+          # Guarded on service_name being nil so it cannot overwrite a record the
+          # statement above already parsed.
+          - merge_maps(attributes, ParseJSON(ExtractPatterns(body, "^[0-9TZ:.\\-]+\\t[0-9a-f-]+\\t[A-Z]+\\t(?P<json>\\{.*)$")["json"]), "upsert")
+            where attributes["service_name"] == nil and IsMatch(body, "^[0-9TZ:.\\-]+\\t[0-9a-f-]+\\t[A-Z]+\\t\\s*\\{")
+
           # nginx access logs (combined format) arrive from CloudWatch as PLAIN
           # TEXT, so the JSON statement above skips them and they land with only
           # a raw `body` — no service_name, no status, nothing queryable. That

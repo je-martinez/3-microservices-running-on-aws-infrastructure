@@ -54,6 +54,7 @@ so this script rewrites it to a package-relative `from . import users_pb2`.
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import sys
 from pathlib import Path
@@ -64,6 +65,12 @@ REPO_ROOT = SERVICE_ROOT.parents[1]
 
 PROTO_DIR = REPO_ROOT / "proto"
 OUTPUT_DIR = SERVICE_ROOT / "src" / "shared" / "grpc" / "generated"
+
+# Running this file directly puts scripts/ on sys.path, not the service root, so
+# `from src.shared…` in main() would not resolve. Derived from __file__ rather
+# than assuming a cwd, matching generate_openapi.py.
+if str(SERVICE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SERVICE_ROOT))
 
 #: The protos this service generates stubs for, by base name. `users` is the
 #: surface it CALLS (JE-101), and the only one left since JE-108 removed the served
@@ -133,8 +140,29 @@ def _rewrite_imports(output_dir: Path) -> None:
 
 
 def main() -> None:
+    # The SERVICE's logger, matching generate_openapi.py next door.
+    #
+    # This one runs from the host venv rather than inside the container, so its
+    # stdout is NOT shipped to the collector the way that script's is — but it
+    # uses the same mechanism anyway. A reader comparing the two should not have
+    # to work out which invocation path each takes to know why they differ, and
+    # the next script copied from either one inherits the correct shape by
+    # default. `service_name` names the SCRIPT: this is tooling, and attributing
+    # its output to `tracking` would mix codegen noise into the service's logs.
+    from src.shared.logging.config import configure_logging
+
+    configure_logging(service_name="tracking-grpc-stub-generator")
+    logger = logging.getLogger(__name__)
+
     generate(OUTPUT_DIR)
-    print(f"generated {', '.join(GENERATED_FILES)} into {OUTPUT_DIR}")
+    logger.info(
+        "grpc_stubs_generated",
+        extra={
+            "app_event": "grpc_stubs_generated",
+            "output_dir": str(OUTPUT_DIR),
+            "generated_files": list(GENERATED_FILES),
+        },
+    )
 
 
 if __name__ == "__main__":
