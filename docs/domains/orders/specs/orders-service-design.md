@@ -4,7 +4,7 @@ type: spec
 area: orders
 status: accepted
 created: 2026-06-26
-updated: 2026-08-15
+updated: 2026-08-16
 tags: [type/spec, area/orders, status/accepted]
 related:
   - "[[2026-08-15-request-id-correlation-design]]"
@@ -145,22 +145,29 @@ All fields follow snake_case naming in the database and are mapped to PascalCase
 > carry both `user_id` (internal) and `cognito_sub` (gateway-supplied) — the "double identity"
 > decision recorded in [[2026-07-14-orders-service-milestone-design]].
 
+> [!note] Every id-bearing column is `varchar(28)`, not `varchar(26)`
+> The width is `PREFIX_LENGTH + LENGTH` = 4 + 24 = **28**, per [[nano-id]]. A column sized for the
+> old, shorter nano-id would silently truncate every id MySQL stores in it — MySQL truncates a
+> too-long `varchar` rather than erroring, so a mismatch here surfaces nowhere until something
+> downstream fails to find a row. Verified live against `orders`' MySQL schema (2026-08-16): all 19
+> id/audit varchar columns across `product`, `order`, and `order_details` are `varchar(28)`.
+
 ### Product
 
 Catalog of available products. Used by `OrderDetails` to record what was ordered.
 
 | Column | Type | Notes |
 |---|---|---|
-| `id` | `varchar(26)` | `prd_` prefix, nano-id |
+| `id` | `varchar(28)` | `prd_` prefix, nano-id |
 | `name` | `varchar(255)` | |
 | `description` | `text` | |
 | `unit_price` | `decimal(10,2)` | |
 | `units_in_stock` | `int unsigned` | |
-| `created_by` | `varchar(26)` | audit |
+| `created_by` | `varchar(28)` | audit |
 | `created_at` | `datetime` | audit |
-| `updated_by` | `varchar(26)` | audit |
+| `updated_by` | `varchar(28)` | audit |
 | `updated_at` | `datetime` | audit |
-| `deleted_by` | `varchar(26)` | audit |
+| `deleted_by` | `varchar(28)` | audit |
 | `deleted_at` | `datetime` | audit — null means active |
 
 Computed property `isDeleted` returns `true` when `deleted_at` is not null.
@@ -171,17 +178,17 @@ One record per submitted order.
 
 | Column | Type | Notes |
 |---|---|---|
-| `id` | `varchar(26)` | `ord_` prefix, nano-id |
-| `user_id` | `varchar(26)` | FK → Users service (resolved via gRPC) |
+| `id` | `varchar(28)` | `ord_` prefix, nano-id |
+| `user_id` | `varchar(28)` | FK → Users service (resolved via gRPC) |
 | `subtotal` | `decimal(10,2)` | |
 | `tax` | `decimal(10,2)` | |
 | `total` | `decimal(10,2)` | |
 | `shipping_address` | `json` | Snapshot of the delivery address at order-creation time, resolved via Users' `GetUserById` (see [[users-service-design]]) and forwarded to Tracking's `init-tracking`. See [Delivery address flow](#delivery-address-flow-users--orders--tracking). Deliberately a point-in-time copy, not a live reference — see the snapshot-semantics note above. |
-| `created_by` | `varchar(26)` | audit |
+| `created_by` | `varchar(28)` | audit |
 | `created_at` | `datetime` | audit |
-| `updated_by` | `varchar(26)` | audit |
+| `updated_by` | `varchar(28)` | audit |
 | `updated_at` | `datetime` | audit |
-| `deleted_by` | `varchar(26)` | audit |
+| `deleted_by` | `varchar(28)` | audit |
 | `deleted_at` | `datetime` | audit — null means active |
 
 ### OrderDetails
@@ -190,18 +197,18 @@ Line items for each order. One row per product per order.
 
 | Column | Type | Notes |
 |---|---|---|
-| `id` | `varchar(26)` | `odd_` prefix, nano-id |
-| `product_id` | `varchar(26)` | FK → `products.id` |
-| `user_id` | `varchar(26)` | denormalized for query convenience |
+| `id` | `varchar(28)` | `odd_` prefix, nano-id |
+| `product_id` | `varchar(28)` | FK → `products.id` |
+| `user_id` | `varchar(28)` | denormalized for query convenience |
 | `quantity` | `int unsigned` | |
 | `subtotal` | `decimal(10,2)` | |
 | `tax` | `decimal(10,2)` | |
 | `total` | `decimal(10,2)` | |
-| `created_by` | `varchar(26)` | audit |
+| `created_by` | `varchar(28)` | audit |
 | `created_at` | `datetime` | audit |
-| `updated_by` | `varchar(26)` | audit |
+| `updated_by` | `varchar(28)` | audit |
 | `updated_at` | `datetime` | audit |
-| `deleted_by` | `varchar(26)` | audit |
+| `deleted_by` | `varchar(28)` | audit |
 | `deleted_at` | `datetime` | audit — null means active |
 
 ## Events

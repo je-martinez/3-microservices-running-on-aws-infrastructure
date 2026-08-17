@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-03
-updated: 2026-08-13
+updated: 2026-08-16
 tags:
   - type/convention
   - area/shared
@@ -43,10 +43,42 @@ list. Key targets:
   regenerate `.env` → migrate → build/start `users`/`orders`/`tracking` → nginx alias), split
   into a not-safely-repeatable `make bootstrap-provision` and a resumable, idempotent
   `make bootstrap-converge`; `make doctor` for a read-only diagnosis of the stack's actual
-  state; `make post-infra` for the phase-2 DB app-user apply; and `make clean` (tear down,
-  prompts before removing `./data`). Full detail: [[local-dev-floci]].
+  state; `make post-infra` for the phase-2 DB app-user apply; and `make clean` for teardown.
+  Full detail: [[local-dev-floci]].
 - **Observability:** `make observability-up` / `make observability-down` — opt-in OpenObserve
-  + OTel collector stack.
+  + Jaeger + OTel collector stack. Full runbook: [[openobserve-runbook]].
+
+> [!warning] `make clean` no longer prompts — "clean means clean"
+> `clean` used to ask before removing `./data`, **defaulting to keeping it**, which made a
+> from-scratch teardown non-deterministic: containers went away while the state claiming they
+> existed stayed behind, and the next apply silently skipped recreating resources it believed
+> were still `available`. It now runs unconditionally and unattended:
+>
+> 1. `docker compose --profile observability --profile preview down -v --remove-orphans` — both
+>    profiles named explicitly (`down` skips services behind a profile it wasn't told about, so
+>    an unscoped `down` previously left `openobserve`/`otel-collector`/`jaeger` running, still
+>    holding their volumes and the network).
+> 2. Removes any volume still **labelled** `com.docker.compose.project=3mrai` that the current
+>    compose file no longer declares — `down -v` only removes volumes the file currently lists,
+>    so a volume created under an earlier compose revision (e.g. an old `otelcol-storage`
+>    checkpoint volume) can silently outlive every clean otherwise.
+> 3. Removes **Floci's own containers** (ECS tasks etc., launched through the mounted Docker
+>    socket) by the `floci-` name prefix, and the `3mrai_3mrai-network` network. These carry no
+>    `com.docker.compose.project` label, so plain `down`/`--remove-orphans` never sees them —
+>    without this step a stale nginx ECS task could survive a full clean and hold the network
+>    open, so the next bootstrap built on a network it did not create.
+>
+> See the `clean:` target in the root `Makefile` for the full reasoning behind each step.
+
+> [!warning] `make observability-up` starts Jaeger too, and now imports the dashboards
+> The target starts three services, not two: `openobserve`, `jaeger` (traces — ADR-0019 routes
+> them there because OpenObserve's own trace ingest rejected them), and `otel-collector`. It then
+> polls OpenObserve's `/healthz` (the container declares no compose healthcheck, so `up -d`
+> returns before it accepts HTTP) and runs `make observability-dashboards` automatically. That
+> import step matters because dashboards live in the `openobserve-data` volume — the one `make
+> clean` now deletes (above) — and nothing recreated them before this: every from-scratch rebuild
+> left OpenObserve healthy but with zero dashboards, recoverable only by remembering an
+> undocumented manual command. Full detail: [[openobserve-runbook]].
 
 ## Testing endpoints with `.http` files
 
@@ -77,3 +109,6 @@ a new service needs local testing.
 - [[2026-07-03-local-dev-tooling-design]] — the design spec that introduced the Makefile + `.http` convention.
 - [[2026-07-03-local-dev-tooling]] — the implementation plan for that design.
 - [[package-manager]] — pnpm as the repo's only Node package manager.
+- [[openobserve-runbook]] — full detail on `make observability-up`/`-down` (Jaeger, dashboard
+  auto-import) referenced above.
+- [[ADR-0019-distributed-tracing-opentelemetry]] — why Jaeger, not OpenObserve, carries traces.

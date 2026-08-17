@@ -4,7 +4,7 @@ type: spec
 area: tracking
 status: accepted
 created: 2026-06-26
-updated: 2026-08-15
+updated: 2026-08-16
 tags: [type/spec, area/tracking, status/accepted]
 related:
   - "[[2026-08-15-request-id-correlation-design]]"
@@ -394,14 +394,26 @@ event — a network dependency.
 
 All IDs use prefixed nano-IDs ([[nano-id]]). All tables apply soft-delete ([[soft-delete]]), audit fields ([[audit-fields]]), and follow naming conventions ([[db-naming]]).
 
+> [!note] Every id-bearing column is `VARCHAR(28)`, not `VARCHAR(21)`
+> This table previously listed id columns as `VARCHAR(21)` — that was wrong from the start, not a
+> regression from a prior-correct value: it recorded only the nanoid portion's length and omitted
+> the 4-character prefix (`trk_`, `usr_`, `ord_`), so it was never actually 26 either. The real
+> stored width is `PREFIX_LENGTH + LENGTH` = 4 + 24 = **28**, per [[nano-id]]. Getting this wrong
+> matters because MySQL truncates a too-long `varchar` silently rather than erroring — a
+> too-narrow column would corrupt every id written to it with nothing surfacing anywhere. Verified
+> live against `tracking`'s MySQL schema (2026-08-16): `id`, `user_id`, `order_id` on `Tracking`,
+> and `tracking_id`, `user_id`, `order_id` on `Tracking_History` are all `varchar(28)`.
+> `created_by`/`updated_by`/`deleted_by` on both tables are a separate, unrelated `varchar(64)` —
+> free-text audit-actor labels ([[audit-fields]]), not nano-ids, and out of scope here.
+
 ### `Tracking`
 
 | Column       | Type         | Notes                              |
 |--------------|--------------|------------------------------------|
-| `id`         | VARCHAR(21)  | Prefixed nano-ID, PK               |
-| `user_id`    | VARCHAR(21)  | The internal `usr_` id, as Orders resolved it from Users. For reporting/joins only — **not** the ownership key reads filter by (see `cognito_sub` below). |
+| `id`         | VARCHAR(28)  | Prefixed nano-ID, PK               |
+| `user_id`    | VARCHAR(28)  | The internal `usr_` id, as Orders resolved it from Users. For reporting/joins only — **not** the ownership key reads filter by (see `cognito_sub` below). |
 | `cognito_sub` | VARCHAR(255), nullable | **The ownership key every user-scoped REST read filters by** — see [[user-id-vs-cognito-sub-ownership-key]] and [Ownership & scoping](#ownership--scoping). Nullable: a row created before this field existed, or by a caller that omitted it, is simply unreachable over the user-scoped reads rather than mis-attributed to someone else. |
-| `order_id`   | VARCHAR(21)  | Reference to order, unique         |
+| `order_id`   | VARCHAR(28)  | Reference to order, unique         |
 | `status`     | VARCHAR(50)  | Current delivery status — enum: `PLACED`, `PROCESSING`, `SHIPPED`, `OUT_FOR_DELIVERY`, `DELIVERED` (see [Tracking statuses](#tracking-statuses)) |
 | `shipping_address` | JSON  | Snapshot of the delivery address, received as-is in the `init-tracking` request body — see [Delivery address snapshot](#delivery-address-snapshot) below. |
 | `tags`       | JSON, `NOT NULL DEFAULT (JSON_ARRAY())` | Free-form labels; today only `"E2E Source"` is ever written, by [`init-tracking`](#api--endpoints) when the request carries `x-e2e-source: true` under `E2E_TESTING_ENABLED` — see [E2E cleanup](#e2e-cleanup-delete-v1trackingse2e-cleanup). MySQL has no array type, so this is a JSON array queried with `JSON_CONTAINS` rather than a Postgres-style `text[]`. |
@@ -435,9 +447,9 @@ Immutable log of every status transition.
 
 | Column        | Type         | Notes                                   |
 |---------------|--------------|-----------------------------------------|
-| `tracking_id` | VARCHAR(21)  | FK → `Tracking.id` (part of PK)         |
-| `user_id`     | VARCHAR(21)  | Reference to user                       |
-| `order_id`    | VARCHAR(21)  | Reference to order                      |
+| `tracking_id` | VARCHAR(28)  | FK → `Tracking.id` (part of PK)         |
+| `user_id`     | VARCHAR(28)  | Reference to user                       |
+| `order_id`    | VARCHAR(28)  | Reference to order                      |
 | `cognito_sub` | VARCHAR(255), nullable | Denormalized off the parent `Tracking`, same as `user_id`/`order_id` above — a transition row needs its own ownership context to stay self-describing, and the read-scoping index below keys on it. |
 | `status`      | VARCHAR(50)  | Status at the time of the event — enum: `PLACED \| PROCESSING \| SHIPPED \| OUT_FOR_DELIVERY \| DELIVERED` (part of PK) |
 | `datetime`    | DATETIME     | Timestamp of this status transition     |

@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-19
-updated: 2026-08-15
+updated: 2026-08-16
 tags:
   - type/convention
   - area/shared
@@ -298,6 +298,22 @@ which was `0` (`UNSPECIFIED`) for every row across the system. Every chart rende
 undifferentiated color. The collector now mirrors both values onto the native fields so severity
 coloring and filters work as expected.
 
+> [!info] Both Lambda producers now emit the shared severity/service fields too
+> `realtime-events` (`functions/realtime-events/src/shared/logging/logger.ts`) and the Cognito
+> `CUSTOM_AUTH` `otp-challenge-lambda` trigger (`infra/modules/cognito/otp-challenge-lambda/index.mjs`)
+> emit `severity_text`/`severity_number` (OTel's scale) and `service_name` like every other
+> producer in this table. Previously:
+> - `realtime-events` emitted Pino's own numeric `level` (30/40/50…) and a bare `service` field —
+>   neither matches the shared schema, so its lines (including a genuine WARN like
+>   `ws_connect_denied`) arrived in OpenObserve at severity 0, indistinguishable from INFO in
+>   every severity filter and unattributable by a `service_name` filter.
+> - The Cognito trigger hardcoded `level: "info"` on **every** line, so a wrong OTP code and a
+>   successful challenge were the same severity — a failure that looked as loud as a success.
+>
+> Both now build the pair from a real severity decision at the call site, translated to OTel's
+> numeric scale (`INFO` → 9, etc.) — the same translate-at-the-producer principle the rest of this
+> note follows for every other source.
+
 ## What belongs in the log stream
 
 > [!info] Guiding rule
@@ -316,6 +332,20 @@ could record because none was running to record it.
 
 Non-JSON sources (like nginx's combined log format) need explicit parsing in the collector to
 reach the shared schema.
+
+> [!warning] Users' Prisma statements and the events-pipeline's Mongo commands also leave `logs`
+> The SQLAlchemy split below is not Tracking-only. **Users' Prisma statements** go to the `sql`
+> stream too (`services/users/src/shared/db/sql-logging.ts`), routed by the collector's `sql`
+> pipeline first branch: the statement text itself IS the log message (`logger.info({duration_ms},
+> event.query)`), matching the same `^(SELECT|INSERT|...)` pattern SQLAlchemy's echo does. **The
+> events-pipeline's Mongo commands** go to `docdb` instead, via a `db_statement` attribute
+> (`functions/events-pipeline/src/shared/db/command-logger.ts`) — deliberately **not** named
+> `commandText`, because that is the attribute the `sql` pipeline claims records by, and a record
+> carrying both names would be matched by both pipelines and stored twice. Neither producer logs
+> parameter/bound values or document bodies: for Users that is emails, reset codes and tokens; for
+> the events-pipeline it is the event payloads themselves. See [[openobserve-runbook]] for the
+> full per-stream routing table and the `resource.attributes[...]` pitfalls that make these
+> filters easy to write wrong.
 
 > [!warning] SQLAlchemy's SQL echo goes to its own OpenObserve stream, never the main `logs` one
 > Tracking runs with SQL echo on outside production (`Settings.echo_sql`), and a single tracking
@@ -380,6 +410,8 @@ reach the shared schema.
 - [[2026-07-19-logging-context-and-tracing]] — the implementation plan for that design.
 - [[ADR-0019-distributed-tracing-opentelemetry]]
 - [[ADR-0018-observability-openobserve]]
+- [[openobserve-runbook]] — the per-stream routing table (`logs`/`sql`/`redis`/`docdb`/`nginx`/
+  `rds`) that the SQL/Mongo statement notes above route into.
 - [[testing]]
 - [[2026-07-12-prisma-lazy-promise-als]]
 - [[2026-07-31-contextvars-lost-across-task-boundaries]] — Tracking's contextvars sibling to

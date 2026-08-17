@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-17
-updated: 2026-08-12
+updated: 2026-08-16
 tags: [type/convention, area/shared, status/active]
 related:
   - "[[ADR-0010-cognito-auth]]"
@@ -63,15 +63,38 @@ projects. This requires the local stack to be up via `make bootstrap` (see [[loc
 `pnpm --filter @3mrai/e2e test` run — use whichever is convenient. On-demand commands for the
 three layers:
 
-- `make test-all` — all three layers for all three services (unit + internal E2E + gateway E2E);
+- `make test-all` — all three layers for every service (unit + internal E2E + gateway E2E);
   E2E requires the stack up (`make bootstrap`).
-- `make test-unit` — layer 1 only (orders `dotnet test`, users `vitest`, tracking `pytest`, e2e
-  `typecheck`); no stack needed.
+- `make test-unit` — layer 1, now **six suites**: orders (`dotnet test`), users (`vitest`),
+  events-pipeline (`vitest`), realtime-events (`vitest`), the Cognito CUSTOM_AUTH
+  `otp-challenge-lambda` trigger (`vitest`), and tracking (`pytest`) — plus the e2e `typecheck`
+  step. No stack needed.
 - `make test-e2e` — layers 2+3 (Playwright internal + gateway); requires the stack up.
 - `pnpm --filter @3mrai/e2e typecheck` (or `pnpm run typecheck` from `e2e/`) — static type-check
   of the E2E specs; also runs as part of `make test-unit`.
 - Granular package.json scripts: `pnpm orders:test`, `pnpm users:test`, `pnpm e2e:internal`,
   `pnpm e2e:gateway`, `pnpm e2e` (both projects).
+
+> [!warning] Three of those six suites existed and nothing invoked them
+> `realtime-events`, `events-pipeline`, and the Cognito `otp-challenge-lambda` trigger's tests
+> were never wired into `make test-unit` — 658 tests total that read as coverage in a review and
+> could not fail, because nothing ran them. Found only when a logging change to the Cognito
+> trigger needed its tests and the only way to run them was borrowing another package's vitest by
+> hand. The Cognito trigger additionally had **no `package.json`**, so `pnpm --filter` could not
+> even see it; it is a pnpm workspace package now (`infra/modules/cognito/otp-challenge-lambda`)
+> for that reason alone. This does not change what ships: Terraform's `archive_file` excludes
+> `node_modules`, `package.json`, and the test file from the zip, so the deployed Lambda artifact
+> is unchanged — it still ships as a bare `index.mjs` depending on nothing outside `node:crypto`.
+> A suite nobody invokes is worse than no suite at all: it cannot fail, so the code it guards
+> drifts freely underneath it.
+
+**A fourth Playwright project: `observability`.** `e2e/tests/observability/` asserts that every
+field the committed OpenObserve dashboards query still exists in its stream — it generates a real
+flow (register → login → products → order → tracking), waits for the logs/metrics to land, and
+only then checks field presence (never row counts, since a legitimately empty panel is not a
+bug). Unlike `internal` and `gateway`, this project additionally needs `make observability-up` on
+top of `make bootstrap` — it skips with a named reason when OpenObserve is unreachable, rather
+than failing as a confusing connection error.
 
 **Symmetry check:** when adding a service or endpoint, confirm both `e2e/tests/<svc>.spec.ts` and
 `e2e/tests/gateway/<svc>.spec.ts` exist and cover it — an easy asymmetry to miss (this is exactly
