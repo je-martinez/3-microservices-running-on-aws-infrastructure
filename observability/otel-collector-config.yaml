@@ -617,6 +617,61 @@ processors:
       log_record:
         - 'resource.attributes["cloudwatch.log.group.name"] != nil and IsMatch(resource.attributes["cloudwatch.log.group.name"], "/aws/rds/")'
 
+  # The UNCLASSIFIED split — the safety net for everything the parses missed.
+  #
+  # A record reaching the end of the chain with no `service_name`, or with
+  # severity 0, was not fully understood by transform/parse_body: a producer
+  # emitting a format nobody wrote a rule for, or a rule whose `where` silently
+  # stopped matching. Until now those landed in the `logs` stream, where
+  # severity 0 (UNSPECIFIED, which is NOT "below DEBUG") put them outside every
+  # severity-filtered dashboard and every service_name query — present,
+  # consuming storage, and invisible. Every severity-0 bug in this file's
+  # history was found by a human reading raw data, because nothing surfaced
+  # them.
+  #
+  # This does NOT drop them. Routing them to their own stream is the whole
+  # point: an `unclassified` stream that is growing is a visible, checkable
+  # signal that a producer needs fixing, and it stays out of the stream everyone
+  # reads by default. Defaulting the fields to "unknown"/INFO instead was
+  # considered and rejected — a plausible-looking record is easier to ignore
+  # than an empty stream that suddenly has rows in it.
+  #
+  # Catches EITHER failure independently, because they are not the same fault
+  # and neither implies the other:
+  #
+  #   * no `service_name` — the parse did not understand the line at all.
+  #   * `severity_number` 0/nil — OTel UNSPECIFIED. This is NOT "below DEBUG";
+  #     it is "nobody said". A record can carry a perfectly good service_name
+  #     and still land here, which is exactly what a producer that logs its
+  #     identity but forgets the severity fields looks like.
+  #
+  # Reading the RECORD's `severity_number`, not `attributes["severity_number"]`:
+  # transform/parse_body's last statements copy the parsed attribute onto the
+  # record's native field, and the native field is what OpenObserve stores as
+  # `severity` and what every dashboard filters on. Testing the attribute would
+  # pass a record whose attribute was set but whose copy never ran — the precise
+  # half-failure this net is for.
+  #
+  # `<= 0` rather than `== 0` so a negative never slips through as "classified".
+  #
+  # These two conditions MUST stay exact complements — same rule as every split
+  # below, and with three clauses it is now easy to get wrong: De Morgan, so the
+  # `or` here becomes an `and` of the negations there. Ordering is load-bearing
+  # in a way the others are not: this pair runs LAST in the main pipeline, after
+  # the log-group splits have claimed their records, so "unclassified" means
+  # "nothing else wanted it", not "nginx had not been checked yet".
+  filter/only_unclassified:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'attributes["service_name"] != nil and severity_number != nil and severity_number > 0'
+
+  filter/drop_unclassified:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'attributes["service_name"] == nil or severity_number == nil or severity_number <= 0'
+
   # The SQL-echo split. These two conditions MUST stay exact complements: a
   # record matching neither is lost, and one matching both is stored twice. They
   # are written against the same expression so the pair can be read as one rule.
@@ -807,6 +862,18 @@ exporters:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: rds
 
+  # Everything no parse understood. This stream should normally be EMPTY, and
+  # that is what makes it useful: rows appearing here mean a producer emits a
+  # shape the collector does not know how to read, which is the exact condition
+  # that stayed invisible for weeks in the `logs` stream. Check it when a
+  # service's lines go missing from a dashboard — the answer is usually here,
+  # with the raw `body` intact so the unrecognized format can be read directly.
+  otlp_http/openobserve_unclassified:
+    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    headers:
+      Authorization: "Basic ${env:O2_BASIC_AUTH}"
+      stream-name: unclassified
+
   # Traces go to the SAME OpenObserve instance, a different stream. One backend
   # for both signals is what lets trace_id join a log line to its span without
   # querying across two systems (see the tracing ADR).
@@ -862,7 +929,7 @@ service:
       # filter/drop_wiredtiger_noise deliberately NOT listed here: once
       # filter/drop_docdb diverts the whole DocumentDB log group, that filter
       # would match nothing in this pipeline. It runs in logs/docdb instead.
-      processors: [transform/parse_body, filter/drop_nginx, filter/drop_redis, filter/drop_docdb, filter/drop_rds, filter/drop_sql, batch]
+      processors: [transform/parse_body, filter/drop_nginx, filter/drop_redis, filter/drop_docdb, filter/drop_rds, filter/drop_sql, filter/drop_unclassified, batch]
       exporters: [otlp_http/openobserve]
 
     # SQL echo, same receivers, opposite filter, its own stream. Two pipelines
@@ -947,6 +1014,26 @@ service:
       receivers: [fluent_forward, aws_cloudwatch]
       processors: [transform/parse_body, filter/only_rds, batch]
       exporters: [otlp_http/openobserve_rds]
+
+    # The catch-all. Note this pipeline repeats EVERY drop_* filter from the
+    # main pipeline before applying only_unclassified, which the other splits do
+    # not need to do — and leaving them out is the bug waiting to be written
+    # here.
+    #
+    # Each other split is defined by a log group it OWNS, so `only_rds` alone
+    # already excludes everything else. "Unclassified" is defined by absence, so
+    # without these drops it would also swallow the legitimately unparsed
+    # records that belong to the other streams: a DocumentDB or RDS line whose
+    # body is plain engine text has no service_name either, and would be routed
+    # here INSTEAD of to its own stream — which is exactly the kind of silent
+    # misrouting the pair-of-complements rule exists to prevent.
+    #
+    # So the chain reads: drop everything another stream owns, then keep only
+    # what has no service identity left. What survives is genuinely unclaimed.
+    logs/unclassified:
+      receivers: [fluent_forward, aws_cloudwatch]
+      processors: [transform/parse_body, filter/drop_nginx, filter/drop_redis, filter/drop_docdb, filter/drop_rds, filter/drop_sql, filter/only_unclassified, batch]
+      exporters: [otlp_http/openobserve_unclassified]
 
     # No transform/parse_body here: OTLP traces arrive already structured, so
     # there is no JSON-in-a-string body to flatten as there is for stdout logs.

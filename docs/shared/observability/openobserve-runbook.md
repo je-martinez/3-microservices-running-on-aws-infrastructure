@@ -19,6 +19,7 @@ related:
   - "[[2026-07-10-openobserve-migration-design]]"
   - "[[logging-context]]"
   - "[[2026-08-12-custom-business-metrics-cloudwatch-design]]"
+  - "[[2026-08-16-cloudwatch-lambda-log-prefix-defeats-json-parse]]"
 ---
 
 # OpenObserve — Local Runbook
@@ -62,10 +63,10 @@ Login (local dev creds only):
 ### 2. Find your logs
 
 Logs land in **org `3mrai`** (set as `O2_ORG` in `docker-compose.yml`; the collector ingests
-into `/api/3mrai/...`), split across **six streams**, each fed by its own OTel-collector pipeline
-in `observability/otel-collector-config.yaml`. Two receivers feed all of them: the compose
-services' stdout via the `fluentd` driver into `fluent_forward`, and the ECS/RDS logs Floci runs
-via `aws_cloudwatch` (e.g. `/ecs/3mrai-local-compute-nginx`).
+into `/api/3mrai/...`), split across **seven streams**, each fed by its own OTel-collector
+pipeline in `observability/otel-collector-config.yaml`. Two receivers feed all of them: the
+compose services' stdout via the `fluentd` driver into `fluent_forward`, and the ECS/RDS logs
+Floci runs via `aws_cloudwatch` (e.g. `/ecs/3mrai-local-compute-nginx`).
 
 | Stream | Contents |
 |---|---|
@@ -75,6 +76,7 @@ via `aws_cloudwatch` (e.g. `/ecs/3mrai-local-compute-nginx`).
 | `docdb` | DocumentDB's engine log AND the events-pipeline's Mongo commands |
 | `nginx` | The gateway's access logs |
 | `rds` | Both Aurora clusters' engine logs (Users' Postgres, Orders' MySQL) |
+| `unclassified` | Catch-all for anything the collector could not attribute to a `service_name` — see below |
 
 Plus the metrics streams — the plain `metrics` stream and the per-metric
 `amazonaws_com_3mrai_*` streams (see [[2026-08-12-custom-business-metrics-cloudwatch-design]]).
@@ -107,6 +109,83 @@ that name would be claimed by both the `sql` and `docdb` pipelines and stored tw
 filter is silently lost; a record matching both is stored twice. Each pair is written from the
 same expression for exactly this reason — see the comments beside `filter/only_sql`/
 `filter/drop_sql` and their siblings in `observability/otel-collector-config.yaml`.
+
+### The `unclassified` stream — the 7th stream, and it should be empty
+
+**What it is.** A catch-all that receives any log record reaching the end of the collector's
+main pipeline missing `service_name` **or** a valid native `severity_number` — i.e. anything
+`transform/parse_body` could not parse into the shared schema (see [[logging-context]] for that
+schema). It is fed by the same two receivers (`fluent_forward`, `aws_cloudwatch`) as every other
+stream and exported by its own pipeline, `logs/unclassified`, to its own
+`otlp_http/openobserve_unclassified` exporter.
+
+**The routing criterion is an OR of two independent faults, not one.**
+
+```
+filter/drop_unclassified:   'attributes["service_name"] == nil or severity_number == nil or severity_number <= 0'
+filter/only_unclassified:   'attributes["service_name"] != nil and severity_number != nil and severity_number > 0'
+```
+
+- **No `service_name`** — the parse did not understand the line at all.
+- **`severity_number` nil or `<= 0`** — OTel `UNSPECIFIED`. This is **not** "below DEBUG"; it is
+  "nobody said." Neither fault implies the other: a record can carry a perfectly good
+  `service_name` and still land here — that is exactly what a producer which logs its identity
+  but forgets the severity fields looks like. `<= 0` rather than `== 0` so a negative value never
+  slips through as classified.
+
+Both filters test the record's **native** `severity_number`, never `attributes["severity_number"]`.
+`transform/parse_body`'s final statements copy the parsed severity attribute onto the record's
+native field, and the native field is what OpenObserve stores as `severity` and what every
+dashboard filters on (see [[logging-context#Severity must reach the record's native fields]]).
+Testing the attribute instead would let through a record whose attribute was set but whose copy
+to the native field never ran — precisely the half-failure this net exists to catch.
+
+> [!warning] The two filters must stay exact complements — De Morgan, not just mirroring
+> With three clauses, the pair is easy to get out of sync: by De Morgan's law, the `or` in
+> `filter/drop_unclassified` becomes an `and` of the negations in `filter/only_unclassified`
+> (`!= nil` and `> 0`, not `== nil` and `<= 0`). This file's history shows non-complementary
+> pairs cause silent data loss (a record matching neither filter) or duplication (a record
+> matching both) — see the general complement rule earlier in this note.
+
+**Why it exists.** Before this stream, an unparsed record fell through into the main `logs`
+stream with its native `severity` at `0` (OTel `UNSPECIFIED` — **not** "below DEBUG", a distinct
+condition dashboards and severity filters don't recognize as anything at all). Such a record was
+therefore invisible to every severity-filtered dashboard and every `service_name` query: present,
+consuming storage, findable only by a human reading raw data. That exact condition shipped **four
+separate times** — nginx startup lines, Valkey/Redis chatter, the tracking codegen scripts'
+`print()` output, and CloudWatch-prefixed Lambda records (see
+[[2026-08-16-cloudwatch-lambda-log-prefix-defeats-json-parse]]) — and a human reading raw data
+found every one of them, because nothing surfaced them on its own.
+
+**How to use it operationally.** This stream should normally be **empty**. Rows appearing in it
+mean a producer is emitting a shape the collector does not know how to read. When a service's
+lines go missing from a dashboard, check `unclassified` first — the raw `body` is preserved
+intact, so the unrecognized format can be read directly instead of guessed at. The fix belongs in
+the **producer** (emit `service_name` plus `severity_text`/`severity_number` per
+[[logging-context]]), never in the collector — patching the collector to recognize one more shape
+treats the symptom, and the next new producer reintroduces the same gap.
+
+> [!info] Implementation note — the drop chain is required, not redundant
+> `logs/unclassified`'s processor chain repeats every `filter/drop_*` from the main `logs`
+> pipeline (`drop_nginx`, `drop_redis`, `drop_docdb`, `drop_rds`, `drop_sql`) before applying
+> `filter/only_unclassified`. Every other split is defined by a log group or attribute it
+> **owns**; "unclassified" is defined by **absence** — no `service_name` — so without those same
+> drops it would swallow legitimately-unparsed records that belong to the other streams instead
+> (a DocumentDB or RDS engine line whose body is plain text also has no `service_name`, but it
+> is not unclassified — it's `docdb`/`rds` traffic that just happens not to be JSON).
+
+> [!warning] Querying `unclassified` requires `SELECT *`, never a named column list
+> OpenObserve infers a stream's schema from the data it has actually ingested. A stream with no
+> rows yet has no schema, so naming a column (`SELECT service_name, body FROM unclassified`)
+> fails the **entire** query with `"No field named service_name"`. Always query with
+> `SELECT * FROM unclassified` (see the `_search` example in Gotchas below, swapping the stream
+> name).
+>
+> A related trap when scripting a check against this stream: `_search` against a stream that has
+> **never been written to** returns HTTP **400** with error code **20002**
+> (`"Search stream not found"`) — not a 404. Code-matching on `20002` is how
+> `e2e/tests/observability/unclassified-logs.spec.ts` distinguishes "empty and healthy" (stream
+> exists, or has never needed to exist, either way zero rows) from a real query error.
 
 ### 3. Stop the stack
 
@@ -193,9 +272,11 @@ Dashboards exist per service — `users.dashboard.json`, `orders.dashboard.json`
 >   -H "Content-Type: application/json" \
 >   -d "{\"query\":{\"sql\":\"SELECT * FROM logs\",\"start_time\":${START},\"end_time\":${END},\"size\":10}}"
 > ```
-> Org is `3mrai`, not `default` — swap `type=logs`/`FROM logs` for one of the other five stream
-> names (`sql`, `redis`, `docdb`, `nginx`, `rds`) to check those. Time bounds are in
-> **microseconds** — use a wide-enough window or a fresh log won't appear to be there.
+> Org is `3mrai`, not `default` — swap `type=logs`/`FROM logs` for one of the other six stream
+> names (`sql`, `redis`, `docdb`, `nginx`, `rds`, `unclassified`) to check those. Time bounds are
+> in **microseconds** — use a wide-enough window or a fresh log won't appear to be there. For
+> `unclassified` specifically, use `SELECT *` — see the stream's own section above for why a
+> named column list fails the whole query.
 
 > [!info] CloudWatch logs arrive with up to a minute's delay
 > The `aws_cloudwatch` receiver's first poll fires after roughly one `poll_interval` (1m), so
@@ -254,3 +335,5 @@ against Floci.
 - [[logging-context]] — the shared context fields the `logs`/`sql`/`docdb` streams' records carry.
 - [[2026-08-12-custom-business-metrics-cloudwatch-design]] — the metrics pipeline and streams referenced above.
 - [[ADR-0019-distributed-tracing-opentelemetry]] — why traces go to Jaeger, not OpenObserve.
+- [[2026-08-16-cloudwatch-lambda-log-prefix-defeats-json-parse]] — one of the four recurring
+  causes of records landing unclassified: the Lambda CloudWatch prefix defeating the JSON parse.

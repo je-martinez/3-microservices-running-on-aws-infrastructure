@@ -314,6 +314,13 @@ coloring and filters work as expected.
 > numeric scale (`INFO` → 9, etc.) — the same translate-at-the-producer principle the rest of this
 > note follows for every other source.
 
+> [!info] Compliance is enforced by an automated test
+> `e2e/tests/observability/unclassified-logs.spec.ts` fails whenever any record reaches
+> OpenObserve's `unclassified` stream, so a producer that stops emitting `service_name` and
+> `severity_text`/`severity_number` per this convention breaks CI instead of silently going
+> invisible. See [[openobserve-runbook#The unclassified stream — the 7th stream, and it should
+> be empty]] for what that stream is and how to read it.
+
 ## What belongs in the log stream
 
 > [!info] Guiding rule
