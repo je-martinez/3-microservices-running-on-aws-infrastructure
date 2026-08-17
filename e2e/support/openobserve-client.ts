@@ -80,6 +80,67 @@ export async function fetchStreamSchema(
   };
 }
 
+export type LogSample = {
+  service_name: string | null;
+  severity: string | null;
+  body: string | null;
+  cloudwatch_log_group_name: string | null;
+};
+
+/**
+ * Runs a SQL query against a log stream over the last `minutes`, newest first.
+ *
+ * Returns `[]` for a stream that does not exist yet, which is NOT an error
+ * here: OpenObserve infers a stream's schema from ingested data, so a stream
+ * that has never received a record 404s rather than answering empty. The
+ * unclassified-stream spec depends on that distinction — an absent stream is
+ * the healthy state it asserts, so treating the 404 as a failure would invert
+ * the test.
+ */
+export async function queryLogs(
+  stream: string,
+  sql: string,
+  minutes: number,
+  size = 20,
+): Promise<LogSample[]> {
+  const end = Date.now() * 1_000;
+  const start = end - minutes * 60 * 1_000 * 1_000;
+
+  const res = await fetch(`${openobserveBaseURL}/api/${org}/_search?type=logs`, {
+    method: "POST",
+    headers: { Authorization: authHeader, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      query: { sql, start_time: start, end_time: end, from: 0, size },
+    }),
+  });
+
+  // A stream that has never been written to is reported as an ERROR by
+  // `_search`, and NOT as a 404: it answers HTTP 400 with the OpenObserve-
+  // specific code 20002, "Search stream not found". Verified live — the first
+  // version of this client treated only 404 as absence and the spec died on a
+  // 400 in the very state it exists to assert (an empty `unclassified` stream
+  // IS the healthy outcome).
+  //
+  // Matched on the numeric `code`, not on the message text, so a reworded error
+  // does not silently turn "stream is empty" back into a hard failure.
+  const raw = await res.text();
+  if (res.status === 404) return [];
+  if (!res.ok) {
+    let notFound = false;
+    try {
+      notFound = (JSON.parse(raw) as { code?: number }).code === 20002;
+    } catch {
+      notFound = false;
+    }
+    if (notFound) return [];
+    throw new Error(`OpenObserve search failed on stream "${stream}": ${res.status} ${raw}`);
+  }
+
+  const body = JSON.parse(raw) as { hits?: LogSample[]; code?: number };
+  if (body.code === 404) return [];
+  return body.hits ?? [];
+}
+
 /** Lists every stream the org knows about, as `"<type>:<name>"` — used only to enrich failure messages. */
 export async function listStreams(): Promise<string[]> {
   const res = await fetch(`${openobserveBaseURL}/api/${org}/streams`, {
