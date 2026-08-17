@@ -91,9 +91,46 @@ def create_app() -> FastAPI:
         deployment_environment=os.environ.get("DEPLOYMENT_ENVIRONMENT", "local"),
     )
 
+    # `description`, `servers` and `tags` exist for the generated `openapi.yaml`
+    # (`scripts/generate_openapi.py`) — the contract imported into Apidog, at
+    # parity with `services/users/openapi.yaml`. FastAPI infers paths, schemas and
+    # per-route metadata from the routers themselves; these four are the only
+    # document-level facts it cannot derive, so they are declared once, here,
+    # rather than patched into the YAML after generation (which would make the
+    # file hand-maintained again — the exact drift [[users-openapi-autogen]]
+    # removed).
     app = FastAPI(
         title="Tracking Service API",
         version="1.0.0",
+        description=(
+            "HTTP API for the 3MRAI Tracking microservice (FastAPI + Aurora "
+            "MySQL). Three distinct auth schemes, documented per route rather "
+            "than globally: the user-scoped reads and creation take the "
+            "gateway-injected x-user-id header (which carries the Cognito sub, "
+            "not the internal usr_ id); the carrier status update takes its own "
+            "external x-api-key; health and the E2E cleanup take neither."
+        ),
+        servers=[
+            {
+                "url": "http://localhost:3002",
+                "description": "Local (docker compose / Floci)",
+            }
+        ],
+        openapi_tags=[
+            {"name": "health", "description": "Liveness"},
+            {
+                "name": "trackings",
+                "description": "Creation and the user-scoped reads (x-user-id)",
+            },
+            {
+                "name": "carrier",
+                "description": "Carrier status updates (external x-api-key)",
+            },
+            {
+                "name": "e2e",
+                "description": "Test-only routes (E2E_TESTING_ENABLED)",
+            },
+        ],
     )
 
     # Outermost: seeds the per-request log context so EVERY line of the request

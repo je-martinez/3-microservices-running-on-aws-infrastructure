@@ -103,6 +103,15 @@ def _parse_order_ids(raw: str) -> list[str]:
     "",
     status_code=status.HTTP_200_OK,
     summary="Read several of the caller's trackings by order id",
+    # Declared because FastAPI infers only the success shape: the `400` is raised
+    # in the handler and the `401` comes from `IdentifiedCaller`, so neither
+    # appears in the generated `openapi.yaml` unless it is written here. There is
+    # deliberately no `404` — a batch read of ids the caller does not own is a
+    # `200` with a shorter list, never a failure.
+    responses={
+        400: {"description": f"More than {MAX_BATCH_ORDER_IDS} order_ids"},
+        401: {"description": "Missing x-user-id (no caller identity)"},
+    },
 )
 def get_trackings(
     caller: IdentifiedCaller,
@@ -146,6 +155,13 @@ def get_trackings(
     "/{order_id}",
     status_code=status.HTTP_200_OK,
     summary="Read one of the caller's trackings by order id",
+    # The `404` description states the conflation on purpose: a consumer reading
+    # the spec must not infer existence from it, which is the whole point of
+    # answering the two cases identically (see the handler's docstring).
+    responses={
+        401: {"description": "Missing x-user-id (no caller identity)"},
+        404: {"description": "No such tracking, or it belongs to another user"},
+    },
 )
 def get_tracking(
     caller: IdentifiedCaller,
