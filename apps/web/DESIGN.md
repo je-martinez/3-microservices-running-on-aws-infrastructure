@@ -4,7 +4,7 @@ Design source: `assets/web-app/web-app.pen`
 
 ## Design Tokens
 
-`GetVariables()` returned exactly 26 variables (read live from the `.pen`, 2026-08-18). 11 were renamed on emission into `apps/web/src/styles.css` to avoid Tailwind v4 utility stutter (e.g. `bg-body` would otherwise collide with a `bg-*` utility named `bg-bg-body`). Everything else maps straight through.
+`GetVariables()` returned exactly 28 variables (read live from the `.pen`, 2026-08-18). 11 were renamed on emission into `apps/web/src/styles.css` to avoid Tailwind v4 utility stutter (e.g. `bg-body` would otherwise collide with a `bg-*` utility named `bg-bg-body`). Everything else maps straight through.
 
 | `.pen` name | Value | Tailwind utility |
 |---|---|---|
@@ -20,6 +20,8 @@ Design source: `assets/web-app/web-app.pen`
 | `text-secondary` | `#6B7280` | `text-ink-secondary` |
 | `text-muted` | `#9CA3AF` | `text-ink-muted` |
 | `text-on-dark` | `#E8EAEE` | `text-ink-on-dark` |
+| `text-muted-on-dark` | `#A9B2C0` | `text-ink-muted-on-dark` |
+| `text-subtle-on-dark` | `#C7CDD8` | `text-ink-subtle-on-dark` |
 | `border-color` | `#E5E7EB` | `border-line` |
 | `border-strong` | `#D1D5DB` | `border-line-strong` |
 | `success-green` | `#10B981` | `bg-success-green` |
@@ -36,6 +38,8 @@ Design source: `assets/web-app/web-app.pen`
 | `field-height` | `56px` | `h-field` |
 
 Renamed on emission (`.pen` name → `styles.css` variable → utility): `bg-body` → `--color-surface-body` → `bg-surface-body`; `bg-white` → `--color-surface-white` → `bg-surface-white`; `bg-subtle` → `--color-surface-subtle` → `bg-surface-subtle`; `text-primary` → `--color-ink-primary` → `text-ink-primary`; `text-secondary` → `--color-ink-secondary` → `text-ink-secondary`; `text-muted` → `--color-ink-muted` → `text-ink-muted`; `text-on-dark` → `--color-ink-on-dark` → `text-ink-on-dark`; `border-color` → `--color-line` → `border-line`; `border-strong` → `--color-line-strong` → `border-line-strong`; `success-text` → `--color-success-ink` → `text-success-ink`; `warn-text` → `--color-warn-ink` → `text-warn-ink`.
+
+`text-muted-on-dark` and `text-subtle-on-dark` are newer than the rest of the table: they were added to the `.pen` on 2026-08-18, when building the Brand Panel component turned up two text colours on its dark background with no variable behind them — literal hex, a real gap in the design system. Both were added to `web-app.pen` and the four affected nodes rebound to them, so the `.pen`, not just `styles.css`, is the source of truth for the count above.
 
 Never use an arbitrary hex value (`bg-[#2D3748]`) in a component — always the token utility. `apps/web/src/styles.css` is the generated source of truth for these values; do not hand-edit it (re-run the `pencil-design-extraction` skill instead).
 

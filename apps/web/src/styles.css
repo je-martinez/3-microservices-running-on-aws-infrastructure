@@ -40,6 +40,8 @@
   --color-ink-secondary: #6B7280;
   --color-ink-muted: #9CA3AF;
   --color-ink-on-dark: #E8EAEE;
+  --color-ink-muted-on-dark: #A9B2C0;
+  --color-ink-subtle-on-dark: #C7CDD8;
 
   /* Borders (.pen: border-color, border-strong) */
   --color-line: #E5E7EB;

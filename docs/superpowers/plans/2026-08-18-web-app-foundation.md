@@ -1206,7 +1206,6 @@ import { Component } from "@angular/core";
 
 @Component({
   selector: "app-login-password",
-  standalone: true,
   template: `<h1 class="text-ink-primary">Login — Email & Password</h1>`,
 })
 export class LoginPasswordPage {}
@@ -1248,7 +1247,7 @@ catalogue route rather than destinations.
 
 **Interfaces:**
 - Consumes: tokens (Task 3), `TrackingStatus` (Task 4b).
-- Produces: `LogoLockup`, `Field`, `ButtonPrimary`, `ButtonGhost`, `OtpDigit`, `StatusBadge`, `TrackingStatusIcon`, `BrandPanel`, `MobileBrandHeader`, `AppHeader` — the vocabulary Tasks 9–11 compose. Every one is `standalone: true` and uses `input()` signals.
+- Produces: `LogoLockup`, `Field`, `ButtonPrimary`, `ButtonGhost`, `OtpDigit`, `StatusBadge`, `TrackingStatusIcon`, `BrandPanel`, `MobileBrandHeader`, `AppHeader` — the vocabulary Tasks 9–11 compose. Every one is standalone (the Angular 19+ default — the flag is omitted) and uses `input()` signals.
 
 - [ ] **Step 1: Read each component's export before writing it**
 
@@ -1270,7 +1269,6 @@ import type { TrackingStatus } from "../../fixtures/api-types";
  */
 @Component({
   selector: "app-status-badge",
-  standalone: true,
   template: `
     <span
       class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold"
@@ -1365,6 +1363,17 @@ import { patchState, signalStore, withComputed, withMethods, withState } from "@
  */
 export type OverlayKind = "cart" | "cart-payment" | "account-menu" | "notifications" | null;
 
+/**
+ * The toast is deliberately NOT an OverlayKind.
+ *
+ * The other four are mutually exclusive panels: the design never shows two at
+ * once, which is what the single `active` signal encodes. A toast is different
+ * in kind — it is transient, carries no Scrim (verified: only the three cart
+ * frames have one), and can legitimately appear WHILE the cart is open. Folding
+ * it into `active` would make "toast" close the cart, which no frame implies.
+ * Task 11 models it as its own independent signal.
+ */
+
 export const OverlayStore = signalStore(
   { providedIn: "root" },
   withState<{ active: OverlayKind }>({ active: null }),
@@ -1391,7 +1400,6 @@ import { Component, output } from "@angular/core";
 /** The `Scrim` rectangle in the cart frames. Dismisses the overlay on click. */
 @Component({
   selector: "app-scrim",
-  standalone: true,
   template: `
     <div
       class="fixed inset-0 z-40 bg-black/40"
@@ -1460,7 +1468,6 @@ import { ButtonPrimary } from "../../shared/ui/button-primary";
  */
 @Component({
   selector: "app-login-password",
-  standalone: true,
   imports: [RouterLink, BrandPanel, MobileBrandHeader, Field, ButtonPrimary],
   template: `
     <main class="flex min-h-screen bg-surface-body">
@@ -1549,7 +1556,6 @@ import { formatCents, type Product, toInt } from "../../fixtures/api-types";
 /** Design: `Product Card` (QmNIg, 318px wide). */
 @Component({
   selector: "app-product-card",
-  standalone: true,
   template: `
     <article class="flex flex-col gap-3 rounded-md bg-surface-white p-4 border border-line">
       @if (product().image; as image) {
@@ -1590,6 +1596,14 @@ protected readonly products = PRODUCTS;
 
 with `@for (product of products; track product.id)`. Mount `CartDrawer`, `AccountMenu` and `NotificationsPanel` conditionally off `OverlayStore.active()` — this route is where all four overlay frames live.
 
+> [!warning] The panel must sit ABOVE its own scrim
+> Task 8's `Scrim` is `fixed inset-0 z-40`. Every overlay panel — `CartDrawer`,
+> `AccountMenu`, `NotificationsPanel` — needs a z-index **above 40** (`z-50`), or it
+> renders *underneath* the scrim that is supposed to sit behind it. The design's
+> frame order says the same thing: `Page | Scrim | Cart Drawer`. Nothing enforces
+> this automatically, and the failure is silent at build time — it only shows up
+> as a dimmed, unclickable panel on screen.
+
 - [ ] **Step 3: Write `CartDrawer` with both address states**
 
 ```ts
@@ -1627,7 +1641,7 @@ import { APP_CONFIG } from "../../core/config/app-config";
  *
  * Phase 1 renders both and submits neither — no payment backend exists.
  */
-@Component({ selector: "app-checkout-payment", standalone: true, /* ... */ })
+@Component({ selector: "app-checkout-payment", /* ... */ })
 export class CheckoutPayment {
   /** Read from APP_CONFIG, never from import.meta.env — see app-config.ts. */
   protected readonly stripeEnabled = computed(() => APP_CONFIG.stripeEnabled);
@@ -1694,7 +1708,7 @@ import { PRODUCTS } from "../../fixtures/catalogue.fixture";
  * line is joined against the catalogue to render. In phase 2 this join moves to
  * a selector over real catalogue data; the template does not change.
  */
-@Component({ selector: "app-order-card", standalone: true, /* ... */ })
+@Component({ selector: "app-order-card", /* ... */ })
 export class OrderCard {
   readonly entry = input.required<OrderWithTracking>();
   protected readonly lines = computed(() =>
