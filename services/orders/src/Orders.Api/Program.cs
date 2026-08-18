@@ -15,6 +15,7 @@ using Orders.Infrastructure.Grpc;
 using Orders.Infrastructure.Id;
 using Orders.Infrastructure.Messaging;
 using Orders.Infrastructure.Metrics;
+using Orders.Infrastructure.Observability;
 using Orders.Infrastructure.Orders;
 using Orders.Infrastructure.Persistence;
 using Orders.Infrastructure.Tracking;
@@ -48,6 +49,15 @@ builder.Services.AddOpenTelemetry()
         .AddAspNetCoreInstrumentation()
         .AddHttpClientInstrumentation()
         .AddEntityFrameworkCoreInstrumentation()
+        // What makes SqsEventPublisher's SendMessageAsync produce a CLIENT span.
+        .AddAWSInstrumentation()
+        // REQUIRED, not decorative: .NET's tracing pipeline drops every
+        // ActivitySource it was not explicitly told about, so without this line
+        // the manually-created "create_order" Activity is still built and still
+        // costs work, but never leaves the process — no error, no span in
+        // Jaeger. Same silent failure class as unregistered instrumentation.
+        // Register the source in the SAME change that creates one.
+        .AddSource(WorkflowTracer.ActivitySourceName)
         // No Endpoint set here ON PURPOSE. The exporter reads the standard
         // OTEL_EXPORTER_OTLP_ENDPOINT (set in docker-compose.yml) as a BASE url
         // and appends the signal path itself, per the OTLP spec.
@@ -324,12 +334,16 @@ builder.Services.AddOpenApi("v1", options =>
 // Tax rate now lives in the `configuration` table, read per-request via the read
 // DbContext instead of the removed ORDERS_TAX_RATE env var.
 builder.Services.AddScoped<IConfigurationReader, ConfigurationReader>();
+// Singleton: it holds no per-request state at all — the Activity it works on is
+// the ambient Activity.Current, which .NET already scopes per async flow.
+builder.Services.AddSingleton<IWorkflowTracer, WorkflowTracer>();
 builder.Services.AddScoped(sp => new CreateOrderService(
     sp.GetRequiredService<OrdersWriteDbContext>(),
     sp.GetRequiredService<IUserDirectory>(),
     sp.GetRequiredService<IEventPublisher>(),
     sp.GetRequiredService<IConfigurationReader>(),
     sp.GetRequiredService<ITrackingInitiator>(),
+    sp.GetRequiredService<IWorkflowTracer>(),
     sp.GetRequiredService<ILogger<CreateOrderService>>()));
 
 var app = builder.Build();
