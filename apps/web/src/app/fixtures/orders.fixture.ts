@@ -12,7 +12,10 @@ const COGNITO_SUB = "a3c1e6d0-4f2b-4a9d-8e7c-1b6f0d2a9c44";
  *   - ord_3kLpQx8vRn: status PLACED, tracking present
  *   - ord_9mWtZo2hYd: status SHIPPED, tracking present
  *   - ord_fB6rEjN4uK: status DELIVERED, full tracking history
- *   - ord_hV2sTaC7wQ: tracking is null (no tracking record yet)
+ *   - ord_hV2sTaC7wQ: tracking is null (no tracking record yet); its one
+ *     line also references a delisted product (prd_zZ9delisted0, absent
+ *     from catalogue.fixture.ts) so joinOrderLine's `product: null` branch
+ *     (Task 11) actually renders somewhere instead of staying dead code
  */
 export const ORDERS: readonly OrderWithTracking[] = [
   {
@@ -189,7 +192,13 @@ export const ORDERS: readonly OrderWithTracking[] = [
       createdAt: "2026-08-17T20:03:55Z",
       lines: [
         {
-          productId: "prd_wK4jNpX7bH",
+          // Deliberately delisted: no product in catalogue.fixture.ts has
+          // this id. GET /v1/products returns only the active catalogue, so
+          // an order referencing a since-removed product is a real runtime
+          // case — this is the ONLY fixture line that exercises
+          // joinOrderLine's `product: null` branch (see api-types.ts).
+          // Every other order line resolves against PRODUCTS.
+          productId: "prd_zZ9delisted0",
           quantity: 1,
           subtotalCents: 5600,
           taxCents: 448,

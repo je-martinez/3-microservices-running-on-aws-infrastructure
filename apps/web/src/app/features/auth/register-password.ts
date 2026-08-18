@@ -1,7 +1,87 @@
 import { Component } from '@angular/core';
+import { RouterLink } from '@angular/router';
+import { LucideCheck } from '@lucide/angular';
+import { BrandPanel } from '../../shared/ui/brand-panel';
+import { MobileBrandHeader } from '../../shared/ui/mobile-brand-header';
+import { Field } from '../../shared/ui/field';
+import { ButtonPrimary } from '../../shared/ui/button-primary';
+import { ButtonGhost } from '../../shared/ui/button-ghost';
 
+/**
+ * Design: `Register — Email & Password` (q52fsc, 1440) and
+ *         `Mobile — Register Email & Password` (L4qQLy, 390).
+ * One component, two breakpoints (spec D8, DESIGN.md "Responsive rule").
+ * Phase 1: layout and navigation only — the form does not submit anywhere.
+ */
 @Component({
   selector: 'app-register-password',
-  template: `<h1 class="text-ink-primary">Register — Email &amp; Password</h1>`,
+  imports: [RouterLink, LucideCheck, BrandPanel, MobileBrandHeader, Field, ButtonPrimary, ButtonGhost],
+  template: `
+    <main class="bg-surface-white flex min-h-screen w-full flex-col lg:flex-row">
+      <app-brand-panel class="hidden lg:flex lg:h-screen lg:w-[560px] lg:shrink-0" />
+      <app-mobile-brand-header class="lg:hidden" />
+
+      <section class="flex flex-1 flex-col items-center justify-center px-6 py-10 lg:px-10">
+        <form
+          class="flex w-full max-w-[480px] flex-col gap-6"
+          (submit)="$event.preventDefault()"
+        >
+          <div class="flex flex-col gap-2.5">
+            <h1 class="font-heading text-ink-primary text-[26px] font-bold tracking-tight lg:text-[33px]">
+              Create your account
+            </h1>
+            <p class="font-body text-ink-secondary text-[14.5px] leading-[1.55] lg:text-base">
+              One account for checkout, order tracking and returns.
+            </p>
+          </div>
+
+          <div class="flex w-full flex-col gap-4">
+            <app-field label="Full name" icon="user" placeholder="Jose Martinez" />
+            <app-field label="Email" type="email" icon="mail" placeholder="you@example.com" />
+            <app-field
+              label="Password"
+              type="password"
+              icon="lock"
+              trailingIcon="eye-off"
+              placeholder="Create a password"
+              help="At least 8 characters, with one number and one symbol."
+            />
+          </div>
+
+          <label class="flex w-full items-center gap-[9px]">
+            <!-- TODO(phase-2): inert — hardcoded checked, nothing observes it, the
+                 checkmark below always renders. Needs wiring to real form state. -->
+            <input type="checkbox" checked class="sr-only" />
+            <span class="bg-brand-navy flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded">
+              <svg lucideCheck class="h-3 w-3 text-white"></svg>
+            </span>
+            <span class="text-sm">
+              <span class="text-ink-secondary">I agree to the</span>
+              <span class="text-brand-navy font-semibold"> Terms </span>
+              <span class="text-ink-secondary">and</span>
+              <span class="text-brand-navy font-semibold"> Privacy Policy</span>
+            </span>
+          </label>
+
+          <app-button-primary label="Create account" />
+
+          <div class="flex w-full items-center gap-[14px]">
+            <span class="bg-line h-px flex-1"></span>
+            <span class="text-ink-muted text-[13px]">or</span>
+            <span class="bg-line h-px flex-1"></span>
+          </div>
+
+          <a routerLink="/register/passwordless" class="block w-full">
+            <app-button-ghost label="Continue without a password" icon="wand-sparkles" />
+          </a>
+
+          <p class="flex w-full justify-center gap-[5px] text-[15px]">
+            <span class="text-ink-secondary">Already have an account?</span>
+            <a routerLink="/login" class="text-brand-navy font-semibold">Sign in</a>
+          </p>
+        </form>
+      </section>
+    </main>
+  `,
 })
 export class RegisterPasswordPage {}
