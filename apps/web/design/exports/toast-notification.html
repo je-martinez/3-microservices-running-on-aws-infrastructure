@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      tailwind = { config: { corePlugins: { preflight: false } } };
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter%3Awght%40100..900&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      *, ::before, ::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="relative w-[880px] h-[427px]">
+      <div
+        data-pencil-name="Notifications Panel"
+        class="box-border w-[400px] h-fit [box-shadow:0px_12px_32px_0px_#1A1A2E29] absolute left-0 top-0 flex flex-col gap-0 justify-start items-start bg-[#FFFFFF] [outline:1px_solid_#E5E7EB] [outline-offset:-0.5px] rounded-[12px] overflow-hidden"
+      >
+        <div
+          data-pencil-name="Panel Header"
+          class="box-border w-full h-fit shrink-0 flex flex-row gap-0 p-[16px_16px_12px_16px] justify-between items-center"
+        >
+          <div
+            data-pencil-name="Panel Title"
+            class="text-[17px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+          >
+            Notifications
+          </div>
+          <div
+            data-pencil-name="Mark All Read"
+            class="text-[13px]/[normal] box-border text-[#2D3748] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+          >
+            Mark all as read
+          </div>
+        </div>
+        <div
+          data-pencil-name="Tabs"
+          class="[box-sizing:content-box] w-[400px] h-[30.5px] shrink-0 flex flex-row gap-[24px] p-[0px_16px] justify-start items-end [border-width:0px_0px_1px_0px] [border-style:solid] [border-color:#E5E7EB] [margin:0px_0px_-0.5px_0px]"
+        >
+          <div
+            data-pencil-name="Tab Unread"
+            class="box-border w-fit shrink-0 h-fit flex flex-col gap-[9px] justify-start items-start"
+          >
+            <div
+              data-pencil-name="Tab Label Row"
+              class="box-border w-fit h-fit shrink-0 flex flex-row gap-[7px] justify-start items-center"
+            >
+              <div
+                data-pencil-name="Tab Label"
+                class="text-[14px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+              >
+                Unread
+              </div>
+              <div
+                data-pencil-name="Count Pill"
+                class="box-border w-fit shrink-0 h-[20px] flex flex-row gap-0 p-[0px_7px] justify-center items-center bg-[#F7941D] rounded-[10px]"
+              >
+                <div
+                  data-pencil-name="Count Text"
+                  class="text-[11.5px]/[normal] box-border text-[#FFFFFF] font-[Inter,system-ui,sans-serif] font-bold text-left [white-space:nowrap]"
+                >
+                  3
+                </div>
+              </div>
+            </div>
+            <div
+              data-pencil-name="Tab Indicator"
+              class="box-border w-[79px] h-[2px] shrink-0 bg-[#2D3748] rounded-[1px]"
+            ></div>
+          </div>
+          <div
+            data-pencil-name="Tab Read"
+            class="box-border w-fit shrink-0 h-fit flex flex-col gap-[9px] justify-start items-start"
+          >
+            <div
+              data-pencil-name="Tab Label Row"
+              class="box-border w-fit h-fit shrink-0 flex flex-row gap-[7px] justify-start items-center"
+            >
+              <div
+                data-pencil-name="Tab Label"
+                class="text-[14px]/[normal] box-border text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left [white-space:nowrap]"
+              >
+                Read
+              </div>
+            </div>
+            <div
+              data-pencil-name="Tab Indicator"
+              class="box-border w-[34px] h-[2px] shrink-0 bg-[#FFFFFF00] rounded-[1px]"
+            ></div>
+          </div>
+        </div>
+        <div
+          data-pencil-name="Panel List"
+          class="box-border w-full h-fit shrink-0 flex flex-col gap-[4px] p-[10px] justify-start items-start"
+        >
+          <div
+            data-pencil-name="Notif Out for delivery"
+            class="box-border w-full h-fit shrink-0 flex flex-row gap-[12px] p-[14px] justify-start items-center bg-[#FAFAFA] rounded-[10px]"
+          >
+            <div
+              data-pencil-name="Icon Bubble"
+              class="box-border w-[36px] shrink-0 h-[36px] flex flex-row gap-0 justify-center items-center bg-[#FFF4E5] rounded-[18px]"
+            >
+              <svg
+                data-pencil-name="Notif Icon"
+                data-icon-name="truck"
+                data-icon-set="lucide"
+                viewBox="0 0 13.99993896484375 14"
+                preserveAspectRatio="xMidYMid meet"
+                xmlns="http://www.w3.org/2000/svg"
+                class="box-border w-[18px] shrink-0 h-[18px]"
+              >
+                <path
+                  d="M2.05762 1.77734q-0.28027 0.04102-0.53321 0.16748-0.34863 0.19824-0.58789 0.50586-0.23584 0.30762-0.32129 0.70069-0.01367 0.10938-0.02734 0.6289l0 6.32666 0.04102 0.12647q0.04443 0.16748 0.11279 0.27344 0.07178 0.10596 0.19482 0.23242 0.15381 0.15381 0.29395 0.22217 0.15723 0.07178 0.28711 0.09228 0.1333 0.02051 0.49902 0.02051l0.42041 0 0.01367 0.04101q0.01367 0.05811 0.08887 0.20508 0.07861 0.14697 0.1333 0.21533 0.28027 0.36572 0.67334 0.54688 0.39307 0.18115 0.84082 0.16748 0.32129-0.02734 0.62207-0.16065 0.30078-0.1333 0.51612-0.3623 0.21875-0.23242 0.34521-0.49902l0.06836-0.15381 2.52246 0 0.06836 0.15381q0.12646 0.2666 0.33496 0.48877 0.33838 0.35205 0.82031 0.47851 0.48193 0.12305 0.96045-0.03076 0.51611-0.16748 0.88184-0.62891 0.05469-0.06836 0.12988-0.21533 0.07861-0.14697 0.09229-0.20508l0.01367-0.04101 0.42041 0q0.36572 0 0.4956-0.02051 0.1333-0.02051 0.29053-0.09228 0.14014-0.06836 0.29395-0.22217 0.12305-0.12646 0.1914-0.23242 0.07178-0.10596 0.11621-0.27344l0.04102-0.12647 0-2.51904-0.04102-0.14014q-0.05811-0.14014-0.10595-0.229-0.04785-0.09229-1.10743-1.4082-1.05615-1.31592-1.13818-1.40137-0.28027-0.2666-0.68701-0.32129-0.15381-0.01367-0.86816-0.01367l-0.71436 0 0-0.36572q0-0.32129-0.02734-0.49561-0.02734-0.17432-0.09912-0.35547-0.18115-0.43408-0.54004-0.72119-0.35547-0.28711-0.8169-0.35889-0.18115-0.02734-2.61133-0.02734-2.43018 0-2.59765 0.02734z m5.19531 1.20313q0.18115 0.08545 0.2666 0.2666l0.05469 0.08545 0 6.59326-1.83545 0-0.08203-0.18115q-0.21191-0.43408-0.59815-0.69385-0.38281-0.25977-0.88183-0.29394-0.49561-0.03418-0.95703 0.22558-0.46143 0.25635-0.68702 0.72119-0.08203 0.13672-0.08886 0.17432-0.00684 0.03418-0.05127 0.04102-0.04102 0.00684-0.30762 0.00683l-0.33496 0 0.01367-6.57959 0.04102-0.09912q0.04443-0.08203 0.1333-0.16406 0.09229-0.08545 0.16748-0.1128 0.07861-0.03076 0.41357-0.04443l4.64844 0 0.08545 0.05469z m3.98877 3.54443l1.0083 1.25781 0 2.14307-0.34863 0q-0.25293 0-0.29737-0.00683-0.04102-0.00684-0.05468-0.04786-0.01367-0.04443-0.09229-0.1914-0.0752-0.14697-0.12988-0.21533-0.36572-0.4751-0.89551-0.62891-0.42041-0.12646-0.83398-0.04785-0.41357 0.0752-0.7793 0.34179l-0.06836 0.05469 0-3.93408 1.46973 0 1.02197 1.2749z m-6.91455 3.4419q0.18115 0.09912 0.28027 0.2666 0.02734 0.05811 0.03418 0.10595 0.00684 0.04785 0.00684 0.16065 0 0.16748-0.0376 0.24609-0.03418 0.0752-0.12988 0.17432-0.21191 0.2085-0.50586 0.15381-0.29395-0.05469-0.42041-0.32129-0.02734-0.07178-0.03418-0.11279-0.00684-0.04102-0.00684-0.14014 0-0.15381 0.04102-0.24268 0.04443-0.09229 0.1333-0.17431 0.09229-0.08545 0.18799-0.11963 0.09912-0.0376 0.23242-0.0376 0.1333 0 0.21875 0.04102z m5.79345-0.01368q0.09912 0.04443 0.18116 0.12305 0.08545 0.0752 0.14355 0.1709 0.02734 0.07178 0.03418 0.11279 0.00684 0.04102 0.00684 0.14014 0 0.09912-0.00684 0.14014-0.00684 0.04102-0.03418 0.11279-0.14014 0.2666-0.42724 0.32129-0.28711 0.05469-0.49903-0.15381-0.08203-0.08545-0.12646-0.16748-0.04102-0.08545-0.04785-0.21191-0.00684-0.12647 0.01367-0.20167 0.02051-0.07861 0.07861-0.16064 0.10938-0.16748 0.3042-0.229 0.19824-0.06494 0.37939 0.00341z"
+                  fill="#C2710E"
+                ></path>
+              </svg>
+            </div>
+            <div
+              data-pencil-name="Notif Body"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[3px] justify-start items-start"
+            >
+              <div
+                data-pencil-name="Notif Title"
+                class="text-[14.5px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+              >
+                Out for delivery
+              </div>
+              <div
+                data-pencil-name="Notif Desc"
+                class="text-[13px]/[19px] box-border w-full text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left"
+              >
+                ORD-3MRAI-10482 · Arriving today, by 6:00 pm
+              </div>
+              <div
+                data-pencil-name="Notif Time"
+                class="text-[12px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-normal text-left [white-space:nowrap]"
+              >
+                12 min ago
+              </div>
+            </div>
+            <div
+              data-pencil-name="Unread Dot"
+              class="box-border w-[9px] shrink-0 h-[9px] bg-[#F7941D] rounded-full"
+            ></div>
+          </div>
+          <div
+            data-pencil-name="Notif Shipped"
+            class="box-border w-full h-fit shrink-0 flex flex-row gap-[12px] p-[14px] justify-start items-center bg-[#FAFAFA] rounded-[10px]"
+          >
+            <div
+              data-pencil-name="Icon Bubble"
+              class="box-border w-[36px] shrink-0 h-[36px] flex flex-row gap-0 justify-center items-center bg-[#EFF6FF] rounded-[18px]"
+            >
+              <svg
+                data-pencil-name="Notif Icon"
+                data-icon-name="warehouse"
+                data-icon-set="lucide"
+                viewBox="0 0 13.99993896484375 14"
+                preserveAspectRatio="xMidYMid meet"
+                xmlns="http://www.w3.org/2000/svg"
+                class="box-border w-[18px] shrink-0 h-[18px]"
+              >
+                <path
+                  d="M6.90088 0.58789q-0.2085 0.01367-0.43408 0.08545-0.12646 0.02734-2.58741 1.25781l-1.84912 0.92627q-0.54688 0.29395-0.72802 0.40332-0.14014 0.08545-0.25293 0.21192-0.25293 0.28027-0.37598 0.64257l-0.01367 0.02735q-0.04443 0.14014-0.05811 0.29394-0.01367 0.22559-0.02734 0.9126l0 2.50537q0 3.26074 0.02734 3.41455 0.02734 0.30762 0.16748 0.58789 0.15381 0.32471 0.44092 0.56397 0.28711 0.23584 0.65283 0.34863l0.15381 0.05469 9.9668 0 0.15381-0.05469q0.36572-0.11279 0.65283-0.34863 0.28711-0.23926 0.44092-0.56397 0.14014-0.28027 0.18115-0.60156 0.01367-0.16748 0-3.5l0-2.59082q0-0.58789-0.02734-0.78271 0-0.12646-0.04444-0.23926l-0.01367-0.04102q-0.0957-0.2666-0.28027-0.50244-0.18115-0.23926-0.40332-0.37939-0.14014-0.09912-2.57032-1.30909-2.43018-1.20996-2.53955-1.2373-0.30762-0.09912-0.63232-0.08545z m2.67627 2.37891q0.10938 0.05811 0.29394 0.15381l1.58252 0.78613q0.46143 0.23584 0.60157 0.33496 0.08203 0.07178 0.12646 0.15381l0.05469 0.12646 0 6.70606-0.04102 0.09912q-0.04443 0.08203-0.11621 0.16064-0.06836 0.0752-0.13672 0.11963-0.14014 0.06836-0.57422 0.06836l-0.29394 0 0-5.40381q0-0.51953-0.02735-0.68701-0.01367-0.12646-0.07177-0.23584l-0.02735-0.04443q-0.09912-0.22217-0.30078-0.37598-0.20166-0.15381-0.44092-0.22559-0.09912-0.02734-0.51953-0.02734l-2.68652 0-2.68652 0q-0.42041 0-0.51953 0.02734-0.23926 0.07178-0.44092 0.22559-0.20166 0.15381-0.30078 0.37598l-0.02735 0.04443q-0.05811 0.10938-0.07178 0.23584-0.02734 0.16748-0.02734 0.68701l0 5.40381-0.29394 0q-0.43408 0-0.57422-0.06836-0.06836-0.04443-0.14014-0.11963-0.06836-0.07861-0.11279-0.16064l-0.04102-0.09912 0-6.70606 0.05469-0.12646q0.04443-0.08203 0.12646-0.15381 0.14014-0.08203 0.58789-0.32129l1.83545-0.92285q2.36523-1.1792 2.44727-1.21338 0.08545-0.03418 0.21191-0.03418l0.14014 0.01367 2.40967 1.20313z m0.34863 3.44531l0 0.58789-5.85156 0 0-1.17578 5.85156 0 0 0.58789z m0 2.33789l0 0.57422-5.85156 0 0-1.14844 5.85156 0 0 0.57422z m0 2.33789l0 0.58789-5.85156 0 0-1.17578 5.85156 0 0 0.58789z"
+                  fill="#2563EB"
+                ></path>
+              </svg>
+            </div>
+            <div
+              data-pencil-name="Notif Body"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[3px] justify-start items-start"
+            >
+              <div
+                data-pencil-name="Notif Title"
+                class="text-[14.5px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+              >
+                Shipped
+              </div>
+              <div
+                data-pencil-name="Notif Desc"
+                class="text-[13px]/[19px] box-border w-full text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left"
+              >
+                ORD-3MRAI-10482 · Left the warehouse
+              </div>
+              <div
+                data-pencil-name="Notif Time"
+                class="text-[12px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-normal text-left [white-space:nowrap]"
+              >
+                Aug 3 · 8:15 am
+              </div>
+            </div>
+            <div
+              data-pencil-name="Unread Dot"
+              class="box-border w-[9px] shrink-0 h-[9px] bg-[#F7941D] rounded-full"
+            ></div>
+          </div>
+          <div
+            data-pencil-name="Notif Shipped"
+            class="box-border w-full h-fit shrink-0 flex flex-row gap-[12px] p-[14px] justify-start items-center bg-[#FAFAFA] rounded-[10px]"
+          >
+            <div
+              data-pencil-name="Icon Bubble"
+              class="box-border w-[36px] shrink-0 h-[36px] flex flex-row gap-0 justify-center items-center bg-[#EFF6FF] rounded-[18px]"
+            >
+              <svg
+                data-pencil-name="Notif Icon"
+                data-icon-name="warehouse"
+                data-icon-set="lucide"
+                viewBox="0 0 13.99993896484375 14"
+                preserveAspectRatio="xMidYMid meet"
+                xmlns="http://www.w3.org/2000/svg"
+                class="box-border w-[18px] shrink-0 h-[18px]"
+              >
+                <path
+                  d="M6.90088 0.58789q-0.2085 0.01367-0.43408 0.08545-0.12646 0.02734-2.58741 1.25781l-1.84912 0.92627q-0.54688 0.29395-0.72802 0.40332-0.14014 0.08545-0.25293 0.21192-0.25293 0.28027-0.37598 0.64257l-0.01367 0.02735q-0.04443 0.14014-0.05811 0.29394-0.01367 0.22559-0.02734 0.9126l0 2.50537q0 3.26074 0.02734 3.41455 0.02734 0.30762 0.16748 0.58789 0.15381 0.32471 0.44092 0.56397 0.28711 0.23584 0.65283 0.34863l0.15381 0.05469 9.9668 0 0.15381-0.05469q0.36572-0.11279 0.65283-0.34863 0.28711-0.23926 0.44092-0.56397 0.14014-0.28027 0.18115-0.60156 0.01367-0.16748 0-3.5l0-2.59082q0-0.58789-0.02734-0.78271 0-0.12646-0.04444-0.23926l-0.01367-0.04102q-0.0957-0.2666-0.28027-0.50244-0.18115-0.23926-0.40332-0.37939-0.14014-0.09912-2.57032-1.30909-2.43018-1.20996-2.53955-1.2373-0.30762-0.09912-0.63232-0.08545z m2.67627 2.37891q0.10938 0.05811 0.29394 0.15381l1.58252 0.78613q0.46143 0.23584 0.60157 0.33496 0.08203 0.07178 0.12646 0.15381l0.05469 0.12646 0 6.70606-0.04102 0.09912q-0.04443 0.08203-0.11621 0.16064-0.06836 0.0752-0.13672 0.11963-0.14014 0.06836-0.57422 0.06836l-0.29394 0 0-5.40381q0-0.51953-0.02735-0.68701-0.01367-0.12646-0.07177-0.23584l-0.02735-0.04443q-0.09912-0.22217-0.30078-0.37598-0.20166-0.15381-0.44092-0.22559-0.09912-0.02734-0.51953-0.02734l-2.68652 0-2.68652 0q-0.42041 0-0.51953 0.02734-0.23926 0.07178-0.44092 0.22559-0.20166 0.15381-0.30078 0.37598l-0.02735 0.04443q-0.05811 0.10938-0.07178 0.23584-0.02734 0.16748-0.02734 0.68701l0 5.40381-0.29394 0q-0.43408 0-0.57422-0.06836-0.06836-0.04443-0.14014-0.11963-0.06836-0.07861-0.11279-0.16064l-0.04102-0.09912 0-6.70606 0.05469-0.12646q0.04443-0.08203 0.12646-0.15381 0.14014-0.08203 0.58789-0.32129l1.83545-0.92285q2.36523-1.1792 2.44727-1.21338 0.08545-0.03418 0.21191-0.03418l0.14014 0.01367 2.40967 1.20313z m0.34863 3.44531l0 0.58789-5.85156 0 0-1.17578 5.85156 0 0 0.58789z m0 2.33789l0 0.57422-5.85156 0 0-1.14844 5.85156 0 0 0.57422z m0 2.33789l0 0.58789-5.85156 0 0-1.17578 5.85156 0 0 0.58789z"
+                  fill="#2563EB"
+                ></path>
+              </svg>
+            </div>
+            <div
+              data-pencil-name="Notif Body"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[3px] justify-start items-start"
+            >
+              <div
+                data-pencil-name="Notif Title"
+                class="text-[14.5px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+              >
+                Shipped
+              </div>
+              <div
+                data-pencil-name="Notif Desc"
+                class="text-[13px]/[19px] box-border w-full text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left"
+              >
+                ORD-3MRAI-10455 · Arrives Aug 7
+              </div>
+              <div
+                data-pencil-name="Notif Time"
+                class="text-[12px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-normal text-left [white-space:nowrap]"
+              >
+                Jul 29 · 9:02 am
+              </div>
+            </div>
+            <div
+              data-pencil-name="Unread Dot"
+              class="box-border w-[9px] shrink-0 h-[9px] bg-[#F7941D] rounded-full"
+            ></div>
+          </div>
+        </div>
+        <div
+          data-pencil-name="Panel Footer"
+          class="[box-sizing:content-box] w-[400px] h-[41.5px] shrink-0 flex flex-row gap-0 p-[13px] justify-center items-center [border-width:1px_0px_0px_0px] [border-style:solid] [border-color:#E5E7EB] [margin:-0.5px_0px_0px_0px]"
+        >
+          <div
+            data-pencil-name="Footer Link"
+            class="text-[13px]/[normal] box-border text-[#2D3748] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+          >
+            View all notifications
+          </div>
+        </div>
+      </div>
+      <div
+        data-pencil-name="Toast Notification"
+        class="box-border w-[400px] h-fit [box-shadow:0px_10px_30px_0px_#1A1A2E29] absolute left-[480px] top-0 flex flex-col gap-0 justify-start items-start bg-[#FFFFFF] [outline:1px_solid_#E5E7EB] [outline-offset:-0.5px] rounded-[12px] overflow-hidden"
+      >
+        <div
+          data-pencil-name="Toast Row"
+          class="box-border w-full h-fit shrink-0 flex flex-row gap-[12px] p-[16px] justify-start items-start"
+        >
+          <div
+            data-pencil-name="Icon Bubble"
+            class="box-border w-[36px] shrink-0 h-[36px] flex flex-row gap-0 justify-center items-center bg-[#FFF4E5] rounded-[18px]"
+          >
+            <svg
+              data-pencil-name="Toast Icon"
+              data-icon-name="truck"
+              data-icon-set="lucide"
+              viewBox="0 0 13.99993896484375 14"
+              preserveAspectRatio="xMidYMid meet"
+              xmlns="http://www.w3.org/2000/svg"
+              class="box-border w-[18px] shrink-0 h-[18px]"
+            >
+              <path
+                d="M2.05762 1.77734q-0.28027 0.04102-0.53321 0.16748-0.34863 0.19824-0.58789 0.50586-0.23584 0.30762-0.32129 0.70069-0.01367 0.10938-0.02734 0.6289l0 6.32666 0.04102 0.12647q0.04443 0.16748 0.11279 0.27344 0.07178 0.10596 0.19482 0.23242 0.15381 0.15381 0.29395 0.22217 0.15723 0.07178 0.28711 0.09228 0.1333 0.02051 0.49902 0.02051l0.42041 0 0.01367 0.04101q0.01367 0.05811 0.08887 0.20508 0.07861 0.14697 0.1333 0.21533 0.28027 0.36572 0.67334 0.54688 0.39307 0.18115 0.84082 0.16748 0.32129-0.02734 0.62207-0.16065 0.30078-0.1333 0.51612-0.3623 0.21875-0.23242 0.34521-0.49902l0.06836-0.15381 2.52246 0 0.06836 0.15381q0.12646 0.2666 0.33496 0.48877 0.33838 0.35205 0.82031 0.47851 0.48193 0.12305 0.96045-0.03076 0.51611-0.16748 0.88184-0.62891 0.05469-0.06836 0.12988-0.21533 0.07861-0.14697 0.09229-0.20508l0.01367-0.04101 0.42041 0q0.36572 0 0.4956-0.02051 0.1333-0.02051 0.29053-0.09228 0.14014-0.06836 0.29395-0.22217 0.12305-0.12646 0.1914-0.23242 0.07178-0.10596 0.11621-0.27344l0.04102-0.12647 0-2.51904-0.04102-0.14014q-0.05811-0.14014-0.10595-0.229-0.04785-0.09229-1.10743-1.4082-1.05615-1.31592-1.13818-1.40137-0.28027-0.2666-0.68701-0.32129-0.15381-0.01367-0.86816-0.01367l-0.71436 0 0-0.36572q0-0.32129-0.02734-0.49561-0.02734-0.17432-0.09912-0.35547-0.18115-0.43408-0.54004-0.72119-0.35547-0.28711-0.8169-0.35889-0.18115-0.02734-2.61133-0.02734-2.43018 0-2.59765 0.02734z m5.19531 1.20313q0.18115 0.08545 0.2666 0.2666l0.05469 0.08545 0 6.59326-1.83545 0-0.08203-0.18115q-0.21191-0.43408-0.59815-0.69385-0.38281-0.25977-0.88183-0.29394-0.49561-0.03418-0.95703 0.22558-0.46143 0.25635-0.68702 0.72119-0.08203 0.13672-0.08886 0.17432-0.00684 0.03418-0.05127 0.04102-0.04102 0.00684-0.30762 0.00683l-0.33496 0 0.01367-6.57959 0.04102-0.09912q0.04443-0.08203 0.1333-0.16406 0.09229-0.08545 0.16748-0.1128 0.07861-0.03076 0.41357-0.04443l4.64844 0 0.08545 0.05469z m3.98877 3.54443l1.0083 1.25781 0 2.14307-0.34863 0q-0.25293 0-0.29737-0.00683-0.04102-0.00684-0.05468-0.04786-0.01367-0.04443-0.09229-0.1914-0.0752-0.14697-0.12988-0.21533-0.36572-0.4751-0.89551-0.62891-0.42041-0.12646-0.83398-0.04785-0.41357 0.0752-0.7793 0.34179l-0.06836 0.05469 0-3.93408 1.46973 0 1.02197 1.2749z m-6.91455 3.4419q0.18115 0.09912 0.28027 0.2666 0.02734 0.05811 0.03418 0.10595 0.00684 0.04785 0.00684 0.16065 0 0.16748-0.0376 0.24609-0.03418 0.0752-0.12988 0.17432-0.21191 0.2085-0.50586 0.15381-0.29395-0.05469-0.42041-0.32129-0.02734-0.07178-0.03418-0.11279-0.00684-0.04102-0.00684-0.14014 0-0.15381 0.04102-0.24268 0.04443-0.09229 0.1333-0.17431 0.09229-0.08545 0.18799-0.11963 0.09912-0.0376 0.23242-0.0376 0.1333 0 0.21875 0.04102z m5.79345-0.01368q0.09912 0.04443 0.18116 0.12305 0.08545 0.0752 0.14355 0.1709 0.02734 0.07178 0.03418 0.11279 0.00684 0.04102 0.00684 0.14014 0 0.09912-0.00684 0.14014-0.00684 0.04102-0.03418 0.11279-0.14014 0.2666-0.42724 0.32129-0.28711 0.05469-0.49903-0.15381-0.08203-0.08545-0.12646-0.16748-0.04102-0.08545-0.04785-0.21191-0.00684-0.12647 0.01367-0.20167 0.02051-0.07861 0.07861-0.16064 0.10938-0.16748 0.3042-0.229 0.19824-0.06494 0.37939 0.00341z"
+                fill="#C2710E"
+              ></path>
+            </svg>
+          </div>
+          <div
+            data-pencil-name="Toast Body"
+            class="box-border [flex:1_1_0] h-fit flex flex-col gap-[4px] justify-start items-start"
+          >
+            <div
+              data-pencil-name="Toast Eyebrow"
+              class="text-[10.5px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.4px] text-left [white-space:nowrap]"
+            >
+              ORDER UPDATE
+            </div>
+            <div
+              data-pencil-name="Toast Title"
+              class="text-[14.5px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+            >
+              Out for delivery
+            </div>
+            <div
+              data-pencil-name="Toast Desc"
+              class="text-[13px]/[19px] box-border w-full text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left"
+            >
+              ORD-3MRAI-10482 · Arriving today, by 6:00 pm
+            </div>
+            <div
+              data-pencil-name="Toast Actions"
+              class="box-border w-fit h-fit shrink-0 flex flex-row gap-[16px] p-[6px_0px_0px_0px] justify-start items-center"
+            >
+              <div
+                data-pencil-name="View Order Link"
+                class="text-[13px]/[normal] box-border text-[#2D3748] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+              >
+                View order
+              </div>
+              <div
+                data-pencil-name="Dismiss Link"
+                class="text-[13px]/[normal] box-border text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left [white-space:nowrap]"
+              >
+                Dismiss
+              </div>
+            </div>
+          </div>
+          <div
+            data-pencil-name="Close Button"
+            class="box-border w-[24px] shrink-0 h-[24px] flex flex-row gap-0 justify-center items-center rounded-[6px]"
+          >
+            <svg
+              data-pencil-name="Close Icon"
+              data-icon-name="x"
+              data-icon-set="lucide"
+              viewBox="0 0 13.99993896484375 14"
+              preserveAspectRatio="xMidYMid meet"
+              xmlns="http://www.w3.org/2000/svg"
+              class="box-border w-[15px] shrink-0 h-[15px]"
+            >
+              <path
+                d="M3.34619 2.93945q-0.25293 0.08545-0.37939 0.30762-0.04102 0.08545-0.04102 0.25293 0 0.16748 0.04102 0.25293 0.04443 0.08203 1.62353 1.66455l1.58252 1.58252-1.58252 1.58252q-1.5791 1.58252-1.62353 1.66797-0.04102 0.08203-0.04102 0.23584 0 0.15381 0.03418 0.23926 0.0376 0.08203 0.1333 0.18115 0.09912 0.0957 0.18115 0.1333 0.08545 0.03418 0.23926 0.03418 0.15381 0 0.23584-0.04102 0.08545-0.04443 1.66797-1.62353l1.58252-1.58252 1.58252 1.58252q1.58252 1.5791 1.66455 1.62353 0.08545 0.04102 0.23926 0.04102 0.15381 0 0.23584-0.03418 0.08545-0.0376 0.18115-0.1333 0.09912-0.09912 0.1333-0.18115 0.0376-0.08545 0.0376-0.23926 0-0.15381-0.04443-0.23584-0.04101-0.08545-1.62012-1.66797l-1.58252-1.58252 1.58252-1.58252q1.5791-1.58252 1.62012-1.66455 0.04443-0.08545 0.04443-0.25293 0-0.16748-0.04102-0.25293-0.09912-0.16748-0.28027-0.2666-0.05811-0.02734-0.09912-0.04102-0.04102-0.01367-0.15381-0.01367-0.11279 0-0.15381 0.01367-0.04101 0.01367-0.11279 0.04102-0.09912 0.05811-1.66455 1.62695l-1.56885 1.56543-2.82666-2.81299q-0.31104-0.29395-0.42041-0.37939-0.08545-0.05469-0.19824-0.05469l-0.02735 0q-0.14014 0-0.18115 0.01367z"
+                fill="#9CA3AF"
+              ></path>
+            </svg>
+          </div>
+        </div>
+        <div
+          data-pencil-name="Progress Track"
+          class="box-border w-full h-[3px] shrink-0 flex flex-row gap-0 justify-start items-start bg-[#E5E7EB]"
+        >
+          <div
+            data-pencil-name="Progress Fill"
+            class="box-border w-[250px] shrink-0 h-[3px] bg-[#F7941D]"
+          ></div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

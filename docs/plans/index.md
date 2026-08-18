@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-08-10
+updated: 2026-08-18
 tags: [type/spec, area/shared, status/active]
 related:
   - "[[2026-06-26-implementation-workflow]]"
@@ -46,6 +46,9 @@ related:
   - "[[2026-08-05-realtime-tracking-events-websocket]]"
   - "[[2026-08-10-product-catalogue-image-categories-design]]"
   - "[[2026-08-10-product-catalogue-image-categories]]"
+  - "[[2026-08-17-web-app-foundation-design]]"
+  - "[[2026-08-18-web-app-foundation]]"
+  - "[[web-app-foundation-milestone]]"
 ---
 
 # 3MRAI Plans — Index
@@ -93,6 +96,9 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-08-05-realtime-tracking-events-websocket]] — implementation plan for the realtime WebSocket feature: the `dynamodb` and `api-gateway-ws` Terraform modules, the new `functions/realtime-events/` package, the events-pipeline publisher, Tracking's `author.cognito_sub` propagation, and the gateway E2E suite. All three gateway E2E tests pass (full E2E suite 83/83); see [[events-pipeline-design#Realtime WebSocket fan-out (second output of TRACKING_STATUS_CHANGED)]] and [[floci-websocket-apigw-dynamodb-support]].
 - [[2026-08-10-product-catalogue-image-categories-design]] — design spec for enriching the Orders product catalogue with a display image (`uri`/`width`/`height`/`blurhash`) and a category array, replacing the three placeholder products with the eight from the web-app design.
 - [[2026-08-10-product-catalogue-image-categories]] — implementation plan for the catalogue enrichment: `ProductImage` value object + MySQL `json` columns with `ValueConverter`/`ValueComparer` pairs, the eight-product reseed, API DTOs composing the absolute asset URL, blurhash computed into the assets manifest, and gateway E2E.
+- [[2026-08-17-web-app-foundation-design]] — design spec for `apps/web/` (Angular + NgRx + Tailwind) and the `pencil-design-extraction` skill: the `.pen`-as-source-of-truth pipeline, why the HTML export is a reference and never a source, and the phase-1 screens-not-behaviour scope boundary.
+- [[2026-08-18-web-app-foundation]] — implementation plan for the Web App Foundation milestone: scaffold, design tokens, fixtures, HTML snapshots, app shell, the 18 designed screens, and the extraction skill/agent/convention.
+- [[web-app-foundation-milestone]] — logical execution plan for the Web App Foundation milestone: task sequence, phases, and blocking dependency graph for JE-162 through JE-172.
 
 > [!note] No plan note for the AuditActor enum
 > [[2026-07-12-audit-actor-enum-design]] was implemented directly from the spec — there is no separate `writing-plans` plan for it.
@@ -138,3 +144,6 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-08-05-realtime-tracking-events-websocket]]
 - [[2026-08-10-product-catalogue-image-categories-design]]
 - [[2026-08-10-product-catalogue-image-categories]]
+- [[2026-08-17-web-app-foundation-design]]
+- [[2026-08-18-web-app-foundation]]
+- [[web-app-foundation-milestone]]

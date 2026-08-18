@@ -1,0 +1,71 @@
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+@import "tailwindcss";
+
+/* DESIGN.md documents Tailwind class patterns as prose examples — including
+ * bg-[url('../img/…')] — and Tailwind 4 scans Markdown, so it would compile
+ * those examples as real utilities and fail to resolve the image. The doc is
+ * reference material, never a source of classes. */
+@source not "../DESIGN.md";
+
+/* apps/web/design/ holds committed HTML snapshots of Pencil frames (reference
+ * only — see the README in that folder). They use arbitrary-value utilities
+ * like bg-[url('../img/…')] that don't resolve from the app's build context,
+ * so Tailwind must not scan them for classes. */
+@source not "../design";
+
+/* Design tokens — generated from assets/web-app/web-app.pen via the Pencil MCP
+ * `GetVariables()`. Do NOT hand-edit: re-run the pencil-design-extraction skill.
+ * Some names are remapped from their .pen originals to avoid Tailwind v4 utility
+ * stutter (bg-body -> bg-bg-body); see the mapping table in the plan.
+ * These values are SHARED WITH THE EMAIL TEMPLATES (assets/email/DESIGN.md) —
+ * changing a brand colour here is a two-surface change. */
+@theme {
+  /* Brand */
+  --color-brand-navy: #2D3748;
+  --color-brand-navy-deep: #1F2733;
+  --color-brand-orange: #F7941D;
+  --color-brand-orange-light: #FFF4E5;
+  --color-brand-orange-text: #C2710E;
+
+  /* Surfaces (.pen: bg-*) */
+  --color-surface-body: #F4F4F5;
+  --color-surface-white: #FFFFFF;
+  --color-surface-subtle: #FAFAFA;
+
+  /* Text (.pen: text-*) */
+  --color-ink-primary: #1A1A2E;
+  --color-ink-secondary: #6B7280;
+  --color-ink-muted: #9CA3AF;
+  --color-ink-on-dark: #E8EAEE;
+
+  /* Borders (.pen: border-color, border-strong) */
+  --color-line: #E5E7EB;
+  --color-line-strong: #D1D5DB;
+
+  /* Semantic */
+  --color-success-green: #10B981;
+  --color-success-bg: #ECFDF5;
+  --color-success-ink: #047857;
+  --color-danger-red: #DC2626;
+  --color-info-blue: #2563EB;
+  --color-info-bg: #EFF6FF;
+  --color-warn-ink: #B45309;
+  --color-warn-bg: #FFF7ED;
+
+  /* Type */
+  --font-heading: Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-body: Inter, ui-sans-serif, system-ui, sans-serif;
+
+  /* Metrics (.pen numbers are px) */
+  --radius-md: 10px;
+  --spacing-field: 56px;
+}
+
+body {
+  background-color: var(--color-surface-body);
+  color: var(--color-ink-primary);
+  font-family: var(--font-body);
+}

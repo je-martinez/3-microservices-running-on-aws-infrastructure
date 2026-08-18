@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      tailwind = { config: { corePlugins: { preflight: false } } };
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter%3Awght%40100..900&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      *, ::before, ::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      data-pencil-name="Cart Line"
+      class="box-border w-[372px] h-fit flex flex-row gap-[14px] justify-start items-start"
+    >
+      <div
+        data-pencil-name="Line Image"
+        class="box-border w-[76px] shrink-0 h-[88px] bg-[#FAFAFA] rounded-[8px]"
+      ></div>
+      <div
+        data-pencil-name="Line Body"
+        class="box-border [flex:1_1_0] h-[88px] flex flex-col gap-[8px] justify-between items-start"
+      >
+        <div
+          data-pencil-name="Line Top"
+          class="box-border w-full h-fit shrink-0 flex flex-col gap-[3px] justify-start items-start"
+        >
+          <div
+            data-pencil-name="Line Name"
+            class="text-[14.5px]/[20px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+          >
+            Runner Low Canvas
+          </div>
+          <div
+            data-pencil-name="Line Variant"
+            class="text-[13px]/[normal] box-border text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left [white-space:nowrap]"
+          >
+            Size 42 · Sand
+          </div>
+        </div>
+        <div
+          data-pencil-name="Line Bottom"
+          class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+        >
+          <div
+            data-pencil-name="Qty Stepper"
+            class="box-border w-fit shrink-0 h-[34px] flex flex-row gap-0 justify-start items-center [outline:1px_solid_#D1D5DB] [outline-offset:-0.5px] rounded-[8px]"
+          >
+            <div
+              data-pencil-name="Qty Minus"
+              class="box-border w-[32px] shrink-0 h-[34px] flex flex-row gap-0 justify-center items-center"
+            >
+              <svg
+                data-pencil-name="Minus Icon"
+                data-icon-name="minus"
+                data-icon-set="lucide"
+                viewBox="0 0 13.99993896484375 14"
+                preserveAspectRatio="xMidYMid meet"
+                xmlns="http://www.w3.org/2000/svg"
+                class="box-border w-[14px] shrink-0 h-[14px]"
+              >
+                <path
+                  d="M2.73096 6.45313q-0.23926 0.08545-0.34522 0.3247-0.10254 0.23584-0.00683 0.46143 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.18457 0.12647l0.09571 0.02734 8.40136 0 0.09571-0.02734q0.09912-0.04443 0.18115-0.12647 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-4.22803 0q-4.22803 0-4.28271 0.02735z"
+                  fill="#6B7280"
+                ></path>
+              </svg>
+            </div>
+            <div
+              data-pencil-name="Qty Value"
+              class="box-border w-[30px] shrink-0 h-[34px] flex flex-row gap-0 justify-center items-center"
+            >
+              <div
+                data-pencil-name="Qty Text"
+                class="text-[14px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+              >
+                1
+              </div>
+            </div>
+            <div
+              data-pencil-name="Qty Plus"
+              class="box-border w-[32px] shrink-0 h-[34px] flex flex-row gap-0 justify-center items-center"
+            >
+              <svg
+                data-pencil-name="Plus Icon"
+                data-icon-name="plus"
+                data-icon-set="lucide"
+                viewBox="0 0 13.99993896484375 14"
+                preserveAspectRatio="xMidYMid meet"
+                xmlns="http://www.w3.org/2000/svg"
+                class="box-border w-[14px] shrink-0 h-[14px]"
+              >
+                <path
+                  d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                  fill="#1A1A2E"
+                ></path>
+              </svg>
+            </div>
+          </div>
+          <div
+            data-pencil-name="Line Price"
+            class="text-[14.5px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+          >
+            $89.00
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

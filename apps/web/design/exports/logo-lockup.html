@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      tailwind = { config: { corePlugins: { preflight: false } } };
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter%3Awght%40100..900&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      *, ::before, ::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      data-pencil-name="Logo Lockup"
+      class="box-border w-fit h-fit flex flex-row gap-[10px] justify-start items-center"
+    >
+      <div
+        data-pencil-name="Logo Mark"
+        class="box-border w-[36px] shrink-0 h-[36px] flex flex-row gap-0 justify-start items-start bg-[#FFFFFF] bg-[url('../img/standalone-logo.png')] bg-no-repeat bg-contain bg-center rounded-[8px]"
+      ></div>
+      <div
+        data-pencil-name="Logo Text"
+        class="box-border w-fit shrink-0 h-fit flex flex-row gap-[1px] justify-start items-center"
+      >
+        <div
+          data-pencil-name="Logo 3M"
+          class="text-[19px]/[normal] box-border text-[#2D3748] font-[Inter,system-ui,sans-serif] font-extrabold tracking-[-0.3px] text-left [white-space:nowrap]"
+        >
+          3M
+        </div>
+        <div
+          data-pencil-name="Logo RAI"
+          class="text-[19px]/[normal] box-border text-[#F7941D] font-[Inter,system-ui,sans-serif] font-extrabold tracking-[-0.3px] text-left [white-space:nowrap]"
+        >
+          RAI
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
