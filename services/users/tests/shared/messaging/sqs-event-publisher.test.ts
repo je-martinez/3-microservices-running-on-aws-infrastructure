@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { context, trace } from "@opentelemetry/api";
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import { SqsEventPublisher } from "#shared/messaging/event-publisher";
 import { appLogger } from "#shared/logging/app-logger";
@@ -29,7 +30,109 @@ const PAYLOAD = {
   cognitoSub: "a1b2-c3d4",
 };
 
+const RESET_PAYLOAD = {
+  userId: "usr_1",
+  email: "a@example.com",
+  fullName: "Ada Lovelace",
+  code: "123456",
+  ttlSeconds: 600,
+  cognitoSub: "a1b2-c3d4",
+};
+
 describe("SqsEventPublisher", () => {
+  // The SQS hop is the one place the trace cascade can break invisibly: there is
+  // no auto-instrumentation carrying context across a queue, so if these
+  // attributes are wrong the pipeline simply starts a fresh, disconnected trace
+  // and nothing anywhere reports an error.
+  //
+  // The tracer provider is registered in tests/setup-tracing.ts, which also
+  // installs the default W3C CompositePropagator that `propagation.inject`
+  // resolves — a real propagator, not a stub, so the string asserted below is
+  // the exact one that would go on the wire.
+  describe("traceparent propagation", () => {
+    const tracer = trace.getTracer("test");
+
+    // 00-<32 hex trace id>-<16 hex span id>-<2 hex flags>
+    const W3C_TRACEPARENT = /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/;
+
+    async function publishInsideSpan(publish: (publisher: SqsEventPublisher) => Promise<void>) {
+      const client = fakeClient();
+      const span = tracer.startSpan("test-span");
+
+      await context.with(trace.setSpan(context.active(), span), () =>
+        publish(new SqsEventPublisher(client, QUEUE_URL)),
+      );
+      span.end();
+
+      return { client, span };
+    }
+
+    it("injects a W3C traceparent message attribute when publishUserCreated runs inside an active span", async () => {
+      const { client, span } = await publishInsideSpan((publisher) => publisher.publishUserCreated(PAYLOAD));
+
+      const traceparent = sentCommand(client).input.MessageAttributes!.traceparent;
+      expect(traceparent).toBeDefined();
+      expect(traceparent!.DataType).toBe("String");
+      expect(traceparent!.StringValue).toMatch(W3C_TRACEPARENT);
+      // Not just well-formed — it must name THIS span, or the pipeline joins a
+      // trace that has nothing to do with the publish that caused it.
+      const { traceId, spanId } = span.spanContext();
+      expect(traceparent!.StringValue).toBe(`00-${traceId}-${spanId}-01`);
+    });
+
+    it("injects the traceparent on the password-reset publish too, not only on USER_CREATED", async () => {
+      const { client, span } = await publishInsideSpan((publisher) =>
+        publisher.publishPasswordResetRequested(RESET_PAYLOAD),
+      );
+
+      const traceparent = sentCommand(client).input.MessageAttributes!.traceparent;
+      const { traceId, spanId } = span.spanContext();
+      expect(traceparent!.StringValue).toBe(`00-${traceId}-${spanId}-01`);
+    });
+
+    it("keeps type and source alongside it — the trace context is added, never a replacement", async () => {
+      const { client } = await publishInsideSpan((publisher) => publisher.publishUserCreated(PAYLOAD));
+
+      const attributes = sentCommand(client).input.MessageAttributes!;
+      expect(attributes.type).toEqual({ DataType: "String", StringValue: "USER_CREATED" });
+      expect(attributes.source).toEqual({ DataType: "String", StringValue: "users" });
+    });
+
+    it("OMITS the key entirely when there is no active span — never an empty string, never a zeroed trace id", async () => {
+      const client = fakeClient();
+
+      // No context.with: whatever ambient context the runner has must not be a
+      // recording span here, so nothing is injected.
+      await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+
+      const attributes = sentCommand(client).input.MessageAttributes!;
+      // A zeroed or empty traceparent is WORSE than none: it still parses
+      // downstream, so the consumer would parent its span to a trace that never
+      // existed and the cascade would break in silence. The key's ABSENCE is
+      // what is pinned, not its falsiness.
+      expect("traceparent" in attributes).toBe(false);
+      expect(Object.keys(attributes).sort()).toEqual(["source", "type"]);
+    });
+
+    it("OMITS the key on the password-reset publish outside a span as well", async () => {
+      const client = fakeClient();
+
+      await new SqsEventPublisher(client, QUEUE_URL).publishPasswordResetRequested(RESET_PAYLOAD);
+
+      expect(Object.keys(sentCommand(client).input.MessageAttributes!).sort()).toEqual(["source", "type"]);
+    });
+
+    it("never puts the trace context in the envelope body — that is a Zod-validated domain contract", async () => {
+      const { client } = await publishInsideSpan((publisher) => publisher.publishUserCreated(PAYLOAD));
+
+      const raw = sentCommand(client).input.MessageBody!;
+      // Scanned on the RAW string, not the parsed object: the rule is that the
+      // pipeline's EnvelopeSchema never sees these keys at any depth.
+      expect(raw).not.toContain("traceparent");
+      expect(raw).not.toContain("tracestate");
+    });
+  });
+
   // The correlation id has to travel ON THE ENVELOPE, not just in this service's
   // own log lines: the events-pipeline runs no OTel SDK, so this field is the
   // only thing tying the email it sends back to the request that caused it.

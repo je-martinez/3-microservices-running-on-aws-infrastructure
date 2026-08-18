@@ -1,4 +1,5 @@
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
+import { context, propagation } from "@opentelemetry/api";
 import { appLogger } from "#shared/logging/app-logger";
 import { hashEmail } from "#shared/logging/email-hash";
 import { NanoIdConfig } from "#shared/id/nano-id";
@@ -79,6 +80,34 @@ export class NoopEventPublisher implements EventPublisher {
 const EVENT_TYPE = "USER_CREATED";
 const PASSWORD_RESET_EVENT_TYPE = "PASSWORD_RESET_REQUESTED";
 const EVENT_SOURCE = "users";
+
+// The W3C trace context for the SQS hop, shaped as SQS message attributes.
+//
+// It rides in `MessageAttributes` and NEVER in the envelope: the body is a
+// domain contract the pipeline validates with Zod, so an extra key there is
+// either rejected or silently persisted as data. Transport metadata belongs on
+// the transport, next to `type` and `source`.
+//
+// `propagation.inject` writes `traceparent` (plus `tracestate` when one exists)
+// into the carrier ONLY when there is a valid active span; with no span in
+// flight — a background task, a test, an SDK that never started — it writes
+// nothing at all and this returns an empty object, so the key is OMITTED rather
+// than sent blank. That distinction matters more than it looks: an all-zeros or
+// empty traceparent still PARSES downstream, so the consumer would parent its
+// span to a trace that does not exist and the cascade would break silently
+// instead of simply being absent. Same "omitted, never null" rule the envelope's
+// `request_id` and `author.cognito_sub` already follow — see [[logging-context]].
+function traceparentAttributes(): Record<string, { DataType: "String"; StringValue: string }> {
+  const carrier: Record<string, string> = {};
+  propagation.inject(context.active(), carrier);
+
+  return Object.fromEntries(
+    Object.entries(carrier).map(([key, value]) => [
+      key,
+      { DataType: "String" as const, StringValue: value },
+    ]),
+  );
+}
 
 // Real implementation. `event_id` is generated INSIDE the publisher so the seam
 // signature stays untouched (the milestone design spec's preferred option). It
@@ -172,6 +201,7 @@ export class SqsEventPublisher implements EventPublisher {
           MessageAttributes: {
             type: { DataType: "String", StringValue: envelope.type },
             source: { DataType: "String", StringValue: envelope.source },
+            ...traceparentAttributes(),
           },
         }),
       );
@@ -258,6 +288,7 @@ export class SqsEventPublisher implements EventPublisher {
           MessageAttributes: {
             type: { DataType: "String", StringValue: envelope.type },
             source: { DataType: "String", StringValue: envelope.source },
+            ...traceparentAttributes(),
           },
         }),
       );
