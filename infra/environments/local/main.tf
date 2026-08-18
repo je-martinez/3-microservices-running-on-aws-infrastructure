@@ -404,6 +404,38 @@ module "api_gateway_ws" {
   # `localhost`. Same distinction the events-pipeline Lambda and the cognito
   # module's OTP Lambda already make.
   aws_endpoint_url = "http://floci:4566"
+
+  # ─── Traces ─────────────────────────────────────────────────────────────
+  # OTLP config lives HERE, in environment variables, never in the Lambdas'
+  # code — the rule that exists because three silent failures in this repo came
+  # from configuring the SDK in code ([[logging-context]]). The bootstrap in
+  # functions/realtime-events/src/shared/observability/tracing.ts constructs
+  # OTLPTraceExporter with NO arguments precisely so these vars are the only
+  # source of truth.
+  #
+  # Applied to all four functions at once (see the module's
+  # environment_variables description): the authorizer, $connect, $disconnect
+  # and $default are one for_each'd resource and all four export to the same
+  # collector under the same service name.
+  environment_variables = {
+    # `otel-collector`, NOT `localhost`: like AWS_ENDPOINT_URL above, this is
+    # resolved from INSIDE the Lambda containers on 3mrai-network, where the
+    # collector is a sibling container of that name (docker-compose.yml). It is
+    # a BASE url — the exporter appends /v1/traces itself, per the OTLP spec.
+    # Hand-building the full path is what made Orders POST every batch to the
+    # collector's root and collect silent 404s.
+    OTEL_EXPORTER_OTLP_ENDPOINT = "http://otel-collector:4318"
+    OTEL_EXPORTER_OTLP_PROTOCOL = "http/protobuf"
+    OTEL_SERVICE_NAME           = "realtime-events"
+    # Metrics do NOT travel over OTLP (CloudWatch PutMetricData, scraped from
+    # there by the collector) and these Lambdas' logs travel stdout ->
+    # CloudWatch, not OTLP. Both must be disabled HERE rather than in code:
+    # NodeSDK auto-detects both exporters from OTEL_EXPORTER_OTLP_ENDPOINT, and
+    # an `undefined` SDK option reads as "not overridden", so auto-detection
+    # still wins. The collector serves /v1/traces only.
+    OTEL_METRICS_EXPORTER = "none"
+    OTEL_LOGS_EXPORTER    = "none"
+  }
 }
 
 # ─── Events Pipeline Lambda ─────────────────────────────────────────────────────
