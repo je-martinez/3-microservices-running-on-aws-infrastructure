@@ -54,6 +54,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
 
 from src.features.tracking.domain.models import Tracking, TrackingHistory
 from src.shared.audit.audit_actor import AuditActor
@@ -966,6 +968,116 @@ class TestMessageAttributes:
 
         assert attributes["type"]["StringValue"] == envelope["type"]
         assert attributes["source"]["StringValue"] == envelope["source"]
+
+
+#: The W3C `traceparent` shape: `00-<32 hex trace id>-<16 hex span id>-<2 hex
+#: flags>`. Pinned as a regex rather than merely asserting the key exists,
+#: because the consumer parses it — a well-intentioned but malformed value
+#: (the bare trace id, say) would be dropped there, silently, with no link.
+TRACEPARENT_PATTERN = re.compile(r"^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$")
+
+
+class TestTraceparentPropagation:
+    """The trace context crosses SQS as a message attribute, or not at all.
+
+    Without it the cascade ENDS at the publish: the events-pipeline Lambda is a
+    separate process behind a queue, so its spans have nothing to link back to
+    the carrier PUT (or TestMode tick) that produced the message. Nothing fails
+    loudly in that case — the trace simply stops half-way and looks complete.
+
+    Two properties, and the second is the one that is easy to get wrong:
+
+    * inside an active span, a W3C-formatted `traceparent` is present;
+    * with NO active span, the key is absent ENTIRELY — never `""`. An empty
+      string is a present-but-malformed context to the consumer, which is worse
+      than an absent one. `propagate.inject` happens to write nothing into the
+      carrier for an invalid span context, so the implementation gets this for
+      free — which is exactly why it is asserted rather than assumed: a later
+      refactor to `carrier.get("traceparent", "")` would still pass every other
+      test in this module.
+    """
+
+    @pytest.fixture
+    def tracer(self, monkeypatch: pytest.MonkeyPatch) -> trace.Tracer:
+        """A private tracer provider, installed for the duration of one test.
+
+        `trace.set_tracer_provider` is a one-shot global (a second call is
+        ignored with a warning), so this patches the API module's private
+        provider slot instead — the same reason `test_workflow_tracing.py`
+        swaps the module's `_tracer`. Here the publisher does not hold a tracer
+        of its own: it reads whatever context is ACTIVE, so the span has to be
+        genuinely recording, which means a real SDK provider.
+        """
+        provider = TracerProvider()
+        monkeypatch.setattr(trace, "_TRACER_PROVIDER", provider)
+        return provider.get_tracer("test")
+
+    def test_traceparent_is_injected_when_a_span_is_active(
+        self, tracer: trace.Tracer
+    ) -> None:
+        client = RecordingSqsClient()
+
+        with tracer.start_as_current_span("carrier_status_update"):
+            publish(build(client))
+
+        attributes = client.sends[0]["MessageAttributes"]
+        assert "traceparent" in attributes
+        assert attributes["traceparent"]["DataType"] == "String"
+        assert TRACEPARENT_PATTERN.match(attributes["traceparent"]["StringValue"])
+
+    def test_the_injected_traceparent_carries_the_active_span_context(
+        self, tracer: trace.Tracer
+    ) -> None:
+        """The ids in it are THIS span's, not some other well-formed pair.
+
+        A `traceparent` matching the regex but carrying an unrelated context
+        would join the pipeline's spans to the wrong trace — indistinguishable
+        from correct instrumentation in every assertion that only checks shape.
+        """
+        client = RecordingSqsClient()
+
+        with tracer.start_as_current_span("carrier_status_update") as span:
+            publish(build(client))
+            span_context = span.get_span_context()
+
+        traceparent = client.sends[0]["MessageAttributes"]["traceparent"]["StringValue"]
+        _, trace_id, span_id, _ = traceparent.split("-")
+        assert trace_id == format(span_context.trace_id, "032x")
+        assert span_id == format(span_context.span_id, "016x")
+
+    def test_the_key_is_omitted_entirely_when_no_span_is_active(
+        self, tracer: trace.Tracer
+    ) -> None:
+        """Omitted, never empty — see the class docstring.
+
+        The provider is installed (so this is not passing merely because tracing
+        is unconfigured); what is missing is an active span.
+        """
+        client = RecordingSqsClient()
+        publish(build(client))
+
+        attributes = client.sends[0]["MessageAttributes"]
+        assert "traceparent" not in attributes
+        assert set(attributes) == {"type", "source"}
+
+    def test_the_traceparent_never_reaches_the_envelope(
+        self, tracer: trace.Tracer
+    ) -> None:
+        """The body is the DOMAIN contract; trace context is transport.
+
+        `functions/events-pipeline/src/domain/envelope.ts` is a Zod schema, and
+        the pipeline reads the context off `record.messageAttributes`. Smuggling
+        it into the body would be a schema change nobody asked for — and an
+        unknown key there is not harmless: the handler's validation failures
+        become `PermanentError`s that consume the record without sending the
+        email.
+        """
+        client = RecordingSqsClient()
+
+        with tracer.start_as_current_span("carrier_status_update"):
+            publish(build(client))
+
+        assert "traceparent" not in sent_body(client)
 
 
 class TestDeriveEventId:

@@ -74,6 +74,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
 import boto3
+from opentelemetry import propagate
 
 from src.shared.audit.audit_actor import AuditActor
 from src.shared.config.settings import get_settings
@@ -204,6 +205,54 @@ def serialize_history(
         }
         for entry in entries
     ]
+
+
+def _build_message_attributes() -> dict[str, dict[str, str]]:
+    """The SQS message attributes: `type`, `source`, and the trace context.
+
+    ## `type` and `source`
+
+    Duplicated out of the envelope so the queue can be inspected and filtered
+    without deserializing the body — the same two keys Users and Orders set.
+
+    ## `traceparent`, and why it rides HERE and not in the envelope
+
+    SQS is where the trace would otherwise end: the pipeline's Lambda is a
+    separate process reached through a queue, so nothing links its spans to the
+    carrier PUT (or the TestMode tick) that produced the message unless the W3C
+    context travels with it. `MessageAttributes` is the transport SQS gives us
+    for exactly that — out-of-band metadata, next to `type` and `source`.
+
+    It is deliberately NOT a field of the envelope. The envelope is the DOMAIN
+    contract with `events-pipeline` (`functions/events-pipeline/src/domain/envelope.ts`)
+    and a transport concern has no business in it; the consumer reads
+    `record.messageAttributes.traceparent.stringValue`, which needs no schema
+    change at all. `request_id` in the body is a different thing — a business
+    correlation id the pipeline logs and stores, not a span context.
+
+    ## Omitted, never empty
+
+    `propagate.inject` writes NOTHING into the carrier when there is no valid
+    active span (a unit test, or any code path outside a workflow span), so this
+    loop adds zero keys rather than a blank `traceparent`. That matters: the
+    consumer would treat `""` as a malformed-but-present context, which is
+    strictly worse than an absent one it can link nothing to. Same
+    "omitted, never null" rule the envelope's optional fields follow.
+
+    The propagator is the SDK's globally-configured one, so a `tracestate` (if
+    one ever exists) is carried by the same loop without naming it here.
+    """
+    attributes: dict[str, dict[str, str]] = {
+        "type": {"DataType": "String", "StringValue": EVENT_TYPE},
+        "source": {"DataType": "String", "StringValue": EVENT_SOURCE},
+    }
+
+    carrier: dict[str, str] = {}
+    propagate.inject(carrier)
+    for key, value in carrier.items():
+        attributes[key] = {"DataType": "String", "StringValue": value}
+
+    return attributes
 
 
 class SqsEventPublisher:
@@ -404,13 +453,7 @@ class SqsEventPublisher:
             self._client.send_message(
                 QueueUrl=self._queue_url,
                 MessageBody=json.dumps(envelope),
-                # Duplicated as attributes so the queue can be inspected and
-                # filtered without deserializing the body — the same two keys
-                # Users and Orders set.
-                MessageAttributes={
-                    "type": {"DataType": "String", "StringValue": EVENT_TYPE},
-                    "source": {"DataType": "String", "StringValue": EVENT_SOURCE},
-                },
+                MessageAttributes=_build_message_attributes(),
             )
         except Exception:  # noqa: BLE001 - see the class docstring's policy
             logger.exception(
