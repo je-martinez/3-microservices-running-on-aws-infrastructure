@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Amazon.SQS;
 using Amazon.SQS.Model;
@@ -423,6 +424,74 @@ public class SqsEventPublisherTests
         Assert.Equal("String", attributes["type"].DataType);
         Assert.Equal("orders", attributes["source"].StringValue);
         Assert.Equal("String", attributes["source"].DataType);
+    }
+
+    // The trace hop across the queue. Unlike `type`/`source`, this attribute duplicates
+    // nothing in the body — it is how the consumer joins its own spans to the HTTP request
+    // that produced the message. Asserted on the attributes, never on the body: the
+    // envelope is a Zod-validated contract with no traceparent field.
+    [Fact]
+    public async Task Injects_the_active_activitys_traceparent_as_a_message_attribute()
+    {
+        using var listener = ListenToEverything();
+        using var source = new ActivitySource(TestActivitySourceName);
+        var (publisher, sqs, _) = Build();
+
+        // StartActivity returns null unless something LISTENS to the source, and a null
+        // activity would make this test pass for the wrong reason — so it is asserted.
+        using var activity = source.StartActivity("publish-test");
+        Assert.NotNull(activity);
+
+        await Publish(publisher);
+
+        var attributes = Assert.Single(sqs.Requests).MessageAttributes;
+        var traceparent = attributes["traceparent"];
+        Assert.Equal("String", traceparent.DataType);
+        // W3C format: version-traceid-spanid-flags. Matching the shape rather than only
+        // "not empty" is what catches a hand-built string or a non-W3C Activity id format.
+        Assert.Matches("^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$", traceparent.StringValue);
+        // Same trace as the caller's activity — a well-formed traceparent belonging to a
+        // DIFFERENT trace would correlate nothing.
+        Assert.Equal(activity.Id, traceparent.StringValue);
+    }
+
+    [Fact]
+    public async Task Omits_traceparent_entirely_when_no_activity_is_active()
+    {
+        // No listener, so no Activity is ever created here.
+        Assert.Null(Activity.Current);
+        var (publisher, sqs, _) = Build();
+
+        await Publish(publisher);
+
+        var attributes = Assert.Single(sqs.Requests).MessageAttributes;
+        // OMITTED, not present-and-empty. Beyond losing the correlation, SQS REJECTS a
+        // MessageAttributeValue with an empty StringValue — an empty traceparent would
+        // turn "no trace in scope" into a failed publish.
+        Assert.False(attributes.ContainsKey("traceparent"));
+        // The other two are unaffected by the absence.
+        Assert.True(attributes.ContainsKey("type"));
+        Assert.True(attributes.ContainsKey("source"));
+    }
+
+    // A source name unique to this file so the listener below cannot pick up activities
+    // created by other tests running in parallel.
+    private const string TestActivitySourceName = "orders-tests-sqs-publisher";
+
+    // Samples everything from that one source, which is what makes StartActivity return a
+    // real Activity instead of null. ActivityIdFormat.W3C is the .NET default here, so the
+    // resulting Id IS a W3C traceparent string.
+    private static ActivityListener ListenToEverything()
+    {
+        var listener = new ActivityListener
+        {
+            ShouldListenTo = s => s.Name == TestActivitySourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) =>
+                ActivitySamplingResult.AllDataAndRecorded,
+        };
+
+        ActivitySource.AddActivityListener(listener);
+        return listener;
     }
 
     [Fact]

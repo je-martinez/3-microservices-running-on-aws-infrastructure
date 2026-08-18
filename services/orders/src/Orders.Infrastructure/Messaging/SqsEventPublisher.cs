@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Amazon.SQS;
@@ -148,13 +149,7 @@ public class SqsEventPublisher : IEventPublisher
         {
             QueueUrl = _queueUrl,
             MessageBody = JsonSerializer.Serialize(envelope, SerializerOptions),
-            // Duplicated as message attributes so the queue can be inspected (and
-            // filtered) without deserializing bodies.
-            MessageAttributes = new Dictionary<string, MessageAttributeValue>
-            {
-                ["type"] = new MessageAttributeValue { DataType = "String", StringValue = EventType },
-                ["source"] = new MessageAttributeValue { DataType = "String", StringValue = EventSource },
-            },
+            MessageAttributes = BuildMessageAttributes(),
         };
 
         try
@@ -184,6 +179,45 @@ public class SqsEventPublisher : IEventPublisher
                 "ORDER_CREATED publish failed (non-fatal): the order was created but no event was emitted {app_event} {reason} {order_id} {user_id}",
                 "order_created_publish_failed", "sqs_send_failed", orderId, userId);
         }
+    }
+
+    // `type` and `source` are duplicated out of the envelope as message attributes so the
+    // queue can be inspected (and filtered) without deserializing bodies.
+    //
+    // `traceparent` is the third, and it is not a duplicate of anything in the body: it is
+    // the TRACE hop across the queue. Activity.Current?.Id renders the current activity's
+    // context as a W3C-formatted string ("00-{traceId}-{spanId}-{flags}") — .NET's native
+    // Id format IS the traceparent header, so there is nothing to build by hand and no
+    // propagator to instantiate. It is the same string AddHttpClientInstrumentation already
+    // puts on the wire for the Orders -> Users hop; SQS gets no auto-instrumentation for
+    // this, so the injection is manual here.
+    //
+    // OMITTED, never empty, when there is no active Activity (a background publish, a unit
+    // test with no listener): the same "omitted, never null" rule the envelope's author
+    // fields follow — and here it is a correctness matter beyond tracing, because SQS
+    // REJECTS a MessageAttributeValue whose StringValue is empty, which would turn a
+    // missing trace into a failed publish.
+    //
+    // It rides in the attributes and NEVER in the envelope body: the consumer extracts it
+    // as a carrier header, and the body is a validated contract that has no such field.
+    private static Dictionary<string, MessageAttributeValue> BuildMessageAttributes()
+    {
+        var attributes = new Dictionary<string, MessageAttributeValue>
+        {
+            ["type"] = new MessageAttributeValue { DataType = "String", StringValue = EventType },
+            ["source"] = new MessageAttributeValue { DataType = "String", StringValue = EventSource },
+        };
+
+        if (Activity.Current?.Id is { Length: > 0 } traceparent)
+        {
+            attributes["traceparent"] = new MessageAttributeValue
+            {
+                DataType = "String",
+                StringValue = traceparent,
+            };
+        }
+
+        return attributes;
     }
 
     // The address arrives as the JSON snapshot persisted on the order, so it is re-parsed
