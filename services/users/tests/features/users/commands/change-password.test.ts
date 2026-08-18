@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { SpanStatusCode } from "@opentelemetry/api";
 import { ChangePasswordCommand } from "#features/users/commands/change-password";
+import { testSpanExporter } from "../../../setup-tracing.ts";
 
 const FIXED_DATE = new Date("2026-01-01T00:00:00.000Z");
 const NEW_PASSWORD = "N3wP@ssw0rd!";
@@ -115,5 +117,58 @@ describe("ChangePasswordCommand", () => {
       command.execute(currentUser as never, { newPassword: NEW_PASSWORD }),
     ).rejects.toThrow("cognito down");
     expect(auth.setMustChangePassword).not.toHaveBeenCalled();
+  });
+});
+
+describe("ChangePasswordCommand tracing", () => {
+  beforeEach(() => testSpanExporter.reset());
+
+  it("emits a 'change_password' span with app_event=change_password_succeeded on success", async () => {
+    const { command, currentUser } = build();
+
+    await command.execute(currentUser as never, { newPassword: NEW_PASSWORD });
+
+    const span = testSpanExporter.getFinishedSpans().find((s) => s.name === "change_password");
+    expect(span).toBeDefined();
+    expect(span!.attributes.app_event).toBe("change_password_succeeded");
+    expect(span!.attributes.user_id).toBe("usr_1");
+    expect(span!.status.code).toBe(SpanStatusCode.OK);
+  });
+
+  it("emits a 'change_password' span with ERROR status and reason=cognito_error when Cognito rejects", async () => {
+    const { command, currentUser } = build({ cognitoRejects: true });
+
+    await expect(
+      command.execute(currentUser as never, { newPassword: NEW_PASSWORD }),
+    ).rejects.toThrow("cognito down");
+
+    const span = testSpanExporter.getFinishedSpans().find((s) => s.name === "change_password");
+    expect(span!.ended).toBe(true);
+    expect(span!.status.code).toBe(SpanStatusCode.ERROR);
+    expect(span!.attributes.app_event).toBe("change_password_failed");
+    expect(span!.attributes.reason).toBe("cognito_error");
+  });
+
+  it("marks the unresolved-caller 404 on the span rather than leaving it untraced", async () => {
+    // Returning null is a real outcome of this workflow, and the only one with
+    // no flow log of its own — so it gets a reason instead of a blank span.
+    const { command, currentUser } = build({ resolved: null });
+
+    expect(await command.execute(currentUser as never, { newPassword: NEW_PASSWORD })).toBeNull();
+
+    const span = testSpanExporter.getFinishedSpans().find((s) => s.name === "change_password");
+    expect(span!.attributes.reason).toBe("unknown_user");
+  });
+
+  it("never puts the new password or the plaintext email on the span", async () => {
+    const { command, currentUser } = build();
+
+    await command.execute(currentUser as never, { newPassword: NEW_PASSWORD });
+
+    const span = testSpanExporter.getFinishedSpans().find((s) => s.name === "change_password");
+    const serialized = JSON.stringify(span!.attributes);
+    expect(serialized).not.toContain(NEW_PASSWORD);
+    expect(serialized).not.toContain("jose@example.com");
+    expect(span!.attributes.email_hash).toBeDefined();
   });
 });

@@ -5,6 +5,8 @@ import { appLogger } from "#shared/logging/app-logger";
 import { setLogContext } from "#shared/logging/log-context";
 import { hashEmail } from "#shared/logging/email-hash";
 import { maskEmail } from "#shared/logging/email-mask";
+import { trace } from "@opentelemetry/api";
+import { withWorkflowSpan } from "#shared/observability/workflow-tracing";
 
 export interface LoginInput {
   email: string;
@@ -21,7 +23,18 @@ export class LoginUserCommand {
     this.db = db;
   }
 
+  // Span attributes mirror the flow's own log fields. `email_hash`, never the
+  // email itself — and the password and the returned tokens never appear on a
+  // span any more than they do on a log line.
   async execute(input: LoginInput): Promise<AuthTokens> {
+    return withWorkflowSpan(
+      "login",
+      { app_event: "login_started", email_hash: hashEmail(input.email) },
+      () => this.doExecute(input),
+    );
+  }
+
+  private async doExecute(input: LoginInput): Promise<AuthTokens> {
     // Only email_hash goes in the CONTEXT — context fields stick to every
     // later line of the request, including `request completed`. The plaintext
     // email is passed per-call-site instead, so it appears on the auth-flow
@@ -54,6 +67,11 @@ export class LoginUserCommand {
         },
         "User login failed: account is passwordless",
       );
+      // Same reason as the log line, same branch. The real cause stays
+      // operator-only here too: the HTTP response is still the generic 401.
+      trace
+        .getActiveSpan()
+        ?.setAttributes({ app_event: "login_failed", reason: "passwordless_user" });
       throw new InvalidCredentialsError();
     }
 
@@ -65,6 +83,7 @@ export class LoginUserCommand {
         { app_event: "login_succeeded", email: maskEmail(input.email) },
         "User login completed",
       );
+      trace.getActiveSpan()?.setAttribute("app_event", "login_succeeded");
       return tokens;
     } catch (err) {
       // Distinguished here rather than in the route's error handler, which sees
@@ -83,6 +102,12 @@ export class LoginUserCommand {
           ? "User login failed: invalid credentials"
           : "User login failed: the identity provider rejected the request",
       );
+      trace
+        .getActiveSpan()
+        ?.setAttributes({
+          app_event: "login_failed",
+          reason: invalid ? "invalid_credentials" : "cognito_error",
+        });
       throw err; // rethrown untouched — the HTTP contract is unchanged
     }
   }

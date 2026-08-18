@@ -1,5 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { SpanStatusCode } from "@opentelemetry/api";
 import { VerifyOtpChallengeCommand } from "#features/users/commands/verify-otp-challenge";
+import { testSpanExporter } from "../../../setup-tracing.ts";
 import { InvalidOtpError } from "#shared/auth/auth-errors";
 
 const TOKENS = { idToken: "id1", accessToken: "acc1", refreshToken: "rt1" };
@@ -121,5 +123,82 @@ describe("VerifyOtpChallengeCommand", () => {
 
     const reasons = calls.map((c) => (c as [Record<string, unknown>])[0].reason);
     expect(reasons).toEqual(["invalid_otp", "cognito_error"]);
+  });
+});
+
+describe("VerifyOtpChallengeCommand tracing", () => {
+  beforeEach(() => testSpanExporter.reset());
+
+  it("emits an 'otp_verify' span with app_event=otp_verify_succeeded on success", async () => {
+    await new VerifyOtpChallengeCommand(deps()).execute({
+      email: "a@b.co",
+      session: "sess_1",
+      code: "042817",
+    });
+
+    const span = testSpanExporter.getFinishedSpans().find((s) => s.name === "otp_verify");
+    expect(span).toBeDefined();
+    expect(span!.attributes.app_event).toBe("otp_verify_succeeded");
+    expect(span!.status.code).toBe(SpanStatusCode.OK);
+  });
+
+  it("emits an 'otp_verify' span with ERROR status and reason=invalid_otp on a wrong code", async () => {
+    const command = new VerifyOtpChallengeCommand(
+      deps({
+        respondToOtpChallenge: vi.fn(async () => {
+          throw new InvalidOtpError();
+        }),
+      }),
+    );
+
+    await expect(
+      command.execute({ email: "a@b.co", session: "sess_1", code: "000000" }),
+    ).rejects.toBeInstanceOf(InvalidOtpError);
+
+    const span = testSpanExporter.getFinishedSpans().find((s) => s.name === "otp_verify");
+    expect(span!.ended).toBe(true);
+    expect(span!.status.code).toBe(SpanStatusCode.ERROR);
+    expect(span!.attributes.app_event).toBe("otp_verify_failed");
+    // The reason names the CLASS of failure only — never the code itself.
+    expect(span!.attributes.reason).toBe("invalid_otp");
+  });
+
+  // THE constraint of this feature, restated for spans: a span is exported to a
+  // backend exactly like a log line, so a 6-digit code — 1,000,000
+  // possibilities, live for its whole TTL — must never reach one in ANY form.
+  // Serializing the whole attribute bag catches it hiding in any field.
+  it("never puts the submitted code or session on the span — success path", async () => {
+    await new VerifyOtpChallengeCommand(deps()).execute({
+      email: "ada@example.com",
+      session: "sess_1",
+      code: "042817",
+    });
+
+    const span = testSpanExporter.getFinishedSpans().find((s) => s.name === "otp_verify");
+    const serialized = JSON.stringify(span!.attributes);
+    expect(serialized).not.toContain("042817");
+    expect(serialized).not.toContain("sess_1");
+    expect(serialized).not.toContain("ada@example.com");
+    expect(span!.attributes.email_hash).toBeDefined();
+  });
+
+  it("never puts the submitted code or session on the span — failure path", async () => {
+    const command = new VerifyOtpChallengeCommand(
+      deps({
+        respondToOtpChallenge: vi.fn(async () => {
+          throw new InvalidOtpError();
+        }),
+      }),
+    );
+
+    await command
+      .execute({ email: "ada@example.com", session: "sess_1", code: "999123" })
+      .catch(() => undefined);
+
+    const span = testSpanExporter.getFinishedSpans().find((s) => s.name === "otp_verify");
+    const serialized = JSON.stringify(span!.attributes);
+    expect(serialized).not.toContain("999123");
+    expect(serialized).not.toContain("sess_1");
+    expect(serialized).not.toContain("ada@example.com");
   });
 });

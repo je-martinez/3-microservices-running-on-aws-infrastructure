@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { SpanStatusCode } from "@opentelemetry/api";
 import { ConfirmPasswordResetCommand } from "#features/users/commands/confirm-password-reset";
+import { testSpanExporter } from "../../../setup-tracing.ts";
 import { InvalidResetCodeError } from "#shared/auth/auth-errors";
 
 const EMAIL = "jose@example.com";
@@ -148,5 +150,65 @@ describe("ConfirmPasswordResetCommand", () => {
 
     await expect(command.execute(input)).rejects.toThrow();
     expect(metricsPublisher.publish).not.toHaveBeenCalled();
+  });
+});
+
+describe("ConfirmPasswordResetCommand tracing", () => {
+  beforeEach(() => testSpanExporter.reset());
+
+  it("emits a 'password_reset_confirm' span with password_reset_confirm_succeeded on success", async () => {
+    const { command } = build();
+
+    await command.execute(input);
+
+    const span = testSpanExporter
+      .getFinishedSpans()
+      .find((s) => s.name === "password_reset_confirm");
+    expect(span).toBeDefined();
+    expect(span!.attributes.app_event).toBe("password_reset_confirm_succeeded");
+    expect(span!.attributes.user_id).toBe("usr_1");
+    expect(span!.status.code).toBe(SpanStatusCode.OK);
+  });
+
+  it("emits an ERROR span with reason=invalid_or_expired_code when the store rejects the code", async () => {
+    const { command } = build({ accepted: false });
+
+    await expect(command.execute(input)).rejects.toBeInstanceOf(InvalidResetCodeError);
+
+    const span = testSpanExporter
+      .getFinishedSpans()
+      .find((s) => s.name === "password_reset_confirm");
+    expect(span!.ended).toBe(true);
+    expect(span!.status.code).toBe(SpanStatusCode.ERROR);
+    expect(span!.attributes.app_event).toBe("password_reset_confirm_failed");
+    // The SAME reason the log line carries on this branch — the two rejection
+    // branches share one helper precisely so they cannot drift apart.
+    expect(span!.attributes.reason).toBe("invalid_or_expired_code");
+  });
+
+  it("emits reason=unknown_email on the span for an unknown email, matching the log", async () => {
+    const { command } = build({ user: null });
+
+    await expect(command.execute(input)).rejects.toBeInstanceOf(InvalidResetCodeError);
+
+    const span = testSpanExporter
+      .getFinishedSpans()
+      .find((s) => s.name === "password_reset_confirm");
+    expect(span!.attributes.reason).toBe("unknown_email");
+  });
+
+  it("never puts the submitted code, the new password or the plaintext email on the span", async () => {
+    const { command } = build();
+
+    await command.execute(input);
+
+    const span = testSpanExporter
+      .getFinishedSpans()
+      .find((s) => s.name === "password_reset_confirm");
+    const serialized = JSON.stringify(span!.attributes);
+    expect(serialized).not.toContain(CODE);
+    expect(serialized).not.toContain(NEW_PASSWORD);
+    expect(serialized).not.toContain(EMAIL);
+    expect(span!.attributes.email_hash).toBeDefined();
   });
 });

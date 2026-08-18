@@ -6,6 +6,8 @@ import { setLogContext } from "#shared/logging/log-context";
 import { hashEmail } from "#shared/logging/email-hash";
 import { maskEmail } from "#shared/logging/email-mask";
 import { generateResetCode, RESET_CODE_TTL_SECONDS } from "#shared/auth/reset-code";
+import { trace } from "@opentelemetry/api";
+import { withWorkflowSpan } from "#shared/observability/workflow-tracing";
 
 export interface ForgotPasswordInput {
   email: string;
@@ -42,7 +44,23 @@ export class ForgotPasswordCommand {
     this.resetCodeStore = resetCodeStore;
   }
 
+  // NEVER put the minted `code` on a span attribute — it is the same live
+  // credential the log lines below refuse to carry, and a span goes to a
+  // backend just as a log line does. `email_hash`, never the email itself.
+  //
+  // The unknown-email branch is marked on the span the way it is in the log: as
+  // a SUCCESS with `reason: unknown_email`, not an error. Anything else would
+  // rebuild the enumeration oracle this flow exists to avoid, only in the trace
+  // backend instead of the response.
   async execute(input: ForgotPasswordInput): Promise<void> {
+    return withWorkflowSpan(
+      "password_reset_requested",
+      { app_event: "password_reset_requested_started", email_hash: hashEmail(input.email) },
+      () => this.doExecute(input),
+    );
+  }
+
+  private async doExecute(input: ForgotPasswordInput): Promise<void> {
     // Only email_hash goes in the CONTEXT — context fields stick to every later
     // line of the request, including `request completed`. The masked email is
     // passed per call site instead, so it appears on the auth-flow lines only.
@@ -75,6 +93,10 @@ export class ForgotPasswordCommand {
         },
         "Password reset request accepted for an unknown email (no code minted, no event published)",
       );
+      trace.getActiveSpan()?.setAttributes({
+        app_event: "password_reset_requested_succeeded",
+        reason: "unknown_email",
+      });
       return;
     }
 
@@ -148,5 +170,9 @@ export class ForgotPasswordCommand {
       },
       "Password reset code minted and event published",
     );
+    trace.getActiveSpan()?.setAttributes({
+      app_event: "password_reset_requested_succeeded",
+      user_id: user.id,
+    });
   }
 }
