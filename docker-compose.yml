@@ -180,6 +180,10 @@ services:
       # when the stack is brought up with the observability profile enabled.
       - "4317:4317"     # OTLP/gRPC
       - "4318:4318"     # OTLP/HTTP
+      # health_check extension — published because `make doctor` probes it from
+      # the HOST to report exactly the situation described just above: services
+      # configured to export traces while this container is not running.
+      - "13133:13133"   # health_check
     environment:
       - AWS_ENDPOINT_URL=http://floci:4566
       - AWS_REGION=us-east-1

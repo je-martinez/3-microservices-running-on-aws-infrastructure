@@ -773,6 +773,21 @@ processors:
           # redundant column of stringified maps beside the real ones.
           - delete_key(attributes, "Dimensions")
 
+  # Bounds the collector's own memory before batching accumulates spans in it.
+  # Above the soft limit (limit_mib - spike_limit_mib) it refuses data with a
+  # NON-permanent error, so the OTLP receiver answers the services' exporters
+  # with a retryable status instead of the collector growing until the container
+  # is OOM-killed — which loses every signal, not just traces.
+  #
+  # Order in the traces pipeline is the whole point and is asserted there: this
+  # MUST sit BEFORE batch. Placed after, the batcher has already accepted and is
+  # holding the spans in memory by the time the limiter sees them, so the memory
+  # the limiter is meant to bound has already been spent.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+
   batch: {}
 
 exporters:
@@ -915,7 +930,27 @@ exporters:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: metrics
 
+# Liveness surface for `make doctor`. The collector sits behind
+# `profiles: [observability]`, so a plain `docker compose up` leaves it down and
+# the services' exports fail with connection refused — silently, since a failed
+# export is not a failed request. The doctor probes this endpoint to turn that
+# silence into one line.
+#
+# A dedicated health endpoint rather than the OTLP ingest ports (4317/4318):
+# those answer only to a well-formed OTLP payload, so probing them means either
+# synthesising a fake trace (writing data to check for liveness) or settling for
+# a bare TCP connect, which cannot distinguish a running collector from anything
+# else that happened to bind the port.
+extensions:
+  health_check:
+    # 0.0.0.0, not the default localhost:13133 — the default binds the
+    # CONTAINER's loopback, where a probe from the host can never reach it.
+    endpoint: 0.0.0.0:13133
+
 service:
+  # Declared here as well as above: an extension defined and not listed is
+  # simply never started.
+  extensions: [health_check]
   telemetry:
     logs:
       level: info
@@ -1039,7 +1074,10 @@ service:
     # there is no JSON-in-a-string body to flatten as there is for stdout logs.
     traces:
       receivers: [otlp]
-      processors: [batch]
+      # memory_limiter BEFORE batch, for the reason spelled out on the processor
+      # itself: limiting after the batcher has already buffered the spans limits
+      # nothing.
+      processors: [memory_limiter, batch]
       exporters: [otlp/jaeger]
 
     # Custom business metrics: CloudWatch -> OpenObserve. Same receiver as the
