@@ -1,4 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
+import {
+  mockTracingModule,
+  pipelineTracer,
+  resetTracingHarness,
+  spanExporter,
+} from "./tracing-harness.ts";
+
+// FILE-WIDE: the publisher now opens a manual PRODUCER span, so it imports the
+// tracing module, which calls sdk.start() and opens a real OTLP exporter at
+// import time. See tests/tracing-harness.ts.
+mockTracingModule();
 
 // websocket-publisher imports #shared/logging/app-logger, which reaches
 // #shared/config/env — Zod-parsed at MODULE LOAD (ADR-0014) and throwing
@@ -92,5 +104,73 @@ describe("publishToUser", () => {
     );
     await publishToUser("sub-1", {});
     expect(postSend).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("publishToUser — the manual WebSocket span", () => {
+  beforeEach(() => {
+    queryByCognitoSub.mockReset();
+    deleteConnection.mockReset();
+    postSend.mockReset();
+    postSend.mockResolvedValue({});
+    resetTracingHarness();
+    process.env.WS_MANAGEMENT_ENDPOINT = "http://floci:4566/execute-api/abc/dev";
+    process.env.WS_CONNECTIONS_TABLE = "conns";
+  });
+
+  it("opens a PRODUCER span named 'ws publish' as a CHILD of the active span", async () => {
+    queryByCognitoSub.mockResolvedValue(["conn-1", "conn-2"]);
+    const { publishToUser } = await import(
+      "../src/shared/realtime/websocket-publisher.js"
+    );
+
+    // The parent stands in for `process_record`; parentage comes from the
+    // ambient context, nothing is threaded in.
+    let parentSpanId = "";
+    await pipelineTracer.startActiveSpan("process_record", async (parent) => {
+      parentSpanId = parent.spanContext().spanId;
+      await publishToUser("sub-1", { hello: "world" });
+      parent.end();
+    });
+
+    const wsSpan = spanExporter.getFinishedSpans().find((s) => s.name === "ws publish");
+    expect(wsSpan).toBeDefined();
+    expect(wsSpan!.kind).toBe(SpanKind.PRODUCER);
+    expect(wsSpan!.parentSpanContext?.spanId).toBe(parentSpanId);
+    expect(wsSpan!.attributes["messaging.system"]).toBe("apigatewaymanagementapi");
+    expect(wsSpan!.attributes["messaging.batch.message_count"]).toBe(2);
+    expect(wsSpan!.status.code).toBe(SpanStatusCode.OK);
+  });
+
+  it("records a zero connection count instead of omitting it when nothing is open", async () => {
+    queryByCognitoSub.mockResolvedValue([]);
+    const { publishToUser } = await import(
+      "../src/shared/realtime/websocket-publisher.js"
+    );
+
+    await publishToUser("sub-1", {});
+
+    // "the user had nothing open" and "the fan-out never got that far" are
+    // different stories; an absent attribute cannot tell them apart.
+    const wsSpan = spanExporter.getFinishedSpans().find((s) => s.name === "ws publish");
+    expect(wsSpan!.attributes["messaging.batch.message_count"]).toBe(0);
+    expect(wsSpan!.status.code).toBe(SpanStatusCode.OK);
+  });
+
+  it("still ends the span, OK, when the fan-out swallows a failure", async () => {
+    // publishToUser NEVER throws by contract — the push is opportunistic and
+    // must not fail the record. The span therefore ends OK: the RECORD did
+    // succeed, and `ws_fanout_failed` on the log line is where the failure lives.
+    queryByCognitoSub.mockRejectedValue(new Error("dynamo down"));
+    const { publishToUser } = await import(
+      "../src/shared/realtime/websocket-publisher.js"
+    );
+
+    await expect(publishToUser("sub-1", {})).resolves.toBeUndefined();
+
+    const wsSpan = spanExporter.getFinishedSpans().find((s) => s.name === "ws publish");
+    expect(wsSpan).toBeDefined();
+    expect(wsSpan!.status.code).toBe(SpanStatusCode.OK);
   });
 });

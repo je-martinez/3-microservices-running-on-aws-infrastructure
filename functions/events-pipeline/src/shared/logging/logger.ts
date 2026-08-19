@@ -1,5 +1,42 @@
 import type { LoggerOptions } from "pino";
+import { trace } from "@opentelemetry/api";
 import { getLogContext } from "#shared/logging/log-context";
+
+// The active span's ids, ready to spread onto a log record — or nothing.
+//
+// WHY THIS IS WRITTEN BY HAND HERE, unlike in Users. Users gets `trace_id` for
+// free from @opentelemetry/instrumentation-pino, which patches pino at
+// require() time. This Lambda is ONE esbuild CJS bundle with pino inlined
+// (scripts/build.mjs), so there is no module boundary left to patch: the
+// instrumentation would load, patch nothing, and every line would ship without
+// a trace id — silently, the failure mode that already cost this repo three
+// incidents ([[logging-context]]). Stamping the ids in the formatter is the
+// only mechanism that survives bundling.
+//
+// TWO RULES, both copied from Tracking's TraceContextFilter, and both about the
+// same thing — the logs<->traces join is STRING EQUALITY between OpenObserve
+// and Jaeger, so a different shape matches nothing and reports no error:
+//
+// 1. Lowercase, zero-padded hex: 32 chars for the trace, 16 for the span. This
+//    is what `spanContext()` already returns in JS (unlike Python's ints, which
+//    Tracking has to format), so the value is passed through untouched — the
+//    point of this note is that it must NOT be reformatted, uppercased or
+//    truncated on its way out.
+// 2. OMITTED, never zeroed. Outside a span — module load, a cold-start line,
+//    anything before the batch span opens — `getActiveSpan()` is undefined or
+//    reports the all-zero INVALID_SPAN_CONTEXT. Writing `trace_id: "000…0"`
+//    would be worse than writing nothing: it reads as a real id, and every
+//    uncorrelated line in the fleet would appear to share one trace.
+//
+// This is also why @opentelemetry/api is imported here rather than
+// #shared/observability/tracing: the api package is INERT without a registered
+// provider (it answers "no active span" and nothing else), so importing it
+// costs the unit tests no SDK, no exporter and no open socket.
+function activeTraceIds(): { trace_id?: string; span_id?: string } {
+  const spanContext = trace.getActiveSpan()?.spanContext();
+  if (spanContext === undefined || !trace.isSpanContextValid(spanContext)) return {};
+  return { trace_id: spanContext.traceId, span_id: spanContext.spanId };
+}
 
 // OTel severity numbers (logs data model). Kept identical to Users'
 // shared/logging/logger.ts so a line from this Lambda and a line from Users are
@@ -57,11 +94,14 @@ export function buildLoggerOptions(opts: {
       // raw body, which carry the event payload — never pass those as `err`
       // (see the sanitization in src/handler.ts).
       log(object) {
-        // Ambient record context first, explicit call-site fields second: a
-        // field passed at the call site always wins over the context. Unknown
-        // context fields are simply absent from the store, so nothing null is
-        // emitted (see #shared/logging/log-context).
-        const object_ = { ...getLogContext(), ...object } as typeof object;
+        // Ambient enrichment first, explicit call-site fields last: a field
+        // passed at the call site always wins over the context. Unknown context
+        // fields are simply absent from the store, so nothing null is emitted
+        // (see #shared/logging/log-context).
+        //
+        // The span ids go FIRST, ahead of the record context, for the same
+        // precedence reason: they are the most ambient thing on the line.
+        const object_ = { ...activeTraceIds(), ...getLogContext(), ...object } as typeof object;
 
         const err = (object_ as { err?: unknown }).err;
         if (err && typeof err === "object") {

@@ -1,9 +1,11 @@
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
+import { SpanKind } from "@opentelemetry/api";
 import { env } from "#shared/config/env";
 import { TransientError } from "#pipeline/errors";
 import { appLogger } from "#shared/logging/app-logger";
 import { hashEmail } from "#shared/logging/email-hash";
 import { publishEmailMetric } from "#shared/metrics/cloudwatch-metrics";
+import { withClientSpan } from "#shared/observability/client-span";
 
 export interface SendEmailParams {
   to: string;
@@ -52,15 +54,38 @@ export async function sendEmail(params: SendEmailParams): Promise<void> {
   const startedAt = Date.now();
 
   try {
-    await getClient().send(
-      new SendEmailCommand({
-        Source: env.SES_FROM_ADDRESS,
-        Destination: { ToAddresses: [params.to] },
-        Message: {
-          Subject: { Data: params.subject },
-          Body: { Html: { Data: params.html } },
-        },
-      }),
+    // Manual CLIENT span around the transport ONLY. The AWS SDK is inlined into
+    // the esbuild bundle, so auto-instrumentation cannot patch it (see
+    // #shared/observability/client-span) and this send would otherwise be an
+    // unexplained gap inside `process_record` — which is precisely where the
+    // latency lives when SES is slow.
+    //
+    // Scoped to the send, not to the whole function: the logging and metric
+    // publishing below are this process's own work, and folding them in would
+    // attribute their time to SES.
+    //
+    // `email_hash`, never the recipient — the same rule the log line obeys, for
+    // the same reason. A span attribute is as readable as a log field.
+    await withClientSpan(
+      "ses SendEmail",
+      SpanKind.CLIENT,
+      { "messaging.system": "ses", "rpc.method": "SendEmail", email_hash },
+      () =>
+        getClient().send(
+          new SendEmailCommand({
+            Source: env.SES_FROM_ADDRESS,
+            Destination: { ToAddresses: [params.to] },
+            Message: {
+              Subject: { Data: params.subject },
+              Body: { Html: { Data: params.html } },
+            },
+          }),
+        ),
+      // The SDK's message is safe here (endpoint, status, throttling reason) —
+      // established in the catch below, and it never contains the recipient,
+      // which this function holds separately in `params.to` and never
+      // interpolates.
+      (err) => (err instanceof Error ? err.message : String(err)),
     );
   } catch (err) {
     // The SDK's message is safe to surface (endpoint, status, throttling

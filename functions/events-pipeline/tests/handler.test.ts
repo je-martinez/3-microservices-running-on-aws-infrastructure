@@ -1,5 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import { TransientError, PermanentError } from "#pipeline/errors";
+import {
+  flushTraces,
+  mockTracingModule,
+  originTracer,
+  resetTracingHarness,
+  spanExporter,
+} from "./tracing-harness.ts";
+
+// FILE-WIDE, not inside the tracing describe: the handler imports the real
+// tracing module, which calls sdk.start() and opens an OTLP exporter at import
+// time. Every test in this file would then hang on `await flushTraces()` until
+// Vitest's 5s timeout. See tests/tracing-harness.ts.
+mockTracingModule();
 
 // The DB layer is the only thing mocked here: this suite is about the
 // entrypoint's own responsibilities (parsing raw SQS bodies, assembling
@@ -29,6 +43,12 @@ vi.stubEnv("ASSETS_BASE_URL", "http://assets.test/bucket");
 vi.mock("#shared/db/client", () => ({
   getMongoClient: (...args: unknown[]) => getMongoClient(...(args as [])),
 }));
+// One test needs the REAL repository, to prove the manual `documentdb insertOne`
+// span lands under the real `process_record` span rather than under a stub's
+// idea of it. A flag rather than a second test file: everything else in this
+// suite wants the fast stub.
+const { useRealRepository } = vi.hoisted(() => ({ useRealRepository: { value: false } }));
+
 vi.mock("#shared/db/events-repository", async () => {
   // DuplicateEventError is re-exported from the real module: the handler
   // classifies on `instanceof`, and a stubbed class would silently never match.
@@ -37,7 +57,18 @@ vi.mock("#shared/db/events-repository", async () => {
   );
   return {
     ...actual,
-    MongoEventsRepository: vi.fn(() => ({ insertStarted, transition })),
+    MongoEventsRepository: vi.fn(() =>
+      useRealRepository.value
+        ? // A real instance over a fake driver: the repository's own span code
+          // runs, only the mongo round trip is faked.
+          new actual.MongoEventsRepository({
+            collection: () => ({
+              insertOne: async () => ({}),
+              updateOne: async () => ({}),
+            }),
+          } as never)
+        : { insertStarted, transition },
+    ),
     ensureIndexes: (...args: unknown[]) => ensureIndexes(...(args as [])),
   };
 });
@@ -124,6 +155,8 @@ function emitted(): { level: string; line: LogLine }[] {
 beforeEach(() => {
   vi.clearAllMocks();
   resetIndexBootstrapForTests();
+  resetTracingHarness();
+  useRealRepository.value = false;
   rawLines.length = 0;
 });
 
@@ -743,5 +776,191 @@ describe("handler — log context", () => {
     const succeeded = emitted().find((l) => l.line.app_event === "event_processing_succeeded");
     expect(succeeded).toBeDefined();
     expect(succeeded?.line.severity_text).toBe("INFO");
+  });
+});
+
+
+describe("handler — tracing", () => {
+  // A real W3C traceparent for a synthetic ORIGIN trace, standing in for the
+  // publisher (Users/Orders/Tracking) that put the message on the queue. Built
+  // from a real span context rather than a hand-written hex string so the test
+  // exercises the same decode path a live message travels.
+  async function originTraceparent(): Promise<{ traceparent: string; traceId: string }> {
+    const span = originTracer.startSpan("origin-publish");
+    const { traceId, spanId } = span.spanContext();
+    span.end();
+    return { traceparent: `00-${traceId}-${spanId}-01`, traceId };
+  }
+
+  function tracedRecord(messageId: string, body: unknown, traceparent: string) {
+    return {
+      ...sqsRecord(messageId, body),
+      messageAttributes: { traceparent: { stringValue: traceparent } },
+    };
+  }
+
+  function spansNamed(name: string) {
+    return spanExporter.getFinishedSpans().filter((s) => s.name === name);
+  }
+
+  it("opens a CONSUMER span for the batch with the record count on it", async () => {
+    await handler({ Records: [sqsRecord("msg-1", envelope())] });
+
+    const [batchSpan] = spansNamed("events-queue process");
+    expect(batchSpan).toBeDefined();
+    expect(batchSpan.kind).toBe(SpanKind.CONSUMER);
+    expect(batchSpan.attributes["messaging.system"]).toBe("aws_sqs");
+    expect(batchSpan.attributes["messaging.batch.message_count"]).toBe(1);
+    expect(batchSpan.status.code).toBe(SpanStatusCode.OK);
+  });
+
+  it("opens an INTERNAL child span per record, linked to that record's origin trace", async () => {
+    const { traceparent, traceId } = await originTraceparent();
+
+    await handler({ Records: [tracedRecord("msg-1", envelope(), traceparent)] });
+
+    const [batchSpan] = spansNamed("events-queue process");
+    const [recordSpan] = spansNamed("process_record");
+    expect(recordSpan).toBeDefined();
+    expect(recordSpan.kind).toBe(SpanKind.INTERNAL);
+    expect(recordSpan.attributes["messaging.message.id"]).toBe("msg-1");
+    // A CHILD of the batch span, in the SAME trace — the link below is the only
+    // reference to the origin trace, deliberately.
+    expect(recordSpan.parentSpanContext?.spanId).toBe(batchSpan.spanContext().spanId);
+    expect(recordSpan.spanContext().traceId).toBe(batchSpan.spanContext().traceId);
+    expect(recordSpan.links).toHaveLength(1);
+    expect(recordSpan.links[0].context.traceId).toBe(traceId);
+    // The point of a LINK rather than a parent: the record span belongs to this
+    // Lambda's own trace, not to the publisher's.
+    expect(recordSpan.spanContext().traceId).not.toBe(traceId);
+  });
+
+  it("links each record in a mixed batch to its OWN origin trace", async () => {
+    // The reason parent-child is wrong here: one batch carries messages from
+    // distinct traces, so a single parent would have to pick one origin and
+    // misattribute the rest.
+    const first = await originTraceparent();
+    const second = await originTraceparent();
+
+    await handler({
+      Records: [
+        tracedRecord("msg-1", envelope({ event_id: "evt_a" }), first.traceparent),
+        tracedRecord("msg-2", envelope({ event_id: "evt_b" }), second.traceparent),
+      ],
+    });
+
+    const recordSpans = spansNamed("process_record");
+    expect(recordSpans).toHaveLength(2);
+    expect(recordSpans[0].links[0].context.traceId).toBe(first.traceId);
+    expect(recordSpans[1].links[0].context.traceId).toBe(second.traceId);
+    expect(first.traceId).not.toBe(second.traceId);
+  });
+
+  it("produces a span with zero links, and no failure, for a record with no traceparent", async () => {
+    // The pre-instrumentation shape: a message published (or redelivered) before
+    // the publishers injected a traceparent. Absent is a valid shape, not a
+    // fault — it must not cost the record its processing.
+    const result = await handler({ Records: [sqsRecord("msg-2", envelope())] });
+
+    expect(result.batchItemFailures).toEqual([]);
+    const [recordSpan] = spansNamed("process_record");
+    expect(recordSpan).toBeDefined();
+    expect(recordSpan.links).toHaveLength(0);
+  });
+
+  it("produces a span with zero links for a malformed traceparent, and still processes the record", async () => {
+    const result = await handler({
+      Records: [tracedRecord("msg-3", envelope(), "not-a-traceparent")],
+    });
+
+    expect(result.batchItemFailures).toEqual([]);
+    expect(insertStarted).toHaveBeenCalledOnce();
+    const [recordSpan] = spansNamed("process_record");
+    expect(recordSpan.links).toHaveLength(0);
+  });
+
+  it("marks only the failing record's span ERROR, leaving its sibling and the batch OK", async () => {
+    // The trace-side counterpart of batchItemFailures: one bad record must not
+    // paint the whole batch red.
+    await handler({
+      Records: [
+        sqsRecord("msg-good", envelope({ event_id: "evt_good" })),
+        sqsRecord("msg-bad", envelope({ event_id: "evt_bad", type: "FLAKY" })),
+      ],
+    });
+
+    const [good, bad] = spansNamed("process_record");
+    expect(good.status.code).toBe(SpanStatusCode.OK);
+    expect(bad.status.code).toBe(SpanStatusCode.ERROR);
+    expect(spansNamed("events-queue process")[0].status.code).toBe(SpanStatusCode.OK);
+  });
+
+  it("flushes the span processor before returning", async () => {
+    // Lambda freezes the process on return: without this the batch processor's
+    // buffer is lost, or shipped on a later invocation under the wrong request.
+    await handler({ Records: [sqsRecord("msg-1", envelope())] });
+
+    expect(flushTraces).toHaveBeenCalledOnce();
+  });
+
+  it("ends the batch span and flushes even when the batch throws", async () => {
+    // The `finally` is the whole point: a span left unended never reaches
+    // Jaeger, and it does not surface as an error — it silently vanishes.
+    await expect(handler({ Records: undefined } as never)).rejects.toThrow();
+
+    const [batchSpan] = spansNamed("events-queue process");
+    expect(batchSpan).toBeDefined();
+    expect(batchSpan.status.code).toBe(SpanStatusCode.ERROR);
+    expect(flushTraces).toHaveBeenCalledOnce();
+  });
+
+  it("nests the real DocumentDB span under the real process_record span", async () => {
+    // The whole cascade in one assertion, against the REAL repository:
+    // events-queue process -> process_record -> documentdb insertOne. Asserting
+    // only that "a span reached the exporter" would pass just as happily with an
+    // orphaned span, which is what a broken ambient context actually produces.
+    useRealRepository.value = true;
+
+    await handler({ Records: [sqsRecord("msg-1", envelope())] });
+
+    const [batchSpan] = spansNamed("events-queue process");
+    const [recordSpan] = spansNamed("process_record");
+    const [dbSpan] = spansNamed("documentdb insertOne");
+
+    expect(dbSpan).toBeDefined();
+    expect(dbSpan.kind).toBe(SpanKind.CLIENT);
+    expect(dbSpan.parentSpanContext?.spanId).toBe(recordSpan.spanContext().spanId);
+    expect(recordSpan.parentSpanContext?.spanId).toBe(batchSpan.spanContext().spanId);
+    // Its parent is the RECORD, not the batch — the distinction the whole
+    // per-record span design exists for.
+    expect(dbSpan.parentSpanContext?.spanId).not.toBe(batchSpan.spanContext().spanId);
+    expect(dbSpan.spanContext().traceId).toBe(batchSpan.spanContext().traceId);
+  });
+
+  it("stamps the record span's trace_id and span_id on that record's log lines", async () => {
+    // The issue's own acceptance criterion: a log line must carry the id of the
+    // trace it belongs to, or logs and traces cannot be joined at all.
+    await handler({ Records: [sqsRecord("msg-1", envelope())] });
+
+    const [recordSpan] = spansNamed("process_record");
+    const succeeded = emitted().find((l) => l.line.app_event === "event_processing_succeeded");
+    expect(succeeded).toBeDefined();
+    expect(succeeded!.line.trace_id).toBe(recordSpan.spanContext().traceId);
+    expect(succeeded!.line.span_id).toBe(recordSpan.spanContext().spanId);
+  });
+
+  it("opens an unlinked CONSUMER span for the scheduled tick and flushes it", async () => {
+    // The tick originates from an EventBridge timer, not from a published
+    // message: there is no origin trace to link to, so linking it to anything
+    // would be an invention.
+    await handler({ "detail-type": "3mrai.metrics.tick" } as never);
+
+    const [tickSpan] = spansNamed("metrics-tick");
+    expect(tickSpan).toBeDefined();
+    expect(tickSpan.kind).toBe(SpanKind.CONSUMER);
+    expect(tickSpan.links).toHaveLength(0);
+    expect(tickSpan.status.code).toBe(SpanStatusCode.OK);
+    expect(spansNamed("events-queue process")).toHaveLength(0);
+    expect(flushTraces).toHaveBeenCalledOnce();
   });
 });

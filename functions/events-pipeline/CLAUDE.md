@@ -146,5 +146,17 @@ Two constraints when writing code:
   DOCUMENT. Email recipients are logged only as `email_hash`.
 - **No transports.** pino writes to its default synchronous stdout destination. This Lambda is
   bundled by esbuild into a single CJS file, and a worker-thread transport would break there.
-- `trace_id` / `span_id` are **absent** — this service has no OpenTelemetry SDK yet
-  (JE-138). They will appear once it is instrumented; nothing here synthesizes them.
+- `trace_id` / `span_id` are stamped on every line by `logger.ts`'s formatter, read from the
+  ACTIVE SPAN per line (lowercase hex, 32/16 chars; **omitted** when no span is active — never an
+  all-zero id). Written by hand here, unlike Users: `@opentelemetry/instrumentation-pino` patches
+  pino at `require()` time, and esbuild has inlined pino into the single-file bundle, so it would
+  patch nothing and every line would ship without a trace id, silently.
+- **Spans are all manual, for the same bundling reason** — `getNodeAutoInstrumentations()` would
+  produce zero spans here. The SDK bootstrap is `src/shared/observability/tracing.ts`
+  (`BatchSpanProcessor` + `flushTraces()`, which the handler MUST call in its `finally`: Lambda
+  freezes the process on return). The handler opens `events-queue process` (CONSUMER) per batch
+  and `process_record` (INTERNAL) per record, **linked** — never parented — to the record's origin
+  trace via `messageAttributes.traceparent`. Outbound calls use `withClientSpan`
+  (`src/shared/observability/client-span.ts`): `documentdb insertOne`, `ses SendEmail`,
+  `ws publish`. It takes an explicit `describeError` because a Mongo error's message embeds the
+  rejected document — the span obeys the same PII rule as the log line.

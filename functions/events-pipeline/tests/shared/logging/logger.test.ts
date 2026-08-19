@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
 import pino from "pino";
+// The harness's provider, imported for its TRACER only — no `mockTracingModule()`
+// call here, because this suite never loads a module that imports the tracing
+// bootstrap. Importing the harness does install a real context manager, which is
+// exactly what makes `startActiveSpan` below actually activate a span.
+import { pipelineTracer } from "../../tracing-harness.ts";
 import { buildLoggerOptions, SEVERITY_NUMBER } from "#shared/logging/logger";
 import { runWithLogContext, setLogContext } from "#shared/logging/log-context";
 
@@ -215,6 +220,87 @@ describe("buildLoggerOptions", () => {
       const second = JSON.parse(lines[1]);
       expect(second.event_id).toBe("evt_b");
       expect("order_id" in second).toBe(false);
+    });
+  });
+  describe("trace correlation", () => {
+    it("stamps the ACTIVE span's trace_id and span_id onto the line", async () => {
+      const { lines, stream } = capture();
+      const log = buildLogger(stream);
+
+      let expected: { traceId: string; spanId: string } | undefined;
+      await pipelineTracer.startActiveSpan("process_record", async (span) => {
+        expected = span.spanContext();
+        log.info({ app_event: "event_processing_succeeded" }, "processed event");
+        span.end();
+      });
+
+      const rec = JSON.parse(lines[0]);
+      // Exact string equality with the span's own ids: the logs<->traces join is
+      // a string match between OpenObserve and Jaeger, so anything reformatted
+      // here matches nothing and reports no error.
+      expect(rec.trace_id).toBe(expected!.traceId);
+      expect(rec.span_id).toBe(expected!.spanId);
+    });
+
+    it("emits lowercase, zero-padded hex — 32 chars for the trace, 16 for the span", async () => {
+      const { lines, stream } = capture();
+      const log = buildLogger(stream);
+
+      await pipelineTracer.startActiveSpan("process_record", async (span) => {
+        log.info("processed event");
+        span.end();
+      });
+
+      const rec = JSON.parse(lines[0]);
+      // The shape Users, Orders and Tracking all emit. An uppercase or
+      // unpadded id is a silent correlation failure, not an error.
+      expect(rec.trace_id).toMatch(/^[0-9a-f]{32}$/);
+      expect(rec.span_id).toMatch(/^[0-9a-f]{16}$/);
+    });
+
+    it("OMITS both fields outside a span — never an all-zero id", () => {
+      const { lines, stream } = capture();
+      const log = buildLogger(stream);
+
+      // Cold-start and module-load lines run with no active span. Writing
+      // trace_id: "000…0" would read as a real id and make every uncorrelated
+      // line in the fleet appear to share one trace.
+      log.info({ app_event: "event_processing_started" }, "processing event");
+
+      const rec = JSON.parse(lines[0]);
+      expect("trace_id" in rec).toBe(false);
+      expect("span_id" in rec).toBe(false);
+    });
+
+    it("tracks the INNERMOST span, so a nested client span logs its own id", async () => {
+      const { lines, stream } = capture();
+      const log = buildLogger(stream);
+
+      // Why the ids are read per line rather than stashed in the ALS store when
+      // the record span opens: a line emitted from inside `ses SendEmail` must
+      // carry THAT span's id, not the record's.
+      await pipelineTracer.startActiveSpan("process_record", async (outer) => {
+        await pipelineTracer.startActiveSpan("ses SendEmail", async (inner) => {
+          log.info("sent email");
+          inner.end();
+        });
+        expect(JSON.parse(lines[0]).span_id).not.toBe(outer.spanContext().spanId);
+        outer.end();
+      });
+    });
+
+    it("lets an explicit call-site trace_id win over the ambient one", async () => {
+      const { lines, stream } = capture();
+      const log = buildLogger(stream);
+
+      // Same precedence rule the record context already follows: the call site
+      // is the most specific source and beats ambient enrichment.
+      await pipelineTracer.startActiveSpan("process_record", async (span) => {
+        log.info({ trace_id: "explicit" }, "processed event");
+        span.end();
+      });
+
+      expect(JSON.parse(lines[0]).trace_id).toBe("explicit");
     });
   });
 });

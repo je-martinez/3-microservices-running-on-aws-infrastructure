@@ -1,7 +1,9 @@
 import type { Collection, Db } from "mongodb";
+import { SpanKind } from "@opentelemetry/api";
 import type { EventsRepositoryPort } from "#pipeline/process-record";
 import type { EventDocument, EventStatus } from "#domain/event";
 import { PermanentError } from "#pipeline/errors";
+import { withClientSpan } from "#shared/observability/client-span";
 
 const COLLECTION = "events";
 
@@ -71,19 +73,43 @@ export class MongoEventsRepository implements EventsRepositoryPort {
   }
 
   async insertStarted(doc: EventDocument): Promise<void> {
-    try {
-      await this.collection.insertOne(doc);
-    } catch (err) {
-      // Translating driver-specific errors into the domain's taxonomy is
-      // exactly this adapter's job — the port signature is unchanged.
-      if (isDuplicateKeyError(err)) {
-        throw new DuplicateEventError(doc.event_id);
-      }
-      // Anything else (connection refused, timeout, write concern) stays
-      // unclassified and therefore transient: losing an unprocessed event is
-      // strictly worse than retrying it.
-      throw err;
-    }
+    // Manual CLIENT span. esbuild inlines the mongodb driver into the single-file
+    // bundle, so there is no require() boundary for auto-instrumentation to patch
+    // and this call would otherwise be a hole in the trace between
+    // `process_record` and the handler's next step. A child of whatever span is
+    // active — inside the record loop that is `process_record`.
+    return withClientSpan(
+      "documentdb insertOne",
+      SpanKind.CLIENT,
+      { "db.system": "documentdb", "db.operation": "insertOne", "db.collection.name": COLLECTION },
+      async () => {
+        try {
+          await this.collection.insertOne(doc);
+        } catch (err) {
+          // Translating driver-specific errors into the domain's taxonomy is
+          // exactly this adapter's job — the port signature is unchanged.
+          if (isDuplicateKeyError(err)) {
+            throw new DuplicateEventError(doc.event_id);
+          }
+          // Anything else (connection refused, timeout, write concern) stays
+          // unclassified and therefore transient: losing an unprocessed event is
+          // strictly worse than retrying it.
+          throw err;
+        }
+      },
+      // The error CLASS, never its message. A Mongo write error's message embeds
+      // the REJECTED DOCUMENT — the event payload, carrying the user's email —
+      // which is why the handler already logs only `err.name`. The span obeys the
+      // same rule; Jaeger is not a lower-PII destination than CloudWatch.
+      // DuplicateEventError is synthesized from event_id alone, so its message is
+      // clean by construction and safe to surface as-is.
+      (err) =>
+        err instanceof DuplicateEventError
+          ? err.message
+          : err instanceof Error
+            ? err.name
+            : "insert_failed",
+    );
   }
 
   async transition(

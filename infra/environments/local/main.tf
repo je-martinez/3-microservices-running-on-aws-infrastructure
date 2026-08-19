@@ -518,6 +518,34 @@ module "lambda_events_pipeline" {
     # answers HTTP 400 with an S3 XML body — unrouted :4566 paths fall through
     # to Floci's S3 handler — which looks nothing like an endpoint error.
     WS_MANAGEMENT_ENDPOINT = module.api_gateway_ws.management_endpoint_local
+
+    # ─── Traces ─────────────────────────────────────────────────────────────
+    # OTLP config lives HERE, in environment variables, never in the Lambda's
+    # code — the rule that exists because three silent failures in this repo
+    # came from configuring the SDK in code ([[logging-context]]). The bootstrap
+    # in functions/events-pipeline/src/shared/observability/tracing.ts
+    # constructs OTLPTraceExporter with NO arguments precisely so these vars are
+    # the only source of truth.
+    #
+    # `otel-collector`, NOT `localhost`: like AWS_ENDPOINT_URL and DOCDB_HOST
+    # above, this is resolved from INSIDE the Lambda container on
+    # 3mrai-network, where the collector is a sibling container of that name
+    # (docker-compose.yml). Same value the four realtime-events Lambdas already
+    # use. It is a BASE url — the exporter appends /v1/traces itself, per the
+    # OTLP spec. Hand-building the full path is what made Orders POST every
+    # batch to the collector's root and collect silent 404s.
+    OTEL_EXPORTER_OTLP_ENDPOINT = "http://otel-collector:4318"
+    OTEL_EXPORTER_OTLP_PROTOCOL = "http/protobuf"
+    OTEL_SERVICE_NAME           = "events-pipeline"
+    # Metrics do NOT travel over OTLP here (this function publishes its email
+    # counters with CloudWatch PutMetricData, scraped from there by the
+    # collector) and its logs travel stdout -> CloudWatch, not OTLP. Both must
+    # be disabled HERE rather than in code: NodeSDK auto-detects both exporters
+    # from OTEL_EXPORTER_OTLP_ENDPOINT, and an `undefined` SDK option reads as
+    # "not overridden", so auto-detection still wins. The collector serves
+    # /v1/traces only.
+    OTEL_METRICS_EXPORTER = "none"
+    OTEL_LOGS_EXPORTER    = "none"
   }
 }
 

@@ -11,10 +11,12 @@ import { AsyncLocalStorage } from "node:async_hooks";
 // null, rather than "not applicable to this line" — see
 // docs/shared/conventions/logging-context.md.
 //
-// `trace_id`/`span_id` are deliberately NOT part of this store. They come from
-// the OpenTelemetry SDK's log correlation once this function is instrumented; a
-// locally-invented id would correlate with nothing. Until then they are simply
-// absent (see the note in src/handler.ts).
+// `trace_id`/`span_id` are deliberately NOT part of this store. They are read
+// from the ACTIVE SPAN by `logger.ts`'s formatter, per line — a span id copied
+// into this store when the record's span opened would then be stamped on lines
+// emitted from deeper spans (the DocumentDB/SES/WS wrappers), pointing at the
+// wrong span. The store is for values that hold for the whole record; the span
+// ids are not among them.
 export interface LogContextStore {
   /** Producer-generated event id — this event's only identifier. */
   event_id?: string;
@@ -56,9 +58,10 @@ export interface LogContextStore {
    * (`req_` + nanoid), read off the envelope — never minted here.
    *
    * This is the field that makes a flow reconstructable across services from
-   * the log stream alone, and it carries more weight in this function than
-   * anywhere else: with no OpenTelemetry SDK there is no `trace_id` on these
-   * lines, so `request_id` is the only link back to the originating request.
+   * the log stream alone. It stays useful alongside `trace_id`: `request_id`
+   * is a plain propagated value that survives every hop, including any the OTel
+   * SDK does not reach, and it is present on messages whose producer had no
+   * active span.
    *
    * Absent on messages published before the producers started sending it —
    * omitted, never `request_id: null`.
