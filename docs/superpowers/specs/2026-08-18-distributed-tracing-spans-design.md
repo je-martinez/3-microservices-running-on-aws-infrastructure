@@ -2,13 +2,24 @@
 title: Distributed Tracing — Manual Spans Design
 type: spec
 area: shared
-status: draft
+status: active
 created: 2026-08-18
-updated: 2026-08-18
+updated: 2026-08-19
 tags:
   - type/spec
   - area/shared
-  - status/draft
+  - status/active
+  - issue/JE-138
+  - issue/JE-152
+  - issue/JE-153
+  - issue/JE-154
+  - issue/JE-155
+  - issue/JE-156
+  - issue/JE-157
+  - issue/JE-158
+  - issue/JE-159
+  - issue/JE-160
+  - issue/JE-161
 propagates-to:
   - "[[logging-context]]"
   - "[[ADR-0019-distributed-tracing-opentelemetry]]"
@@ -36,6 +47,14 @@ Validated with the user in a brainstorming session on 2026-08-18. This spec docu
 what was agreed — it does not add scope or invent decisions beyond what follows. Where a
 decision is explicitly a limitation or a deferred item, it is marked as such rather than
 smoothed over.
+
+> [!info] Implemented and verified (2026-08-19) — 10/11 issues closed
+> JE-138 and JE-152 through JE-160 are Done; only JE-161 (full-trace E2E, spec Decision 11)
+> remains. Verified against a real Jaeger trace for `POST /v1/users/register` (54 spans) and the
+> SQS/link hop for `events-queue process` -> `process_record`. Propagated into
+> [[logging-context]], [[ADR-0019-distributed-tracing-opentelemetry]],
+> [[users-service-design]], [[orders-service-design]], [[tracking-service-design]], and
+> [[events-pipeline-design]] — see each note's Observability section for the per-service detail.
 
 **Correction (2026-08-18):** Decision 5's diagram originally marked the events-pipeline Lambda's
 internal spans (DocumentDB insert, SES send, WebSocket publish) as `auto-instr.`. This was found

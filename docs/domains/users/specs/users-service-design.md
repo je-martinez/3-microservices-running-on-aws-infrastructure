@@ -4,7 +4,7 @@ type: spec
 area: users
 status: active
 created: 2026-06-26
-updated: 2026-08-15
+updated: 2026-08-19
 tags: [type/spec, area/users, status/active]
 related:
   - "[[2026-08-15-request-id-correlation-design]]"
@@ -48,6 +48,8 @@ related:
   - "[[password-policy-checklist-gap]]"
   - "[[redis-elasticache-replication-group-floci]]"
   - "[[2026-08-12-custom-business-metrics-cloudwatch-design]]"
+  - "[[2026-08-18-distributed-tracing-spans-design]]"
+  - "[[2026-08-18-distributed-tracing-spans]]"
 ---
 
 # Users Service Design
@@ -474,6 +476,31 @@ deliberate ordering, not incidental: the guard short-circuits a `401` with `retu
 `done()`, so seeding after it would leave the `401`s — the requests people actually investigate —
 with no `request_id` at all. Full design: [[2026-08-15-request-id-correlation-design]].
 
+**7 auth flows carry a manual `withWorkflowSpan`-wrapped `INTERNAL` span:** `register`
+(both password and passwordless, distinguished by an `auth_type` attribute), `login`,
+`change_password`, `otp_challenge`, `otp_verify`, `password_reset_requested`,
+`password_reset_confirm`. Each span carries the same `app_event`/`reason` attributes as its flow
+log line and closes in a `finally`, mirroring the existing `withGrpcServerSpan` shape
+(`src/shared/grpc/api-key-interceptor.ts`). **Prisma now has spans too** —
+`@prisma/instrumentation` is registered before `sdk.start()`, closing the one gap where Users'
+own DB previously never appeared in the trace cascade. A verified real trace for
+`POST /v1/users/register` (54 spans total) shows the resulting depth:
+```
+POST — 209.4ms
+  register — 203.1ms
+    prisma:client:operation — 102.9ms
+      prisma:client:connect — 46.2ms
+      prisma:client:db_query — 25.5ms
+        pg.query:INSERT users — 9.8ms
+    CognitoIdentityProvider.AdminCreateUser — 13.7ms
+    3mrai-local-events-events send — 11.3ms
+```
+The SQS publish (`event-publisher.ts`) also injects `traceparent` into the message's
+`MessageAttributes`, propagating the trace into events-pipeline via a span **link**, not a
+parent-child relationship — see [[2026-08-18-distributed-tracing-spans-design#Decision 4 — the SQS hop: traceparent in MessageAttributes + span links|Decision 4]]. Full design and
+implementation: [[2026-08-18-distributed-tracing-spans-design]] /
+[[2026-08-18-distributed-tracing-spans]].
+
 ## Service-local decisions
 
 Decisions made specifically for this service (not cross-cutting, so they are not
@@ -514,6 +541,11 @@ convention/pattern notes in `shared/`) live in `docs/domains/users/decisions/`:
 - [[env-files]]
 - [[testing]]
 - [[ADR-0019-distributed-tracing-opentelemetry]]
+- [[2026-08-18-distributed-tracing-spans-design]] — the 7 auth-flow workflow spans, Prisma
+  instrumentation, and the SQS `traceparent` injection this note's Observability section
+  documents.
+- [[2026-08-18-distributed-tracing-spans]] — implementation plan, verified against a real Jaeger
+  trace.
 - [[auth-error-mapping]]
 - [[authenticated-identity-resolution]]
 - [[app-user-id-token-claim]]

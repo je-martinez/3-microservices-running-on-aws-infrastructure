@@ -2,13 +2,24 @@
 title: Distributed Tracing — Manual Spans Implementation Plan
 type: plan
 area: shared
-status: draft
+status: active
 created: 2026-08-18
-updated: 2026-08-18
+updated: 2026-08-19
 tags:
   - type/plan
   - area/shared
-  - status/draft
+  - status/active
+  - issue/JE-138
+  - issue/JE-152
+  - issue/JE-153
+  - issue/JE-154
+  - issue/JE-155
+  - issue/JE-156
+  - issue/JE-157
+  - issue/JE-158
+  - issue/JE-159
+  - issue/JE-160
+  - issue/JE-161
 propagates-to:
   - "[[users-service-design]]"
   - "[[orders-service-design]]"
@@ -28,6 +39,12 @@ related:
 # Distributed Tracing — Manual Spans Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+> [!info] Implemented and verified (2026-08-19) — 10/11 issues closed
+> Tasks 1-8 (JE-138, JE-152 through JE-160) are Done. Only Task 9 / JE-161 (full-trace E2E)
+> remains open. Propagated into [[logging-context]], [[ADR-0019-distributed-tracing-opentelemetry]],
+> [[users-service-design]], [[orders-service-design]], [[tracking-service-design]], and
+> [[events-pipeline-design]].
 
 **Goal:** Close the gaps in the tracing cascade so the 11 flow-log-carrying workflows across Users, Orders, and Tracking, the SQS hop between them and events-pipeline, and the 4 realtime-events Lambdas all produce spans that join one trace, without inventing a custom propagation mechanism.
 

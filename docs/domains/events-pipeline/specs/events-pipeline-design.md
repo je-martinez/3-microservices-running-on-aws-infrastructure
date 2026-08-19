@@ -4,7 +4,7 @@ type: spec
 area: events-pipeline
 status: accepted
 created: 2026-06-26
-updated: 2026-08-15
+updated: 2026-08-19
 tags: [type/spec, area/events-pipeline, status/accepted]
 related:
   - "[[2026-08-15-request-id-correlation-design]]"
@@ -32,6 +32,9 @@ related:
   - "[[ADR-0020-self-owned-password-reset]]"
   - "[[email-templates]]"
   - "[[2026-08-12-custom-business-metrics-cloudwatch-design]]"
+  - "[[2026-08-18-distributed-tracing-spans-design]]"
+  - "[[2026-08-18-distributed-tracing-spans]]"
+  - "[[ADR-0019-distributed-tracing-opentelemetry]]"
 ---
 
 # Events Pipeline Design
@@ -630,14 +633,85 @@ for the full evidence trail.
 - **CQRS dispatch:** handler selection is by event `type`; commands and queries are never mixed in the same handler. See [[cqrs]] and [[ADR-0002-cqrs]].
 - **Env files:** the DocumentDB connection string and `EVENTS_QUEUE_URL` are generated, never hardcoded — see [[env-files]].
 - **Testing:** this component has no HTTP endpoints, so the repo's three-layer convention is adapted rather than applied literally — see [[testing]] and Tracking's producer-side testing in [[tracking-service-design]].
-- **Logging:** every line carries the shared cross-service context (`request_id`, `trace_id`, `user_id`, `order_id`, `event_id`); never the full payload or a plaintext email. See [[logging-context]]. Unlike `trace_id`, which this service has never emitted (JE-138, no OTel SDK here — see [[logging-context]]'s warning), `request_id` **is** present: the pipeline is a pure **consumer** of it. It reads the optional root `request_id` field off the envelope in `envelopeContext()` per SQS record and never mints one of its own; when the field is absent (e.g. a message queued before this field existed), it is omitted from the log line, never logged as null. This is precisely the gap [[2026-08-15-request-id-correlation-design]] exists to close — the one hop with no `trace_id` at all now still gets a correlation id, sourced from whichever producer (Orders or Tracking) set it.
+- **Logging:** every line carries the shared cross-service context (`request_id`, `trace_id`, `user_id`, `order_id`, `event_id`); never the full payload or a plaintext email. See [[logging-context]]. `request_id` is present because the pipeline is a pure **consumer** of it: it reads the optional root `request_id` field off the envelope in `envelopeContext()` per SQS record and never mints one of its own; when the field is absent (e.g. a message queued before this field existed), it is omitted from the log line, never logged as null. This closed the gap [[2026-08-15-request-id-correlation-design]] exists for — but as of JE-138 (below) `trace_id` is present too, so `request_id` is no longer this hop's *only* correlation id, just its SDK-independent one.
+- **Distributed tracing:** the SDK, backend, and span pattern are decided in [[ADR-0019-distributed-tracing-opentelemetry]] / [[2026-08-18-distributed-tracing-spans-design]] — see [Observability — tracing spans](#observability--tracing-spans) below for how this specific Lambda applies them.
+
+## Observability — tracing spans
+
+> [!info] Closed JE-138 (2026-08-19) — this Lambda now carries the full OTel SDK
+> Full design: [[2026-08-18-distributed-tracing-spans-design#Decision 5 — events-pipeline: instrument the inside, not just the entry point|Decision 5]]. Implementation: [[2026-08-18-distributed-tracing-spans]].
+
+Span structure, one `CONSUMER` span per batch and one `INTERNAL` span **per record** (not per
+batch — that is the level where a link is meaningful and where it becomes visible which message
+was expensive):
+
+```
+events-queue process (CONSUMER, links -> N origin traces)
++-- process_record (INTERNAL, link -> origin trace)
+|   +-- INSERT events (DocumentDB, CLIENT, manual)
+|   +-- SES SendEmail (CLIENT, manual)
+|   +-- ws publish (PRODUCER, manual)
++-- process_record (INTERNAL, link -> another origin trace)
+```
+
+Verified against a real trace:
+```
+events-queue process (569ms)  refs=0
+  process_record (491ms)      refs=2
+     -> CHILD_OF     SAME trace
+     -> FOLLOWS_FROM ANOTHER trace   <- link to the origin
+```
+and a `metrics-tick` span (the EventBridge 1-minute rate tick) with `refs=0` — a timer has no
+origin trace, so it correctly starts a brand-new one rather than being forced into a link.
+
+**Why links, not parent-child.** An SQS batch carries messages from **distinct** traces (Users,
+Orders, and Tracking all publish onto the one shared queue). A single parent would force picking
+one origin and lying about the rest, so the consumer instead **links** — `events-queue process`
+links to the N origin traces present in its batch, and each `process_record` span links to its
+own origin. **Honest limitation, kept as such:** in Jaeger, a link does not draw the linked span's
+bar inside the origin trace's own waterfall the way a child would — it renders as a navigable
+reference instead. That is the price of not fabricating a hierarchy a batch consumer does not
+have.
+
+**Every internal span here is manual, not auto-instrumented — a packaging necessity, not a style
+choice.** `functions/events-pipeline/scripts/build.mjs` bundles the handler into a single
+self-contained CJS file with esbuild (`bundle: true`, `format: "cjs"` — an ESM bundle loads under
+local Node but fails on the real `nodejs20.x` runtime with `ERR_REQUIRE_CYCLE_MODULE`, verified
+empirically); the AWS SDK, `mongodb`, and `zod` are all inlined, and the zip ships no
+`node_modules`. OTel auto-instrumentation patches a module at `require()`/resolution time — once
+esbuild has inlined `@aws-sdk/client-ses`, `mongodb`, and
+`@aws-sdk/client-apigatewaymanagementapi` into one file, there is no module boundary left to
+patch. Registering `getNodeAutoInstrumentations()` here would produce **zero spans, silently**,
+for DocumentDB, SES, and the WebSocket push — the same silent-failure shape
+[[logging-context#OTel configuration belongs in the environment, not in code]] already documents
+three times over. So the DocumentDB insert, SES send, and WebSocket publish spans above are
+created by hand, using the same `startActiveSpan`/`finally` shape every other manual span in this
+design uses.
+
+**The consumer needs the `traceparent` on the record — a type-level trap called out on purpose.**
+`SqsRecord` in `handler.ts` originally declared only `messageId`/`body`; it had to widen to
+include `messageAttributes`, or a publisher's `traceparent` would arrive on the message and be
+silently dropped before it ever reached the link logic — the same "declare the field or it
+vanishes" failure class documented throughout [[logging-context]].
+
+**Lambda flush.** `BatchSpanProcessor` (not `SimpleSpanProcessor` — one HTTP request per span
+would add per-invocation latency at this Lambda's batch sizes), with `forceFlush()` called in the
+handler's `finally`. Lambda freezes the process on return, so buffered spans not explicitly
+flushed are lost or arrive late on the next cold invocation, attributed to the wrong request.
 
 ## Related
 
 - [[2026-08-15-request-id-correlation-design]] — the cross-service `request_id` correlation field.
-  This is the design's motivating service: with no OTel SDK (JE-138), the pipeline had no
-  correlation id at all until this shipped. It is a pure consumer — reads the optional envelope
-  field, never mints one.
+  This was the design's motivating service: before the OTel SDK landed (JE-138, now closed — see
+  [Observability — tracing spans](#observability--tracing-spans)), the pipeline had no
+  correlation id at all. It is a pure consumer — reads the optional envelope field, never mints
+  one.
+- [[ADR-0019-distributed-tracing-opentelemetry]]
+- [[2026-08-18-distributed-tracing-spans-design]] — the CONSUMER->INTERNAL span structure with
+  links, the manual-spans-by-packaging-necessity finding, and the SqsRecord widening trap
+  documented above.
+- [[2026-08-18-distributed-tracing-spans]] — implementation plan, verified against a real Jaeger
+  trace.
 - [[cqrs]]
 - [[ADR-0002-cqrs]]
 - [[nano-id]]

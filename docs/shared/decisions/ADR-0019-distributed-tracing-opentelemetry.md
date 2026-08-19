@@ -5,7 +5,7 @@ area: shared
 status: accepted
 id: ADR-0019
 created: 2026-07-19
-updated: 2026-07-28
+updated: 2026-08-19
 deciders: [Jose E. Martinez]
 supersedes: null
 superseded-by: null
@@ -22,6 +22,12 @@ related:
   - "[[ADR-0003-grpc-inter-service]]"
   - "[[2026-07-12-prisma-lazy-promise-als]]"
   - "[[developer-experience-milestone]]"
+  - "[[2026-08-18-distributed-tracing-spans-design]]"
+  - "[[2026-08-18-distributed-tracing-spans]]"
+  - "[[events-pipeline-design]]"
+  - "[[users-service-design]]"
+  - "[[orders-service-design]]"
+  - "[[tracking-service-design]]"
 ---
 
 # ADR-0019: Distributed Tracing via OpenTelemetry, Split from OpenObserve to Jaeger
@@ -93,6 +99,63 @@ logs stay in OpenObserve.**
   Fixed and verified in commit `a62c5fb` on `feature/developer-experience`;
   [JE-77](https://linear.app/je-martinez/issue/JE-77) is Done.
 
+> [!info] Update (2026-08-19) — business spans, the SQS hop, and full Lambda coverage, verified
+> [[2026-08-18-distributed-tracing-spans-design]] and its implementation plan
+> [[2026-08-18-distributed-tracing-spans]] closed the remaining gaps this ADR left open. 10 of 11
+> issues shipped (JE-138, JE-152 through JE-160); only JE-161 (E2E) remains.
+>
+> - **Business spans on all 11 flows.** Every flow that already had a full `*_started`/
+>   `*_succeeded`/`*_failed` log triad (7 in Users, 1 in Orders, 3 in Tracking) now gets a manual
+>   `INTERNAL` workflow span carrying the same `app_event`/`reason` attributes as its log line —
+>   see [[logging-context#Flow logs]]. A real Jaeger trace for `POST /v1/users/register` shows the
+>   resulting cascade (54 spans total):
+>   ```
+>   POST — 209.4ms
+>     register — 203.1ms
+>       prisma:client:operation — 102.9ms
+>         prisma:client:connect — 46.2ms
+>         prisma:client:db_query — 25.5ms
+>           pg.query:INSERT users — 9.8ms
+>       CognitoIdentityProvider.AdminCreateUser — 13.7ms
+>       3mrai-local-events-events send — 11.3ms
+>   ```
+> - **The SQS hop now propagates trace context.** All 3 publishers (Users, Orders, Tracking)
+>   inject `traceparent` into SQS `MessageAttributes` (never the envelope body — that stays a
+>   Zod-validated domain contract). The events-pipeline consumer does **not** create a
+>   parent-child relationship for it — an SQS batch carries messages from distinct origin traces,
+>   so a single parent would force picking one and lying about the rest. It uses **span links**
+>   instead: one `events-queue process` `CONSUMER` span links to the N origin traces in its batch,
+>   and each record's own `process_record` `INTERNAL` span links to its own origin trace. Verified:
+>   ```
+>   events-queue process (569ms)  refs=0
+>     process_record (491ms)      refs=2
+>        -> CHILD_OF     SAME trace
+>        -> FOLLOWS_FROM ANOTHER trace   <- link to the origin
+>   ```
+>   and a `metrics-tick` span (the EventBridge 1-minute tick) with `refs=0` — a timer has no origin
+>   trace to link to, so it correctly starts a new one.
+> - **Honest limitation, kept as such rather than smoothed over:** in Jaeger, a span link does
+>   **not** draw the linked span's bar inside the origin trace's own waterfall as if it were a
+>   child — it renders as a navigable reference instead. Choosing links over a fabricated
+>   parent-child relationship on a batch consumer was a deliberate trade of visual continuity for
+>   not lying about the hierarchy.
+> - **All 5 Lambda runtimes now carry the OTel SDK**, closing the gap this ADR never covered:
+>   `functions/events-pipeline` (JE-138) and all 4 `functions/realtime-events` entry points —
+>   `connect`, `disconnect`, `default`, `authorizer` (JE-159).
+> - **Auto-instrumentation does not survive an esbuild bundle — a mid-design correction.** Both
+>   Lambda packages ship as esbuild-bundled, single-file CJS output with the AWS SDK and other
+>   deps inlined (`bundle: true`, `format: "cjs"` — ESM fails on the real `nodejs20.x` runtime with
+>   `ERR_REQUIRE_CYCLE_MODULE`, verified empirically). OTel auto-instrumentation patches modules at
+>   `require()`/resolution time; once esbuild inlines `@aws-sdk/client-ses`, `mongodb`, and
+>   `@aws-sdk/client-apigatewaymanagementapi` into one file, there is no module boundary left to
+>   patch. Registering `getNodeAutoInstrumentations()` in either Lambda would have produced
+>   **zero spans, silently** — the same silent-failure shape [[logging-context#OTel configuration
+>   belongs in the environment, not in code]] already documents three times over. The spec's own
+>   Decision 5 diagram originally marked these internal spans `auto-instr.`; that was found
+>   factually wrong while writing the implementation plan and corrected in place. Every internal
+>   Lambda span (DocumentDB insert, SES send, WebSocket publish) is therefore **manual**, by
+>   packaging necessity, not by style choice.
+
 ## Supersedes
 
 - The **tracing / logs-only stance** of [[ADR-0018-observability-openobserve]] — its
@@ -110,3 +173,12 @@ logs stay in OpenObserve.**
 - [[ADR-0003-grpc-inter-service]]
 - [[2026-07-12-prisma-lazy-promise-als]] — same ALS-scope-unwinding failure family as the JE-77 root cause.
 - [[developer-experience-milestone]] — Block 2 status, now closed at 11/11 with JE-77 fixed.
+- [[2026-08-18-distributed-tracing-spans-design]] — business spans on the 11 flows, the SQS
+  traceparent+links hop, and full Lambda SDK coverage; see the 2026-08-19 Consequences update
+  above.
+- [[2026-08-18-distributed-tracing-spans]] — the implementation plan, verified against a real
+  Jaeger trace.
+- [[events-pipeline-design]] — the CONSUMER→INTERNAL span structure with links, and why the
+  Lambda's internal spans are manual.
+- [[users-service-design]], [[orders-service-design]], [[tracking-service-design]] — the
+  per-service workflow spans this update added.
