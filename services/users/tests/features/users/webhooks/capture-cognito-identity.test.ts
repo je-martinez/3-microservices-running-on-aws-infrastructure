@@ -1,6 +1,8 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { CaptureCognitoIdentityCommand, NoMatchingUserError } from "#features/users/webhooks/capture-cognito-identity";
 import { deriveMessageId } from "#features/users/webhooks/message-id";
+import { testSpanExporter } from "../../../setup-tracing.ts";
+import { captureAppLogs, lineFor } from "../../../helpers/capture-app-logs.ts";
 
 const payload = {
   version: "1",
@@ -123,5 +125,103 @@ describe("CaptureCognitoIdentityCommand", () => {
       usersCognitoData: { upsert: vi.fn(async () => { throw null; }) },
     });
     await expect(new CaptureCognitoIdentityCommand({ db }).execute(payload)).rejects.toBeNull();
+  });
+});
+
+// Every line below asserts the record's `span_id` equals the `cognito_webhook`
+// span's own. That is the whole point of the change: the no-match line used to
+// be emitted by the route AFTER execute() returned, so the span had already
+// ended and "View logs" on it in OpenObserve came back empty.
+describe("CaptureCognitoIdentityCommand logging", () => {
+  beforeEach(() => testSpanExporter.reset());
+
+  function webhookSpanId(): string {
+    const span = testSpanExporter.getFinishedSpans().find((s) => s.name === "cognito_webhook");
+    expect(span).toBeDefined();
+    return span!.spanContext().spanId;
+  }
+
+  it("logs cognito_webhook_started INSIDE the span, with the sub and trigger source", async () => {
+    const db = dbMock();
+    const lines = await captureAppLogs(async () => {
+      await new CaptureCognitoIdentityCommand({ db }).execute(payload as never);
+    });
+
+    const started = lineFor(lines, "cognito_webhook_started");
+    expect(started).toBeDefined();
+    expect(started!.span_id).toBe(webhookSpanId());
+    expect(started!.cognito_sub).toBe(payload.request.userAttributes.sub);
+    expect(started!.trigger_source).toBe("PostConfirmation_ConfirmSignUp");
+  });
+
+  it("logs cognito_webhook_succeeded with capture_status=captured, inside the span", async () => {
+    const db = dbMock();
+    const lines = await captureAppLogs(async () => {
+      await new CaptureCognitoIdentityCommand({ db }).execute(payload as never);
+    });
+
+    const done = lines.find(
+      (l) => l.app_event === "cognito_webhook_succeeded" && l.capture_status === "captured",
+    );
+    expect(done).toBeDefined();
+    expect(done!.span_id).toBe(webhookSpanId());
+    expect(done!.user_id).toBe("usr_1");
+  });
+
+  it("logs a replayed delivery as succeeded/duplicate, not as a failure", async () => {
+    const db = dbMock({
+      usersCognitoData: {
+        upsert: vi.fn(async () => {
+          throw Object.assign(new Error("unique"), {
+            code: "P2002",
+            meta: { target: ["message_id"] },
+          });
+        }),
+      },
+    });
+
+    const lines = await captureAppLogs(async () => {
+      await new CaptureCognitoIdentityCommand({ db }).execute(payload as never);
+    });
+
+    const done = lines.find(
+      (l) => l.app_event === "cognito_webhook_succeeded" && l.capture_status === "duplicate",
+    );
+    expect(done).toBeDefined();
+    expect(done!.span_id).toBe(webhookSpanId());
+    expect(done!.severity_text).toBe("INFO");
+    expect(done!.message_id).toBe(deriveMessageId(
+      payload.request.userAttributes.sub,
+      payload.triggerSource,
+    ));
+  });
+
+  it("logs cognito_webhook_no_match INSIDE the span (it used to fire after the span closed)", async () => {
+    const db = dbMock({ user: { findFirst: vi.fn(async () => null) } });
+
+    const lines = await captureAppLogs(async () => {
+      await new CaptureCognitoIdentityCommand({ db })
+        .execute(payload as never)
+        .catch(() => undefined);
+    });
+
+    const noMatch = lineFor(lines, "cognito_webhook_no_match");
+    expect(noMatch).toBeDefined();
+    expect(noMatch!.reason).toBe("no_matching_user");
+    expect(noMatch!.severity_text).toBe("ERROR");
+    expect(noMatch!.span_id).toBe(webhookSpanId());
+  });
+
+  it("never puts the plaintext email or the raw payload on any line", async () => {
+    const db = dbMock();
+    const lines = await captureAppLogs(async () => {
+      await new CaptureCognitoIdentityCommand({ db }).execute(payload as never);
+    });
+
+    const serialized = JSON.stringify(lines);
+    expect(serialized).not.toContain("a@b.com");
+    // The payload is persisted in full but is a request body — it never logs.
+    expect(serialized).not.toContain("email_verified");
+    expect(lineFor(lines, "cognito_webhook_started")!.email_hash).toBeDefined();
   });
 });

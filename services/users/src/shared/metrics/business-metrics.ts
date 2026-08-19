@@ -1,5 +1,6 @@
 import type { Db } from "../db/prisma.ts";
 import type { Env } from "../config/env.ts";
+import { trace } from "@opentelemetry/api";
 import { appLogger } from "../logging/app-logger.ts";
 import { withWorkflowSpan } from "../observability/workflow-tracing.ts";
 import type { MetricsPublisher } from "./cloudwatch-metrics.ts";
@@ -67,15 +68,33 @@ export class BusinessMetricsPoller {
       // anything, but the span still has to come out ERROR, and it can only see
       // the error if the throw reaches withWorkflowSpan first.
       //
-      // No attributes: the tick has no successful `app_event` in the logs to
-      // mirror, and inventing one here would put a field on the span that no
-      // log line carries. The failure path already logs
-      // `metrics_collection_failed`, and the span's ERROR status + recorded
-      // exception say the same thing in the trace.
-      await withWorkflowSpan("metrics-tick", {}, async () => {
-        await this.collectAndPublishTick();
+      // The success line is emitted INSIDE the callback, deliberately: the
+      // catch below is outside the span (see above), so a line logged there
+      // would carry the enclosing span's id — or none at all — and the span's
+      // "View logs" would come back empty. Until this existed there was no way
+      // to tell a tick that ran and published from one that never fired at all;
+      // the failure path logged, the success path was silent.
+      await withWorkflowSpan("metrics-tick", { app_event: "metrics_tick_started" }, async () => {
+        const counts = await this.collectAndPublishTick();
+        trace.getActiveSpan()?.setAttribute("app_event", "metrics_tick_succeeded");
+        appLogger.info(
+          {
+            app_event: "metrics_tick_succeeded",
+            users_with_password: counts.withPassword,
+            users_without_password: counts.withoutPassword,
+            users_total: counts.withPassword + counts.withoutPassword,
+          },
+          "published business metrics",
+        );
       });
     } catch (err) {
+      // Stays OUT of the span on purpose: the span must SEE the throw to come
+      // out ERROR, so it has already ended here. That is the one accepted
+      // trade-off in this file — the failure line does not share the tick
+      // span's id. The span still tells the failure story on its own (ERROR
+      // status + recorded exception with the same message this line carries),
+      // and the started/succeeded pair inside the span is what makes a missing
+      // `metrics_tick_succeeded` legible as a failed tick.
       appLogger.warn(
         {
           app_event: "metrics_collection_failed",
@@ -86,8 +105,16 @@ export class BusinessMetricsPoller {
     }
   }
 
-  /** The tick's actual work, run inside the `metrics-tick` span. */
-  private async collectAndPublishTick(): Promise<void> {
+  /**
+   * The tick's actual work, run inside the `metrics-tick` span. Returns the two
+   * counts it published so the caller's success line can state WHAT went out —
+   * "the tick ran" alone would not distinguish a healthy publish from one that
+   * shipped zeros because the query silently matched nothing.
+   */
+  private async collectAndPublishTick(): Promise<{
+    withPassword: number;
+    withoutPassword: number;
+  }> {
     // Two counts rather than a groupBy: a groupBy omits rows for a value with no
     // users at all, which would silently stop publishing that series instead of
     // publishing a 0 — and a series that stops updating reads as "no data" in a
@@ -166,5 +193,7 @@ export class BusinessMetricsPoller {
       this.metrics.publish("users_registered_total", 0, { Service: "users" }),
       this.metrics.publish("password_resets_total", 0, { Service: "users" }),
     ]);
+
+    return { withPassword, withoutPassword };
   }
 }

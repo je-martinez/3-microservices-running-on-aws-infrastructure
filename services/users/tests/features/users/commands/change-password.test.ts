@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { SpanStatusCode } from "@opentelemetry/api";
 import { ChangePasswordCommand } from "#features/users/commands/change-password";
 import { testSpanExporter } from "../../../setup-tracing.ts";
+import { captureAppLogs, lineFor } from "../../../helpers/capture-app-logs.ts";
 
 const FIXED_DATE = new Date("2026-01-01T00:00:00.000Z");
 const NEW_PASSWORD = "N3wP@ssw0rd!";
@@ -170,5 +171,58 @@ describe("ChangePasswordCommand tracing", () => {
     expect(serialized).not.toContain(NEW_PASSWORD);
     expect(serialized).not.toContain("jose@example.com");
     expect(span!.attributes.email_hash).toBeDefined();
+  });
+});
+
+describe("ChangePasswordCommand logging", () => {
+  beforeEach(() => testSpanExporter.reset());
+
+  it("logs change_password_failed/unknown_user for the 404 branch, which used to return silently", async () => {
+    // The only path of this flow with no log line at all: the `_started` line
+    // needs the email this resolve failed to find, so a 404 here left nothing
+    // but the generic `request completed` behind.
+    const { command, currentUser } = build({ resolved: null });
+
+    const lines = await captureAppLogs(async () => {
+      await command.execute(currentUser as never, { newPassword: NEW_PASSWORD });
+    });
+
+    const line = lineFor(lines, "change_password_failed");
+    expect(line).toBeDefined();
+    expect(line!.reason).toBe("unknown_user");
+    expect(line!.severity_text).toBe("WARN");
+  });
+
+  it("emits that line INSIDE the change_password span", async () => {
+    const { command, currentUser } = build({ resolved: null });
+
+    const lines = await captureAppLogs(async () => {
+      await command.execute(currentUser as never, { newPassword: NEW_PASSWORD });
+    });
+
+    const span = testSpanExporter.getFinishedSpans().find((s) => s.name === "change_password");
+    expect(lineFor(lines, "change_password_failed")!.span_id).toBe(span!.spanContext().spanId);
+  });
+
+  it("carries the same app_event/reason pair on the span as on the line", async () => {
+    const { command, currentUser } = build({ resolved: null });
+
+    await captureAppLogs(async () => {
+      await command.execute(currentUser as never, { newPassword: NEW_PASSWORD });
+    });
+
+    const span = testSpanExporter.getFinishedSpans().find((s) => s.name === "change_password");
+    expect(span!.attributes.app_event).toBe("change_password_failed");
+    expect(span!.attributes.reason).toBe("unknown_user");
+  });
+
+  it("never logs the new password on the unresolved-caller path", async () => {
+    const { command, currentUser } = build({ resolved: null });
+
+    const lines = await captureAppLogs(async () => {
+      await command.execute(currentUser as never, { newPassword: NEW_PASSWORD });
+    });
+
+    expect(JSON.stringify(lines)).not.toContain(NEW_PASSWORD);
   });
 });

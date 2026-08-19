@@ -584,10 +584,13 @@ export function buildApp(
           // header note for the 404/409 alternatives considered). Cognito
           // retries the trigger in prod on a non-2xx, so a transient race
           // self-heals.
-          req.log.error(
-            { err, app_event: "cognito_webhook_no_match" },
-            "cognito webhook: no matching users row for confirmed identity",
-          );
+          //
+          // The `cognito_webhook_no_match` line is emitted by the command, not
+          // here: this point is OUTSIDE the `cognito_webhook` span, which has
+          // already ended by the time the error surfaces, so a line logged here
+          // carries a different span_id and is invisible from the span in
+          // OpenObserve. Logging it in both places would double-count the
+          // failure instead.
           return reply.code(500).send({ error: "no_matching_user" });
         }
         throw err;

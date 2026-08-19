@@ -59,7 +59,22 @@ export class ChangePasswordCommand {
     // the same standard every other /me route holds.
     const target = await currentUser.resolve();
     if (!target) {
-      trace.getActiveSpan()?.setAttribute("reason", "unknown_user");
+      // The one path of this flow that used to return silently: no started
+      // line had been emitted yet (it needs the email this resolve failed to
+      // find), so a 404 here left the log stream with nothing but the generic
+      // `request completed`. Logged inside the span, so it shares the
+      // `change_password` span_id like every other line of the flow.
+      //
+      // No email_hash: the email is precisely what could not be resolved. The
+      // caller's identity still reaches the line through the request log
+      // context.
+      appLogger.warn(
+        { app_event: "change_password_failed", reason: "unknown_user" },
+        "Password change failed: the caller resolved to no user",
+      );
+      trace
+        .getActiveSpan()
+        ?.setAttributes({ app_event: "change_password_failed", reason: "unknown_user" });
       return null;
     }
 
