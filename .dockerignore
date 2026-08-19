@@ -1,0 +1,83 @@
+# Build context exclusions for every root-context image (users, orders,
+# email-preview, web). The context is the REPO ROOT for all of them, and the
+# whole tree is uploaded to the Docker daemon BEFORE the first instruction runs
+# — so anything not excluded here is paid for on every build, whether or not a
+# COPY ever names it.
+#
+# That cost was 7.0G before this file existed: 4.9G of Terraform provider
+# caches under infra/**/.terraform plus 1.5G of node_modules. No Dockerfile in
+# this repo copies either — each one COPYs narrow, explicit paths (manifests,
+# src/, proto/, prisma/, emails/) — so the entire upload was pure waste.
+#
+# RULE: exclusions here are BROAD, and each Dockerfile re-includes what it
+# needs by naming it in a COPY. Adding a path below cannot silently break a
+# build that does not reference it; check the COPY lines before excluding
+# something a Dockerfile does name.
+
+# ── Dependencies (reinstalled inside the image from the lockfile) ────────────
+# pnpm installs from pnpm-lock.yaml in the deps stage; a host node_modules is
+# both useless (wrong platform — macOS binaries in a Linux image) and huge.
+node_modules
+.pnpm-store
+
+# ── Terraform provider caches (4.9G) ────────────────────────────────────────
+# Downloaded per-module by `terraform init`. Nothing in any image reads them.
+**/.terraform
+*.tfstate
+*.tfstate.*
+
+# ── Build outputs (regenerated inside the image) ────────────────────────────
+# Copying a host dist/ in would let a developer's stale local build silently
+# become the image's contents — the same class of bug the users Dockerfile
+# guards against by regenerating its Prisma client after COPY.
+dist
+**/dist
+**/bin
+**/obj
+apps/web/.angular
+services/*/src/generated
+
+# ── Python tooling ──────────────────────────────────────────────────────────
+.venv
+.ruff_cache
+**/__pycache__
+
+# ── VCS & CI ────────────────────────────────────────────────────────────────
+.git
+.github
+.gitignore
+
+# ── Secrets — belt and braces ───────────────────────────────────────────────
+# These are gitignored too, but a build context is not a git checkout: an
+# untracked .env.local.users sitting in the working tree would otherwise be
+# uploaded and, if any COPY caught it, baked into a layer. The committed
+# .env.example contract is not secret, so it stays.
+.env
+.env.*
+!.env.example
+
+# ── Editor / agent / docs material, never served or compiled ────────────────
+.vscode
+.idea
+.claude
+.cursor
+.windsurf
+.ai
+.superpowers
+.obsidian
+docs
+spike
+
+# apps/web/design/exports holds 56 static HTML design references — reference
+# material for humans, never served by the web image (nginx serves only
+# dist/web/browser). Excluded explicitly because "design" reads like source.
+apps/web/design
+
+# ── Test artifacts ──────────────────────────────────────────────────────────
+e2e/test-results
+e2e/screenshots
+coverage
+
+# ── OS junk ─────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
