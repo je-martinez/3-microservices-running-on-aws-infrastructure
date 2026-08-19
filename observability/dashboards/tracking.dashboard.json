@@ -415,7 +415,7 @@
           "queryType": "sql",
           "queries": [
             {
-              "query": "SELECT _timestamp, http_request_method, http_route, http_response_status_code, duration_ms FROM logs WHERE service_name = 'tracking' AND http_response_status_code >= 400 ORDER BY _timestamp DESC",
+              "query": "SELECT _timestamp, http_request_method, http_route, http_response_status_code, duration_ms, request_id, trace_id FROM logs WHERE service_name = 'tracking' AND http_response_status_code >= 400 ORDER BY _timestamp DESC",
               "customQuery": true,
               "fields": {
                 "stream": "logs",
@@ -463,6 +463,24 @@
                     "label": "duration ms",
                     "alias": "duration_ms",
                     "column": "duration_ms",
+                    "color": null,
+                    "isDerived": false,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  },
+                  {
+                    "label": "request id",
+                    "alias": "request_id",
+                    "column": "request_id",
+                    "color": null,
+                    "isDerived": false,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  },
+                  {
+                    "label": "trace id",
+                    "alias": "trace_id",
+                    "column": "trace_id",
                     "color": null,
                     "isDerived": false,
                     "havingConditions": [],

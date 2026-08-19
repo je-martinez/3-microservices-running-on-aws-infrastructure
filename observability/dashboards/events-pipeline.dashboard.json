@@ -299,7 +299,7 @@
           "queryType": "sql",
           "queries": [
             {
-              "query": "SELECT _timestamp, app_event, reason, event_id, author_actor FROM logs WHERE service_name = 'events-pipeline' AND (app_event LIKE '%_failed' OR severity_text = 'ERROR') ORDER BY _timestamp DESC",
+              "query": "SELECT _timestamp, app_event, reason, event_id, author_actor, request_id, trace_id FROM logs WHERE service_name = 'events-pipeline' AND (app_event LIKE '%_failed' OR severity_text = 'ERROR') ORDER BY _timestamp DESC",
               "customQuery": true,
               "fields": {
                 "stream": "logs",
@@ -347,6 +347,24 @@
                     "label": "author actor",
                     "alias": "author_actor",
                     "column": "author_actor",
+                    "color": null,
+                    "isDerived": false,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  },
+                  {
+                    "label": "request id",
+                    "alias": "request_id",
+                    "column": "request_id",
+                    "color": null,
+                    "isDerived": false,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  },
+                  {
+                    "label": "trace id",
+                    "alias": "trace_id",
+                    "column": "trace_id",
                     "color": null,
                     "isDerived": false,
                     "havingConditions": [],

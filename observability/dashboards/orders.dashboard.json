@@ -289,7 +289,7 @@
           "queryType": "sql",
           "queries": [
             {
-              "query": "SELECT _timestamp, http_route, http_response_status_code, message FROM logs WHERE service_name = 'orders' AND http_response_status_code >= 400 ORDER BY _timestamp DESC",
+              "query": "SELECT _timestamp, http_route, http_response_status_code, message, request_id, trace_id FROM logs WHERE service_name = 'orders' AND http_response_status_code >= 400 ORDER BY _timestamp DESC",
               "customQuery": true,
               "fields": {
                 "stream": "logs",
@@ -328,6 +328,24 @@
                     "label": "message",
                     "alias": "message",
                     "column": "message",
+                    "color": null,
+                    "isDerived": false,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  },
+                  {
+                    "label": "request id",
+                    "alias": "request_id",
+                    "column": "request_id",
+                    "color": null,
+                    "isDerived": false,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  },
+                  {
+                    "label": "trace id",
+                    "alias": "trace_id",
+                    "column": "trace_id",
                     "color": null,
                     "isDerived": false,
                     "havingConditions": [],
