@@ -169,7 +169,9 @@ builder.Services.AddScoped<OrderReadService>();
 var assetsBaseUrl = builder.Configuration["ASSETS_BASE_URL"]
     ?? "http://localhost:4566/post-3mrai-local-post-assets";
 builder.Services.AddScoped(sp => new ProductReadService(
-    sp.GetRequiredService<OrdersReadDbContext>(), assetsBaseUrl));
+    sp.GetRequiredService<OrdersReadDbContext>(),
+    assetsBaseUrl,
+    sp.GetRequiredService<IWorkflowTracer>()));
 
 // Write side (write replica in prod; same MySQL locally).
 var writerCs = builder.Configuration["DATABASE_WRITER_URL"]!;
