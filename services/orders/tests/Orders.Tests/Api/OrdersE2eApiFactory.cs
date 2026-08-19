@@ -113,6 +113,31 @@ public abstract class OrdersE2eApiFactoryBase : WebApplicationFactory<Program>, 
         // Placeholder — nothing here fetches the composed URL.
         builder.UseSetting("ASSETS_BASE_URL", "http://localhost:4566/test-assets");
 
+        // The test host boots the REAL Program.cs, OTel pipeline included. With
+        // no OTEL_* set it falls back to the SDK default endpoint,
+        // http://localhost:4318 — which docker-compose publishes, so the spans
+        // this suite produces land in the same collector as the running
+        // container's, under the same service.name.
+        //
+        // The effect is not extra traces but DUPLICATED ones: the container and
+        // this host both export, and Jaeger stores each span twice, so a
+        // waterfall shows two identical roots and a reader cannot tell which is
+        // the real trace. Measured: a suite run produced 26 duplicated traces
+        // inside 587ms; the same run with the SDK off produced none.
+        //
+        // Off rather than pointed elsewhere: nothing in this suite asserts on
+        // exported spans, so an exporter here is pure noise in a shared backend.
+        // The tests that DO assert tracing (WorkflowTracerTests, and the
+        // Activity checks in the read services) read Activity.Current in
+        // process and never export, so this does not weaken them.
+        //
+        // Environment.SetEnvironmentVariable, NOT builder.UseSetting: the OTel
+        // SDK reads the PROCESS ENVIRONMENT, not this host's configuration, so
+        // UseSetting("OTEL_SDK_DISABLED") is silently ignored. Verified the
+        // hard way — the suite still produced 26 duplicated traces with the
+        // UseSetting form in place.
+        Environment.SetEnvironmentVariable("OTEL_SDK_DISABLED", "true");
+
         builder.ConfigureTestServices(services =>
         {
             var directory = services.Single(d => d.ServiceType == typeof(IUserDirectory));
