@@ -13,9 +13,11 @@ related:
   - "[[testing]]"
   - "[[doc-propagation]]"
   - "[[email-templates]]"
+  - "[[pencil-design-extraction]]"
 propagates-to:
   - "[[index]]"
   - "[[testing]]"
+  - "[[pencil-design-extraction]]"
 ---
 
 # Web App Foundation Implementation Plan
@@ -2291,3 +2293,5 @@ Per [[phase-c-review-flow]]: chain the issues, do **not** ask for a merge betwee
 - [[testing]] — the three-layer rule and why phase 1 applies one layer
 - [[phase-c-review-flow]] — batching and dependency gates
 - [[doc-propagation]] — how these decisions reach the organised vault
+- [[pencil-design-extraction]] — the convention note recording the `.pen`-extraction decisions
+  and reasoning this plan's tasks implement

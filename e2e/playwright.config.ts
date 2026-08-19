@@ -95,7 +95,7 @@ export default defineConfig({
       // project must also be ignored here or its specs run twice — once under
       // their own project and once under `internal`. `gateway` established the
       // pattern; `observability` follows it.
-      testIgnore: ["**/gateway/**", "**/observability/**"],
+      testIgnore: ["**/gateway/**", "**/observability/**", "**/web/**"],
       use: { baseURL: process.env.USERS_BASE_URL ?? "http://localhost:3000" },
     },
     {
@@ -117,6 +117,18 @@ export default defineConfig({
       name: "observability",
       testDir: "./tests/observability",
       use: { baseURL: process.env.USERS_BASE_URL ?? "http://localhost:3000" },
+    },
+    {
+      // Phase-1 web verification: every route mounts and renders clean.
+      //
+      // Unlike every other project this one needs NO BACKEND — the app renders
+      // fixtures and phase 1 makes no gateway call at all (spec's phase-1
+      // boundary). What it does need is the Angular dev server on WEB_BASE_URL:
+      // `pnpm web:dev`. That asymmetry is also why global-setup skips its
+      // service health checks for a web-only run — see support/global-setup.ts.
+      name: "web",
+      testDir: "./tests/web",
+      use: { baseURL: process.env.WEB_BASE_URL ?? "http://localhost:4200" },
     },
   ],
 });

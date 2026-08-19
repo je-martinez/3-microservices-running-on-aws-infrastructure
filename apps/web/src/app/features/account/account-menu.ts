@@ -26,11 +26,9 @@ import { CURRENT_USER } from '../../fixtures/user.fixture';
  * cart Scrim never renders here regardless, but the menu must still clear
  * anything else that might.
  *
- * `#12161FA6` (the mobile scrim colour) has no matching DESIGN.md token —
- * flagged in the task report rather than hand-added as a new hex. This
- * component reuses the same non-token idiom the shared `Scrim` component
- * already uses (`bg-black/40`) at a closer opacity (`/65`) instead of
- * inventing a new arbitrary colour class.
+ * The mobile sheet carries its own scrim: `hasScrim` is false for
+ * 'account-menu' (the shared cart Scrim never renders here), yet the design
+ * still dims the page behind the sheet. Both use the same `bg-scrim` token.
  */
 @Component({
   selector: 'app-account-menu',
@@ -38,7 +36,7 @@ import { CURRENT_USER } from '../../fixtures/user.fixture';
   template: `
     <!-- Mobile: full-bleed scrim behind the sheet, dismisses on click. -->
     <div
-      class="fixed inset-0 z-50 bg-black/65 md:hidden"
+      class="fixed inset-0 z-50 bg-scrim md:hidden"
       role="presentation"
       (click)="overlay.close()"
     ></div>

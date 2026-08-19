@@ -5,16 +5,21 @@
 @import "tailwindcss";
 
 /* DESIGN.md documents Tailwind class patterns as prose examples — including
- * bg-[url('../img/…')] — and Tailwind 4 scans Markdown, so it would compile
+ * arbitrary-value url() utilities — and Tailwind 4 scans Markdown, so it would compile
  * those examples as real utilities and fail to resolve the image. The doc is
  * reference material, never a source of classes. */
 @source not "../DESIGN.md";
 
 /* apps/web/design/ holds committed HTML snapshots of Pencil frames (reference
  * only — see the README in that folder). They use arbitrary-value utilities
- * like bg-[url('../img/…')] that don't resolve from the app's build context,
+ * like arbitrary-value url() utilities that don't resolve from the app's build context,
  * so Tailwind must not scan them for classes. */
 @source not "../design";
+
+/* CLAUDE.md documents the same class patterns as prose (it warns about this very
+ * trap), so it must be excluded too — otherwise the file explaining why Tailwind
+ * breaks the build is itself what breaks it. */
+@source not "../CLAUDE.md";
 
 /* Design tokens — generated from assets/web-app/web-app.pen via the Pencil MCP
  * `GetVariables()`. Do NOT hand-edit: re-run the pencil-design-extraction skill.
@@ -43,6 +48,10 @@
   --color-ink-muted-on-dark: #A9B2C0;
   --color-ink-subtle-on-dark: #C7CDD8;
   --color-ink-on-orange-light: #8A5A11;
+
+  /* Overlay scrim. The design uses one colour for every scrim — the cart's and
+   * the mobile account menu's are the same #12161FA6 (A6 = 65% alpha). */
+  --color-scrim: #12161FA6;
 
   /* Borders (.pen: border-color, border-strong) */
   --color-line: #E5E7EB;

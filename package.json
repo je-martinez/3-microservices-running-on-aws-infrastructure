@@ -10,6 +10,7 @@
     "e2e": "pnpm --filter @3mrai/e2e test",
     "e2e:internal": "pnpm --filter @3mrai/e2e test -- --project=internal",
     "e2e:gateway": "pnpm --filter @3mrai/e2e test -- --project=gateway",
+    "e2e:web": "pnpm --filter @3mrai/e2e test -- --project=web",
     "web:dev": "pnpm --filter @3mrai/web dev",
     "web:build": "pnpm --filter @3mrai/web build",
     "web:test": "pnpm --filter @3mrai/web test",

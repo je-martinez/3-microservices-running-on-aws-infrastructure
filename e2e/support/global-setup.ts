@@ -24,6 +24,35 @@ async function waitForHealthy(url: string, notHealthyMessage: string) {
 }
 
 export default async function globalSetup() {
+  // The `web` project is the one project that needs NO BACKEND: the phase-1 web
+  // app renders fixtures and makes no gateway call. globalSetup is a top-level
+  // option, so it runs for EVERY invocation including `--project=web` — without
+  // this guard a machine that has never run `make bootstrap` sees a web-only run
+  // die on a Users health check it does not depend on, which reads as "the web
+  // suite is broken" when nothing about the web app is.
+  //
+  // Read from argv, NOT from globalSetup's `config.projects`: that argument holds
+  // every project DECLARED in the config regardless of --project (verified — it
+  // logs ["internal","gateway","observability","web"] on a `--project=web` run),
+  // so filtering on it silently never matches and the guard does nothing.
+  //
+  // Requiring EVERY --project to be `web` keeps a mixed run
+  // (`--project=web --project=internal`) doing the checks, and an unfiltered
+  // `pnpm e2e` (no --project at all) does them too.
+  const selectedProjects = process.argv
+    .flatMap((arg, i) =>
+      arg === "--project" ? [process.argv[i + 1]] : arg.startsWith("--project=") ? [arg.slice("--project=".length)] : [],
+    )
+    .filter((name): name is string => Boolean(name));
+
+  if (selectedProjects.length > 0 && selectedProjects.every((name) => name === "web")) {
+    console.log(
+      "[global-setup] Only the `web` project is selected — skipping the service health checks. " +
+        "It renders fixtures and needs no backend, just the dev server (`pnpm web:dev`).",
+    );
+    return;
+  }
+
   const base = process.env.USERS_BASE_URL ?? "http://localhost:3000";
   await waitForHealthy(`${base}/v1/health`, `Users service is not healthy at ${base}/v1/health.`);
 

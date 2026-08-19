@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-08-17
-updated: 2026-08-17
+updated: 2026-08-18
 tags: [type/spec, area/shared, status/active]
 related:
   - "[[web-app-foundation-milestone]]"
@@ -16,9 +16,11 @@ related:
   - "[[doc-propagation]]"
   - "[[product-catalogue-image-categories-design]]"
   - "[[users-service-design]]"
+  - "[[pencil-design-extraction]]"
 propagates-to:
   - "[[index]]"
   - "[[testing]]"
+  - "[[pencil-design-extraction]]"
 ---
 
 # Web App Foundation & Pencil Design Extraction — Design
@@ -432,3 +434,5 @@ infrastructure.
 - [[env-files]] — generated env files, never hand-edited
 - [[testing]] — the three-layer rule and why phase 1 applies one of them
 - [[doc-propagation]] — how this spec's decisions reach the organised vault
+- [[pencil-design-extraction]] — the convention note recording this spec's `.pen`-extraction
+  decisions and reasoning (tokens golden rule, MCP bridge quirk, in-memory-edits gotcha)
