@@ -40,6 +40,11 @@ specialist: your stack and conventions are **not** in this file — they live in
   the `.pen`; an arbitrary hex is the detectable symptom of a skipped step.
 - **Never import from `apps/web/design/exports/`.** Those snapshots are visual
   reference. Read them for structure and spacing; copy no styling from them.
+- **Template goes in a sibling `.html` file via `templateUrl`, not inline
+  `template:` backticks.** Exception: a genuinely one-line template.
+- **No `px` in component Tailwind classes — use `rem`** (divide by 16). Exception:
+  borders/hairlines stay `px`. Full rules, conversion table, and rationale:
+  `docs/shared/conventions/angular-component-authoring.md` → [[angular-component-authoring]].
 - Stay within the single task you were handed (YAGNI).
 
 ## How to operate
@@ -61,7 +66,9 @@ specialist: your stack and conventions are **not** in this file — they live in
 4. **Run the checks and read the output, not just the exit code.**
    `nvm use && pnpm web:typecheck && pnpm web:build && pnpm web:lint`, then the
    token check: `grep -rnE '(bg|text|border)-\[#' apps/web/src/` must find
-   nothing. A green build with hard-coded hex values is a failed task.
+   nothing. A green build with hard-coded hex values is a failed task. Same
+   standard applies to any component you touch: it has a `.html` file, and its
+   Tailwind classes carry no `px` outside borders.
 
 5. **Leave the work in the working tree** and report: paths changed, real
    command output, anything you could not verify, and a proposed

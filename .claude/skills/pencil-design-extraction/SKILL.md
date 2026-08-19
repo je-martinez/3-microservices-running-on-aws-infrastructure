@@ -164,10 +164,28 @@ choices. That is what became the `scrim-overlay` token above.
 
 ## Step 6 — Write the component
 
-- Structure comes from the export's layout (Step 3): flex, gaps, padding, and
-  `data-pencil-name` are legitimately copyable.
+**The export is a reference for structure and spacing *relationships*, never a
+source of literal values or file layout to copy.** It is one static page with
+fixed pixels everywhere and no `.html`/`.ts` split, because it isn't an Angular
+app — every value and every file-shape decision below has to be translated on
+the way in, not transcribed. See [[angular-component-authoring]] for the full
+rationale; this step only states the two rules that follow from it.
+
+- Structure comes from the export's layout (Step 3): flex, gaps, padding
+  *relationships*, and `data-pencil-name` are legitimately copyable.
 - Colour, radius, and size come from tokens (Step 5) — replace every arbitrary hex
   class the export emitted with the matching token utility.
+- **Template goes in a sibling `.html` file via `templateUrl`, not inline
+  `template:` backticks.** Exception: a genuinely one-line template (e.g. a
+  `<router-outlet />` host). The export is one flat HTML file with no `.ts`
+  boundary at all — that has no bearing on how the component's own template and
+  class are split.
+- **No `px` in the component's Tailwind classes — use `rem`.** Convert by
+  dividing by 16 (`13px` → `0.8125rem`), preferring an existing design token
+  or Tailwind scale step over a raw converted value. Exception: borders and
+  hairlines stay in `px` (`border-[1px]` is correct as-is; do not convert it).
+  The export emits `px` for literally everything because it's a static
+  rasterization — copy the value, converted, never the unit.
 - Standalone Angular component, `input()`/`output()` signals (never `@Input()` /
   `@Output()` decorators) — see `apps/web/CLAUDE.md` §3 for the folder convention
   and `apps/web/DESIGN.md`'s component table for the target path.
@@ -180,7 +198,8 @@ choices. That is what became the `scrim-overlay` token above.
   grep -rnE '(bg|text|border)-\[#' apps/web/src/
   ```
   written broken above for the same reason as Step 1's example — expected: no
-  matches once the new component is in place.
+  matches once the new component is in place. Also check for stray `px` sizing
+  (excluding borders) and confirm a `.html` file exists for the component.
 
 ## Verified quirks (read before debugging)
 
@@ -234,6 +253,9 @@ choices. That is what became the `scrim-overlay` token above.
 
 ## Related
 
+- [[angular-component-authoring]] — the two component-authoring rules Step 6
+  applies (`.html` templates via `templateUrl`, `rem` not `px`), with the
+  conversion arithmetic, both exceptions, and the measured current-state gap.
 - `apps/web/DESIGN.md` — current state of the design system this procedure
   produces: full token table, component → path mapping, route table, asset table.
 - `apps/web/CLAUDE.md` — app stack, the tokens golden rule and its Tailwind v4

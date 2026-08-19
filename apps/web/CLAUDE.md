@@ -14,7 +14,7 @@ every time. Cross-cutting rules are **referenced**, never duplicated.
   version with an Angular-21 peer. `next`/`latest` targets Angular 22.
 - Build: `@ngx-env/builder` **21.0.1**, not its `latest` (22.0.0), which peers
   `@angular/build ^22`. Installing `latest` here breaks the build. This is the
-  package that inlines `NG_APP_*` env vars at build time — see §2b.
+  package that inlines `NG_APP_*` env vars at build time — see §2c.
 - Styling: **Tailwind 4.3.3**, CSS-first (`@theme` in `src/styles.css`) — see
   §2a. `@tailwindcss/postcss` + `postcss` do the compilation; there is
   deliberately no `tailwind.config.ts`.
@@ -88,7 +88,44 @@ Tailwind 4 traps that make this rule easy to violate silently:
   exclusion added**, or it will resurface the same failure the next time
   someone writes an example.
 
-## 2b. GOLDEN RULE — `NG_APP_*` is public
+## 2b. GOLDEN RULE — templates in `.html`, sizing in `rem`
+
+Full convention: `../../docs/shared/conventions/angular-component-authoring.md` →
+[[angular-component-authoring]]. Two rules, named directly by the user after
+reviewing the delivered app, and both currently violated across the whole app —
+**this rule does not describe the current codebase, it governs what gets written
+next.** Fixing existing components is separate, untracked-by-this-note work.
+
+**Current state (measured at time of writing):** 32 components use inline
+`template:` backticks; zero use `templateUrl`; zero `.html` files exist under
+`apps/web/src/app`. 508 `[...px]` arbitrary-value classes across 29 files, of
+which 148 are `text-[Npx]` font sizes.
+
+1. **Templates live in a sibling `.html` file via `templateUrl`** (styles too,
+   via `styleUrl`, if the component has any), not an inline `template:` backtick
+   string. Exception: a genuinely one-line template (e.g. a `<router-outlet />`
+   host) — don't stretch this into a loophole for anything longer. This also
+   sidesteps the `${{ expr }}` trap below: outside a TS template literal, `$` is
+   just a character.
+2. **No `px` in component Tailwind classes — use `rem`.** A `px` font size
+   ignores the reader's browser font-size setting; that's an accessibility
+   failure, not a style choice. Convert by dividing by 16 (13 divided by 16
+   rem, as a worked example — not written as a literal class here since this
+   file is scanned by Tailwind, see the trap below). Prefer an existing design
+   token or Tailwind scale step over any raw converted value. **Exception:
+   borders and hairlines stay in `px`** — a 1-unit border is a device-pixel
+   concern, not typographic, and converting it is not applying the rule
+   correctly.
+
+**Why the Pencil export can't be copied straight in for either rule:** the
+`html-tailwind` export (see `pencil-design-extraction` skill) emits fixed pixel
+sizing for every value and has no `.html`/`.ts` split, because it's one static
+reference page, not an Angular app. Treat it as a reference for structure and
+spacing *relationships* — translate every literal value and the file layout,
+never transcribe them. This is the same principle §2a already applies to
+colour tokens; these two rules are its other half.
+
+## 2c. GOLDEN RULE — `NG_APP_*` is public
 
 `@ngx-env/builder` inlines every `NG_APP_*` environment variable directly into
 the built bundle at compile time. Anything under that prefix is readable by
@@ -107,7 +144,7 @@ keeps that from becoming a bug. Every other file reads `APP_CONFIG`.
 apps/web/
 ├── src/app/
 │   ├── core/
-│   │   ├── config/   — app-config.ts (parses NG_APP_* once, see §2b)
+│   │   ├── config/   — app-config.ts (parses NG_APP_* once, see §2c)
 │   │   ├── layout/   — app-header.ts, shell.ts
 │   │   └── overlay/  — overlay-store.ts, scrim.ts (see "Overlays" below)
 │   ├── features/

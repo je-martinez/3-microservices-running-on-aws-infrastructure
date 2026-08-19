@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-08-18
-updated: 2026-08-18
+updated: 2026-08-19
 tags:
   - type/convention
   - area/shared
@@ -14,6 +14,7 @@ related:
   - "[[2026-08-18-web-app-foundation]]"
   - "[[email-templates]]"
   - "[[doc-propagation]]"
+  - "[[angular-component-authoring]]"
 ---
 
 # Pencil Design Extraction
@@ -142,3 +143,6 @@ example needs the same exclusion, or the failure resurfaces the next time someon
 - [[email-templates]] — the sibling design system (`emails.pen`), sharing tokens with this one,
   and the closest precedent for distilling a `.pen` into a design system consumed by code.
 - [[doc-propagation]] — why this convention lives here rather than only in the skill file.
+- [[angular-component-authoring]] — extends this note's "translate, not transcribe" principle
+  from colour tokens to sizing units (`px` → `rem`) and template file structure
+  (`templateUrl` vs. inline), the two other ways the HTML export gets copied too literally.
