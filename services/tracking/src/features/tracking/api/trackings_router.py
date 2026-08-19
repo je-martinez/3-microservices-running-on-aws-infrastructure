@@ -71,6 +71,27 @@ same token that read's `*_failed` line logs (see `get_tracking`).
 `cognito_sub` stays off both spans, exactly as it stays off the reads' success
 logging: it is the ownership key, and the scoping it drives is already provable from
 the row ids that came back ([[logging-context]]).
+
+## Why neither read logs on its happy path
+
+Both spans are deliberately quiet on success, and that is not an omission left to
+fill in later. A read already produces one line — the middleware's `request
+completed`, with the route template, the status and `duration_ms` — and a
+`*_succeeded` line beside it would repeat all three and add only `found_count`, a
+number the caller can see in its own response body. These are the two most
+frequent authenticated calls this service serves; [[logging-context]] measured the
+cost of ignoring that here specifically (353 of 368 lines in an hour were the
+health check, against 2 describing real work), and a success line per read is how
+that ratio gets worse.
+
+What the two flows log instead is exactly their failure branches, where the
+request line genuinely cannot say why: the single read's `404`
+(`get_tracking_failed`, `reason=not_found`) and the batch read's over-cap `400`
+(`list_trackings_failed`, `reason=too_many_order_ids`). Both set the same
+`app_event`/`reason` on the span at the same point, so the trace and the log say
+one thing. A `*_started` line is not emitted for the same reason: the span already
+carries `app_event=*_started` from the moment it opens, and on a sub-millisecond
+read the start line's only reader would be a person scrolling past it.
 """
 
 from __future__ import annotations
@@ -173,7 +194,26 @@ def get_trackings(
         requested_count=len(parsed),
     ) as span:
         if len(parsed) > MAX_BATCH_ORDER_IDS:
+            # The one branch of these two reads that logs on top of the request
+            # line, and the only one that has something the request line cannot
+            # say. A `400` here is not a caller typo — it is a client asking for
+            # more than the endpoint is willing to build a `WHERE ... IN` from,
+            # which is either a paging bug upstream or someone probing the cap.
+            # `http_response_status_code=400` alone cannot tell that apart from a
+            # missing `order_ids` (FastAPI's own `422`) or any other rejection,
+            # because the rule that fired and the size that broke it exist only
+            # here. Hence the machine-readable `reason` plus the count.
+            span.set_attribute("app_event", "list_trackings_failed")
             span.set_attribute("reason", TOO_MANY_ORDER_IDS_REASON)
+            logger.warning(
+                "list_trackings_failed",
+                extra={
+                    "app_event": "list_trackings_failed",
+                    "reason": TOO_MANY_ORDER_IDS_REASON,
+                    "requested_count": len(parsed),
+                    "max_order_ids": MAX_BATCH_ORDER_IDS,
+                },
+            )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"at most {MAX_BATCH_ORDER_IDS} order_ids per request",
