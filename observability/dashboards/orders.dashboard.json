@@ -289,7 +289,7 @@
           "queryType": "sql",
           "queries": [
             {
-              "query": "SELECT _timestamp, http_route, http_response_status_code, message, request_id, trace_id FROM logs WHERE service_name = 'orders' AND http_response_status_code >= 400 ORDER BY _timestamp DESC",
+              "query": "SELECT _timestamp, request_id, trace_id, http_route, http_response_status_code FROM logs WHERE service_name = 'orders' AND http_response_status_code >= 400 ORDER BY _timestamp DESC",
               "customQuery": true,
               "fields": {
                 "stream": "logs",
@@ -307,33 +307,6 @@
                 ],
                 "y": [
                   {
-                    "label": "http route",
-                    "alias": "http_route",
-                    "column": "http_route",
-                    "color": null,
-                    "isDerived": false,
-                    "havingConditions": [],
-                    "treatAsNonTimestamp": true
-                  },
-                  {
-                    "label": "http response status code",
-                    "alias": "http_response_status_code",
-                    "column": "http_response_status_code",
-                    "color": null,
-                    "isDerived": false,
-                    "havingConditions": [],
-                    "treatAsNonTimestamp": true
-                  },
-                  {
-                    "label": "message",
-                    "alias": "message",
-                    "column": "message",
-                    "color": null,
-                    "isDerived": false,
-                    "havingConditions": [],
-                    "treatAsNonTimestamp": true
-                  },
-                  {
                     "label": "request id",
                     "alias": "request_id",
                     "column": "request_id",
@@ -346,6 +319,24 @@
                     "label": "trace id",
                     "alias": "trace_id",
                     "column": "trace_id",
+                    "color": null,
+                    "isDerived": false,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  },
+                  {
+                    "label": "http route",
+                    "alias": "http_route",
+                    "column": "http_route",
+                    "color": null,
+                    "isDerived": false,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  },
+                  {
+                    "label": "http response status code",
+                    "alias": "http_response_status_code",
+                    "column": "http_response_status_code",
                     "color": null,
                     "isDerived": false,
                     "havingConditions": [],
