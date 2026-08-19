@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Orders.Application.Orders;
 using Orders.Infrastructure.Observability;
 using Orders.Infrastructure.Persistence;
@@ -14,6 +15,7 @@ public class ProductReadService
     private readonly OrdersReadDbContext _db;
     private readonly string _assetsBaseUrl;
     private readonly IWorkflowTracer _tracer;
+    private readonly ILogger<ProductReadService> _logger;
 
     /// <param name="assetsBaseUrl">
     /// Public base URL of the assets bucket (ASSETS_BASE_URL). Rows store a bucket key
@@ -21,11 +23,16 @@ public class ProductReadService
     /// the bucket name is re-minted on every local apply, and in production this becomes
     /// the CloudFront domain with no data migration. A trailing slash is tolerated.
     /// </param>
-    public ProductReadService(OrdersReadDbContext db, string assetsBaseUrl, IWorkflowTracer tracer)
+    public ProductReadService(
+        OrdersReadDbContext db,
+        string assetsBaseUrl,
+        IWorkflowTracer tracer,
+        ILogger<ProductReadService> logger)
     {
         _db = db;
         _assetsBaseUrl = assetsBaseUrl.TrimEnd('/');
         _tracer = tracer;
+        _logger = logger;
     }
 
     // Wrapped in the list_products workflow span. As on list_my_orders, it adds
@@ -42,6 +49,17 @@ public class ProductReadService
 
                 var dtos = products.Select(Map).ToList();
                 _tracer.SetAttribute("product_count", dtos.Count);
+
+                // Same shape and same reasoning as list_my_orders: one
+                // _succeeded line, no _started twin, no _failed branch (this
+                // method has no failure of its own — a DB fault throws out of
+                // TraceWorkflowAsync, which records it on the span, and the
+                // request log reports the 500). Its job is to give the span a log
+                // line carrying ITS span_id, so a span-scoped lookup stops
+                // returning nothing. See OrderReadService for the full rationale.
+                _logger.LogInformation(
+                    "Listed the product catalogue {app_event} {product_count}",
+                    "list_products_succeeded", dtos.Count);
                 return (IReadOnlyList<ProductDto>)dtos;
             });
 

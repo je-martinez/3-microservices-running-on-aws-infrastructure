@@ -171,7 +171,8 @@ var assetsBaseUrl = builder.Configuration["ASSETS_BASE_URL"]
 builder.Services.AddScoped(sp => new ProductReadService(
     sp.GetRequiredService<OrdersReadDbContext>(),
     assetsBaseUrl,
-    sp.GetRequiredService<IWorkflowTracer>()));
+    sp.GetRequiredService<IWorkflowTracer>(),
+    sp.GetRequiredService<ILogger<ProductReadService>>()));
 
 // Write side (write replica in prod; same MySQL locally).
 var writerCs = builder.Configuration["DATABASE_WRITER_URL"]!;
