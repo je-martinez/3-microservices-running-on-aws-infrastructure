@@ -15,64 +15,6 @@ import { ButtonGhost } from '../../shared/ui/button-ghost';
 @Component({
   selector: 'app-login-password',
   imports: [RouterLink, BrandPanel, MobileBrandHeader, Field, ButtonPrimary, ButtonGhost],
-  template: `
-    <main class="bg-surface-white flex min-h-screen w-full flex-col lg:flex-row">
-      <!-- 1440 only: the Brand Panel sits beside the form -->
-      <app-brand-panel class="hidden lg:flex lg:h-screen lg:w-[560px] lg:shrink-0" />
-      <!-- 390 only: the brand becomes a header above the form -->
-      <app-mobile-brand-header class="lg:hidden" />
-
-      <section class="flex flex-1 flex-col items-center justify-center px-6 py-10 lg:px-10">
-        <form
-          class="flex w-full max-w-[480px] flex-col gap-6 lg:gap-7"
-          (submit)="$event.preventDefault()"
-        >
-          <div class="flex flex-col gap-2.5">
-            <h1 class="font-heading text-ink-primary text-[26px] font-bold tracking-tight lg:text-[33px]">
-              Welcome back
-            </h1>
-            <p class="font-body text-ink-secondary text-[14.5px] leading-[1.55] lg:text-base">
-              Sign in to track your orders and pick up where you left off.
-            </p>
-          </div>
-
-          <div class="flex w-full flex-col gap-[18px]">
-            <app-field label="Email" type="email" icon="mail" placeholder="you@example.com" />
-            <app-field
-              label="Password"
-              type="password"
-              icon="lock"
-              trailingIcon="eye-off"
-              placeholder="Your password"
-            />
-            <div class="flex w-full items-center justify-between">
-              <label class="flex items-center gap-[9px]">
-                <input type="checkbox" class="border-line-strong h-[18px] w-[18px] rounded" />
-                <span class="text-ink-secondary text-sm">Keep me signed in</span>
-              </label>
-              <a href="#" class="text-brand-navy text-sm font-semibold">Forgot password?</a>
-            </div>
-          </div>
-
-          <app-button-primary label="Sign in" />
-
-          <div class="flex w-full items-center gap-[14px]">
-            <span class="bg-line h-px flex-1"></span>
-            <span class="text-ink-muted text-[13px]">or</span>
-            <span class="bg-line h-px flex-1"></span>
-          </div>
-
-          <a routerLink="/login/passwordless" class="block w-full">
-            <app-button-ghost label="Continue without a password" icon="wand-sparkles" />
-          </a>
-
-          <p class="flex w-full justify-center gap-[5px] text-[15px]">
-            <span class="text-ink-secondary">New to 3MRAI?</span>
-            <a routerLink="/register" class="text-brand-navy font-semibold">Create an account</a>
-          </p>
-        </form>
-      </section>
-    </main>
-  `,
+  templateUrl: './login-password.html',
 })
 export class LoginPasswordPage {}

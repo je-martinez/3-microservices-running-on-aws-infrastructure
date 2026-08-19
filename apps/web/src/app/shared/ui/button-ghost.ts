@@ -10,18 +10,7 @@ import { LucideDynamicIcon } from '@lucide/angular';
 @Component({
   selector: 'app-button-ghost',
   imports: [LucideDynamicIcon],
-  template: `
-    <button
-      type="button"
-      class="h-field bg-surface-white border-line-strong text-brand-navy rounded-md inline-flex w-full items-center justify-center gap-[10px] border text-base font-semibold"
-      [disabled]="disabled()"
-      [class.opacity-50]="disabled()"
-      (click)="clicked.emit()"
-    >
-      <svg [lucideIcon]="icon()" class="text-[19px]"></svg>
-      {{ label() }}
-    </button>
-  `,
+  templateUrl: './button-ghost.html',
 })
 export class ButtonGhost {
   readonly label = input.required<string>();

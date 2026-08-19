@@ -12,24 +12,7 @@ import { Component, input } from '@angular/core';
  */
 @Component({
   selector: 'app-logo-lockup',
-  template: `
-    <span class="inline-flex w-fit items-center gap-[10px]">
-      <span
-        class="h-[36px] w-[36px] shrink-0 rounded-lg bg-surface-white bg-contain bg-center bg-no-repeat"
-        style="background-image: url('/img/standalone-logo.png')"
-      ></span>
-      <span class="inline-flex w-fit items-center gap-px">
-        <span
-          class="text-[19px] font-extrabold tracking-[-0.3px] whitespace-nowrap"
-          [class]="onDark() ? 'text-surface-white' : 'text-brand-navy'"
-          >3M</span
-        >
-        <span class="text-brand-orange text-[19px] font-extrabold tracking-[-0.3px] whitespace-nowrap"
-          >RAI</span
-        >
-      </span>
-    </span>
-  `,
+  templateUrl: './logo-lockup.html',
 })
 export class LogoLockup {
   /** True on the navy Brand Panel / Mobile Brand Header instances. */

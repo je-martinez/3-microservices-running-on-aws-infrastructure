@@ -14,15 +14,7 @@ import type { TrackingStatus } from '../../fixtures/api-types';
  */
 @Component({
   selector: 'app-status-badge',
-  template: `
-    <span
-      class="inline-flex h-[28px] items-center gap-[7px] rounded-full px-[11px]"
-      [class]="palette().bg"
-    >
-      <span class="h-[7px] w-[7px] rounded-full" [class]="palette().dot"></span>
-      <span class="text-[12.5px] font-semibold" [class]="palette().text">{{ label() }}</span>
-    </span>
-  `,
+  templateUrl: './status-badge.html',
 })
 export class StatusBadge {
   readonly status = input.required<TrackingStatus>();

@@ -1,0 +1,28 @@
+<div
+  class="flex h-fit w-full shrink-0 flex-row items-center justify-start gap-3 rounded-[10px] p-[14px]"
+  [class]="notification().read ? '' : 'bg-surface-subtle'"
+>
+  @if (notification().status; as status) {
+    <app-tracking-status-icon [status]="status" />
+  } @else {
+    <span
+      class="bg-surface-subtle inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+    >
+      <svg lucideIcon="bell" class="text-ink-secondary h-[18px] w-[18px]"></svg>
+    </span>
+  }
+
+  <div class="flex h-fit flex-1 flex-col items-start justify-start gap-[3px]">
+    <div class="text-ink-primary text-[14.5px] font-semibold whitespace-nowrap">
+      {{ notification().title }}
+    </div>
+    <div class="text-ink-secondary w-full text-[13px] leading-[19px]">
+      {{ notification().body }}
+    </div>
+    <div class="text-ink-muted text-xs whitespace-nowrap">{{ timeLabel() }}</div>
+  </div>
+
+  @if (!notification().read) {
+    <div class="bg-brand-orange h-[9px] w-[9px] shrink-0 rounded-full"></div>
+  }
+</div>

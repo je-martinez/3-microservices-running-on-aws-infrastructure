@@ -1,0 +1,53 @@
+<article
+  class="border-line bg-surface-white flex h-fit w-full flex-col items-start justify-start gap-[13px] rounded-xl border p-4 md:gap-4 md:p-5"
+>
+  <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
+    <div class="flex h-fit w-fit shrink-0 flex-col items-start justify-start gap-[3px] md:gap-1">
+      <div class="text-ink-primary text-[15px] font-semibold whitespace-nowrap md:text-[15.5px]">
+        {{ entry().order.id }}
+      </div>
+      <div class="text-ink-secondary text-[13px] whitespace-nowrap md:text-[13.5px]">
+        {{ placedLabel() }}
+      </div>
+    </div>
+
+    <!-- Desktop: status badge + total + chevron together on the right. -->
+    <div class="hidden h-fit w-fit shrink-0 flex-row items-center justify-start gap-4 md:flex">
+      @if (entry().tracking; as tracking) {
+        <app-status-badge [status]="tracking.status" />
+      }
+      <span class="text-ink-primary text-lg font-bold tracking-[-0.3px] whitespace-nowrap">{{
+        total()
+      }}</span>
+      <svg lucideChevronRight class="text-ink-muted h-[18px] w-[18px]"></svg>
+    </div>
+  </div>
+
+  <!-- Mobile: status badge and total on their own row (no chevron). -->
+  <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between md:hidden">
+    @if (entry().tracking; as tracking) {
+      <app-status-badge [status]="tracking.status" />
+    } @else {
+      <span></span>
+    }
+    <span class="text-ink-primary text-lg font-bold tracking-[-0.3px] whitespace-nowrap">{{
+      total()
+    }}</span>
+  </div>
+
+  <div class="bg-line h-px w-full shrink-0"></div>
+
+  <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
+    <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-2">
+      @for (line of lines(); track line.productId) {
+        <div class="bg-surface-subtle h-[46px] w-[46px] shrink-0 rounded-lg md:h-[52px] md:w-[52px]"></div>
+      }
+    </div>
+    <button
+      type="button"
+      class="border-line-strong text-brand-navy flex h-9 w-fit shrink-0 flex-row items-center justify-start rounded-lg border px-[14px] text-[13.5px] font-semibold md:h-[38px] md:px-[15px]"
+    >
+      View details
+    </button>
+  </div>
+</article>

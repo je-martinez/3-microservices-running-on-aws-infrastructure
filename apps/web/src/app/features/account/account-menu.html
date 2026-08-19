@@ -1,0 +1,51 @@
+<!-- Mobile: full-bleed scrim behind the sheet, dismisses on click. -->
+<div
+  class="fixed inset-0 z-50 bg-scrim md:hidden"
+  role="presentation"
+  (click)="overlay.close()"
+></div>
+
+<div
+  class="border-line bg-surface-white fixed inset-x-0 bottom-0 z-50 flex h-fit w-full flex-col items-start justify-start gap-[6px] rounded-t-[22px] border-t p-3 pb-[26px] shadow-[0px_-8px_32px_0px_#1A1A2E33] md:inset-x-auto md:top-[86px] md:right-6 md:bottom-auto md:w-[260px] md:gap-[2px] md:rounded-xl md:border md:p-2 md:pb-2 md:shadow-[0px_12px_32px_0px_#1A1A2E29]"
+>
+  <!-- Grabber: mobile-only affordance, absent from the desktop dropdown. -->
+  <div class="flex h-fit w-full shrink-0 flex-row items-center justify-center p-[4px_0px_8px_0px] md:hidden">
+    <div class="bg-line-strong h-1 w-10 shrink-0 rounded-full"></div>
+  </div>
+
+  <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-[3px] p-[6px_12px_12px_12px] md:p-[10px_12px]">
+    <div class="text-ink-primary text-base font-semibold whitespace-nowrap md:text-[14.5px]">{{ user.fullName }}</div>
+    <div class="text-ink-secondary text-[13.5px] whitespace-nowrap md:text-[13px]">{{ user.email }}</div>
+  </div>
+
+  <div class="bg-line h-px w-full shrink-0"></div>
+
+  <button
+    type="button"
+    class="bg-surface-subtle flex h-[50px] w-full shrink-0 flex-row items-center justify-start gap-[11px] rounded-lg px-3 md:h-[42px]"
+    (click)="goTo('/profile')"
+  >
+    <svg lucideUser class="text-ink-primary h-[19px] w-[19px] md:h-[17px] md:w-[17px]"></svg>
+    <span class="text-ink-primary text-[15px] md:text-sm">Profile</span>
+  </button>
+
+  <button
+    type="button"
+    class="flex h-[50px] w-full shrink-0 flex-row items-center justify-start gap-[11px] rounded-lg px-3 md:h-[42px]"
+    (click)="goTo('/orders')"
+  >
+    <svg lucidePackage class="text-ink-primary h-[19px] w-[19px] md:h-[17px] md:w-[17px]"></svg>
+    <span class="text-ink-primary text-[15px] md:text-sm">My orders</span>
+  </button>
+
+  <div class="bg-line h-px w-full shrink-0"></div>
+
+  <button
+    type="button"
+    class="flex h-[50px] w-full shrink-0 flex-row items-center justify-start gap-[11px] rounded-lg px-3 md:h-[42px]"
+    (click)="signOut()"
+  >
+    <svg lucideLogOut class="text-danger-red h-[19px] w-[19px] md:h-[17px] md:w-[17px]"></svg>
+    <span class="text-danger-red text-[15px] font-semibold md:text-sm">Sign out</span>
+  </button>
+</div>

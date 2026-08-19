@@ -18,14 +18,7 @@ import type { TrackingStatus } from '../../fixtures/api-types';
 @Component({
   selector: 'app-tracking-status-icon',
   imports: [LucideDynamicIcon],
-  template: `
-    <span
-      class="inline-flex h-[36px] w-[36px] items-center justify-center rounded-full"
-      [class]="state().bg"
-    >
-      <svg [lucideIcon]="state().icon" class="text-[18px]" [class]="state().ink"></svg>
-    </span>
-  `,
+  templateUrl: './tracking-status-icon.html',
 })
 export class TrackingStatusIcon {
   readonly status = input.required<TrackingStatus>();

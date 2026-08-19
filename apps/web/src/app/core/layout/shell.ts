@@ -16,18 +16,7 @@ import { Scrim } from '../overlay/scrim';
 @Component({
   selector: 'app-shell',
   imports: [AccountMenu, NotificationsPanel, RouterOutlet, Scrim],
-  template: `
-    <router-outlet />
-    @if (overlay.hasScrim()) {
-      <app-scrim (dismiss)="overlay.close()" />
-    }
-    @if (overlay.active() === 'account-menu') {
-      <app-account-menu />
-    }
-    @if (overlay.active() === 'notifications') {
-      <app-notifications-panel />
-    }
-  `,
+  templateUrl: './shell.html',
 })
 export class Shell {
   protected readonly overlay = inject(OverlayStore);

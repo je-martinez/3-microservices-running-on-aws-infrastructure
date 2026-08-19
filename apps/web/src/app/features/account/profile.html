@@ -1,0 +1,67 @@
+<div class="bg-surface-body flex h-fit min-h-screen w-full flex-col items-start justify-start gap-0">
+  <app-app-header
+    [hasUnreadNotifications]="hasUnreadNotifications"
+    (notificationsClicked)="overlay.openNotifications()"
+    (profileClicked)="overlay.openAccountMenu()"
+    (cartClicked)="goTo('/')"
+  />
+
+  <div class="flex w-full flex-1 flex-col items-center justify-start gap-0 p-5 md:p-11">
+    <div class="flex h-fit w-full max-w-[760px] shrink-0 flex-col items-start justify-start gap-5 md:gap-[26px]">
+      <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-[3px] md:gap-[6px]">
+        <h1 class="text-ink-primary text-2xl font-bold tracking-[-0.5px] md:text-[30px] md:tracking-[-0.8px]">
+          Profile
+        </h1>
+        <p class="text-ink-secondary text-[13px] md:text-[15px]">
+          Update your name, delivery address and phone number.
+        </p>
+      </div>
+
+      <div class="border-line bg-surface-white flex h-fit w-full shrink-0 flex-row items-center justify-start gap-4 rounded-xl border p-5">
+        <div class="bg-brand-navy flex h-14 w-14 shrink-0 flex-row items-center justify-center rounded-full">
+          <span class="text-surface-white text-lg font-bold">{{ initials() }}</span>
+        </div>
+        <div class="flex h-fit flex-1 flex-col items-start justify-start gap-[3px]">
+          <span class="text-ink-primary text-[16.5px] font-semibold">{{ user.fullName }}</span>
+          <span class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-[7px]">
+            <svg lucideLock class="text-ink-muted h-[13px] w-[13px]"></svg>
+            <span class="text-ink-secondary text-[13.5px]">{{ user.email }} · sign-in email, can't be changed</span>
+          </span>
+        </div>
+        <span class="bg-surface-subtle flex h-[30px] w-fit shrink-0 flex-row items-center justify-center rounded-full px-[13px]">
+          <span class="text-ink-secondary text-[12.5px] whitespace-nowrap">{{ memberSinceLabel() }}</span>
+        </span>
+      </div>
+
+      <div class="border-line bg-surface-white flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5 md:p-6">
+        <span class="text-ink-muted text-xs font-semibold tracking-[1.5px]">PERSONAL DETAILS</span>
+        <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 md:flex-row">
+          <div class="w-full flex-1">
+            <app-field label="Full name" icon="user" [value]="user.fullName" />
+          </div>
+          <div class="w-full flex-1">
+            <app-field label="Phone number" icon="phone" type="text" [value]="user.phoneNumber ?? ''" />
+          </div>
+        </div>
+      </div>
+
+      <div class="border-line bg-surface-white flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5 md:p-6">
+        <span class="text-ink-muted text-xs font-semibold tracking-[1.5px]">DELIVERY ADDRESS</span>
+        <app-field label="Address" icon="map-pin" [value]="addressLine()" help="Used as the default delivery address at checkout." />
+      </div>
+
+      <div class="flex h-fit w-full shrink-0 flex-row items-center justify-end gap-3">
+        <button
+          type="button"
+          class="h-field border-line-strong text-brand-navy flex w-[140px] shrink-0 flex-row items-center justify-center rounded-md border text-base font-semibold"
+          (click)="goTo('/')"
+        >
+          Cancel
+        </button>
+        <div class="w-[190px]">
+          <app-button-primary label="Save changes" />
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

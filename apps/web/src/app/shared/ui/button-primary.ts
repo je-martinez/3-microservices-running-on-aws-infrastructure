@@ -9,20 +9,7 @@ import { LucideDynamicIcon } from '@lucide/angular';
 @Component({
   selector: 'app-button-primary',
   imports: [LucideDynamicIcon],
-  template: `
-    <button
-      type="button"
-      class="h-field bg-brand-orange rounded-md text-surface-white inline-flex w-full items-center justify-center gap-[10px] text-base font-semibold"
-      [disabled]="disabled()"
-      [class.opacity-50]="disabled()"
-      (click)="clicked.emit()"
-    >
-      {{ label() }}
-      @if (icon(); as iconName) {
-        <svg [lucideIcon]="iconName" class="text-[19px]"></svg>
-      }
-    </button>
-  `,
+  templateUrl: './button-primary.html',
 })
 export class ButtonPrimary {
   readonly label = input.required<string>();

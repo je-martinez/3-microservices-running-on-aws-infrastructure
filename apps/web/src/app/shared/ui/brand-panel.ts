@@ -20,41 +20,6 @@ import { LogoLockup } from './logo-lockup';
 @Component({
   selector: 'app-brand-panel',
   imports: [LogoLockup, LucidePackage, LucideShieldCheck, LucideTruck],
-  template: `
-    <div class="bg-brand-navy-deep flex h-full w-full flex-col justify-between gap-14 overflow-hidden p-14">
-      <app-logo-lockup [onDark]="true" />
-
-      <div class="flex w-full flex-col gap-[18px]">
-        <span class="text-brand-orange text-[11px] font-semibold tracking-[3.5px]">MARKETPLACE</span>
-        <h1 class="text-surface-white text-[40px] leading-[1.15] font-bold tracking-[-1px]">
-          Fewer clicks between you and what you want.
-        </h1>
-        <p class="text-ink-muted-on-dark text-[15px] leading-[1.65]">
-          One account for your orders, tracking and returns. Sign in with a password — or skip it
-          entirely and use a one-time code.
-        </p>
-      </div>
-
-      <!-- Panel Image: design references a remote Unsplash placeholder here, not
-           final artwork — rendered as a token-coloured placeholder (see DESIGN.md
-           "Assets") until real imagery is supplied. -->
-      <div class="bg-brand-navy h-[280px] w-full shrink-0 rounded-2xl"></div>
-
-      <div class="flex w-full flex-col gap-[14px]">
-        <div class="flex w-full items-center gap-[10px]">
-          <svg lucidePackage class="text-brand-orange text-[17px]"></svg>
-          <span class="text-ink-subtle-on-dark text-sm">Free returns within 30 days</span>
-        </div>
-        <div class="flex w-full items-center gap-[10px]">
-          <svg lucideShieldCheck class="text-brand-orange text-[17px]"></svg>
-          <span class="text-ink-subtle-on-dark text-sm">Checkout secured end to end</span>
-        </div>
-        <div class="flex w-full items-center gap-[10px]">
-          <svg lucideTruck class="text-brand-orange text-[17px]"></svg>
-          <span class="text-ink-subtle-on-dark text-sm">Same-day dispatch before 4 pm</span>
-        </div>
-      </div>
-    </div>
-  `,
+  templateUrl: './brand-panel.html',
 })
 export class BrandPanel {}
