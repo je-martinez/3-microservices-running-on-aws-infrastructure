@@ -29,11 +29,47 @@ function fail(msg) {
   process.exit(1);
 }
 
+// The org does not exist on a freshly created OpenObserve volume: it is created
+// by the FIRST INGESTION, not by this script, and its identifier is taken from
+// the ingest URL (ZO_CREATE_ORG_THROUGH_INGESTION). So after `make clean`, this
+// script used to run before any service had logged anything and die with
+// "Organization not found" — leaving every dashboard missing until someone
+// noticed and re-ran the import by hand.
+//
+// Seeding it with one throwaway log line is what creates it, deterministically
+// and with the identifier we want. POSTing to /api/organizations would NOT
+// work: that endpoint generates a RANDOM identifier and ignores any supplied in
+// the body, so the org would come out named something like 3HuXDuClKORq… and
+// every consumer of /api/3mrai would still 404.
+//
+// The record lands in a `_bootstrap` stream rather than `logs`, so it never
+// pollutes the stream the dashboards read.
+async function seedOrg() {
+  const res = await fetch(`${BASE}/api/${ORG}/_bootstrap/_json`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify([
+      { level: "info", message: "org bootstrap for dashboard import", source: "import-dashboards" },
+    ]),
+  });
+  if (!res.ok) {
+    fail(`could not create org "${ORG}" by seeding a log: HTTP ${res.status} ${await res.text()}`);
+  }
+}
+
 // The list response wraps each dashboard in a v1..v8 envelope; the active object
 // lives in the slot named by the top-level `version`, and the id/hash are
 // surfaced alongside. Return [{ title, id, hash }].
-async function listExisting() {
+async function listExisting({ allowSeed = true } = {}) {
   const res = await fetch(endpoint, { headers });
+  // 404 here means the org itself is absent, not that there are no dashboards —
+  // an existing org with none returns 200 and an empty list. Seed it once and
+  // retry; a second 404 is a real failure and falls through to fail() below.
+  if (res.status === 404 && allowSeed) {
+    console.log(`org "${ORG}" does not exist yet — seeding it with one log line`);
+    await seedOrg();
+    return listExisting({ allowSeed: false });
+  }
   if (!res.ok) fail(`list dashboards failed: HTTP ${res.status} ${await res.text()}`);
   const body = await res.json();
   return (body.dashboards ?? []).map((entry) => {
