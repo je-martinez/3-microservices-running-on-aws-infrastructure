@@ -16,7 +16,10 @@
           "type": "line",
           "title": "Records processed",
           "description": "Per-record pipeline outcomes over time. event_processing_succeeded is the healthy path; _failed and _skipped (duplicate) are the two it can end in instead.",
-          "config": { "show_legends": true, "decimals": 0 },
+          "config": {
+            "show_legends": true,
+            "decimals": 0
+          },
           "queryType": "sql",
           "queries": [
             {
@@ -25,23 +28,70 @@
               "fields": {
                 "stream": "logs",
                 "stream_type": "logs",
-                "x": [{ "label": "time", "alias": "x_axis_1", "column": "x_axis_1", "color": null, "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true }],
-                "y": [{ "label": "records", "alias": "y_axis_1", "column": "y_axis_1", "color": "#4caf50", "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true }],
+                "x": [
+                  {
+                    "label": "time",
+                    "alias": "x_axis_1",
+                    "column": "x_axis_1",
+                    "color": null,
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "records",
+                    "alias": "y_axis_1",
+                    "column": "y_axis_1",
+                    "color": "#4caf50",
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
+                ],
                 "z": [],
-                "breakdown": [{ "label": "outcome", "alias": "breakdown_1", "column": "breakdown_1", "color": null, "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true }],
-                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+                "breakdown": [
+                  {
+                    "label": "outcome",
+                    "alias": "breakdown_1",
+                    "column": "breakdown_1",
+                    "color": null,
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
+                ],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
               },
-              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
             }
           ],
-          "layout": { "x": 0, "y": 0, "w": 96, "h": 15, "i": 1 }
+          "layout": {
+            "x": 0,
+            "y": 0,
+            "w": 96,
+            "h": 15,
+            "i": 1
+          }
         },
         {
           "id": "ep_by_event_type",
           "type": "bar",
           "title": "Events by lifecycle stage",
           "description": "Every app_event the Lambda emits, ranked. Dominated by the STARTED → IN_PROGRESS → COMPLETED lifecycle plus the email send; a rising *_failed bar is the signal to look at.",
-          "config": { "show_legends": false, "decimals": 0 },
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
           "queryType": "sql",
           "queries": [
             {
@@ -50,23 +100,60 @@
               "fields": {
                 "stream": "logs",
                 "stream_type": "logs",
-                "x": [{ "label": "app_event", "alias": "x_axis_1", "column": "x_axis_1", "color": null, "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true }],
-                "y": [{ "label": "occurrences", "alias": "y_axis_1", "column": "y_axis_1", "color": "#2196f3", "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true }],
+                "x": [
+                  {
+                    "label": "app_event",
+                    "alias": "x_axis_1",
+                    "column": "x_axis_1",
+                    "color": null,
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "occurrences",
+                    "alias": "y_axis_1",
+                    "column": "y_axis_1",
+                    "color": "#2196f3",
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
+                ],
                 "z": [],
                 "breakdown": [],
-                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
               },
-              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
             }
           ],
-          "layout": { "x": 96, "y": 0, "w": 96, "h": 15, "i": 2 }
+          "layout": {
+            "x": 96,
+            "y": 0,
+            "w": 96,
+            "h": 15,
+            "i": 2
+          }
         },
         {
           "id": "ep_processing_latency",
           "type": "line",
           "title": "Processing latency",
           "description": "How long a record takes end to end (insert → handler → COMPLETED), and how long the SES send inside it takes. A p99 climbing while p50 stays flat points at a slow dependency on a subset of records, not a general slowdown.",
-          "config": { "show_legends": true, "decimals": 0 },
+          "config": {
+            "show_legends": true,
+            "decimals": 0
+          },
           "queryType": "sql",
           "queries": [
             {
@@ -75,27 +162,78 @@
               "fields": {
                 "stream": "logs",
                 "stream_type": "logs",
-                "x": [{ "label": "time", "alias": "x_axis_1", "column": "x_axis_1", "color": null, "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true }],
+                "x": [
+                  {
+                    "label": "time",
+                    "alias": "x_axis_1",
+                    "column": "x_axis_1",
+                    "color": null,
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
+                ],
                 "y": [
-                  { "label": "p50", "alias": "y_axis_1", "column": "y_axis_1", "color": "#4caf50", "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true },
-                  { "label": "p95", "alias": "y_axis_2", "column": "y_axis_2", "color": "#ff9800", "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true },
-                  { "label": "p99", "alias": "y_axis_3", "column": "y_axis_3", "color": "#f44336", "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true }
+                  {
+                    "label": "p50",
+                    "alias": "y_axis_1",
+                    "column": "y_axis_1",
+                    "color": "#4caf50",
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  },
+                  {
+                    "label": "p95",
+                    "alias": "y_axis_2",
+                    "column": "y_axis_2",
+                    "color": "#ff9800",
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  },
+                  {
+                    "label": "p99",
+                    "alias": "y_axis_3",
+                    "column": "y_axis_3",
+                    "color": "#f44336",
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
                 ],
                 "z": [],
                 "breakdown": [],
-                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
               },
-              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
             }
           ],
-          "layout": { "x": 0, "y": 15, "w": 96, "h": 15, "i": 3 }
+          "layout": {
+            "x": 0,
+            "y": 15,
+            "w": 96,
+            "h": 15,
+            "i": 3
+          }
         },
         {
           "id": "ep_by_producer",
           "type": "bar",
           "title": "Events by producing actor",
           "description": "author_actor names WHO originated each event (users_api:register, tracking_api:carrier_status_update, …), as distinct from the user it is about. Shows which producer drives the pipeline's volume.",
-          "config": { "show_legends": false, "decimals": 0 },
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
           "queryType": "sql",
           "queries": [
             {
@@ -104,23 +242,60 @@
               "fields": {
                 "stream": "logs",
                 "stream_type": "logs",
-                "x": [{ "label": "producer", "alias": "x_axis_1", "column": "x_axis_1", "color": null, "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true }],
-                "y": [{ "label": "events", "alias": "y_axis_1", "column": "y_axis_1", "color": "#9c27b0", "isDerived": true, "havingConditions": [], "treatAsNonTimestamp": true }],
+                "x": [
+                  {
+                    "label": "producer",
+                    "alias": "x_axis_1",
+                    "column": "x_axis_1",
+                    "color": null,
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "events",
+                    "alias": "y_axis_1",
+                    "column": "y_axis_1",
+                    "color": "#9c27b0",
+                    "isDerived": true,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
+                ],
                 "z": [],
                 "breakdown": [],
-                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
               },
-              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
             }
           ],
-          "layout": { "x": 96, "y": 15, "w": 96, "h": 15, "i": 4 }
+          "layout": {
+            "x": 96,
+            "y": 15,
+            "w": 96,
+            "h": 15,
+            "i": 4
+          }
         },
         {
           "id": "ep_recent_failures",
           "type": "table",
           "title": "Recent failures",
           "description": "Every failed record with its machine-readable reason. A PermanentError is NOT retried — the email is lost — while a TransientError will be redelivered by SQS, so `reason` is what tells the two apart.",
-          "config": { "show_legends": false, "decimals": 0 },
+          "config": {
+            "show_legends": false,
+            "decimals": 0
+          },
           "queryType": "sql",
           "queries": [
             {
@@ -129,19 +304,82 @@
               "fields": {
                 "stream": "logs",
                 "stream_type": "logs",
-                "x": [],
-                "y": [],
+                "x": [
+                  {
+                    "label": "timestamp",
+                    "alias": "_timestamp",
+                    "column": "_timestamp",
+                    "color": null,
+                    "isDerived": false,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": false
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "app event",
+                    "alias": "app_event",
+                    "column": "app_event",
+                    "color": null,
+                    "isDerived": false,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  },
+                  {
+                    "label": "reason",
+                    "alias": "reason",
+                    "column": "reason",
+                    "color": null,
+                    "isDerived": false,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  },
+                  {
+                    "label": "event id",
+                    "alias": "event_id",
+                    "column": "event_id",
+                    "color": null,
+                    "isDerived": false,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  },
+                  {
+                    "label": "author actor",
+                    "alias": "author_actor",
+                    "column": "author_actor",
+                    "color": null,
+                    "isDerived": false,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
+                ],
                 "z": [],
                 "breakdown": [],
-                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
               },
-              "config": { "promql_legend": "", "layer_type": "scatter", "weight_fixed": 1 }
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1
+              }
             }
           ],
-          "layout": { "x": 0, "y": 30, "w": 192, "h": 15, "i": 5 }
+          "layout": {
+            "x": 0,
+            "y": 30,
+            "w": 192,
+            "h": 15,
+            "i": 5
+          }
         }
       ]
     }
   ],
-  "variables": { "list": [] }
+  "variables": {
+    "list": []
+  }
 }

@@ -420,8 +420,55 @@
               "fields": {
                 "stream": "logs",
                 "stream_type": "logs",
-                "x": [],
-                "y": [],
+                "x": [
+                  {
+                    "label": "timestamp",
+                    "alias": "_timestamp",
+                    "column": "_timestamp",
+                    "color": null,
+                    "isDerived": false,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": false
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "http request method",
+                    "alias": "http_request_method",
+                    "column": "http_request_method",
+                    "color": null,
+                    "isDerived": false,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  },
+                  {
+                    "label": "http route",
+                    "alias": "http_route",
+                    "column": "http_route",
+                    "color": null,
+                    "isDerived": false,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  },
+                  {
+                    "label": "http response status code",
+                    "alias": "http_response_status_code",
+                    "column": "http_response_status_code",
+                    "color": null,
+                    "isDerived": false,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  },
+                  {
+                    "label": "duration ms",
+                    "alias": "duration_ms",
+                    "column": "duration_ms",
+                    "color": null,
+                    "isDerived": false,
+                    "havingConditions": [],
+                    "treatAsNonTimestamp": true
+                  }
+                ],
                 "z": [],
                 "breakdown": [],
                 "filter": {
