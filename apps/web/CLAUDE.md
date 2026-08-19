@@ -93,8 +93,11 @@ Tailwind 4 traps that make this rule easy to violate silently:
 Full convention: `../../docs/shared/conventions/angular-component-authoring.md` →
 [[angular-component-authoring]]. Two rules, named directly by the user after
 reviewing the delivered app, and both currently violated across the whole app —
-**this rule does not describe the current codebase, it governs what gets written
-next.** Fixing existing components is separate, untracked-by-this-note work.
+**this rule does not describe the current codebase.** Nothing is grandfathered:
+it governs a component **the moment you touch it** — open a file to change one
+line and its template moves to a sibling `.html` and its `px` become `rem` in the
+same change. Only the bulk conversion of the untouched remainder is deferred,
+tracked as JE-174.
 
 **Current state (measured at time of writing):** 32 components use inline
 `template:` backticks; zero use `templateUrl`; zero `.html` files exist under

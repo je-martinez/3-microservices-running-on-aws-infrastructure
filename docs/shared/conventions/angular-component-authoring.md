@@ -34,8 +34,16 @@ Measured on `apps/web/src/app` at the time this note was written:
 - **508** `[...px]` arbitrary-value Tailwind classes across **29** files: 148
   `text-[Npx]`, 144 padding, 107 `gap-`, 96 `h-`, 82 `w-`.
 
-Fixing the existing components is tracked separately (not by this note) — this convention
-governs new and touched components going forward, and does not itself change any code.
+Nothing here is grandfathered. **This convention governs a component the moment anyone
+touches it** — open a file to change one line, and its template moves to a sibling `.html`
+and its `px` become `rem` in the same change. What is deferred is only the *bulk*
+conversion of the untouched remainder, tracked as its own reviewable piece of work in
+JE-174. This note changes no code by itself.
+
+The distinction matters: "exempt until someone does the big refactor" means the debt grows
+with every edit, while "convert what you touch" means it shrinks. A first reader of this
+note took the earlier wording to mean the existing components were exempt, which is why it
+is spelled out here.
 
 ## Rule 1 — templates live in their own `.html` file
 
