@@ -67,3 +67,18 @@ variable "log_retention_in_days" {
   type        = number
   default     = 7
 }
+
+variable "environment_variables" {
+  description = <<-EOT
+    Extra environment variables merged into ALL FOUR functions (authorizer,
+    $connect, $disconnect, $default). One map, not four: the four share a
+    single Lambda resource declared with for_each, and every consumer so far
+    wants the same values on all of them — the OTLP exporter settings, which
+    must be configuration rather than code (see [[logging-context]]).
+
+    Merged UNDER the module's own variables, so a caller cannot accidentally
+    shadow COGNITO_ISSUER or WS_CONNECTIONS_TABLE with a stale value.
+  EOT
+  type        = map(string)
+  default     = {}
+}
