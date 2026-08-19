@@ -911,6 +911,30 @@ exporters:
     tls:
       insecure: true
 
+  # Traces to OpenObserve as well, so they sit next to the logs they correlate
+  # with and one login answers both questions. Same instance, same auth, same
+  # shape as the log exporters above — only the path differs, because
+  # OpenObserve takes traces on its own OTLP route rather than through a
+  # stream-name header.
+  #
+  # ADDED ALONGSIDE JAEGER, NOT INSTEAD OF IT, deliberately. ADR-0019 moved
+  # traces here in the first place because this build rejected every batch the
+  # collector sent with HTTP 400 while a hand-rolled OTLP-JSON POST to the same
+  # endpoint succeeded — the disagreement was between the collector's
+  # serialization and this parser, and nothing in this change fixes that. If it
+  # recurs, Jaeger keeps receiving and the waterfall keeps working; only the
+  # OpenObserve copy is lost. Jaeger also remains the better trace UI: the
+  # nested cascade that shows where a request's milliseconds went is what
+  # ADR-0018 flagged as OpenObserve's known weak spot.
+  #
+  # encoding is left at the default (protobuf). Setting `encoding: json` was
+  # tried during ADR-0019 and did not reconcile the 400s, so it is not carried
+  # forward as a superstition.
+  otlp_http/openobserve_traces:
+    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    headers:
+      Authorization: "Basic ${env:O2_BASIC_AUTH}"
+
   # Metrics to OpenObserve, its own stream — same instance and auth as logs,
   # differing only in the stream-name header, exactly like the sql split above.
   #
@@ -1078,7 +1102,12 @@ service:
       # itself: limiting after the batcher has already buffered the spans limits
       # nothing.
       processors: [memory_limiter, batch]
-      exporters: [otlp/jaeger]
+      # Two destinations, on purpose. OpenObserve puts traces beside the logs
+      # they share a trace_id with; Jaeger keeps the waterfall. A failure in
+      # either exporter does not stop the other — which matters here, because
+      # this OpenObserve build is the one ADR-0019 recorded as rejecting the
+      # collector's trace batches.
+      exporters: [otlp/jaeger, otlp_http/openobserve_traces]
 
     # Custom business metrics: CloudWatch -> OpenObserve. Same receiver as the
     # logs pipeline, different signal — the receiver's `metrics` block above is
