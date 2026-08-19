@@ -1,12 +1,12 @@
 <article
-  class="border-line bg-surface-white flex h-fit w-full flex-col items-start justify-start gap-[13px] rounded-xl border p-4 md:gap-4 md:p-5"
+  class="border-line bg-surface-white flex h-fit w-full flex-col items-start justify-start gap-[0.8125rem] rounded-xl border p-4 md:gap-4 md:p-5"
 >
   <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
-    <div class="flex h-fit w-fit shrink-0 flex-col items-start justify-start gap-[3px] md:gap-1">
-      <div class="text-ink-primary text-[15px] font-semibold whitespace-nowrap md:text-[15.5px]">
+    <div class="flex h-fit w-fit shrink-0 flex-col items-start justify-start gap-[0.1875rem] md:gap-1">
+      <div class="text-ink-primary text-[0.9375rem] font-semibold whitespace-nowrap md:text-[0.96875rem]">
         {{ entry().order.id }}
       </div>
-      <div class="text-ink-secondary text-[13px] whitespace-nowrap md:text-[13.5px]">
+      <div class="text-ink-secondary text-[0.8125rem] whitespace-nowrap md:text-[0.84375rem]">
         {{ placedLabel() }}
       </div>
     </div>
@@ -16,10 +16,10 @@
       @if (entry().tracking; as tracking) {
         <app-status-badge [status]="tracking.status" />
       }
-      <span class="text-ink-primary text-lg font-bold tracking-[-0.3px] whitespace-nowrap">{{
+      <span class="text-ink-primary text-lg font-bold tracking-[-0.01875rem] whitespace-nowrap">{{
         total()
       }}</span>
-      <svg lucideChevronRight class="text-ink-muted h-[18px] w-[18px]"></svg>
+      <svg lucideChevronRight class="text-ink-muted h-[1.125rem] w-[1.125rem]"></svg>
     </div>
   </div>
 
@@ -30,7 +30,7 @@
     } @else {
       <span></span>
     }
-    <span class="text-ink-primary text-lg font-bold tracking-[-0.3px] whitespace-nowrap">{{
+    <span class="text-ink-primary text-lg font-bold tracking-[-0.01875rem] whitespace-nowrap">{{
       total()
     }}</span>
   </div>
@@ -40,12 +40,12 @@
   <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
     <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-2">
       @for (line of lines(); track line.productId) {
-        <div class="bg-surface-subtle h-[46px] w-[46px] shrink-0 rounded-lg md:h-[52px] md:w-[52px]"></div>
+        <div class="bg-surface-subtle h-[2.875rem] w-[2.875rem] shrink-0 rounded-lg md:h-[3.25rem] md:w-[3.25rem]"></div>
       }
     </div>
     <button
       type="button"
-      class="border-line-strong text-brand-navy flex h-9 w-fit shrink-0 flex-row items-center justify-start rounded-lg border px-[14px] text-[13.5px] font-semibold md:h-[38px] md:px-[15px]"
+      class="border-line-strong text-brand-navy flex h-9 w-fit shrink-0 flex-row items-center justify-start rounded-lg border px-[0.875rem] text-[0.84375rem] font-semibold md:h-[2.375rem] md:px-[0.9375rem]"
     >
       View details
     </button>

@@ -21,6 +21,7 @@
     "@lucide/angular": "1.32.0",
     "@ngrx/signals": "21.1.1",
     "@ngrx/store": "21.1.1",
+    "date-fns": "4.4.0",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0"
   },

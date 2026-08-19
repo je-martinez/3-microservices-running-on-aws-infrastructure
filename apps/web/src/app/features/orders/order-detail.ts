@@ -15,6 +15,7 @@ import { PRODUCTS } from '../../fixtures/catalogue.fixture';
 import { NOTIFICATIONS } from '../../fixtures/notifications.fixture';
 import { ORDERS } from '../../fixtures/orders.fixture';
 import { CURRENT_USER } from '../../fixtures/user.fixture';
+import { formatDateTime, formatPlacedLabel } from '../../shared/date/format-date';
 import { StatusBadge } from '../../shared/ui/status-badge';
 import { TrackingStatusIcon } from '../../shared/ui/tracking-status-icon';
 
@@ -44,6 +45,8 @@ export class OrderDetailPage {
   protected readonly hasUnreadNotifications = NOTIFICATIONS.some((n) => !n.read);
 
   protected readonly formatCents = formatCents;
+  /** Timeline rows: `Aug 2, 2026 · 10:24 am` (see shared/date/format-date.ts). */
+  protected readonly formatDateTime = formatDateTime;
   protected readonly toInt = (value: Parameters<typeof formatCents>[0]) =>
     typeof value === 'number' ? value : Number.parseInt(value, 10);
   protected readonly trackingStatuses = TRACKING_STATUSES;
@@ -60,13 +63,15 @@ export class OrderDetailPage {
     return current ? current.order.lines.map((line) => joinOrderLine(line, PRODUCTS)) : [];
   });
 
+  /**
+   * Shared with `OrderCard`, which renders the identical line — the two
+   * built this string from separate copies of the same logic before
+   * `shared/date/format-date.ts` existed.
+   */
   protected readonly placedLabel = computed(() => {
     const current = this.entry();
     if (!current) return '';
-    const date = new Date(current.order.createdAt);
-    const formatted = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    const count = current.order.lines.length;
-    return `Placed ${formatted} · ${count} item${count === 1 ? '' : 's'}`;
+    return formatPlacedLabel(current.order.createdAt, current.order.lines.length);
   });
 
   // NOT from a contract — User.address is untyped on the wire (see
@@ -88,16 +93,6 @@ export class OrderDetailPage {
       .split('_')
       .map((word, i) => (i === 0 ? word[0].toUpperCase() + word.slice(1) : word))
       .join(' ');
-  }
-
-  protected formatDateTime(iso: string): string {
-    const date = new Date(iso);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    });
   }
 
   protected goTo(path: string): void {

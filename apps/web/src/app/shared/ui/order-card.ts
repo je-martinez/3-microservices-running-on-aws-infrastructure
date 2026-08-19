@@ -1,7 +1,8 @@
 import { Component, computed, input } from '@angular/core';
 import { LucideChevronRight } from '@lucide/angular';
-import { formatCents, joinOrderLine, type OrderWithTracking, toInt } from '../../fixtures/api-types';
+import { formatCents, joinOrderLine, type OrderWithTracking } from '../../fixtures/api-types';
 import { PRODUCTS } from '../../fixtures/catalogue.fixture';
+import { formatPlacedLabel } from '../date/format-date';
 import { StatusBadge } from './status-badge';
 
 /**
@@ -42,14 +43,8 @@ export class OrderCard {
 
   protected readonly total = computed(() => `$${formatCents(this.entry().order.totalCents)}`);
 
-  protected readonly placedLabel = computed(() => {
-    const date = new Date(this.entry().order.createdAt);
-    const formatted = date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-    const count = toInt(this.entry().order.lines.length);
-    return `Placed ${formatted} · ${count} item${count === 1 ? '' : 's'}`;
-  });
+  /** Shared with `OrderDetailPage`; see `shared/date/format-date.ts`. */
+  protected readonly placedLabel = computed(() =>
+    formatPlacedLabel(this.entry().order.createdAt, this.entry().order.lines.length),
+  );
 }

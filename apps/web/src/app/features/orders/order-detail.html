@@ -8,22 +8,22 @@
 
   @if (entry(); as entry) {
     <div class="flex w-full flex-1 flex-col items-center justify-start gap-0 p-5 md:p-9">
-      <div class="flex h-fit w-full max-w-[1040px] shrink-0 flex-col items-start justify-start gap-4 md:gap-[22px]">
+      <div class="flex h-fit w-full max-w-[65rem] shrink-0 flex-col items-start justify-start gap-4 md:gap-[1.375rem]">
         <button
           type="button"
-          class="text-ink-secondary flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-[7px]"
+          class="text-ink-secondary flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-[0.4375rem]"
           (click)="goTo('/orders')"
         >
           <svg lucideArrowLeft class="h-4 w-4"></svg>
-          <span class="text-[13.5px] font-semibold">All orders</span>
+          <span class="text-[0.84375rem] font-semibold">All orders</span>
         </button>
 
         <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
-          <div class="flex h-fit w-fit shrink-0 flex-col items-start justify-start gap-[3px] md:gap-[6px]">
-            <h1 class="text-ink-primary text-xl font-bold tracking-[-0.5px] md:text-[28px] md:tracking-[-0.7px]">
+          <div class="flex h-fit w-fit shrink-0 flex-col items-start justify-start gap-[0.1875rem] md:gap-[0.375rem]">
+            <h1 class="text-ink-primary text-xl font-bold tracking-[-0.03125rem] md:text-[1.75rem] md:tracking-[-0.04375rem]">
               {{ entry.order.id }}
             </h1>
-            <p class="text-ink-secondary text-[13px] md:text-[14.5px]">{{ placedLabel() }}</p>
+            <p class="text-ink-secondary text-[0.8125rem] md:text-[0.90625rem]">{{ placedLabel() }}</p>
           </div>
           @if (entry.tracking; as tracking) {
             <app-status-badge [status]="tracking.status" />
@@ -34,21 +34,21 @@
           <div class="flex h-fit w-full min-w-0 flex-1 flex-col items-start justify-start gap-5">
             @if (entry.tracking; as tracking) {
               <div class="border-line bg-surface-white flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5">
-                <span class="text-ink-muted text-xs font-semibold tracking-[1.5px]">TRACKING</span>
+                <span class="text-ink-muted text-xs font-semibold tracking-[0.09375rem]">TRACKING</span>
 
                 <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-0">
                   @for (status of trackingStatuses; track status; let last = $last) {
                     @if (historyFor(tracking, status); as step) {
-                      <div class="flex h-fit w-full shrink-0 flex-row items-start justify-start gap-[14px]">
-                        <div class="flex h-fit w-[34px] shrink-0 flex-col items-center justify-start gap-0">
+                      <div class="flex h-fit w-full shrink-0 flex-row items-start justify-start gap-[0.875rem]">
+                        <div class="flex h-fit w-[2.125rem] shrink-0 flex-col items-center justify-start gap-0">
                           <app-tracking-status-icon [status]="status" />
                           @if (!last) {
-                            <div class="bg-line h-[30px] w-[2px] shrink-0"></div>
+                            <div class="bg-line h-[1.875rem] w-[0.125rem] shrink-0"></div>
                           }
                         </div>
-                        <div class="flex h-fit flex-1 flex-col items-start justify-start gap-[3px] pt-1.5">
-                          <span class="text-ink-primary text-[14.5px] font-semibold">{{ stepLabel(status) }}</span>
-                          <span class="text-ink-secondary w-full text-[13px] leading-[19px]">{{ formatDateTime(step.datetime) }}</span>
+                        <div class="flex h-fit flex-1 flex-col items-start justify-start gap-[0.1875rem] pt-1.5">
+                          <span class="text-ink-primary text-[0.90625rem] font-semibold">{{ stepLabel(status) }}</span>
+                          <span class="text-ink-secondary w-full text-[0.8125rem] leading-[1.1875rem]">{{ formatDateTime(step.datetime) }}</span>
                         </div>
                       </div>
                     }
@@ -58,20 +58,20 @@
             }
 
             <div class="border-line bg-surface-white flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5">
-              <span class="text-ink-muted text-xs font-semibold tracking-[1.5px]">ITEMS ({{ lines().length }})</span>
+              <span class="text-ink-muted text-xs font-semibold tracking-[0.09375rem]">ITEMS ({{ lines().length }})</span>
 
               <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4">
                 @for (line of lines(); track line.productId; let last = $last) {
-                  <div class="flex h-fit w-full shrink-0 flex-row items-start justify-start gap-[14px]">
-                    <div class="bg-surface-subtle h-[88px] w-[76px] shrink-0 rounded-lg"></div>
-                    <div class="flex h-[88px] flex-1 flex-col items-start justify-between gap-2">
-                      <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-[3px]">
-                        <span class="text-ink-primary w-full text-[14.5px] font-semibold">
+                  <div class="flex h-fit w-full shrink-0 flex-row items-start justify-start gap-[0.875rem]">
+                    <div class="bg-surface-subtle h-[5.5rem] w-[4.75rem] shrink-0 rounded-lg"></div>
+                    <div class="flex h-[5.5rem] flex-1 flex-col items-start justify-between gap-2">
+                      <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-[0.1875rem]">
+                        <span class="text-ink-primary w-full text-[0.90625rem] font-semibold">
                           {{ line.product ? line.product.name : 'Product no longer listed' }}
                         </span>
-                        <span class="text-ink-secondary text-[13px]">Qty {{ line.quantity }}</span>
+                        <span class="text-ink-secondary text-[0.8125rem]">Qty {{ line.quantity }}</span>
                       </div>
-                      <span class="text-ink-primary text-[14.5px] font-semibold">
+                      <span class="text-ink-primary text-[0.90625rem] font-semibold">
                         {{ '$' + formatCents(line.totalCents) }}
                       </span>
                     </div>
@@ -84,9 +84,9 @@
             </div>
           </div>
 
-          <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-5 md:w-[340px]">
+          <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-5 md:w-[21.25rem]">
             <div class="border-line bg-surface-white flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5">
-              <span class="text-ink-muted text-xs font-semibold tracking-[1.5px]">ORDER SUMMARY</span>
+              <span class="text-ink-muted text-xs font-semibold tracking-[0.09375rem]">ORDER SUMMARY</span>
 
               <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
                 <span class="text-ink-secondary text-sm">Subtotal</span>
@@ -103,16 +103,16 @@
                 <span class="text-ink-primary text-sm font-semibold">{{ '$' + formatCents(entry.order.taxCents) }}</span>
               </div>
               <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
-                <span class="text-ink-primary text-[15.5px] font-bold">Total</span>
-                <span class="text-ink-primary text-lg font-bold tracking-[-0.3px]">{{ '$' + formatCents(entry.order.totalCents) }}</span>
+                <span class="text-ink-primary text-[0.96875rem] font-bold">Total</span>
+                <span class="text-ink-primary text-lg font-bold tracking-[-0.01875rem]">{{ '$' + formatCents(entry.order.totalCents) }}</span>
               </div>
             </div>
 
             @if (address; as deliveryAddress) {
               <div class="border-line bg-surface-white flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5">
-                <span class="text-ink-muted text-xs font-semibold tracking-[1.5px]">DELIVERY ADDRESS</span>
-                <span class="text-ink-primary text-[14.5px] font-semibold">{{ userName }}</span>
-                <p class="text-ink-secondary w-full text-[13.5px] leading-[22px]">
+                <span class="text-ink-muted text-xs font-semibold tracking-[0.09375rem]">DELIVERY ADDRESS</span>
+                <span class="text-ink-primary text-[0.90625rem] font-semibold">{{ userName }}</span>
+                <p class="text-ink-secondary w-full text-[0.84375rem] leading-[1.375rem]">
                   {{ deliveryAddress.line1 }}{{ deliveryAddress.line2 ? ', ' + deliveryAddress.line2 : '' }}<br />
                   {{ deliveryAddress.city }} {{ deliveryAddress.postalCode }}, {{ deliveryAddress.country }}<br />
                   {{ userPhone }}

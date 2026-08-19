@@ -5,6 +5,7 @@ import { AppHeader } from '../../core/layout/app-header';
 import { OverlayStore } from '../../core/overlay/overlay-store';
 import { NOTIFICATIONS } from '../../fixtures/notifications.fixture';
 import { CURRENT_USER } from '../../fixtures/user.fixture';
+import { formatMonthYear } from '../../shared/date/format-date';
 import { ButtonPrimary } from '../../shared/ui/button-primary';
 import { Field } from '../../shared/ui/field';
 
@@ -43,10 +44,14 @@ export class ProfilePage {
       .join(''),
   );
 
-  protected readonly memberSinceLabel = computed(() => {
-    const date = new Date(this.user.createdAt);
-    return `Member since ${date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`;
-  });
+  /**
+   * `User.createdAt` is a bare `string` in services/users/openapi.yaml — no
+   * `format: date-time` — so an unparseable value is reachable here, and
+   * `formatMonthYear` degrades it rather than printing `Invalid Date`.
+   */
+  protected readonly memberSinceLabel = computed(
+    () => `Member since ${formatMonthYear(this.user.createdAt)}`,
+  );
 
   // NOT from a contract — see this class's comment. Address is null in
   // theory (the design has no "no address" state for Profile, unlike
