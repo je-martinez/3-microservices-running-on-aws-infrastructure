@@ -155,11 +155,18 @@ export function buildApp(
           http_route: route,
           http_response_status_code: reply.statusCode,
           duration_ms: reply.elapsedTime,
-          // NO `trace_id: req.id` here. Pino injects the REAL OTel trace_id and
-          // span_id on every line once the SDK is active, and explicit fields beat
-          // the ambient ones — so passing Fastify's local request counter would
-          // override the real id on the single most useful log line, breaking the
-          // join between logs and traces.
+          // NO `trace_id: req.id` here. The REAL OTel trace_id and span_id are
+          // stamped on every line by shared/logging/logger.ts's formatter, read
+          // from the active span, and explicit fields beat the ambient ones — so
+          // passing Fastify's local request counter would override the real id on
+          // the single most useful log line, breaking the join between logs and
+          // traces.
+          //
+          // This used to credit @opentelemetry/instrumentation-pino for the
+          // injection. That package is not a dependency of this service and is
+          // not in getNodeAutoInstrumentations' bundle, so nothing was injecting
+          // anything and every line here shipped WITHOUT a trace id — see the
+          // formatter's comment.
         },
         "request completed",
       );
