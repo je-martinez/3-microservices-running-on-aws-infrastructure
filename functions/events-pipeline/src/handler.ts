@@ -5,9 +5,12 @@ import {
   ROOT_CONTEXT,
   SpanKind,
   SpanStatusCode,
+  context,
   defaultTextMapGetter,
   trace,
+  type Context,
   type Link,
+  type SpanContext,
 } from "@opentelemetry/api";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";
 import { EnvelopeSchema, type Envelope } from "#domain/envelope";
@@ -130,24 +133,59 @@ function envelopeContext(envelope: Envelope, messageId: string): LogContextStore
 // stay handled for free.
 const traceContextPropagator = new W3CTraceContextPropagator();
 
-// The record's origin trace, as a span link, or nothing.
+// The span context of the trace that PUBLISHED this record, or undefined.
 //
 // Extracted from ROOT_CONTEXT, never from `context.active()`. On a malformed or
 // unparseable traceparent the propagator returns the context it was GIVEN,
 // unchanged — and the active context here already holds this Lambda's own batch
-// span. Extracting from it would hand back that span's context and link the
-// record to the very batch processing it: a link that looks valid, points at the
-// wrong trace, and is indistinguishable from a real one downstream. From the
-// root there is nothing to fall back to, so a bad value yields no link at all,
-// which is the honest answer.
-function originLinks(record: SqsRecord): Link[] {
+// span. Extracting from it would hand back that span's context and attach the
+// record to the very batch processing it: a reference that looks valid, points
+// at the wrong trace, and is indistinguishable from a real one downstream. From
+// the root there is nothing to fall back to, so a bad value yields nothing at
+// all, which is the honest answer.
+function originSpanContext(record: SqsRecord): SpanContext | undefined {
   const traceparent = record.messageAttributes?.traceparent?.stringValue;
-  if (traceparent === undefined) return [];
+  if (traceparent === undefined) return undefined;
 
-  const spanContext = trace.getSpanContext(
+  return trace.getSpanContext(
     traceContextPropagator.extract(ROOT_CONTEXT, { traceparent }, defaultTextMapGetter),
   );
-  return spanContext === undefined ? [] : [{ context: spanContext }];
+}
+
+// How a record span attaches to the trace that published its message. The choice
+// is made PER BATCH, from the batch size, and the two branches are not
+// interchangeable:
+//
+//   1 record  -> PARENT. The origin is unambiguous, so `process_record` becomes
+//     a real child of the publisher's span and the whole cascade stays ONE
+//     trace: create_order -> SQS.SendMessage -> process_record -> ses SendEmail.
+//     Before this, the email work lived in a second trace reachable only by
+//     following a FOLLOWS_FROM reference — a user opening the create_order trace
+//     saw no email at all.
+//
+//   2+ records -> LINK, as before. A batch mixes messages from DISTINCT traces,
+//     so naming a parent means picking one of N origins and misattributing every
+//     other record. A link says "caused by, elsewhere" per record, independently.
+//
+// Batch size is a RUNTIME property, not a guarantee: today every observed batch
+// carries exactly one record, but SQS will deliver several per invocation under
+// load. The link branch is what keeps that from silently becoming a lie, so it
+// stays — it is not dead code waiting to be removed.
+interface RecordSpanAttachment {
+  // Passed to startActiveSpan as the parent context. `undefined` means "use the
+  // active context", i.e. the batch span — which is what both the multi-record
+  // branch and the no-traceparent case want.
+  parentContext?: Context;
+  links: Link[];
+}
+
+function recordSpanAttachment(record: SqsRecord, batchSize: number): RecordSpanAttachment {
+  const spanContext = originSpanContext(record);
+  if (spanContext === undefined) return { links: [] };
+
+  return batchSize === 1
+    ? { parentContext: trace.setSpanContext(ROOT_CONTEXT, spanContext), links: [] }
+    : { links: [{ context: spanContext }] };
 }
 
 // Cold-start-scoped: indexes are ensured once per execution environment, not
@@ -397,14 +435,13 @@ async function processBatch(event: SqsEvent): Promise<BatchResponse> {
       continue;
     }
 
-    // One span PER RECORD, LINKED — never parented — to the trace that
-    // published the message. A batch mixes messages from DISTINCT traces, so
-    // declaring a parent would mean picking one of N origins and misattributing
-    // the rest; a link expresses "caused by, elsewhere" for each record
-    // independently. The links array is empty when the message carries no
+    // One span PER RECORD, attached to the trace that published the message —
+    // as a real PARENT when this batch carries exactly one record, as a LINK
+    // when it carries several. See recordSpanAttachment for why the size of the
+    // batch is what decides. Both fields are empty when the message carries no
     // traceparent, which is a valid shape (a pre-instrumentation redelivery),
     // not a failure.
-    const links = originLinks(record);
+    const { parentContext, links } = recordSpanAttachment(record, event.Records.length);
 
     // One ALS scope per record: everything logged inside — here, in the state
     // machine, in the SES sender — carries this envelope's identity without any
@@ -414,6 +451,12 @@ async function processBatch(event: SqsEvent): Promise<BatchResponse> {
     // The log context is entered INSIDE the span so the two nest the same way
     // they read: every line for this record is emitted while the record span is
     // the active one.
+    //
+    // The parent context is passed as startActiveSpan's 3rd argument, which the
+    // API only accepts when the callback is 4th — hence the explicit
+    // `context.active()` for the branches that have no remote parent. Omitting
+    // it there would parent the record span to ROOT_CONTEXT and orphan it from
+    // the batch span, silently.
     const failedTransiently = await tracer.startActiveSpan(
       "process_record",
       {
@@ -421,6 +464,7 @@ async function processBatch(event: SqsEvent): Promise<BatchResponse> {
         links,
         attributes: { "messaging.message.id": record.messageId },
       },
+      parentContext ?? context.active(),
       (recordSpan) =>
         runWithLogContext(envelopeContext(envelope, record.messageId), async () => {
           try {

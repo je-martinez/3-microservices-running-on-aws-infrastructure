@@ -785,11 +785,15 @@ describe("handler — tracing", () => {
   // publisher (Users/Orders/Tracking) that put the message on the queue. Built
   // from a real span context rather than a hand-written hex string so the test
   // exercises the same decode path a live message travels.
-  async function originTraceparent(): Promise<{ traceparent: string; traceId: string }> {
+  async function originTraceparent(): Promise<{
+    traceparent: string;
+    traceId: string;
+    spanId: string;
+  }> {
     const span = originTracer.startSpan("origin-publish");
     const { traceId, spanId } = span.spanContext();
     span.end();
-    return { traceparent: `00-${traceId}-${spanId}-01`, traceId };
+    return { traceparent: `00-${traceId}-${spanId}-01`, traceId, spanId };
   }
 
   function tracedRecord(messageId: string, body: unknown, traceparent: string) {
@@ -814,8 +818,13 @@ describe("handler — tracing", () => {
     expect(batchSpan.status.code).toBe(SpanStatusCode.OK);
   });
 
-  it("opens an INTERNAL child span per record, linked to that record's origin trace", async () => {
-    const { traceparent, traceId } = await originTraceparent();
+  it("parents the record span to the origin span when the batch holds exactly ONE record", async () => {
+    // The whole point of the hybrid: with a single record the origin is
+    // unambiguous, so the record span is a REAL CHILD of the publisher's span
+    // and stays in the publisher's trace. That is what makes the email work
+    // visible inside the create_order trace instead of stranded in a second one
+    // reachable only by following a FOLLOWS_FROM reference.
+    const { traceparent, traceId, spanId } = await originTraceparent();
 
     await handler({ Records: [tracedRecord("msg-1", envelope(), traceparent)] });
 
@@ -824,21 +833,39 @@ describe("handler — tracing", () => {
     expect(recordSpan).toBeDefined();
     expect(recordSpan.kind).toBe(SpanKind.INTERNAL);
     expect(recordSpan.attributes["messaging.message.id"]).toBe("msg-1");
-    // A CHILD of the batch span, in the SAME trace — the link below is the only
-    // reference to the origin trace, deliberately.
-    expect(recordSpan.parentSpanContext?.spanId).toBe(batchSpan.spanContext().spanId);
-    expect(recordSpan.spanContext().traceId).toBe(batchSpan.spanContext().traceId);
-    expect(recordSpan.links).toHaveLength(1);
-    expect(recordSpan.links[0].context.traceId).toBe(traceId);
-    // The point of a LINK rather than a parent: the record span belongs to this
-    // Lambda's own trace, not to the publisher's.
-    expect(recordSpan.spanContext().traceId).not.toBe(traceId);
+    expect(recordSpan.parentSpanContext?.spanId).toBe(spanId);
+    expect(recordSpan.spanContext().traceId).toBe(traceId);
+    // A parent REPLACES the link — keeping both would draw the same edge twice.
+    expect(recordSpan.links).toHaveLength(0);
+    // And it leaves the batch span's trace: the record now belongs to the
+    // publisher's, which is exactly the join being bought here.
+    expect(recordSpan.parentSpanContext?.spanId).not.toBe(batchSpan.spanContext().spanId);
+    expect(recordSpan.spanContext().traceId).not.toBe(batchSpan.spanContext().traceId);
   });
 
-  it("links each record in a mixed batch to its OWN origin trace", async () => {
-    // The reason parent-child is wrong here: one batch carries messages from
-    // distinct traces, so a single parent would have to pick one origin and
-    // misattribute the rest.
+  it("carries the whole cascade into the origin trace for a single-record batch", async () => {
+    // Parenting is worth nothing if the children do not follow: the reason the
+    // user saw no email in the create_order trace was a BREAK one level up.
+    // Asserting the DocumentDB span's trace id is what proves the join reaches
+    // the leaves, not just the record span.
+    useRealRepository.value = true;
+    const { traceparent, traceId } = await originTraceparent();
+
+    await handler({ Records: [tracedRecord("msg-1", envelope(), traceparent)] });
+
+    const [recordSpan] = spansNamed("process_record");
+    const [dbSpan] = spansNamed("documentdb insertOne");
+    expect(dbSpan).toBeDefined();
+    expect(dbSpan.parentSpanContext?.spanId).toBe(recordSpan.spanContext().spanId);
+    expect(dbSpan.spanContext().traceId).toBe(traceId);
+  });
+
+  it("links — never parents — each record of a MULTI-record batch to its OWN origin trace", async () => {
+    // The branch that rots without a test. Batch size is a runtime property: SQS
+    // delivers several records per invocation under load, and then a single
+    // parent would have to pick one of N origins and misattribute every other
+    // record. Each record gets its own link instead, and the spans stay in this
+    // Lambda's trace, under the batch span.
     const first = await originTraceparent();
     const second = await originTraceparent();
 
@@ -849,34 +876,56 @@ describe("handler — tracing", () => {
       ],
     });
 
+    const [batchSpan] = spansNamed("events-queue process");
     const recordSpans = spansNamed("process_record");
     expect(recordSpans).toHaveLength(2);
     expect(recordSpans[0].links[0].context.traceId).toBe(first.traceId);
     expect(recordSpans[1].links[0].context.traceId).toBe(second.traceId);
     expect(first.traceId).not.toBe(second.traceId);
+
+    for (const recordSpan of recordSpans) {
+      expect(recordSpan.links).toHaveLength(1);
+      // NO remote parent: both spans stay children of the batch span, in this
+      // Lambda's own trace. This is the assertion that fails the day someone
+      // "simplifies" the hybrid into always-parent.
+      expect(recordSpan.parentSpanContext?.spanId).toBe(batchSpan.spanContext().spanId);
+      expect(recordSpan.spanContext().traceId).toBe(batchSpan.spanContext().traceId);
+    }
+    expect(recordSpans[0].spanContext().traceId).not.toBe(first.traceId);
+    expect(recordSpans[1].spanContext().traceId).not.toBe(second.traceId);
   });
 
-  it("produces a span with zero links, and no failure, for a record with no traceparent", async () => {
+  it("falls back to neither parent nor link, and no failure, for a record with no traceparent", async () => {
     // The pre-instrumentation shape: a message published (or redelivered) before
     // the publishers injected a traceparent. Absent is a valid shape, not a
-    // fault — it must not cost the record its processing.
+    // fault — it must not cost the record its processing. A single-record batch
+    // on purpose: the branch that WOULD parent has nothing to parent to, and
+    // must fall back to the batch span rather than orphan the record.
     const result = await handler({ Records: [sqsRecord("msg-2", envelope())] });
 
     expect(result.batchItemFailures).toEqual([]);
+    const [batchSpan] = spansNamed("events-queue process");
     const [recordSpan] = spansNamed("process_record");
     expect(recordSpan).toBeDefined();
     expect(recordSpan.links).toHaveLength(0);
+    expect(recordSpan.parentSpanContext?.spanId).toBe(batchSpan.spanContext().spanId);
+    expect(recordSpan.spanContext().traceId).toBe(batchSpan.spanContext().traceId);
   });
 
-  it("produces a span with zero links for a malformed traceparent, and still processes the record", async () => {
+  it("falls back to neither parent nor link for a malformed traceparent, and still processes the record", async () => {
     const result = await handler({
       Records: [tracedRecord("msg-3", envelope(), "not-a-traceparent")],
     });
 
     expect(result.batchItemFailures).toEqual([]);
     expect(insertStarted).toHaveBeenCalledOnce();
+    const [batchSpan] = spansNamed("events-queue process");
     const [recordSpan] = spansNamed("process_record");
     expect(recordSpan.links).toHaveLength(0);
+    // An undecodable traceparent must not become a parent either: the record
+    // stays under the batch span, in this Lambda's trace.
+    expect(recordSpan.parentSpanContext?.spanId).toBe(batchSpan.spanContext().spanId);
+    expect(recordSpan.spanContext().traceId).toBe(batchSpan.spanContext().traceId);
   });
 
   it("marks only the failing record's span ERROR, leaving its sibling and the batch OK", async () => {
