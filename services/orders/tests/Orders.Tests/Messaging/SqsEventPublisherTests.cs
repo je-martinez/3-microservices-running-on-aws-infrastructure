@@ -450,9 +450,52 @@ public class SqsEventPublisherTests
         // W3C format: version-traceid-spanid-flags. Matching the shape rather than only
         // "not empty" is what catches a hand-built string or a non-W3C Activity id format.
         Assert.Matches("^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$", traceparent.StringValue);
-        // Same trace as the caller's activity — a well-formed traceparent belonging to a
-        // DIFFERENT trace would correlate nothing.
-        Assert.Equal(activity.Id, traceparent.StringValue);
+        // Same TRACE as the caller's activity — a well-formed traceparent belonging to a
+        // different trace would correlate nothing. Asserted on the trace id alone: the
+        // SPAN id is deliberately NOT the caller's, which is what the test below pins.
+        Assert.Equal(activity.TraceId.ToHexString(), traceparent.StringValue.Split('-')[1]);
+    }
+
+    // The regression test for the span-hierarchy bug: the message's traceparent named the
+    // enclosing WORKFLOW span (create_order), not the send. The consumer parents its work
+    // to whatever it receives, so process_record came out a SIBLING of the publish instead
+    // of its child — expanding the send in the waterfall showed AWS SDK internals and none
+    // of the work it actually caused.
+    //
+    // Asserted against the SpanId the publisher's own activity REPORTED at runtime, not a
+    // re-derivation of the value under test: comparing the attribute to itself would pass
+    // against any implementation, including the broken one.
+    [Fact]
+    public async Task Injects_the_publish_spans_traceparent_not_the_enclosing_workflows()
+    {
+        var started = new List<Activity>();
+        using var listener = ListenToEverything(started);
+        using var source = new ActivitySource(TestActivitySourceName);
+        var (publisher, sqs, _) = Build();
+
+        // Stands in for create_order: the workflow span the publish happens inside.
+        using var workflow = source.StartActivity("create_order");
+        Assert.NotNull(workflow);
+
+        await Publish(publisher);
+
+        var publishSpan = Assert.Single(
+            started, a => a.OperationName == SqsEventPublisher.PublishActivityName);
+
+        // A CHILD of the workflow, so the cascade stays one connected trace rather than
+        // the publish starting a detached root.
+        Assert.Equal(workflow.SpanId, publishSpan.ParentSpanId);
+        Assert.Equal(workflow.TraceId, publishSpan.TraceId);
+
+        var traceparent = Assert.Single(sqs.Requests).MessageAttributes["traceparent"].StringValue;
+        var spanId = traceparent.Split('-')[2];
+
+        // THE POINT: the id on the wire is the publish span's...
+        Assert.Equal(publishSpan.SpanId.ToHexString(), spanId);
+        // ...and specifically NOT the workflow's. Stated separately so a future change that
+        // collapses the two spans into one fails here with the reason spelled out, instead
+        // of silently satisfying the assertion above.
+        Assert.NotEqual(workflow.SpanId.ToHexString(), spanId);
     }
 
     [Fact]
@@ -474,6 +517,31 @@ public class SqsEventPublisherTests
         Assert.True(attributes.ContainsKey("source"));
     }
 
+    // The other half of the omission rule, and the case the publish span introduced: a
+    // listener IS attached, so the publisher's own activity is created even though no
+    // caller started one. The traceparent must then be the publish span's — a root one —
+    // rather than absent. Pinned because "no ambient activity" and "no activity at all"
+    // stopped being the same situation once this class started creating its own span.
+    [Fact]
+    public async Task Injects_a_root_traceparent_when_the_publish_span_has_no_caller()
+    {
+        var started = new List<Activity>();
+        using var listener = ListenToEverything(started);
+        // No caller activity: the publish span is the root of its own trace.
+        Assert.Null(Activity.Current);
+        var (publisher, sqs, _) = Build();
+
+        await Publish(publisher);
+
+        var publishSpan = Assert.Single(
+            started, a => a.OperationName == SqsEventPublisher.PublishActivityName);
+        Assert.Equal(default, publishSpan.ParentSpanId);
+
+        var traceparent = Assert.Single(sqs.Requests).MessageAttributes["traceparent"].StringValue;
+        Assert.Matches("^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$", traceparent);
+        Assert.Equal(publishSpan.SpanId.ToHexString(), traceparent.Split('-')[2]);
+    }
+
     // A source name unique to this file so the listener below cannot pick up activities
     // created by other tests running in parallel.
     private const string TestActivitySourceName = "orders-tests-sqs-publisher";
@@ -481,13 +549,24 @@ public class SqsEventPublisherTests
     // Samples everything from that one source, which is what makes StartActivity return a
     // real Activity instead of null. ActivityIdFormat.W3C is the .NET default here, so the
     // resulting Id IS a W3C traceparent string.
-    private static ActivityListener ListenToEverything()
+    // Listens to the test's own source AND to the publisher's, because the behaviour under
+    // test spans both: the caller's workflow activity and the publish activity the
+    // publisher creates inside it. Listening only to the test source would leave
+    // StartActivity returning null inside the publisher, and the traceparent would fall
+    // back to the workflow span — i.e. the bug would pass as if fixed.
+    //
+    // `started` records every activity the publisher starts, so the assertions can compare
+    // against the REAL SpanId of the publish span rather than re-deriving it from the value
+    // under test (which would be circular).
+    private static ActivityListener ListenToEverything(List<Activity>? started = null)
     {
         var listener = new ActivityListener
         {
-            ShouldListenTo = s => s.Name == TestActivitySourceName,
+            ShouldListenTo = s =>
+                s.Name == TestActivitySourceName || s.Name == SqsEventPublisher.ActivitySourceName,
             Sample = (ref ActivityCreationOptions<ActivityContext> _) =>
                 ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStarted = activity => started?.Add(activity),
         };
 
         ActivitySource.AddActivityListener(listener);

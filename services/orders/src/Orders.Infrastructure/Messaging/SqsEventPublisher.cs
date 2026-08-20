@@ -58,6 +58,20 @@ public class SqsEventPublisher : IEventPublisher
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
+    /// <summary>
+    /// The ActivitySource for the publish span. Named separately from
+    /// <c>WorkflowTracer</c>'s so this span is identifiable as the queue hop, and
+    /// registered by name in <c>Program.cs</c> via <c>AddSource</c> — .NET drops every
+    /// ActivitySource the tracing pipeline was not explicitly told about, so an
+    /// unregistered source yields no span and no error.
+    /// </summary>
+    public const string ActivitySourceName = "orders-messaging";
+
+    /// <summary>The publish span's name, asserted by the tests that pin the trace hop.</summary>
+    public const string PublishActivityName = "sqs.publish order_created";
+
+    private static readonly ActivitySource Source = new(ActivitySourceName);
+
     private readonly IAmazonSQS _client;
     private readonly string _queueUrl;
     private readonly ILogger<SqsEventPublisher> _logger;
@@ -149,11 +163,21 @@ public class SqsEventPublisher : IEventPublisher
         {
             QueueUrl = _queueUrl,
             MessageBody = JsonSerializer.Serialize(envelope, SerializerOptions),
-            MessageAttributes = BuildMessageAttributes(),
         };
 
         try
         {
+            // The PUBLISH span, and the reason this send is wrapped at all: the
+            // traceparent on the message must name the span that performed THIS send,
+            // so the consumer's work hangs under the publish rather than beside it.
+            // See BuildMessageAttributes for why the attributes are built INSIDE.
+            using var activity = Source.StartActivity(PublishActivityName, ActivityKind.Producer);
+
+            // Built here, not in the initializer above: this must observe the activity
+            // just started. Evaluated one line earlier it would read the enclosing
+            // workflow span (create_order) instead — which is the bug this fixes.
+            request.MessageAttributes = BuildMessageAttributes();
+
             await _client.SendMessageAsync(request, ct);
         }
         catch (Exception ex)
@@ -200,6 +224,22 @@ public class SqsEventPublisher : IEventPublisher
     //
     // It rides in the attributes and NEVER in the envelope body: the consumer extracts it
     // as a carrier header, and the body is a validated contract that has no such field.
+    //
+    // CALL ORDER IS PART OF THE CONTRACT. This reads Activity.Current, so it must be
+    // called INSIDE the publish activity's scope. Called while building the
+    // SendMessageRequest — as it originally was — Activity.Current is still the enclosing
+    // workflow span (create_order), and the consumer faithfully parents its work to that:
+    // process_record came out a SIBLING of the send instead of its child, so expanding the
+    // publish in the waterfall showed only AWS SDK internals and none of the work it caused.
+    //
+    // On AddAWSInstrumentation: it also injects a traceparent of its own, from its
+    // SQS.SendMessage span, via AWSTracingPipelineHandler -> SqsRequestContextHelper. That
+    // path is NOT what this relies on, and the two do not fight: the helper skips injection
+    // entirely when a key it would write is already present, so the value set here wins by
+    // construction. Deliberate — that path is invisible to these unit tests (which use a
+    // mocked IAmazonSQS, so no SDK pipeline runs at all) and it would silently inject
+    // nothing if the instrumentation were ever unregistered. An explicit span we own is
+    // assertable in-process and does not depend on either.
     private static Dictionary<string, MessageAttributeValue> BuildMessageAttributes()
     {
         var attributes = new Dictionary<string, MessageAttributeValue>

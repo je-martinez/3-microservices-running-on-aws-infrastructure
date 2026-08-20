@@ -58,6 +58,11 @@ builder.Services.AddOpenTelemetry()
         // Jaeger. Same silent failure class as unregistered instrumentation.
         // Register the source in the SAME change that creates one.
         .AddSource(WorkflowTracer.ActivitySourceName)
+        // The SQS publish span. Same rule as the line above — unregistered means
+        // created-but-never-exported, silently. It is also the span whose context
+        // travels as the message's `traceparent`, so without this line the queue hop
+        // still works but its parent never appears in Jaeger.
+        .AddSource(SqsEventPublisher.ActivitySourceName)
         // No Endpoint set here ON PURPOSE. The exporter reads the standard
         // OTEL_EXPORTER_OTLP_ENDPOINT (set in docker-compose.yml) as a BASE url
         // and appends the signal path itself, per the OTLP spec.
