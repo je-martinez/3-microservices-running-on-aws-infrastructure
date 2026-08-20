@@ -29,21 +29,46 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-// The document's status transitions, at DEBUG: the entrypoint already reports
-// each record's outcome at INFO/ERROR with a reason, so these lines add nothing
-// on a healthy path — their value is answering "how far did this event get
-// before it stopped?" when the persisted document alone is ambiguous (a record
-// stuck IN_PROGRESS means the handler never returned; one never reaching
-// IN_PROGRESS means dispatch itself refused it). DEBUG keeps them out of the
-// stream by default rather than tripling the volume of every batch.
+// The document's status transitions, at INFO. These are deliberately NOT a
+// duplicate of the entrypoint's `event_processing_*` flow logs, which sit one
+// layer above and answer a different question:
+//
+//   event_processing_*    the CODE ran (the handler was invoked, returned, threw)
+//   event_status_changed  the WRITE to DocumentDB is PERSISTED
+//
+// The two can disagree, and that gap is the whole point: a record can be
+// processed successfully and still fail to persist its transition, in which case
+// the flow log says `succeeded` while the document is stale. `IN_PROGRESS` has
+// no equivalent at all upstairs — it is the only line that separates "the
+// handler started" from "the handler finished but the result never landed".
+//
+// The cost is real and accepted: a healthy record goes from 2 lifecycle lines to
+// ~5, on a Lambda whose logs are already amplified downstream (JE-177). They are
+// INFO rather than DEBUG because the question they answer ("did the write
+// land?") is one asked of PRODUCTION traffic, and DEBUG is off there — the lines
+// existed at DEBUG and emitted zero times in the running Lambda, which is the
+// same as not existing.
 //
 // `event_status`, not `status`: `status` is not in the shared log schema and
 // would collide with the HTTP status other services log under that name.
 // The envelope's event_id/type/... come from the ambient context, so nothing is
 // spread here — and the payload, which this function holds in `doc`, is never
 // touched by a log line.
-function logStatus(status: EventStatus): void {
-  appLogger.debug({ app_event: "event_status_changed", event_status: status }, "event status changed");
+//
+// `reason` is carried on FAILED only, and only when known: a failure line
+// without a motive forces a join against another line to be useful at all. The
+// string is the same one persisted on the document — PERMANENT/TransientError
+// messages built by the handlers, which are PII-free BY CONSTRUCTION for exactly
+// this purpose (see the comment in #handlers/user-created and `outcome.reason`
+// in src/handler.ts, which already logs this very string). Raw driver and Zod
+// messages never reach here: the handlers reduce them to field paths and error
+// names before throwing, because a Mongo error's message embeds the rejected
+// document.
+function logStatus(status: EventStatus, reason?: string): void {
+  appLogger.info(
+    { app_event: "event_status_changed", event_status: status, ...(reason ? { reason } : {}) },
+    "event status changed",
+  );
 }
 
 // One record's full lifecycle: STARTED -> IN_PROGRESS -> COMPLETED | FAILED.
@@ -115,7 +140,7 @@ export async function processRecord(
   if (!handler) {
     // Permanent by definition: retrying an event nobody handles can never help.
     await deps.repository.transition(envelope.event_id, "FAILED", { error: "Unknown event type" });
-    logStatus("FAILED");
+    logStatus("FAILED", "Unknown event type");
     return { ok: false, transient: false };
   }
 
@@ -125,8 +150,9 @@ export async function processRecord(
   try {
     await handler(envelope);
   } catch (err) {
-    await deps.repository.transition(envelope.event_id, "FAILED", { error: errorMessage(err) });
-    logStatus("FAILED");
+    const reason = errorMessage(err);
+    await deps.repository.transition(envelope.event_id, "FAILED", { error: reason });
+    logStatus("FAILED", reason);
     return { ok: false, transient: isTransient(err) };
   }
 

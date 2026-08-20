@@ -12,8 +12,11 @@ import type { Envelope } from "#domain/envelope";
 //
 // The real `buildLoggerOptions` is kept: the assertions below check what is
 // actually serialized (in particular that the payload never reaches a line), so
-// the production formatter has to be the one under test. `level: "debug"`
-// because the status lines are DEBUG, below pino's default threshold.
+// the production formatter has to be the one under test. The level is left at
+// pino's DEFAULT (`info`) on purpose: the status lines must survive an
+// unconfigured logger, which is exactly what they failed to do in the deployed
+// Lambda. Lowering it to "debug" here would make these tests pass whether the
+// lines are INFO or DEBUG.
 const { rawLines } = vi.hoisted(() => ({ rawLines: [] as string[] }));
 
 vi.mock("#shared/logging/app-logger", async () => {
@@ -24,7 +27,6 @@ vi.mock("#shared/logging/app-logger", async () => {
     appLogger: pinoActual(
       {
         ...buildLoggerOptions({ serviceName: "events-pipeline", environment: "test" }),
-        level: "debug",
       },
       { write: (s: string) => rawLines.push(s) },
     ),
@@ -447,7 +449,7 @@ describe("processRecord", () => {
 });
 
 describe("processRecord — status logging", () => {
-  it("logs each transition at DEBUG with event_status, not status", async () => {
+  it("logs each transition at INFO with event_status, not status", async () => {
     const repository = makeRepository();
     const handlers: HandlerMap = { USER_CREATED: vi.fn(async () => {}) };
 
@@ -459,9 +461,10 @@ describe("processRecord — status logging", () => {
       "IN_PROGRESS",
       "COMPLETED",
     ]);
-    // DEBUG keeps these out of the stream by default rather than tripling every
-    // batch's log volume.
-    expect(statusLines.every((l) => l.severity_text === "DEBUG")).toBe(true);
+    // INFO, not DEBUG: at DEBUG these emitted ZERO times in the deployed Lambda
+    // (LOG_LEVEL is unset, so pino sits at info), which made the transitions
+    // invisible in production — the only place the question is asked.
+    expect(statusLines.every((l) => l.severity_text === "INFO")).toBe(true);
     // `status` would collide with the HTTP status the other services log under
     // that name, so the field must NOT be called that.
     expect(statusLines.every((l) => !("status" in l))).toBe(true);
@@ -477,10 +480,36 @@ describe("processRecord — status logging", () => {
 
     await processRecord(makeEnvelope(), { repository, handlers });
 
-    const statuses = emitted()
-      .filter((l) => l.app_event === "event_status_changed")
-      .map((l) => l.event_status);
-    expect(statuses).toEqual(["STARTED", "IN_PROGRESS", "FAILED"]);
+    const statusLines = emitted().filter((l) => l.app_event === "event_status_changed");
+    expect(statusLines.map((l) => l.event_status)).toEqual([
+      "STARTED",
+      "IN_PROGRESS",
+      "FAILED",
+    ]);
+    // A failure line without a motive forces a join against another line before
+    // it says anything, so FAILED carries the reason it persisted.
+    expect(statusLines.at(-1)?.reason).toBe("unprocessable payload");
+    expect(statusLines.at(-1)?.severity_text).toBe("INFO");
+    // ...and ONLY failures carry it: a `reason` on COMPLETED would be noise.
+    expect(statusLines.slice(0, 2).every((l) => !("reason" in l))).toBe(true);
+  });
+
+  it("carries the reason on the FAILED line for an unknown event type", async () => {
+    // The other FAILED path — dispatch refuses the event before any handler
+    // runs, so the reason is synthesized here rather than thrown.
+    const repository = makeRepository();
+
+    await processRecord(makeEnvelope({ type: "NOPE" }), { repository, handlers: {} });
+
+    const statusLines = emitted().filter((l) => l.app_event === "event_status_changed");
+    expect(statusLines.map((l) => l.event_status)).toEqual(["STARTED", "FAILED"]);
+    expect(statusLines.at(-1)?.reason).toBe("Unknown event type");
+    // The same string the document is stamped with — one fact, not two that can
+    // drift apart.
+    const failed = repository.calls.find(
+      (c) => (c as unknown[])[0] === "transition" && (c as unknown[])[2] === "FAILED",
+    ) as unknown[] | undefined;
+    expect((failed?.[3] as { error?: string })?.error).toBe(statusLines.at(-1)?.reason);
   });
 
   it("logs no transition past STARTED when the insert itself fails", async () => {
@@ -517,26 +546,38 @@ describe("processRecord — status logging", () => {
     expect(repository.inserted[0]?.payload).toMatchObject({ email: "leak@example.com" });
   });
 
-  it("does not echo a handler's error message when that message embeds the payload", async () => {
-    // A handler that interpolates what it received into its error — the shape a
-    // Zod/driver failure takes. processRecord persists that message on the
-    // document (deliberately: it is the diagnostic), but the DEBUG status line
-    // for FAILED must not carry it into the log stream.
+  it("the FAILED reason is the handler's message verbatim — which the handlers keep PII-free", async () => {
+    // This test pins a CONTRACT, not an implementation detail. `reason` is the
+    // string the handler threw, and it is also what src/handler.ts already logs
+    // as `event_processing_failed.reason` and what the document persists — one
+    // fact in three places, which only stays safe because every handler builds
+    // that message from FIELD PATHS and ERROR NAMES, never from the input (see
+    // the comments in #handlers/user-created and #handlers/auth-otp-requested,
+    // and `observe()` in src/handler.ts, which reduces a Mongo error to
+    // `err.name` precisely because the driver's message embeds the rejected
+    // document).
+    //
+    // So the leak this file can still catch is the one processRecord itself
+    // owns: it holds the whole document, payload included, and must not put any
+    // of it on a line by its own hand.
     const repository = makeRepository();
     const handlers: HandlerMap = {
       USER_CREATED: vi.fn(async () => {
-        throw new PermanentError('invalid payload: { email: "leak@example.com" }');
+        throw new PermanentError("invalid USER_CREATED payload: invalid fields: email");
       }),
     };
 
-    await processRecord(makeEnvelope(), { repository, handlers });
+    await processRecord(
+      makeEnvelope({ payload: { id: "usr_test1", email: "leak@example.com" } }),
+      { repository, handlers },
+    );
 
+    const failedLine = emitted()
+      .filter((l) => l.app_event === "event_status_changed")
+      .at(-1);
+    expect(failedLine?.event_status).toBe("FAILED");
+    expect(failedLine?.reason).toBe("invalid USER_CREATED payload: invalid fields: email");
+    // The payload was in scope the whole time and still reached no line.
     expect(rawLines.join("\n")).not.toContain("leak@example.com");
-    // Still persisted for inspection — sanitizing the log must not mean losing
-    // the diagnostic.
-    const failed = repository.calls.find(
-      (c) => (c as unknown[])[0] === "transition" && (c as unknown[])[2] === "FAILED",
-    ) as unknown[] | undefined;
-    expect(String((failed?.[3] as { error?: string })?.error)).toContain("leak@example.com");
   });
 });
