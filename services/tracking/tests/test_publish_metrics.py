@@ -229,3 +229,121 @@ async def test_a_failing_query_does_not_end_the_loop() -> None:
 async def test_a_failing_publisher_does_not_end_the_loop() -> None:
     """Even a publisher that (against its own contract) raises is contained."""
     await _run_ticks(FailingPublisher(), lambda: {"DELIVERED": 1}, ticks=2)
+
+
+class TracedPublisher(RecordingPublisher):
+    """Records the span that was CURRENT at each publish, alongside the datum.
+
+    Capturing the context from inside the callback is the whole point: an
+    assertion that the `metrics-tick` span merely exists would still pass if the
+    query and the publishes ran outside it and re-rooted themselves, which is
+    precisely the bug (60 orphan `connect` / `SELECT tracking` traces in an hour).
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.contexts: list[object] = []
+
+    def publish(self, name: str, value: float, dimensions: dict[str, str]) -> None:
+        from opentelemetry import trace
+
+        self.contexts.append(trace.get_current_span().get_span_context())
+        super().publish(name, value, dimensions)
+
+
+@pytest.fixture
+def tick_exporter(monkeypatch: pytest.MonkeyPatch):
+    """A private tracer provider wired into `workflow_tracing` for one test.
+
+    `trace.set_tracer_provider` is a one-shot global, so swapping the module's
+    own tracer instead keeps this file runnable in any order alongside the rest
+    of the suite — the same approach `test_workflow_tracing.py` takes.
+    """
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+        InMemorySpanExporter,
+    )
+
+    from src.shared.observability import workflow_tracing
+
+    memory = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(memory))
+    monkeypatch.setattr(
+        workflow_tracing, "_tracer", provider.get_tracer("tracking-workflow")
+    )
+    yield memory
+    memory.clear()
+
+
+async def test_each_tick_runs_inside_a_metrics_tick_span(tick_exporter) -> None:
+    """The tick's work is a CHILD of `metrics-tick`, not a sibling of it.
+
+    The loop runs on a timer with no ambient request span, so without this
+    wrapper every tick's SQLAlchemy and boto3 spans arrive at Jaeger as their own
+    anonymous root traces and bury the real request traces.
+    """
+    from opentelemetry.trace import SpanKind
+
+    publisher = TracedPublisher()
+    seen_in_query: list[object] = []
+
+    def query() -> dict[str, int]:
+        from opentelemetry import trace
+
+        seen_in_query.append(trace.get_current_span().get_span_context())
+        return {"PLACED": 1, "DELIVERED": 2}
+
+    await _run_ticks(publisher, query, ticks=1)
+
+    spans = tick_exporter.get_finished_spans()
+    assert [span.name for span in spans] == ["metrics-tick"]
+    tick = spans[0]
+    # INTERNAL, not CONSUMER: this is our own timer, it consumes nothing.
+    assert tick.kind is SpanKind.INTERNAL
+    assert tick.attributes["app_event"] == "metrics_tick_succeeded"
+    assert tick.status.status_code.name == "OK"
+
+    # The database read and EVERY publish saw the tick span as current, so their
+    # own auto-instrumented spans parent themselves to it instead of re-rooting.
+    # `to_thread` copies the context into the worker thread, which is what makes
+    # this hold across the thread boundary.
+    assert seen_in_query == [tick.context]
+    assert publisher.contexts, "the tick published nothing"
+    # Compared by id rather than by identity: a SpanContext is not hashable,
+    # and the (trace_id, span_id) pair is exactly what "same parent" means on
+    # the wire anyway.
+    assert {(ctx.trace_id, ctx.span_id) for ctx in publisher.contexts} == {
+        (tick.context.trace_id, tick.context.span_id)
+    }
+
+
+async def test_a_failing_tick_ends_its_span_as_error(tick_exporter) -> None:
+    """A swallowed tick failure still leaves an ERROR span behind.
+
+    The `except` that keeps the loop alive lives OUTSIDE the span, so the span
+    sees the throw. Catching inside would close every failed tick as OK and make
+    a broken publisher indistinguishable from a healthy one in Jaeger.
+    """
+    publisher = RecordingPublisher()
+    attempts = 0
+
+    def flaky() -> dict[str, int]:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("database is down")
+        return {"DELIVERED": 1}
+
+    await _run_ticks(publisher, flaky, ticks=2)
+
+    spans = tick_exporter.get_finished_spans()
+    assert [span.name for span in spans] == ["metrics-tick", "metrics-tick"]
+    failed, recovered = spans
+    assert failed.status.status_code.name == "ERROR"
+    assert failed.status.description == "database is down"
+    # `*_started` with no `*_succeeded` is what makes a failed tick legible.
+    assert failed.attributes["app_event"] == "metrics_tick_started"
+    assert recovered.status.status_code.name == "OK"
+    assert recovered.attributes["app_event"] == "metrics_tick_succeeded"
