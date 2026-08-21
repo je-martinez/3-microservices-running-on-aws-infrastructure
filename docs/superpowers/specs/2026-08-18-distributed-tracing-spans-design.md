@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-08-18
-updated: 2026-08-19
+updated: 2026-08-20
 tags:
   - type/spec
   - area/shared
@@ -165,7 +165,7 @@ That is 7 + 1 + 3 — the per-service count is what governs, not a round total.
 `*_publish_failed` and `metric_*` are **not** flows: they are error branches inside other
 flows and stay as events on the parent span. `e2e_*` flows are excluded.
 
-## Decision 4 — the SQS hop: traceparent in `MessageAttributes` + span links
+## Decision 4 — the SQS hop: traceparent in `MessageAttributes`, batch_size = 1, parent-child
 
 - The 3 publishers (Users TS, Orders C#, Tracking Python) inject `traceparent` into SQS
   **`MessageAttributes`**, **not** into the envelope body. Reason: the envelope is a
@@ -177,28 +177,62 @@ flows and stay as events on the parent span. `e2e_*` flows are excluded.
   `services/tracking/src/shared/messaging/sqs_event_publisher.py:410`, and
   `services/users/src/shared/messaging/event-publisher.ts:172,258`. Adding `traceparent` is one
   more entry in a dictionary that already exists, not a new mechanism.
-- The consumer uses **span links, not parent-child**. Reason: an SQS batch carries messages
-  from **distinct** traces. Declaring a single parent would force picking one of N origins and
-  lying about the rest. With links, `events-queue process` links to the N origin traces, and
-  each record opens its own child span carrying its own link.
-- **Honest limitation, documented on purpose:** in Jaeger, a link does **not** draw the
-  Lambda's bar inside the origin trace's cascade as if it were a child — it appears as a
-  navigable reference instead. That is the price of not faking hierarchy in a batch consumer.
-  If a future consumer ever processes one message at a time, parent-child would become
-  legitimate there.
+- **The SQS event source mapping is pinned to `batch_size = 1`**, in
+  `infra/environments/local/main.tf` at the `module "lambda_events_pipeline"` call — the
+  `modules/lambda` default stays `10`, since that module is generic and shared by other Lambdas.
+  This is recorded as a **tracing** decision, not a throughput one: it exists so the consumer can
+  attach a real parent-child span rather than a link. Because every invocation now carries
+  exactly one record, `process_record` becomes a genuine child of the publisher's span, and an
+  order's downstream email/WebSocket work appears **inside the same trace** as the request that
+  caused it — full continuous cascade: `create_order` → `sqs.publish order_created` →
+  `process_record` → `ses SendEmail`.
+- **The link branch survives in the handler and is not dead code.** Batch size is a deployment
+  property the code does not control; raising it again in Terraform, or a different environment
+  running with the module default, immediately reintroduces multi-record batches. Without the
+  link branch, the handler would parent all N records to whichever origin happened to arrive
+  first, silently filing one customer's email under another customer's order trace. The branch is
+  a correctness guard against that configuration change, not leftover code from an earlier design.
+- **Why not "parent to the first origin, link the rest":** OpenTelemetry's messaging semantic
+  conventions are explicit that a span has exactly one parent, and that links are the mechanism
+  for a consumer covering N origins
+  (https://opentelemetry.io/docs/specs/semconv/messaging/messaging-spans/). Picking a winner
+  among equals does not simplify the batch case — it misattributes the other N-1 records rather
+  than representing them honestly.
+- **Evidence, as measured, not rounded:**
+  - Before the pin, at the module default of `batch_size = 10`: over 21 measured invocations, 19
+    carried more than one record (90%), including ten invocations carrying the full 10. Detached
+    pipeline work — spans reachable only via link, never as a child of the request — was the
+    **common** case, not an edge case.
+  - After the pin: 100 of 100 `events-queue process` spans recorded
+    `messaging.batch.message_count = 1`, and every `process_record` span was verified `CHILD_OF`
+    within the same trace. A verified order trace held 142 spans across users, orders, tracking,
+    and events-pipeline in one waterfall.
+  - The batch span records `messaging.batch.message_count`, so a batch that ever exceeds one
+    record is visible directly in the trace, rather than inferred from a missing parent.
+- **Cost, stated plainly:** more Lambda invocations — one per SQS message instead of up to ten
+  batched together. Accepted deliberately: this pipeline sends emails and fans out WebSocket
+  frames on order events, not a high-volume stream, so the extra invocations are cheap relative to
+  the value of a continuous trace. Raising `batch_size` again re-enables the link branch and
+  re-detaches the pipeline from the request trace — that trade-off is the reason the branch stays.
 
 ## Decision 5 — events-pipeline: instrument the inside, not just the entry point
 
 Closes JE-138. Span structure:
 
 ```
-events-queue process (CONSUMER, links → N origin traces)
-├── process_record (INTERNAL, link → origin trace)
-│   ├── INSERT events (DocumentDB, CLIENT, manual)
-│   ├── SES SendEmail (CLIENT, manual)
-│   └── ws publish (PRODUCER, manual)
-└── process_record (INTERNAL, link → another origin trace)
+create_order (origin trace)
+└── sqs.publish order_created (PRODUCER)
+    └── events-queue process (CONSUMER, batch_size = 1)
+        └── process_record (INTERNAL, CHILD_OF the publish span)
+            ├── INSERT events (DocumentDB, CLIENT, manual)
+            ├── SES SendEmail (CLIENT, manual)
+            └── ws publish (PRODUCER, manual)
 ```
+
+A batch larger than one — the module default, or a future environment that does not pin
+`batch_size = 1` — instead produces N sibling `process_record` spans under one
+`events-queue process`, each attached to its own origin trace by `FOLLOWS_FROM` link rather than
+as a child. See Decision 4 for why that branch exists and stays in the handler.
 
 > [!warning] The Lambda's internal spans are manual, not auto-instrumented — by packaging necessity
 > `functions/events-pipeline/scripts/build.mjs` bundles the handler with esbuild into a **single

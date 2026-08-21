@@ -167,10 +167,28 @@ function originSpanContext(record: SqsRecord): SpanContext | undefined {
 //     so naming a parent means picking one of N origins and misattributing every
 //     other record. A link says "caused by, elsewhere" per record, independently.
 //
-// Batch size is a RUNTIME property, not a guarantee: today every observed batch
-// carries exactly one record, but SQS will deliver several per invocation under
-// load. The link branch is what keeps that from silently becoming a lie, so it
-// stays — it is not dead code waiting to be removed.
+// The event source mapping is pinned to `batch_size = 1` (see the
+// `lambda_events_pipeline` module call in infra/environments/local/main.tf), so
+// the parent branch is the one that fires and the cascade is continuous for
+// every order. That pin is the REASON the parenting is safe, not an incidental
+// detail: it is what guarantees a batch never mixes origins.
+//
+// The link branch therefore looks dead, and stays anyway. Batch size is a
+// deployment property this code does not control: raise it in Terraform, or run
+// against an environment that sets it differently, and multi-record batches
+// reappear immediately. Deleting this branch would not prevent that — it would
+// only make the handler parent all N records to whichever origin came first,
+// silently filing one customer's email under another customer's order. It is a
+// correctness guard for a configuration change, not unreachable code.
+//
+// Why links and not "parent to the first, link the rest": OpenTelemetry's
+// messaging conventions are explicit that a span has exactly one parent and
+// that links are the mechanism for a consumer covering N origins
+// (https://opentelemetry.io/docs/specs/semconv/messaging/messaging-spans/).
+// Picking a winner among equals would misattribute the other N-1 rather than
+// represent them. The batch span also records
+// `messaging.batch.message_count`, so a batch that ever exceeds one is visible
+// in the trace instead of being inferred from a missing parent.
 interface RecordSpanAttachment {
   // Passed to startActiveSpan as the parent context. `undefined` means "use the
   // active context", i.e. the batch span — which is what both the multi-record

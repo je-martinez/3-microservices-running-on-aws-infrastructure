@@ -471,6 +471,32 @@ module "lambda_events_pipeline" {
   ws_connections_table_arn  = module.ws_connections.table_arn
   ws_manage_connections_arn = module.api_gateway_ws.manage_connections_arn
 
+  # One record per invocation, so each invocation belongs to exactly ONE trace.
+  #
+  # This is a TRACING decision, not a throughput one. A record carries the
+  # traceparent of the request that produced it, and a span has exactly one
+  # parent — so a batch of N records from N different requests cannot be
+  # parented to all of them. handler.ts resolves that by parenting when the
+  # batch holds one record and falling back to FOLLOWS_FROM links when it holds
+  # several (the shape OpenTelemetry's messaging conventions prescribe for
+  # batches). Links are correct, but they do not draw a continuous waterfall:
+  # the pipeline's work lands in a separate trace, and reading one order's
+  # journey end to end means following a link across traces.
+  #
+  # At the module default of 10 that was the COMMON case, not the exception —
+  # measured over 21 invocations: 19 carried more than one record (up to the
+  # full 10), so 90% of orders had their email work detached from the request
+  # that caused it. Pinning the batch to 1 makes the parenting branch the only
+  # branch, which is why the link branch survives in the handler but never
+  # fires here.
+  #
+  # The cost is more invocations. Accepted deliberately: this pipeline sends
+  # emails and fans out WebSocket frames on order events — it is not a
+  # high-volume stream, and per-invocation overhead is a fair price for traces
+  # that never attribute one customer's email to another customer's order.
+  # Raising this again re-enables the link branch and re-detaches the pipeline.
+  batch_size = 1
+
   environment_variables = {
     AWS_ENDPOINT_URL = "http://floci:4566"
     # Set explicitly: real Lambda injects AWS_REGION into every execution
