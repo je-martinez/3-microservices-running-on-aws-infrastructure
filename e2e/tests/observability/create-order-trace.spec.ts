@@ -6,14 +6,14 @@
 // Trace propagation fails silently by construction. Every service still
 // answers 200, every log line still gets written, and every service still
 // exports spans — they just export them into SEPARATE traces. Nothing is red;
-// the cascade is simply not there when someone opens Jaeger to debug an
+// the cascade is simply not there when someone opens the trace viewer to debug an
 // incident, which is the one moment it was supposed to exist. Unit tests
 // cannot see this: each service's own tests pass with a perfectly formed local
 // span, and the break lives entirely in the seam between them.
 //
 // So the assertion is deliberately end-to-end and gateway-first: a real
 // Cognito JWT, the real `POST /v1/orders` route a person hits, and then a read
-// of Jaeger's query API to check that users + orders + tracking landed under a
+// of OpenObserve's `_search` API to check that users + orders + tracking landed under a
 // single traceID.
 //
 // ## Why gateway, not the direct service URL
@@ -32,7 +32,7 @@
 // no parent, sitting in its own trace next to the caller's. The fix moved
 // activation to `onReceiveHalfClose`.
 //
-// `references.length > 0` is the precise signal, and it is the assertion a
+// A PRESENT `reference_parent_span_id` is the precise signal, and it is the assertion a
 // unit test structurally cannot make: only a real cross-process call can show
 // whether the remote parent survived the hop. A regression here silently
 // re-splits the trace into two.
@@ -47,7 +47,7 @@
 //
 // ## Waiting: several export cycles, never one tight window
 //
-// Spans reach Jaeger through each service's BatchSpanProcessor (5s default)
+// Spans reach OpenObserve through each service's BatchSpanProcessor (5s default)
 // and then the collector's own `batch` processor. This repo has recorded two
 // false PASSes from windows pinned to the real export period, so the helper
 // POLLS across many multiples of it and, crucially, keeps polling after the
@@ -62,11 +62,13 @@ import { gatewayClient } from "../../support/gateway-client.js";
 import {
   describeSpans,
   findTraceByTag,
-  isJaegerReachable,
-  jaegerBaseURL,
+  isTraceBackendReachable,
+  SpanKind,
   tagValue,
+  tracesBaseURL,
+  viewTraceURL,
   type AttributedSpan,
-} from "../../support/jaeger-client.js";
+} from "../../support/traces-client.js";
 
 /** The three synchronous services one create_order must cross. */
 const EXPECTED_SERVICES = ["users", "orders", "tracking"] as const;
@@ -93,7 +95,7 @@ const TEST_TIMEOUT_MS = TRACE_POLL_TIMEOUT_MS + 60_000;
 const gatewayURL = process.env.API_GATEWAY_URL ?? "";
 
 /**
- * Matches the Users gRPC SERVER span loosely — by `rpc.system` + `span.kind`,
+ * Matches the Users gRPC SERVER span loosely — by `rpc_system` + `span_kind`,
  * not by an exact operation name.
  *
  * grpc-js instrumentation has named this span `users.v1.Users/GetUserById`,
@@ -101,20 +103,24 @@ const gatewayURL = process.env.API_GATEWAY_URL ?? "";
  * versions, and the Users call Orders makes could reasonably change method.
  * Pinning the string would make an instrumentation upgrade look like a JE-77
  * regression, which is precisely the confusion this spec exists to prevent.
+ *
+ * Note `span_kind` is OpenObserve's NUMERIC OTLP enum ("2" = SERVER), not
+ * Jaeger's `"server"` string — comparing against the old value silently matches
+ * nothing, which reads exactly like the regression below.
  */
 function isUsersGrpcServerSpan(span: AttributedSpan): boolean {
   return (
     span.serviceName === "users" &&
-    tagValue(span, "rpc.system") === "grpc" &&
-    tagValue(span, "span.kind") === "server"
+    tagValue(span, "rpc_system") === "grpc" &&
+    span.span_kind === SpanKind.SERVER
   );
 }
 
 test.describe("distributed tracing: create_order @observability", () => {
   test.beforeAll(async () => {
     test.skip(
-      !(await isJaegerReachable()),
-      `Jaeger is not reachable at ${jaegerBaseURL} — run \`make observability-up\``,
+      !(await isTraceBackendReachable()),
+      `OpenObserve is not reachable at ${tracesBaseURL} — run \`make observability-up\``,
     );
     test.skip(!gatewayURL, "API_GATEWAY_URL is not set — run `make bootstrap && make env-file`");
   });
@@ -139,7 +145,7 @@ test.describe("distributed tracing: create_order @observability", () => {
     const order = (await created.json()) as { id: string };
     expect(order.id).toBeTruthy();
 
-    // --- Read the trace back out of Jaeger ---
+    // --- Read the trace back out of OpenObserve ---
     //
     // Matched on the `order_id` TAG rather than on a span name: it is a value
     // this very request produced, so it cannot match another run's trace, and
@@ -156,10 +162,10 @@ test.describe("distributed tracing: create_order @observability", () => {
 
     expect(
       found.trace,
-      `No Jaeger trace carried order_id=${order.id} after ${found.attempts} polls over ` +
+      `No trace carried order_id=${order.id} after ${found.attempts} polls over ` +
         `${TRACE_POLL_TIMEOUT_MS / 1000}s. The order WAS created (201), so either Orders' ` +
         `create_order workflow span is missing its order_id attribute, or nothing is reaching ` +
-        `the collector at all. Check \`make doctor\` and ${jaegerBaseURL}.`,
+        `the collector at all. Check \`make doctor\` and ${tracesBaseURL}.`,
     ).toBeTruthy();
 
     const spans = found.spans;
@@ -179,13 +185,13 @@ test.describe("distributed tracing: create_order @observability", () => {
           `its spans into a SEPARATE trace, which means the trace context was dropped on the hop ` +
           `into it (check the traceparent header / SQS MessageAttribute on that boundary).\n\n` +
           `Spans that DID arrive under this traceID:\n${describeSpans(spans)}\n\n` +
-          `View it: ${jaegerBaseURL}/trace/${found.trace!.traceID}`,
+          `View it: ${viewTraceURL(found.trace!.traceID)}`,
     ).toHaveLength(0);
 
     // The workflow spans themselves, matched loosely by name (they are the two
     // this plan's Tasks 3 and 4 introduce, and they are what make the trace
     // readable as a business flow rather than as raw HTTP).
-    const createOrderSpan = spans.find((s) => s.serviceName === "orders" && s.operationName === "create_order");
+    const createOrderSpan = spans.find((s) => s.serviceName === "orders" && s.operation_name === "create_order");
     expect(
       createOrderSpan,
       `Trace ${found.trace!.traceID} has orders spans but no 'create_order' workflow span.\n` +
@@ -197,7 +203,7 @@ test.describe("distributed tracing: create_order @observability", () => {
     ).toBe("create_order_succeeded");
 
     const initTrackingSpan = spans.find(
-      (s) => s.serviceName === "tracking" && s.operationName === "init_tracking",
+      (s) => s.serviceName === "tracking" && s.operation_name === "init_tracking",
     );
     expect(
       initTrackingSpan,
@@ -210,25 +216,26 @@ test.describe("distributed tracing: create_order @observability", () => {
     const usersGrpcServerSpans = spans.filter(isUsersGrpcServerSpan);
     expect(
       usersGrpcServerSpans,
-      `Trace ${found.trace!.traceID} contains no Users gRPC SERVER span (rpc.system=grpc, ` +
-        `span.kind=server). Either Users was not called on this flow, or its server span landed ` +
+      `Trace ${found.trace!.traceID} contains no Users gRPC SERVER span (rpc_system=grpc, ` +
+        `span_kind=${SpanKind.SERVER}/SERVER). Either Users was not called on this flow, or its ` +
+        `server span landed ` +
         `in a different trace — which is itself the JE-77 symptom.\n` +
         `Users spans in this trace:\n${describeSpans(spans.filter((s) => s.serviceName === "users"))}`,
     ).not.toHaveLength(0);
 
-    const orphans = usersGrpcServerSpans.filter((span) => span.references.length === 0);
+    const orphans = usersGrpcServerSpans.filter((span) => span.reference_parent_span_id === undefined);
     expect(
       orphans,
       orphans.length === 0
         ? ""
         : `JE-77 REGRESSION: ${orphans.length} of ${usersGrpcServerSpans.length} Users gRPC server ` +
-          `span(s) have NO parent (references = []), i.e. they are trace roots.\n` +
-          `Orphaned: ${orphans.map((s) => `${s.operationName} (spanID ${s.spanID})`).join(", ")}\n\n` +
+          `span(s) have NO parent (reference_parent_span_id absent), i.e. they are trace roots.\n` +
+          `Orphaned: ${orphans.map((s) => `${s.operation_name} (span_id ${s.span_id})`).join(", ")}\n\n` +
           `This is the exact shape of JE-77: the grpc-js interceptor must activate the extracted ` +
           `OTel context in onReceiveHalfClose (which dispatches the handler), NOT in ` +
           `onReceiveMetadata (synchronous — the context unwinds before the handler runs). ` +
           `See services/users/src/shared/observability/grpc-tracing.ts.\n\n` +
-          `View it: ${jaegerBaseURL}/trace/${found.trace!.traceID}`,
+          `View it: ${viewTraceURL(found.trace!.traceID)}`,
     ).toHaveLength(0);
 
     await api.dispose();
