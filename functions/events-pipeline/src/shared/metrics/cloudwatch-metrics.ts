@@ -59,8 +59,14 @@ export async function publishMetric(
   // is that it never does. A metric failure must not fail the record, so the span
   // records the failure and the function still returns normally — the span status
   // reports what happened to the CALL, not to the caller.
+  // The metric name is IN the span name, not only in the attribute below. A
+  // waterfall renders names: `publishEmailMetric` emits two data points per
+  // email (a per-template series and an ALL rollup), so a record showed two
+  // identical `cloudwatch PutMetricData` bars and telling them apart — or
+  // knowing what either one published — took a click into the attributes. Same
+  // reasoning as `documentdb updateOne <STATUS>`.
   await pipelineTracer.startActiveSpan(
-    "cloudwatch PutMetricData",
+    `cloudwatch PutMetricData ${name}`,
     {
       kind: SpanKind.CLIENT,
       attributes: {

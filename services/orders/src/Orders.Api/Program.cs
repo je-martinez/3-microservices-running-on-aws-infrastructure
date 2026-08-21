@@ -63,6 +63,10 @@ builder.Services.AddOpenTelemetry()
         // travels as the message's `traceparent`, so without this line the queue hop
         // still works but its parent never appears in Jaeger.
         .AddSource(SqsEventPublisher.ActivitySourceName)
+        // The CloudWatch publish span, which names the metric it sends
+        // (`cloudwatch PutMetricData orders_created_total`). Same rule again:
+        // unregistered means created-but-never-exported, with no error anywhere.
+        .AddSource(CloudWatchMetricsPublisher.ActivitySourceName)
         // No Endpoint set here ON PURPOSE. The exporter reads the standard
         // OTEL_EXPORTER_OTLP_ENDPOINT (set in docker-compose.yml) as a BASE url
         // and appends the signal path itself, per the OTLP spec.
