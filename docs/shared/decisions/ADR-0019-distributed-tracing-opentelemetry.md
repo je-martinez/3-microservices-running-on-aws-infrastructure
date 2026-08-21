@@ -192,6 +192,46 @@ logs stay in OpenObserve.**
 > re-instrumentation of either service." That promise held: no service code changed to make this
 > switch, only the collector config, compose file, and Makefile.
 
+> [!important] Amendment (2026-08-21) — events-pipeline: every SQS record now parents to its own origin; `batch_size = 1` pin removed
+> **What changed.** The events-pipeline consumer's span attachment was reworked. Previously,
+> `handler.ts` parented a record span to its origin trace only when the batch held exactly one
+> record, falling back to a `FOLLOWS_FROM` link for multi-record batches — and the SQS event
+> source mapping was pinned to `batch_size = 1` specifically to make the parent branch the only
+> branch, at the cost of one Lambda invocation per message. `recordSpanAttachment` now parents
+> **every** record to its own origin trace, regardless of batch size, so `batch_size` reverted to
+> the `modules/lambda` default (`10`) in `infra/environments/local/main.tf` and is a throughput
+> knob again, not a tracing decision.
+>
+> **Why the pin existed and why it is no longer needed.** Record spans were children of the
+> **batch** span, and a span has exactly one parent — with a batch covering N distinct origins,
+> the handler had no honest way to make all N records children of one batch span, so it either
+> had to pick a winner (misattributing the rest) or force N to always be 1. Pinning `batch_size =
+> 1` chose the second path: it avoided the conflict by making it structurally impossible for a
+> batch to hold more than one origin. Parenting each record to its own origin instead of to the
+> batch span removes the shared-parent structure that created the conflict in the first place —
+> there is nothing left to pick a winner among.
+>
+> **The trade.** The batch span is no longer an ancestor of the record spans it processed — a
+> trace view no longer groups one invocation's work by ancestry, because the batch span and its N
+> records now live in N+1 different traces. A new `batchSpanLinks` function restores that grouping
+> as **links**: the batch span carries one link per distinct origin trace in its batch
+> (deduplicated by trace id), which is the shape OpenTelemetry's messaging semantic conventions
+> prescribe for a consumer covering N origins. The deliberate choice behind the trade: "what
+> happened to THIS order" is the question worth optimizing for with a strong parent-child edge,
+> not "what did THAT invocation do" — the reverse of what the `batch_size = 1` pin had prioritized.
+>
+> **Verified:** 249 events-pipeline unit tests pass, typecheck and build clean. Under real load at
+> `batch_size = 10`: 167 `process_record` spans across 17 `events-queue process` invocations
+> (~10 records/batch), and **297 of 297 traces containing `process_record` also contain spans
+> from a producer service (users/orders/tracking) — a 100% continuous-cascade rate**, measured
+> with server-side aggregation in OpenObserve. That is the same continuity rate the `batch_size =
+> 1` pin existed to guarantee, now reached at the module's default batch size instead of by
+> shrinking it to 1.
+>
+> Full detail: [[2026-08-18-distributed-tracing-spans-design#Decision 4 — the SQS hop: traceparent
+> in `MessageAttributes`, every record parents to its own origin|Decision 4 (revised)]] and
+> [[events-pipeline-design#Observability — tracing spans]].
+
 ## Supersedes
 
 - The **tracing / logs-only stance** of [[ADR-0018-observability-openobserve]] — its

@@ -644,34 +644,49 @@ for the full evidence trail.
 > [!info] Closed JE-138 (2026-08-19) — this Lambda now carries the full OTel SDK
 > Full design: [[2026-08-18-distributed-tracing-spans-design#Decision 5 — events-pipeline: instrument the inside, not just the entry point|Decision 5]]. Implementation: [[2026-08-18-distributed-tracing-spans]].
 
-Span structure, one `CONSUMER` span per batch and one `INTERNAL` span **per record** (not per
-batch — that is the level where a link is meaningful and where it becomes visible which message
-was expensive):
+> [!important] Revised (2026-08-21) — every record now parents to its own origin trace; `batch_size = 1` pin removed
+> The design below originally parented a record to its origin only when the batch held exactly
+> one record, falling back to a `FOLLOWS_FROM` link for multi-record batches — enforced by pinning
+> the SQS event source mapping to `batch_size = 1`. That pin is gone: `recordSpanAttachment`
+> (`functions/events-pipeline/src/handler.ts`) now parents **every** record to its own origin
+> trace regardless of batch size, and `batch_size` is back to `10` (the `modules/lambda` default)
+> in `infra/environments/local/main.tf` — a throughput knob again, not a tracing decision. Full
+> reasoning: [[2026-08-18-distributed-tracing-spans-design#Decision 4 — the SQS hop: traceparent
+> in `MessageAttributes`, every record parents to its own origin|Decision 4 (revised)]] and
+> [[ADR-0019-distributed-tracing-opentelemetry]].
+
+Span structure, one `CONSUMER` span per batch (its own trace) and one `INTERNAL` span **per
+record** (in its own origin trace — not per batch, and no longer a child of the batch span):
 
 ```
-events-queue process (CONSUMER, links -> N origin traces)
-+-- process_record (INTERNAL, link -> origin trace)
-|   +-- phase persist (INTERNAL)
-|   |   +-- documentdb insertOne
-|   +-- documentdb updateOne IN_PROGRESS
-|   +-- phase dispatch (INTERNAL)
-|   |   +-- email render <template>
-|   |   +-- ses SendEmail
-|   |   +-- cloudwatch PutMetricData  (x2)
-|   |   +-- ws publish
-|   +-- documentdb updateOne COMPLETED
-+-- process_record (INTERNAL, link -> another origin trace)
+events-queue process (CONSUMER, own trace, links -> N distinct origin traces in its batch)
+
+process_record (INTERNAL, CHILD_OF its own origin trace)
++-- phase persist (INTERNAL)
+|   +-- documentdb insertOne
++-- documentdb updateOne IN_PROGRESS
++-- phase dispatch (INTERNAL)
+|   +-- email render <template>
+|   +-- ses SendEmail
+|   +-- cloudwatch PutMetricData  (x2)
+|   +-- ws publish
++-- documentdb updateOne COMPLETED
 ```
 
-Verified against a real trace:
-```
-events-queue process (569ms)  refs=0
-  process_record (491ms)      refs=2
-     -> CHILD_OF     SAME trace
-     -> FOLLOWS_FROM ANOTHER trace   <- link to the origin
-```
-and a `metrics-tick` span (the EventBridge 1-minute rate tick) with `refs=0` — a timer has no
-origin trace, so it correctly starts a brand-new one rather than being forced into a link.
+`events-queue process` and its `process_record` spans no longer share a trace: each record
+parents directly to the origin trace that published it (via `messageAttributes.traceparent`),
+producing one continuous cascade per origin — `create_order` -> `sqs.publish order_created` ->
+`process_record` -> `ses SendEmail` — however many records the batch holds. `batchSpanLinks`
+(`functions/events-pipeline/src/handler.ts`) gives the batch span itself one link per distinct
+origin trace present in the batch, deduplicated by trace id, so the invocation is still
+navigable from its work even though it is no longer that work's ancestor.
+
+Verified under real load at `batch_size = 10`: 167 `process_record` spans across 17
+`events-queue process` invocations (~10 records/batch), and **297 of 297 traces containing
+`process_record` also contain spans from a producer service (users/orders/tracking) — a 100%
+continuous-cascade rate**, measured with server-side aggregation in OpenObserve. A `metrics-tick`
+span (the EventBridge 1-minute rate tick) still has `refs=0` — a timer has no origin trace, so it
+correctly starts a brand-new one rather than being forced into a link.
 
 ### Full record-lifecycle coverage — the three status transitions now have spans
 
@@ -723,14 +738,26 @@ Two issues surfaced by this instrumentation are referenced, not duplicated, per
   collector keeps following the old one, measured at 76 minutes of silence with zero collector
   errors logged.
 
-**Why links, not parent-child.** An SQS batch carries messages from **distinct** traces (Users,
-Orders, and Tracking all publish onto the one shared queue). A single parent would force picking
-one origin and lying about the rest, so the consumer instead **links** — `events-queue process`
-links to the N origin traces present in its batch, and each `process_record` span links to its
-own origin. **Honest limitation, kept as such:** neither OpenObserve's trace view nor Jaeger
-(while it was in use) draws the linked span's bar inside the origin trace's own waterfall the way
-a child would — a link renders as a navigable reference instead. That is the price of not
-fabricating a hierarchy a batch consumer does not have.
+**Why the batch span links instead of parenting.** An SQS batch carries messages from
+**distinct** traces (Users, Orders, and Tracking all publish onto the one shared queue). The
+batch span represents the invocation, which no single one of those origins caused, so it cannot
+honestly be a child of any of them — it **links** instead, one link per distinct origin trace
+present in its batch (`batchSpanLinks`, deduplicated by trace id). **Honest limitation, kept as
+such:** OpenObserve's trace view does not draw a linked span's bar inside the origin trace's own
+waterfall the way a child would — a link renders as a navigable reference instead. That is the
+price of not fabricating a hierarchy the batch invocation does not have.
+
+**Each `process_record` span, by contrast, IS a real child — of its own origin, not of the batch
+span.** This was a deliberate revision (2026-08-21): the record spans used to be children of the
+batch span, which is what forced a choice between parenting to one origin (misattributing the
+rest) or linking to all of them (no continuous cascade at all) whenever a batch held more than one
+origin. Making each record a child of its own origin instead removes that forced choice —
+`process_record` gets the strong parent-child edge into the trace that actually produced it,
+and the weaker, links-only relationship is reserved for the batch span, which is genuinely an
+invocation-level concept spanning multiple origins. See the revised design note above and
+[[2026-08-18-distributed-tracing-spans-design#Decision 4 — the SQS hop: traceparent in
+`MessageAttributes`, every record parents to its own origin|Decision 4 (revised)]] for the full
+reasoning and the conflict this dissolves.
 
 **Every internal span here is manual, not auto-instrumented — a packaging necessity, not a style
 choice.** `functions/events-pipeline/scripts/build.mjs` bundles the handler into a single

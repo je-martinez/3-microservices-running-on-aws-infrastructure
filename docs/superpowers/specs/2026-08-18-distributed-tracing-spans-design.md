@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-08-18
-updated: 2026-08-20
+updated: 2026-08-21
 tags:
   - type/spec
   - area/shared
@@ -55,6 +55,13 @@ smoothed over.
 > [[logging-context]], [[ADR-0019-distributed-tracing-opentelemetry]],
 > [[users-service-design]], [[orders-service-design]], [[tracking-service-design]], and
 > [[events-pipeline-design]] — see each note's Observability section for the per-service detail.
+
+**Correction (2026-08-21):** Decision 4's `batch_size = 1` pin was removed. Every SQS record now
+parents to its own origin trace regardless of batch size, dissolving the one-parent-per-batch
+conflict that forced the pin instead of working around it; `batchSpanLinks` restores the
+invocation-level view as links on the batch span. `batch_size` reverted to the `modules/lambda`
+default (`10`) and is a throughput knob again, not a tracing decision. See the revised Decision 4
+and Decision 5 diagram below.
 
 **Correction (2026-08-18):** Decision 5's diagram originally marked the events-pipeline Lambda's
 internal spans (DocumentDB insert, SES send, WebSocket publish) as `auto-instr.`. This was found
@@ -165,7 +172,14 @@ That is 7 + 1 + 3 — the per-service count is what governs, not a round total.
 `*_publish_failed` and `metric_*` are **not** flows: they are error branches inside other
 flows and stay as events on the parent span. `e2e_*` flows are excluded.
 
-## Decision 4 — the SQS hop: traceparent in `MessageAttributes`, batch_size = 1, parent-child
+## Decision 4 — the SQS hop: traceparent in `MessageAttributes`, every record parents to its own origin
+
+> [!important] Revised (2026-08-21) — the batch_size = 1 pin is gone; every record parents to its own origin regardless of batch size
+> The original resolution below pinned `batch_size = 1` so the parent branch was the only branch
+> the handler could take. That pin has been removed: `recordSpanAttachment` now parents **every**
+> record to its own origin trace, whatever the batch size, and `batch_size` is back to being a
+> throughput knob (now `10`, the `modules/lambda` default). See the revised reasoning and evidence
+> below — this replaces, not supplements, the original text.
 
 - The 3 publishers (Users TS, Orders C#, Tracking Python) inject `traceparent` into SQS
   **`MessageAttributes`**, **not** into the envelope body. Reason: the envelope is a
@@ -177,43 +191,55 @@ flows and stay as events on the parent span. `e2e_*` flows are excluded.
   `services/tracking/src/shared/messaging/sqs_event_publisher.py:410`, and
   `services/users/src/shared/messaging/event-publisher.ts:172,258`. Adding `traceparent` is one
   more entry in a dictionary that already exists, not a new mechanism.
-- **The SQS event source mapping is pinned to `batch_size = 1`**, in
-  `infra/environments/local/main.tf` at the `module "lambda_events_pipeline"` call — the
-  `modules/lambda` default stays `10`, since that module is generic and shared by other Lambdas.
-  This is recorded as a **tracing** decision, not a throughput one: it exists so the consumer can
-  attach a real parent-child span rather than a link. Because every invocation now carries
-  exactly one record, `process_record` becomes a genuine child of the publisher's span, and an
-  order's downstream email/WebSocket work appears **inside the same trace** as the request that
-  caused it — full continuous cascade: `create_order` → `sqs.publish order_created` →
-  `process_record` → `ses SendEmail`.
-- **The link branch survives in the handler and is not dead code.** Batch size is a deployment
-  property the code does not control; raising it again in Terraform, or a different environment
-  running with the module default, immediately reintroduces multi-record batches. Without the
-  link branch, the handler would parent all N records to whichever origin happened to arrive
-  first, silently filing one customer's email under another customer's order trace. The branch is
-  a correctness guard against that configuration change, not leftover code from an earlier design.
-- **Why not "parent to the first origin, link the rest":** OpenTelemetry's messaging semantic
-  conventions are explicit that a span has exactly one parent, and that links are the mechanism
-  for a consumer covering N origins
-  (https://opentelemetry.io/docs/specs/semconv/messaging/messaging-spans/). Picking a winner
-  among equals does not simplify the batch case — it misattributes the other N-1 records rather
-  than representing them honestly.
+- **The conflict that originally forced a hybrid.** Record spans were children of the **batch**
+  span, and a span has exactly one parent. With a batch holding records from N distinct origins,
+  the handler had to pick one origin to be the parent and misattribute the other N-1 — there was
+  no honest way to make all N records children of one batch span. The first resolution avoided
+  the conflict rather than resolving it: pin `batch_size = 1` so N was always 1, making the
+  "pick a winner" problem vanish because there was never more than one candidate.
+- **The actual resolution: stop making the records share a parent at all.**
+  `recordSpanAttachment` (`functions/events-pipeline/src/handler.ts`) now parents **every**
+  record directly to its own origin trace, independent of the batch span and independent of how
+  many other records are in the same batch. With records no longer competing for one parent slot,
+  there is nothing left to pick a winner among — the conflict dissolves instead of being worked
+  around. `batch_size` returns to being a throughput knob: it is `10` (the `modules/lambda`
+  default) in `infra/environments/local/main.tf` at the `module "lambda_events_pipeline"` call,
+  no longer pinned to `1`.
+- **The trade, made deliberately by the user.** The batch span is no longer an ancestor of the
+  record spans, so a trace view no longer groups one invocation's work by ancestry — the batch
+  span and its N records now live in N+1 different traces. A new `batchSpanLinks` function
+  (`functions/events-pipeline/src/handler.ts`) restores that grouping as **links** instead: the
+  batch span carries one link per distinct origin trace in the batch, deduplicated by trace id.
+  This is the shape OpenTelemetry's messaging semantic conventions prescribe for a consumer
+  covering N origins (https://opentelemetry.io/docs/specs/semconv/messaging/messaging-spans/).
+  The rationale the user chose: the question worth optimizing for is "what happened to THIS
+  order", not "what did THAT invocation do" — so each record's own trace gets the parent-child
+  relationship (the strong signal), and the invocation-level view is the weaker link-based one,
+  not the other way around as the `batch_size = 1` design had it.
+- **Why not "parent to the first origin, link the rest" (still valid reasoning, differently
+  applied):** OpenTelemetry's messaging semantic conventions are explicit that a span has exactly
+  one parent, and that links are the mechanism for a consumer covering N origins. That rule is
+  exactly why picking a winner among equals was never a real fix — it necessarily misattributes
+  the other N-1 records rather than representing them honestly. The resolution was not to get
+  better at picking a winner (e.g. by shrinking the batch until there was only one candidate); it
+  was to remove the one-parent-per-batch structure that made picking necessary in the first
+  place, by parenting records to their origins directly instead of to the batch span.
 - **Evidence, as measured, not rounded:**
-  - Before the pin, at the module default of `batch_size = 10`: over 21 measured invocations, 19
-    carried more than one record (90%), including ten invocations carrying the full 10. Detached
-    pipeline work — spans reachable only via link, never as a child of the request — was the
-    **common** case, not an edge case.
-  - After the pin: 100 of 100 `events-queue process` spans recorded
-    `messaging.batch.message_count = 1`, and every `process_record` span was verified `CHILD_OF`
-    within the same trace. A verified order trace held 142 spans across users, orders, tracking,
-    and events-pipeline in one waterfall.
-  - The batch span records `messaging.batch.message_count`, so a batch that ever exceeds one
-    record is visible directly in the trace, rather than inferred from a missing parent.
-- **Cost, stated plainly:** more Lambda invocations — one per SQS message instead of up to ten
-  batched together. Accepted deliberately: this pipeline sends emails and fans out WebSocket
-  frames on order events, not a high-volume stream, so the extra invocations are cheap relative to
-  the value of a continuous trace. Raising `batch_size` again re-enables the link branch and
-  re-detaches the pipeline from the request trace — that trade-off is the reason the branch stays.
+  - 249 events-pipeline unit tests pass; typecheck and build clean.
+  - Under real load after deploying: 167 `process_record` spans across 17 `events-queue process`
+    invocations (~10 records per batch on average), confirming multi-record batches genuinely
+    formed once `batch_size` returned to `10`.
+  - **297 of 297 traces containing `process_record` also contain spans from a producer service
+    (users/orders/tracking) — a 100% continuous-cascade rate at `batch_size = 10`**, measured
+    with server-side aggregation in OpenObserve. This is the number the old design could only
+    reach by forcing `batch_size = 1`; the new attachment reaches it at the module default.
+  - An example trace runs end to end: `POST /v1/users/register` → `sqs.publish user_created` →
+    `process_record` → `ses SendEmail` — the same shape the `batch_size = 1` pin used to require,
+    now produced without pinning anything.
+- **Cost, stated plainly.** None of the `batch_size = 1` invocation-count cost remains — batching
+  is back to its throughput-driven default. What is given up is the batch span's role as an
+  ancestor in the trace tree; `batchSpanLinks` is the deliberate replacement for that view, not
+  an incidental side effect.
 
 ## Decision 5 — events-pipeline: instrument the inside, not just the entry point
 
@@ -222,17 +248,18 @@ Closes JE-138. Span structure:
 ```
 create_order (origin trace)
 └── sqs.publish order_created (PRODUCER)
-    └── events-queue process (CONSUMER, batch_size = 1)
-        └── process_record (INTERNAL, CHILD_OF the publish span)
-            ├── INSERT events (DocumentDB, CLIENT, manual)
-            ├── SES SendEmail (CLIENT, manual)
-            └── ws publish (PRODUCER, manual)
+    └── process_record (INTERNAL, CHILD_OF the publish span — its own origin, regardless of batch size)
+        ├── INSERT events (DocumentDB, CLIENT, manual)
+        ├── SES SendEmail (CLIENT, manual)
+        └── ws publish (PRODUCER, manual)
+
+events-queue process (CONSUMER, own trace — links to every distinct origin trace in its batch)
 ```
 
-A batch larger than one — the module default, or a future environment that does not pin
-`batch_size = 1` — instead produces N sibling `process_record` spans under one
-`events-queue process`, each attached to its own origin trace by `FOLLOWS_FROM` link rather than
-as a child. See Decision 4 for why that branch exists and stays in the handler.
+`events-queue process` and `process_record` no longer share a trace — see the revised Decision 4
+above for why. A batch of N records from N distinct origins produces N continuous cascades, one
+per origin, plus one `events-queue process` span in its own trace carrying a link to each of the
+N origins (deduplicated by trace id via `batchSpanLinks`).
 
 > [!warning] The Lambda's internal spans are manual, not auto-instrumented — by packaging necessity
 > `functions/events-pipeline/scripts/build.mjs` bundles the handler with esbuild into a **single

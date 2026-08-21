@@ -156,12 +156,16 @@ Two constraints when writing code:
   (`BatchSpanProcessor` + `flushTraces()`, which the handler MUST call in its `finally`: Lambda
   freezes the process on return). The handler opens `events-queue process` (CONSUMER) per batch
   and `process_record` (INTERNAL) per record, attached to the record's origin trace via
-  `messageAttributes.traceparent`. The attachment is **parent-child**, so an order's email work
-  appears in the same trace as the request that caused it — which holds only because the event
-  source mapping is pinned to `batch_size = 1` (see `infra/environments/local/main.tf`). A batch
-  carrying several records mixes DISTINCT origin traces and a span has one parent, so the handler
-  falls back to FOLLOWS_FROM **links** there, per OpenTelemetry's messaging conventions. That
-  fallback is a guard against a Terraform change, not dead code — do not delete it. Outbound calls use `withClientSpan`
+  `messageAttributes.traceparent`. The attachment is **parent-child for every
+  record, at any batch size**, so an order's email work appears in the same trace as the request
+  that caused it. Each record parents to its OWN origin, which is why a batch mixing N distinct
+  origins needs no winner picked: the records do not share a parent. `batch_size` is therefore a
+  throughput knob (currently the `modules/lambda` default of `10`), NOT a tracing decision — it
+  was pinned to `1` until 2026-08-21 and no longer is. The cost of that shape: the batch span is
+  **not** an ancestor of the record spans, so `batchSpanLinks` gives it one **link** per distinct
+  origin trace (deduplicated) to keep the per-invocation view — do not turn those links back into
+  a parent edge. A record whose message carries no `traceparent` still falls back under the batch
+  span, which is the honest encoding of "no origin to attach to". Outbound calls use `withClientSpan`
   (`src/shared/observability/client-span.ts`): `documentdb insertOne`, `ses SendEmail`,
   `ws publish`. It takes an explicit `describeError` because a Mongo error's message embeds the
   rejected document — the span obeys the same PII rule as the log line.
