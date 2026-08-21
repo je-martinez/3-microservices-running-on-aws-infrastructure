@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-19
-updated: 2026-08-19
+updated: 2026-08-21
 tags:
   - type/convention
   - area/shared
@@ -411,6 +411,60 @@ reach the shared schema.
 > Under the local emulator, the `aws_cloudwatch` receiver substitutes the placeholder
 > `THIS IS INVALID STREAM` when it cannot resolve a real stream name. Use `service_name` and
 > `cloudwatch_log_group_name` instead.
+
+## Which spans answer OpenObserve's "View Logs" — and which never will
+
+> [!info] JE-179
+> Filed after "View Logs" on a span in OpenObserve repeatedly returned nothing, read each time as
+> a new bug. It isn't one: most spans in a trace belong to third-party instrumentation where our
+> code never runs, so there is no log line to return. This section exists so the empty result
+> reads as expected, not as a regression.
+
+**"View Logs" filters by `trace_id` AND `span_id`, with no fallback.** Per OpenObserve's own
+docs on the traces view (https://openobserve.ai/docs/user-guide/data-exploration/traces/traces/):
+"Select View Logs. The Logs page opens, filtered to the current trace_id and span_id." A span with
+no log line carrying that exact pair returns an empty page — this is the button working correctly,
+not a broken link. `trace_id_field_name`/`span_id_field_name` (this repo's organization settings)
+only rename which fields the filter targets; they are already correct here. `cross_links` is for
+linking a span to an *external* system, not for this. **There is no configuration knob that makes
+a third-party span's page non-empty** — the fix is not to look for one.
+
+**Measured on one real `create_order` trace** (`87a65b0cc3f1a30ffd177d9769461546`, spanning all
+four services):
+
+| | Count |
+|---|---|
+| Total spans | 49 |
+| With at least one log line | 7 |
+| With none | 42 |
+
+Of the 42 with no log line:
+
+| Group | Count | Examples |
+|---|---|---|
+| Third-party instrumentation — our code never runs inside them | 39 | `prisma:client:operation`, `prisma:client:serialize`, `prisma:client:db_query`, `pg-pool.connect`, `pg.connect`, EF Core internals, AWS SDK client spans (`SQS.SendMessage`, `HttpRequest`, `CredentialsRetrieval`), FastAPI's `http send`/`http receive` pair, `dns.lookup`, `tcp.connect` |
+| Ours, and have since been fixed (JE-179) | 3 | `sqs.publish order_created` (orders), `ses SendEmail` (events-pipeline), the gRPC client span for `/users.v1.Users/GetUserById` (tracking) |
+
+The 39 are not an oversight to close. Logging inside each of them would mean a line per DNS
+lookup and per connection-pool checkout — precisely the noise this convention already argues
+against elsewhere in this document (see [[health-check-logging]] and the health-check exemption
+above: 353 of 368 lines in one hour were a single health-check route). A span existing is not the
+same claim as "our code ran here"; only the second implies a log line.
+
+**The rule going forward:** every span **our own code** creates must emit at least one log line
+within its scope, or the exception is written down explicitly (as this section now does for the
+39 third-party spans). This repo currently creates spans at 33 call sites across five runtimes —
+users 15, orders 6, tracking 1, events-pipeline 7, realtime-events 4
+([[2026-08-18-distributed-tracing-spans-design]]) — and JE-179 closed the gap on the last 3 that
+had none.
+
+> [!warning] Measurement trap — a stale trace id looks like 0/49, not 42/49
+> The first attempt at counting "spans with a log line" against this same trace returned **zero**
+> matches for all 49 spans, which looked like every producer was broken at once. It wasn't: the
+> log lines had already aged out of OpenObserve's retention window while the trace itself was
+> still live in Jaeger (traces and logs do not share a retention clock). Re-running against fresh
+> traffic — not a reused, already-old `trace_id` — produced the real 7/49. Anyone re-measuring
+> this should generate a new trace, not query an old id and conclude the pipeline regressed.
 
 ## Per-service mechanism
 
