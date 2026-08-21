@@ -60,9 +60,11 @@ export async function sendEmail(params: SendEmailParams): Promise<void> {
     // unexplained gap inside `process_record` — which is precisely where the
     // latency lives when SES is slow.
     //
-    // Scoped to the send, not to the whole function: the logging and metric
-    // publishing below are this process's own work, and folding them in would
-    // attribute their time to SES.
+    // Scoped to the send, not to the whole function: the outcome logging and
+    // metric publishing below are this process's own work, and folding them in
+    // would attribute their time to SES. The one line that IS inside (see
+    // below) precedes the call rather than wrapping it, and is there to make
+    // the span answerable by "View logs" — its rationale is at the call site.
     //
     // `email_hash`, never the recipient — the same rule the log line obeys, for
     // the same reason. A span attribute is as readable as a log field.
@@ -70,8 +72,34 @@ export async function sendEmail(params: SendEmailParams): Promise<void> {
       "ses SendEmail",
       SpanKind.CLIENT,
       { "messaging.system": "ses", "rpc.method": "SendEmail", email_hash },
-      () =>
-        getClient().send(
+      () => {
+        // The ONE line that belongs to this span rather than to the record.
+        //
+        // WHY IT EXISTS: OpenObserve's "View logs" on a span filters by
+        // `trace_id` AND `span_id`, with no fallback to the trace — so a span
+        // with no log line of its OWN answers it with an empty result, however
+        // many lines the surrounding trace has. `ses SendEmail` is the only
+        // span we own that was in that state.
+        //
+        // WHY IT DOES NOT CORRUPT THE MEASUREMENT: it is emitted BEFORE the
+        // send is issued, not around it. pino's default destination is a
+        // synchronous stdout write of a few hundred bytes — microseconds,
+        // ahead of a network round trip to SES — and, being before the call,
+        // it cannot sit between the request and its response. The span still
+        // brackets the same SES call it always did; that is why the
+        // succeeded/failed lines below stay OUTSIDE, where they describe the
+        // RECORD's work and remain findable from `process_record`.
+        //
+        // WHY THIS CONTENT: it is the only place `template_key` and
+        // `email_hash` appear together — "which email went to whom" — which
+        // no other line in this service answers. `email_hash`, never the
+        // plaintext recipient, exactly as the span attribute above.
+        appLogger.info(
+          { app_event: "ses_send_requested", template_key: params.templateKey, email_hash },
+          "requesting SES send",
+        );
+
+        return getClient().send(
           new SendEmailCommand({
             Source: env.SES_FROM_ADDRESS,
             Destination: { ToAddresses: [params.to] },
@@ -80,7 +108,8 @@ export async function sendEmail(params: SendEmailParams): Promise<void> {
               Body: { Html: { Data: params.html } },
             },
           }),
-        ),
+        );
+      },
       // The SDK's message is safe here (endpoint, status, throttling reason) —
       // established in the catch below, and it never contains the recipient,
       // which this function holds separately in `params.to` and never

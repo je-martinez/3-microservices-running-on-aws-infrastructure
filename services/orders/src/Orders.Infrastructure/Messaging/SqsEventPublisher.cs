@@ -165,23 +165,49 @@ public class SqsEventPublisher : IEventPublisher
             MessageBody = JsonSerializer.Serialize(envelope, SerializerOptions),
         };
 
+        // The PUBLISH span, and the reason this send is wrapped at all: the traceparent
+        // on the message must name the span that performed THIS send, so the consumer's
+        // work hangs under the publish rather than beside it. See BuildMessageAttributes
+        // for why the attributes are built INSIDE.
+        //
+        // Started OUTSIDE the try, with the try/catch nested in its scope, so BOTH log
+        // lines below are written while this activity is current and therefore carry ITS
+        // span id. With the `using` inside the try, an exception disposed the activity on
+        // the way out and the failure line landed on the enclosing workflow span instead —
+        // invisible to a span-scoped lookup on the publish, which is where an operator
+        // looks after seeing the send go red.
+        using var activity = Source.StartActivity(PublishActivityName, ActivityKind.Producer);
+
         try
         {
-            // The PUBLISH span, and the reason this send is wrapped at all: the
-            // traceparent on the message must name the span that performed THIS send,
-            // so the consumer's work hangs under the publish rather than beside it.
-            // See BuildMessageAttributes for why the attributes are built INSIDE.
-            using var activity = Source.StartActivity(PublishActivityName, ActivityKind.Producer);
-
             // Built here, not in the initializer above: this must observe the activity
             // just started. Evaluated one line earlier it would read the enclosing
             // workflow span (create_order) instead — which is the bug this fixes.
             request.MessageAttributes = BuildMessageAttributes();
 
             await _client.SendMessageAsync(request, ct);
+
+            // The span's OWN line, so "View logs" on this span in OpenObserve answers
+            // rather than coming back empty: that button filters by trace_id AND span_id
+            // with no fallback to the trace, so a span nobody logs from can only ever
+            // return nothing. It earns its place independently of that — it states that
+            // the event was emitted, WHICH event (type + event_id, the pipeline's
+            // idempotency key) and for WHICH order, which is what makes a missing
+            // confirmation email diagnosable from this side of the queue.
+            //
+            // NEVER the email, the name or the address (PII): the ids identify the
+            // message completely on their own.
+            _logger.LogInformation(
+                "ORDER_CREATED published {app_event} {event_type} {event_id} {order_id} {user_id}",
+                "order_created_published", EventType, envelope.EventId, orderId, userId);
         }
         catch (Exception ex)
         {
+            // The span must come out ERROR, not OK: a send that failed is the one thing a
+            // waterfall must not render as a healthy hop.
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+
+
             // DELIBERATE: logged and swallowed, never rethrown.
             //
             // By the time this runs the order is already persisted and its products'
@@ -194,7 +220,9 @@ public class SqsEventPublisher : IEventPublisher
             // already takes for its Tracking call.
             //
             // NOT silent: logged at error with the `*_failed` app_event so it is
-            // alertable and the event is backfillable from the order row.
+            // alertable and the event is backfillable from the order row — and written
+            // INSIDE the publish activity (see above) so it is the line that span's
+            // "View logs" returns.
             //
             // NEVER log the email or any address field (PII). order_id and user_id
             // identify the missing event completely on their own.

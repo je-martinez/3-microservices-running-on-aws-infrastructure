@@ -7,6 +7,7 @@ using Moq;
 using Orders.Application.Abstractions;
 using Orders.Infrastructure.Id;
 using Orders.Infrastructure.Messaging;
+using Orders.Tests.Observability;
 
 namespace Orders.Tests.Messaging;
 
@@ -540,6 +541,120 @@ public class SqsEventPublisherTests
         var traceparent = Assert.Single(sqs.Requests).MessageAttributes["traceparent"].StringValue;
         Assert.Matches("^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$", traceparent);
         Assert.Equal(publishSpan.SpanId.ToHexString(), traceparent.Split('-')[2]);
+    }
+
+    // The publish span was mute: it carried a traceparent but no log line of its own, so
+    // "View logs" on it in OpenObserve returned nothing at all. That button filters by
+    // trace_id AND span_id with no fallback to the trace, so only a line written while THIS
+    // activity is current can answer it.
+    //
+    // Asserted with SpanScopedLogger, which records Activity.Current AT LOG TIME: a line
+    // written after the publish activity was disposed renders identically and asserts its
+    // app_event identically, while carrying the workflow's span id — the exact bug this
+    // pins, and one only the ambient activity can detect.
+    [Fact]
+    public async Task Logs_the_publication_inside_the_publish_span_not_the_enclosing_workflow()
+    {
+        var started = new List<Activity>();
+        using var listener = ListenToEverything(started);
+        using var source = new ActivitySource(TestActivitySourceName);
+        var sqs = new RecordingSqs(failure: null);
+        var logger = new SpanScopedLogger<SqsEventPublisher>();
+        var publisher = new SqsEventPublisher(sqs.Object, QueueUrl, logger);
+
+        // Stands in for create_order, the workflow the publish runs inside — the span the
+        // line used to be attributed to.
+        using var workflow = source.StartActivity("create_order");
+        Assert.NotNull(workflow);
+
+        await Publish(publisher);
+
+        var publishSpan = Assert.Single(
+            started, a => a.OperationName == SqsEventPublisher.PublishActivityName);
+
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Information, entry.Level);
+        // THE POINT: the ambient activity at log time is the publish span...
+        Assert.Same(publishSpan, entry.Activity);
+        // ...and specifically not the workflow, stated separately so a regression that
+        // moves the line back outside the span fails with the reason spelled out.
+        Assert.NotSame(workflow, entry.Activity);
+
+        Assert.Equal("order_created_published", entry.Values["app_event"]);
+        // What a human wants to know when they open this span: which event, for which
+        // order, for whom. `event_id` is the pipeline's idempotency key, so this line is
+        // what joins an order to the event document (and the email) on the other side.
+        Assert.Equal("ORDER_CREATED", entry.Values["event_type"]);
+        Assert.Equal(OrderId, entry.Values["order_id"]);
+        Assert.Equal(UserId, entry.Values["user_id"]);
+
+        // The very event_id that went on the wire, not merely some non-empty string: a
+        // line naming a different id would be worse than no line at all.
+        var body = JsonDocument.Parse(Assert.Single(sqs.Requests).MessageBody).RootElement;
+        Assert.Equal(body.GetProperty("event_id").GetString(), entry.Values["event_id"]);
+    }
+
+    // No PII on the success line either. The failure line has its own version of this test;
+    // this one exists because the success line is the one that carries payload-derived
+    // values, and the payload is where the email, the name and the address live.
+    [Fact]
+    public async Task The_publication_log_leaks_no_email_name_or_address()
+    {
+        using var listener = ListenToEverything();
+        var sqs = new RecordingSqs(failure: null);
+        var logger = new SpanScopedLogger<SqsEventPublisher>();
+
+        await Publish(new SqsEventPublisher(sqs.Object, QueueUrl, logger));
+
+        // Over the rendered line AND every structured value — a field carrying the email
+        // never shows up in the rendered text, which is how such a leak survives a weaker
+        // assertion.
+        var everything = string.Join(
+            "\n",
+            logger.Entries.Select(e => $"{e.Rendered}\n{string.Join("\n", e.Values.Select(v => $"{v.Key}={v.Value}"))}"));
+
+        Assert.DoesNotContain(Email, everything);
+        Assert.DoesNotContain("buyer", everything);
+        Assert.DoesNotContain("@", everything);
+        Assert.DoesNotContain(FullName, everything);
+        Assert.DoesNotContain("Ada Way", everything);
+    }
+
+    // The failure line used to fall OUTSIDE the span: `using var activity` lived inside the
+    // try, so an exception disposed it on the way to the catch and the line was attributed
+    // to create_order. A red send is precisely when an operator clicks "View logs" on the
+    // publish span, so that was the worst case to leave mute.
+    [Fact]
+    public async Task Logs_a_failed_publish_inside_the_publish_span_and_marks_it_error()
+    {
+        var started = new List<Activity>();
+        using var listener = ListenToEverything(started);
+        using var source = new ActivitySource(TestActivitySourceName);
+        var sqs = new RecordingSqs(new AmazonSQSException("queue unreachable"));
+        var logger = new SpanScopedLogger<SqsEventPublisher>();
+
+        using var workflow = source.StartActivity("create_order");
+        Assert.NotNull(workflow);
+
+        // Still swallowed — the order must survive a dead queue.
+        await Publish(new SqsEventPublisher(sqs.Object, QueueUrl, logger));
+
+        var publishSpan = Assert.Single(
+            started, a => a.OperationName == SqsEventPublisher.PublishActivityName);
+
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Error, entry.Level);
+        Assert.Same(publishSpan, entry.Activity);
+        Assert.NotSame(workflow, entry.Activity);
+        Assert.Equal("order_created_publish_failed", entry.Values["app_event"]);
+        Assert.Equal("sqs_send_failed", entry.Values["reason"]);
+
+        // And the span itself is red, so the waterfall does not render a failed send as a
+        // healthy hop. The workflow's own status is untouched: the publish is best-effort
+        // and does not fail the order.
+        Assert.Equal(ActivityStatusCode.Error, publishSpan.Status);
+        Assert.Equal("queue unreachable", publishSpan.StatusDescription);
+        Assert.Equal(ActivityStatusCode.Unset, workflow.Status);
     }
 
     // A source name unique to this file so the listener below cannot pick up activities
