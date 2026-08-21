@@ -471,31 +471,25 @@ module "lambda_events_pipeline" {
   ws_connections_table_arn  = module.ws_connections.table_arn
   ws_manage_connections_arn = module.api_gateway_ws.manage_connections_arn
 
-  # One record per invocation, so each invocation belongs to exactly ONE trace.
+  # Throughput, NOT tracing. This used to be pinned to 1 because the handler
+  # could only parent a record span to its origin when the batch held exactly
+  # one record, and fell back to FOLLOWS_FROM links otherwise — which detached
+  # the pipeline's work from the request that caused it. Measured at the module
+  # default of 10, 19 of 21 invocations carried more than one record, so 90% of
+  # orders had their email work stranded in a separate trace.
   #
-  # This is a TRACING decision, not a throughput one. A record carries the
-  # traceparent of the request that produced it, and a span has exactly one
-  # parent — so a batch of N records from N different requests cannot be
-  # parented to all of them. handler.ts resolves that by parenting when the
-  # batch holds one record and falling back to FOLLOWS_FROM links when it holds
-  # several (the shape OpenTelemetry's messaging conventions prescribe for
-  # batches). Links are correct, but they do not draw a continuous waterfall:
-  # the pipeline's work lands in a separate trace, and reading one order's
-  # journey end to end means following a link across traces.
+  # handler.ts now parents EVERY record to its own origin regardless of batch
+  # size (see recordSpanAttachment), so N records from N requests produce N
+  # continuous cascades. The batch span links to each origin instead of
+  # parenting them, which is the shape OTel's messaging conventions prescribe.
+  # Batch size is therefore free to be a throughput knob again.
   #
-  # At the module default of 10 that was the COMMON case, not the exception —
-  # measured over 21 invocations: 19 carried more than one record (up to the
-  # full 10), so 90% of orders had their email work detached from the request
-  # that caused it. Pinning the batch to 1 makes the parenting branch the only
-  # branch, which is why the link branch survives in the handler but never
-  # fires here.
-  #
-  # The cost is more invocations. Accepted deliberately: this pipeline sends
-  # emails and fans out WebSocket frames on order events — it is not a
-  # high-volume stream, and per-invocation overhead is a fair price for traces
-  # that never attribute one customer's email to another customer's order.
-  # Raising this again re-enables the link branch and re-detaches the pipeline.
-  batch_size = 1
+  # 10 is the module default, restored deliberately rather than tuned: this
+  # pipeline sends emails and fans out WebSocket frames on order events, so it
+  # is not high volume, and a larger batch mainly cuts invocation overhead.
+  # Raising it further is safe for TRACING now, but note the whole batch shares
+  # one 30s timeout and one DocumentDB connection.
+  batch_size = 10
 
   environment_variables = {
     AWS_ENDPOINT_URL = "http://floci:4566"

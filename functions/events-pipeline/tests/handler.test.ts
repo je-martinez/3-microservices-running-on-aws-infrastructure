@@ -818,12 +818,14 @@ describe("handler — tracing", () => {
     expect(batchSpan.status.code).toBe(SpanStatusCode.OK);
   });
 
-  it("parents the record span to the origin span when the batch holds exactly ONE record", async () => {
-    // The whole point of the hybrid: with a single record the origin is
-    // unambiguous, so the record span is a REAL CHILD of the publisher's span
-    // and stays in the publisher's trace. That is what makes the email work
-    // visible inside the create_order trace instead of stranded in a second one
-    // reachable only by following a FOLLOWS_FROM reference.
+  it("parents the record span to the origin span", async () => {
+    // The record span is a REAL CHILD of the publisher's span and stays in the
+    // publisher's trace. That is what makes the email work visible inside the
+    // create_order trace instead of stranded in a second one reachable only by
+    // following a FOLLOWS_FROM reference.
+    //
+    // This holds for ANY batch size — see the multi-record test below. It is no
+    // longer conditional on the batch carrying exactly one record.
     const { traceparent, traceId, spanId } = await originTraceparent();
 
     await handler({ Records: [tracedRecord("msg-1", envelope(), traceparent)] });
@@ -865,12 +867,22 @@ describe("handler — tracing", () => {
     expect(persistSpan.spanContext().traceId).toBe(traceId);
   });
 
-  it("links — never parents — each record of a MULTI-record batch to its OWN origin trace", async () => {
-    // The branch that rots without a test. Batch size is a runtime property: SQS
-    // delivers several records per invocation under load, and then a single
-    // parent would have to pick one of N origins and misattribute every other
-    // record. Each record gets its own link instead, and the spans stay in this
-    // Lambda's trace, under the batch span.
+  it("parents EVERY record of a MULTI-record batch to its OWN origin trace", async () => {
+    // The point of the change: a batch of N records from N different requests
+    // yields N continuous cascades, one per order, instead of N detached ones.
+    //
+    // This REPLACES an earlier rule that linked (never parented) whenever the
+    // batch held more than one record. That rule existed because the batch span
+    // was the record spans' parent, and a span has exactly one parent — so with
+    // several origins the handler had to pick one and misattribute the rest.
+    // Parenting each record to its own origin removes the conflict entirely:
+    // there is no longer a single parent to fight over, because the records no
+    // longer share one.
+    //
+    // The cost, asserted below: the record spans leave this Lambda's trace, so
+    // the batch span is no longer their ancestor. Grouping "what did this
+    // invocation do" now comes from the batch span's LINKS and its
+    // messaging.batch.message_count, not from ancestry.
     const first = await originTraceparent();
     const second = await originTraceparent();
 
@@ -884,20 +896,40 @@ describe("handler — tracing", () => {
     const [batchSpan] = spansNamed("events-queue process");
     const recordSpans = spansNamed("process_record");
     expect(recordSpans).toHaveLength(2);
-    expect(recordSpans[0].links[0].context.traceId).toBe(first.traceId);
-    expect(recordSpans[1].links[0].context.traceId).toBe(second.traceId);
     expect(first.traceId).not.toBe(second.traceId);
 
+    // Each record lands in ITS OWN origin trace, as a real child.
+    expect(recordSpans[0].parentSpanContext?.spanId).toBe(first.spanId);
+    expect(recordSpans[0].spanContext().traceId).toBe(first.traceId);
+    expect(recordSpans[1].parentSpanContext?.spanId).toBe(second.spanId);
+    expect(recordSpans[1].spanContext().traceId).toBe(second.traceId);
+
     for (const recordSpan of recordSpans) {
-      expect(recordSpan.links).toHaveLength(1);
-      // NO remote parent: both spans stay children of the batch span, in this
-      // Lambda's own trace. This is the assertion that fails the day someone
-      // "simplifies" the hybrid into always-parent.
-      expect(recordSpan.parentSpanContext?.spanId).toBe(batchSpan.spanContext().spanId);
-      expect(recordSpan.spanContext().traceId).toBe(batchSpan.spanContext().traceId);
+      // A parent REPLACES the link — keeping both would draw the same edge twice.
+      expect(recordSpan.links).toHaveLength(0);
+      // And none of them stays in the batch span's trace any more.
+      expect(recordSpan.spanContext().traceId).not.toBe(batchSpan.spanContext().traceId);
     }
-    expect(recordSpans[0].spanContext().traceId).not.toBe(first.traceId);
-    expect(recordSpans[1].spanContext().traceId).not.toBe(second.traceId);
+  });
+
+  it("links the batch span to every origin trace it carried", async () => {
+    // What replaces ancestry as the "what did this invocation do" view. Without
+    // this the batch span would be an island: its records now live in other
+    // traces, so nothing would tie the invocation to the work it performed.
+    const first = await originTraceparent();
+    const second = await originTraceparent();
+
+    await handler({
+      Records: [
+        tracedRecord("msg-1", envelope({ event_id: "evt_a" }), first.traceparent),
+        tracedRecord("msg-2", envelope({ event_id: "evt_b" }), second.traceparent),
+      ],
+    });
+
+    const [batchSpan] = spansNamed("events-queue process");
+    expect(batchSpan.attributes["messaging.batch.message_count"]).toBe(2);
+    const linkedTraceIds = batchSpan.links.map((l) => l.context.traceId).sort();
+    expect(linkedTraceIds).toEqual([first.traceId, second.traceId].sort());
   });
 
   it("falls back to neither parent nor link, and no failure, for a record with no traceparent", async () => {

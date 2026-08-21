@@ -152,58 +152,69 @@ function originSpanContext(record: SqsRecord): SpanContext | undefined {
   );
 }
 
-// How a record span attaches to the trace that published its message. The choice
-// is made PER BATCH, from the batch size, and the two branches are not
-// interchangeable:
+// How a record span attaches to the trace that published its message.
 //
-//   1 record  -> PARENT. The origin is unambiguous, so `process_record` becomes
-//     a real child of the publisher's span and the whole cascade stays ONE
-//     trace: create_order -> SQS.SendMessage -> process_record -> ses SendEmail.
-//     Before this, the email work lived in a second trace reachable only by
-//     following a FOLLOWS_FROM reference — a user opening the create_order trace
-//     saw no email at all.
+// EVERY record is parented to its OWN origin, whatever the batch size. A batch
+// of N records from N different requests therefore produces N continuous
+// cascades — create_order -> SQS.SendMessage -> process_record -> ses SendEmail
+// — one per order, instead of N detached ones.
 //
-//   2+ records -> LINK, as before. A batch mixes messages from DISTINCT traces,
-//     so naming a parent means picking one of N origins and misattributing every
-//     other record. A link says "caused by, elsewhere" per record, independently.
+// This replaced a hybrid that parented only when the batch held exactly one
+// record and fell back to FOLLOWS_FROM links otherwise. That fallback existed
+// because the record spans were children of the BATCH span, and a span has
+// exactly one parent: with several origins the handler had to pick one and
+// misattribute every other record. Parenting each record to its own origin
+// dissolves the conflict rather than working around it — the records no longer
+// share a parent, so there is nothing left to pick.
 //
-// The event source mapping is pinned to `batch_size = 1` (see the
-// `lambda_events_pipeline` module call in infra/environments/local/main.tf), so
-// the parent branch is the one that fires and the cascade is continuous for
-// every order. That pin is the REASON the parenting is safe, not an incidental
-// detail: it is what guarantees a batch never mixes origins.
+// The trade, made deliberately: the batch span is no longer an ancestor of the
+// record spans, so a trace view no longer groups an invocation's work by
+// ancestry. `batchSpanLinks` below restores that view as LINKS, which is the
+// shape OpenTelemetry's messaging conventions prescribe for a consumer covering
+// N origins (https://opentelemetry.io/docs/specs/semconv/messaging/messaging-spans/).
+// The question this optimizes for is "what happened to THIS order", not "what
+// did THAT invocation do".
 //
-// The link branch therefore looks dead, and stays anyway. Batch size is a
-// deployment property this code does not control: raise it in Terraform, or run
-// against an environment that sets it differently, and multi-record batches
-// reappear immediately. Deleting this branch would not prevent that — it would
-// only make the handler parent all N records to whichever origin came first,
-// silently filing one customer's email under another customer's order. It is a
-// correctness guard for a configuration change, not unreachable code.
-//
-// Why links and not "parent to the first, link the rest": OpenTelemetry's
-// messaging conventions are explicit that a span has exactly one parent and
-// that links are the mechanism for a consumer covering N origins
-// (https://opentelemetry.io/docs/specs/semconv/messaging/messaging-spans/).
-// Picking a winner among equals would misattribute the other N-1 rather than
-// represent them. The batch span also records
-// `messaging.batch.message_count`, so a batch that ever exceeds one is visible
-// in the trace instead of being inferred from a missing parent.
+// What this buys operationally: `batch_size` stops being a tracing decision. It
+// was pinned to 1 purely so the parent branch was the only branch, at the cost
+// of one invocation per message; it can now be tuned for throughput without
+// detaching the pipeline from the requests that drive it.
 interface RecordSpanAttachment {
   // Passed to startActiveSpan as the parent context. `undefined` means "use the
-  // active context", i.e. the batch span — which is what both the multi-record
-  // branch and the no-traceparent case want.
+  // active context", i.e. the batch span — the fallback for a record that
+  // carries no usable traceparent.
   parentContext?: Context;
   links: Link[];
 }
 
-function recordSpanAttachment(record: SqsRecord, batchSize: number): RecordSpanAttachment {
+function recordSpanAttachment(record: SqsRecord): RecordSpanAttachment {
   const spanContext = originSpanContext(record);
   if (spanContext === undefined) return { links: [] };
 
-  return batchSize === 1
-    ? { parentContext: trace.setSpanContext(ROOT_CONTEXT, spanContext), links: [] }
-    : { links: [{ context: spanContext }] };
+  return { parentContext: trace.setSpanContext(ROOT_CONTEXT, spanContext), links: [] };
+}
+
+// The batch span's links: one per DISTINCT origin trace the batch carried.
+//
+// This is what keeps the invocation legible now that the record spans live in
+// other traces. Without it the batch span would be an island — it would report
+// a message count and nothing about the work behind it.
+//
+// Deduplicated by trace id: several records of one batch can come from the SAME
+// request (an order that emits two events), and repeating that trace would
+// suggest more distinct origins than the invocation actually served.
+//
+// Records with no traceparent contribute nothing, which is the honest encoding:
+// there is no origin to point at.
+function batchSpanLinks(records: SqsRecord[]): Link[] {
+  const byTraceId = new Map<string, SpanContext>();
+  for (const record of records) {
+    const spanContext = originSpanContext(record);
+    if (spanContext !== undefined && !byTraceId.has(spanContext.traceId)) {
+      byTraceId.set(spanContext.traceId, spanContext);
+    }
+  }
+  return [...byTraceId.values()].map((context) => ({ context }));
 }
 
 // Cold-start-scoped: indexes are ensured once per execution environment, not
@@ -352,12 +363,24 @@ export async function handler(event: HandlerEvent): Promise<BatchResponse> {
   }
 
   // One CONSUMER span for the whole batch — the SQS receive side of the hop, the
-  // counterpart of each publisher's PRODUCER span. Its children are the
-  // per-record spans below; it is deliberately NOT parented to any of their
-  // origin traces (see processBatch).
+  // counterpart of each publisher's PRODUCER span. It is deliberately NOT
+  // parented to any origin trace: it represents the INVOCATION, which no single
+  // request caused.
+  //
+  // It is no longer the record spans' ancestor either — those now live in their
+  // own origin traces (see recordSpanAttachment). The links below are what tie
+  // this invocation to the work it did.
+  //
+  // `batchSpanLinks` is computed defensively for the same reason the record
+  // count is set inside the span rather than here: a malformed delivery with no
+  // `Records` would throw while building the OPTIONS, i.e. before the span
+  // exists, and the invocation would vanish from the trace instead of failing
+  // visibly. An unreadable batch yields no links and still opens the span.
+  const links = Array.isArray(event.Records) ? batchSpanLinks(event.Records) : [];
+
   return tracer.startActiveSpan(
     "events-queue process",
-    { kind: SpanKind.CONSUMER, attributes: { "messaging.system": "aws_sqs" } },
+    { kind: SpanKind.CONSUMER, links, attributes: { "messaging.system": "aws_sqs" } },
     async (batchSpan) => {
       try {
         // The batch size is set INSIDE the span, not in the options above. A
@@ -459,7 +482,7 @@ async function processBatch(event: SqsEvent): Promise<BatchResponse> {
     // batch is what decides. Both fields are empty when the message carries no
     // traceparent, which is a valid shape (a pre-instrumentation redelivery),
     // not a failure.
-    const { parentContext, links } = recordSpanAttachment(record, event.Records.length);
+    const { parentContext, links } = recordSpanAttachment(record);
 
     // One ALS scope per record: everything logged inside — here, in the state
     // machine, in the SES sender — carries this envelope's identity without any
