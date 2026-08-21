@@ -50,20 +50,28 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
+from opentelemetry.trace import NoOpTracer, SpanKind, StatusCode
 
 from src.features.tracking.domain.models import Tracking, TrackingHistory
 from src.shared.audit.audit_actor import AuditActor
 from src.shared.grpc.users_client import ResolvedUser
+from src.shared.messaging import sqs_event_publisher
 from src.shared.messaging.sqs_event_publisher import (
     EVENT_ID_PREFIX,
     EVENT_SOURCE,
     EVENT_TYPE,
+    PUBLISH_SPAN_NAME,
     SqsEventPublisher,
     derive_event_id,
     hash_email,
@@ -253,6 +261,48 @@ def sent_body(client: RecordingSqsClient, index: int = 0) -> dict[str, Any]:
     """
     assert len(client.sends) > index, "the publisher sent nothing"
     return json.loads(client.sends[index]["MessageBody"])
+
+
+class SpanRecordingFilter(logging.Filter):
+    """Records which span was ACTIVE when each line was logged.
+
+    The only honest way to assert "this line falls inside that span". `caplog`
+    keeps the record, but by the time a test inspects it the span has long
+    closed and the record carries no span id of its own — production stamps one
+    via `TraceContextFilter`, which is not installed in a unit test. So this
+    reads `trace.get_current_span()` at the moment of the call, which is exactly
+    what that filter would have read.
+
+    Keyed by `app_event` rather than by message, because the app_event is the
+    stable token the log convention pins ([[logging-context]]) and the message
+    text is free to be reworded.
+
+    Installed on the publisher's own logger as a context manager so it is removed
+    even when the body raises — a stray filter on a module-level logger would
+    otherwise follow every later test in the session.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.by_app_event: dict[str, int] = {}
+        self._logger = logging.getLogger(
+            "src.shared.messaging.sqs_event_publisher"
+        )
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        app_event = getattr(record, "app_event", None)
+        if app_event is not None:
+            self.by_app_event[app_event] = (
+                trace.get_current_span().get_span_context().span_id
+            )
+        return True
+
+    def __enter__(self) -> dict[str, int]:
+        self._logger.addFilter(self)
+        return self.by_app_event
+
+    def __exit__(self, *exc: object) -> None:
+        self._logger.removeFilter(self)
 
 
 class TestTheEnvelopeItBuilds:
@@ -988,36 +1038,87 @@ class TestTraceparentPropagation:
     Two properties, and the second is the one that is easy to get wrong:
 
     * inside an active span, a W3C-formatted `traceparent` is present;
-    * with NO active span, the key is absent ENTIRELY — never `""`. An empty
-      string is a present-but-malformed context to the consumer, which is worse
-      than an absent one. `propagate.inject` happens to write nothing into the
-      carrier for an invalid span context, so the implementation gets this for
-      free — which is exactly why it is asserted rather than assumed: a later
-      refactor to `carrier.get("traceparent", "")` would still pass every other
-      test in this module.
+    * with NO tracer provider configured at all, the key is absent ENTIRELY —
+      never `""`. An empty string is a present-but-malformed context to the
+      consumer, which is worse than an absent one. `propagate.inject` happens to
+      write nothing into the carrier for an invalid span context, so the
+      implementation gets this for free — which is exactly why it is asserted
+      rather than assumed: a later refactor to `carrier.get("traceparent", "")`
+      would still pass every other test in this module.
+
+    ## Whose span id it carries, and why that is the interesting question
+
+    The publisher now opens its OWN `sqs.publish tracking_status_changed`
+    PRODUCER span around the send (`PUBLISH_SPAN_NAME`), so there are two
+    plausible spans for the `traceparent` to name and only one of them is
+    correct. It must NOT be the enclosing workflow span: the consumer parents
+    its work to whatever id arrives, so naming the workflow would hang the
+    pipeline's spans BESIDE the publish instead of under it — a trace that still
+    renders, still looks complete, and quietly misplaces every downstream hop.
+    Orders shipped that bug (commit 81c52a7) by building the message attributes
+    one line before starting the span.
+
+    ## In production a THIRD span writes this key, and that is fine
+
+    These tests hand the publisher a fake client, so the value on the wire is the
+    one `_build_message_attributes` wrote: the publish span's. With the real
+    boto3 client, `opentelemetry-instrumentation-boto3sqs` wraps `send_message`,
+    opens its own `<queue> send` PRODUCER span, and calls `propagate.inject` on
+    the very dict we passed — UNCONDITIONALLY, overwriting our key (see
+    `_wrap_send_message` in that package). So the id that actually reaches SQS is
+    the auto-instrumentation's.
+
+    That does not break anything, and it is worth being precise about why: that
+    `send` span is a DIRECT CHILD of the publish span (verified against the real
+    instrumentation, not assumed), so the consumer still lands underneath
+    `sqs.publish tracking_status_changed` — one level deeper than these tests
+    show. What would break is the workflow span winning, which is what the
+    assertion below rules out and which no arrangement of the two producer spans
+    can reintroduce.
+
+    Note this is the OPPOSITE of Orders' situation, whose .NET AWS
+    instrumentation skips injection when the key is already present, so its
+    explicit value survives to the wire. Same intent, different layering.
     """
 
     @pytest.fixture
-    def tracer(self, monkeypatch: pytest.MonkeyPatch) -> trace.Tracer:
+    def tracer(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> Iterator[tuple[trace.Tracer, InMemorySpanExporter]]:
         """A private tracer provider, installed for the duration of one test.
 
         `trace.set_tracer_provider` is a one-shot global (a second call is
         ignored with a warning), so this patches the API module's private
         provider slot instead — the same reason `test_workflow_tracing.py`
-        swaps the module's `_tracer`. Here the publisher does not hold a tracer
-        of its own: it reads whatever context is ACTIVE, so the span has to be
-        genuinely recording, which means a real SDK provider.
+        swaps the module's `_tracer`.
+
+        BOTH slots are patched, and both are needed. The global one gives the
+        `outer` workflow span a recording provider; the module's `_tracer` is
+        what the publisher itself uses, and patching the global alone would NOT
+        reach it — `get_tracer()` returns a `ProxyTracer` that resolves its real
+        tracer once and caches it forever, so whichever test publishes first in
+        a session binds it permanently (see `TestThePublishSpan.exporter`).
+
+        The exporter is shared by both, so a test can compare the id on the wire
+        against the publish span the SDK actually finished.
         """
+        memory = InMemorySpanExporter()
         provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(memory))
         monkeypatch.setattr(trace, "_TRACER_PROVIDER", provider)
-        return provider.get_tracer("test")
+        monkeypatch.setattr(
+            sqs_event_publisher, "_tracer", provider.get_tracer("tracking-messaging")
+        )
+        yield provider.get_tracer("test"), memory
+        memory.clear()
 
     def test_traceparent_is_injected_when_a_span_is_active(
-        self, tracer: trace.Tracer
+        self, tracer: tuple[trace.Tracer, InMemorySpanExporter]
     ) -> None:
+        outer, _ = tracer
         client = RecordingSqsClient()
 
-        with tracer.start_as_current_span("carrier_status_update"):
+        with outer.start_as_current_span("carrier_status_update"):
             publish(build(client))
 
         attributes = client.sends[0]["MessageAttributes"]
@@ -1025,34 +1126,60 @@ class TestTraceparentPropagation:
         assert attributes["traceparent"]["DataType"] == "String"
         assert TRACEPARENT_PATTERN.match(attributes["traceparent"]["StringValue"])
 
-    def test_the_injected_traceparent_carries_the_active_span_context(
-        self, tracer: trace.Tracer
+    def test_the_injected_traceparent_names_the_publish_span(
+        self, tracer: tuple[trace.Tracer, InMemorySpanExporter]
     ) -> None:
-        """The ids in it are THIS span's, not some other well-formed pair.
+        """What this publisher injects is the PUBLISH span's id, not the workflow's.
 
-        A `traceparent` matching the regex but carrying an unrelated context
-        would join the pipeline's spans to the wrong trace — indistinguishable
-        from correct instrumentation in every assertion that only checks shape.
+        This is the assertion that fails if `_build_message_attributes()` is ever
+        evaluated outside the publish span's `with` block — the exact regression
+        Orders fixed. Both spans produce a `traceparent` matching the regex and
+        sharing a trace id, so nothing but the span id can tell them apart.
+
+        Scoped to what THIS code writes: with the real boto3 client the
+        auto-instrumentation overwrites the key with its own child span's id
+        (see the class docstring). The load-bearing half — that the workflow span
+        does not win — holds either way, and is asserted explicitly below.
         """
+        outer, memory = tracer
         client = RecordingSqsClient()
 
-        with tracer.start_as_current_span("carrier_status_update") as span:
+        with outer.start_as_current_span("carrier_status_update") as workflow:
             publish(build(client))
-            span_context = span.get_span_context()
+            workflow_context = workflow.get_span_context()
 
         traceparent = client.sends[0]["MessageAttributes"]["traceparent"]["StringValue"]
         _, trace_id, span_id, _ = traceparent.split("-")
-        assert trace_id == format(span_context.trace_id, "032x")
-        assert span_id == format(span_context.span_id, "016x")
 
-    def test_the_key_is_omitted_entirely_when_no_span_is_active(
-        self, tracer: trace.Tracer
+        publish_span = next(
+            span
+            for span in memory.get_finished_spans()
+            if span.name == PUBLISH_SPAN_NAME
+        )
+
+        # Same trace as the workflow it happened inside...
+        assert trace_id == format(workflow_context.trace_id, "032x")
+        # ...but the PUBLISH span's own id, and demonstrably not the workflow's.
+        assert span_id == format(publish_span.context.span_id, "016x")
+        assert span_id != format(workflow_context.span_id, "016x")
+
+    def test_the_key_is_omitted_entirely_when_tracing_is_unconfigured(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Omitted, never empty — see the class docstring.
 
-        The provider is installed (so this is not passing merely because tracing
-        is unconfigured); what is missing is an active span.
+        The publisher's tracer is explicitly a `NoOpTracer` here, which is what
+        it resolves to in a process where tracing was never wired up. Its span
+        has an invalid context, so `propagate.inject` writes nothing at all —
+        and the publish must degrade to "no key" rather than to "blank key".
+
+        Set explicitly rather than left to the absence of a provider: the
+        module's tracer is a `ProxyTracer` that caches its real tracer on first
+        use, so by the time this test runs it may already be bound to another
+        test's provider. Relying on that would make this assertion pass or fail
+        on test ORDER.
         """
+        monkeypatch.setattr(sqs_event_publisher, "_tracer", NoOpTracer())
         client = RecordingSqsClient()
         publish(build(client))
 
@@ -1061,7 +1188,7 @@ class TestTraceparentPropagation:
         assert set(attributes) == {"type", "source"}
 
     def test_the_traceparent_never_reaches_the_envelope(
-        self, tracer: trace.Tracer
+        self, tracer: tuple[trace.Tracer, InMemorySpanExporter]
     ) -> None:
         """The body is the DOMAIN contract; trace context is transport.
 
@@ -1072,12 +1199,311 @@ class TestTraceparentPropagation:
         become `PermanentError`s that consume the record without sending the
         email.
         """
+        outer, _ = tracer
         client = RecordingSqsClient()
 
-        with tracer.start_as_current_span("carrier_status_update"):
+        with outer.start_as_current_span("carrier_status_update"):
             publish(build(client))
 
         assert "traceparent" not in sent_body(client)
+
+
+class TestThePublishSpan:
+    """The PRODUCER span around the send: `sqs.publish tracking_status_changed`.
+
+    ## Why a span of our own when boto3sqs already makes one
+
+    The auto-instrumentation names its span after the QUEUE
+    (`3mrai-local-events-events send`), which reads like a distinction and is
+    not one: all three services publish every event type onto that one shared
+    queue, so the name identifies the transport and nothing else. A reader
+    looking at a cascade cannot tell a tracking transition from an order
+    confirmation. This span is named after WHAT is published, matching Orders'
+    `sqs.publish order_created`, so one Jaeger query reads the hop across every
+    producer.
+
+    The auto-instrumentation span is NOT removed — it becomes this one's child
+    and keeps its own timing, which is what still measures the HTTP call to SQS
+    as distinct from the serialization around it.
+
+    ## The three properties asserted here
+
+    * **PRODUCER kind, and this name.** Both are the query surface; an INTERNAL
+      span would be indistinguishable from a business flow.
+    * **The status follows the send.** OK on success, ERROR on failure — the
+      only place a failed publish is visible in a waterfall, since the policy
+      swallows the exception and the caller sees a clean return.
+    * **Both log lines land INSIDE it.** OpenObserve's "View logs" filters by
+      trace_id AND span_id with no fallback to the trace, so a line written a
+      microsecond after the span closed is invisible from the span that caused
+      it. That is why the span is opened OUTSIDE the try rather than inside it.
+    """
+
+    @pytest.fixture
+    def exporter(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> Iterator[InMemorySpanExporter]:
+        """A recording provider, swapped into the module under test.
+
+        The module's `_tracer` is replaced rather than the global provider, and
+        that is not interchangeable here. `get_tracer()` before any provider is
+        set returns a `ProxyTracer`, which resolves the real tracer ONCE and
+        CACHES it in `_real_tracer` forever — so the first test in the session to
+        publish binds the publisher's tracer to whatever provider was global at
+        that moment, and every later patch of `trace._TRACER_PROVIDER` is
+        ignored. Patching the module attribute is what `test_workflow_tracing.py`
+        does, for the same reason, and it leaves the global untouched so this
+        file runs in any order.
+        """
+        memory = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(memory))
+        monkeypatch.setattr(
+            sqs_event_publisher, "_tracer", provider.get_tracer("tracking-messaging")
+        )
+        # Kept so a test needing an ENCLOSING span can build one on the same
+        # provider, and therefore into the same exporter — see
+        # `test_it_parents_itself_to_the_enclosing_workflow_span`.
+        self._provider = provider
+        yield memory
+        memory.clear()
+
+    @staticmethod
+    def _publish_span(memory: InMemorySpanExporter):
+        spans = [s for s in memory.get_finished_spans() if s.name == PUBLISH_SPAN_NAME]
+        assert len(spans) == 1, f"expected exactly one publish span, got {len(spans)}"
+        return spans[0]
+
+    def test_the_send_runs_inside_a_producer_span_with_that_name(
+        self, exporter: InMemorySpanExporter
+    ) -> None:
+        publish(build(RecordingSqsClient()))
+
+        span = self._publish_span(exporter)
+        assert span.name == "sqs.publish tracking_status_changed"
+        assert span.kind is SpanKind.PRODUCER
+
+    def test_it_parents_itself_to_the_enclosing_workflow_span(
+        self, exporter: InMemorySpanExporter
+    ) -> None:
+        """A sibling of the workflow rather than a child would detach the whole
+        queue hop from the flow that caused it.
+
+        The workflow tracer comes off the SAME provider the exporter is wired
+        into, deliberately: `trace.get_tracer(...)` would hand back a no-op here
+        (this fixture patches only the module's tracer, not the global), the
+        outer span would not record, and the publish span would then legitimately
+        have no parent — the test would fail for a reason that says nothing about
+        the publisher.
+        """
+        outer = self._provider.get_tracer("test")
+
+        with outer.start_as_current_span("carrier_status_update") as workflow:
+            publish(build(RecordingSqsClient()))
+            workflow_context = workflow.get_span_context()
+
+        span = self._publish_span(exporter)
+        assert span.parent is not None
+        assert span.parent.span_id == workflow_context.span_id
+        assert span.context.trace_id == workflow_context.trace_id
+
+    def test_it_carries_the_event_it_published(
+        self, exporter: InMemorySpanExporter
+    ) -> None:
+        """The attributes name the message, so the span is legible without its
+        logs — `event_id` is the pipeline's idempotency key, which is what joins
+        this span to the document the consumer wrote (or failed to)."""
+        publish(build(RecordingSqsClient()))
+
+        attributes = dict(self._publish_span(exporter).attributes or {})
+        assert attributes["event_type"] == EVENT_TYPE
+        assert attributes["event_id"] == derive_event_id(ORDER_ID, "PROCESSING")
+        assert attributes["order_id"] == ORDER_ID
+        assert attributes["app_event"] == "tracking_status_changed_published"
+
+    def test_a_successful_send_leaves_the_span_ok(
+        self, exporter: InMemorySpanExporter
+    ) -> None:
+        publish(build(RecordingSqsClient()))
+
+        assert self._publish_span(exporter).status.status_code is StatusCode.OK
+
+    def test_a_failed_send_leaves_the_span_error(
+        self, exporter: InMemorySpanExporter
+    ) -> None:
+        """The publisher swallows the exception (see the class's failure policy),
+        so the span's status is the ONLY signal a waterfall carries. Rendering a
+        failed publish as a healthy hop is the thing this prevents."""
+        publish(build(FailingSqsClient(RuntimeError("queue unreachable"))))
+
+        span = self._publish_span(exporter)
+        assert span.status.status_code is StatusCode.ERROR
+        assert "queue unreachable" in (span.status.description or "")
+
+    def test_a_failed_send_records_the_exception_on_the_span(
+        self, exporter: InMemorySpanExporter
+    ) -> None:
+        """Recorded exactly ONCE. `record_exception`/`set_status_on_exception`
+        are both disabled on the span, for the reason `workflow_tracing` spells
+        out: the SDK's own `__exit__` runs after the except arm, so leaving the
+        defaults on double-records the event and overwrites the chosen status
+        description."""
+        publish(build(FailingSqsClient(RuntimeError("queue unreachable"))))
+
+        events = [
+            e
+            for e in self._publish_span(exporter).events
+            if e.name == "exception"
+        ]
+        assert len(events) == 1
+
+    def test_the_success_line_is_written_inside_the_span(
+        self, exporter: InMemorySpanExporter, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """MEASURED, not assumed: the span active AT LOG TIME is captured by a
+        filter on the publisher's own logger and compared against the span the
+        exporter received.
+
+        Asserting merely that the line exists would pass with it written after
+        the `with` block closed — which is precisely the arrangement that makes
+        "View logs" return nothing, and which nothing else in this suite can see.
+        """
+        with SpanRecordingFilter() as observed, caplog.at_level(logging.INFO):
+            publish(build(RecordingSqsClient()))
+
+        span = self._publish_span(exporter)
+        assert observed["tracking_status_changed_published"] == span.context.span_id
+
+    def test_the_failure_line_is_written_inside_the_span(
+        self, exporter: InMemorySpanExporter, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The one that matters most, and the one Orders got wrong: with the span
+        started INSIDE the try, an exception ends it on the way out and the
+        failure line lands on the enclosing workflow span instead — invisible
+        from the publish span an operator opens after seeing the send go red."""
+        with SpanRecordingFilter() as observed, caplog.at_level(logging.ERROR):
+            publish(build(FailingSqsClient()))
+
+        span = self._publish_span(exporter)
+        assert (
+            observed["tracking_status_changed_publish_failed"]
+            == span.context.span_id
+        )
+
+    def test_a_resolution_failure_publishes_no_span_at_all(
+        self, exporter: InMemorySpanExporter
+    ) -> None:
+        """The span describes a SEND. Bailing out before one (Users unreachable,
+        or no address on file) must not leave a publish span in the trace saying
+        a message was emitted when none was — the `*_publish_failed` log line
+        with its own `reason` is what reports those."""
+        publish(build(RecordingSqsClient(), unknown_user=True))
+
+        assert [
+            s for s in exporter.get_finished_spans() if s.name == PUBLISH_SPAN_NAME
+        ] == []
+
+
+class TestUnderRealBoto3Instrumentation:
+    """What the wire actually carries once `boto3sqs` is in the picture.
+
+    Every other test here uses a fake client, so the `traceparent` they see is
+    the one this publisher wrote. Production has a third span in the middle, and
+    the difference is not cosmetic: `opentelemetry-instrumentation-boto3sqs`
+    wraps `send_message`, opens its own `<queue> send` PRODUCER span, and calls
+    `propagate.inject` on the attributes dict it was handed — unconditionally,
+    so it OVERWRITES the key rather than deferring to it.
+
+    This is asserted rather than left as a comment because the whole point of the
+    manual span is where the consumer ends up hanging, and that answer is decided
+    by the interaction of the two layers, not by either alone. If a future
+    version of the instrumentation stopped opening a child span (or started
+    parenting it elsewhere), every fake-client test in this file would still
+    pass while the production trace quietly changed shape.
+
+    Note the conclusion is the opposite of Orders', whose .NET instrumentation
+    skips injection when the key exists, so its explicit value survives.
+    """
+
+    def test_the_send_span_is_a_child_and_its_id_is_what_ships(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        boto3 = pytest.importorskip("boto3")
+        module = pytest.importorskip("opentelemetry.instrumentation.boto3sqs")
+
+        memory = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(memory))
+        monkeypatch.setattr(trace, "_TRACER_PROVIDER", provider)
+        monkeypatch.setattr(
+            sqs_event_publisher, "_tracer", provider.get_tracer("tracking-messaging")
+        )
+
+        instrumentor = module.Boto3SQSInstrumentor()
+        instrumentor.instrument(tracer_provider=provider)
+        try:
+            client = boto3.client(
+                "sqs",
+                region_name="us-east-1",
+                aws_access_key_id="testing",
+                aws_secret_access_key="testing",
+            )
+
+            sent: dict[str, Any] = {}
+
+            def fake_api_call(_self: Any, _operation: str, kwargs: Any) -> Any:
+                """Stop at the HTTP boundary — the instrumentation still ran."""
+                sent.update(kwargs)
+                return {"MessageId": "mid", "ResponseMetadata": {"RequestId": "rid"}}
+
+            monkeypatch.setattr(
+                "botocore.client.BaseClient._make_api_call", fake_api_call
+            )
+
+            publisher = SqsEventPublisher(
+                client=client,
+                queue_url=QUEUE_URL,
+                resolve_user=lambda user_id: ResolvedUser(
+                    internal_id=user_id,
+                    cognito_sub="22222222-2222-4222-8222-222222222222",
+                    email=EMAIL,
+                    full_name=FULL_NAME,
+                ),
+            )
+
+            workflow_tracer = provider.get_tracer("tracking-workflow")
+            with workflow_tracer.start_as_current_span("carrier_status_update") as wf:
+                publisher.publish_tracking_status_changed(
+                    tracking=tracking(),
+                    previous_status="PLACED",
+                    actor=AuditActor.CARRIER_STATUS_UPDATE,
+                    cognito_sub=None,
+                )
+                workflow_context = wf.get_span_context()
+        finally:
+            # Global monkey-patching of the boto3 SQS class: leaving it on would
+            # follow every later test in the session.
+            instrumentor.uninstrument()
+
+        spans = {span.name: span for span in memory.get_finished_spans()}
+        publish_span = spans[PUBLISH_SPAN_NAME]
+        send_span = next(
+            span for name, span in spans.items() if name.endswith(" send")
+        )
+
+        # The chain: workflow -> our publish -> the SDK's send.
+        assert publish_span.parent is not None
+        assert publish_span.parent.span_id == workflow_context.span_id
+        assert send_span.parent is not None
+        assert send_span.parent.span_id == publish_span.context.span_id
+
+        # And the id that ships is the SDK span's — inside the publish subtree,
+        # and NEVER the workflow's, which is the property that matters.
+        _, _, span_id, _ = sent["MessageAttributes"]["traceparent"][
+            "StringValue"
+        ].split("-")
+        assert span_id == format(send_span.context.span_id, "016x")
+        assert span_id != format(workflow_context.span_id, "016x")
 
 
 class TestDeriveEventId:
@@ -1490,16 +1916,31 @@ class TestNoPlaintextEmailInLogs:
         # ...and the message it chose is the flow event, not the cause's text.
         assert record.getMessage() == "tracking_status_changed_publish_failed"
 
-    def test_the_successful_path_logs_nothing_at_all(
+    def test_the_successful_path_leaks_nothing(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """A success line carrying the payload would leak the address on EVERY
+        """The success line exists, and it is the strictest PII case here.
+
+        This path used to log NOTHING, and the reason was exactly this class's:
+        a success line carrying the payload would leak the address on EVERY
         transition rather than only on failures — a far bigger exposure than the
-        error paths this class mostly guards."""
+        error paths. That reasoning rules out logging the ADDRESS, not logging
+        at all, and silence has its own cost: OpenObserve's "View logs" on a
+        span filters by trace_id AND span_id with no fallback, so a publish span
+        nothing logs from can only ever answer empty.
+
+        So the line stays, and the constraint moves onto its fields: the
+        publisher's own contribution must not contain the address in any form —
+        not even `email_hash`, which the failure line carries only because a
+        missing recipient is the thing being diagnosed there.
+        """
         with caplog.at_level(logging.DEBUG):
             publish(build(RecordingSqsClient(), email=self.ADDRESS))
 
-        assert self._rendered(caplog) == ""
+        rendered = self._rendered(caplog)
+        assert "tracking_status_changed_published" in rendered
+        assert self.ADDRESS not in rendered
+        assert hash_email(self.ADDRESS) not in rendered
 
 
 class TestModuleConstants:

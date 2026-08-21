@@ -74,7 +74,8 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
 import boto3
-from opentelemetry import propagate
+from opentelemetry import propagate, trace
+from opentelemetry.trace import SpanKind, Status, StatusCode
 
 from src.shared.audit.audit_actor import AuditActor
 from src.shared.config.settings import get_settings
@@ -102,6 +103,28 @@ EVENT_ID_PREFIX = "evt_"
 #: same width the log convention's `email_hash` uses, and far beyond
 #: collision-relevant for a key that only has to be unique per (order, status).
 EVENT_ID_HASH_LENGTH = 16
+
+#: The PUBLISH span's name, and the reason the send is wrapped at all.
+#:
+#: Named after WHAT is published, not after where it goes. The boto3sqs
+#: auto-instrumentation already contributes a span called
+#: `<queue-name> send` — which reads as a distinction and is not one, because
+#: all three services publish every event type onto the SAME shared queue. That
+#: name therefore identifies the transport and nothing else; a reader looking at
+#: a cascade cannot tell a tracking transition from an order confirmation.
+#:
+#: `sqs.publish tracking_status_changed` is the same shape Orders uses
+#: (`sqs.publish order_created`, `SqsEventPublisher.PublishActivityName` in
+#: `services/orders/src/Orders.Infrastructure/Messaging/SqsEventPublisher.cs`),
+#: so one Jaeger query reads the queue hop across all producers.
+PUBLISH_SPAN_NAME = "sqs.publish tracking_status_changed"
+
+#: Separate from `workflow_tracing`'s tracer so this span is identifiable as the
+#: queue hop rather than as another business flow. Unlike .NET, the Python SDK
+#: needs no registration for a new tracer name — `get_tracer` on the global
+#: provider is enough, and outside a configured provider it yields no-op spans
+#: that cost nothing.
+_tracer = trace.get_tracer("tracking-messaging")
 
 #: Resolves an internal `usr_` id to the Users record behind it, or None when
 #: unknown.
@@ -230,14 +253,43 @@ def _build_message_attributes() -> dict[str, dict[str, str]]:
     change at all. `request_id` in the body is a different thing — a business
     correlation id the pipeline logs and stores, not a span context.
 
+    ## It must be called INSIDE the publish span
+
+    `propagate.inject` reads whatever span is ACTIVE at the moment it runs, so
+    WHERE this function is called decides which span the consumer parents itself
+    to. The single call site is inside `PUBLISH_SPAN_NAME`'s `with` block, and
+    that placement is the contract: evaluated one line earlier it would write the
+    enclosing WORKFLOW span's id, and the pipeline's spans would hang beside the
+    publish rather than under it — a trace that still looks complete. Orders hit
+    exactly this and fixed it the same way (see its `BuildMessageAttributes`).
+
+    ## In production boto3sqs overwrites this key, one level deeper
+
+    `opentelemetry-instrumentation-boto3sqs` wraps `send_message`, opens its own
+    `<queue> send` PRODUCER span and calls `propagate.inject` on the very dict
+    handed to it — unconditionally, so ITS id is what reaches SQS, not the one
+    written here. (Verified against the real instrumentation. This is the
+    OPPOSITE of .NET's AWS instrumentation, which Orders relies on skipping
+    injection when the key already exists.)
+
+    That is harmless, and the reason is structural rather than lucky: that `send`
+    span is a direct CHILD of the publish span, so the consumer still lands
+    inside the publish subtree — one level below it. What this call site's
+    placement actually rules out is the WORKFLOW span winning, which no
+    arrangement of the two producer spans can reintroduce. So the injection here
+    is the correct floor whether or not the instrumentation is loaded, which is
+    what makes it worth doing rather than delegating.
+
     ## Omitted, never empty
 
     `propagate.inject` writes NOTHING into the carrier when there is no valid
-    active span (a unit test, or any code path outside a workflow span), so this
-    loop adds zero keys rather than a blank `traceparent`. That matters: the
-    consumer would treat `""` as a malformed-but-present context, which is
-    strictly worse than an absent one it can link nothing to. Same
-    "omitted, never null" rule the envelope's optional fields follow.
+    active span — which, now that the send is wrapped, means only an
+    unconfigured tracer provider (a unit test with no SDK installed, where the
+    publish span itself is a non-recording no-op). This loop then adds zero keys
+    rather than a blank `traceparent`. That matters: the consumer would treat
+    `""` as a malformed-but-present context, which is strictly worse than an
+    absent one it can link nothing to. Same "omitted, never null" rule the
+    envelope's optional fields follow.
 
     The propagator is the SDK's globally-configured one, so a `tracestate` (if
     one ever exists) is carried by the same loop without naming it here.
@@ -287,6 +339,22 @@ class SqsEventPublisher:
     The trade accepted here is at-most-once delivery of the notification. That
     is the correct direction for this event: a missed "out for delivery" email
     is a degraded experience, while a duplicate one is a bug report.
+
+    ## The publish span
+
+    The send runs inside a PRODUCER span named `PUBLISH_SPAN_NAME` — the queue
+    hop, named after the event rather than the queue (see that constant). It
+    does three things at once, and each of them is load-bearing:
+
+    * it PARENTS the trace context that crosses SQS, so the pipeline's work
+      hangs under the publish rather than beside it;
+    * it is the scope both outcome log lines are written in, so a span-scoped
+      "View logs" on it answers;
+    * it goes ERROR when the send fails, which is the only place the failure is
+      visible in a waterfall — the caller sees nothing, by the policy above.
+
+    The boto3sqs auto-instrumentation span survives underneath it as a child,
+    with its own timing.
     """
 
     def __init__(
@@ -449,26 +517,97 @@ class SqsEventPublisher:
             # Exactly the trap `author.cognito_sub` above documents.
             envelope["request_id"] = request_id
 
-        try:
-            self._client.send_message(
-                QueueUrl=self._queue_url,
-                MessageBody=json.dumps(envelope),
-                MessageAttributes=_build_message_attributes(),
-            )
-        except Exception:  # noqa: BLE001 - see the class docstring's policy
-            logger.exception(
-                "tracking_status_changed_publish_failed",
-                extra={
-                    "app_event": "tracking_status_changed_publish_failed",
-                    "reason": "sqs_send_failed",
-                    "order_id": order_id,
-                    "user_id": user_id,
-                    "status": status,
-                    # The hash, NEVER the address — this line goes to
-                    # OpenObserve and is retained.
-                    "email_hash": hash_email(email),
-                },
-            )
+        # The PUBLISH span. `start_as_current_span` directly rather than
+        # `workflow_span`: that helper is deliberately INTERNAL (it names a
+        # business flow), and it also sets an OK status and RE-RAISES, both of
+        # which contradict this publisher's log-and-swallow policy. Teaching it a
+        # `kind` would make one helper answer to two different contracts.
+        #
+        # Opened OUTSIDE the try, with the try nested in its scope, so BOTH the
+        # success and the failure line below are written while this span is
+        # current and therefore carry ITS span id. Orders learned this the hard
+        # way: with the span started inside the try, the exception ended it on
+        # the way out and the failure line landed on the enclosing workflow span,
+        # invisible to a span-scoped lookup on the publish — which is exactly
+        # where an operator looks after seeing the send go red.
+        #
+        # The boto3sqs auto-instrumentation span is NOT replaced by this one; it
+        # becomes this span's CHILD and keeps its own timing and status.
+        with _tracer.start_as_current_span(
+            PUBLISH_SPAN_NAME,
+            kind=SpanKind.PRODUCER,
+            attributes={
+                "app_event": "tracking_status_changed_published",
+                "messaging.system": "aws_sqs",
+                "event_type": EVENT_TYPE,
+                "event_id": envelope["event_id"],
+                "order_id": order_id,
+            },
+            record_exception=False,
+            set_status_on_exception=False,
+        ) as span:
+            try:
+                self._client.send_message(
+                    QueueUrl=self._queue_url,
+                    MessageBody=json.dumps(envelope),
+                    # Built HERE, inside the span, never one line earlier: it is
+                    # `propagate.inject` that writes the `traceparent`, and it
+                    # reads whatever span is ACTIVE. Evaluated before this `with`
+                    # it would name the enclosing workflow span
+                    # (`carrier_status_update`, `test_mode_progression`) and the
+                    # consumer's spans would hang beside this publish instead of
+                    # under it. That is the precise bug fixed in Orders.
+                    MessageAttributes=_build_message_attributes(),
+                )
+            except Exception as exc:  # noqa: BLE001 - see the class docstring
+                # ERROR, not OK: a send that failed is the one hop a waterfall
+                # must not render as healthy.
+                span.record_exception(exc)
+                span.set_status(Status(StatusCode.ERROR, str(exc)))
+                logger.exception(
+                    "tracking_status_changed_publish_failed",
+                    extra={
+                        "app_event": "tracking_status_changed_publish_failed",
+                        "reason": "sqs_send_failed",
+                        "order_id": order_id,
+                        "user_id": user_id,
+                        "status": status,
+                        # The hash, NEVER the address — this line goes to
+                        # OpenObserve and is retained.
+                        "email_hash": hash_email(email),
+                    },
+                )
+            else:
+                span.set_status(Status(StatusCode.OK))
+                # The span's OWN line, so "View logs" on it in OpenObserve
+                # answers instead of coming back empty: that button filters by
+                # trace_id AND span_id with no fallback to the trace, so a span
+                # nothing logs from can only ever return nothing.
+                #
+                # It earns its place independently of that. It states that the
+                # event was emitted, WHICH event (`event_type` plus `event_id`,
+                # the pipeline's idempotency key) and for WHICH tracking and
+                # order — which is what makes a missing notification email
+                # diagnosable from THIS side of the queue, where the alternative
+                # is inferring it from the absence of a pipeline document.
+                #
+                # NEVER the email, the name or the address (PII): the ids
+                # identify the message completely on their own. `email_hash` is
+                # not repeated here either — the failure line carries it because
+                # a missing email is the thing being investigated there; on the
+                # success path the recipient is not in question.
+                logger.info(
+                    "TRACKING_STATUS_CHANGED published",
+                    extra={
+                        "app_event": "tracking_status_changed_published",
+                        "event_type": EVENT_TYPE,
+                        "event_id": envelope["event_id"],
+                        "order_id": order_id,
+                        "tracking_id": tracking.id,
+                        "user_id": user_id,
+                        "status": status,
+                    },
+                )
 
     @staticmethod
     def _build_payload(
