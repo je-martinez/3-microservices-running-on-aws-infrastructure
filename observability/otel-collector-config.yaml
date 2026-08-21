@@ -934,6 +934,24 @@ exporters:
     endpoint: http://openobserve:5080/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
+      # Without this header OpenObserve files every span under a stream literally
+      # named `default`, which says nothing about what is in it and sits next to
+      # the log streams that DO name themselves (logs, sql, redis, docdb,
+      # nginx). `app-traces` rather than `traces` because these are the
+      # application's spans specifically — it leaves room for infrastructure
+      # traces arriving by some other route without a name collision.
+      #
+      # Renaming does NOT move what is already stored: spans ingested before
+      # this change stay in `default` until they age out of retention. Nothing
+      # queries the traces stream by name — not a dashboard, not a test — so the
+      # split is cosmetic and self-clearing on the next `make clean`.
+      #
+      # Written with an UNDERSCORE because that is what OpenObserve stores:
+      # it normalises `app-traces` to `app_traces` on ingestion, so a hyphen
+      # here would leave the config and the queryable stream name disagreeing
+      # for no gain. Every other stream beside it is a single word, so this is
+      # the only name where the distinction could arise.
+      stream-name: app_traces
 
   # Metrics to OpenObserve, its own stream — same instance and auth as logs,
   # differing only in the stream-name header, exactly like the sql split above.
