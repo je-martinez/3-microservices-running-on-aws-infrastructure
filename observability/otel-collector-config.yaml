@@ -889,27 +889,24 @@ exporters:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: unclassified
 
-  # Traces go to the SAME OpenObserve instance, a different stream. One backend
-  # for both signals is what lets trace_id join a log line to its span without
-  # querying across two systems (see the tracing ADR).
-  # Traces go to Jaeger, NOT OpenObserve — see ADR-0019.
+  # Traces go to OpenObserve, the SAME instance the logs above go to — one
+  # backend for both signals, which is what lets trace_id join a log line to its
+  # span without querying across two systems.
   #
-  # WHY NOT OpenObserve: its trace ingest rejected every batch the collector
-  # sent with HTTP 400, while a hand-rolled OTLP-JSON POST to the same endpoint
-  # returned 206. So the route and the auth are right; the collector's
-  # serialization and this OpenObserve build's parser disagree, and `encoding:
-  # json` did not reconcile them. Rather than keep guessing at a third party's
-  # ingest, traces land in Jaeger, which speaks OTLP natively. This is exactly
-  # the backend re-evaluation ADR-0018 said would be needed if tracing ever
-  # became a hard requirement — it flagged OpenObserve's APM maturity as the
-  # known weak spot.
+  # JAEGER WAS REMOVED (2026-08-21). It existed because ADR-0019 found that this
+  # OpenObserve build rejected every trace batch the collector sent with HTTP
+  # 400. That no longer reproduces on v0.91.1: traces have been ingesting here
+  # correctly (48,764 spans measured), so the reason Jaeger was introduced is
+  # gone and a second trace backend is pure duplication.
   #
-  # Logs still go to OpenObserve (the exporter above, untouched). The two are
-  # joined by trace_id, which every log line now carries.
-  otlp/jaeger:
-    endpoint: jaeger:4317
-    tls:
-      insecure: true
+  # Note the failure that replaced it, because it is NOT the same one and the
+  # fix is elsewhere: OpenObserve's trace-detail view calls
+  # /traces/{id}/dag, which SELECTs `gen_ai_operation_name` unconditionally, and
+  # 400s when that column is missing from the stream schema. That is a QUERY
+  # problem, not an ingest problem — the spans arrive fine. It is fixed by
+  # `make observability-traces-schema` (scripts/seed_traces_schema.py), which
+  # observability-up runs. Verified not to be a version bug: v0.92.2 fails
+  # identically.
 
   # Traces to OpenObserve as well, so they sit next to the logs they correlate
   # with and one login answers both questions. Same instance, same auth, same
@@ -1120,12 +1117,12 @@ service:
       # itself: limiting after the batcher has already buffered the spans limits
       # nothing.
       processors: [memory_limiter, batch]
-      # Two destinations, on purpose. OpenObserve puts traces beside the logs
-      # they share a trace_id with; Jaeger keeps the waterfall. A failure in
-      # either exporter does not stop the other — which matters here, because
-      # this OpenObserve build is the one ADR-0019 recorded as rejecting the
-      # collector's trace batches.
-      exporters: [otlp/jaeger, otlp_http/openobserve_traces]
+      # ONE destination since 2026-08-21. Traces land beside the logs they share
+      # a trace_id with, so "show me the logs for this span" is one query in one
+      # system. Jaeger was the second destination until its reason for existing
+      # (ADR-0019's HTTP 400 on trace ingest) stopped reproducing — see the
+      # exporter's own comment above.
+      exporters: [otlp_http/openobserve_traces]
 
     # Custom business metrics: CloudWatch -> OpenObserve. Same receiver as the
     # logs pipeline, different signal — the receiver's `metrics` block above is
