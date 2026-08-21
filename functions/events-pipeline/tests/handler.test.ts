@@ -854,10 +854,15 @@ describe("handler — tracing", () => {
     await handler({ Records: [tracedRecord("msg-1", envelope(), traceparent)] });
 
     const [recordSpan] = spansNamed("process_record");
+    const [persistSpan] = spansNamed("phase persist");
     const [dbSpan] = spansNamed("documentdb insertOne");
     expect(dbSpan).toBeDefined();
-    expect(dbSpan.parentSpanContext?.spanId).toBe(recordSpan.spanContext().spanId);
+    // Through the phase span, which is the leaf's actual parent now — the trace
+    // id is what this test is really about, and it must survive the extra level.
+    expect(dbSpan.parentSpanContext?.spanId).toBe(persistSpan.spanContext().spanId);
+    expect(persistSpan.parentSpanContext?.spanId).toBe(recordSpan.spanContext().spanId);
     expect(dbSpan.spanContext().traceId).toBe(traceId);
+    expect(persistSpan.spanContext().traceId).toBe(traceId);
   });
 
   it("links — never parents — each record of a MULTI-record batch to its OWN origin trace", async () => {
@@ -963,25 +968,38 @@ describe("handler — tracing", () => {
     expect(flushTraces).toHaveBeenCalledOnce();
   });
 
-  it("nests the real DocumentDB span under the real process_record span", async () => {
+  it("nests the real DocumentDB span under the persist phase, under process_record", async () => {
     // The whole cascade in one assertion, against the REAL repository:
-    // events-queue process -> process_record -> documentdb insertOne. Asserting
-    // only that "a span reached the exporter" would pass just as happily with an
-    // orphaned span, which is what a broken ambient context actually produces.
+    // events-queue process -> process_record -> phase persist -> documentdb
+    // insertOne. Asserting only that "a span reached the exporter" would pass just
+    // as happily with an orphaned span, which is what a broken ambient context
+    // actually produces.
+    //
+    // The phase span sits BETWEEN the record and the write, which is the point of
+    // it: the waterfall groups a lifecycle stage into one bar in both viewers,
+    // where the span EVENTS that used to mark these boundaries were rendered by
+    // neither. That extra level is exactly what this test pins — drop the phase
+    // and the chain silently flattens back.
     useRealRepository.value = true;
 
     await handler({ Records: [sqsRecord("msg-1", envelope())] });
 
     const [batchSpan] = spansNamed("events-queue process");
     const [recordSpan] = spansNamed("process_record");
+    const [persistSpan] = spansNamed("phase persist");
     const [dbSpan] = spansNamed("documentdb insertOne");
 
+    expect(persistSpan).toBeDefined();
+    expect(persistSpan.kind).toBe(SpanKind.INTERNAL);
     expect(dbSpan).toBeDefined();
     expect(dbSpan.kind).toBe(SpanKind.CLIENT);
-    expect(dbSpan.parentSpanContext?.spanId).toBe(recordSpan.spanContext().spanId);
+
+    // The full chain, link by link.
+    expect(dbSpan.parentSpanContext?.spanId).toBe(persistSpan.spanContext().spanId);
+    expect(persistSpan.parentSpanContext?.spanId).toBe(recordSpan.spanContext().spanId);
     expect(recordSpan.parentSpanContext?.spanId).toBe(batchSpan.spanContext().spanId);
-    // Its parent is the RECORD, not the batch — the distinction the whole
-    // per-record span design exists for.
+    // The write hangs off the RECORD's subtree, not the batch — the distinction
+    // the whole per-record span design exists for.
     expect(dbSpan.parentSpanContext?.spanId).not.toBe(batchSpan.spanContext().spanId);
     expect(dbSpan.spanContext().traceId).toBe(batchSpan.spanContext().traceId);
   });

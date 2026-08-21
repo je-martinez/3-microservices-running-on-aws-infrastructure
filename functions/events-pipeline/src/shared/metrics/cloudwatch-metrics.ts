@@ -1,6 +1,8 @@
 import { CloudWatchClient, PutMetricDataCommand } from "@aws-sdk/client-cloudwatch";
+import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import { env } from "#shared/config/env";
 import { appLogger } from "#shared/logging/app-logger";
+import { pipelineTracer } from "#shared/observability/tracing";
 
 /** The one namespace every 3MRAI metric is published under. */
 export const METRICS_NAMESPACE = "3MRAI";
@@ -39,35 +41,73 @@ export async function publishMetric(
   value: number,
   dimensions: Record<string, string>,
 ): Promise<void> {
+  // Opened BEFORE the enabled check returns, so a disabled exporter produces no
+  // span at all rather than a zero-duration one implying a call was made.
   if (!env.METRICS_ENABLED) return;
 
-  try {
-    await getClient().send(
-      new PutMetricDataCommand({
-        Namespace: METRICS_NAMESPACE,
-        MetricData: [
-          {
-            MetricName: name,
-            Value: value,
-            Unit: "Count",
-            Dimensions: Object.entries(dimensions).map(([Name, Value]) => ({ Name, Value })),
-          },
-        ],
-      }),
-    );
-  } catch (err) {
-    // Swallowed on purpose — see the function docstring. Only the message
-    // reaches the log: metric names and dimensions here are low-cardinality
-    // labels from our own code, never PII.
-    appLogger.warn(
-      {
-        app_event: "metric_publish_failed",
-        reason: err instanceof Error ? err.message : String(err),
-        metric_name: name,
+  // Manual CLIENT span, same bundling reason as the DocumentDB and SES ones: the
+  // AWS SDK is inlined by esbuild, so nothing auto-instruments this.
+  //
+  // It was the LAST hole in `process_record`. With the DocumentDB transitions and
+  // the template render instrumented, a ~44ms gap still sat between `ses
+  // SendEmail` and `ws publish` — this call, twice: publishEmailMetric emits a
+  // per-template series AND an ALL rollup, so one "publish a metric" is two round
+  // trips. Two spans is the honest rendering of that, and it is why the gap was
+  // wider than a single PutMetricData would explain.
+  //
+  // NOT withClientSpan: that helper rethrows, and this function's entire contract
+  // is that it never does. A metric failure must not fail the record, so the span
+  // records the failure and the function still returns normally — the span status
+  // reports what happened to the CALL, not to the caller.
+  await pipelineTracer.startActiveSpan(
+    "cloudwatch PutMetricData",
+    {
+      kind: SpanKind.CLIENT,
+      attributes: {
+        "rpc.system": "aws-api",
+        "rpc.service": "CloudWatch",
+        "rpc.method": "PutMetricData",
+        "metric.name": name,
       },
-      "failed to publish metric",
-    );
-  }
+    },
+    async (span) => {
+      try {
+        await getClient().send(
+          new PutMetricDataCommand({
+            Namespace: METRICS_NAMESPACE,
+            MetricData: [
+              {
+                MetricName: name,
+                Value: value,
+                Unit: "Count",
+                Dimensions: Object.entries(dimensions).map(([Name, Value]) => ({ Name, Value })),
+              },
+            ],
+          }),
+        );
+        span.setStatus({ code: SpanStatusCode.OK });
+      } catch (err) {
+        // Swallowed on purpose — see the function docstring. Only the message
+        // reaches the log: metric names and dimensions here are low-cardinality
+        // labels from our own code, never PII. The same string is safe on the
+        // span for the same reason.
+        span.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: err instanceof Error ? err.message : String(err),
+        });
+        appLogger.warn(
+          {
+            app_event: "metric_publish_failed",
+            reason: err instanceof Error ? err.message : String(err),
+            metric_name: name,
+          },
+          "failed to publish metric",
+        );
+      } finally {
+        span.end();
+      }
+    },
+  );
 }
 
 /**

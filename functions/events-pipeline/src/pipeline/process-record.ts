@@ -1,3 +1,5 @@
+import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
+import { pipelineTracer } from "#shared/observability/tracing";
 import type { Envelope } from "#domain/envelope";
 import type { EventDocument, EventStatus } from "#domain/event";
 import { redactPayload } from "#domain/redact-payload";
@@ -71,6 +73,67 @@ function logStatus(status: EventStatus, reason?: string): void {
   );
 }
 
+// A milestone on the ACTIVE span, as a span event.
+//
+// These are SECONDARY detail, not the way the phases are made visible — that job
+// belongs to `withPhaseSpan` below. The distinction was learned the hard way:
+// span events are the semantically correct OTel primitive for an instant, and
+// this file originally relied on them alone for exactly that reason. In practice
+// NEITHER viewer used here renders them in the waterfall — Jaeger hides them
+// behind expanding the span and opening a tab, and OpenObserve's trace view does
+// not surface them at all. A marker that takes two clicks to find marks nothing.
+//
+// They are kept because they cost nothing and they ARE queryable where it counts:
+// OpenObserve stores them in a first-class `events` column, so
+// `WHERE events LIKE '%handler_failed%'` finds every record that took a given
+// path — something the waterfall cannot answer. Verified against the running
+// stack.
+//
+// No PII, by the same rule the log lines follow: only the event's own lifecycle
+// vocabulary, never the payload. `reason` is admitted on failure for the same
+// reason logStatus admits it, and carries the same already-sanitized string.
+function markPhase(name: string, reason?: string): void {
+  trace.getActiveSpan()?.addEvent(name, reason ? { reason } : undefined);
+}
+
+// One lifecycle PHASE of a record, as a real span with a real duration.
+//
+// This is what makes the phases visible. A phase span groups the work between two
+// milestones into a bar the waterfall actually draws, in both viewers, without
+// anyone expanding anything: `persist` covers getting the record into DocumentDB,
+// `dispatch` covers handing it to its CQRS handler and everything that handler
+// does (the template render and the SES call live inside it).
+//
+// INTERNAL, and deliberately thin: a phase owns no I/O of its own. Its children
+// are the spans that already existed, so the added nesting level buys grouping and
+// costs no duplicated measurement — a phase's duration is its children's span plus
+// the code between them, which is exactly the number "where did the time go?"
+// needs.
+//
+// Errors are recorded and RETHROWN: a phase that swallowed would break the state
+// machine below, which decides FAILED vs retry from the exception. The message is
+// the caller's already-sanitized `describeError` output, never `err.message` —
+// same PII rule as the DocumentDB spans, since a Mongo error embeds the rejected
+// document.
+async function withPhaseSpan<T>(
+  name: string,
+  fn: () => Promise<T>,
+  describeError: (err: unknown) => string,
+): Promise<T> {
+  return pipelineTracer.startActiveSpan(name, { kind: SpanKind.INTERNAL }, async (span) => {
+    try {
+      const result = await fn();
+      span.setStatus({ code: SpanStatusCode.OK });
+      return result;
+    } catch (err) {
+      span.setStatus({ code: SpanStatusCode.ERROR, message: describeError(err) });
+      throw err;
+    } finally {
+      span.end();
+    }
+  });
+}
+
 // One record's full lifecycle: STARTED -> IN_PROGRESS -> COMPLETED | FAILED.
 // The document is persisted BEFORE dispatch (insertStarted first) so an event
 // with an unknown type or an invalid payload is still recorded as FAILED rather
@@ -122,12 +185,37 @@ export async function processRecord(
     is_deleted: false,
   };
 
+  // The first milestone, before any I/O: it timestamps the moment this record
+  // entered the state machine, so the gap between it and the insert span below is
+  // readable as the cost of building the document (redaction included) rather
+  // than being folded into the insert's own duration.
+  markPhase("message_received");
+
   try {
-    await deps.repository.insertStarted(doc);
+    // Phase 1 of 2. Wraps the insert rather than just being it: the phase's
+    // duration also covers building and redacting the document above the call, so
+    // "getting this record persisted" is one bar instead of an insert span with
+    // unattributed time in front of it.
+    await withPhaseSpan(
+      "phase persist",
+      async () => {
+        await deps.repository.insertStarted(doc);
+      },
+      // Error CLASS only — a Mongo write error's message embeds the rejected
+      // document, i.e. the payload. Same rule the insert span itself applies.
+      (err) => (err instanceof Error ? err.name : "persist_failed"),
+    );
     logStatus("STARTED");
   } catch (err) {
     // Nothing was persisted, so there is no document to mark FAILED. Report the
     // failure upward and let SQS decide (transient → retried, then DLQ).
+    //
+    // Marked explicitly: this is the one exit where the record leaves NO trace in
+    // DocumentDB at all, so without a milestone the span would end with a failed
+    // insert child and nothing saying the lifecycle stopped there rather than
+    // continuing. The insert span already carries the sanitized error class; this
+    // event names the outcome, not the cause.
+    markPhase("persist_failed_record_dropped");
     return { ok: false, transient: isTransient(err) };
   }
 
@@ -139,6 +227,7 @@ export async function processRecord(
 
   if (!handler) {
     // Permanent by definition: retrying an event nobody handles can never help.
+    markPhase("no_handler_for_type", "Unknown event type");
     await deps.repository.transition(envelope.event_id, "FAILED", { error: "Unknown event type" });
     logStatus("FAILED", "Unknown event type");
     return { ok: false, transient: false };
@@ -147,14 +236,40 @@ export async function processRecord(
   await deps.repository.transition(envelope.event_id, "IN_PROGRESS");
   logStatus("IN_PROGRESS");
 
+  // The handoff to the CQRS handler. This is the boundary that matters most in
+  // the waterfall: everything after it and before `handler_returned` is the
+  // handler's own work (for ORDER_CREATED, the SES call that dominates the
+  // record's duration), and everything outside the pair is this state machine's
+  // overhead. Without the pair, a slow record cannot be attributed to either.
+  markPhase("handler_dispatched");
+
   try {
-    await handler(envelope);
+    // Phase 2 of 2, and the one that matters most in a waterfall: everything the
+    // CQRS handler does nests under this bar — the template render and the SES
+    // call for an email event, the WebSocket publish for a tracking one. Time
+    // inside it is the handler's; time outside it is this state machine's
+    // overhead. Without the phase those children hang directly off
+    // `process_record` and there is nothing separating "the pipeline was slow"
+    // from "the handler was slow".
+    await withPhaseSpan(
+      "phase dispatch",
+      async () => {
+        await handler(envelope);
+      },
+      // The handlers already reduce driver/Zod errors to PII-free strings before
+      // throwing (see #handlers/user-created), which is the same string persisted
+      // on the document and logged as `reason`.
+      errorMessage,
+    );
   } catch (err) {
     const reason = errorMessage(err);
+    markPhase("handler_failed", reason);
     await deps.repository.transition(envelope.event_id, "FAILED", { error: reason });
     logStatus("FAILED", reason);
     return { ok: false, transient: isTransient(err) };
   }
+
+  markPhase("handler_returned");
 
   await deps.repository.transition(envelope.event_id, "COMPLETED");
   logStatus("COMPLETED");

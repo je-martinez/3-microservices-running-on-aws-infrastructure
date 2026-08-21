@@ -165,3 +165,26 @@ Two constraints when writing code:
   (`src/shared/observability/client-span.ts`): `documentdb insertOne`, `ses SendEmail`,
   `ws publish`. It takes an explicit `describeError` because a Mongo error's message embeds the
   rejected document — the span obeys the same PII rule as the log line.
+- **Every step of a record's lifecycle carries a span, and the boundaries between them are span
+  events.** The rule when adding work to `processRecord` or a handler: if it takes time, give it a
+  span; if it is an instant, mark it with `markPhase` (`src/pipeline/process-record.ts`). A step
+  with neither becomes a hole — measured: before this, `process_record` reported 194ms against
+  ~1ms of visible children, because the three `transition()` writes, the template render and the
+  CloudWatch publishes were all uninstrumented. The current shape covers **99.5%** of the span's
+  duration:
+  - `documentdb insertOne` and `documentdb updateOne <STATUS>` — the status is IN THE NAME because
+    a waterfall renders names, not attributes; three bars all reading `updateOne` would each need
+    a click to tell apart.
+  - `email render <template>` — INTERNAL, not CLIENT: React rendering in-process, no socket.
+  - `cloudwatch PutMetricData` — appears **twice** per email metric (`publishEmailMetric` emits a
+    per-template series and an ALL rollup). It does NOT use `withClientSpan`, because that helper
+    rethrows and this call's contract is that a metric failure never fails the record; the span
+    records the error and the function still returns.
+  - Phase events on `process_record`: `message_received`, `handler_dispatched`, `handler_returned`,
+    and the failure marks (`persist_failed_record_dropped`, `no_handler_for_type`,
+    `handler_failed`).
+- **The render dominates the record** — 214–237ms against ~60–68ms for the SES call it feeds, and
+  it is not cold start (no downward trend across six renders). Two causes, separated by
+  measurement: `@react-email/render` costs ~60ms even warm on native hardware, and the function's
+  256 MB gives it a fraction of a vCPU (Lambda CPU scales with memory). Tracked separately; do not
+  "fix" it by deleting the span that revealed it.
