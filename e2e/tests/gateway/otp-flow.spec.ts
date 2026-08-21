@@ -97,6 +97,14 @@ test.beforeAll(async () => {
 });
 
 test("a password user can obtain tokens with an emailed OTP code", async () => {
+  // Must exceed EMAIL_TIMEOUT_MS, or Playwright's 30s default aborts the test
+  // WHILE requestCode is still polling Mailpit — replacing its diagnosis
+  // ("nothing arrived; check the Lambda, the queue url, the mailpit
+  // container") with a bare "Test timeout of 30000ms exceeded". Under a
+  // parallel run the mail genuinely takes longer than 30s to land, so without
+  // this the 45s wait can never actually run out.
+  test.setTimeout(EMAIL_TIMEOUT_MS + 30_000);
+
   const api = await gatewayClient(); // no token — these are public routes
   const user = makeUser();
 
@@ -133,6 +141,10 @@ test("a password user can obtain tokens with an emailed OTP code", async () => {
 // challenge issued at all), which is precisely why this design uses
 // CUSTOM_AUTH. This assertion is what proves the code is actually checked.
 test("a wrong OTP code is rejected", async () => {
+  // Same headroom as the happy path: this one waits on the real email too, so
+  // it needs a budget larger than its own wait (see above).
+  test.setTimeout(EMAIL_TIMEOUT_MS + 30_000);
+
   const api = await gatewayClient();
   const user = makeUser();
 
@@ -161,6 +173,11 @@ test("a wrong OTP code is rejected", async () => {
 });
 
 test("a passwordless user registers and signs in entirely without a password", async () => {
+  // Passwordless registration also sends a welcome email, so this address gets
+  // two messages; the wait is still a single EMAIL_TIMEOUT_MS one (it matches
+  // on OTP_SUBJECT), hence the same budget as the tests above.
+  test.setTimeout(EMAIL_TIMEOUT_MS + 30_000);
+
   const api = await gatewayClient();
   const { email, fullName } = makeUser();
 

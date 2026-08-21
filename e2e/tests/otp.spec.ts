@@ -59,6 +59,12 @@ test("POST /v1/users/otp/start returns an opaque session for an existing user", 
 });
 
 test("the emailed code exchanges for tokens at POST /v1/users/otp/verify", async () => {
+  // Must exceed EMAIL_TIMEOUT_MS, or Playwright's 30s default aborts the test
+  // WHILE waitForEmailTo is still polling — replacing its diagnosis with a bare
+  // "Test timeout of 30000ms exceeded". Under a parallel run the mail genuinely
+  // takes longer than 30s to land, so without this the 45s wait never runs out.
+  test.setTimeout(EMAIL_TIMEOUT_MS + 30_000);
+
   const api = await apiClient();
   const user = makeUser();
   await api.post("/v1/users/register", { data: user });
@@ -87,6 +93,9 @@ test("the emailed code exchanges for tokens at POST /v1/users/otp/verify", async
 // ANTI-FALSE-PASS GUARD: without this, a flow that issued tokens for any input
 // would satisfy the happy path above and look completely healthy.
 test("a wrong code is rejected with 401 invalid_otp", async () => {
+  // Same headroom as the test above: this one waits on the real email too.
+  test.setTimeout(EMAIL_TIMEOUT_MS + 30_000);
+
   const api = await apiClient();
   const user = makeUser();
   await api.post("/v1/users/register", { data: user });
