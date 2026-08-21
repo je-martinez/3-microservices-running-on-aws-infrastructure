@@ -50,7 +50,7 @@ export EXECUTION_LOG_TABLE ?= 3mrai-local-tfstate-execution-log
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke backend-up infra-init infra-plan infra-up post-infra infra-down infra-output env-file migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean observability-up observability-down observability-dashboards redeploy-lambdas scripts-setup ai-sync ai-sync-check
+.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke backend-up infra-init infra-plan infra-up post-infra infra-down infra-output env-file migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean observability-up observability-down observability-dashboards observability-traces-schema redeploy-lambdas scripts-setup ai-sync ai-sync-check
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -476,7 +476,7 @@ clean: ## Tear down infra + compose, including the emulator state volume
 	@# from persisted state at boot; DocumentDB and ElastiCache have no such
 	@# reconciler. That asymmetry is what made it look intermittent.)
 	@# --profile is load-bearing here for the same reason -v is. `down` SKIPS
-	@# services behind a profile, so openobserve/otel-collector/jaeger survived
+	@# services behind a profile, so openobserve/otel-collector survived
 	@# every `make clean` — still running, still holding `3mrai_openobserve-data`
 	@# and keeping the network alive so it could not be removed either. A
 	@# "from-scratch" rebuild therefore inherited the previous run's metric
@@ -560,27 +560,25 @@ redeploy-lambdas: scripts-setup ## Rebuild and redeploy every local Lambda from 
 	$(PY) infra/scripts/redeploy_lambdas.py
 
 
-observability-up: ## Start OpenObserve + Jaeger + the OTel collector (opt-in; ~512MB-1.5GB RAM)
+observability-up: ## Start OpenObserve + the OTel collector (opt-in; ~512MB-1.5GB RAM)
 	# --force-recreate, scoped to just these services: they sit outside the main
 	# up/down cycle, so a recreated stack network can leave them stranded on a dead
 	# network (exit 128, "network ... not found"). Recreating them re-attaches to the
 	# current network. Naming the services keeps --force-recreate from bouncing the
 	# whole app stack.
 	#
-	# jaeger MUST be named here, and its absence is why traces silently went
-	# nowhere. Naming services is what makes --force-recreate surgical, but it also
-	# means a service the list forgets NEVER STARTS — the profile alone does not
-	# start it. jaeger sat in `profiles: [observability]` and in no target, so it
-	# was the one component of the tracing path that never ran.
+	# EVERY service in the profile must be named here. Naming services is what
+	# makes --force-recreate surgical, but it also means a service the list forgets
+	# NEVER STARTS — the profile alone does not start it. That is exactly how
+	# jaeger (since removed) sat in `profiles: [observability]` and in no target,
+	# leaving the entire tracing path dead. Add to the profile, add here.
 	#
-	# The failure is quiet on the trace path and loud only in the collector's own
-	# log: the exporter retries "no children to pick from" (gRPC for: the target
-	# resolved to no address) and after the retry budget logs "Exporting failed.
-	# Dropping data." Nothing surfaces in OpenObserve, because traces do not go
-	# there — ADR-0019 routes them to Jaeger precisely because OpenObserve's trace
-	# ingest rejected them. So the only symptom a user sees is an empty Jaeger UI
-	# on a port with nothing listening.
-	$(COMPOSE) --profile observability up -d --force-recreate openobserve jaeger otel-collector
+	# The failure is quiet and loud only in the collector's own log: the exporter
+	# retries "no children to pick from" (gRPC for: the target resolved to no
+	# address) and after the retry budget logs "Exporting failed. Dropping data."
+	# Traces and logs both go to OpenObserve now, so a missing collector means an
+	# empty UI on a port with nothing listening and no other clue.
+	$(COMPOSE) --profile observability up -d --force-recreate openobserve otel-collector
 	@# The dashboards live in the `openobserve-data` volume, which `make clean`
 	@# now deletes (that is the point of the -v). Nothing recreated them: this
 	@# target started the stack and `observability-dashboards` existed but was
@@ -603,15 +601,36 @@ observability-up: ## Start OpenObserve + Jaeger + the OTel collector (opt-in; ~5
 		if curl -sf -o /dev/null http://localhost:5080/healthz 2>/dev/null; then break; fi; \
 		printf '.'; sleep 1; \
 	done; echo
+	@# Declares the gen_ai_* columns on the traces stream. Without them
+	@# OpenObserve's trace waterfall 400s on EVERY trace, because its
+	@# /traces/{id}/dag endpoint SELECTs gen_ai_operation_name unconditionally and
+	@# nothing here emits it. Not a version bug — v0.92.2 was tested side by side
+	@# and fails identically; see the script's docstring.
+	@#
+	@# Chained here for the same reason observability-dashboards is: the schema
+	@# lives in the openobserve-data volume that `make clean` deletes, so a
+	@# hand-run seed survives only until the next from-scratch rebuild. Idempotent
+	@# — it checks the schema first and re-running is a no-op.
+	@$(MAKE) --no-print-directory observability-traces-schema
 	@$(MAKE) --no-print-directory observability-dashboards
 	@echo "OpenObserve UI on http://localhost:5080 once it's healthy (~5s)."
 	@echo "Login: admin@3mrai.local / Complexpass#123"
-	@echo "Jaeger UI (traces) on http://localhost:16686"
 
 observability-down: ## Stop the observability stack (leaves the rest running)
-	@# jaeger included for the same reason it is in observability-up: it is part of
-	@# this stack, and a "down" that leaves it running contradicts the target name.
-	$(COMPOSE) stop openobserve jaeger otel-collector
+	@# Every service in the profile, for the same reason observability-up names
+	@# them all: a "down" that leaves one running contradicts the target name.
+	$(COMPOSE) stop openobserve otel-collector
+
+observability-traces-schema: ## Declare the gen_ai_* fields OpenObserve's trace waterfall requires (idempotent)
+	@# O2_ORG must match the collector's, exactly as for the dashboards below —
+	@# and O2_TRACES_STREAM must match the collector's `stream-name` header for
+	@# traces (app_traces). Seeding the wrong stream returns 200 and fixes
+	@# nothing: the columns land where no one reads them.
+	@#
+	@# Plain python3, not .venv/bin/python: this is standard-library only and
+	@# deliberately has no venv dependency, so it runs before scripts-setup has
+	@# ever executed on a fresh clone.
+	O2_ORG=$${O2_ORG:-3mrai} python3 scripts/seed_traces_schema.py
 
 observability-dashboards: ## Import/update OpenObserve dashboards from observability/dashboards/*.dashboard.json (idempotent)
 	@# O2_ORG must match the collector's (docker-compose.yml), or the dashboards
