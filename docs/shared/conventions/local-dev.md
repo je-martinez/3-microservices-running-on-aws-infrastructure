@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-03
-updated: 2026-08-16
+updated: 2026-08-21
 tags:
   - type/convention
   - area/shared
@@ -17,6 +17,7 @@ related:
   - "[[2026-07-03-local-dev-tooling-design]]"
   - "[[2026-07-03-local-dev-tooling]]"
   - "[[package-manager]]"
+  - "[[ADR-0019-distributed-tracing-opentelemetry]]"
 ---
 
 # Local Development
@@ -46,7 +47,9 @@ list. Key targets:
   state; `make post-infra` for the phase-2 DB app-user apply; and `make clean` for teardown.
   Full detail: [[local-dev-floci]].
 - **Observability:** `make observability-up` / `make observability-down` — opt-in OpenObserve
-  + Jaeger + OTel collector stack. Full runbook: [[openobserve-runbook]].
+  + OTel collector stack. OpenObserve is now the single backend for **both** logs and traces
+  (Jaeger was removed 2026-08-21 — see [[ADR-0019-distributed-tracing-opentelemetry]] Amendment).
+  Full runbook: [[openobserve-runbook]].
 
 > [!warning] `make clean` no longer prompts — "clean means clean"
 > `clean` used to ask before removing `./data`, **defaulting to keeping it**, which made a
@@ -56,8 +59,8 @@ list. Key targets:
 >
 > 1. `docker compose --profile observability --profile preview down -v --remove-orphans` — both
 >    profiles named explicitly (`down` skips services behind a profile it wasn't told about, so
->    an unscoped `down` previously left `openobserve`/`otel-collector`/`jaeger` running, still
->    holding their volumes and the network).
+>    an unscoped `down` previously left `openobserve`/`otel-collector`(/`jaeger`, before its
+>    2026-08-21 removal) running, still holding their volumes and the network).
 > 2. Removes any volume still **labelled** `com.docker.compose.project=3mrai` that the current
 >    compose file no longer declares — `down -v` only removes volumes the file currently lists,
 >    so a volume created under an earlier compose revision (e.g. an old `otelcol-storage`
@@ -70,15 +73,18 @@ list. Key targets:
 >
 > See the `clean:` target in the root `Makefile` for the full reasoning behind each step.
 
-> [!warning] `make observability-up` starts Jaeger too, and now imports the dashboards
-> The target starts three services, not two: `openobserve`, `jaeger` (traces — ADR-0019 routes
-> them there because OpenObserve's own trace ingest rejected them), and `otel-collector`. It then
-> polls OpenObserve's `/healthz` (the container declares no compose healthcheck, so `up -d`
-> returns before it accepts HTTP) and runs `make observability-dashboards` automatically. That
-> import step matters because dashboards live in the `openobserve-data` volume — the one `make
-> clean` now deletes (above) — and nothing recreated them before this: every from-scratch rebuild
-> left OpenObserve healthy but with zero dashboards, recoverable only by remembering an
-> undocumented manual command. Full detail: [[openobserve-runbook]].
+> [!warning] `make observability-up` starts OpenObserve + the collector, seeds the traces schema, and imports the dashboards
+> The target starts two services: `openobserve` and `otel-collector`. Both logs and traces route
+> to OpenObserve now — Jaeger was removed 2026-08-21 (see
+> [[ADR-0019-distributed-tracing-opentelemetry]] Amendment). It then polls OpenObserve's
+> `/healthz` (the container declares no compose healthcheck, so `up -d` returns before it accepts
+> HTTP), runs `make observability-traces-schema` (seeds the `gen_ai_*` fields the trace waterfall
+> requires — see [[openobserve-runbook#Traces]]), and runs `make observability-dashboards`
+> automatically. Both import steps matter because their state lives in the `openobserve-data`
+> volume — the one `make clean` now deletes (above) — and nothing recreated them before this:
+> every from-scratch rebuild left OpenObserve healthy but with zero dashboards and a broken trace
+> waterfall, recoverable only by remembering undocumented manual commands. Full detail:
+> [[openobserve-runbook]].
 
 ## Testing endpoints with `.http` files
 
@@ -109,6 +115,8 @@ a new service needs local testing.
 - [[2026-07-03-local-dev-tooling-design]] — the design spec that introduced the Makefile + `.http` convention.
 - [[2026-07-03-local-dev-tooling]] — the implementation plan for that design.
 - [[package-manager]] — pnpm as the repo's only Node package manager.
-- [[openobserve-runbook]] — full detail on `make observability-up`/`-down` (Jaeger, dashboard
-  auto-import) referenced above.
-- [[ADR-0019-distributed-tracing-opentelemetry]] — why Jaeger, not OpenObserve, carries traces.
+- [[openobserve-runbook]] — full detail on `make observability-up`/`-down` (traces-schema seed,
+  dashboard auto-import) referenced above.
+- [[ADR-0019-distributed-tracing-opentelemetry]] — the tracing-backend decision; its 2026-08-21
+  Amendment records Jaeger's removal and OpenObserve becoming the single backend for logs and
+  traces.

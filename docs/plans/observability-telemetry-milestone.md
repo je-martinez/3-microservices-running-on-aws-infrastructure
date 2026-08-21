@@ -4,7 +4,7 @@ type: plan
 area: shared
 status: draft
 created: 2026-08-18
-updated: 2026-08-18
+updated: 2026-08-21
 tags:
   - type/plan
   - area/shared
@@ -30,6 +30,8 @@ related:
   - "[[ADR-0019-distributed-tracing-opentelemetry]]"
   - "[[logging-context]]"
   - "[[developer-experience-milestone]]"
+  - "[[events-pipeline-design]]"
+  - "[[openobserve-runbook]]"
 ---
 
 # Observability & Telemetry Milestone
@@ -64,7 +66,7 @@ propagation mechanism — everything rides the existing W3C `traceparent` standa
 | Users call sites | [JE-158](https://linear.app/je-martinez/issue/JE-158) | Wrap the 8 auth workflow commands in `withWorkflowSpan` — blocked by [JE-152](https://linear.app/je-martinez/issue/JE-152) (same service, needs the helper first). |
 | Gate — SQS `traceparent` injection | [JE-155](https://linear.app/je-martinez/issue/JE-155), [JE-156](https://linear.app/je-martinez/issue/JE-156), [JE-157](https://linear.app/je-martinez/issue/JE-157) | The 3 SQS publishers (Users, Orders, Tracking) each inject `traceparent` into `MessageAttributes` — one issue per service, so implementers work in parallel. This is a **dependency gate**: events-pipeline cannot be verified against a real `traceparent` until all three publishers emit one. |
 | events-pipeline (JE-138, reused) | [JE-138](https://linear.app/je-martinez/issue/JE-138) | OTel SDK, widened `SqsRecord` type (`messageAttributes` was previously dropped), and per-record spans with links to the N origin traces — blocked by [JE-155](https://linear.app/je-martinez/issue/JE-155), [JE-156](https://linear.app/je-martinez/issue/JE-156), and [JE-157](https://linear.app/je-martinez/issue/JE-157) (the SQS gate above). |
-| Closing | [JE-161](https://linear.app/je-martinez/issue/JE-161) | End-to-end verification: one Jaeger trace joining all three services plus events-pipeline for a real `create_order` flow, including the JE-77 anti-regression assertion. Blocked by [JE-152](https://linear.app/je-martinez/issue/JE-152), [JE-153](https://linear.app/je-martinez/issue/JE-153), [JE-154](https://linear.app/je-martinez/issue/JE-154), [JE-155](https://linear.app/je-martinez/issue/JE-155), [JE-156](https://linear.app/je-martinez/issue/JE-156), [JE-157](https://linear.app/je-martinez/issue/JE-157), [JE-158](https://linear.app/je-martinez/issue/JE-158), and [JE-138](https://linear.app/je-martinez/issue/JE-138). |
+| Closing | [JE-161](https://linear.app/je-martinez/issue/JE-161) | End-to-end verification: one trace (now in OpenObserve — Jaeger was removed 2026-08-21, see [[ADR-0019-distributed-tracing-opentelemetry]] Amendment) joining all three services plus events-pipeline for a real `create_order` flow, including the JE-77 anti-regression assertion. Blocked by [JE-152](https://linear.app/je-martinez/issue/JE-152), [JE-153](https://linear.app/je-martinez/issue/JE-153), [JE-154](https://linear.app/je-martinez/issue/JE-154), [JE-155](https://linear.app/je-martinez/issue/JE-155), [JE-156](https://linear.app/je-martinez/issue/JE-156), [JE-157](https://linear.app/je-martinez/issue/JE-157), [JE-158](https://linear.app/je-martinez/issue/JE-158), and [JE-138](https://linear.app/je-martinez/issue/JE-138). |
 
 ## Dependency diagram
 
@@ -132,7 +134,7 @@ blocked by JE-155, JE-156, and JE-157 together. The closing task,
 [JE-161](https://linear.app/je-martinez/issue/JE-161) (full-trace E2E with the JE-77
 anti-regression assertion), is blocked by all 8 issues above it — JE-152, JE-153, JE-154, JE-155,
 JE-156, JE-157, JE-158, and JE-138 — since it needs workflow spans on all three services, the SQS
-hop working, and events-pipeline instrumented, to prove one single Jaeger trace joins all of it.
+hop working, and events-pipeline instrumented, to prove one single trace (OpenObserve) joins all of it.
 
 ## Issues
 
@@ -208,8 +210,17 @@ see the diagram above.
 ## Current status
 
 Design and implementation plan are committed (`d2465d9`) on branch `feat/observability-tracing`.
-Implementation has **not started** — all 9 plan tasks are still unchecked. The Linear milestone
-holds all 11 issues (JE-138, JE-152 through JE-161), all in **Backlog**.
+The events-pipeline record lifecycle is now fully instrumented (phase spans for `persist`/
+`dispatch`, named `documentdb updateOne <STATUS>` transition spans — see
+[[events-pipeline-design#Observability — tracing spans]]).
+
+**2026-08-21 — Jaeger removed mid-milestone.** OpenObserve's trace-ingest HTTP 400 (the reason
+Jaeger was adopted in [[ADR-0019-distributed-tracing-opentelemetry]]) no longer reproduces on
+v0.91.1; Jaeger has been removed and OpenObserve is now the single backend for both logs and
+traces — see the ADR's Amendment and [[openobserve-runbook#Traces]] for the separate
+`gen_ai_operation_name` query-side 400 this surfaced and its fix
+(`make observability-traces-schema`). JE-161's closing E2E verification now targets a trace
+joined in OpenObserve rather than Jaeger.
 
 ## Related
 
@@ -220,10 +231,15 @@ holds all 11 issues (JE-138, JE-152 through JE-161), all in **Backlog**.
 - [[2026-08-18-distributed-tracing-spans-design]] — design spec: the 11 decisions behind this
   milestone's scope, including the esbuild/auto-instrumentation risk.
 - [[2026-08-18-distributed-tracing-spans]] — implementation plan with the 9 detailed tasks.
-- [[ADR-0019-distributed-tracing-opentelemetry]] — the tracing-backend decision (logs →
-  OpenObserve, traces → Jaeger) this milestone builds on.
+- [[ADR-0019-distributed-tracing-opentelemetry]] — the tracing-backend decision this milestone
+  builds on; its 2026-08-21 Amendment (mid-milestone) records Jaeger's removal and OpenObserve
+  becoming the single backend for both logs and traces.
 - [[logging-context]] — the shared cross-service log-context convention; workflow spans carry
   the same attributes as today's flow logs.
 - [[developer-experience-milestone]] — where the first round of tracing work (JE-73…JE-77)
   landed, including the JE-77 cross-service propagation fix this milestone's E2E re-asserts.
+- [[events-pipeline-design]] — the phase-span structure (`persist`/`dispatch`) and named
+  transition spans added to close the record-lifecycle coverage gap, referenced above.
+- [[openobserve-runbook]] — the Traces section: how to open a waterfall now that both signals
+  share OpenObserve, and the `gen_ai_operation_name` 400 fix chained into `observability-up`.
 - [[events-pipeline-milestone]] — where JE-138 was originally deferred as follow-up work.

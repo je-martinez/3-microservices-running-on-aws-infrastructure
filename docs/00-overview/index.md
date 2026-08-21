@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-08-13
+updated: 2026-08-21
 tags:
   - type/spec
   - area/shared
@@ -169,7 +169,7 @@ All ADRs use continuous global numbering and live in `docs/shared/decisions/`.
 
 - [[ADR-0011-observability-signoz]] — SigNoz (via CloudWatch) as the observability backend. Superseded by [[ADR-0018-observability-openobserve]].
 - [[ADR-0018-observability-openobserve]] — OpenObserve (via CloudWatch) as the observability backend, superseding SigNoz.
-- [[ADR-0019-distributed-tracing-opentelemetry]] — OpenTelemetry SDK in both services for distributed tracing; traces go to Jaeger while logs stay in OpenObserve, re-evaluating the tracing/logs-only stance of [[ADR-0018-observability-openobserve]] after OpenObserve's trace ingest rejected the collector's OTLP batches.
+- [[ADR-0019-distributed-tracing-opentelemetry]] — OpenTelemetry SDK in all services for distributed tracing, re-evaluating the tracing/logs-only stance of [[ADR-0018-observability-openobserve]] after OpenObserve's trace ingest initially rejected the collector's OTLP batches (traces went to Jaeger meanwhile). That ingest rejection no longer reproduces on OpenObserve v0.91.1; Jaeger was removed 2026-08-21 and OpenObserve is now the single backend for both logs and traces — see the ADR's Amendment.
 
 ### Documentation & Diagrams
 
@@ -281,6 +281,7 @@ Durable empirical findings from spikes, incidents, and experiments.
 - [[floci-sqs-lambda-docdb-support]] — Empirical probe of Floci's SQS, Lambda (SQS event source mapping), and DocumentDB support ahead of the events-pipeline milestone: all viable as designed, with three local-only findings (no multi-document DocumentDB transactions, a non-stable DocumentDB endpoint, and a silently-dropped `update-event-source-mapping` field).
 - [[floci-websocket-apigw-dynamodb-support]] — Empirical probe of Floci's WebSocket API Gateway + DynamoDB support for the realtime-events feature: the REQUEST authorizer's context genuinely propagates (unlike the HTTP API's claim-mapping gap), two undocumented local-only URL shapes, a Cognito JWT verifier issuer-from-configuration requirement, and an unresolved gateway E2E gap.
 - [[floci-elasticache-two-ports-and-provider-panic]] — Floci backs ElastiCache with a real Valkey container; the pinned AWS provider panics reading `NodeGroups[0]` on `CreateReplicationGroup`; no subnet-group API at all; and the container's own port (6379) disagrees with the host-side proxy port ElastiCache reports, requiring a moved proxy range (6479-6499) to coexist with a developer's local Redis.
+- [[2026-08-21-verify-in-the-viewer-not-the-api]] — Confirming data reached a backend (an API query) is not confirming a feature works; three claims in one session were verified against the wrong surface (span events invisible in Jaeger's waterfall, a re-verification that stayed API-first in OpenObserve, and 56/56 spans from `_search` while the UI's own `/dag` endpoint 400'd) before the pattern was named and corrected.
 
 ---
 

@@ -4,10 +4,13 @@ type: spec
 area: events-pipeline
 status: accepted
 created: 2026-06-26
-updated: 2026-08-19
-tags: [type/spec, area/events-pipeline, status/accepted]
+updated: 2026-08-21
+tags: [type/spec, area/events-pipeline, status/accepted, issue/JE-180, issue/JE-181]
 related:
   - "[[2026-08-15-request-id-correlation-design]]"
+  - "[[linear-references]]"
+  - "[[observability-telemetry-milestone]]"
+  - "[[2026-08-21-verify-in-the-viewer-not-the-api]]"
   - "[[cqrs]]"
   - "[[ADR-0002-cqrs]]"
   - "[[nano-id]]"
@@ -648,9 +651,15 @@ was expensive):
 ```
 events-queue process (CONSUMER, links -> N origin traces)
 +-- process_record (INTERNAL, link -> origin trace)
-|   +-- INSERT events (DocumentDB, CLIENT, manual)
-|   +-- SES SendEmail (CLIENT, manual)
-|   +-- ws publish (PRODUCER, manual)
+|   +-- phase persist (INTERNAL)
+|   |   +-- documentdb insertOne
+|   +-- documentdb updateOne IN_PROGRESS
+|   +-- phase dispatch (INTERNAL)
+|   |   +-- email render <template>
+|   |   +-- ses SendEmail
+|   |   +-- cloudwatch PutMetricData  (x2)
+|   |   +-- ws publish
+|   +-- documentdb updateOne COMPLETED
 +-- process_record (INTERNAL, link -> another origin trace)
 ```
 
@@ -664,14 +673,64 @@ events-queue process (569ms)  refs=0
 and a `metrics-tick` span (the EventBridge 1-minute rate tick) with `refs=0` — a timer has no
 origin trace, so it correctly starts a brand-new one rather than being forced into a link.
 
+### Full record-lifecycle coverage — the three status transitions now have spans
+
+> [!info] Verified on trace `f39c148902b77f94aa9e90b762809f95` — coverage went from ~70ms/357ms to 345ms/347ms (99.5%)
+> The record's three `transition()` writes to DocumentDB (`STARTED`, `IN_PROGRESS`, `COMPLETED`/
+> `FAILED`) previously had **no span at all** — `process_record` itself reported 194ms of
+> duration against roughly 1ms of visible children, i.e. most of the record's real time was
+> invisible in the waterfall. Wrapping the two phases (`persist`, `dispatch`) and naming the two
+> `documentdb updateOne` transition writes closed that gap: the same trace now accounts for
+> 345ms of its 347ms total, up from ~70ms/357ms.
+>
+> **The status is in the span NAME, not only an attribute** —
+> `documentdb updateOne IN_PROGRESS` / `documentdb updateOne COMPLETED`, not three bars all
+> reading `updateOne` with a `status` attribute someone has to click into. A waterfall renders
+> names first; three identically-named bars require expanding each one to tell them apart, which
+> defeats the point of a waterfall as a fast visual scan.
+>
+> **`cloudwatch PutMetricData` appears twice per email metric.** `publishEmailMetric`
+> (`functions/events-pipeline/src/shared/metrics/cloudwatch-metrics.ts`) emits one call for the
+> template-specific series and a second for the cross-template `ALL` rollup — this is by design
+> (two real CloudWatch API calls, not a duplicate span for one call), and shows up in the
+> waterfall exactly as two bars under `phase dispatch`, one per `emails_sent_total`/
+> `emails_failed_total` publish.
+>
+> **Phase SPANS, not span events, are what make the lifecycle visible.** Span *events* (`
+> span.addEvent(...)`) were tried first — the semantically correct OTel primitive for an instant
+> like "message received" or "handler dispatched" — and are still emitted as secondary detail via
+> `markPhase()` in `process-record.ts`. In practice **neither viewer renders them usefully**:
+> Jaeger hides a span's events behind expanding the span and opening a separate tab, and
+> OpenObserve's trace view does not surface them at all. A marker that costs two clicks to find
+> marks nothing. They are kept anyway because they cost nothing and OpenObserve stores them in a
+> queryable `events` column — `WHERE events LIKE '%handler_failed%'` finds every record that took
+> a given path, which the waterfall itself cannot answer — but the **phase spans** (`phase
+> persist`, `phase dispatch`) are what actually make the record's lifecycle visible as bars with
+> real duration, and are the mechanism to reach for first.
+
+### Known follow-ups, tracked in Linear, not mirrored here
+
+Two issues surfaced by this instrumentation are referenced, not duplicated, per
+[[linear-references]] — current status/detail live in Linear, fetched on demand:
+
+- [JE-180](https://linear.app/je-martinez/issue/JE-180) — email template render dominates the
+  record's duration at 256MB Lambda memory: 110–237ms to render vs 59–74ms for the SES call
+  itself, measured across all three templates, and not attributable to cold start. The `phase
+  dispatch` breakdown above (`email render <template>` as its own bar) is what made this visible
+  in the first place.
+- [JE-181](https://linear.app/je-martinez/issue/JE-181) — events-pipeline logs stop reaching
+  OpenObserve after a Lambda redeploy: each redeploy opens a new CloudWatch log stream, and the
+  collector keeps following the old one, measured at 76 minutes of silence with zero collector
+  errors logged.
+
 **Why links, not parent-child.** An SQS batch carries messages from **distinct** traces (Users,
 Orders, and Tracking all publish onto the one shared queue). A single parent would force picking
 one origin and lying about the rest, so the consumer instead **links** — `events-queue process`
 links to the N origin traces present in its batch, and each `process_record` span links to its
-own origin. **Honest limitation, kept as such:** in Jaeger, a link does not draw the linked span's
-bar inside the origin trace's own waterfall the way a child would — it renders as a navigable
-reference instead. That is the price of not fabricating a hierarchy a batch consumer does not
-have.
+own origin. **Honest limitation, kept as such:** neither OpenObserve's trace view nor Jaeger
+(while it was in use) draws the linked span's bar inside the origin trace's own waterfall the way
+a child would — a link renders as a navigable reference instead. That is the price of not
+fabricating a hierarchy a batch consumer does not have.
 
 **Every internal span here is manual, not auto-instrumented — a packaging necessity, not a style
 choice.** `functions/events-pipeline/scripts/build.mjs` bundles the handler into a single
@@ -712,6 +771,12 @@ flushed are lost or arrive late on the next cold invocation, attributed to the w
   documented above.
 - [[2026-08-18-distributed-tracing-spans]] — implementation plan, verified against a real Jaeger
   trace.
+- [[linear-references]] — the convention behind referencing JE-180/JE-181 above by link instead
+  of mirroring their content into this note.
+- [[observability-telemetry-milestone]] — the milestone this instrumentation work belongs to.
+- [[2026-08-21-verify-in-the-viewer-not-the-api]] — why the phase spans documented above
+  (`phase persist`/`phase dispatch`) replaced span events as the primary signal: span events
+  render in neither viewer's waterfall, verified the hard way.
 - [[cqrs]]
 - [[ADR-0002-cqrs]]
 - [[nano-id]]

@@ -5,7 +5,7 @@ area: shared
 status: accepted
 id: ADR-0019
 created: 2026-07-19
-updated: 2026-08-19
+updated: 2026-08-21
 deciders: [Jose E. Martinez]
 supersedes: null
 superseded-by: null
@@ -28,6 +28,9 @@ related:
   - "[[users-service-design]]"
   - "[[orders-service-design]]"
   - "[[tracking-service-design]]"
+  - "[[openobserve-runbook]]"
+  - "[[observability-telemetry-milestone]]"
+  - "[[2026-08-21-verify-in-the-viewer-not-the-api]]"
 ---
 
 # ADR-0019: Distributed Tracing via OpenTelemetry, Split from OpenObserve to Jaeger
@@ -156,6 +159,39 @@ logs stay in OpenObserve.**
 >   Lambda span (DocumentDB insert, SES send, WebSocket publish) is therefore **manual**, by
 >   packaging necessity, not by style choice.
 
+> [!important] Amendment (2026-08-21) — Jaeger removed; OpenObserve is now the single backend for logs and traces
+> **What changed.** The HTTP 400 on trace **ingest** that motivated the original split no longer
+> reproduces on OpenObserve v0.91.1. Traces have been ingesting correctly — 48,764 spans measured
+> in the `app_traces` stream. The reason Jaeger was introduced is gone, so the split it caused is
+> reversed, exactly as the original Consequences section called "reversible."
+>
+> **What was done.** Jaeger removed entirely: the `jaeger` service in `docker-compose.yml`, the
+> `otlp/jaeger` exporter and its entry in the collector's traces pipeline in
+> `observability/otel-collector-config.yaml`, and every reference in the `Makefile`
+> (`observability-up`, `observability-down`, the UI echo line). The traces pipeline now exports to
+> `otlp_http/openobserve_traces` alone — see [[openobserve-runbook#Traces]].
+>
+> **Why this is better, not just simpler.** Logs and traces in one backend means "show me the
+> logs for this span" is one query in one system, joined by the `trace_id` every log line already
+> carries per [[logging-context]]. That correlation was the original motivation for choosing
+> OpenObserve in [[ADR-0018-observability-openobserve]], and a second backend for traces could
+> never provide it — a Jaeger trace and an OpenObserve log both carrying the same `trace_id` still
+> required two UIs and a manual copy-paste to correlate.
+>
+> **A DIFFERENT HTTP 400 exists and must not be confused with the one above.** OpenObserve's
+> trace-detail view (the waterfall) calls `/api/{org}/{stream}/traces/{trace_id}/dag`, and that
+> endpoint SELECTs `gen_ai_operation_name` — a column belonging to its LLM-tracing feature that
+> nothing in this repo emits. When the field is absent from the stream's inferred schema the query
+> fails with `code 20004, "Search field not found"`, and it fails for **every** trace, so the
+> waterfall is entirely unavailable. This is a **query-side** failure against data that arrived
+> fine — not the ingest-side rejection this ADR originally documented. Full detail, the fix, and
+> the reproduction steps: [[openobserve-runbook#Traces]].
+>
+> **Reversibility used exactly as designed.** The original Consequences section below promised
+> "re-pointing [the collector] at another backend... is a configuration change, not a
+> re-instrumentation of either service." That promise held: no service code changed to make this
+> switch, only the collector config, compose file, and Makefile.
+
 ## Supersedes
 
 - The **tracing / logs-only stance** of [[ADR-0018-observability-openobserve]] — its
@@ -182,3 +218,11 @@ logs stay in OpenObserve.**
   Lambda's internal spans are manual.
 - [[users-service-design]], [[orders-service-design]], [[tracking-service-design]] — the
   per-service workflow spans this update added.
+- [[openobserve-runbook]] — the Traces section documents the waterfall's `gen_ai_operation_name`
+  400, `make observability-traces-schema`, and how to open a trace now that both signals share
+  one backend.
+- [[observability-telemetry-milestone]] — the active milestone during which this Amendment landed.
+- [[2026-08-21-verify-in-the-viewer-not-the-api]] — the verification-discipline lesson from the
+  same session: confirming data reached OpenObserve via `_search` is not confirming the trace
+  waterfall (`/dag`) actually renders it, which is exactly the `gen_ai_operation_name` gap this
+  Amendment documents.

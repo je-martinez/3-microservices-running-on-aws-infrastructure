@@ -181,8 +181,9 @@ shared context table already follows.
   [[2026-08-05-passwordless-otp-auth-design]] and [[passwordless-auth-type]].
 
 > [!warning] Every PII rule above applies equally to span attributes, not just log fields
-> A workflow span's attributes are exported to Jaeger the same way a log line is exported to
-> OpenObserve — there is no separate, laxer rule for spans. Never a plaintext email on a span
+> A workflow span's attributes are exported to OpenObserve the same way a log line is — both
+> signals share the one backend (see [[ADR-0019-distributed-tracing-opentelemetry]] Amendment,
+> 2026-08-21) — so there is no separate, laxer rule for spans. Never a plaintext email on a span
 > attribute (masked form or `email_hash` only, same as logs), and never an OTP code, in any form,
 > on a span attribute or a span's `reason`/status message. [[2026-08-18-distributed-tracing-spans-design]]
 > follows this by construction: workflow spans carry the same attribute set as the flow's log
@@ -248,8 +249,10 @@ graph before `sdk.start()` runs, and their instrumentation silently never patche
 
 ## Metrics — the third pillar, and why it does NOT go over OTLP
 
-Logs (OpenObserve, [[ADR-0018-observability-openobserve]]) and traces (Jaeger,
-[[ADR-0019-distributed-tracing-opentelemetry]]) travel over OTLP. Metrics deliberately do not:
+Logs ([[ADR-0018-observability-openobserve]]) and traces
+([[ADR-0019-distributed-tracing-opentelemetry]]) both travel over OTLP into OpenObserve — the
+single backend for both signals since Jaeger's removal (Amendment, 2026-08-21). Metrics
+deliberately do not:
 `OTEL_METRICS_EXPORTER=none` in every service is **correct and remains in place** — turning it on
 would open a second, parallel metrics path with different semantics for the same numbers. Instead,
 metrics are custom business/error counters and gauges published straight to **Amazon CloudWatch**
@@ -462,9 +465,12 @@ had none.
 > The first attempt at counting "spans with a log line" against this same trace returned **zero**
 > matches for all 49 spans, which looked like every producer was broken at once. It wasn't: the
 > log lines had already aged out of OpenObserve's retention window while the trace itself was
-> still live in Jaeger (traces and logs do not share a retention clock). Re-running against fresh
-> traffic — not a reused, already-old `trace_id` — produced the real 7/49. Anyone re-measuring
-> this should generate a new trace, not query an old id and conclude the pipeline regressed.
+> still live in Jaeger (traces and logs did not share a retention clock — Jaeger has since been
+> removed, see [[ADR-0019-distributed-tracing-opentelemetry]] Amendment, so both signals now share
+> OpenObserve's one retention config; a fresh trace id is still the reliable habit regardless).
+> Re-running against fresh traffic — not a reused, already-old `trace_id` — produced the real
+> 7/49. Anyone re-measuring this should generate a new trace, not query an old id and conclude the
+> pipeline regressed.
 
 ## Per-service mechanism
 
