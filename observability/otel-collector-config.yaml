@@ -151,6 +151,102 @@ receivers:
           metric_name: "emails_failed_total"
           dimensions: { Service: events-pipeline, EmailType: ALL, FailureKind: transient }
           stats: [Sum]
+        # Per-template failure series, on top of the ALL rollups above.
+        #
+        # WHY ONLY THE FAILURE METRIC IS BROKEN OUT: `GetMetricData` requires
+        # every dimension combination to be named explicitly — nothing is
+        # discovered — so a full breakdown of BOTH email metrics would be 27
+        # queries. The per-template split earns its cost only here: `ALL` tells
+        # you emails were lost, but not WHICH template, and "the receipt is
+        # broken" and "one OTP bounced" are different incidents. The sent counter
+        # keeps its ALL rollup only; per-template SEND volume is answerable from
+        # the `email render <template>` spans if it is ever needed.
+        #
+        # The nine keys come from `src/email/catalog.ts`, NOT from the design
+        # spec — the spec's list is stale (it says `auth-otp-requested` and
+        # `password-reset-requested`; the catalog ships `auth-otp` and
+        # `forgot-password`). A query naming a key the code never publishes
+        # silently returns nothing, so the catalog is the source of truth here.
+        #
+        # ONE GAP, on purpose: the `permanent` failure is emitted by
+        # `src/email/renderer.ts` precisely when a template key is MISSING from
+        # the catalog, so that key can be one not listed below and its datapoint
+        # is then invisible here. The `EmailType: ALL` rollup above still counts
+        # it, which is what keeps "an email was lost" answerable even for an
+        # unknown template — the breakdown narrows a known loss, it does not
+        # replace the total.
+        - namespace: "3MRAI"
+          metric_name: "emails_failed_total"
+          dimensions: { Service: events-pipeline, EmailType: user-created, FailureKind: permanent }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "emails_failed_total"
+          dimensions: { Service: events-pipeline, EmailType: user-created, FailureKind: transient }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "emails_failed_total"
+          dimensions: { Service: events-pipeline, EmailType: order-created, FailureKind: permanent }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "emails_failed_total"
+          dimensions: { Service: events-pipeline, EmailType: order-created, FailureKind: transient }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "emails_failed_total"
+          dimensions: { Service: events-pipeline, EmailType: tracking-status-changed-placed, FailureKind: permanent }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "emails_failed_total"
+          dimensions: { Service: events-pipeline, EmailType: tracking-status-changed-placed, FailureKind: transient }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "emails_failed_total"
+          dimensions: { Service: events-pipeline, EmailType: tracking-status-changed-processing, FailureKind: permanent }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "emails_failed_total"
+          dimensions: { Service: events-pipeline, EmailType: tracking-status-changed-processing, FailureKind: transient }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "emails_failed_total"
+          dimensions: { Service: events-pipeline, EmailType: tracking-status-changed-shipped, FailureKind: permanent }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "emails_failed_total"
+          dimensions: { Service: events-pipeline, EmailType: tracking-status-changed-shipped, FailureKind: transient }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "emails_failed_total"
+          dimensions: { Service: events-pipeline, EmailType: tracking-status-changed-out-for-delivery, FailureKind: permanent }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "emails_failed_total"
+          dimensions: { Service: events-pipeline, EmailType: tracking-status-changed-out-for-delivery, FailureKind: transient }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "emails_failed_total"
+          dimensions: { Service: events-pipeline, EmailType: tracking-status-changed-delivered, FailureKind: permanent }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "emails_failed_total"
+          dimensions: { Service: events-pipeline, EmailType: tracking-status-changed-delivered, FailureKind: transient }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "emails_failed_total"
+          dimensions: { Service: events-pipeline, EmailType: auth-otp, FailureKind: permanent }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "emails_failed_total"
+          dimensions: { Service: events-pipeline, EmailType: auth-otp, FailureKind: transient }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "emails_failed_total"
+          dimensions: { Service: events-pipeline, EmailType: forgot-password, FailureKind: permanent }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "emails_failed_total"
+          dimensions: { Service: events-pipeline, EmailType: forgot-password, FailureKind: transient }
+          stats: [Sum]
 
         # --- HTTP errors, all three HTTP services ----------------------------
         # 4xx/5xx only. A per-2xx metric would be a request-rate metric, which
