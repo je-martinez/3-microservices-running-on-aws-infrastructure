@@ -1,8 +1,12 @@
+using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Orders.Application.Orders;
 using Orders.Domain.Entities;
+using Orders.Infrastructure.Observability;
 using Orders.Infrastructure.Orders;
 using Orders.Infrastructure.Persistence;
+using Orders.Tests.Observability;
 using Testcontainers.MySql;
 using Xunit;
 
@@ -77,7 +81,9 @@ public class ProductReadServiceTests : IAsyncLifetime
         }
 
         await using var r = ReadCtx();
-        var svc = new ProductReadService(r, AssetsBaseUrl);
+        // Inert without an ActivityListener — see OrderReadServiceTests.
+        var svc = new ProductReadService(
+            r, AssetsBaseUrl, new WorkflowTracer(), new SpanScopedLogger<ProductReadService>());
 
         var products = await svc.GetProductsAsync();
 
@@ -104,7 +110,8 @@ public class ProductReadServiceTests : IAsyncLifetime
         }
 
         await using var r = ReadCtx();
-        var svc = new ProductReadService(r, baseUrl);
+        var svc = new ProductReadService(
+            r, baseUrl, new WorkflowTracer(), new SpanScopedLogger<ProductReadService>());
         return (await svc.GetProductsAsync()).Single(p => p.Name == name);
     }
 
@@ -154,5 +161,55 @@ public class ProductReadServiceTests : IAsyncLifetime
 
         Assert.Null(dto.Image);
         Assert.Empty(dto.Categories);
+    }
+
+    [Fact]
+    public async Task GetProductsAsync_emits_the_list_products_workflow_span_with_the_catalogue_size()
+    {
+        await using (var w = WriteCtx())
+        {
+            await w.Database.MigrateAsync();
+            w.Products.Add(ProductWithImage("prd_span1", "Spanny", image: null));
+            await w.SaveChangesAsync();
+        }
+
+        // See OrderReadServiceTests: the listener must name this exact source or
+        // the span is created and silently dropped.
+        var recorded = new List<Activity>();
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == WorkflowTracer.ActivitySourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+            ActivityStopped = recorded.Add,
+        };
+        ActivitySource.AddActivityListener(listener);
+
+        await using var r = ReadCtx();
+        var logger = new SpanScopedLogger<ProductReadService>();
+        var products = await new ProductReadService(r, AssetsBaseUrl, new WorkflowTracer(), logger)
+            .GetProductsAsync();
+
+        var span = Assert.Single(recorded);
+        Assert.Equal("list_products", span.DisplayName);
+        Assert.Equal(ActivityStatusCode.Ok, span.Status);
+        // TagObjects, not Tags — see OrderReadServiceTests: an int-valued tag
+        // never appears in Activity.Tags.
+        Assert.Contains(span.TagObjects, t => t.Key == "product_count" && (int?)t.Value == products.Count);
+        Assert.DoesNotContain(span.TagObjects, t => t.Key == "http.method" || t.Key == "http.route");
+        Assert.NotEqual(default, span.Duration);
+
+        // Exactly one line, carrying the flow's app_event and the same count the
+        // span tag does — no _started twin (see OrderReadServiceTests for why a
+        // read gets only the _succeeded half).
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Information, entry.Level);
+        Assert.Equal("list_products_succeeded", entry.Values["app_event"]);
+        Assert.Equal(products.Count, entry.Values["product_count"]);
+
+        // The point of the line: written while THIS span is the ambient activity,
+        // so LogContextEnricher stamps this span's id on it and a span-scoped log
+        // lookup resolves. A line outside the activity would pass every other
+        // assertion here and still leave the span mute.
+        Assert.Same(span, entry.Activity);
     }
 }

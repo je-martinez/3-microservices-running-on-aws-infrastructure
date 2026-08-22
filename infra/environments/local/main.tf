@@ -404,6 +404,38 @@ module "api_gateway_ws" {
   # `localhost`. Same distinction the events-pipeline Lambda and the cognito
   # module's OTP Lambda already make.
   aws_endpoint_url = "http://floci:4566"
+
+  # ─── Traces ─────────────────────────────────────────────────────────────
+  # OTLP config lives HERE, in environment variables, never in the Lambdas'
+  # code — the rule that exists because three silent failures in this repo came
+  # from configuring the SDK in code ([[logging-context]]). The bootstrap in
+  # functions/realtime-events/src/shared/observability/tracing.ts constructs
+  # OTLPTraceExporter with NO arguments precisely so these vars are the only
+  # source of truth.
+  #
+  # Applied to all four functions at once (see the module's
+  # environment_variables description): the authorizer, $connect, $disconnect
+  # and $default are one for_each'd resource and all four export to the same
+  # collector under the same service name.
+  environment_variables = {
+    # `otel-collector`, NOT `localhost`: like AWS_ENDPOINT_URL above, this is
+    # resolved from INSIDE the Lambda containers on 3mrai-network, where the
+    # collector is a sibling container of that name (docker-compose.yml). It is
+    # a BASE url — the exporter appends /v1/traces itself, per the OTLP spec.
+    # Hand-building the full path is what made Orders POST every batch to the
+    # collector's root and collect silent 404s.
+    OTEL_EXPORTER_OTLP_ENDPOINT = "http://otel-collector:4318"
+    OTEL_EXPORTER_OTLP_PROTOCOL = "http/protobuf"
+    OTEL_SERVICE_NAME           = "realtime-events"
+    # Metrics do NOT travel over OTLP (CloudWatch PutMetricData, scraped from
+    # there by the collector) and these Lambdas' logs travel stdout ->
+    # CloudWatch, not OTLP. Both must be disabled HERE rather than in code:
+    # NodeSDK auto-detects both exporters from OTEL_EXPORTER_OTLP_ENDPOINT, and
+    # an `undefined` SDK option reads as "not overridden", so auto-detection
+    # still wins. The collector serves /v1/traces only.
+    OTEL_METRICS_EXPORTER = "none"
+    OTEL_LOGS_EXPORTER    = "none"
+  }
 }
 
 # ─── Events Pipeline Lambda ─────────────────────────────────────────────────────
@@ -438,6 +470,26 @@ module "lambda_events_pipeline" {
   # always had.
   ws_connections_table_arn  = module.ws_connections.table_arn
   ws_manage_connections_arn = module.api_gateway_ws.manage_connections_arn
+
+  # Throughput, NOT tracing. This used to be pinned to 1 because the handler
+  # could only parent a record span to its origin when the batch held exactly
+  # one record, and fell back to FOLLOWS_FROM links otherwise — which detached
+  # the pipeline's work from the request that caused it. Measured at the module
+  # default of 10, 19 of 21 invocations carried more than one record, so 90% of
+  # orders had their email work stranded in a separate trace.
+  #
+  # handler.ts now parents EVERY record to its own origin regardless of batch
+  # size (see recordSpanAttachment), so N records from N requests produce N
+  # continuous cascades. The batch span links to each origin instead of
+  # parenting them, which is the shape OTel's messaging conventions prescribe.
+  # Batch size is therefore free to be a throughput knob again.
+  #
+  # 10 is the module default, restored deliberately rather than tuned: this
+  # pipeline sends emails and fans out WebSocket frames on order events, so it
+  # is not high volume, and a larger batch mainly cuts invocation overhead.
+  # Raising it further is safe for TRACING now, but note the whole batch shares
+  # one 30s timeout and one DocumentDB connection.
+  batch_size = 10
 
   environment_variables = {
     AWS_ENDPOINT_URL = "http://floci:4566"
@@ -486,6 +538,34 @@ module "lambda_events_pipeline" {
     # answers HTTP 400 with an S3 XML body — unrouted :4566 paths fall through
     # to Floci's S3 handler — which looks nothing like an endpoint error.
     WS_MANAGEMENT_ENDPOINT = module.api_gateway_ws.management_endpoint_local
+
+    # ─── Traces ─────────────────────────────────────────────────────────────
+    # OTLP config lives HERE, in environment variables, never in the Lambda's
+    # code — the rule that exists because three silent failures in this repo
+    # came from configuring the SDK in code ([[logging-context]]). The bootstrap
+    # in functions/events-pipeline/src/shared/observability/tracing.ts
+    # constructs OTLPTraceExporter with NO arguments precisely so these vars are
+    # the only source of truth.
+    #
+    # `otel-collector`, NOT `localhost`: like AWS_ENDPOINT_URL and DOCDB_HOST
+    # above, this is resolved from INSIDE the Lambda container on
+    # 3mrai-network, where the collector is a sibling container of that name
+    # (docker-compose.yml). Same value the four realtime-events Lambdas already
+    # use. It is a BASE url — the exporter appends /v1/traces itself, per the
+    # OTLP spec. Hand-building the full path is what made Orders POST every
+    # batch to the collector's root and collect silent 404s.
+    OTEL_EXPORTER_OTLP_ENDPOINT = "http://otel-collector:4318"
+    OTEL_EXPORTER_OTLP_PROTOCOL = "http/protobuf"
+    OTEL_SERVICE_NAME           = "events-pipeline"
+    # Metrics do NOT travel over OTLP here (this function publishes its email
+    # counters with CloudWatch PutMetricData, scraped from there by the
+    # collector) and its logs travel stdout -> CloudWatch, not OTLP. Both must
+    # be disabled HERE rather than in code: NodeSDK auto-detects both exporters
+    # from OTEL_EXPORTER_OTLP_ENDPOINT, and an `undefined` SDK option reads as
+    # "not overridden", so auto-detection still wins. The collector serves
+    # /v1/traces only.
+    OTEL_METRICS_EXPORTER = "none"
+    OTEL_LOGS_EXPORTER    = "none"
   }
 }
 

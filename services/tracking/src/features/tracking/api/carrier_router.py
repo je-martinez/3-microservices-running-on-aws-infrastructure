@@ -53,6 +53,7 @@ from src.features.tracking.commands.update_status import (
 from src.features.tracking.domain.status import InvalidTransitionError
 from src.shared.http.carrier_auth import CarrierAuth
 from src.shared.http.dependencies import WriteSession
+from src.shared.observability import workflow_span
 
 logger = logging.getLogger(__name__)
 
@@ -99,39 +100,57 @@ def update_status(
     """
     command = UpdateTrackingStatusCommand(order_id=order_id, status=payload.status)
 
-    try:
-        tracking = update_tracking_status(session, command)
-    except ValueError as exc:
-        # `parse_status` rejected the value: not one of the five. Raised before
-        # anything was read, so nothing was written.
-        _log_failure(order_id, INVALID_STATUS_REASON)
-        raise _rejected(str(exc), INVALID_STATUS_REASON) from exc
-    except TrackingNotFoundError as exc:
-        # No ownership dimension here — nothing was filtered out by identity, so
-        # this genuinely means the order has no tracking.
-        _log_failure(order_id, "not_found")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="tracking not found",
-        ) from exc
-    except InvalidTransitionError as exc:
-        # The state machine's own reason: already_delivered / backward_transition /
-        # not_strictly_forward.
-        _log_failure(order_id, exc.reason.value)
-        raise _rejected(str(exc), exc.reason.value) from exc
+    # One INTERNAL span for the flow, carrying the same fields its log lines do.
+    # This is a plain `def` handler, so it runs on FastAPI's threadpool — the
+    # span is created and closed on that same worker thread, which is what keeps
+    # the SQLAlchemy spans of the update parented to it. The `reason` on each
+    # failure branch is set beside the log call, with the SAME token, so the two
+    # cannot drift.
+    with workflow_span(
+        "carrier_status_update",
+        app_event="carrier_status_update_started",
+        order_id=order_id,
+    ) as span:
+        try:
+            tracking = update_tracking_status(session, command)
+        except ValueError as exc:
+            # `parse_status` rejected the value: not one of the five. Raised before
+            # anything was read, so nothing was written.
+            span.set_attribute("reason", INVALID_STATUS_REASON)
+            _log_failure(order_id, INVALID_STATUS_REASON)
+            raise _rejected(str(exc), INVALID_STATUS_REASON) from exc
+        except TrackingNotFoundError as exc:
+            # No ownership dimension here — nothing was filtered out by identity, so
+            # this genuinely means the order has no tracking.
+            span.set_attribute("reason", "not_found")
+            _log_failure(order_id, "not_found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="tracking not found",
+            ) from exc
+        except InvalidTransitionError as exc:
+            # The state machine's own reason: already_delivered / backward_transition /
+            # not_strictly_forward.
+            span.set_attribute("reason", exc.reason.value)
+            _log_failure(order_id, exc.reason.value)
+            raise _rejected(str(exc), exc.reason.value) from exc
 
-    logger.info(
-        "carrier_status_update_succeeded",
-        extra={
-            "app_event": "carrier_status_update_succeeded",
-            "order_id": order_id,
-            "tracking_id": tracking.id,
-            "status": tracking.status,
-        },
-    )
-    # Rendered inside the request, while the session is still open: the history
-    # relationship must still be loadable.
-    return TrackingResponse.from_entity(tracking, tracking.history)
+        span.set_attribute("app_event", "carrier_status_update_succeeded")
+        span.set_attribute("tracking_id", tracking.id)
+        span.set_attribute("status", tracking.status)
+
+        logger.info(
+            "carrier_status_update_succeeded",
+            extra={
+                "app_event": "carrier_status_update_succeeded",
+                "order_id": order_id,
+                "tracking_id": tracking.id,
+                "status": tracking.status,
+            },
+        )
+        # Rendered inside the request, while the session is still open: the history
+        # relationship must still be loadable.
+        return TrackingResponse.from_entity(tracking, tracking.history)
 
 
 def _rejected(detail: str, reason: str) -> RejectedStatusUpdate:

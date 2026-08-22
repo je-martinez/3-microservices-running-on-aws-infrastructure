@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-19
-updated: 2026-08-16
+updated: 2026-08-21
 tags:
   - type/convention
   - area/shared
@@ -26,6 +26,8 @@ related:
   - "[[passwordless-auth-type]]"
   - "[[2026-08-12-custom-business-metrics-cloudwatch-design]]"
   - "[[health-check-logging]]"
+  - "[[2026-08-18-distributed-tracing-spans-design]]"
+  - "[[2026-08-18-distributed-tracing-spans]]"
 ---
 
 # Logging Context
@@ -37,7 +39,7 @@ Every log line attaches the following fields, identically defined across service
 | Field | Source | Present when |
 |---|---|---|
 | `request_id` | inbound `x-request-id` if valid, else generated | **always**, every service, every line |
-| `trace_id` / `span_id` | OpenTelemetry SDK (W3C) | always, **except events-pipeline** (see below) |
+| `trace_id` / `span_id` | OpenTelemetry SDK (W3C) | **always**, all five runtimes (Users, Orders, Tracking, events-pipeline, realtime-events) |
 | `cognito_sub` | JWT / `x-user-id` | authenticated request |
 | `user_id` | internal resolution (`usr_…`) | once identity resolved |
 | `email_hash` | SHA-256 of the trimmed, lowercased email, first 16 hex chars | whenever the email is known |
@@ -54,11 +56,16 @@ Every log line attaches the following fields, identically defined across service
 resolved value that happens to be null, not as "not applicable to this line" — that ambiguity is
 worse than the field's absence.
 
-> [!warning] events-pipeline has no `trace_id`/`span_id` today
-> The events-pipeline Lambda carries no OpenTelemetry SDK — zero `@opentelemetry/*` dependencies
-> in `functions/events-pipeline/package.json`, no `OTEL_*` variables in `infra/modules/lambda/`.
-> Every other producer/consumer in the shared context table emits `trace_id`/`span_id` on every
-> line; this is the one exception. Tracked as [JE-138](https://linear.app/je-martinez/issue/JE-138).
+> [!info] events-pipeline and realtime-events now emit `trace_id`/`span_id` too (JE-138, JE-159)
+> The events-pipeline Lambda used to carry no OpenTelemetry SDK at all; it now does, and its
+> `trace_id`/`span_id` are no longer the exception this table once carved out for them. Verified
+> in a real handler log line: `"trace_id":"fc8807db687455d360d72fe89402fd39",
+> "span_id":"6c5a3bb77d629f48"` — 32/16 lowercase hex, the same shape every other service already
+> produced. The 4 `functions/realtime-events` WebSocket entry points (`connect`, `disconnect`,
+> `default`, `authorizer`) got the SDK in the same milestone (JE-159), so they are no longer an
+> exception either. Full design and the packaging constraint that shaped how these Lambdas'
+> internal spans are created: [[2026-08-18-distributed-tracing-spans-design]] /
+> [[2026-08-18-distributed-tracing-spans]].
 
 > [!note] `author_*` fields — flattened, and prefixed on purpose
 > The events-pipeline derives `author_actor`/`author_user_id`/`author_cognito_sub` from the
@@ -86,12 +93,16 @@ characters stored total), following the `prefix_nanoid` shape [[nano-id]] alread
 entity ids (`ord_`, `usr_`, …). See [[nano-id#Format change (2026-08-15) — custom alphabet, 28
 characters stored]] for the full rationale.
 
-**Why it coexists with `trace_id` rather than replacing it.** The events-pipeline runs no OTel
-SDK at all (JE-138, see the warning above), and neither do the realtime WebSocket Lambdas — so
-`trace_id` is absent exactly where cross-service correlation is hardest. `request_id` has no SDK
-dependency and works identically in all four runtimes (Node, .NET, Python, Lambda) whether or not
-OTel is wired up. The two fields answer different questions and neither replaces the other: a
-service with full OTel coverage still carries both on the same line.
+**Why it coexists with `trace_id` rather than replacing it.** At the time this field was designed,
+the events-pipeline ran no OTel SDK at all, and neither did the realtime WebSocket Lambdas — so
+`trace_id` was absent exactly where cross-service correlation was hardest. Both now carry
+`trace_id`/`span_id` too (see the info callout above; JE-138, JE-159), so that gap has closed —
+but `request_id` remains valuable independently of that: it has no SDK dependency and works
+identically in all five runtimes (Node, .NET, Python, Lambda) whether or not OTel is wired up,
+and it survives the one hop `trace_id` cannot cross — the WebSocket frame to the browser client
+(see [[2026-08-18-distributed-tracing-spans-design#Decision 6 — realtime-events: IN scope|Decision 6]]'s
+honest limitation on that). The two fields answer different questions and neither replaces
+the other: a service with full OTel coverage still carries both on the same line.
 
 **Rule, applied once at the outermost ingress point of each service:**
 
@@ -169,6 +180,17 @@ shared context table already follows.
   or a validation-error message that echoes the offending input. See
   [[2026-08-05-passwordless-otp-auth-design]] and [[passwordless-auth-type]].
 
+> [!warning] Every PII rule above applies equally to span attributes, not just log fields
+> A workflow span's attributes are exported to OpenObserve the same way a log line is — both
+> signals share the one backend (see [[ADR-0019-distributed-tracing-opentelemetry]] Amendment,
+> 2026-08-21) — so there is no separate, laxer rule for spans. Never a plaintext email on a span
+> attribute (masked form or `email_hash` only, same as logs), and never an OTP code, in any form,
+> on a span attribute or a span's `reason`/status message. [[2026-08-18-distributed-tracing-spans-design]]
+> follows this by construction: workflow spans carry the same attribute set as the flow's log
+> line, so a producer that keeps the log clean keeps the span clean too — but it is stated here
+> explicitly because "the log rule" and "the span rule" are easy to treat as two separate things
+> to remember, and they are one rule applied to two exporters.
+
 > [!warning] Pitfall — mask at the call site, not in the ambient context
 > The masked email goes on the **log call site**, not in the AsyncLocalStorage context. Putting
 > it in the ambient per-request context leaked it onto every later line of the request, including
@@ -182,6 +204,15 @@ Trivial CRUD keeps only the automatic request log — noise is what makes logs u
 Pattern: `<flow>_started` / `<flow>_succeeded` / `<flow>_failed` in an `app_event` field, plus a
 `reason` field on failures, one branch per failure mode **that actually exists in the code** (not
 a speculative list).
+
+> [!info] The workflow span carries the SAME `app_event`/`reason` as the flow's log line
+> Each of the 11 flows with a full `app_event` triad also gets a manual `INTERNAL` workflow span
+> (`register`, `create_order`, `init_tracking`, …), carrying the exact same attributes as the
+> log line at the same point — `app_event`, `reason` on failure, plus whatever domain id the log
+> already has (`order_id`, `user_id`, …). Trace and logs tell the same story this way, and neither
+> needs the other to be understood; a `*_failed` span sets `ERROR` status with the identical
+> `reason` string the log carries, not a paraphrase of it. Full design:
+> [[2026-08-18-distributed-tracing-spans-design]].
 
 **There is no `SUCCESS` severity, by design.** The original input asked for a `[SUCCESS]` level;
 it is not an OpenTelemetry severity (the spec defines `TRACE`/`DEBUG`/`INFO`/`WARN`/`ERROR`/
@@ -218,8 +249,10 @@ graph before `sdk.start()` runs, and their instrumentation silently never patche
 
 ## Metrics — the third pillar, and why it does NOT go over OTLP
 
-Logs (OpenObserve, [[ADR-0018-observability-openobserve]]) and traces (Jaeger,
-[[ADR-0019-distributed-tracing-opentelemetry]]) travel over OTLP. Metrics deliberately do not:
+Logs ([[ADR-0018-observability-openobserve]]) and traces
+([[ADR-0019-distributed-tracing-opentelemetry]]) both travel over OTLP into OpenObserve — the
+single backend for both signals since Jaeger's removal (Amendment, 2026-08-21). Metrics
+deliberately do not:
 `OTEL_METRICS_EXPORTER=none` in every service is **correct and remains in place** — turning it on
 would open a second, parallel metrics path with different semantics for the same numbers. Instead,
 metrics are custom business/error counters and gauges published straight to **Amazon CloudWatch**
@@ -382,6 +415,63 @@ reach the shared schema.
 > `THIS IS INVALID STREAM` when it cannot resolve a real stream name. Use `service_name` and
 > `cloudwatch_log_group_name` instead.
 
+## Which spans answer OpenObserve's "View Logs" — and which never will
+
+> [!info] JE-179
+> Filed after "View Logs" on a span in OpenObserve repeatedly returned nothing, read each time as
+> a new bug. It isn't one: most spans in a trace belong to third-party instrumentation where our
+> code never runs, so there is no log line to return. This section exists so the empty result
+> reads as expected, not as a regression.
+
+**"View Logs" filters by `trace_id` AND `span_id`, with no fallback.** Per OpenObserve's own
+docs on the traces view (https://openobserve.ai/docs/user-guide/data-exploration/traces/traces/):
+"Select View Logs. The Logs page opens, filtered to the current trace_id and span_id." A span with
+no log line carrying that exact pair returns an empty page — this is the button working correctly,
+not a broken link. `trace_id_field_name`/`span_id_field_name` (this repo's organization settings)
+only rename which fields the filter targets; they are already correct here. `cross_links` is for
+linking a span to an *external* system, not for this. **There is no configuration knob that makes
+a third-party span's page non-empty** — the fix is not to look for one.
+
+**Measured on one real `create_order` trace** (`87a65b0cc3f1a30ffd177d9769461546`, spanning all
+four services):
+
+| | Count |
+|---|---|
+| Total spans | 49 |
+| With at least one log line | 7 |
+| With none | 42 |
+
+Of the 42 with no log line:
+
+| Group | Count | Examples |
+|---|---|---|
+| Third-party instrumentation — our code never runs inside them | 39 | `prisma:client:operation`, `prisma:client:serialize`, `prisma:client:db_query`, `pg-pool.connect`, `pg.connect`, EF Core internals, AWS SDK client spans (`SQS.SendMessage`, `HttpRequest`, `CredentialsRetrieval`), FastAPI's `http send`/`http receive` pair, `dns.lookup`, `tcp.connect` |
+| Ours, and have since been fixed (JE-179) | 3 | `sqs.publish order_created` (orders), `ses SendEmail` (events-pipeline), the gRPC client span for `/users.v1.Users/GetUserById` (tracking) |
+
+The 39 are not an oversight to close. Logging inside each of them would mean a line per DNS
+lookup and per connection-pool checkout — precisely the noise this convention already argues
+against elsewhere in this document (see [[health-check-logging]] and the health-check exemption
+above: 353 of 368 lines in one hour were a single health-check route). A span existing is not the
+same claim as "our code ran here"; only the second implies a log line.
+
+**The rule going forward:** every span **our own code** creates must emit at least one log line
+within its scope, or the exception is written down explicitly (as this section now does for the
+39 third-party spans). This repo currently creates spans at 33 call sites across five runtimes —
+users 15, orders 6, tracking 1, events-pipeline 7, realtime-events 4
+([[2026-08-18-distributed-tracing-spans-design]]) — and JE-179 closed the gap on the last 3 that
+had none.
+
+> [!warning] Measurement trap — a stale trace id looks like 0/49, not 42/49
+> The first attempt at counting "spans with a log line" against this same trace returned **zero**
+> matches for all 49 spans, which looked like every producer was broken at once. It wasn't: the
+> log lines had already aged out of OpenObserve's retention window while the trace itself was
+> still live in Jaeger (traces and logs did not share a retention clock — Jaeger has since been
+> removed, see [[ADR-0019-distributed-tracing-opentelemetry]] Amendment, so both signals now share
+> OpenObserve's one retention config; a fresh trace id is still the reliable habit regardless).
+> Re-running against fresh traffic — not a reused, already-old `trace_id` — produced the real
+> 7/49. Anyone re-measuring this should generate a new trace, not query an old id and conclude the
+> pipeline regressed.
+
 ## Per-service mechanism
 
 - **Users:** an AsyncLocalStorage store (`shared/logging/log-context.ts`), a sibling to the audit
@@ -429,7 +519,12 @@ reach the shared schema.
   `LogContextMiddleware` needed an explicit `except Exception: ...; raise` to count 5xx from
   unhandled exceptions at all.
 - [[events-pipeline-design]] — the `type` and `author_*` fields the pipeline emits on every
-  per-record log line, and why it has no `trace_id`/`span_id` yet (JE-138).
+  per-record log line; it now emits `trace_id`/`span_id` too (JE-138), see the info callout above.
+- [[2026-08-18-distributed-tracing-spans-design]] — the manual-spans design that closed JE-138
+  (events-pipeline) and JE-159 (realtime-events), and established that workflow spans carry the
+  same `app_event`/`reason` attributes as the flow log line.
+- [[2026-08-18-distributed-tracing-spans]] — the implementation plan; verified end to end
+  against a real Jaeger trace.
 - [[2026-08-05-passwordless-otp-auth-design]] — the entropy reasoning behind the never-log-an-OTP
   rule and the full logging design for `otp_challenge_created`.
 - [[2026-08-05-passwordless-otp-auth]] — the implementation plan that shipped it.

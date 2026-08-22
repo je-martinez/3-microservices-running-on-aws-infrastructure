@@ -35,6 +35,19 @@ event loop, and therefore the health check and every REST handler.
 UNLIKE that module, a per-tick error is swallowed and the loop CONTINUES. This
 loop has no natural end: a transient database blip or a CloudWatch outage must
 cost one datapoint, not the rest of the process's metrics.
+
+## Each tick is a trace of its own
+
+The loop runs on a timer, outside any request, so there is no ambient span for
+its work to hang off. Without a wrapper every tick's SQLAlchemy and boto3 spans
+reach Jaeger as their OWN root traces — 60 orphans named `connect` and
+`SELECT tracking` were measured in one hour — which buries the real request
+traces under fragments nobody can attribute to a process.
+
+So the tick body runs inside a `metrics-tick` span. The name is shared with
+Users and events-pipeline on purpose, so one Jaeger query means the same thing
+in every service. INTERNAL, not CONSUMER: events-pipeline's is CONSUMER because
+EventBridge wakes it; this one is our own timer and consumes nothing.
 """
 
 from __future__ import annotations
@@ -53,6 +66,7 @@ from src.shared.metrics.cloudwatch_metrics import (
     MetricsPublisher,
     shared_metrics_publisher,
 )
+from src.shared.observability import workflow_span
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +130,98 @@ def _query_status_counts() -> dict[str, int]:
         return {status: count for status, count in session.execute(stmt).all()}
 
 
+async def _publish_one_tick(
+    *,
+    publisher: MetricsPublisher,
+    query: Callable[[], dict[str, int]],
+) -> None:
+    """One tick's work — the query and every publish — inside `metrics-tick`.
+
+    The `with` lives INSIDE this coroutine rather than around the `create_task`
+    that spawns the loop. OTel's context is a `contextvars.ContextVar`, so a task
+    COPIES the context at creation time and changes do not flow back: a span
+    entered outside the task would not be the current one in here, and every
+    child would re-root itself exactly as before ([[logging-context]], and the
+    same rule `workflow_tracing.py` states).
+
+    Raises whatever the tick raised. The caller's `except` is deliberately
+    OUTSIDE the span, because a span can only come out ERROR if it SEES the
+    throw — catching in here would end every failed tick as OK.
+    """
+    with workflow_span("metrics-tick", app_event="metrics_tick_started") as span:
+        # Both the query and the publish are BLOCKING (pymysql, boto3), so both
+        # are pushed off the event loop. `asyncio.to_thread` copies the current
+        # context into the worker thread, so the span stays current in there and
+        # the SQLAlchemy/boto3 spans parent themselves to it.
+        raw = await asyncio.to_thread(query)
+        delivered, in_progress = collect_status_counts(raw)
+
+        await asyncio.to_thread(
+            publisher.publish,
+            METRIC_NAME,
+            delivered,
+            {"Service": SERVICE_DIMENSION, "Status": STATUS_DELIVERED},
+        )
+        await asyncio.to_thread(
+            publisher.publish,
+            METRIC_NAME,
+            in_progress,
+            {"Service": SERVICE_DIMENSION, "Status": STATUS_IN_PROGRESS},
+        )
+        # The TOTAL as its own published series, for two independent reasons —
+        # either alone would justify it:
+        #
+        # 1. CloudWatch under Floci does not aggregate across dimensions, so a
+        #    query omitting Status comes back empty.
+        # 2. Summing the two series in PromQL does not work either: the
+        #    collector stamps each scrape with a distinct start_time, so the
+        #    breakdowns rarely share a timestamp and `sum()` silently returns
+        #    only one of them.
+        #
+        # One number, one timestamp, computed where the data lives.
+        await asyncio.to_thread(
+            publisher.publish,
+            METRIC_NAME,
+            delivered + in_progress,
+            {"Service": SERVICE_DIMENSION, "Status": STATUS_ALL},
+        )
+
+        # Seed the failure counters at zero.
+        #
+        # `http_errors_total` is emitted from the error path only, so until
+        # something fails the series does not exist and a panel over it renders
+        # "Error Loading Data" — the incident card that should read "no errors"
+        # is the one that looks broken, which makes a real outage
+        # indistinguishable from a healthy system.
+        #
+        # A zero is arithmetically free: CloudWatch sums within a period, so it
+        # never changes a real count. Same rule already applied to the status
+        # breakdown above.
+        for status_class in HTTP_ERROR_CLASSES:
+            await asyncio.to_thread(
+                publisher.publish,
+                HTTP_ERRORS_METRIC,
+                0,
+                {"Service": SERVICE_DIMENSION, "StatusClass": status_class},
+            )
+
+        # Logged INSIDE the span, deliberately: the caller's failure line is
+        # outside it (see above), so a success line logged there would carry no
+        # span id and the span's "View logs" would come back empty. It also
+        # states WHAT went out — "the tick ran" alone would not distinguish a
+        # healthy publish from one that shipped zeros because the query matched
+        # nothing.
+        span.set_attribute("app_event", "metrics_tick_succeeded")
+        logger.info(
+            "metrics_tick_succeeded",
+            extra={
+                "app_event": "metrics_tick_succeeded",
+                "trackings_delivered": delivered,
+                "trackings_in_progress": in_progress,
+            },
+        )
+
+
 async def run_metrics_publisher(
     *,
     interval: float = DEFAULT_INTERVAL_SECONDS,
@@ -152,62 +258,7 @@ async def run_metrics_publisher(
         while True:
             await sleep(interval)
             try:
-                # Both the query and the publish are BLOCKING (pymysql, boto3),
-                # so both are pushed off the event loop.
-                raw = await asyncio.to_thread(query)
-                delivered, in_progress = collect_status_counts(raw)
-
-                await asyncio.to_thread(
-                    resolved.publish,
-                    METRIC_NAME,
-                    delivered,
-                    {"Service": SERVICE_DIMENSION, "Status": STATUS_DELIVERED},
-                )
-                await asyncio.to_thread(
-                    resolved.publish,
-                    METRIC_NAME,
-                    in_progress,
-                    {"Service": SERVICE_DIMENSION, "Status": STATUS_IN_PROGRESS},
-                )
-                # The TOTAL as its own published series, for two independent
-                # reasons — either alone would justify it:
-                #
-                # 1. CloudWatch under Floci does not aggregate across
-                #    dimensions, so a query omitting Status comes back empty.
-                # 2. Summing the two series in PromQL does not work either: the
-                #    collector stamps each scrape with a distinct start_time, so
-                #    the breakdowns rarely share a timestamp and `sum()`
-                #    silently returns only one of them.
-                #
-                # One number, one timestamp, computed where the data lives.
-                await asyncio.to_thread(
-                    resolved.publish,
-                    METRIC_NAME,
-                    delivered + in_progress,
-                    {"Service": SERVICE_DIMENSION, "Status": STATUS_ALL},
-                )
-
-                # Seed the failure counters at zero.
-                #
-                # `http_errors_total` is emitted from the error path only, so
-                # until something fails the series does not exist and a panel
-                # over it renders "Error Loading Data" — the incident card that
-                # should read "no errors" is the one that looks broken, which
-                # makes a real outage indistinguishable from a healthy system.
-                #
-                # A zero is arithmetically free: CloudWatch sums within a
-                # period, so it never changes a real count. Same rule already
-                # applied to the status breakdown above.
-                for status_class in HTTP_ERROR_CLASSES:
-                    await asyncio.to_thread(
-                        resolved.publish,
-                        HTTP_ERRORS_METRIC,
-                        0,
-                        {
-                            "Service": SERVICE_DIMENSION,
-                            "StatusClass": status_class,
-                        },
-                    )
+                await _publish_one_tick(publisher=resolved, query=query)
             except asyncio.CancelledError:
                 # Cancellation must never be caught by the per-tick handler
                 # below: swallowing it would make this loop unkillable and hang
@@ -215,6 +266,13 @@ async def run_metrics_publisher(
                 # re-raises again.
                 raise
             except Exception:  # noqa: BLE001 - one bad tick must not kill the loop
+                # OUTSIDE the span on purpose: the span had to see the throw to
+                # come out ERROR, so it has already ended by the time this runs.
+                # That is the accepted trade-off — this line does not share the
+                # tick span's id. The span still tells the failure story itself
+                # (ERROR status + recorded exception), and a `*_started` with no
+                # `*_succeeded` inside the span is what makes a failed tick
+                # legible in the trace.
                 logger.exception(
                     "metrics_collection_failed",
                     extra={

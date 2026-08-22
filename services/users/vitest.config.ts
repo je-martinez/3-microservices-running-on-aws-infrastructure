@@ -11,6 +11,10 @@ export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts"],
     environment: "node",
+    // Registers the in-memory tracer provider before any test module loads —
+    // a provider registered later never reaches module-scope tracers. See the
+    // comment in tests/setup-tracing.ts.
+    setupFiles: ["./tests/setup-tracing.ts"],
     env: {
       DATABASE_WRITER_URL: "postgres://user:pass@localhost:5432/users",
       DATABASE_READER_URL: "postgres://user:pass@localhost:5432/users",

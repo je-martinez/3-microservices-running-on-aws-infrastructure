@@ -1,4 +1,4 @@
-import { exec, jsonPath, StringBody } from "@gatling.io/core";
+import { exec, jsonPath, pause, StringBody, tryMax } from "@gatling.io/core";
 import { http, status } from "@gatling.io/http";
 import { fakeUser } from "../support/config.js";
 
@@ -67,24 +67,66 @@ export const register = exec(
  * token would collapse every later request onto one cognito_sub, hiding the
  * per-user query cost the dashboards are meant to show.
  */
-export const login = exec(
-  http("POST /v1/users/login")
-    .post("v1/users/login")
-    .body(
-      StringBody((session) =>
-        JSON.stringify({
-          email: session.get("email"),
-          password: session.get("password"),
-        }),
-      ),
-    )
-    .asJson()
-    .check(
-      status().is(200),
-      jsonPath("$.accessToken").saveAs("token"),
-      // Kept so the refresh step below has something to exchange.
-      jsonPath("$.refreshToken").saveAs("refreshToken"),
+const loginRequest = http("POST /v1/users/login")
+  .post("v1/users/login")
+  .body(
+    StringBody((session) =>
+      JSON.stringify({
+        email: session.get("email"),
+        password: session.get("password"),
+      }),
     ),
+  )
+  .asJson()
+  .check(
+    // Still 200 ONLY, and that is the point of the retry below. Widening this
+    // to accept 401 would be the wrong fix: a 401 saves no token, so every
+    // authenticated step after it sends `Bearer null` and 401s in turn — and it
+    // would destroy this suite's ability to ever detect genuinely broken auth.
+    // Same principle as `register` above: tolerating the failure status lets a
+    // broken system pass as healthy.
+    status().is(200),
+    jsonPath("$.accessToken").saveAs("token"),
+    // Kept so the refresh step below has something to exchange.
+    jsonPath("$.refreshToken").saveAs("refreshToken"),
+  );
+
+/**
+ * Log in, retrying briefly if the account has not propagated yet.
+ *
+ * A freshly registered account is not immediately usable in Floci's Cognito,
+ * and the window is narrow enough to be easy to miss. Measured over one full
+ * `load` run (341 successful logins): the register→login gap had median 1122ms
+ * and p95 1372ms, and only 26 logins fell under 150ms. SIX of those failed with
+ * `invalid_credentials` on accounts whose `register_succeeded` had fired only
+ * 80–140ms earlier, with no password change in between — every failure sat
+ * inside that sub-150ms band, and none outside it.
+ *
+ * The cost was out of all proportion to six requests: a failed login saves no
+ * token, so the rest of that virtual user's journey sent `Bearer null` and
+ * 401d, adding 26 more KO scattered across products, profile and orders. That
+ * cascade is what dragged the run to 98.58%, under the 99% gate — and the
+ * scattering is why it read as a broken auth chain rather than as one race.
+ *
+ * `tryMax(3)` retries the whole block, the same construct the Mailpit poll in
+ * auth-codes.ts uses for the other asynchronous dependency here. The retry is
+ * BOUNDED, and because the check above still demands a 200 carrying a token,
+ * exhausting the tries leaves the virtual user failed rather than quietly
+ * tokenless: a real auth outage still fails the run loudly, which is the point.
+ *
+ * The pause sits INSIDE the tried block and comes first, so it delays the
+ * initial attempt as well as the retries. That is deliberate: the caller that
+ * actually loses this race is fullJourney's "Error traffic" scenario, which
+ * chains `register` straight into `login` with no pause of its own, while the
+ * buyer and browser journeys already wait 1s and sit clear of the band. 400ms
+ * covers the observed 80–140ms failures with margin while staying well under
+ * the 1122ms median, so it does not distort the think-time other scenarios
+ * model.
+ */
+export const login = exec(
+  tryMax(3).on(
+    exec(pause({ amount: 400, unit: "milliseconds" })).exec(loginRequest),
+  ),
 );
 
 /**

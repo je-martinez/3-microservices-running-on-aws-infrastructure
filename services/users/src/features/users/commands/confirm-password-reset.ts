@@ -9,6 +9,8 @@ import { setLogContext } from "#shared/logging/log-context";
 import { hashEmail } from "#shared/logging/email-hash";
 import { maskEmail } from "#shared/logging/email-mask";
 import { InvalidResetCodeError } from "#shared/auth/auth-errors";
+import { trace } from "@opentelemetry/api";
+import { withWorkflowSpan } from "#shared/observability/workflow-tracing";
 
 export interface ConfirmPasswordResetInput {
   email: string;
@@ -45,7 +47,18 @@ export class ConfirmPasswordResetCommand {
     this.metrics = metricsPublisher;
   }
 
+  // NEVER put `input.code` or `input.newPassword` on a span attribute. Both are
+  // live credentials and a span is exported exactly like a log line, so the
+  // rule the log call sites below follow applies here unchanged.
   async execute(input: ConfirmPasswordResetInput): Promise<void> {
+    return withWorkflowSpan(
+      "password_reset_confirm",
+      { app_event: "password_reset_confirm_started", email_hash: hashEmail(input.email) },
+      () => this.doExecute(input),
+    );
+  }
+
+  private async doExecute(input: ConfirmPasswordResetInput): Promise<void> {
     setLogContext({ email_hash: hashEmail(input.email) });
     appLogger.info(
       { app_event: "password_reset_confirm_started", email: maskEmail(input.email) },
@@ -133,6 +146,10 @@ export class ConfirmPasswordResetCommand {
       },
       "Password reset confirmed and new password applied",
     );
+    trace.getActiveSpan()?.setAttributes({
+      app_event: "password_reset_confirm_succeeded",
+      user_id: user!.id,
+    });
 
     // Counted on CONFIRM, not on request: /password/forgot answers 202 even for an
     // unknown email (deliberate non-enumeration), so counting requests there would
@@ -148,6 +165,13 @@ export class ConfirmPasswordResetCommand {
       { app_event: "password_reset_confirm_failed", email: maskEmail(email), reason },
       "Password reset confirmation rejected",
     );
+    // Set on the span from the SAME place the log line is written, so the two
+    // can never drift apart across the two rejection branches (`unknown_email`
+    // and `invalid_or_expired_code`) that share this helper. The reason names
+    // the class of rejection only — never the submitted code.
+    trace
+      .getActiveSpan()
+      ?.setAttributes({ app_event: "password_reset_confirm_failed", reason });
     throw new InvalidResetCodeError();
   }
 }

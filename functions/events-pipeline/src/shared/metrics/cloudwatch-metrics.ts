@@ -1,6 +1,8 @@
 import { CloudWatchClient, PutMetricDataCommand } from "@aws-sdk/client-cloudwatch";
+import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import { env } from "#shared/config/env";
 import { appLogger } from "#shared/logging/app-logger";
+import { pipelineTracer } from "#shared/observability/tracing";
 
 /** The one namespace every 3MRAI metric is published under. */
 export const METRICS_NAMESPACE = "3MRAI";
@@ -38,36 +40,97 @@ export async function publishMetric(
   name: string,
   value: number,
   dimensions: Record<string, string>,
+  // Distinguishes sibling publishes of the SAME metric in the waterfall. Only
+  // publishEmailMetric passes it today (per-template vs the ALL rollup); a
+  // single-series caller leaves the span named after the metric alone, as before.
+  spanLabel?: string,
 ): Promise<void> {
+  // Opened BEFORE the enabled check returns, so a disabled exporter produces no
+  // span at all rather than a zero-duration one implying a call was made.
   if (!env.METRICS_ENABLED) return;
 
-  try {
-    await getClient().send(
-      new PutMetricDataCommand({
-        Namespace: METRICS_NAMESPACE,
-        MetricData: [
-          {
-            MetricName: name,
-            Value: value,
-            Unit: "Count",
-            Dimensions: Object.entries(dimensions).map(([Name, Value]) => ({ Name, Value })),
-          },
-        ],
-      }),
-    );
-  } catch (err) {
-    // Swallowed on purpose — see the function docstring. Only the message
-    // reaches the log: metric names and dimensions here are low-cardinality
-    // labels from our own code, never PII.
-    appLogger.warn(
-      {
-        app_event: "metric_publish_failed",
-        reason: err instanceof Error ? err.message : String(err),
-        metric_name: name,
+  // Manual CLIENT span, same bundling reason as the DocumentDB and SES ones: the
+  // AWS SDK is inlined by esbuild, so nothing auto-instruments this.
+  //
+  // It was the LAST hole in `process_record`. With the DocumentDB transitions and
+  // the template render instrumented, a ~44ms gap still sat between `ses
+  // SendEmail` and `ws publish` — this call, twice: publishEmailMetric emits a
+  // per-template series AND an ALL rollup, so one "publish a metric" is two round
+  // trips. Two spans is the honest rendering of that, and it is why the gap was
+  // wider than a single PutMetricData would explain.
+  //
+  // NOT withClientSpan: that helper rethrows, and this function's entire contract
+  // is that it never does. A metric failure must not fail the record, so the span
+  // records the failure and the function still returns normally — the span status
+  // reports what happened to the CALL, not to the caller.
+  // The metric name is IN the span name, not only in the attribute below. A
+  // waterfall renders names: `publishEmailMetric` emits two data points per
+  // email (a per-template series and an ALL rollup), so a record showed two
+  // identical `cloudwatch PutMetricData` bars and telling them apart — or
+  // knowing what either one published — took a click into the attributes. Same
+  // reasoning as `documentdb updateOne <STATUS>`.
+  //
+  // The metric name alone was not enough: both of those publishes carry the SAME
+  // metric, so they still rendered identically and the pair kept reading as a
+  // duplicated call. `spanLabel` appends what actually differs — the EmailType —
+  // which is the last step of the same idea, not a new one.
+  await pipelineTracer.startActiveSpan(
+    spanLabel === undefined
+      ? `cloudwatch PutMetricData ${name}`
+      : `cloudwatch PutMetricData ${name} (${spanLabel})`,
+    {
+      kind: SpanKind.CLIENT,
+      attributes: {
+        "rpc.system": "aws-api",
+        "rpc.service": "CloudWatch",
+        "rpc.method": "PutMetricData",
+        "metric.name": name,
+        // Queryable form of the same distinction the span name now carries: a
+        // name is for reading a waterfall, an attribute is for filtering a
+        // dashboard, and neither should require parsing the other.
+        ...(dimensions.EmailType === undefined
+          ? {}
+          : { "metric.email_type": dimensions.EmailType }),
       },
-      "failed to publish metric",
-    );
-  }
+    },
+    async (span) => {
+      try {
+        await getClient().send(
+          new PutMetricDataCommand({
+            Namespace: METRICS_NAMESPACE,
+            MetricData: [
+              {
+                MetricName: name,
+                Value: value,
+                Unit: "Count",
+                Dimensions: Object.entries(dimensions).map(([Name, Value]) => ({ Name, Value })),
+              },
+            ],
+          }),
+        );
+        span.setStatus({ code: SpanStatusCode.OK });
+      } catch (err) {
+        // Swallowed on purpose — see the function docstring. Only the message
+        // reaches the log: metric names and dimensions here are low-cardinality
+        // labels from our own code, never PII. The same string is safe on the
+        // span for the same reason.
+        span.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: err instanceof Error ? err.message : String(err),
+        });
+        appLogger.warn(
+          {
+            app_event: "metric_publish_failed",
+            reason: err instanceof Error ? err.message : String(err),
+            metric_name: name,
+          },
+          "failed to publish metric",
+        );
+      } finally {
+        span.end();
+      }
+    },
+  );
 }
 
 /**
@@ -83,16 +146,18 @@ export async function publishEmailMetric(
   templateKey: string,
   extraDimensions: Record<string, string> = {},
 ): Promise<void> {
-  await publishMetric(name, 1, {
-    Service: SERVICE_DIMENSION,
-    EmailType: templateKey,
-    ...extraDimensions,
-  });
-  await publishMetric(name, 1, {
-    Service: SERVICE_DIMENSION,
-    EmailType: "ALL",
-    ...extraDimensions,
-  });
+  await publishMetric(
+    name,
+    1,
+    { Service: SERVICE_DIMENSION, EmailType: templateKey, ...extraDimensions },
+    templateKey,
+  );
+  await publishMetric(
+    name,
+    1,
+    { Service: SERVICE_DIMENSION, EmailType: "ALL", ...extraDimensions },
+    "ALL",
+  );
 }
 
 /** Test seam, mirroring resetSesClientForTests. */

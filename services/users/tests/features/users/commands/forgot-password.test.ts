@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { SpanStatusCode } from "@opentelemetry/api";
 import { ForgotPasswordCommand } from "#features/users/commands/forgot-password";
+import { testSpanExporter } from "../../../setup-tracing.ts";
 import { RESET_CODE_TTL_SECONDS } from "#shared/auth/reset-code";
 
 const EMAIL = "jose@example.com";
@@ -88,5 +90,71 @@ describe("ForgotPasswordCommand", () => {
 
     await expect(command.execute({ email: EMAIL })).resolves.toBeUndefined();
     expect(resetCodeStore.store).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ForgotPasswordCommand tracing", () => {
+  beforeEach(() => testSpanExporter.reset());
+
+  it("emits a 'password_reset_requested' span with password_reset_requested_succeeded for a known email", async () => {
+    const { command } = build();
+
+    await command.execute({ email: EMAIL });
+
+    const span = testSpanExporter
+      .getFinishedSpans()
+      .find((s) => s.name === "password_reset_requested");
+    expect(span).toBeDefined();
+    expect(span!.attributes.app_event).toBe("password_reset_requested_succeeded");
+    expect(span!.attributes.user_id).toBe("usr_1");
+    expect(span!.status.code).toBe(SpanStatusCode.OK);
+  });
+
+  // ==== NO USER ENUMERATION, IN THE TRACE BACKEND TOO ====
+  // The unknown-email branch is a SUCCESS with reason=unknown_email in the log,
+  // and the span says exactly the same. An ERROR span here would rebuild the
+  // oracle the endpoint refuses to be, just somewhere else.
+  it("marks an unknown email as a success with reason=unknown_email, matching the log", async () => {
+    const { command } = build({ user: null });
+
+    await command.execute({ email: "nobody@example.com" });
+
+    const span = testSpanExporter
+      .getFinishedSpans()
+      .find((s) => s.name === "password_reset_requested");
+    expect(span!.status.code).toBe(SpanStatusCode.OK);
+    expect(span!.attributes.app_event).toBe("password_reset_requested_succeeded");
+    expect(span!.attributes.reason).toBe("unknown_email");
+  });
+
+  it("emits an ERROR span when the flow throws, with the span closed", async () => {
+    // The publish failure is deliberately swallowed, so the error path is
+    // reached through the store instead — what is asserted is that the span
+    // still closes and reports ERROR when something does escape.
+    const { command, resetCodeStore } = build();
+    resetCodeStore.store.mockRejectedValueOnce(new Error("redis down"));
+
+    await expect(command.execute({ email: EMAIL })).rejects.toThrow("redis down");
+
+    const span = testSpanExporter
+      .getFinishedSpans()
+      .find((s) => s.name === "password_reset_requested");
+    expect(span!.ended).toBe(true);
+    expect(span!.status.code).toBe(SpanStatusCode.ERROR);
+  });
+
+  it("never puts the minted code or the plaintext email on the span", async () => {
+    const { command, resetCodeStore } = build();
+
+    await command.execute({ email: EMAIL });
+
+    const [, code] = resetCodeStore.store.mock.calls[0]!;
+    const span = testSpanExporter
+      .getFinishedSpans()
+      .find((s) => s.name === "password_reset_requested");
+    const serialized = JSON.stringify(span!.attributes);
+    expect(serialized).not.toContain(code as string);
+    expect(serialized).not.toContain(EMAIL);
+    expect(span!.attributes.email_hash).toBeDefined();
   });
 });

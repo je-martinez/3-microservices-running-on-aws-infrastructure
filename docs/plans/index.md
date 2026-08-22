@@ -4,9 +4,11 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-08-10
+updated: 2026-08-18
 tags: [type/spec, area/shared, status/active]
 related:
+  - "[[2026-08-18-distributed-tracing-spans-design]]"
+  - "[[2026-08-18-distributed-tracing-spans]]"
   - "[[2026-06-26-implementation-workflow]]"
   - "[[developer-experience-milestone]]"
   - "[[2026-07-19-scripts-to-python-migration-design]]"
@@ -46,6 +48,7 @@ related:
   - "[[2026-08-05-realtime-tracking-events-websocket]]"
   - "[[2026-08-10-product-catalogue-image-categories-design]]"
   - "[[2026-08-10-product-catalogue-image-categories]]"
+  - "[[observability-telemetry-milestone]]"
 ---
 
 # 3MRAI Plans — Index
@@ -93,6 +96,9 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-08-05-realtime-tracking-events-websocket]] — implementation plan for the realtime WebSocket feature: the `dynamodb` and `api-gateway-ws` Terraform modules, the new `functions/realtime-events/` package, the events-pipeline publisher, Tracking's `author.cognito_sub` propagation, and the gateway E2E suite. All three gateway E2E tests pass (full E2E suite 83/83); see [[events-pipeline-design#Realtime WebSocket fan-out (second output of TRACKING_STATUS_CHANGED)]] and [[floci-websocket-apigw-dynamodb-support]].
 - [[2026-08-10-product-catalogue-image-categories-design]] — design spec for enriching the Orders product catalogue with a display image (`uri`/`width`/`height`/`blurhash`) and a category array, replacing the three placeholder products with the eight from the web-app design.
 - [[2026-08-10-product-catalogue-image-categories]] — implementation plan for the catalogue enrichment: `ProductImage` value object + MySQL `json` columns with `ValueConverter`/`ValueComparer` pairs, the eight-product reseed, API DTOs composing the absolute asset URL, blurhash computed into the assets manifest, and gateway E2E.
+- [[2026-08-18-distributed-tracing-spans-design]] — design spec for manual OpenTelemetry spans: the 11 flow-log-carrying workflows across Users/Orders/Tracking, the SQS `traceparent`-in-`MessageAttributes` hop with span links (not parent-child) into events-pipeline, per-record spans there, realtime-events' 4 entry points, and the new Prisma/AWS-SDK auto-instrumentation.
+- [[2026-08-18-distributed-tracing-spans]] — implementation plan for the tracing design: per-service workflow-span helpers (`withWorkflowSpan` in Users, `IWorkflowTracer` in Orders, `workflow_span` in Tracking), the 3 SQS publishers' traceparent injection (a 4th producer, the Cognito OTP trigger, was found and fixed later — see [[ADR-0019-distributed-tracing-opentelemetry]]), events-pipeline's manual DocumentDB/SES/WS spans (auto-instrumentation cannot cross its esbuild CJS bundle), realtime-events' 4 independently-bundled Lambdas, the collector's `memory_limiter`, and a full-trace E2E with the JE-77 anti-regression assertion.
+- [[observability-telemetry-milestone]] — logical execution plan for the Observability & Telemetry milestone: task sequence and dependency graph for the distributed-tracing-spans work (5 parallel workstreams, the SQS traceparent dependency gate, events-pipeline/JE-138, and the closing full-trace E2E).
 
 > [!note] No plan note for the AuditActor enum
 > [[2026-07-12-audit-actor-enum-design]] was implemented directly from the spec — there is no separate `writing-plans` plan for it.
@@ -138,3 +144,6 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-08-05-realtime-tracking-events-websocket]]
 - [[2026-08-10-product-catalogue-image-categories-design]]
 - [[2026-08-10-product-catalogue-image-categories]]
+- [[2026-08-18-distributed-tracing-spans-design]]
+- [[2026-08-18-distributed-tracing-spans]]
+- [[observability-telemetry-milestone]]

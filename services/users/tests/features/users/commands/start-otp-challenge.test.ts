@@ -1,5 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { SpanStatusCode } from "@opentelemetry/api";
 import { StartOtpChallengeCommand } from "#features/users/commands/start-otp-challenge";
+import { testSpanExporter } from "../../../setup-tracing.ts";
 import { InvalidCredentialsError } from "#shared/auth/auth-errors";
 
 function deps(overrides: Record<string, unknown> = {}) {
@@ -70,5 +72,48 @@ describe("StartOtpChallengeCommand", () => {
 
     infoSpy.mockRestore();
     errorSpy.mockRestore();
+  });
+});
+
+describe("StartOtpChallengeCommand tracing", () => {
+  beforeEach(() => testSpanExporter.reset());
+
+  it("emits an 'otp_challenge' span with app_event=otp_challenge_succeeded on success", async () => {
+    await new StartOtpChallengeCommand(deps()).execute({ email: "a@b.co" });
+
+    const span = testSpanExporter.getFinishedSpans().find((s) => s.name === "otp_challenge");
+    expect(span).toBeDefined();
+    expect(span!.attributes.app_event).toBe("otp_challenge_succeeded");
+    expect(span!.status.code).toBe(SpanStatusCode.OK);
+  });
+
+  it("emits an 'otp_challenge' span with ERROR status and reason=cognito_error on failure", async () => {
+    const command = new StartOtpChallengeCommand(
+      deps({
+        startOtpChallenge: vi.fn(async () => {
+          throw new Error("cognito down");
+        }),
+      }),
+    );
+
+    await expect(command.execute({ email: "a@b.co" })).rejects.toThrow("cognito down");
+
+    const span = testSpanExporter.getFinishedSpans().find((s) => s.name === "otp_challenge");
+    expect(span!.ended).toBe(true);
+    expect(span!.status.code).toBe(SpanStatusCode.ERROR);
+    expect(span!.attributes.app_event).toBe("otp_challenge_failed");
+    expect(span!.attributes.reason).toBe("cognito_error");
+  });
+
+  it("never puts the session or the plaintext email on the span", async () => {
+    // The session buys tokens, so it is credential-adjacent — no more loggable
+    // as a span attribute than as a log field.
+    await new StartOtpChallengeCommand(deps()).execute({ email: "ada@example.com" });
+
+    const span = testSpanExporter.getFinishedSpans().find((s) => s.name === "otp_challenge");
+    const serialized = JSON.stringify(span!.attributes);
+    expect(serialized).not.toContain("sess_abc");
+    expect(serialized).not.toContain("ada@example.com");
+    expect(span!.attributes.email_hash).toBeDefined();
   });
 });

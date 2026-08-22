@@ -77,3 +77,16 @@ opentelemetry-instrumentation-sqlalchemy==0.65b0
 # what injects the W3C traceparent into the gRPC metadata, so a Tracking request
 # and the Users work it triggers land in ONE trace instead of two disjoint ones.
 opentelemetry-instrumentation-grpc==0.65b0
+# SQS CLIENT instrumentation — the `boto3.client("sqs", ...)` in
+# shared/messaging/sqs_event_publisher.py, the one AWS call on a request path.
+# It produces the PRODUCER span for the TRACKING_STATUS_CHANGED publish, so the
+# events-pipeline Lambda's work links back to the transition that caused it.
+#
+# SCOPE LIMIT, stated so it is not mistaken for a gap later: this package covers
+# the SQS client ONLY. Tracking's OTHER boto3 client — CloudWatch
+# (shared/metrics/cloudwatch_metrics.py, features/tracking/commands/publish_metrics.py)
+# — stays UNINSTRUMENTED on purpose. Spanning it would need
+# opentelemetry-instrumentation-botocore, and PutMetricData is a background tick
+# on no request's trace: it would add a stream of parentless spans that answer
+# nobody's question.
+opentelemetry-instrumentation-boto3sqs==0.65b0

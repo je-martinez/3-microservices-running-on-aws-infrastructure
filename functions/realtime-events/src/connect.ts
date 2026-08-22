@@ -1,3 +1,7 @@
+// Tracing FIRST, above every other import: this bundle has no `node --import`
+// step, so "runs first" is decided purely by import order in the entry file.
+import { flushTraces, wsTracer } from "#shared/observability/tracing";
+import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import type { APIGatewayProxyResult } from "aws-lambda";
 import { saveConnection } from "#shared/connections-repository";
 import { logger } from "#shared/logging/logger";
@@ -10,6 +14,30 @@ interface ConnectEvent {
 }
 
 export async function handler(event: ConnectEvent): Promise<APIGatewayProxyResult> {
+  return wsTracer.startActiveSpan("ws_connect", { kind: SpanKind.SERVER }, async (span) => {
+    try {
+      const result = await connectInternal(event);
+      span.setStatus({
+        code: result.statusCode === 200 ? SpanStatusCode.OK : SpanStatusCode.ERROR,
+      });
+      return result;
+    } catch (err) {
+      span.recordException(err as Error);
+      span.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+      throw err;
+    } finally {
+      // Both lines are load-bearing. A span not ended never reaches Jaeger, and
+      // it does not show up as an error — it silently vanishes. And the flush
+      // MUST be here, in THIS file: the four entry points compile into four
+      // standalone bundles with no shared runtime, so there is nowhere central
+      // to drain the batch before Lambda freezes the process.
+      span.end();
+      await flushTraces();
+    }
+  });
+}
+
+async function connectInternal(event: ConnectEvent): Promise<APIGatewayProxyResult> {
   const connectionId = event.requestContext.connectionId;
   // From the authorizer's returned context — verified on Floci to propagate
   // intact. NEVER read the token from the query string here: this handler does

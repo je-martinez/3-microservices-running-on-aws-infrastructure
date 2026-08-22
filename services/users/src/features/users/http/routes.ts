@@ -8,6 +8,7 @@ import { RecordNotFoundError } from "#shared/db/db-errors";
 import { buildLoggerOptions } from "#shared/logging/logger";
 import { logContext } from "#shared/logging/log-context";
 import { REQUEST_ID_HEADER, resolveRequestId } from "#shared/logging/request-id";
+import { withHttpServerSpan } from "#shared/observability/request-span";
 import { env } from "#shared/config/env";
 import { isPublicRoute } from "#shared/http/public-routes";
 import { CurrentUser } from "#shared/auth/current-user";
@@ -149,20 +150,45 @@ export function buildApp(
       reply.statusCode < 300;
 
     if (!isHealthySoak) {
-      req.log.info(
-        {
-          http_request_method: req.method,
-          http_route: route,
-          http_response_status_code: reply.statusCode,
-          duration_ms: reply.elapsedTime,
-          // NO `trace_id: req.id` here. Pino injects the REAL OTel trace_id and
-          // span_id on every line once the SDK is active, and explicit fields beat
-          // the ambient ones — so passing Fastify's local request counter would
-          // override the real id on the single most useful log line, breaking the
-          // join between logs and traces.
-        },
-        "request completed",
-      );
+      // Emitted with the request's HTTP SERVER span active, NOT with whatever
+      // span happens to be active in this hook. `@fastify/otel` wraps every
+      // Fastify hook in its own span, so without this the logger's formatter
+      // stamps `span_id` = the "onResponse - fastify -> @fastify/otel" hook
+      // span, and clicking `POST /v1/users/register` in OpenObserve -> "View
+      // logs" (a `span_id`+`trace_id` filter) returns NOTHING — the one line
+      // carrying http_route/status/duration is filed under a span nobody looks
+      // at. See shared/observability/request-span.ts for the measured span tree
+      // and why RPC metadata is the supported way to reach that span.
+      //
+      // NOT the JE-77 trap ([[grpc-context-activate-at-dispatch]]): that one is
+      // about activating a context around a callback that returns before the
+      // real work is dispatched. Here the work IS the `req.log.info` call, which
+      // Pino performs synchronously inside this callback, so the span is still
+      // active when the record is formatted. The test asserts the resulting
+      // `span_id` rather than trusting that reasoning.
+      withHttpServerSpan(req, () => {
+        req.log.info(
+          {
+            http_request_method: req.method,
+            http_route: route,
+            http_response_status_code: reply.statusCode,
+            duration_ms: reply.elapsedTime,
+            // NO `trace_id: req.id` here. The REAL OTel trace_id and span_id are
+            // stamped on every line by shared/logging/logger.ts's formatter, read
+            // from the active span, and explicit fields beat the ambient ones — so
+            // passing Fastify's local request counter would override the real id on
+            // the single most useful log line, breaking the join between logs and
+            // traces.
+            //
+            // This used to credit @opentelemetry/instrumentation-pino for the
+            // injection. That package is not a dependency of this service and is
+            // not in getNodeAutoInstrumentations' bundle, so nothing was injecting
+            // anything and every line here shipped WITHOUT a trace id — see the
+            // formatter's comment.
+          },
+          "request completed",
+        );
+      });
     }
 
     // Error-rate metric. ONLY 4xx/5xx are counted: a metric per 2xx would be a
@@ -558,10 +584,13 @@ export function buildApp(
           // header note for the 404/409 alternatives considered). Cognito
           // retries the trigger in prod on a non-2xx, so a transient race
           // self-heals.
-          req.log.error(
-            { err, app_event: "cognito_webhook_no_match" },
-            "cognito webhook: no matching users row for confirmed identity",
-          );
+          //
+          // The `cognito_webhook_no_match` line is emitted by the command, not
+          // here: this point is OUTSIDE the `cognito_webhook` span, which has
+          // already ended by the time the error surfaces, so a line logged here
+          // carries a different span_id and is invisible from the span in
+          // OpenObserve. Logging it in both places would double-count the
+          // failure instead.
           return reply.code(500).send({ error: "no_matching_user" });
         }
         throw err;

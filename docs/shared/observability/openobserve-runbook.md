@@ -4,14 +4,15 @@ type: runbook
 area: shared
 status: active
 created: 2026-07-10
-updated: 2026-08-16
+updated: 2026-08-21
 integration-status: verified
-verified-on: 2026-08-16
+verified-on: 2026-08-21
 verified-by: Jose E. Martinez
 tags: [type/runbook, area/shared, status/active]
 related:
   - "[[openobserve-cloudwatch]]"
   - "[[ADR-0018-observability-openobserve]]"
+  - "[[ADR-0019-distributed-tracing-opentelemetry]]"
   - "[[2026-07-10-openobserve-migration]]"
   - "[[local-dev]]"
   - "[[2026-07-16-structured-logging-and-dashboards-design]]"
@@ -20,6 +21,8 @@ related:
   - "[[logging-context]]"
   - "[[2026-08-12-custom-business-metrics-cloudwatch-design]]"
   - "[[2026-08-16-cloudwatch-lambda-log-prefix-defeats-json-parse]]"
+  - "[[scripting-language]]"
+  - "[[observability-telemetry-milestone]]"
 ---
 
 # OpenObserve — Local Runbook
@@ -41,9 +44,10 @@ for why OpenObserve was chosen over SigNoz.
 make observability-up
 ```
 
-Starts OpenObserve, **Jaeger** (traces — ADR-0019 routes them there because OpenObserve's own
-trace ingest rejected them), and the OTel collector. UI at http://localhost:5080 once healthy
-(~5s); Jaeger UI at http://localhost:16686.
+Starts OpenObserve and the OTel collector. UI at http://localhost:5080 once healthy (~5s) —
+**logs and traces both live there now**; see [Traces](#traces) below for how to open a trace
+waterfall. Jaeger is gone (removed 2026-08-21, see [[ADR-0019-distributed-tracing-opentelemetry]]
+Amendment) — there is no second UI to check.
 
 The target also **imports the dashboards automatically**: it polls OpenObserve's `/healthz`
 first (openobserve declares no compose healthcheck, so `up -d` returns before the container
@@ -193,9 +197,64 @@ treats the symptom, and the next new producer reintroduces the same gap.
 make observability-down
 ```
 
-This target stops **only** OpenObserve, Jaeger, and the collector by naming the three services
+This target stops **only** OpenObserve and the collector by naming the two services
 explicitly — a bare `docker compose --profile observability stop` would stop the whole
 project, not just observability.
+
+## Traces
+
+Traces share the same OpenObserve instance and org as logs (org `3mrai`, stream `app_traces`,
+port `:5080`) — there is no separate tracing UI. See
+[[ADR-0019-distributed-tracing-opentelemetry]] (Amendment, 2026-08-21) for why: Jaeger was
+introduced because OpenObserve's trace **ingest** rejected the collector's batches with HTTP 400;
+that no longer reproduces on v0.91.1 (48,764 spans measured ingesting correctly), so Jaeger was
+removed and the collector's traces pipeline now exports to `otlp_http/openobserve_traces` alone.
+
+### Opening a trace waterfall
+
+1. Open http://localhost:5080, log in (see credentials above).
+2. Traces view → search or paste a `trace_id` (every log line carries one — see
+   [[logging-context]] — so pivoting from a log to its trace is a copy-paste of the same field,
+   no second system involved).
+3. Click into a trace to render its waterfall.
+
+> [!danger] `code 20004 "Search field not found: ... gen_ai_operation_name"` on every trace
+> **Symptom.** Opening ANY trace's waterfall returns HTTP 400 from
+> `/api/{org}/{stream}/traces/{trace_id}/dag` with:
+> ```json
+> {"code":20004,"message":"Search field not found: Schema error: No field named gen_ai_operation_name."}
+> ```
+> This affects **100% of traces**, not one broken trace — the spans themselves ingested fine (this
+> is a query-side failure, not the ingest-side 400 the ADR-0019 amendment above documents; do not
+> confuse the two).
+>
+> **Cause.** The waterfall endpoint unconditionally SELECTs `gen_ai_operation_name`, a column from
+> OpenObserve's LLM-tracing feature. Nothing in this repo emits `gen_ai.*` attributes, so the
+> `app_traces` stream's inferred schema never has the column, and the query fails outright.
+>
+> **Verified NOT a version bug.** v0.92.2 (latest release, published 2026-08-17) was run side by
+> side on port 5081, fed the same 56 real spans, and returned the identical 400. Upgrading does
+> not fix this.
+>
+> **Fix.** The field only has to **exist** — OpenObserve infers a stream's schema from ingested
+> data, so seeding one throwaway span carrying `gen_ai.*` attributes adds the columns; every real
+> span then reports them `null`, which the query accepts. Implemented as
+> `scripts/seed_traces_schema.py`, exposed as `make observability-traces-schema`, and chained into
+> `make observability-up` — run it manually if you ever see the 400 outside a fresh `up`:
+> ```bash
+> make observability-traces-schema
+> ```
+> Idempotent — it checks the schema first and re-seeding is a no-op once the columns are present.
+>
+> **Why this must be automated, not a one-off fix.** The schema lives in the `openobserve-data`
+> volume, which `make clean` deletes (see [[local-dev]]). A hand-run seed survives only until the
+> next from-scratch rebuild, at which point the waterfall breaks again pointing at a field nobody
+> in this repo has heard of — the same "lives in a volume `make clean` deletes, so it must be
+> chained into `observability-up`" shape as the dashboard auto-import above.
+>
+> **Verified end to end.** A clean OpenObserve instance with an empty volume was fed 56 real spans
+> → `/dag` returned HTTP 400 → `make observability-traces-schema` → `/dag` returned HTTP 200 with
+> 56 nodes.
 
 ## Verification
 
@@ -252,8 +311,9 @@ Dashboards query both signals now: the `snake_case` structured-`logs` schema (`s
 `http_route`, `http_response_status_code`, `duration_ms`, etc. — see
 [[2026-07-16-structured-logging-and-dashboards-design]]) and, since
 [[2026-08-12-custom-business-metrics-cloudwatch-design]], the per-metric
-`amazonaws_com_3mrai_*` streams via PromQL (see the gotcha on query type below). Traces stay out
-of OpenObserve — they go to Jaeger (see [[ADR-0019-distributed-tracing-opentelemetry]]).
+`amazonaws_com_3mrai_*` streams via PromQL (see the gotcha on query type below). Traces live in
+OpenObserve too, in the `app_traces` stream — see [Traces](#traces) above — but dashboards here
+query logs and metrics only; there is no trace panel type in the current dashboard schema.
 
 Dashboards exist per service — `users.dashboard.json`, `orders.dashboard.json`,
 `tracking.dashboard.json`, `events-pipeline.dashboard.json` — plus `overview.dashboard.json`
@@ -287,7 +347,10 @@ Dashboards exist per service — `users.dashboard.json`, `orders.dashboard.json`
 > Docker version. Use OpenObserve to view logs instead of `compose logs`.
 
 > [!warning] Observability containers can strand on a dead Docker network
-> Verified live on 2026-07-16: `3mrai-otel-collector-1` and `3mrai-openobserve-1` were found in
+> Verified live on 2026-07-16, back when Jaeger was still a third service here (removed
+> 2026-08-21 — see [[ADR-0019-distributed-tracing-opentelemetry]] Amendment). Kept as the
+> historical record of the `--force-recreate` fix; the command below now names only the two
+> services that still exist. `3mrai-otel-collector-1` and `3mrai-openobserve-1` were found in
 > `Exited (128)` state. They had been created ~6 days earlier and stayed attached to a Docker
 > network ID that no longer existed — the rest of the compose stack (`users`, `orders`, `floci`,
 > DBs) had since been recreated, which recreated the network, but the observability containers
@@ -303,17 +366,19 @@ Dashboards exist per service — `users.dashboard.json`, `orders.dashboard.json`
 > `observability-up` target now passes `--force-recreate`, scoped to just the observability
 > services, so re-running it self-heals by forcing them to re-attach to the current network:
 > ```makefile
-> $(COMPOSE) --profile observability up -d --force-recreate openobserve jaeger otel-collector
+> $(COMPOSE) --profile observability up -d --force-recreate openobserve otel-collector
 > ```
 > The scoping matters: an **unscoped** `--force-recreate` bounces the whole app stack (users,
 > orders, tracking, events-pipeline, floci all get recreated too) — verified live. Always name
-> the services explicitly. `jaeger` must be named too, and its earlier absence from this list
-> (it sat only in `profiles: [observability]`, in no target) was the entire reason traces went
-> nowhere — a profile alone does not start a service.
+> the services explicitly — at the time this was verified, `jaeger` had to be named too, and its
+> earlier absence from this list (it sat only in `profiles: [observability]`, in no target) was
+> the entire reason traces went nowhere — a profile alone does not start a service. That lesson
+> about naming every service explicitly still applies; there are simply two services to name now
+> instead of three.
 >
 > Manual recovery, if ever needed outside the target:
 > ```bash
-> docker rm -f 3mrai-otel-collector-1 3mrai-openobserve-1 3mrai-jaeger-1
+> docker rm -f 3mrai-otel-collector-1 3mrai-openobserve-1
 > make observability-up   # now force-recreates them onto the current network
 > ```
 
@@ -334,6 +399,11 @@ against Floci.
 - [[2026-07-10-openobserve-migration-design]] — the design spec for the OpenObserve backend this runbook operates.
 - [[logging-context]] — the shared context fields the `logs`/`sql`/`docdb` streams' records carry.
 - [[2026-08-12-custom-business-metrics-cloudwatch-design]] — the metrics pipeline and streams referenced above.
-- [[ADR-0019-distributed-tracing-opentelemetry]] — why traces go to Jaeger, not OpenObserve.
+- [[ADR-0019-distributed-tracing-opentelemetry]] — the tracing-backend decision; its 2026-08-21
+  Amendment records the removal of Jaeger and the move to OpenObserve as the single backend for
+  both logs and traces, which the [Traces](#traces) section above operationalizes.
 - [[2026-08-16-cloudwatch-lambda-log-prefix-defeats-json-parse]] — one of the four recurring
   causes of records landing unclassified: the Lambda CloudWatch prefix defeating the JSON parse.
+- [[scripting-language]] — why `scripts/seed_traces_schema.py` is Python, standard library only.
+- [[observability-telemetry-milestone]] — the milestone during which Jaeger was removed and the
+  Traces section above was written.

@@ -6,8 +6,40 @@ import {
   RespondToAuthChallengeCommand,
   type CognitoIdentityProviderClient,
 } from "@aws-sdk/client-cognito-identity-provider";
+import { context, propagation } from "@opentelemetry/api";
 import type { AuthProvider, AuthTokens, CognitoSignUpResult, RefreshedTokens } from "./auth-provider.ts";
 import { InvalidCredentialsError, EmailAlreadyExistsError, InvalidOtpError } from "./auth-errors.ts";
+
+
+// The trace context handed DOWN to the Cognito CUSTOM_AUTH trigger.
+//
+// That trigger — infra/modules/cognito/otp-challenge-lambda — is what publishes
+// AUTH_OTP_REQUESTED to SQS, so it is a FOURTH producer on that queue alongside
+// Users, Orders and Tracking. Unlike them it cannot inject a traceparent
+// itself: Cognito invokes it, so this request's context never reaches it, and
+// it ships zero dependencies on purpose (no OTel SDK, not even the AWS SDK).
+//
+// ClientMetadata is the only caller-controlled field Cognito forwards to a
+// trigger verbatim, so it is the seam. The trigger shape-checks what arrives
+// and copies it onto the SQS message as the `traceparent` attribute, which is
+// exactly what the other three publishers set — so the pipeline reads this
+// message through the same code path as theirs.
+//
+// Returns UNDEFINED, never `{}`, when no span is active: `propagation.inject`
+// writes nothing without one, and passing an empty ClientMetadata would send a
+// field with nothing usable in it. Same "omitted, never blank" rule the SQS
+// publisher's own traceparent follows — see the note on `traceparentAttributes`
+// in shared/messaging/event-publisher.ts, and [[logging-context]].
+//
+// Unlike that one, this value SURVIVES to the wire: no aws-sdk instrumentation
+// re-injects over Cognito's ClientMetadata the way it does over SQS
+// MessageAttributes, so the id read by the pipeline is the one written here.
+function traceContextMetadata(): Record<string, string> | undefined {
+  const carrier: Record<string, string> = {};
+  propagation.inject(context.active(), carrier);
+
+  return Object.keys(carrier).length > 0 ? carrier : undefined;
+}
 
 export class CognitoAuthProvider implements AuthProvider {
   constructor(
@@ -108,6 +140,9 @@ export class CognitoAuthProvider implements AuthProvider {
           ClientId: this.clientId,
           AuthFlow: "CUSTOM_AUTH",
           AuthParameters: { USERNAME: email },
+          // Carries this request's trace down to the challenge trigger, which
+          // publishes the OTP event and cannot obtain the context any other way.
+          ClientMetadata: traceContextMetadata(),
         }),
       );
     } catch (e: any) {

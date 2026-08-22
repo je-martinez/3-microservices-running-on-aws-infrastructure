@@ -15,6 +15,7 @@ using Orders.Infrastructure.Grpc;
 using Orders.Infrastructure.Id;
 using Orders.Infrastructure.Messaging;
 using Orders.Infrastructure.Metrics;
+using Orders.Infrastructure.Observability;
 using Orders.Infrastructure.Orders;
 using Orders.Infrastructure.Persistence;
 using Orders.Infrastructure.Tracking;
@@ -48,6 +49,24 @@ builder.Services.AddOpenTelemetry()
         .AddAspNetCoreInstrumentation()
         .AddHttpClientInstrumentation()
         .AddEntityFrameworkCoreInstrumentation()
+        // What makes SqsEventPublisher's SendMessageAsync produce a CLIENT span.
+        .AddAWSInstrumentation()
+        // REQUIRED, not decorative: .NET's tracing pipeline drops every
+        // ActivitySource it was not explicitly told about, so without this line
+        // the manually-created "create_order" Activity is still built and still
+        // costs work, but never leaves the process — no error, no span in
+        // Jaeger. Same silent failure class as unregistered instrumentation.
+        // Register the source in the SAME change that creates one.
+        .AddSource(WorkflowTracer.ActivitySourceName)
+        // The SQS publish span. Same rule as the line above — unregistered means
+        // created-but-never-exported, silently. It is also the span whose context
+        // travels as the message's `traceparent`, so without this line the queue hop
+        // still works but its parent never appears in Jaeger.
+        .AddSource(SqsEventPublisher.ActivitySourceName)
+        // The CloudWatch publish span, which names the metric it sends
+        // (`cloudwatch PutMetricData orders_created_total`). Same rule again:
+        // unregistered means created-but-never-exported, with no error anywhere.
+        .AddSource(CloudWatchMetricsPublisher.ActivitySourceName)
         // No Endpoint set here ON PURPOSE. The exporter reads the standard
         // OTEL_EXPORTER_OTLP_ENDPOINT (set in docker-compose.yml) as a BASE url
         // and appends the signal path itself, per the OTLP spec.
@@ -159,7 +178,10 @@ builder.Services.AddScoped<OrderReadService>();
 var assetsBaseUrl = builder.Configuration["ASSETS_BASE_URL"]
     ?? "http://localhost:4566/post-3mrai-local-post-assets";
 builder.Services.AddScoped(sp => new ProductReadService(
-    sp.GetRequiredService<OrdersReadDbContext>(), assetsBaseUrl));
+    sp.GetRequiredService<OrdersReadDbContext>(),
+    assetsBaseUrl,
+    sp.GetRequiredService<IWorkflowTracer>(),
+    sp.GetRequiredService<ILogger<ProductReadService>>()));
 
 // Write side (write replica in prod; same MySQL locally).
 var writerCs = builder.Configuration["DATABASE_WRITER_URL"]!;
@@ -324,12 +346,16 @@ builder.Services.AddOpenApi("v1", options =>
 // Tax rate now lives in the `configuration` table, read per-request via the read
 // DbContext instead of the removed ORDERS_TAX_RATE env var.
 builder.Services.AddScoped<IConfigurationReader, ConfigurationReader>();
+// Singleton: it holds no per-request state at all — the Activity it works on is
+// the ambient Activity.Current, which .NET already scopes per async flow.
+builder.Services.AddSingleton<IWorkflowTracer, WorkflowTracer>();
 builder.Services.AddScoped(sp => new CreateOrderService(
     sp.GetRequiredService<OrdersWriteDbContext>(),
     sp.GetRequiredService<IUserDirectory>(),
     sp.GetRequiredService<IEventPublisher>(),
     sp.GetRequiredService<IConfigurationReader>(),
     sp.GetRequiredService<ITrackingInitiator>(),
+    sp.GetRequiredService<IWorkflowTracer>(),
     sp.GetRequiredService<ILogger<CreateOrderService>>()));
 
 var app = builder.Build();

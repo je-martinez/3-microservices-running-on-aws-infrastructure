@@ -43,6 +43,15 @@ from lib3mrai.db import COMPOSE_NETWORK, discover_port
 FLOCI_URL = "http://localhost:4566"
 NGINX_ALIAS = "nginx-stable"
 
+# The generated env files whose services export traces. Read as files rather
+# than asked of a running container: the question is whether a service is
+# CONFIGURED to export, which is true whether or not it is currently up.
+TRACE_EXPORTING_ENV_FILES = (
+    ".env.local.users",
+    ".env.local.orders",
+    ".env.local.tracking",
+)
+
 # Repo root, derived from this file's location (infra/scripts/doctor.py) rather
 # than the working directory, so the check reads the same env file no matter
 # where the doctor is invoked from.
@@ -73,6 +82,13 @@ SERVICE_PORTS = {"users": 3000, "orders": 3001, "tracking": 3002}
 # returns a healthy 200. A diagnostic that reports a working service as broken
 # because of address-family resolution order is worse than no diagnostic.
 LOOPBACK = "127.0.0.1"
+
+# The collector's health_check extension, as configured in
+# observability/otel-collector-config.yaml and published in docker-compose.yml.
+# Deliberately NOT the OTLP ingest ports (4317/4318): those answer only to a
+# well-formed OTLP payload, so probing them would mean sending a synthetic trace
+# just to ask whether the collector is alive.
+OTEL_COLLECTOR_HEALTH_URL = f"http://{LOOPBACK}:13133"
 
 
 class Report:
@@ -411,6 +427,60 @@ def check_services(report: Report, attempts: int = 3, sleep_s: int = 2) -> None:
             )
 
 
+def check_otel_collector(report: Report) -> None:
+    """Catch services configured to export traces at a collector that is not running.
+
+    Same family of blind spot as the tables-without-a-database check: every
+    service reports healthy, every request succeeds, and the defect lives
+    entirely in what is MISSING. A span export is not part of a request — when
+    the collector refuses the connection the SDK drops the batch and the service
+    carries on answering 200. Nothing in the service's logs says so.
+
+    That failure has already been paid for here once. `make observability-up`
+    recreates a named list of services, and jaeger sat in
+    `profiles: [observability]` and in no target — so it was the one component
+    of the tracing path that never ran. The only symptom was an empty Jaeger UI:
+    the exporter's retries ("no children to pick from", then "Exporting failed.
+    Dropping data.") were buried in the collector's own log, which nobody reads
+    when the thing they are debugging appears to work.
+
+    Reported only when a service is actually CONFIGURED to export, so a stack
+    that has never generated its env files is not nagged about a collector it
+    does not use.
+    """
+    configured = [
+        name for name in TRACE_EXPORTING_ENV_FILES
+        if (ROOT / name).exists()
+        and "OTEL_EXPORTER_OTLP_ENDPOINT" in (ROOT / name).read_text()
+    ]
+    if not configured:
+        inf("    Tracing: no service exports traces yet (skipped)")
+        return
+
+    try:
+        with urllib.request.urlopen(OTEL_COLLECTOR_HEALTH_URL, timeout=3) as response:
+            if response.status == 200:
+                report.passed(
+                    f"otel-collector is reachable on :13133 "
+                    f"({len(configured)} service(s) exporting traces)"
+                )
+                return
+            detail = f"HTTP {response.status}"
+    except urllib.error.HTTPError as exc:
+        # An answer, even a non-200 one, still proves something is listening —
+        # but not that it is healthy, so it is reported rather than passed.
+        detail = f"HTTP {exc.code}"
+    except (urllib.error.URLError, OSError) as exc:
+        detail = str(exc)
+
+    report.failed(
+        f"{', '.join(configured)} set OTEL_EXPORTER_OTLP_ENDPOINT but the "
+        f"otel-collector is NOT reachable at {OTEL_COLLECTOR_HEALTH_URL} "
+        f"({detail}) — every span is being dropped, silently",
+        "make observability-up",
+    )
+
+
 def main() -> int:
     report = Report()
 
@@ -438,6 +508,9 @@ def main() -> int:
 
     print("\n== Service health ==")
     check_services(report)
+
+    print("\n== Tracing ==")
+    check_otel_collector(report)
 
     print()
     if report.failures:

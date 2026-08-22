@@ -1,3 +1,18 @@
+// Tracing FIRST, above every other import: this bundle has no `node --import`
+// step, so "runs first" is decided purely by import order in the entry file.
+import { flushTraces, pipelineTracer as tracer } from "#shared/observability/tracing";
+import {
+  ROOT_CONTEXT,
+  SpanKind,
+  SpanStatusCode,
+  context,
+  defaultTextMapGetter,
+  trace,
+  type Context,
+  type Link,
+  type SpanContext,
+} from "@opentelemetry/api";
+import { W3CTraceContextPropagator } from "@opentelemetry/core";
 import { EnvelopeSchema, type Envelope } from "#domain/envelope";
 import { processRecord, type EventsRepositoryPort } from "#pipeline/process-record";
 import type { EventDocument, EventStatus } from "#domain/event";
@@ -10,12 +25,23 @@ import { runWithLogContext, type LogContextStore } from "#shared/logging/log-con
 import { publishMetric, SERVICE_DIMENSION } from "#shared/metrics/cloudwatch-metrics";
 
 // Minimal structural shape of the slice of the SQS event this function reads.
-// Deliberately not `SQSEvent` from @types/aws-lambda: only `messageId` and
-// `body` are consumed, and narrowing the input to what is actually used keeps
-// the unit tests free of 15 irrelevant required fields per record.
-interface SqsRecord {
+// Deliberately not `SQSEvent` from @types/aws-lambda: only `messageId`, `body`
+// and the one message attribute below are consumed, and narrowing the input to
+// what is actually used keeps the unit tests free of 15 irrelevant required
+// fields per record.
+export interface SqsRecord {
   messageId: string;
   body: string;
+  // The W3C `traceparent` the three publishers (Users, Orders, Tracking) inject
+  // into MessageAttributes. Reading it is what joins this Lambda's spans to the
+  // trace that produced the message — declared here because a field this
+  // interface does not name is not a compile error at the call site, it is
+  // simply `undefined`: the traceparent would arrive and be dropped in silence.
+  //
+  // Optional because a redelivered message published before the publishers were
+  // deployed carries none, and so does the EventBridge tick path. Absent is a
+  // legitimate shape, not a fault — see the link extraction in processBatch.
+  messageAttributes?: Record<string, { stringValue?: string } | undefined>;
 }
 
 interface SqsEvent {
@@ -48,11 +74,9 @@ interface BatchResponse {
 // `buildLoggerOptions` schema Users uses, so a line from here and a line from
 // Users are indistinguishable downstream.
 //
-// `trace_id`/`span_id` are absent for now: this function is NOT instrumented
-// yet — there is no @opentelemetry/* dependency and no SDK bootstrap in the
-// bundle. They will appear automatically once the SDK is added (tracked
-// separately); a locally-invented id would correlate with nothing, so nothing
-// synthesizes one here.
+// `trace_id`/`span_id` come from the OTel SDK bootstrapped in
+// #shared/observability/tracing — nothing here synthesizes them; a
+// locally-invented id would correlate with nothing.
 //
 // Unknown fields are OMITTED, never emitted as null — an `order_id: null` reads
 // as "resolved to null" rather than "not applicable to this line".
@@ -97,6 +121,100 @@ function envelopeContext(envelope: Envelope, messageId: string): LogContextStore
     ...(envelope.request_id === undefined ? {} : { request_id: envelope.request_id }),
     message_id: messageId,
   };
+}
+
+// A propagator instance of our own, rather than the global `propagation` API.
+// The global one is only a real decoder once some SDK has registered it, and
+// `propagation.extract` on the unregistered default is a NO-OP that returns the
+// context untouched — no error, no link, a cascade that just quietly stops at
+// this Lambda. Owning the instance makes the decode a property of this file
+// instead of a property of whatever ran first. It is the SAME W3C decoder the
+// publishers' `inject` wrote with, so `tracestate` and any future version byte
+// stay handled for free.
+const traceContextPropagator = new W3CTraceContextPropagator();
+
+// The span context of the trace that PUBLISHED this record, or undefined.
+//
+// Extracted from ROOT_CONTEXT, never from `context.active()`. On a malformed or
+// unparseable traceparent the propagator returns the context it was GIVEN,
+// unchanged — and the active context here already holds this Lambda's own batch
+// span. Extracting from it would hand back that span's context and attach the
+// record to the very batch processing it: a reference that looks valid, points
+// at the wrong trace, and is indistinguishable from a real one downstream. From
+// the root there is nothing to fall back to, so a bad value yields nothing at
+// all, which is the honest answer.
+function originSpanContext(record: SqsRecord): SpanContext | undefined {
+  const traceparent = record.messageAttributes?.traceparent?.stringValue;
+  if (traceparent === undefined) return undefined;
+
+  return trace.getSpanContext(
+    traceContextPropagator.extract(ROOT_CONTEXT, { traceparent }, defaultTextMapGetter),
+  );
+}
+
+// How a record span attaches to the trace that published its message.
+//
+// EVERY record is parented to its OWN origin, whatever the batch size. A batch
+// of N records from N different requests therefore produces N continuous
+// cascades — create_order -> SQS.SendMessage -> process_record -> ses SendEmail
+// — one per order, instead of N detached ones.
+//
+// This replaced a hybrid that parented only when the batch held exactly one
+// record and fell back to FOLLOWS_FROM links otherwise. That fallback existed
+// because the record spans were children of the BATCH span, and a span has
+// exactly one parent: with several origins the handler had to pick one and
+// misattribute every other record. Parenting each record to its own origin
+// dissolves the conflict rather than working around it — the records no longer
+// share a parent, so there is nothing left to pick.
+//
+// The trade, made deliberately: the batch span is no longer an ancestor of the
+// record spans, so a trace view no longer groups an invocation's work by
+// ancestry. `batchSpanLinks` below restores that view as LINKS, which is the
+// shape OpenTelemetry's messaging conventions prescribe for a consumer covering
+// N origins (https://opentelemetry.io/docs/specs/semconv/messaging/messaging-spans/).
+// The question this optimizes for is "what happened to THIS order", not "what
+// did THAT invocation do".
+//
+// What this buys operationally: `batch_size` stops being a tracing decision. It
+// was pinned to 1 purely so the parent branch was the only branch, at the cost
+// of one invocation per message; it can now be tuned for throughput without
+// detaching the pipeline from the requests that drive it.
+interface RecordSpanAttachment {
+  // Passed to startActiveSpan as the parent context. `undefined` means "use the
+  // active context", i.e. the batch span — the fallback for a record that
+  // carries no usable traceparent.
+  parentContext?: Context;
+  links: Link[];
+}
+
+function recordSpanAttachment(record: SqsRecord): RecordSpanAttachment {
+  const spanContext = originSpanContext(record);
+  if (spanContext === undefined) return { links: [] };
+
+  return { parentContext: trace.setSpanContext(ROOT_CONTEXT, spanContext), links: [] };
+}
+
+// The batch span's links: one per DISTINCT origin trace the batch carried.
+//
+// This is what keeps the invocation legible now that the record spans live in
+// other traces. Without it the batch span would be an island — it would report
+// a message count and nothing about the work behind it.
+//
+// Deduplicated by trace id: several records of one batch can come from the SAME
+// request (an order that emits two events), and repeating that trace would
+// suggest more distinct origins than the invocation actually served.
+//
+// Records with no traceparent contribute nothing, which is the honest encoding:
+// there is no origin to point at.
+function batchSpanLinks(records: SqsRecord[]): Link[] {
+  const byTraceId = new Map<string, SpanContext>();
+  for (const record of records) {
+    const spanContext = originSpanContext(record);
+    if (spanContext !== undefined && !byTraceId.has(spanContext.traceId)) {
+      byTraceId.set(spanContext.traceId, spanContext);
+    }
+  }
+  return [...byTraceId.values()].map((context) => ({ context }));
 }
 
 // Cold-start-scoped: indexes are ensured once per execution environment, not
@@ -225,10 +343,76 @@ export async function handler(event: HandlerEvent): Promise<BatchResponse> {
   // connection for nothing every minute — and, worse, any future work added to
   // the record loop would run on a schedule against an empty batch.
   if (isMetricsTick(event)) {
-    await seedEmailCounters();
-    return { batchItemFailures: [] };
+    // A NEW trace with NO link. This invocation originates from an EventBridge
+    // timer, not from a message a service published, so there is no origin
+    // trace to point at — linking it to anything would be an invention.
+    return tracer.startActiveSpan("metrics-tick", { kind: SpanKind.CONSUMER }, async (span) => {
+      try {
+        await seedEmailCounters();
+        span.setStatus({ code: SpanStatusCode.OK });
+        return { batchItemFailures: [] };
+      } catch (err) {
+        span.recordException(err as Error);
+        span.setStatus({ code: SpanStatusCode.ERROR, message: errorMessage(err) });
+        throw err;
+      } finally {
+        span.end();
+        await flushTraces();
+      }
+    });
   }
 
+  // One CONSUMER span for the whole batch — the SQS receive side of the hop, the
+  // counterpart of each publisher's PRODUCER span. It is deliberately NOT
+  // parented to any origin trace: it represents the INVOCATION, which no single
+  // request caused.
+  //
+  // It is no longer the record spans' ancestor either — those now live in their
+  // own origin traces (see recordSpanAttachment). The links below are what tie
+  // this invocation to the work it did.
+  //
+  // `batchSpanLinks` is computed defensively for the same reason the record
+  // count is set inside the span rather than here: a malformed delivery with no
+  // `Records` would throw while building the OPTIONS, i.e. before the span
+  // exists, and the invocation would vanish from the trace instead of failing
+  // visibly. An unreadable batch yields no links and still opens the span.
+  const links = Array.isArray(event.Records) ? batchSpanLinks(event.Records) : [];
+
+  return tracer.startActiveSpan(
+    "events-queue process",
+    { kind: SpanKind.CONSUMER, links, attributes: { "messaging.system": "aws_sqs" } },
+    async (batchSpan) => {
+      try {
+        // The batch size is set INSIDE the span, not in the options above. A
+        // malformed delivery with no Records at all throws on `.length`, and
+        // from the options that throw happens BEFORE the span exists — the
+        // failed invocation would then produce no span at all, exactly the
+        // silent gap the `finally` below exists to prevent.
+        batchSpan.setAttribute("messaging.batch.message_count", event.Records.length);
+        const result = await processBatch(event);
+        batchSpan.setStatus({ code: SpanStatusCode.OK });
+        return result;
+      } catch (err) {
+        batchSpan.recordException(err as Error);
+        batchSpan.setStatus({ code: SpanStatusCode.ERROR, message: errorMessage(err) });
+        throw err;
+      } finally {
+        // Both lines are load-bearing. A span not ended never reaches Jaeger,
+        // and it does not show up as an error — it silently vanishes. And the
+        // flush must happen HERE, before returning: Lambda freezes the process
+        // on return, so an unflushed batch is lost or shipped on some later
+        // invocation under the wrong request.
+        batchSpan.end();
+        await flushTraces();
+      }
+    },
+  );
+}
+
+// Everything the entrypoint used to do inline, now running INSIDE the batch
+// span: the DocumentDB bootstrap, the record loop and the batchItemFailures
+// assembly.
+async function processBatch(event: SqsEvent): Promise<BatchResponse> {
   const batchItemFailures: { itemIdentifier: string }[] = [];
 
   let repository: MongoEventsRepository;
@@ -292,13 +476,55 @@ export async function handler(event: HandlerEvent): Promise<BatchResponse> {
       continue;
     }
 
+    // One span PER RECORD, attached to the trace that published the message —
+    // as a real PARENT when this batch carries exactly one record, as a LINK
+    // when it carries several. See recordSpanAttachment for why the size of the
+    // batch is what decides. Both fields are empty when the message carries no
+    // traceparent, which is a valid shape (a pre-instrumentation redelivery),
+    // not a failure.
+    const { parentContext, links } = recordSpanAttachment(record);
+
     // One ALS scope per record: everything logged inside — here, in the state
     // machine, in the SES sender — carries this envelope's identity without any
     // call site spreading it by hand. Scoping per record (not per invocation) is
     // what keeps one record's event_id off the next one's lines.
-    const failedTransiently = await runWithLogContext(
-      envelopeContext(envelope, record.messageId),
-      () => processOneRecord(envelope, repository),
+    //
+    // The log context is entered INSIDE the span so the two nest the same way
+    // they read: every line for this record is emitted while the record span is
+    // the active one.
+    //
+    // The parent context is passed as startActiveSpan's 3rd argument, which the
+    // API only accepts when the callback is 4th — hence the explicit
+    // `context.active()` for the branches that have no remote parent. Omitting
+    // it there would parent the record span to ROOT_CONTEXT and orphan it from
+    // the batch span, silently.
+    const failedTransiently = await tracer.startActiveSpan(
+      "process_record",
+      {
+        kind: SpanKind.INTERNAL,
+        links,
+        attributes: { "messaging.message.id": record.messageId },
+      },
+      parentContext ?? context.active(),
+      (recordSpan) =>
+        runWithLogContext(envelopeContext(envelope, record.messageId), async () => {
+          try {
+            const failed = await processOneRecord(envelope, repository);
+            // A record that must be redelivered is an ERROR on its OWN span
+            // only — the sibling records and the batch span stay OK, which is
+            // the trace-side counterpart of batchItemFailures.
+            recordSpan.setStatus({
+              code: failed ? SpanStatusCode.ERROR : SpanStatusCode.OK,
+            });
+            return failed;
+          } catch (err) {
+            recordSpan.recordException(err as Error);
+            recordSpan.setStatus({ code: SpanStatusCode.ERROR, message: errorMessage(err) });
+            throw err;
+          } finally {
+            recordSpan.end();
+          }
+        }),
     );
 
     // Only transient failures come back. A permanent one is already persisted as

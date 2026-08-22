@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Amazon.SQS;
 using Amazon.SQS.Model;
@@ -6,6 +7,7 @@ using Moq;
 using Orders.Application.Abstractions;
 using Orders.Infrastructure.Id;
 using Orders.Infrastructure.Messaging;
+using Orders.Tests.Observability;
 
 namespace Orders.Tests.Messaging;
 
@@ -423,6 +425,267 @@ public class SqsEventPublisherTests
         Assert.Equal("String", attributes["type"].DataType);
         Assert.Equal("orders", attributes["source"].StringValue);
         Assert.Equal("String", attributes["source"].DataType);
+    }
+
+    // The trace hop across the queue. Unlike `type`/`source`, this attribute duplicates
+    // nothing in the body — it is how the consumer joins its own spans to the HTTP request
+    // that produced the message. Asserted on the attributes, never on the body: the
+    // envelope is a Zod-validated contract with no traceparent field.
+    [Fact]
+    public async Task Injects_the_active_activitys_traceparent_as_a_message_attribute()
+    {
+        using var listener = ListenToEverything();
+        using var source = new ActivitySource(TestActivitySourceName);
+        var (publisher, sqs, _) = Build();
+
+        // StartActivity returns null unless something LISTENS to the source, and a null
+        // activity would make this test pass for the wrong reason — so it is asserted.
+        using var activity = source.StartActivity("publish-test");
+        Assert.NotNull(activity);
+
+        await Publish(publisher);
+
+        var attributes = Assert.Single(sqs.Requests).MessageAttributes;
+        var traceparent = attributes["traceparent"];
+        Assert.Equal("String", traceparent.DataType);
+        // W3C format: version-traceid-spanid-flags. Matching the shape rather than only
+        // "not empty" is what catches a hand-built string or a non-W3C Activity id format.
+        Assert.Matches("^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$", traceparent.StringValue);
+        // Same TRACE as the caller's activity — a well-formed traceparent belonging to a
+        // different trace would correlate nothing. Asserted on the trace id alone: the
+        // SPAN id is deliberately NOT the caller's, which is what the test below pins.
+        Assert.Equal(activity.TraceId.ToHexString(), traceparent.StringValue.Split('-')[1]);
+    }
+
+    // The regression test for the span-hierarchy bug: the message's traceparent named the
+    // enclosing WORKFLOW span (create_order), not the send. The consumer parents its work
+    // to whatever it receives, so process_record came out a SIBLING of the publish instead
+    // of its child — expanding the send in the waterfall showed AWS SDK internals and none
+    // of the work it actually caused.
+    //
+    // Asserted against the SpanId the publisher's own activity REPORTED at runtime, not a
+    // re-derivation of the value under test: comparing the attribute to itself would pass
+    // against any implementation, including the broken one.
+    [Fact]
+    public async Task Injects_the_publish_spans_traceparent_not_the_enclosing_workflows()
+    {
+        var started = new List<Activity>();
+        using var listener = ListenToEverything(started);
+        using var source = new ActivitySource(TestActivitySourceName);
+        var (publisher, sqs, _) = Build();
+
+        // Stands in for create_order: the workflow span the publish happens inside.
+        using var workflow = source.StartActivity("create_order");
+        Assert.NotNull(workflow);
+
+        await Publish(publisher);
+
+        var publishSpan = Assert.Single(
+            started, a => a.OperationName == SqsEventPublisher.PublishActivityName);
+
+        // A CHILD of the workflow, so the cascade stays one connected trace rather than
+        // the publish starting a detached root.
+        Assert.Equal(workflow.SpanId, publishSpan.ParentSpanId);
+        Assert.Equal(workflow.TraceId, publishSpan.TraceId);
+
+        var traceparent = Assert.Single(sqs.Requests).MessageAttributes["traceparent"].StringValue;
+        var spanId = traceparent.Split('-')[2];
+
+        // THE POINT: the id on the wire is the publish span's...
+        Assert.Equal(publishSpan.SpanId.ToHexString(), spanId);
+        // ...and specifically NOT the workflow's. Stated separately so a future change that
+        // collapses the two spans into one fails here with the reason spelled out, instead
+        // of silently satisfying the assertion above.
+        Assert.NotEqual(workflow.SpanId.ToHexString(), spanId);
+    }
+
+    [Fact]
+    public async Task Omits_traceparent_entirely_when_no_activity_is_active()
+    {
+        // No listener, so no Activity is ever created here.
+        Assert.Null(Activity.Current);
+        var (publisher, sqs, _) = Build();
+
+        await Publish(publisher);
+
+        var attributes = Assert.Single(sqs.Requests).MessageAttributes;
+        // OMITTED, not present-and-empty. Beyond losing the correlation, SQS REJECTS a
+        // MessageAttributeValue with an empty StringValue — an empty traceparent would
+        // turn "no trace in scope" into a failed publish.
+        Assert.False(attributes.ContainsKey("traceparent"));
+        // The other two are unaffected by the absence.
+        Assert.True(attributes.ContainsKey("type"));
+        Assert.True(attributes.ContainsKey("source"));
+    }
+
+    // The other half of the omission rule, and the case the publish span introduced: a
+    // listener IS attached, so the publisher's own activity is created even though no
+    // caller started one. The traceparent must then be the publish span's — a root one —
+    // rather than absent. Pinned because "no ambient activity" and "no activity at all"
+    // stopped being the same situation once this class started creating its own span.
+    [Fact]
+    public async Task Injects_a_root_traceparent_when_the_publish_span_has_no_caller()
+    {
+        var started = new List<Activity>();
+        using var listener = ListenToEverything(started);
+        // No caller activity: the publish span is the root of its own trace.
+        Assert.Null(Activity.Current);
+        var (publisher, sqs, _) = Build();
+
+        await Publish(publisher);
+
+        var publishSpan = Assert.Single(
+            started, a => a.OperationName == SqsEventPublisher.PublishActivityName);
+        Assert.Equal(default, publishSpan.ParentSpanId);
+
+        var traceparent = Assert.Single(sqs.Requests).MessageAttributes["traceparent"].StringValue;
+        Assert.Matches("^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$", traceparent);
+        Assert.Equal(publishSpan.SpanId.ToHexString(), traceparent.Split('-')[2]);
+    }
+
+    // The publish span was mute: it carried a traceparent but no log line of its own, so
+    // "View logs" on it in OpenObserve returned nothing at all. That button filters by
+    // trace_id AND span_id with no fallback to the trace, so only a line written while THIS
+    // activity is current can answer it.
+    //
+    // Asserted with SpanScopedLogger, which records Activity.Current AT LOG TIME: a line
+    // written after the publish activity was disposed renders identically and asserts its
+    // app_event identically, while carrying the workflow's span id — the exact bug this
+    // pins, and one only the ambient activity can detect.
+    [Fact]
+    public async Task Logs_the_publication_inside_the_publish_span_not_the_enclosing_workflow()
+    {
+        var started = new List<Activity>();
+        using var listener = ListenToEverything(started);
+        using var source = new ActivitySource(TestActivitySourceName);
+        var sqs = new RecordingSqs(failure: null);
+        var logger = new SpanScopedLogger<SqsEventPublisher>();
+        var publisher = new SqsEventPublisher(sqs.Object, QueueUrl, logger);
+
+        // Stands in for create_order, the workflow the publish runs inside — the span the
+        // line used to be attributed to.
+        using var workflow = source.StartActivity("create_order");
+        Assert.NotNull(workflow);
+
+        await Publish(publisher);
+
+        var publishSpan = Assert.Single(
+            started, a => a.OperationName == SqsEventPublisher.PublishActivityName);
+
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Information, entry.Level);
+        // THE POINT: the ambient activity at log time is the publish span...
+        Assert.Same(publishSpan, entry.Activity);
+        // ...and specifically not the workflow, stated separately so a regression that
+        // moves the line back outside the span fails with the reason spelled out.
+        Assert.NotSame(workflow, entry.Activity);
+
+        Assert.Equal("order_created_published", entry.Values["app_event"]);
+        // What a human wants to know when they open this span: which event, for which
+        // order, for whom. `event_id` is the pipeline's idempotency key, so this line is
+        // what joins an order to the event document (and the email) on the other side.
+        Assert.Equal("ORDER_CREATED", entry.Values["event_type"]);
+        Assert.Equal(OrderId, entry.Values["order_id"]);
+        Assert.Equal(UserId, entry.Values["user_id"]);
+
+        // The very event_id that went on the wire, not merely some non-empty string: a
+        // line naming a different id would be worse than no line at all.
+        var body = JsonDocument.Parse(Assert.Single(sqs.Requests).MessageBody).RootElement;
+        Assert.Equal(body.GetProperty("event_id").GetString(), entry.Values["event_id"]);
+    }
+
+    // No PII on the success line either. The failure line has its own version of this test;
+    // this one exists because the success line is the one that carries payload-derived
+    // values, and the payload is where the email, the name and the address live.
+    [Fact]
+    public async Task The_publication_log_leaks_no_email_name_or_address()
+    {
+        using var listener = ListenToEverything();
+        var sqs = new RecordingSqs(failure: null);
+        var logger = new SpanScopedLogger<SqsEventPublisher>();
+
+        await Publish(new SqsEventPublisher(sqs.Object, QueueUrl, logger));
+
+        // Over the rendered line AND every structured value — a field carrying the email
+        // never shows up in the rendered text, which is how such a leak survives a weaker
+        // assertion.
+        var everything = string.Join(
+            "\n",
+            logger.Entries.Select(e => $"{e.Rendered}\n{string.Join("\n", e.Values.Select(v => $"{v.Key}={v.Value}"))}"));
+
+        Assert.DoesNotContain(Email, everything);
+        Assert.DoesNotContain("buyer", everything);
+        Assert.DoesNotContain("@", everything);
+        Assert.DoesNotContain(FullName, everything);
+        Assert.DoesNotContain("Ada Way", everything);
+    }
+
+    // The failure line used to fall OUTSIDE the span: `using var activity` lived inside the
+    // try, so an exception disposed it on the way to the catch and the line was attributed
+    // to create_order. A red send is precisely when an operator clicks "View logs" on the
+    // publish span, so that was the worst case to leave mute.
+    [Fact]
+    public async Task Logs_a_failed_publish_inside_the_publish_span_and_marks_it_error()
+    {
+        var started = new List<Activity>();
+        using var listener = ListenToEverything(started);
+        using var source = new ActivitySource(TestActivitySourceName);
+        var sqs = new RecordingSqs(new AmazonSQSException("queue unreachable"));
+        var logger = new SpanScopedLogger<SqsEventPublisher>();
+
+        using var workflow = source.StartActivity("create_order");
+        Assert.NotNull(workflow);
+
+        // Still swallowed — the order must survive a dead queue.
+        await Publish(new SqsEventPublisher(sqs.Object, QueueUrl, logger));
+
+        var publishSpan = Assert.Single(
+            started, a => a.OperationName == SqsEventPublisher.PublishActivityName);
+
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Error, entry.Level);
+        Assert.Same(publishSpan, entry.Activity);
+        Assert.NotSame(workflow, entry.Activity);
+        Assert.Equal("order_created_publish_failed", entry.Values["app_event"]);
+        Assert.Equal("sqs_send_failed", entry.Values["reason"]);
+
+        // And the span itself is red, so the waterfall does not render a failed send as a
+        // healthy hop. The workflow's own status is untouched: the publish is best-effort
+        // and does not fail the order.
+        Assert.Equal(ActivityStatusCode.Error, publishSpan.Status);
+        Assert.Equal("queue unreachable", publishSpan.StatusDescription);
+        Assert.Equal(ActivityStatusCode.Unset, workflow.Status);
+    }
+
+    // A source name unique to this file so the listener below cannot pick up activities
+    // created by other tests running in parallel.
+    private const string TestActivitySourceName = "orders-tests-sqs-publisher";
+
+    // Samples everything from that one source, which is what makes StartActivity return a
+    // real Activity instead of null. ActivityIdFormat.W3C is the .NET default here, so the
+    // resulting Id IS a W3C traceparent string.
+    // Listens to the test's own source AND to the publisher's, because the behaviour under
+    // test spans both: the caller's workflow activity and the publish activity the
+    // publisher creates inside it. Listening only to the test source would leave
+    // StartActivity returning null inside the publisher, and the traceparent would fall
+    // back to the workflow span — i.e. the bug would pass as if fixed.
+    //
+    // `started` records every activity the publisher starts, so the assertions can compare
+    // against the REAL SpanId of the publish span rather than re-deriving it from the value
+    // under test (which would be circular).
+    private static ActivityListener ListenToEverything(List<Activity>? started = null)
+    {
+        var listener = new ActivityListener
+        {
+            ShouldListenTo = s =>
+                s.Name == TestActivitySourceName || s.Name == SqsEventPublisher.ActivitySourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) =>
+                ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStarted = activity => started?.Add(activity),
+        };
+
+        ActivitySource.AddActivityListener(listener);
+        return listener;
     }
 
     [Fact]

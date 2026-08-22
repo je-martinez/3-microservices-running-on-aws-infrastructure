@@ -1,5 +1,17 @@
 import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
 import { hashEmail } from "#shared/logging/email-hash";
+import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
+import {
+  mockTracingModule,
+  pipelineTracer,
+  resetTracingHarness,
+  spanExporter,
+} from "../tracing-harness.ts";
+
+// FILE-WIDE: #email/sender now opens a manual CLIENT span around the SES call,
+// so it imports the tracing module, which calls sdk.start() and opens a real
+// OTLP exporter at import time. See tests/tracing-harness.ts.
+mockTracingModule();
 
 // #email/sender logs both outcomes of a send, and the recipient is the one piece
 // of PII this module unavoidably holds. Redirecting the logger into an array is
@@ -215,5 +227,140 @@ describe("sendEmail logging — the recipient reaches the log only as a hash", (
       expect(line.severity_text).not.toBe("SUCCESS");
       expect([5, 9, 13, 17]).toContain(line.severity_number);
     }
+  });
+}, 20000);
+
+
+describe("sendEmail — the manual SES span", () => {
+  beforeEach(async () => {
+    const { resetSesClientForTests } = await import("#email/sender");
+    resetSesClientForTests();
+    resetTracingHarness();
+    rawLines.length = 0;
+  });
+
+  it("opens a CLIENT span named 'ses SendEmail' as a CHILD of the active span", async () => {
+    const { sendEmail } = await import("#email/sender");
+
+    // The parent stands in for `process_record`. Parentage comes from the
+    // AMBIENT context — the sender is handed no span — so this is what proves
+    // the wrapper joins the trace instead of emitting an orphan.
+    let parentSpanId = "";
+    await pipelineTracer.startActiveSpan("process_record", async (parent) => {
+      parentSpanId = parent.spanContext().spanId;
+      await sendEmail({
+        to: "ada@example.com",
+        subject: "s",
+        html: "<p>hi</p>",
+        templateKey: "user-created",
+      }).catch(() => {});
+      parent.end();
+    });
+
+    const sesSpan = spanExporter.getFinishedSpans().find((s) => s.name === "ses SendEmail");
+    expect(sesSpan).toBeDefined();
+    expect(sesSpan!.kind).toBe(SpanKind.CLIENT);
+    expect(sesSpan!.parentSpanContext?.spanId).toBe(parentSpanId);
+    expect(sesSpan!.attributes["messaging.system"]).toBe("ses");
+    // The endpoint above refuses connections, so this send always fails —
+    // which is the branch that must still close the span.
+    expect(sesSpan!.status.code).toBe(SpanStatusCode.ERROR);
+  });
+
+  it("carries the recipient only as email_hash, never in plaintext", async () => {
+    const { sendEmail } = await import("#email/sender");
+    const { hashEmail: hash } = await import("#shared/logging/email-hash");
+
+    await sendEmail({
+      to: "ada@example.com",
+      subject: "s",
+      html: "<p>hi</p>",
+      templateKey: "user-created",
+    }).catch(() => {});
+
+    const sesSpan = spanExporter.getFinishedSpans().find((s) => s.name === "ses SendEmail");
+    // Same rule the log line obeys: a span attribute is as readable as a log
+    // field, so a plaintext address here would be the same leak in a new place.
+    expect(sesSpan!.attributes.email_hash).toBe(hash("ada@example.com"));
+    const exported = JSON.stringify({
+      attributes: sesSpan!.attributes,
+      status: sesSpan!.status,
+      events: sesSpan!.events,
+    });
+    expect(exported).not.toContain("ada@example.com");
+  });
+
+  // OpenObserve's "View logs" on a span filters by trace_id AND span_id with no
+  // fallback to the trace, so a span carrying no line of its own answers it with
+  // an empty result. This is the assertion that keeps that from silently
+  // regressing: the line must be stamped with the SES span's OWN id, not the
+  // parent's. Comparing against `parentSpanId` too is deliberate — reading only
+  // `span_id === sesSpan.spanId` would also pass if both spans shared an id.
+  it("emits a log line stamped with the ses SendEmail span's own span_id", async () => {
+    const { sendEmail } = await import("#email/sender");
+
+    let parentSpanId = "";
+    await pipelineTracer.startActiveSpan("process_record", async (parent) => {
+      parentSpanId = parent.spanContext().spanId;
+      await sendEmail({
+        to: "ada@example.com",
+        subject: "s",
+        html: "<p>hi</p>",
+        templateKey: "user-created",
+      }).catch(() => {});
+      parent.end();
+    });
+
+    const sesSpan = spanExporter.getFinishedSpans().find((s) => s.name === "ses SendEmail");
+    const lines = rawLines.map((l) => JSON.parse(l) as Record<string, unknown>);
+    const requested = lines.find((l) => l.app_event === "ses_send_requested");
+
+    expect(requested).toBeDefined();
+    expect(requested!.span_id).toBe(sesSpan!.spanContext().spanId);
+    expect(requested!.span_id).not.toBe(parentSpanId);
+    expect(requested!.trace_id).toBe(sesSpan!.spanContext().traceId);
+
+    // The line has to be worth existing, not just present: template_key +
+    // email_hash is "which email went to whom", which no other line answers.
+    expect(requested!.template_key).toBe("user-created");
+    expect(requested!.email_hash).toBe(hashEmail("ada@example.com"));
+    // Same PII rule as everywhere else in this module.
+    expect(JSON.stringify(requested)).not.toContain("ada@example.com");
+  });
+
+  // The span exists to measure SES latency, so the outcome lines and the metric
+  // publish must stay OUTSIDE it. Asserting by span_id rather than by reading
+  // the source is what makes this a real guard: folding the succeeded/failed
+  // logging into the wrapper would attribute this process's own work to SES,
+  // and would also steal those lines from `process_record`, where an operator
+  // currently finds them.
+  it("keeps the outcome log lines outside the span, so it still measures only SES", async () => {
+    const { sendEmail } = await import("#email/sender");
+
+    await pipelineTracer.startActiveSpan("process_record", async (parent) => {
+      await sendEmail({
+        to: "ada@example.com",
+        subject: "s",
+        html: "<p>hi</p>",
+        templateKey: "user-created",
+      }).catch(() => {});
+      parent.end();
+    });
+
+    const sesSpan = spanExporter.getFinishedSpans().find((s) => s.name === "ses SendEmail");
+    const sesSpanId = sesSpan!.spanContext().spanId;
+    const lines = rawLines.map((l) => JSON.parse(l) as Record<string, unknown>);
+
+    // The endpoint refuses connections, so the failure branch is the reachable
+    // one here; assert on whichever outcome line was emitted.
+    const outcome = lines.find(
+      (l) => l.app_event === "email_send_failed" || l.app_event === "email_send_succeeded",
+    );
+    expect(outcome).toBeDefined();
+    expect(outcome!.span_id).not.toBe(sesSpanId);
+
+    // And the only line that IS attributed to the span is the pre-send one.
+    const inSpan = lines.filter((l) => l.span_id === sesSpanId);
+    expect(inSpan.map((l) => l.app_event)).toEqual(["ses_send_requested"]);
   });
 }, 20000);

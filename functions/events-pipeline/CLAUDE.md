@@ -146,5 +146,49 @@ Two constraints when writing code:
   DOCUMENT. Email recipients are logged only as `email_hash`.
 - **No transports.** pino writes to its default synchronous stdout destination. This Lambda is
   bundled by esbuild into a single CJS file, and a worker-thread transport would break there.
-- `trace_id` / `span_id` are **absent** — this service has no OpenTelemetry SDK yet
-  (JE-138). They will appear once it is instrumented; nothing here synthesizes them.
+- `trace_id` / `span_id` are stamped on every line by `logger.ts`'s formatter, read from the
+  ACTIVE SPAN per line (lowercase hex, 32/16 chars; **omitted** when no span is active — never an
+  all-zero id). Written by hand here, unlike Users: `@opentelemetry/instrumentation-pino` patches
+  pino at `require()` time, and esbuild has inlined pino into the single-file bundle, so it would
+  patch nothing and every line would ship without a trace id, silently.
+- **Spans are all manual, for the same bundling reason** — `getNodeAutoInstrumentations()` would
+  produce zero spans here. The SDK bootstrap is `src/shared/observability/tracing.ts`
+  (`BatchSpanProcessor` + `flushTraces()`, which the handler MUST call in its `finally`: Lambda
+  freezes the process on return). The handler opens `events-queue process` (CONSUMER) per batch
+  and `process_record` (INTERNAL) per record, attached to the record's origin trace via
+  `messageAttributes.traceparent`. The attachment is **parent-child for every
+  record, at any batch size**, so an order's email work appears in the same trace as the request
+  that caused it. Each record parents to its OWN origin, which is why a batch mixing N distinct
+  origins needs no winner picked: the records do not share a parent. `batch_size` is therefore a
+  throughput knob (currently the `modules/lambda` default of `10`), NOT a tracing decision — it
+  was pinned to `1` until 2026-08-21 and no longer is. The cost of that shape: the batch span is
+  **not** an ancestor of the record spans, so `batchSpanLinks` gives it one **link** per distinct
+  origin trace (deduplicated) to keep the per-invocation view — do not turn those links back into
+  a parent edge. A record whose message carries no `traceparent` still falls back under the batch
+  span, which is the honest encoding of "no origin to attach to". Outbound calls use `withClientSpan`
+  (`src/shared/observability/client-span.ts`): `documentdb insertOne`, `ses SendEmail`,
+  `ws publish`. It takes an explicit `describeError` because a Mongo error's message embeds the
+  rejected document — the span obeys the same PII rule as the log line.
+- **Every step of a record's lifecycle carries a span, and the boundaries between them are span
+  events.** The rule when adding work to `processRecord` or a handler: if it takes time, give it a
+  span; if it is an instant, mark it with `markPhase` (`src/pipeline/process-record.ts`). A step
+  with neither becomes a hole — measured: before this, `process_record` reported 194ms against
+  ~1ms of visible children, because the three `transition()` writes, the template render and the
+  CloudWatch publishes were all uninstrumented. The current shape covers **99.5%** of the span's
+  duration:
+  - `documentdb insertOne` and `documentdb updateOne <STATUS>` — the status is IN THE NAME because
+    a waterfall renders names, not attributes; three bars all reading `updateOne` would each need
+    a click to tell apart.
+  - `email render <template>` — INTERNAL, not CLIENT: React rendering in-process, no socket.
+  - `cloudwatch PutMetricData` — appears **twice** per email metric (`publishEmailMetric` emits a
+    per-template series and an ALL rollup). It does NOT use `withClientSpan`, because that helper
+    rethrows and this call's contract is that a metric failure never fails the record; the span
+    records the error and the function still returns.
+  - Phase events on `process_record`: `message_received`, `handler_dispatched`, `handler_returned`,
+    and the failure marks (`persist_failed_record_dropped`, `no_handler_for_type`,
+    `handler_failed`).
+- **The render dominates the record** — 214–237ms against ~60–68ms for the SES call it feeds, and
+  it is not cold start (no downward trend across six renders). Two causes, separated by
+  measurement: `@react-email/render` costs ~60ms even warm on native hardware, and the function's
+  256 MB gives it a fraction of a vCPU (Lambda CPU scales with memory). Tracked separately; do not
+  "fix" it by deleting the span that revealed it.

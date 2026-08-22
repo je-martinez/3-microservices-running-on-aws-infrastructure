@@ -1,5 +1,8 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { SpanStatusCode } from "@opentelemetry/api";
 import { RegisterUserCommand } from "#features/users/commands/register";
+import { EmailAlreadyExistsError } from "#shared/auth/auth-errors";
+import { testSpanExporter } from "../../../setup-tracing.ts";
 import { AuditActor } from "#shared/audit/audit-actor";
 import { getActor } from "#shared/audit/actor-context";
 
@@ -184,5 +187,63 @@ describe("RegisterUserCommand — Cognito identity capture (JE-38 Task 7)", () =
     const d = identityDeps("development", vi.fn(async () => { throw new Error("db down"); }));
     const user = await new RegisterUserCommand(d).execute(identityInput);
     expect(user.email).toBe("a@b.com");
+  });
+});
+
+// The workflow span for this flow. Asserted against a REAL exporter (registered
+// in tests/setup-tracing.ts), not a mock: the point is the shape of the span
+// that actually reaches a backend — its name, its status, and above all that it
+// was ended, since an unended span silently never reaches Jaeger at all.
+describe("RegisterUserCommand tracing", () => {
+  beforeEach(() => testSpanExporter.reset());
+
+  it("emits a 'register' span with app_event=register_succeeded on success", async () => {
+    const command = new RegisterUserCommand(deps());
+    const user = await command.execute({ email: "a@b.c", password: "P!1", fullName: "A", e2eSource: false });
+
+    const span = testSpanExporter.getFinishedSpans().find((s) => s.name === "register");
+    expect(span).toBeDefined();
+    expect(span!.attributes.app_event).toBe("register_succeeded");
+    expect(span!.attributes.auth_type).toBe("PASSWORD");
+    expect(span!.attributes.user_id).toBe(user.id);
+    expect(span!.status.code).toBe(SpanStatusCode.OK);
+  });
+
+  it("emits a 'register' span with ERROR status and reason=duplicate_email when the email is taken", async () => {
+    const d = deps({
+      auth: {
+        signUp: vi.fn(async () => {
+          throw new EmailAlreadyExistsError();
+        }),
+      },
+    });
+
+    await expect(
+      new RegisterUserCommand(d).execute({ email: "a@b.c", password: "P!1", fullName: "A", e2eSource: false }),
+    ).rejects.toBeInstanceOf(EmailAlreadyExistsError);
+
+    const span = testSpanExporter.getFinishedSpans().find((s) => s.name === "register");
+    expect(span!.ended).toBe(true);
+    expect(span!.status.code).toBe(SpanStatusCode.ERROR);
+    // The SAME reason the register_failed log line carries on this branch.
+    expect(span!.attributes.app_event).toBe("register_failed");
+    expect(span!.attributes.reason).toBe("duplicate_email");
+  });
+
+  it("never puts the plaintext email or the password on the span", async () => {
+    // Span attributes reach a tracing backend exactly as log fields reach a log
+    // backend, so the PII rules in [[logging-context]] apply unchanged.
+    await new RegisterUserCommand(deps()).execute({
+      email: "ada@example.com",
+      password: "Sup3rS3cret!",
+      fullName: "Ada",
+      e2eSource: false,
+    });
+
+    const span = testSpanExporter.getFinishedSpans().find((s) => s.name === "register");
+    const serialized = JSON.stringify(span!.attributes);
+    expect(serialized).not.toContain("ada@example.com");
+    expect(serialized).not.toContain("Sup3rS3cret!");
+    expect(span!.attributes.email_hash).toBeDefined();
   });
 });

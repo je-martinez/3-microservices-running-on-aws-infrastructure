@@ -1,7 +1,9 @@
 import type { Collection, Db } from "mongodb";
+import { SpanKind } from "@opentelemetry/api";
 import type { EventsRepositoryPort } from "#pipeline/process-record";
 import type { EventDocument, EventStatus } from "#domain/event";
 import { PermanentError } from "#pipeline/errors";
+import { withClientSpan } from "#shared/observability/client-span";
 
 const COLLECTION = "events";
 
@@ -71,19 +73,43 @@ export class MongoEventsRepository implements EventsRepositoryPort {
   }
 
   async insertStarted(doc: EventDocument): Promise<void> {
-    try {
-      await this.collection.insertOne(doc);
-    } catch (err) {
-      // Translating driver-specific errors into the domain's taxonomy is
-      // exactly this adapter's job — the port signature is unchanged.
-      if (isDuplicateKeyError(err)) {
-        throw new DuplicateEventError(doc.event_id);
-      }
-      // Anything else (connection refused, timeout, write concern) stays
-      // unclassified and therefore transient: losing an unprocessed event is
-      // strictly worse than retrying it.
-      throw err;
-    }
+    // Manual CLIENT span. esbuild inlines the mongodb driver into the single-file
+    // bundle, so there is no require() boundary for auto-instrumentation to patch
+    // and this call would otherwise be a hole in the trace between
+    // `process_record` and the handler's next step. A child of whatever span is
+    // active — inside the record loop that is `process_record`.
+    return withClientSpan(
+      "documentdb insertOne",
+      SpanKind.CLIENT,
+      { "db.system": "documentdb", "db.operation": "insertOne", "db.collection.name": COLLECTION },
+      async () => {
+        try {
+          await this.collection.insertOne(doc);
+        } catch (err) {
+          // Translating driver-specific errors into the domain's taxonomy is
+          // exactly this adapter's job — the port signature is unchanged.
+          if (isDuplicateKeyError(err)) {
+            throw new DuplicateEventError(doc.event_id);
+          }
+          // Anything else (connection refused, timeout, write concern) stays
+          // unclassified and therefore transient: losing an unprocessed event is
+          // strictly worse than retrying it.
+          throw err;
+        }
+      },
+      // The error CLASS, never its message. A Mongo write error's message embeds
+      // the REJECTED DOCUMENT — the event payload, carrying the user's email —
+      // which is why the handler already logs only `err.name`. The span obeys the
+      // same rule; Jaeger is not a lower-PII destination than CloudWatch.
+      // DuplicateEventError is synthesized from event_id alone, so its message is
+      // clean by construction and safe to surface as-is.
+      (err) =>
+        err instanceof DuplicateEventError
+          ? err.message
+          : err instanceof Error
+            ? err.name
+            : "insert_failed",
+    );
   }
 
   async transition(
@@ -94,22 +120,55 @@ export class MongoEventsRepository implements EventsRepositoryPort {
     const now = new Date();
     const errorPatch = patch?.error !== undefined ? { error: patch.error } : {};
 
-    // Single-document update: $set and $push apply atomically together, so no
-    // transaction is needed (and none is available on Floci's standalone mongo).
-    // status_history is append-only — $push, never $set.
-    await this.collection.updateOne(
-      { event_id },
+    // Manual CLIENT span, for the same bundling reason as insertStarted above —
+    // and this one was the larger hole. A record performs ONE insert and up to
+    // THREE transitions, and only the insert was instrumented, so `process_record`
+    // reported a duration its visible children could not account for: 194ms of
+    // span against ~1ms of `documentdb insertOne` plus the handler. The missing
+    // time was these writes, invisible because nothing opened a span around them.
+    //
+    // The status is IN the span name rather than only in an attribute. A waterfall
+    // renders names, not attributes, so three spans all called
+    // `documentdb updateOne` would be three identical bars that force a click each
+    // to tell IN_PROGRESS from COMPLETED. Naming them apart is what makes the
+    // document's lifecycle legible at a glance — which is the point of
+    // instrumenting them at all. `db.operation` keeps the plain `updateOne` for
+    // anything aggregating by operation, so the semantic convention still holds.
+    return withClientSpan(
+      `documentdb updateOne ${status}`,
+      SpanKind.CLIENT,
       {
-        $set: {
-          status,
-          updated_at: now,
-          updated_by: PIPELINE_ACTOR,
-          ...errorPatch,
-        },
-        $push: {
-          status_history: { status, timestamp: now, ...errorPatch },
-        },
+        "db.system": "documentdb",
+        "db.operation": "updateOne",
+        "db.collection.name": COLLECTION,
+        // The transition being persisted. Named `event_status` (not `status`) for
+        // the same reason the log line is: `status` collides with the HTTP status
+        // other services report under that key.
+        event_status: status,
       },
+      async () => {
+        // Single-document update: $set and $push apply atomically together, so no
+        // transaction is needed (and none is available on Floci's standalone mongo).
+        // status_history is append-only — $push, never $set.
+        await this.collection.updateOne(
+          { event_id },
+          {
+            $set: {
+              status,
+              updated_at: now,
+              updated_by: PIPELINE_ACTOR,
+              ...errorPatch,
+            },
+            $push: {
+              status_history: { status, timestamp: now, ...errorPatch },
+            },
+          },
+        );
+      },
+      // The error CLASS, never its message — identical rule to insertStarted: a
+      // Mongo write error embeds the rejected document, and `patch.error` may
+      // itself be a failure reason we are in the middle of recording.
+      (err) => (err instanceof Error ? err.name : "transition_failed"),
     );
   }
 }

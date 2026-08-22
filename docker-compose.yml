@@ -152,20 +152,10 @@ services:
   # ── Observability (opt-in): `docker compose --profile observability up` ──
   # OTel collector: fluentd from the compose services + CloudWatch (ECS/RDS) on
   # Floci, exported to self-hosted OpenObserve. Pinned image; do not use :latest.
-  # Trace backend. Logs live in OpenObserve; traces live here, joined by the
-  # trace_id every log line carries. See ADR-0019 for why traces are not in
-  # OpenObserve: its ingest rejected the collector's OTLP batches with HTTP 400,
-  # and ADR-0018 had already flagged its APM maturity as the weak spot to
-  # re-evaluate if tracing became a hard requirement. It did.
-  jaeger:
-    image: jaegertracing/all-in-one:1.62.0
-    profiles: [observability]
-    ports:
-      - "16686:16686"   # Jaeger UI — the waterfall view
-    environment:
-      - COLLECTOR_OTLP_ENABLED=true
-    networks: [3mrai-network]
-
+  # Logs AND traces both live in OpenObserve, joined by the trace_id every log
+  # line carries. Jaeger was removed on 2026-08-21: it existed only because
+  # ADR-0019 found this OpenObserve build rejecting trace batches with HTTP 400,
+  # and that stopped reproducing on v0.91.1.
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.156.0
     profiles: [observability]
@@ -180,6 +170,10 @@ services:
       # when the stack is brought up with the observability profile enabled.
       - "4317:4317"     # OTLP/gRPC
       - "4318:4318"     # OTLP/HTTP
+      # health_check extension — published because `make doctor` probes it from
+      # the HOST to report exactly the situation described just above: services
+      # configured to export traces while this container is not running.
+      - "13133:13133"   # health_check
     environment:
       - AWS_ENDPOINT_URL=http://floci:4566
       - AWS_REGION=us-east-1
@@ -397,7 +391,7 @@ services:
     # disables tracing for local dev only — the container starts, serves, and logs
     # normally, but produces no spans and no trace_id on any log line, while the
     # deployed image (running the unoverridden CMD) is fine. That divergence is
-    # exactly the kind of thing that gets debugged as "Jaeger is broken".
+    # exactly the kind of thing that gets debugged as "the tracing backend is broken".
     # This REPLACES the image CMD, so every flag the image sets has to be
     # repeated here — the same trap `opentelemetry-instrument` fell into. Drop
     # `--log-config` and uvicorn's three startup lines go back to plain text

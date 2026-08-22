@@ -264,8 +264,42 @@ async function publishOtpRequested(event, code, challengeId) {
     messageAttributes: {
       type: { DataType: "String", StringValue: envelope.type },
       source: { DataType: "String", StringValue: envelope.source },
+      // Same attribute the other three publishers set, so the pipeline's
+      // `originSpanContext` reads this message exactly like theirs. Spread, so
+      // a caller that sent no usable traceparent adds no key at all.
+      ...traceparentAttribute(event),
     },
   });
+}
+
+// The W3C traceparent this trigger forwards onto the SQS message, or undefined.
+//
+// WHY IT ARRIVES IN ClientMetadata AND NOT FROM AN SDK: the other three
+// publishers (Users, Orders, Tracking) read an ACTIVE span and let OTel inject
+// the header. This function has neither — Cognito invokes it on its own, so the
+// caller's request context does not reach it, and it ships zero dependencies by
+// design (see the header note), so there is no propagator here to read one with.
+// ClientMetadata is the only channel a caller controls that Cognito forwards to
+// the trigger verbatim, so the Users service puts its traceparent there on
+// AdminInitiateAuth and this copies it across.
+//
+// Shape-checked, not merely truthy. An unparseable value would yield nothing at
+// the consumer anyway (its propagator extracts from ROOT_CONTEXT and returns
+// nothing on a bad header), so forwarding one would only put a broken header on
+// the wire that LOOKS like real context. The check mirrors the W3C format:
+// version "00", a 32-hex trace id, a 16-hex span id, 2-hex flags — and rejects
+// the all-zero ids the spec declares invalid.
+const TRACEPARENT_RE = /^00-(?![0]{32}$)[0-9a-f]{32}-(?![0]{16}$)[0-9a-f]{16}-[0-9a-f]{2}$/;
+
+function traceparentAttribute(event) {
+  const traceparent = event?.request?.clientMetadata?.traceparent;
+  if (typeof traceparent !== "string" || !TRACEPARENT_RE.test(traceparent)) return {};
+
+  // Returned as a spreadable object so the caller can add it WITHOUT ever
+  // producing a `traceparent` key holding undefined: SQS rejects a message
+  // attribute with an empty or missing StringValue, and that failure would cost
+  // the user their login code over a telemetry field.
+  return { traceparent: { DataType: "String", StringValue: traceparent } };
 }
 
 // ─── Trigger handlers ────────────────────────────────────────────────────────

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Amazon.SQS;
@@ -56,6 +57,20 @@ public class SqsEventPublisher : IEventPublisher
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
+
+    /// <summary>
+    /// The ActivitySource for the publish span. Named separately from
+    /// <c>WorkflowTracer</c>'s so this span is identifiable as the queue hop, and
+    /// registered by name in <c>Program.cs</c> via <c>AddSource</c> — .NET drops every
+    /// ActivitySource the tracing pipeline was not explicitly told about, so an
+    /// unregistered source yields no span and no error.
+    /// </summary>
+    public const string ActivitySourceName = "orders-messaging";
+
+    /// <summary>The publish span's name, asserted by the tests that pin the trace hop.</summary>
+    public const string PublishActivityName = "sqs.publish order_created";
+
+    private static readonly ActivitySource Source = new(ActivitySourceName);
 
     private readonly IAmazonSQS _client;
     private readonly string _queueUrl;
@@ -148,21 +163,51 @@ public class SqsEventPublisher : IEventPublisher
         {
             QueueUrl = _queueUrl,
             MessageBody = JsonSerializer.Serialize(envelope, SerializerOptions),
-            // Duplicated as message attributes so the queue can be inspected (and
-            // filtered) without deserializing bodies.
-            MessageAttributes = new Dictionary<string, MessageAttributeValue>
-            {
-                ["type"] = new MessageAttributeValue { DataType = "String", StringValue = EventType },
-                ["source"] = new MessageAttributeValue { DataType = "String", StringValue = EventSource },
-            },
         };
+
+        // The PUBLISH span, and the reason this send is wrapped at all: the traceparent
+        // on the message must name the span that performed THIS send, so the consumer's
+        // work hangs under the publish rather than beside it. See BuildMessageAttributes
+        // for why the attributes are built INSIDE.
+        //
+        // Started OUTSIDE the try, with the try/catch nested in its scope, so BOTH log
+        // lines below are written while this activity is current and therefore carry ITS
+        // span id. With the `using` inside the try, an exception disposed the activity on
+        // the way out and the failure line landed on the enclosing workflow span instead —
+        // invisible to a span-scoped lookup on the publish, which is where an operator
+        // looks after seeing the send go red.
+        using var activity = Source.StartActivity(PublishActivityName, ActivityKind.Producer);
 
         try
         {
+            // Built here, not in the initializer above: this must observe the activity
+            // just started. Evaluated one line earlier it would read the enclosing
+            // workflow span (create_order) instead — which is the bug this fixes.
+            request.MessageAttributes = BuildMessageAttributes();
+
             await _client.SendMessageAsync(request, ct);
+
+            // The span's OWN line, so "View logs" on this span in OpenObserve answers
+            // rather than coming back empty: that button filters by trace_id AND span_id
+            // with no fallback to the trace, so a span nobody logs from can only ever
+            // return nothing. It earns its place independently of that — it states that
+            // the event was emitted, WHICH event (type + event_id, the pipeline's
+            // idempotency key) and for WHICH order, which is what makes a missing
+            // confirmation email diagnosable from this side of the queue.
+            //
+            // NEVER the email, the name or the address (PII): the ids identify the
+            // message completely on their own.
+            _logger.LogInformation(
+                "ORDER_CREATED published {app_event} {event_type} {event_id} {order_id} {user_id}",
+                "order_created_published", EventType, envelope.EventId, orderId, userId);
         }
         catch (Exception ex)
         {
+            // The span must come out ERROR, not OK: a send that failed is the one thing a
+            // waterfall must not render as a healthy hop.
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+
+
             // DELIBERATE: logged and swallowed, never rethrown.
             //
             // By the time this runs the order is already persisted and its products'
@@ -175,7 +220,9 @@ public class SqsEventPublisher : IEventPublisher
             // already takes for its Tracking call.
             //
             // NOT silent: logged at error with the `*_failed` app_event so it is
-            // alertable and the event is backfillable from the order row.
+            // alertable and the event is backfillable from the order row — and written
+            // INSIDE the publish activity (see above) so it is the line that span's
+            // "View logs" returns.
             //
             // NEVER log the email or any address field (PII). order_id and user_id
             // identify the missing event completely on their own.
@@ -184,6 +231,61 @@ public class SqsEventPublisher : IEventPublisher
                 "ORDER_CREATED publish failed (non-fatal): the order was created but no event was emitted {app_event} {reason} {order_id} {user_id}",
                 "order_created_publish_failed", "sqs_send_failed", orderId, userId);
         }
+    }
+
+    // `type` and `source` are duplicated out of the envelope as message attributes so the
+    // queue can be inspected (and filtered) without deserializing bodies.
+    //
+    // `traceparent` is the third, and it is not a duplicate of anything in the body: it is
+    // the TRACE hop across the queue. Activity.Current?.Id renders the current activity's
+    // context as a W3C-formatted string ("00-{traceId}-{spanId}-{flags}") — .NET's native
+    // Id format IS the traceparent header, so there is nothing to build by hand and no
+    // propagator to instantiate. It is the same string AddHttpClientInstrumentation already
+    // puts on the wire for the Orders -> Users hop; SQS gets no auto-instrumentation for
+    // this, so the injection is manual here.
+    //
+    // OMITTED, never empty, when there is no active Activity (a background publish, a unit
+    // test with no listener): the same "omitted, never null" rule the envelope's author
+    // fields follow — and here it is a correctness matter beyond tracing, because SQS
+    // REJECTS a MessageAttributeValue whose StringValue is empty, which would turn a
+    // missing trace into a failed publish.
+    //
+    // It rides in the attributes and NEVER in the envelope body: the consumer extracts it
+    // as a carrier header, and the body is a validated contract that has no such field.
+    //
+    // CALL ORDER IS PART OF THE CONTRACT. This reads Activity.Current, so it must be
+    // called INSIDE the publish activity's scope. Called while building the
+    // SendMessageRequest — as it originally was — Activity.Current is still the enclosing
+    // workflow span (create_order), and the consumer faithfully parents its work to that:
+    // process_record came out a SIBLING of the send instead of its child, so expanding the
+    // publish in the waterfall showed only AWS SDK internals and none of the work it caused.
+    //
+    // On AddAWSInstrumentation: it also injects a traceparent of its own, from its
+    // SQS.SendMessage span, via AWSTracingPipelineHandler -> SqsRequestContextHelper. That
+    // path is NOT what this relies on, and the two do not fight: the helper skips injection
+    // entirely when a key it would write is already present, so the value set here wins by
+    // construction. Deliberate — that path is invisible to these unit tests (which use a
+    // mocked IAmazonSQS, so no SDK pipeline runs at all) and it would silently inject
+    // nothing if the instrumentation were ever unregistered. An explicit span we own is
+    // assertable in-process and does not depend on either.
+    private static Dictionary<string, MessageAttributeValue> BuildMessageAttributes()
+    {
+        var attributes = new Dictionary<string, MessageAttributeValue>
+        {
+            ["type"] = new MessageAttributeValue { DataType = "String", StringValue = EventType },
+            ["source"] = new MessageAttributeValue { DataType = "String", StringValue = EventSource },
+        };
+
+        if (Activity.Current?.Id is { Length: > 0 } traceparent)
+        {
+            attributes["traceparent"] = new MessageAttributeValue
+            {
+                DataType = "String",
+                StringValue = traceparent,
+            };
+        }
+
+        return attributes;
     }
 
     // The address arrives as the JSON snapshot persisted on the order, so it is re-parsed

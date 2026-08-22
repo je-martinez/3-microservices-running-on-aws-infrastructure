@@ -1,5 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { SpanStatusCode } from "@opentelemetry/api";
 import { LoginUserCommand } from "#features/users/commands/login";
+import { testSpanExporter } from "../../../setup-tracing.ts";
 import { InvalidCredentialsError } from "#shared/auth/auth-errors";
 import { appLogger } from "#shared/logging/app-logger";
 
@@ -73,5 +75,59 @@ describe("LoginUserCommand", () => {
     const d = deps();
     await new LoginUserCommand(d).execute({ email: "a@b.co", password: "x" });
     expect(d.db.user.findUnique).toHaveBeenCalledWith({ where: { email: "a@b.co" } });
+  });
+});
+
+describe("LoginUserCommand tracing", () => {
+  beforeEach(() => testSpanExporter.reset());
+
+  it("emits a 'login' span with app_event=login_succeeded on success", async () => {
+    await new LoginUserCommand(deps()).execute({ email: "a@b.co", password: "x" });
+
+    const span = testSpanExporter.getFinishedSpans().find((s) => s.name === "login");
+    expect(span).toBeDefined();
+    expect(span!.attributes.app_event).toBe("login_succeeded");
+    expect(span!.status.code).toBe(SpanStatusCode.OK);
+  });
+
+  it("emits a 'login' span with ERROR status and reason=invalid_credentials on a bad password", async () => {
+    const d = deps();
+    d.auth.login = vi.fn(async () => {
+      throw new InvalidCredentialsError();
+    });
+
+    await expect(
+      new LoginUserCommand(d).execute({ email: "a@b.co", password: "wrong" }),
+    ).rejects.toBeInstanceOf(InvalidCredentialsError);
+
+    const span = testSpanExporter.getFinishedSpans().find((s) => s.name === "login");
+    expect(span!.ended).toBe(true);
+    expect(span!.status.code).toBe(SpanStatusCode.ERROR);
+    expect(span!.attributes.app_event).toBe("login_failed");
+    expect(span!.attributes.reason).toBe("invalid_credentials");
+  });
+
+  it("carries reason=passwordless_user on the span for the guard rejection, matching the log", async () => {
+    // The response stays the generic 401; the real cause is operator-only, in
+    // the log AND now on the span — the two must not disagree.
+    const d = deps({
+      db: { user: { findUnique: vi.fn(async () => ({ authType: "PASSWORDLESS" })) } },
+    });
+
+    await new LoginUserCommand(d).execute({ email: "a@b.co", password: "x" }).catch(() => undefined);
+
+    const span = testSpanExporter.getFinishedSpans().find((s) => s.name === "login");
+    expect(span!.attributes.reason).toBe("passwordless_user");
+    expect(span!.status.code).toBe(SpanStatusCode.ERROR);
+  });
+
+  it("never puts the plaintext email or the password on the span", async () => {
+    await new LoginUserCommand(deps()).execute({ email: "ada@example.com", password: "Sup3rS3cret!" });
+
+    const span = testSpanExporter.getFinishedSpans().find((s) => s.name === "login");
+    const serialized = JSON.stringify(span!.attributes);
+    expect(serialized).not.toContain("ada@example.com");
+    expect(serialized).not.toContain("Sup3rS3cret!");
+    expect(span!.attributes.email_hash).toBeDefined();
   });
 });
