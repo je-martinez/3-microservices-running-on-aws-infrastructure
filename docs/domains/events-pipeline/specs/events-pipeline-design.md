@@ -380,8 +380,11 @@ email the Lambda sends lands in a real, inspectable inbox rather than a mock.
 | `emails_failed_total` | counter | `EmailType=ALL`, `FailureKind=permanent\|transient` |
 
 `EmailType` takes the template key from [`src/email/catalog.ts`](#srcemailcatalogts--the-registry)
-— `user-created`, `order-created`, `auth-otp-requested`, `password-reset-requested`, and the five
-`tracking-status-changed` variants — the template actually rendered and sent, not the event type.
+— `user-created`, `order-created`, `auth-otp`, `forgot-password`, and the five
+`tracking-status-changed` variants — the template actually rendered and sent, not the event type
+(`auth-otp` renders for `AUTH_OTP_REQUESTED`; `forgot-password` renders for
+`PASSWORD_RESET_REQUESTED` — the template key and the event type are deliberately different
+strings, see the catalog section above).
 `EmailType=ALL` is a **separately published series**, not a query-time aggregate: Floci does not
 aggregate across dimensions, so a dimensionless query for the total returns an empty result. This
 is the events-pipeline's only gauge-free metric set: as a Lambda it has no long-lived process to
@@ -403,6 +406,30 @@ sites know which `EmailType` to publish:
 Without the split, "5 emails failed" would conflate "5 customers never got their receipt" with
 "SES hiccuped once and the retry worked" — two operationally opposite situations that a single
 undifferentiated counter cannot distinguish.
+
+> [!important] Amendment (2026-08-21) — the per-template breakdown was published but not collected
+> `publishEmailMetric` has always published two series per email: a per-template one and the
+> `EmailType=ALL` rollup. `GetMetricData` discovers nothing on its own (see
+> [[2026-08-12-custom-business-metrics-cloudwatch-design#1. Floci does not aggregate across
+> dimensions — and fails silently]]) — every dimension combination the collector wants must be
+> named explicitly in its `queries` block. Until this session `observability/otel-collector-config.yaml`
+> named only `EmailType: ALL`, so the per-template series reached CloudWatch and were never polled
+> into OpenObserve.
+>
+> The fix added 18 explicit queries for `emails_failed_total` — one per template (9) ×
+> `FailureKind` (`permanent`/`transient`). `emails_sent_total` deliberately stays `ALL`-only: a
+> full breakdown of both metrics would be 27 queries, and the per-template split earns its cost
+> only on **failures** ("the receipt template is broken" vs. "one OTP bounced" are different
+> incidents); per-template *send* volume is already answerable from the `email render <template>`
+> spans below, so a duplicate metrics path for it wasn't worth the query count.
+>
+> **One deliberate gap, not a bug.** The `permanent` failure is emitted precisely when a template
+> key is **missing** from the catalog — so that key, by definition, cannot appear in the 9-query
+> enumeration above, and its datapoint is invisible in the per-template breakdown. The `ALL`
+> rollup still counts it, so "an email was lost" stays answerable; the breakdown narrows a known
+> loss to its template, it does not replace `ALL` as the source of truth for "was anything lost."
+>
+> Verified: a per-template failure datapoint confirmed arriving in OpenObserve (`sum=1.0`).
 
 > [!warning] This measures handoff to SES, not inbox delivery
 > `emails_sent_total` means SES accepted the message for sending. Bounces and complaints are
@@ -709,7 +736,21 @@ correctly starts a brand-new one rather than being forced into a link.
 > template-specific series and a second for the cross-template `ALL` rollup — this is by design
 > (two real CloudWatch API calls, not a duplicate span for one call), and shows up in the
 > waterfall exactly as two bars under `phase dispatch`, one per `emails_sent_total`/
-> `emails_failed_total` publish.
+> `emails_failed_total` publish. **Not a double count either**: dimensions are part of a series'
+> identity in CloudWatch, so the per-template and `ALL` series are distinct series, not one value
+> published twice — a dashboard queries one or the other and never sums them (the business-metrics
+> dashboard filters `WHERE emailtype = 'ALL'`). See [[2026-08-12-custom-business-metrics-cloudwatch-design]]
+> for the full per-template-collection story (18 `emails_failed_total` queries added 2026-08-21).
+>
+> **The two bars now name the EmailType, not just carry it as an attribute.** Both
+> `cloudwatch PutMetricData` spans were named identically (`cloudwatch PutMetricData
+> emails_sent_total`), so telling the per-template call from the `ALL` rollup took a click into
+> the attributes — the same problem the `documentdb updateOne <STATUS>` naming above already
+> solved once. The span name now carries the EmailType too:
+> `cloudwatch PutMetricData emails_sent_total (user-created)` /
+> `cloudwatch PutMetricData emails_sent_total (ALL)`, plus a `metric.email_type` attribute for
+> filtering — a name is for reading a waterfall, an attribute is for filtering a dashboard, and
+> neither should require the other.
 >
 > **Phase SPANS, not span events, are what make the lifecycle visible.** Span *events* (`
 > span.addEvent(...)`) were tried first — the semantically correct OTel primitive for an instant
@@ -798,6 +839,9 @@ flushed are lost or arrive late on the next cold invocation, attributed to the w
   documented above.
 - [[2026-08-18-distributed-tracing-spans]] — implementation plan, verified against a real Jaeger
   trace.
+- [[2026-08-12-custom-business-metrics-cloudwatch-design]] — the metrics design this note's
+  `## Metrics` section implements: the CloudWatch/`GetMetricData` pipeline, the per-template
+  `EmailType` breakdown, and why the collector must name every dimension set explicitly.
 - [[linear-references]] — the convention behind referencing JE-180/JE-181 above by link instead
   of mirroring their content into this note.
 - [[observability-telemetry-milestone]] — the milestone this instrumentation work belongs to.

@@ -4,7 +4,7 @@ type: plan
 area: shared
 status: active
 created: 2026-08-18
-updated: 2026-08-19
+updated: 2026-08-21
 tags:
   - type/plan
   - area/shared
@@ -45,6 +45,14 @@ related:
 > remains open. Propagated into [[logging-context]], [[ADR-0019-distributed-tracing-opentelemetry]],
 > [[users-service-design]], [[orders-service-design]], [[tracking-service-design]], and
 > [[events-pipeline-design]].
+
+**Correction (2026-08-21):** Task 5's "3 SQS publishers" (Users at line ~990, Orders, Tracking)
+missed a fourth: `AUTH_OTP_REQUESTED` is published by the Cognito CUSTOM_AUTH trigger Lambda
+(`infra/modules/cognito/otp-challenge-lambda/index.mjs`), outside the JE-155/156/157 gate this
+plan scoped. Its `traceparent` injection shipped separately via `ClientMetadata` (commit
+`fd65979`) — see [[ADR-0019-distributed-tracing-opentelemetry]]'s 2026-08-21 "a FOURTH SQS
+publisher" Amendment. The task text below is left as originally written for Tasks 1-8's actual
+scope.
 
 **Goal:** Close the gaps in the tracing cascade so the 11 flow-log-carrying workflows across Users, Orders, and Tracking, the SQS hop between them and events-pipeline, and the 4 realtime-events Lambdas all produce spans that join one trace, without inventing a custom propagation mechanism.
 

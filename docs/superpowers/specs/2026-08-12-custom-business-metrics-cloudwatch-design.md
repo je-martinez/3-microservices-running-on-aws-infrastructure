@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: draft
 created: 2026-08-12
-updated: 2026-08-12
+updated: 2026-08-21
 tags:
   - type/spec
   - area/shared
@@ -40,6 +40,42 @@ Today the repo has logs (OpenObserve, [[ADR-0018-observability-openobserve]]) an
 (Jaeger, [[ADR-0019-distributed-tracing-opentelemetry]]). Metrics are explicitly **disabled**:
 every service sets `OTEL_METRICS_EXPORTER=none` per [[logging-context]]. This design turns that
 pillar on, through CloudWatch rather than through the OTLP metrics path.
+
+**Correction (2026-08-21) — the per-template email breakdown was published but not collected.**
+The rule that "every dashboard query must name the exact dimension set the metric was published
+with" ([Spike finding #1](#1-floci-does-not-aggregate-across-dimensions--and-fails-silently))
+applies to the collector's own `queries` block too, and until this session the collector named
+only `EmailType: ALL`. `publishEmailMetric` was always
+publishing two series per email — a per-template one and the `ALL` rollup — so the per-template
+series reached CloudWatch and were simply never polled into OpenObserve; nothing was broken, they
+were just never asked for.
+
+The fix added 18 explicit queries to `observability/otel-collector-config.yaml` for
+`emails_failed_total`: one per template (9) × `FailureKind` (`permanent`/`transient`). Verified: a
+per-template failure datapoint confirmed arriving in OpenObserve (`sum=1.0`).
+
+`emails_sent_total` deliberately **stays `ALL`-only** — a full breakdown of both metrics would be
+27 queries, and the per-template split earns its cost only on failures ("the receipt template is
+broken" vs. "one OTP bounced" are different incidents to act on); per-template SEND volume is
+already answerable from the `email render <template>` spans in a trace, so a duplicate metrics
+path for it wasn't worth the query count. See [events-pipeline](#events-pipeline) below and
+[[events-pipeline-design#Metrics]] for the full dimension table as shipped.
+
+**One deliberate gap in the breakdown, not a bug.** The `permanent` failure in
+`emails_failed_total` is emitted by `src/email/renderer.ts` precisely when a template key is
+**missing** from the catalog — so that key, by definition, is one the 9-query enumeration above
+does not (and cannot) name, and its datapoint is invisible in the per-template breakdown. The
+`ALL` rollup still counts it, so "an email was lost" stays answerable from `ALL`; the per-template
+breakdown narrows a *known* loss to its template, it does not replace the total as the source of
+truth for "was anything lost at all."
+
+**Also worth recording, because it caused real confusion this session:** the two
+`cloudwatch PutMetricData` spans emitted per email (one per-template, one `ALL`) are **not** a
+double count. CloudWatch dimensions are part of a series' identity, so the per-template and `ALL`
+series are distinct series, not the same value written twice — a dashboard queries one or the
+other and never sums them. The business-metrics dashboard filters `WHERE emailtype = 'ALL'`. See
+[[events-pipeline-design#Observability — tracing spans]] for the span-naming detail
+(`cloudwatch PutMetricData emails_sent_total (user-created)` vs. `(ALL)`).
 
 ## Approved decisions
 
@@ -258,10 +294,14 @@ through a log; this metric makes it visible at a glance and alarmable.
 | `emails_failed_total` | counter | `EmailType=ALL`, `FailureKind=permanent\|transient` |
 
 `EmailType` takes the **template key**, of which there are nine: `user-created`,
-`order-created`, `auth-otp-requested`, `password-reset-requested`, and the five
+`order-created`, `auth-otp`, `forgot-password`, and the five
 `tracking-status-changed` variants (one per status — `TRACKING_STATUS_CHANGED` fans out to five
 templates keyed by `payload.status`, see `#handlers/tracking-status-changed`). Template keys
-rather than event types, because the template is what was actually rendered and sent.
+rather than event types, because the template is what was actually rendered and sent — note this
+is **not** the same string as the event type: `auth-otp` renders for `AUTH_OTP_REQUESTED` and
+`forgot-password` renders for `PASSWORD_RESET_REQUESTED` (see `src/email/catalog.ts`); a
+`.../auth-otp-requested` or `.../password-reset-requested` query name is a stale reference to a
+key the code never publishes, and returns nothing.
 
 **`EmailType=ALL` is a separately published series, not a query-time aggregate** — a direct
 consequence of spike finding #1. Publishing only per-type series and expecting the total from a

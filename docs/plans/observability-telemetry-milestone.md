@@ -222,6 +222,15 @@ traces — see the ADR's Amendment and [[openobserve-runbook#Traces]] for the se
 (`make observability-traces-schema`). JE-161's closing E2E verification now targets a trace
 joined in OpenObserve rather than Jaeger.
 
+**2026-08-21 — a fourth SQS publisher found outside this milestone's original scope.** The "3 SQS
+publishers" gate above (JE-155/156/157) covered Users, Orders, and Tracking, but
+`AUTH_OTP_REQUESTED` is actually published by the Cognito CUSTOM_AUTH trigger Lambda
+(`infra/modules/cognito/otp-challenge-lambda/index.mjs`), which the gate never counted — so its
+`traceparent` injection was fixed separately, after this milestone's phases were designed. See
+[[ADR-0019-distributed-tracing-opentelemetry]]'s 2026-08-21 "a FOURTH SQS publisher" Amendment for
+the fix. The phase table and dependency diagram above are left as originally scoped (an accurate
+record of the JE-155/156/157 gate at design time), not rewritten to four.
+
 ## Related
 
 - [[milestone-plan]] — convention this plan follows.

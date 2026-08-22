@@ -232,6 +232,38 @@ logs stay in OpenObserve.**
 > in `MessageAttributes`, every record parents to its own origin|Decision 4 (revised)]] and
 > [[events-pipeline-design#Observability — tracing spans]].
 
+> [!important] Amendment (2026-08-21) — a FOURTH SQS publisher: the Cognito OTP trigger
+> **What was missed.** [JE-155/156/157](https://linear.app/je-martinez/issue/JE-155) made
+> "the 3 SQS publishers" (Users, Orders, Tracking) inject `traceparent` — but `AUTH_OTP_REQUESTED`
+> is published by `infra/modules/cognito/otp-challenge-lambda/index.mjs`, the Cognito
+> CUSTOM_AUTH challenge Lambda, not by the Users service. That gate never counted it, so it was
+> **missed, not skipped**: the OTP email's pipeline work landed in a trace of its own, detached
+> from the request that asked for the code — observed live before the fix.
+>
+> **Why it couldn't inject one itself.** Cognito invokes the trigger directly; the caller's
+> OTel context never reaches it. The trigger also ships **zero dependencies on purpose** — no
+> OTel SDK, not even the AWS SDK (its env holds only `OTP_*`, `EVENTS_QUEUE_URL`, and `AWS_*`).
+>
+> **The fix (commit `fd65979`).** `ClientMetadata` is the only caller-controlled field Cognito
+> forwards to a trigger verbatim. Users injects the active span's traceparent on
+> `AdminInitiateAuth` (`services/users/src/shared/auth/cognito-auth-provider.ts`); the trigger
+> shape-checks that value against the W3C `traceparent` format before copying it onto the SQS
+> message as the same `traceparent` `MessageAttribute` the other three publishers set, so the
+> pipeline consumer reads it through the same code path. Omitted entirely when there is no
+> usable value — SQS rejects an attribute with an empty `StringValue`. Unlike the other three
+> publishers' traceparent, this one is not at risk of being overwritten by aws-sdk
+> instrumentation, because nothing auto-instruments `ClientMetadata` the way it does an outbound
+> SQS call.
+>
+> **Verified:** the OTP trace went from two disconnected traces to one 20-span trace spanning
+> users → events-pipeline.
+>
+> **Count going forward:** the events queue has **four** producers — Users, Orders, Tracking,
+> and the Cognito OTP-challenge trigger — not three. [[2026-08-18-distributed-tracing-spans-design]]
+> and its implementation plan keep "3 publishers" as written because that was the accurate scope
+> of the JE-155/156/157 gate at the time; this ADR is the forward pointer to the real, current
+> count.
+
 ## Supersedes
 
 - The **tracing / logs-only stance** of [[ADR-0018-observability-openobserve]] — its

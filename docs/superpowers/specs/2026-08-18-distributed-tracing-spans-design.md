@@ -56,6 +56,28 @@ smoothed over.
 > [[users-service-design]], [[orders-service-design]], [[tracking-service-design]], and
 > [[events-pipeline-design]] — see each note's Observability section for the per-service detail.
 
+**Correction (2026-08-21), outside this spec's original scope:** Tracking's ASGI transport was
+found to be double-spanning every request — `opentelemetry-instrumentation-asgi` opens a span per
+ASGI message, and a normal HTTP response is two messages (`http.response.start`,
+`http.response.body`), so every endpoint drew `<route> http send` twice (measured 27µs and 6µs on
+init-tracking). Fixed with a `filter/drop_asgi_transport_spans` processor in the collector, not at
+the source — the library's `exclude_spans` exists only as a Python kwarg to `instrument_app()`, no
+`OTEL_*` env var, and calling it explicitly in `src/main.py` would both violate
+[[logging-context#OTel configuration belongs in the environment, not in code]] and instrument
+after import (silently zero spans). Also outside original scope: `init_tracking` gained lifecycle
+milestones via a new `mark_phase` helper, mirroring events-pipeline's `markPhase`, emitted around
+(never inside) the `asyncio.to_thread` boundary. Neither change belongs to Decision 3 (workflow
+span scope) above; full detail: [[tracking-service-design#Observability — workflow spans]].
+
+**Correction (2026-08-21):** Decision 4's "3 SQS publishers" (Users, Orders, Tracking) turned out
+to be incomplete. `AUTH_OTP_REQUESTED` is published by a fourth producer, the Cognito CUSTOM_AUTH
+trigger Lambda (`infra/modules/cognito/otp-challenge-lambda/index.mjs`), which the JE-155/156/157
+gate never counted — so its `traceparent` injection was missed, not skipped, and shipped
+separately after this spec's scope closed. See
+[[ADR-0019-distributed-tracing-opentelemetry]]'s 2026-08-21 "a FOURTH SQS publisher" Amendment for
+the fix (`ClientMetadata` as the injection seam, commit `fd65979`). The rest of this document's "3
+publishers" language describes the JE-155/156/157 gate as designed and is left as-is.
+
 **Correction (2026-08-21):** Decision 4's `batch_size = 1` pin was removed. Every SQS record now
 parents to its own origin trace regardless of batch size, dissolving the one-parent-per-batch
 conflict that forced the pin instead of working around it; `batchSpanLinks` restores the
@@ -429,3 +451,6 @@ measurement). The value on top of the `duration_ms` already present in logs is
 - [[events-pipeline-design]]
 - [[2026-08-18-distributed-tracing-spans]] — implementation plan; found the Decision 5/6
   auto-instrumentation error while being written
+- [[2026-08-21-asgi-instrumentation-double-spans-every-response]] — the ASGI transport
+  double-span found outside this spec's original scope, see the 2026-08-21 correction note above
+- [[tracking-service-design]] — where the ASGI fix and `mark_phase` lifecycle milestones landed
