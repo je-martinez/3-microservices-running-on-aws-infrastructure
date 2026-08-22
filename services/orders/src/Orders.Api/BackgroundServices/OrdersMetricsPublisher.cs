@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Orders.Application.Abstractions;
+using Orders.Infrastructure.Observability;
 using Orders.Infrastructure.Persistence;
 
 namespace Orders.Api.BackgroundServices;
@@ -17,17 +18,20 @@ public class OrdersMetricsPublisher : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IMetricsPublisher _metrics;
+    private readonly IWorkflowTracer _tracer;
     private readonly ILogger<OrdersMetricsPublisher> _logger;
     private readonly TimeSpan _interval;
 
     public OrdersMetricsPublisher(
         IServiceScopeFactory scopeFactory,
         IMetricsPublisher metrics,
+        IWorkflowTracer tracer,
         ILogger<OrdersMetricsPublisher> logger,
         IConfiguration configuration)
     {
         _scopeFactory = scopeFactory;
         _metrics = metrics;
+        _tracer = tracer;
         _logger = logger;
         // 15s locally, 60s in real AWS. Defaulted so no env file breaks by omitting it.
         _interval = TimeSpan.FromMilliseconds(
@@ -40,6 +44,52 @@ public class OrdersMetricsPublisher : BackgroundService
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {
             try
+            {
+                await CollectAndPublishAsync(stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;   // normal shutdown
+            }
+            catch (Exception ex)
+            {
+                // Swallow and keep ticking: one bad tick must not kill the loop.
+                //
+                // Stays OUTSIDE the span on purpose (see CollectAndPublishAsync):
+                // the span has to SEE the throw to come out ERROR, so by the time
+                // this line runs the activity has already ended and the line does
+                // not carry its span id. The span still tells the failure story on
+                // its own — ERROR status plus the recorded exception carrying this
+                // same message.
+                _logger.LogWarning(
+                    ex, "{app_event} reason={reason}", "metrics_collection_failed", ex.Message);
+            }
+        }
+    }
+
+    /// <summary>
+    /// One tick, wrapped in its own <c>metrics-tick</c> span. Public so a test can
+    /// drive it without waiting on the timer.
+    /// </summary>
+    /// <remarks>
+    /// The tick runs on a PeriodicTimer, so there is no ambient request span to hang
+    /// off: without this wrapper each tick's EF Core and CloudWatch spans arrive at
+    /// Jaeger as their OWN root traces (60 orphans were measured in an hour, rooted at
+    /// <c>orders</c> and <c>CloudWatch.PutMetricData</c>), burying the traces of real
+    /// requests and giving whoever opens one no way to tell which process produced it.
+    ///
+    /// INTERNAL, not CONSUMER — events-pipeline's identically-named <c>metrics-tick</c>
+    /// is CONSUMER because EventBridge wakes it; this one is our own timer and consumes
+    /// nothing. The name is shared across services on purpose so it means the same thing
+    /// everywhere.
+    ///
+    /// The caller's try/catch stays outside this method so the span sees the throw.
+    /// </remarks>
+    public async Task CollectAndPublishAsync(CancellationToken stoppingToken) =>
+        await _tracer.TraceWorkflowAsync(
+            "metrics-tick",
+            new Dictionary<string, object?> { ["app_event"] = "metrics_tick_started" },
+            async () =>
             {
                 // OrdersReadDbContext is registered SCOPED, so a singleton hosted
                 // service must open its own scope per tick.
@@ -81,17 +131,20 @@ public class OrdersMetricsPublisher : BackgroundService
                         },
                         stoppingToken);
                 }
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break;   // normal shutdown
-            }
-            catch (Exception ex)
-            {
-                // Swallow and keep ticking: one bad tick must not kill the loop.
-                _logger.LogWarning(
-                    ex, "{app_event} reason={reason}", "metrics_collection_failed", ex.Message);
-            }
-        }
-    }
+
+                // Logged from INSIDE the span, deliberately: the failure line in
+                // ExecuteAsync is outside it (see above), so this success line is the
+                // only one that carries the tick span's own id and makes a span-scoped
+                // log lookup return anything. It also states WHAT went out — "the tick
+                // ran" alone would not distinguish a healthy publish from one that
+                // shipped a zero because the count silently matched nothing.
+                _tracer.SetAttribute("app_event", "metrics_tick_succeeded");
+                _tracer.SetAttribute("orders_total", total);
+                _logger.LogInformation(
+                    "{app_event} orders_total={orders_total}", "metrics_tick_succeeded", total);
+
+                // TraceWorkflowAsync has no void overload; the tick has no result to
+                // report, so it returns a discarded placeholder.
+                return true;
+            });
 }

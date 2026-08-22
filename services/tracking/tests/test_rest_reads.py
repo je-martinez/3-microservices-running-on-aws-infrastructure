@@ -28,6 +28,8 @@ how the original defect survived 253 tests.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -47,6 +49,12 @@ USER_B = "usr_bbbbbbbbbbbbbbbbbbbbb"
 # never one of those, and the tests must not be able to confuse them.
 SUB_A = "11111111-1111-4111-8111-111111111111"
 SUB_B = "22222222-2222-4222-8222-222222222222"
+
+# The reads' own logger, named so `TestFlowLogging` can assert on the ABSENCE of a
+# line as well as its presence: filtering `caplog.records` by any other logger's
+# name would make "this handler stayed quiet" indistinguishable from "SQLAlchemy
+# happened to say nothing this run".
+READS_LOGGER = "src.features.tracking.api.trackings_router"
 
 ADDRESS = {
     "line1": "742 Evergreen Terrace",
@@ -550,3 +558,157 @@ class TestBatchRead:
         )
         assert "Evergreen" not in response.text
         assert "shipping_address" not in response.text
+
+
+class TestFlowLogging:
+    """What these two reads say in the logs, and what they deliberately do not.
+
+    The reads are the highest-frequency authenticated calls this service serves, so
+    every line they emit is multiplied by traffic. The convention's measured case is
+    from this very service: 353 of 368 lines in an hour were the health check against
+    2 describing real work ([[logging-context]]). A `*_succeeded` line per read would
+    repeat the route, status and duration the middleware's `request completed` line
+    already carries, and add only a count the caller can read off its own response —
+    so the success paths stay silent on purpose, and the assertions below pin that
+    silence rather than leaving it to be "fixed" by someone reading the span as mute.
+
+    The failure branches are the opposite case: a bare `400` or `404` in the request
+    line cannot say WHICH rule rejected the request, and both branches happen inside
+    `workflow_span`, so the line and the span carry the same `app_event`/`reason`
+    pair. `caplog` is asserted on the RECORD's attributes rather than on the rendered
+    message, because `extra=` fields are exactly what the JSON formatter emits and a
+    substring match on the message would pass for a line that carried no fields at all.
+    """
+
+    def flow_lines(
+        self, caplog: pytest.LogCaptureFixture, app_event: str
+    ) -> list[logging.LogRecord]:
+        return [
+            record
+            for record in caplog.records
+            if getattr(record, "app_event", None) == app_event
+        ]
+
+    def test_the_over_cap_400_logs_its_reason(
+        self, client: TestClient, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The one branch of these reads that was a silent failure.
+
+        `too_many_order_ids` is not a caller typo — it is a client asking for more
+        than the endpoint will build a query from, which reads as a paging bug
+        upstream or someone probing the cap. Nothing outside this handler knows the
+        rule fired.
+        """
+        too_many = ",".join(f"ord_{index:021d}" for index in range(101))
+        with caplog.at_level(logging.INFO, logger=READS_LOGGER):
+            response = client.get(
+                "/v1/trackings",
+                params={"order_ids": too_many},
+                headers=as_user(SUB_A),
+            )
+
+        assert response.status_code == 400
+        lines = self.flow_lines(caplog, "list_trackings_failed")
+        assert len(lines) == 1
+        line = lines[0]
+        assert line.levelno == logging.WARNING
+        assert getattr(line, "reason", None) == "too_many_order_ids"
+        # The count, and the cap it broke: the pair is what makes the line
+        # actionable without opening the source to look the limit up.
+        assert getattr(line, "requested_count", None) == 101
+        assert getattr(line, "max_order_ids", None) == 100
+
+    def test_the_over_cap_line_names_the_rule_not_the_number(
+        self, client: TestClient, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """`reason` is the rule's name, so a change to the cap does not break the query.
+
+        The number travels as `max_order_ids`, where it is data rather than part of
+        an identifier a dashboard filters on.
+        """
+        too_many = ",".join(f"ord_{index:021d}" for index in range(101))
+        with caplog.at_level(logging.INFO, logger=READS_LOGGER):
+            client.get(
+                "/v1/trackings",
+                params={"order_ids": too_many},
+                headers=as_user(SUB_A),
+            )
+
+        line = self.flow_lines(caplog, "list_trackings_failed")[0]
+        assert "100" not in line.reason
+
+    def test_the_single_read_404_logs_its_reason(
+        self, client: TestClient, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Already the case before this change; pinned so it stays true.
+
+        The `404` conflates "no such tracking" with "belongs to somebody else", and
+        the log cannot un-conflate it — the ownership filter is inside the SQL. What
+        it CAN say is that the read ran and matched nothing.
+        """
+        with caplog.at_level(logging.INFO, logger=READS_LOGGER):
+            response = client.get(
+                "/v1/trackings/ord_nosuchtracking00001", headers=as_user(SUB_A)
+            )
+
+        assert response.status_code == 404
+        lines = self.flow_lines(caplog, "get_tracking_failed")
+        assert len(lines) == 1
+        assert getattr(lines[0], "reason", None) == "not_found"
+        assert getattr(lines[0], "order_id", None) == "ord_nosuchtracking00001"
+
+    def test_a_successful_single_read_logs_nothing(
+        self, client: TestClient, session: Session, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """No `get_tracking_succeeded` line — `request completed` is the record."""
+        seed(session, order_id="ord_logquiet0000000001")
+        with caplog.at_level(logging.INFO, logger=READS_LOGGER):
+            response = client.get(
+                "/v1/trackings/ord_logquiet0000000001", headers=as_user(SUB_A)
+            )
+
+        assert response.status_code == 200
+        assert [
+            record.name for record in caplog.records if record.name == READS_LOGGER
+        ] == []
+
+    def test_a_successful_batch_read_logs_nothing(
+        self, client: TestClient, session: Session, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Same rule on the batch read, where the multiplier is largest.
+
+        One line per batch read is one line per page of the user's orders screen.
+        """
+        seed(session, order_id="ord_logquiet0000000002")
+        with caplog.at_level(logging.INFO, logger=READS_LOGGER):
+            response = client.get(
+                "/v1/trackings",
+                params={"order_ids": "ord_logquiet0000000002"},
+                headers=as_user(SUB_A),
+            )
+
+        assert response.status_code == 200
+        assert [
+            record.name for record in caplog.records if record.name == READS_LOGGER
+        ] == []
+
+    def test_the_failure_line_carries_no_shipping_address(
+        self, client: TestClient, session: Session, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The PII rule applies to the log as it does to the response body.
+
+        Scoped to this router's own records on purpose. A scan over every captured
+        record would also read SQLAlchemy's statement echo, which necessarily
+        contains the address `seed` just inserted — that is the ORM logging a write,
+        not this handler leaking a field, and asserting over it makes the test fail
+        for a reason it was not written to catch (it did, only when the suite ran
+        whole and another module had echo on).
+        """
+        seed(session, order_id="ord_logquiet0000000003")
+        with caplog.at_level(logging.INFO, logger=READS_LOGGER):
+            client.get("/v1/trackings/ord_nosuchtracking00002", headers=as_user(SUB_A))
+
+        ours = [record for record in caplog.records if record.name == READS_LOGGER]
+        assert ours, "expected the failure line, otherwise this asserts nothing"
+        for record in ours:
+            assert "Evergreen" not in str(record.__dict__)

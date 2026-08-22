@@ -92,6 +92,7 @@ from src.features.tracking.domain.status import (
 )
 from src.shared.audit.audit_actor import AuditActor
 from src.shared.db.engine import write_session
+from src.shared.observability import workflow_span
 
 logger = logging.getLogger(__name__)
 
@@ -172,76 +173,119 @@ async def run_progression(
       A TestMode fixture must not be able to take a handler thread or the loop down
       with it.
     """
-    logger.info(
-        "test_mode_progression_started",
-        extra={
-            "app_event": "test_mode_progression_started",
-            "order_id": order_id,
-            "interval_seconds": interval,
-        },
-    )
-    try:
-        while True:
-            await sleep(interval)
+    # ONE span for the whole run, not one per tick — the same granularity the
+    # flow log already uses (a single `*_started` and a single
+    # `*_succeeded`/`*_failed` for the entire progression). A span per transition
+    # would produce four disconnected 10-second spans that say nothing the
+    # `*_advanced` lines do not.
+    #
+    # Opened INSIDE the coroutine, deliberately. OTel's context is a
+    # `contextvars.ContextVar`, and `asyncio.create_task` COPIES the context at
+    # creation time: a `with` placed around the `create_task` call in
+    # `init_tracking_router._schedule_progression` would exit the moment that
+    # function returns, long before the first tick, ending the span while the
+    # work it claims to cover has not started. Same copy-on-spawn rule the log
+    # context documents in `shared/logging/log_context.py`.
+    #
+    # This span is therefore a ROOT: the creating request's span is closed by the
+    # time a background task runs. That is correct — the progression is a
+    # 40-second fixture with its own lifetime, not a part of the POST that
+    # scheduled it.
+    with workflow_span(
+        "test_mode_progression",
+        app_event="test_mode_progression_started",
+        order_id=order_id,
+        interval_seconds=interval,
+    ) as span:
+        logger.info(
+            "test_mode_progression_started",
+            extra={
+                "app_event": "test_mode_progression_started",
+                "order_id": order_id,
+                "interval_seconds": interval,
+            },
+        )
+        try:
+            while True:
+                await sleep(interval)
 
-            def step() -> str | None:
-                # A fresh session per transition: the creating request's session
-                # is long closed, and holding one across the sleeps would pin a
-                # pooled connection for the whole run.
-                with writer() as session:
-                    return advance_once(session, order_id)
+                def step() -> str | None:
+                    # A fresh session per transition: the creating request's session
+                    # is long closed, and holding one across the sleeps would pin a
+                    # pooled connection for the whole run.
+                    with writer() as session:
+                        return advance_once(session, order_id)
 
-            status = await asyncio.to_thread(step)
-            if status is None:
+                status = await asyncio.to_thread(step)
+                if status is None:
+                    span.set_attribute("app_event", "test_mode_progression_succeeded")
+                    logger.info(
+                        "test_mode_progression_succeeded",
+                        extra={
+                            "app_event": "test_mode_progression_succeeded",
+                            "order_id": order_id,
+                        },
+                    )
+                    return
+
+                # A span EVENT per tick, not a child span: it marks when each
+                # transition landed inside the one workflow span, which is what
+                # the `*_advanced` log line already says.
+                span.add_event("test_mode_progression_advanced", {"status": status})
                 logger.info(
-                    "test_mode_progression_succeeded",
+                    "test_mode_progression_advanced",
                     extra={
-                        "app_event": "test_mode_progression_succeeded",
+                        "app_event": "test_mode_progression_advanced",
                         "order_id": order_id,
+                        "status": status,
                     },
                 )
-                return
-
+        except asyncio.CancelledError:
+            # Shutdown. Re-raised so cancellation keeps working; the tracking simply
+            # stays where it is — see the KNOWN LIMITATION above.
+            #
+            # Re-raised means it leaves through `workflow_span`, which records it
+            # and sets ERROR — matching this branch's own `*_failed` log line.
+            span.set_attribute("reason", "cancelled")
             logger.info(
-                "test_mode_progression_advanced",
+                "test_mode_progression_failed",
                 extra={
-                    "app_event": "test_mode_progression_advanced",
+                    "app_event": "test_mode_progression_failed",
+                    "reason": "cancelled",
                     "order_id": order_id,
-                    "status": status,
                 },
             )
-    except asyncio.CancelledError:
-        # Shutdown. Re-raised so cancellation keeps working; the tracking simply
-        # stays where it is — see the KNOWN LIMITATION above.
-        logger.info(
-            "test_mode_progression_failed",
-            extra={
-                "app_event": "test_mode_progression_failed",
-                "reason": "cancelled",
-                "order_id": order_id,
-            },
-        )
-        raise
-    except (InvalidTransitionError, TrackingNotFoundError) as exc:
-        reason = (
-            exc.reason.value
-            if isinstance(exc, InvalidTransitionError)
-            else "tracking_not_found"
-        )
-        logger.info(
-            "test_mode_progression_failed",
-            extra={
-                "app_event": "test_mode_progression_failed",
-                "reason": reason,
-                "order_id": order_id,
-            },
-        )
-    except Exception:  # noqa: BLE001 - a background task must never die silently
-        logger.exception(
-            "test_mode_progression_failed",
-            extra={
-                "app_event": "test_mode_progression_failed",
-                "reason": "unexpected_error",
-                "order_id": order_id,
-            },
-        )
+            raise
+        except (InvalidTransitionError, TrackingNotFoundError) as exc:
+            reason = (
+                exc.reason.value
+                if isinstance(exc, InvalidTransitionError)
+                else "tracking_not_found"
+            )
+            # Swallowed here — the run ENDS, it does not fail the task — so the
+            # span would otherwise close as OK. `record_exception` puts the cause
+            # on it without changing the fact that this is a clean, expected end;
+            # `app_event`/`reason` carry the same story the log line does.
+            span.set_attribute("app_event", "test_mode_progression_failed")
+            span.set_attribute("reason", reason)
+            span.record_exception(exc)
+            logger.info(
+                "test_mode_progression_failed",
+                extra={
+                    "app_event": "test_mode_progression_failed",
+                    "reason": reason,
+                    "order_id": order_id,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 - a background task must never die silently
+            span.set_attribute("app_event", "test_mode_progression_failed")
+            span.set_attribute("reason", "unexpected_error")
+            span.record_exception(exc)
+            logger.exception(
+                "test_mode_progression_failed",
+                extra={
+                    "app_event": "test_mode_progression_failed",
+                    "reason": "unexpected_error",
+                    "order_id": order_id,
+                },
+            )

@@ -7,6 +7,7 @@ using Orders.Application.Tracking;
 using Orders.Domain.Entities;
 using Orders.Domain.Pricing;
 using Orders.Infrastructure.Id;
+using Orders.Infrastructure.Observability;
 using Orders.Infrastructure.Persistence;
 
 namespace Orders.Infrastructure.Orders;
@@ -29,6 +30,7 @@ public class CreateOrderService
     private readonly IEventPublisher _events;
     private readonly IConfigurationReader _config;
     private readonly ITrackingInitiator _tracking;
+    private readonly IWorkflowTracer _tracer;
     private readonly ILogger<CreateOrderService> _logger;
 
     public CreateOrderService(
@@ -37,6 +39,7 @@ public class CreateOrderService
         IEventPublisher events,
         IConfigurationReader config,
         ITrackingInitiator tracking,
+        IWorkflowTracer tracer,
         ILogger<CreateOrderService> logger)
     {
         _db = db;
@@ -44,6 +47,7 @@ public class CreateOrderService
         _events = events;
         _config = config;
         _tracking = tracking;
+        _tracer = tracer;
         _logger = logger;
     }
 
@@ -65,6 +69,22 @@ public class CreateOrderService
         bool e2eSource = false,
         CancellationToken ct = default)
     {
+        // The workflow span for the ONE Orders flow that carries flow logs. Its
+        // attributes mirror the create_order_started/_succeeded/_failed log lines
+        // below, so the trace and the log stream say the same thing.
+        return await _tracer.TraceWorkflowAsync(
+            "create_order",
+            new Dictionary<string, object?> { ["app_event"] = "create_order_started" },
+            () => CreateInternalAsync(command, cognitoSub, testMode, e2eSource, ct));
+    }
+
+    private async Task<OrderDto> CreateInternalAsync(
+        CreateOrderCommand command,
+        string cognitoSub,
+        bool testMode,
+        bool e2eSource,
+        CancellationToken ct)
+    {
         _logger.LogInformation(
             "Starting order creation {app_event} {line_count}",
             "create_order_started", command.Lines.Count);
@@ -84,6 +104,7 @@ public class CreateOrderService
             _logger.LogError(
                 "Order creation failed: the caller is not a known user {app_event} {reason}",
                 "create_order_failed", "unknown_user");
+            _tracer.SetReason("unknown_user");
             throw new UnknownUserException(cognitoSub);
         }
 
@@ -164,6 +185,7 @@ public class CreateOrderService
                     _logger.LogError(
                         "Order creation failed: unknown product {app_event} {reason} {product_id}",
                         "create_order_failed", "unknown_product", line.ProductId);
+                    _tracer.SetReason("unknown_product");
                     throw new UnknownProductException(line.ProductId);
                 }
 
@@ -173,6 +195,7 @@ public class CreateOrderService
                         "Order creation failed: insufficient stock {app_event} {reason} {product_id} {requested} {available}",
                         "create_order_failed", "insufficient_stock", line.ProductId,
                         line.Quantity, product.UnitsInStock);
+                    _tracer.SetReason("insufficient_stock");
                     throw new InsufficientStockException(line.ProductId);
                 }
 
@@ -254,6 +277,11 @@ public class CreateOrderService
             _logger.LogInformation(
                 "Order creation completed {app_event} {order_id} {line_count} {total_cents}",
                 "create_order_succeeded", order.Id, order.Details.Count, total);
+            // The span carries the same identity the success log line does. Set
+            // here, not in CreateAsync: the id only exists once the transaction
+            // that minted it has committed.
+            _tracer.SetAttribute("app_event", "create_order_succeeded");
+            _tracer.SetAttribute("order_id", order.Id);
 
             // Tracking is initiated AFTER the commit, deliberately, for two reasons.
             //

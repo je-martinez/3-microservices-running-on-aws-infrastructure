@@ -149,6 +149,7 @@ from src.shared.http.e2e_source import E2eSource
 from src.shared.http.log_identity import IdentifiedCaller
 from src.shared.http.test_mode import TestMode
 from src.shared.logging import merge_log_context
+from src.shared.observability import mark_phase, workflow_span
 
 logger = logging.getLogger(__name__)
 
@@ -233,80 +234,126 @@ async def init_tracking(
     # including uvicorn's access line and anything logged deeper in the stack.
     merge_log_context(order_id=payload.order_id)
 
-    try:
-        tracking, user_id = await asyncio.to_thread(
-            _resolve_and_create, caller, session, payload, e2e_source
+    # One INTERNAL span for the whole flow, carrying the same fields the flow's
+    # own log lines do. It is the parent the SQLAlchemy and outbound-gRPC spans
+    # attach to, which is what turns four unrelated children into "a tracking was
+    # created". `asyncio.to_thread` COPIES the context, so the work inside runs
+    # with this span active — the same copy-on-spawn rule that makes the
+    # `merge_log_context` below have to happen out here.
+    with workflow_span(
+        "init_tracking",
+        app_event="init_tracking_started",
+        order_id=payload.order_id,
+    ) as span:
+        try:
+            # The lifecycle milestones, mirroring the events-pipeline's phases so
+            # both services read the same way. They matter most on the FAILURE
+            # paths below: the span alone says the workflow ended, while these say
+            # how far it got — `user_resolved` present with no `tracking_created`
+            # is a creation failure, and neither present is a user-resolution one.
+            #
+            # Emitted around the `to_thread` boundary rather than inside
+            # `_resolve_and_create`, and that is not a stylistic choice:
+            # `asyncio.to_thread` COPIES the context, so an event added in that
+            # thread attaches to the copy and is discarded on return — the same
+            # trap the `merge_log_context` comment below documents for log
+            # context. Out here the workflow span is the live, current one.
+            mark_phase("resolution_started")
+            tracking, user_id = await asyncio.to_thread(
+                _resolve_and_create, caller, session, payload, e2e_source
+            )
+            mark_phase("tracking_created")
+            # Merged HERE, after the await, not inside `_resolve_and_create`:
+            # asyncio.to_thread COPIES the context, so a merge in that thread would
+            # be discarded on return. The resolved values come back as values, which
+            # is what makes this the correct place. Same class of trap as Prisma's
+            # lazy promises in Users ([[prisma-lazy-promise-breaks-als]]).
+            #
+            # `user_id` is already in context (`IdentifiedCaller` put it there before
+            # this handler ran, which is what gets it onto the EARLIER lines too);
+            # re-merging the identical value is a no-op kept for the case where that
+            # resolution failed quietly and this one — off the same cache — did not.
+            # `tracking_id` genuinely only exists here.
+            merge_log_context(user_id=user_id, tracking_id=tracking.id)
+        except UnknownUserError as exc:
+            # Authenticated, but Users has no record. See the module docstring for why
+            # this is a 404 rather than a 401 or a 422.
+            #
+            # Set beside the log call, with the SAME token: the span's `reason`
+            # and the `*_failed` line's `reason` are the same field seen from two
+            # systems, and they drift the moment one is updated alone.
+            span.set_attribute("reason", UNKNOWN_USER_REASON)
+            mark_phase("resolution_failed", UNKNOWN_USER_REASON)
+            _log_failure(payload.order_id, UNKNOWN_USER_REASON, caller.cognito_sub)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=_error(str(exc), UNKNOWN_USER_REASON),
+            ) from exc
+        except TrackingAlreadyExistsError as exc:
+            # Either the pre-check found one or the unique index rejected a racing
+            # INSERT — the command raises the same exception for both, which is what
+            # keeps a lost race a 409 instead of a 500. The existing tracking is
+            # untouched either way: this request wrote nothing that survived.
+            span.set_attribute("reason", ALREADY_EXISTS_REASON)
+            # After `resolution_started`: the user WAS resolved and the conflict
+            # came from the write, which is what tells this apart from the 404.
+            mark_phase("creation_conflicted", ALREADY_EXISTS_REASON)
+            _log_failure(payload.order_id, ALREADY_EXISTS_REASON, caller.cognito_sub)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=_error(str(exc), ALREADY_EXISTS_REASON),
+            ) from exc
+
+        # The same fields the success line carries, minus the PII rules already
+        # applied to it: `cognito_sub` and the shipping address stay off the span
+        # for the same reason they stay off (or are masked on) the log
+        # ([[logging-context]]).
+        mark_phase("init_tracking_completed")
+        span.set_attribute("app_event", "init_tracking_succeeded")
+        span.set_attribute("tracking_id", tracking.id)
+        span.set_attribute("user_id", user_id)
+        span.set_attribute("test_mode", test_mode)
+
+        logger.info(
+            "init_tracking_succeeded",
+            extra={
+                "app_event": "init_tracking_succeeded",
+                "order_id": payload.order_id,
+                "tracking_id": tracking.id,
+                "user_id": user_id,
+                "cognito_sub": caller.cognito_sub,
+                "test_mode": test_mode,
+            },
         )
-        # Merged HERE, after the await, not inside `_resolve_and_create`:
-        # asyncio.to_thread COPIES the context, so a merge in that thread would
-        # be discarded on return. The resolved values come back as values, which
-        # is what makes this the correct place. Same class of trap as Prisma's
-        # lazy promises in Users ([[prisma-lazy-promise-breaks-als]]).
-        #
-        # `user_id` is already in context (`IdentifiedCaller` put it there before
-        # this handler ran, which is what gets it onto the EARLIER lines too);
-        # re-merging the identical value is a no-op kept for the case where that
-        # resolution failed quietly and this one — off the same cache — did not.
-        # `tracking_id` genuinely only exists here.
-        merge_log_context(user_id=user_id, tracking_id=tracking.id)
-    except UnknownUserError as exc:
-        # Authenticated, but Users has no record. See the module docstring for why
-        # this is a 404 rather than a 401 or a 422.
-        _log_failure(payload.order_id, UNKNOWN_USER_REASON, caller.cognito_sub)
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=_error(str(exc), UNKNOWN_USER_REASON),
-        ) from exc
-    except TrackingAlreadyExistsError as exc:
-        # Either the pre-check found one or the unique index rejected a racing
-        # INSERT — the command raises the same exception for both, which is what
-        # keeps a lost race a 409 instead of a 500. The existing tracking is
-        # untouched either way: this request wrote nothing that survived.
-        _log_failure(payload.order_id, ALREADY_EXISTS_REASON, caller.cognito_sub)
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=_error(str(exc), ALREADY_EXISTS_REASON),
-        ) from exc
 
-    logger.info(
-        "init_tracking_succeeded",
-        extra={
-            "app_event": "init_tracking_succeeded",
-            "order_id": payload.order_id,
-            "tracking_id": tracking.id,
-            "user_id": user_id,
-            "cognito_sub": caller.cognito_sub,
-            "test_mode": test_mode,
-        },
-    )
+        if test_mode:
+            # Handed to Starlette's background-task hook rather than started here, and
+            # the ordering is the whole reason.
+            #
+            # At this point the tracking is written but NOT committed:
+            # `get_write_session` is a generator dependency, so its commit runs
+            # during teardown — after this
+            # handler returns. Starting the progression here would race that commit, and
+            # the progression would lose: its first step opens its OWN session, and a
+            # session that begins before the creating transaction commits sees no
+            # tracking, so `advance_once` returns None and the run ends immediately at
+            # PLACED. Verified, not theoretical — it is exactly what happened while this
+            # endpoint scheduled with a bare `create_task`, and it is invisible unless a
+            # test asserts the tracking actually advanced.
+            #
+            # A background task, by contract, runs after the response is sent, which is
+            # after dependency teardown — so the row is committed before the first tick.
+            #
+            # !! KNOWN LIMITATION, EXPLICITLY ACCEPTED !!
+            # In-process asyncio task: a process restart mid-progression loses it and
+            # the tracking freezes at whatever status it reached, with no recovery and
+            # no error. Expected, not a bug — full reasoning in
+            # `commands/test_mode_progression.py`.
+            background.add_task(_schedule_progression, payload.order_id, progression)
 
-    if test_mode:
-        # Handed to Starlette's background-task hook rather than started here, and
-        # the ordering is the whole reason.
-        #
-        # At this point the tracking is written but NOT committed: `get_write_session`
-        # is a generator dependency, so its commit runs during teardown — after this
-        # handler returns. Starting the progression here would race that commit, and
-        # the progression would lose: its first step opens its OWN session, and a
-        # session that begins before the creating transaction commits sees no
-        # tracking, so `advance_once` returns None and the run ends immediately at
-        # PLACED. Verified, not theoretical — it is exactly what happened while this
-        # endpoint scheduled with a bare `create_task`, and it is invisible unless a
-        # test asserts the tracking actually advanced.
-        #
-        # A background task, by contract, runs after the response is sent, which is
-        # after dependency teardown — so the row is committed before the first tick.
-        #
-        # !! KNOWN LIMITATION, EXPLICITLY ACCEPTED !!
-        # In-process asyncio task: a process restart mid-progression loses it and
-        # the tracking freezes at whatever status it reached, with no recovery and
-        # no error. Expected, not a bug — full reasoning in
-        # `commands/test_mode_progression.py`.
-        background.add_task(_schedule_progression, payload.order_id, progression)
-
-    return InitTrackingResponse(
-        tracking=TrackingResponse.from_entity(tracking, tracking.history)
-    )
+        return InitTrackingResponse(
+            tracking=TrackingResponse.from_entity(tracking, tracking.history)
+        )
 
 
 def _resolve_and_create(

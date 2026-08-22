@@ -1,5 +1,53 @@
 import type { LoggerOptions } from "pino";
+import { trace } from "@opentelemetry/api";
 import { getLogContext } from "./log-context.ts";
+
+// The active span's ids, ready to spread onto a log record — or nothing.
+//
+// WHY THIS IS WRITTEN BY HAND. The `onResponse` hook in http/routes.ts used to
+// claim that "Pino injects the REAL OTel trace_id and span_id on every line
+// once the SDK is active". It does not, and never did here: that injection
+// comes from @opentelemetry/instrumentation-pino, which is NOT a dependency of
+// this service and is NOT in getNodeAutoInstrumentations' bundle either. So
+// nothing patched pino, and EVERY line this service emitted — `request
+// completed` and every flow log alike — shipped without a trace id, silently.
+// Measured in OpenObserve before this existed: not one `register_succeeded` or
+// `login_succeeded` line had ever carried one, so a span could not be joined to
+// the logs that explain it.
+//
+// Stamping the ids in the formatter is the explicit mechanism the other two
+// services already use (Tracking's TraceContextFilter, the events-pipeline's
+// logger), and it needs no auto-detection to go right. It also covers BOTH of
+// this service's loggers at once — `req.log` and the module-level `appLogger`
+// share these options — which is why it lives here rather than in app-logger.ts.
+//
+// TWO RULES, both about the same thing: the logs<->traces join is STRING
+// EQUALITY between OpenObserve and Jaeger, so a different shape matches nothing
+// and reports no error.
+//
+// 1. Lowercase, zero-padded hex: 32 chars for the trace, 16 for the span. That
+//    is what `spanContext()` already returns in JS (unlike Python's ints, which
+//    Tracking has to format), so the value is passed through untouched — the
+//    point is that it must NOT be reformatted, uppercased or truncated.
+// 2. OMITTED, never zeroed. Outside a span — startup lines, the metrics
+//    publisher's ticks, anything on a background task — `getActiveSpan()` is
+//    undefined or reports the all-zero INVALID_SPAN_CONTEXT. Writing
+//    `trace_id: "000…0"` would be worse than writing nothing: it reads as a real
+//    id, and every uncorrelated line in the fleet would appear to share one
+//    trace. Same rule the formatter already applies to unknown context fields.
+//
+// `request_id` is deliberately untouched: it is a different field with a
+// different job (it spans the Lambdas, which run no SDK — see log-context.ts).
+//
+// @opentelemetry/api is imported here rather than #shared/observability/tracing
+// because the api package is INERT without a registered provider (it answers
+// "no active span" and nothing else), so importing it costs the unit tests no
+// SDK, no exporter and no open socket.
+function activeTraceIds(): { trace_id?: string; span_id?: string } {
+  const spanContext = trace.getActiveSpan()?.spanContext();
+  if (spanContext === undefined || !trace.isSpanContextValid(spanContext)) return {};
+  return { trace_id: spanContext.traceId, span_id: spanContext.spanId };
+}
 
 export const SEVERITY_NUMBER: Record<string, number> = {
   DEBUG: 5,
@@ -52,7 +100,10 @@ export function buildLoggerOptions(opts: {
         // field passed at the call site always wins over the context. Unknown
         // context fields are simply absent from the store, so nothing null is
         // emitted (see shared/logging/log-context.ts).
-        const object_ = { ...getLogContext(), ...object } as typeof object;
+        //
+        // The span ids go FIRST, ahead of the record context, for the same
+        // precedence reason: they are the most ambient thing on the line.
+        const object_ = { ...activeTraceIds(), ...getLogContext(), ...object } as typeof object;
 
         const err = (object_ as { err?: unknown }).err;
         if (err && typeof err === "object") {

@@ -12,34 +12,34 @@ importers:
     dependencies:
       '@angular/common':
         specifier: ^21.2.0
-        version: 21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2)
+        version: 21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2)
       '@angular/compiler':
         specifier: ^21.2.0
-        version: 21.2.20
+        version: 21.2.21
       '@angular/core':
         specifier: ^21.2.0
-        version: 21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2)
+        version: 21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2)
       '@angular/forms':
         specifier: ^21.2.0
-        version: 21.2.20(@angular/common@21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(@angular/platform-browser@21.2.20(@angular/common@21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2)))(rxjs@7.8.2)
+        version: 21.2.21(@angular/common@21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(@angular/platform-browser@21.2.21(@angular/common@21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2)))(rxjs@7.8.2)
       '@angular/platform-browser':
         specifier: ^21.2.0
-        version: 21.2.20(@angular/common@21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))
+        version: 21.2.21(@angular/common@21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))
       '@angular/router':
         specifier: ^21.2.0
-        version: 21.2.20(@angular/common@21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(@angular/platform-browser@21.2.20(@angular/common@21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2)))(rxjs@7.8.2)
+        version: 21.2.21(@angular/common@21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(@angular/platform-browser@21.2.21(@angular/common@21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2)))(rxjs@7.8.2)
       '@fontsource/inter':
         specifier: ^5.3.0
         version: 5.3.0
       '@lucide/angular':
         specifier: 1.32.0
-        version: 1.32.0(@angular/common@21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))
+        version: 1.32.0(@angular/common@21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))
       '@ngrx/signals':
         specifier: 21.1.1
-        version: 21.1.1(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2)
+        version: 21.1.1(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2)
       '@ngrx/store':
         specifier: 21.1.1
-        version: 21.1.1(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2)
+        version: 21.1.1(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2)
       date-fns:
         specifier: 4.4.0
         version: 4.4.0
@@ -55,19 +55,19 @@ importers:
         version: 21.4.0(@angular/cli@21.2.21(@types/node@26.0.1)(chokidar@5.0.0))(chokidar@5.0.0)(eslint@10.6.0(jiti@2.7.0))(typescript@5.9.3)
       '@angular/build':
         specifier: ^21.2.21
-        version: 21.2.21(@angular/compiler-cli@21.2.20(@angular/compiler@21.2.20)(typescript@5.9.3))(@angular/compiler@21.2.20)(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(@angular/platform-browser@21.2.20(@angular/common@21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2)))(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(@types/node@26.0.1)(chokidar@5.0.0)(jiti@2.7.0)(lightningcss@1.32.0)(postcss@8.5.16)(tailwindcss@4.3.3)(terser@5.49.1)(tslib@2.8.1)(tsx@4.23.0)(typescript@5.9.3)(vitest@4.1.11(@opentelemetry/api@1.9.1)(@types/node@26.0.1)(jsdom@28.1.0)(vite@7.3.6(@types/node@26.0.1)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.97.3)(terser@5.49.1)(tsx@4.23.0)(yaml@2.9.0)))(yaml@2.9.0)
+        version: 21.2.21(@angular/compiler-cli@21.2.21(@angular/compiler@21.2.21)(typescript@5.9.3))(@angular/compiler@21.2.21)(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(@angular/platform-browser@21.2.21(@angular/common@21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2)))(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(@types/node@26.0.1)(chokidar@5.0.0)(jiti@2.7.0)(lightningcss@1.32.0)(postcss@8.5.16)(tailwindcss@4.3.3)(terser@5.49.1)(tslib@2.8.1)(tsx@4.23.0)(typescript@5.9.3)(vitest@4.1.11(@opentelemetry/api@1.9.1)(@types/node@26.0.1)(jsdom@28.1.0)(vite@7.3.6(@types/node@26.0.1)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.97.3)(terser@5.49.1)(tsx@4.23.0)(yaml@2.9.0)))(yaml@2.9.0)
       '@angular/cli':
         specifier: ^21.2.21
         version: 21.2.21(@types/node@26.0.1)(chokidar@5.0.0)
       '@angular/compiler-cli':
         specifier: ^21.2.0
-        version: 21.2.20(@angular/compiler@21.2.20)(typescript@5.9.3)
+        version: 21.2.21(@angular/compiler@21.2.21)(typescript@5.9.3)
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.6.0(jiti@2.7.0))
       '@ngx-env/builder':
         specifier: 21.0.1
-        version: 21.0.1(@angular/build@21.2.21(@angular/compiler-cli@21.2.20(@angular/compiler@21.2.20)(typescript@5.9.3))(@angular/compiler@21.2.20)(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(@angular/platform-browser@21.2.20(@angular/common@21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2)))(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(@types/node@26.0.1)(chokidar@5.0.0)(jiti@2.7.0)(lightningcss@1.32.0)(postcss@8.5.16)(tailwindcss@4.3.3)(terser@5.49.1)(tslib@2.8.1)(tsx@4.23.0)(typescript@5.9.3)(vitest@4.1.11(@opentelemetry/api@1.9.1)(@types/node@26.0.1)(jsdom@28.1.0)(vite@7.3.6(@types/node@26.0.1)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.97.3)(terser@5.49.1)(tsx@4.23.0)(yaml@2.9.0)))(yaml@2.9.0))(webpack@5.109.2(lightningcss@1.32.0)(postcss@8.5.16))
+        version: 21.0.1(@angular/build@21.2.21(@angular/compiler-cli@21.2.21(@angular/compiler@21.2.21)(typescript@5.9.3))(@angular/compiler@21.2.21)(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(@angular/platform-browser@21.2.21(@angular/common@21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2)))(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(@types/node@26.0.1)(chokidar@5.0.0)(jiti@2.7.0)(lightningcss@1.32.0)(postcss@8.5.16)(tailwindcss@4.3.3)(terser@5.49.1)(tslib@2.8.1)(tsx@4.23.0)(typescript@5.9.3)(vitest@4.1.11(@opentelemetry/api@1.9.1)(@types/node@26.0.1)(jsdom@28.1.0)(vite@7.3.6(@types/node@26.0.1)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.97.3)(terser@5.49.1)(tsx@4.23.0)(yaml@2.9.0)))(yaml@2.9.0))(webpack@5.109.2(lightningcss@1.32.0)(postcss@8.5.16))
       '@tailwindcss/postcss':
         specifier: 4.3.3
         version: 4.3.3
@@ -168,6 +168,27 @@ importers:
       '@aws-sdk/lib-dynamodb':
         specifier: ^3.1075.0
         version: 3.1104.0(@aws-sdk/client-dynamodb@3.1104.0)
+      '@opentelemetry/api':
+        specifier: ^1.9.1
+        version: 1.9.1
+      '@opentelemetry/core':
+        specifier: ^2.10.0
+        version: 2.10.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/exporter-trace-otlp-http':
+        specifier: ^0.220.0
+        version: 0.220.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/resources':
+        specifier: ^2.9.0
+        version: 2.10.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-node':
+        specifier: ^0.220.0
+        version: 0.220.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-trace-base':
+        specifier: ^2.10.0
+        version: 2.10.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/semantic-conventions':
+        specifier: ^1.43.0
+        version: 1.43.0
       '@react-email/components':
         specifier: ^0.5.0
         version: 0.5.7(react-dom@19.0.0(react@19.0.0))(react@19.2.7)
@@ -190,6 +211,9 @@ importers:
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.6.0(jiti@2.7.0))
+      '@opentelemetry/context-async-hooks':
+        specifier: ^2.10.0
+        version: 2.10.0(@opentelemetry/api@1.9.1)
       '@react-email/preview-server':
         specifier: 4.3.2
         version: 4.3.2(@opentelemetry/api@1.9.1)(@playwright/test@1.61.1)(lightningcss@1.32.0)(postcss@8.5.16)(sass@1.97.3)
@@ -232,6 +256,24 @@ importers:
       '@aws-sdk/lib-dynamodb':
         specifier: ^3.1075.0
         version: 3.1104.0(@aws-sdk/client-dynamodb@3.1104.0)
+      '@opentelemetry/api':
+        specifier: ^1.9.1
+        version: 1.9.1
+      '@opentelemetry/exporter-trace-otlp-http':
+        specifier: ^0.220.0
+        version: 0.220.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/resources':
+        specifier: ^2.9.0
+        version: 2.10.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-node':
+        specifier: ^0.220.0
+        version: 0.220.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-trace-base':
+        specifier: ^2.10.0
+        version: 2.10.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/semantic-conventions':
+        specifier: ^1.43.0
+        version: 1.43.0
       aws-jwt-verify:
         specifier: ^4.0.1
         version: 4.0.1
@@ -284,6 +326,9 @@ importers:
       '@fastify/awilix':
         specifier: ^8.2.0
         version: 8.2.0(awilix@13.0.5)(fastify@5.9.0)
+      '@fastify/otel':
+        specifier: ^0.20.1
+        version: 0.20.1(@opentelemetry/api@1.9.1)
       '@fastify/swagger':
         specifier: ^9.5.1
         version: 9.8.0
@@ -298,10 +343,16 @@ importers:
         version: 1.9.1
       '@opentelemetry/auto-instrumentations-node':
         specifier: ^0.78.0
-        version: 0.78.0(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))
+        version: 0.78.0(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))
+      '@opentelemetry/core':
+        specifier: ^2.9.0
+        version: 2.10.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/exporter-trace-otlp-http':
         specifier: ^0.220.0
         version: 0.220.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/instrumentation':
+        specifier: ^0.221.0
+        version: 0.221.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/resources':
         specifier: ^2.9.0
         version: 2.9.0(@opentelemetry/api@1.9.1)
@@ -320,6 +371,9 @@ importers:
       '@prisma/extension-read-replicas':
         specifier: 0.5.0
         version: 0.5.0(@prisma/client@7.8.0(prisma@7.8.0(@types/react-dom@19.0.4(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(typescript@5.9.3))(typescript@5.9.3))
+      '@prisma/instrumentation':
+        specifier: ^7.9.1
+        version: 7.9.1(@opentelemetry/api@1.9.1)
       awilix:
         specifier: ^13.0.5
         version: 13.0.5
@@ -351,6 +405,12 @@ importers:
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.6.0(jiti@2.7.0))
+      '@opentelemetry/sdk-trace-base':
+        specifier: ^2.10.0
+        version: 2.10.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-trace-node':
+        specifier: ^2.10.0
+        version: 2.10.0(@opentelemetry/api@1.9.1)
       '@types/node':
         specifier: ^26.0.1
         version: 26.0.1
@@ -558,33 +618,33 @@ packages:
     engines: {node: ^20.19.0 || ^22.12.0 || >=24.0.0, npm: ^6.11.0 || ^7.5.6 || >=8.0.0, yarn: '>= 1.13.0'}
     hasBin: true
 
-  '@angular/common@21.2.20':
-    resolution: {integrity: sha512-TzUVfa4Asq/np3eStFX3Q6W+dPG7JDNtkj4XwTvRnSL0CN8pPe+wPHSo76awHFzYWcucxpZTmk2GUemeqxa4Yw==}
+  '@angular/common@21.2.21':
+    resolution: {integrity: sha512-ntouT80emF5osQW5XOI6PHSa6E3ZxPGIbwtIYznuiz9bBboW0TRs9YUSNg8TRfOiTBqwG8FKXCr19eyCaaTsgA==}
     engines: {node: ^20.19.0 || ^22.12.0 || >=24.0.0}
     peerDependencies:
-      '@angular/core': 21.2.20
+      '@angular/core': 21.2.21
       rxjs: ^6.5.3 || ^7.4.0
 
-  '@angular/compiler-cli@21.2.20':
-    resolution: {integrity: sha512-CBG1/wvH8XtbxYiqz0CR62fEHPFn3w0Q6+iey5U1+b+tmeTVVRjHlkvntOz5Gqv+5xC/r/hJf5d5DWCOp4mIwg==}
+  '@angular/compiler-cli@21.2.21':
+    resolution: {integrity: sha512-6xOrFUYYO9rDAUf+CnlqPtO1qFR4wOnKfWh9HXN3hWJ5nboo5R0K66arpw+TFYoqjhDLZcH4k7pVVnvUCJTlYg==}
     engines: {node: ^20.19.0 || ^22.12.0 || >=24.0.0}
     hasBin: true
     peerDependencies:
-      '@angular/compiler': 21.2.20
+      '@angular/compiler': 21.2.21
       typescript: '>=5.9 <6.1'
     peerDependenciesMeta:
       typescript:
         optional: true
 
-  '@angular/compiler@21.2.20':
-    resolution: {integrity: sha512-7UY4x+YOvDCUpiiVM1wEU9gIiME54vF9n+84FdaSL/6MxgHknkaB/R8iwNrfXwsHThzy4NKv+25UvlJrz9P7mg==}
+  '@angular/compiler@21.2.21':
+    resolution: {integrity: sha512-v2cxgmfsXVPCFivnbTmCdr1X+iDct9ZZUy7InDdKbTSwJld8zSyWwBVr3/8xzZ9hV4F41la5IxIyRyej52Mslw==}
     engines: {node: ^20.19.0 || ^22.12.0 || >=24.0.0}
 
-  '@angular/core@21.2.20':
-    resolution: {integrity: sha512-4yp6EKd1VJHUOiKmd3+s9UUXtBGsdO/IKewABuPXZ+UdrXPQSRMhgnMt49yqgz29XS7jSHyq6nZgt0CXOVEDZg==}
+  '@angular/core@21.2.21':
+    resolution: {integrity: sha512-87moY/3TmowvBcM7zYJQcpXg8O5Ro/6uQ2OdVILl7Tq9lBZbQlZcw5N+6b8s8LwRX4ka6srFVeVLW6JoJ1cFUw==}
     engines: {node: ^20.19.0 || ^22.12.0 || >=24.0.0}
     peerDependencies:
-      '@angular/compiler': 21.2.20
+      '@angular/compiler': 21.2.21
       rxjs: ^6.5.3 || ^7.4.0
       zone.js: ~0.15.0 || ~0.16.0
     peerDependenciesMeta:
@@ -593,33 +653,33 @@ packages:
       zone.js:
         optional: true
 
-  '@angular/forms@21.2.20':
-    resolution: {integrity: sha512-OP1/UtMGBfJEVGs85ns1jSYVyyezQRQYPG1ReUDzGPGRt62+JQkLdtHYu6RKwkXzW+LF2mt8cpIb4YfhxnnYrA==}
+  '@angular/forms@21.2.21':
+    resolution: {integrity: sha512-PqsY1NtvHyQ9bxnguiChXfbqFRCBJiL3wfW6wzVcYIA59QLsKKNmYitoJf3KOKN0vqCU8ley18AvJwbohJPsCw==}
     engines: {node: ^20.19.0 || ^22.12.0 || >=24.0.0}
     peerDependencies:
-      '@angular/common': 21.2.20
-      '@angular/core': 21.2.20
-      '@angular/platform-browser': 21.2.20
+      '@angular/common': 21.2.21
+      '@angular/core': 21.2.21
+      '@angular/platform-browser': 21.2.21
       rxjs: ^6.5.3 || ^7.4.0
 
-  '@angular/platform-browser@21.2.20':
-    resolution: {integrity: sha512-KtIrkSol2Q5qx6Poj53fLN6x3FYTPXCJ3Qi4KzlPbK0EFoiltaYCh3C2hmBze9QNdA8TM719THGvIDpCznl8PQ==}
+  '@angular/platform-browser@21.2.21':
+    resolution: {integrity: sha512-WtdVQzbAZEcUuRCV4kUG2z3zeePek60zW5WNCAdMgqoNWuxlt38BOOwTL9d7WohojJB55Ny4WeRrQYF7xyQgMQ==}
     engines: {node: ^20.19.0 || ^22.12.0 || >=24.0.0}
     peerDependencies:
-      '@angular/animations': 21.2.20
-      '@angular/common': 21.2.20
-      '@angular/core': 21.2.20
+      '@angular/animations': 21.2.21
+      '@angular/common': 21.2.21
+      '@angular/core': 21.2.21
     peerDependenciesMeta:
       '@angular/animations':
         optional: true
 
-  '@angular/router@21.2.20':
-    resolution: {integrity: sha512-4QINfZGcIBwupu1ULCXFdXsDZeZbpRX5mm61DAqc7CnuCGV1udwbIVStOf4AmPEdfGzV7yLl77Z++EFoQQXgRA==}
+  '@angular/router@21.2.21':
+    resolution: {integrity: sha512-Db7PfrZob1cUzwNVBSyT6Swyvw+s5uXdmUyEEYo2r0XiK5eXZFsVBeynu5I4Lltw91ktky6+SCn17aA6s+DvDA==}
     engines: {node: ^20.19.0 || ^22.12.0 || >=24.0.0}
     peerDependencies:
-      '@angular/common': 21.2.20
-      '@angular/core': 21.2.20
-      '@angular/platform-browser': 21.2.20
+      '@angular/common': 21.2.21
+      '@angular/core': 21.2.21
+      '@angular/platform-browser': 21.2.21
       rxjs: ^6.5.3 || ^7.4.0
 
   '@asamuzakjp/css-color@5.1.11':
@@ -1766,6 +1826,11 @@ packages:
   '@fastify/merge-json-schemas@0.2.1':
     resolution: {integrity: sha512-OA3KGBCy6KtIvLf8DINC5880o5iBlDX4SxzLQS8HorJAbqluzLRn80UXU0bxZn7UOFhFgpRJDasfwn9nG4FG4A==}
 
+  '@fastify/otel@0.20.1':
+    resolution: {integrity: sha512-UG9gQUbqfBWcJNeO0bxj03xkoEE8NGJkIedN/red11elHFeZuVgoHKAx0x+wO4kGedyyQv8NWC62AdpGEvyM6g==}
+    peerDependencies:
+      '@opentelemetry/api': ^1.9.0
+
   '@fastify/proxy-addr@5.1.0':
     resolution: {integrity: sha512-INS+6gh91cLUjB+PVHfu1UqcB76Sqtpyp7bnL+FYojhjygvOPA9ctiD/JDKsyD9Xgu4hUhCSJBPig/w7duNajw==}
 
@@ -2629,8 +2694,20 @@ packages:
     resolution: {integrity: sha512-mGUWr1uMnf0le2TwfOZY4SFxZGXGfm4Jtay/nwAa2FLNAKXUoUwaGwBMNH36UHPtinWfTSJ3nqFQr0091CxVGg==}
     engines: {node: ^20.17.0 || >=22.9.0}
 
+  '@opentelemetry/api-logs@0.207.0':
+    resolution: {integrity: sha512-lAb0jQRVyleQQGiuuvCOTDVspc14nx6XJjP4FspJ1sNARo3Regq4ZZbrc3rN4b1TYSuUCvgH+UXUPug4SLOqEQ==}
+    engines: {node: '>=8.0.0'}
+
+  '@opentelemetry/api-logs@0.219.0':
+    resolution: {integrity: sha512-FFx7YnaYJlIjqWW/AG/yAZ0L/NEY724PipXXXQLdtZPbLwBGbUMTGL1i/esI56TWfTUXxhLfpgrnWJCG8aUJyg==}
+    engines: {node: '>=8.0.0'}
+
   '@opentelemetry/api-logs@0.220.0':
     resolution: {integrity: sha512-CmVa4ImJ+ynfrPMNaAXHET6Bhb44SwzmfyVJFq9ni2jgXJR/l7C6gfVFddNmHP+ZOkP9cf4f9DBe68qVLTHc9w==}
+    engines: {node: '>=8.0.0'}
+
+  '@opentelemetry/api-logs@0.221.0':
+    resolution: {integrity: sha512-OlanaW1vv7ufTqQ3/fPLI4arGt5ZoM+P8abOMki6uEYnpRazepSWDwDnnw+la7kE26SHVC18//SMccrDvLKOXQ==}
     engines: {node: '>=8.0.0'}
 
   '@opentelemetry/api@1.9.1':
@@ -2650,8 +2727,20 @@ packages:
     peerDependencies:
       '@opentelemetry/api': ^1.9.0
 
+  '@opentelemetry/context-async-hooks@2.10.0':
+    resolution: {integrity: sha512-bvyMcgLEkozzSzpEEEo1OMoeQ97bxj6Qs2uN3mPrSdDvObMI1myffD/BPqcLlzZO9//d1SqQA/WPw7Cz2AiqhA==}
+    engines: {node: ^18.19.0 || >=20.6.0}
+    peerDependencies:
+      '@opentelemetry/api': '>=1.0.0 <1.10.0'
+
   '@opentelemetry/context-async-hooks@2.9.0':
     resolution: {integrity: sha512-OQ0vzvbZBiUhjqLnUaoNfYmP8553Crr3aggB4y0ZUi815mZ7idpdJXQmoKdeBKJelYttoBlLSSHubmyw3wvX4w==}
+    engines: {node: ^18.19.0 || >=20.6.0}
+    peerDependencies:
+      '@opentelemetry/api': '>=1.0.0 <1.10.0'
+
+  '@opentelemetry/core@2.10.0':
+    resolution: {integrity: sha512-/wNZ8twnEQQA4HoHu22+vcsdru6pWPWxW+7w+FlxT6Id7PE/WIbZmVKkte+PF72e0F2dnImFeHD2syyE1Mw6MQ==}
     engines: {node: ^18.19.0 || >=20.6.0}
     peerDependencies:
       '@opentelemetry/api': '>=1.0.0 <1.10.0'
@@ -2974,8 +3063,26 @@ packages:
     peerDependencies:
       '@opentelemetry/api': ^1.3.0
 
+  '@opentelemetry/instrumentation@0.207.0':
+    resolution: {integrity: sha512-y6eeli9+TLKnznrR8AZlQMSJT7wILpXH+6EYq5Vf/4Ao+huI7EedxQHwRgVUOMLFbe7VFDvHJrX9/f4lcwnJsA==}
+    engines: {node: ^18.19.0 || >=20.6.0}
+    peerDependencies:
+      '@opentelemetry/api': ^1.3.0
+
+  '@opentelemetry/instrumentation@0.219.0':
+    resolution: {integrity: sha512-X5t7I8GyIO9rmGHwoedZLREpQqrF1WW2nxzNNym6HOKpFiE+rvqV3ngC0xcZVO2YwIGf3KKmRdWrYwdwz3H9RQ==}
+    engines: {node: ^18.19.0 || >=20.6.0}
+    peerDependencies:
+      '@opentelemetry/api': ^1.3.0
+
   '@opentelemetry/instrumentation@0.220.0':
     resolution: {integrity: sha512-xQx3E2WxP1mDvKzxLxX+CTCtNLa560YJZ3087qYHerl2YmiKpv7AH+dAy7vmx+eVrZ5BwhfWUAVoKOoxCNHcpw==}
+    engines: {node: ^18.19.0 || >=20.6.0}
+    peerDependencies:
+      '@opentelemetry/api': ^1.3.0
+
+  '@opentelemetry/instrumentation@0.221.0':
+    resolution: {integrity: sha512-cCk80Z/iRDf/5gfsKMB4f74LqVA5yKETB/9ojPzVW/6/f70iu89nJvGxsFCxx4XfSohaOofkU19kiYm84AiAlw==}
     engines: {node: ^18.19.0 || >=20.6.0}
     peerDependencies:
       '@opentelemetry/api': ^1.3.0
@@ -3050,6 +3157,12 @@ packages:
     peerDependencies:
       '@opentelemetry/api': ^1.0.0
 
+  '@opentelemetry/resources@2.10.0':
+    resolution: {integrity: sha512-q6MMm2zhggzsHVNbabYwut+a6nbuQQe3URUoxaojM/8K1IBfwwPzvxIjNi2/lI1TFe+fMHMW9MWhrtDLEXEnkA==}
+    engines: {node: ^18.19.0 || >=20.6.0}
+    peerDependencies:
+      '@opentelemetry/api': '>=1.3.0 <1.10.0'
+
   '@opentelemetry/resources@2.9.0':
     resolution: {integrity: sha512-jyA5MBLQ+Dkl3+JsZkUoUvL7yHvU64kLsvpXKarWm6347Sl1t1bXFTFykUePNpT5WH5pm9a2Qtt03iIYQhZ1Fg==}
     engines: {node: ^18.19.0 || >=20.6.0}
@@ -3074,17 +3187,35 @@ packages:
     peerDependencies:
       '@opentelemetry/api': '>=1.3.0 <1.10.0'
 
+  '@opentelemetry/sdk-trace-base@2.10.0':
+    resolution: {integrity: sha512-GuYQQT7QD2EeO8lcZLRQzcbOyhqAzL+6WWTKTU9mSUBYBazkEDl+VrQcXQhbB08OWM9anD1aHleVadzulpOaUQ==}
+    engines: {node: ^18.19.0 || >=20.6.0}
+    peerDependencies:
+      '@opentelemetry/api': '>=1.3.0 <1.10.0'
+
   '@opentelemetry/sdk-trace-base@2.9.0':
     resolution: {integrity: sha512-cp9zmTl62R8PJrpvFcmc8N2JQU/xfa0S+61q511Nji+QxCfZ8Ifvg7H27G8cANe4crg4RTrWsVvanHiXjSp6ag==}
     engines: {node: ^18.19.0 || >=20.6.0}
     peerDependencies:
       '@opentelemetry/api': '>=1.3.0 <1.10.0'
 
+  '@opentelemetry/sdk-trace-node@2.10.0':
+    resolution: {integrity: sha512-GZK/G6oZyBLGlH1pUgeDch7D91KoHd2uotUGIkWCPi9GI5T9X0p4L7nNAMDR1BQjkRYoDqo+ddfVx9t5Uhys+Q==}
+    engines: {node: ^18.19.0 || >=20.6.0}
+    peerDependencies:
+      '@opentelemetry/api': '>=1.0.0 <1.10.0'
+
   '@opentelemetry/sdk-trace-node@2.9.0':
     resolution: {integrity: sha512-ec9a7ps37huy5itYk0MalaZdSLlM6AXWp/FhtEjgMpp5leEGojBDvAl/UWttQnkMZOvFHKzRESn8TD3yKTF5nQ==}
     engines: {node: ^18.19.0 || >=20.6.0}
     peerDependencies:
       '@opentelemetry/api': '>=1.0.0 <1.10.0'
+
+  '@opentelemetry/sdk-trace@2.10.0':
+    resolution: {integrity: sha512-MfQGq3GRmTh5fM/y+OjaO0vj6+luCB1XO2gfXCalKCfgKw0eHL++sm75DNweC6ohlp+aFvACqeE0fYayqdRaoQ==}
+    engines: {node: ^18.19.0 || >=20.6.0}
+    peerDependencies:
+      '@opentelemetry/api': '>=1.3.0 <1.10.0'
 
   '@opentelemetry/sdk-trace@2.9.0':
     resolution: {integrity: sha512-sGA19HvtrrSKYsseHphluH6j3p6Xa3fqc7c7y8f/7mYWejc1lyDFcpSdD1kYa50HCLUeEo4zA5bW0pniaPszuw==}
@@ -3245,6 +3376,11 @@ packages:
 
   '@prisma/get-platform@7.8.0':
     resolution: {integrity: sha512-WlxgRGnolL8VH2EmkH1R/DkKNr/mVdS3G2h42IZFFZ3eUrH9OT6t73kIOSlkkrv50wG123Iq8d96ufv5LlZktw==}
+
+  '@prisma/instrumentation@7.9.1':
+    resolution: {integrity: sha512-ld/HSXi0FzpgmS06Bxey1SsqmGr0+lZQi1PbcatxQD7BCxpbtcWqDRuEavchT8RE5QUjy+UeINOMyk+WY6/a2g==}
+    peerDependencies:
+      '@opentelemetry/api': ^1.8
 
   '@prisma/query-plan-executor@7.2.0':
     resolution: {integrity: sha512-EOZmNzcV8uJ0mae3DhTsiHgoNCuu1J9mULQpGCh62zN3PxPTd+qI9tJvk5jOst8WHKQNwJWR3b39t0XvfBB0WQ==}
@@ -4017,8 +4153,8 @@ packages:
     resolution: {integrity: sha512-qRsxPnCrbC/puegGxKuynfnxgLiHqWStrSjxkoB4YKqq3Z3s4cyZyj42ZdWFAEblNP65C+rBH8EuREHIXoi83g==}
     engines: {node: ^20.17.0 || >=22.9.0}
 
-  '@sigstore/protobuf-specs@0.5.1':
-    resolution: {integrity: sha512-/ScWUhhoFasJsSRGTVBwId1loQjjnjAfE4djL6ZhrXRpNCmPTnUKF5Jokd58ILseOMjzET3UrMOtJPS9sYeI0g==}
+  '@sigstore/protobuf-specs@0.5.2':
+    resolution: {integrity: sha512-SQqvFMt4V78fdjcDdYX6HbiVSOR4QK3ZgwCa2KOsopAgPIHy1rU5UDUmzLl02r5oyyaYcYHR1hpwDRk/yUe+Mw==}
     engines: {node: ^18.17.0 || >=20.5.0}
 
   '@sigstore/sign@4.1.1':
@@ -4553,6 +4689,11 @@ packages:
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
     engines: {node: '>= 0.6'}
+
+  acorn-import-attributes@1.9.5:
+    resolution: {integrity: sha512-n02Vykv5uA3eHGM/Z2dQrcD56kL8TyDb2p1+0P83PClMnC/nc+anbQRhIOWnSq4Ke/KvDPrY3C9hDtC/A3eHnQ==}
+    peerDependencies:
+      acorn: ^8
 
   acorn-jsx@5.3.2:
     resolution: {integrity: sha512-rq9s+JNhf0IChjtDXxllJ7g41oZk5SlXtp0LHwyA5cejwn7vKmKp4pPri6YEePv2PU65sAsegbXtIinmDFDXgQ==}
@@ -5747,6 +5888,9 @@ packages:
   immutable@5.1.9:
     resolution: {integrity: sha512-m8nVez3rwrgmWxtLMt1ZYXB2Lv7OKYn/disyxAlSDYAlKSlFoPPfIAmAM/M5xqL4m4C/wAPw7S2/CNaUii1Hxg==}
 
+  import-in-the-middle@2.0.6:
+    resolution: {integrity: sha512-3vZV3jX0XRFW3EJDTwzWoZa+RH1b8eTTx6YOCjglrLyPuepwoBti1k3L2dKwdCUrnVEfc5CuRuGstaC/uQJJaw==}
+
   import-in-the-middle@3.3.1:
     resolution: {integrity: sha512-0rymlHSFLwZ0ixx8DaQkoIyZojJPY2a0K2nEYslhKJ6jIYO/m0IcCb7iQsFPmS7WmKwISZiIrv5Icstrw/CmqA==}
     engines: {node: '>=18'}
@@ -5883,8 +6027,8 @@ packages:
     resolution: {integrity: sha512-AC/7JofJvZGrrneWNaEnJeOLUx+JlGt7tNa0wZiRPT4MY1wmfKjt2+6O2p2uz2+skll8OZZmJMNqeke7kKbNgQ==}
     hasBin: true
 
-  jose@6.2.9:
-    resolution: {integrity: sha512-XrchZOFZUl/T3vTwRe8XK+cJrGtMF4th1ARnDfwbBXFKThGhlsxEE4Zu03AD/bjJSt/9jT/mxrOCkJWOg77aPA==}
+  jose@6.2.10:
+    resolution: {integrity: sha512-iiW7J9qRFlGxvCOIBDBDxFePQSn7ZMAnrYGhrrOo6siO/MIqwfyilLR27pkfDgUk+raLuzADS8A3S/KLBisc0g==}
 
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
@@ -8128,12 +8272,12 @@ snapshots:
       eslint: 10.6.0(jiti@2.7.0)
       typescript: 5.9.3
 
-  '@angular/build@21.2.21(@angular/compiler-cli@21.2.20(@angular/compiler@21.2.20)(typescript@5.9.3))(@angular/compiler@21.2.20)(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(@angular/platform-browser@21.2.20(@angular/common@21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2)))(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(@types/node@26.0.1)(chokidar@5.0.0)(jiti@2.7.0)(lightningcss@1.32.0)(postcss@8.5.16)(tailwindcss@4.3.3)(terser@5.49.1)(tslib@2.8.1)(tsx@4.23.0)(typescript@5.9.3)(vitest@4.1.11(@opentelemetry/api@1.9.1)(@types/node@26.0.1)(jsdom@28.1.0)(vite@7.3.6(@types/node@26.0.1)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.97.3)(terser@5.49.1)(tsx@4.23.0)(yaml@2.9.0)))(yaml@2.9.0)':
+  '@angular/build@21.2.21(@angular/compiler-cli@21.2.21(@angular/compiler@21.2.21)(typescript@5.9.3))(@angular/compiler@21.2.21)(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(@angular/platform-browser@21.2.21(@angular/common@21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2)))(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(@types/node@26.0.1)(chokidar@5.0.0)(jiti@2.7.0)(lightningcss@1.32.0)(postcss@8.5.16)(tailwindcss@4.3.3)(terser@5.49.1)(tslib@2.8.1)(tsx@4.23.0)(typescript@5.9.3)(vitest@4.1.11(@opentelemetry/api@1.9.1)(@types/node@26.0.1)(jsdom@28.1.0)(vite@7.3.6(@types/node@26.0.1)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.97.3)(terser@5.49.1)(tsx@4.23.0)(yaml@2.9.0)))(yaml@2.9.0)':
     dependencies:
       '@ampproject/remapping': 2.3.0
       '@angular-devkit/architect': 0.2102.21(chokidar@5.0.0)
-      '@angular/compiler': 21.2.20
-      '@angular/compiler-cli': 21.2.20(@angular/compiler@21.2.20)(typescript@5.9.3)
+      '@angular/compiler': 21.2.21
+      '@angular/compiler-cli': 21.2.21(@angular/compiler@21.2.21)(typescript@5.9.3)
       '@babel/core': 7.29.7
       '@babel/helper-annotate-as-pure': 7.27.3
       '@babel/helper-split-export-declaration': 7.24.7
@@ -8162,8 +8306,8 @@ snapshots:
       vite: 7.3.6(@types/node@26.0.1)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.97.3)(terser@5.49.1)(tsx@4.23.0)(yaml@2.9.0)
       watchpack: 2.5.1
     optionalDependencies:
-      '@angular/core': 21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2)
-      '@angular/platform-browser': 21.2.20(@angular/common@21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))
+      '@angular/core': 21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2)
+      '@angular/platform-browser': 21.2.21(@angular/common@21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))
       lmdb: 3.5.1
       postcss: 8.5.16
       tailwindcss: 4.3.3
@@ -8209,15 +8353,15 @@ snapshots:
       - chokidar
       - supports-color
 
-  '@angular/common@21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2)':
+  '@angular/common@21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2)':
     dependencies:
-      '@angular/core': 21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2)
+      '@angular/core': 21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2)
       rxjs: 7.8.2
       tslib: 2.8.1
 
-  '@angular/compiler-cli@21.2.20(@angular/compiler@21.2.20)(typescript@5.9.3)':
+  '@angular/compiler-cli@21.2.21(@angular/compiler@21.2.21)(typescript@5.9.3)':
     dependencies:
-      '@angular/compiler': 21.2.20
+      '@angular/compiler': 21.2.21
       '@babel/core': 7.29.7
       '@jridgewell/sourcemap-codec': 1.5.5
       chokidar: 5.0.0
@@ -8231,37 +8375,37 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@angular/compiler@21.2.20':
+  '@angular/compiler@21.2.21':
     dependencies:
       tslib: 2.8.1
 
-  '@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2)':
+  '@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2)':
     dependencies:
       rxjs: 7.8.2
       tslib: 2.8.1
     optionalDependencies:
-      '@angular/compiler': 21.2.20
+      '@angular/compiler': 21.2.21
 
-  '@angular/forms@21.2.20(@angular/common@21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(@angular/platform-browser@21.2.20(@angular/common@21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2)))(rxjs@7.8.2)':
+  '@angular/forms@21.2.21(@angular/common@21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(@angular/platform-browser@21.2.21(@angular/common@21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2)))(rxjs@7.8.2)':
     dependencies:
-      '@angular/common': 21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2)
-      '@angular/core': 21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2)
-      '@angular/platform-browser': 21.2.20(@angular/common@21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))
+      '@angular/common': 21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2)
+      '@angular/core': 21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2)
+      '@angular/platform-browser': 21.2.21(@angular/common@21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))
       '@standard-schema/spec': 1.1.0
       rxjs: 7.8.2
       tslib: 2.8.1
 
-  '@angular/platform-browser@21.2.20(@angular/common@21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))':
+  '@angular/platform-browser@21.2.21(@angular/common@21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))':
     dependencies:
-      '@angular/common': 21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2)
-      '@angular/core': 21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2)
+      '@angular/common': 21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2)
+      '@angular/core': 21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2)
       tslib: 2.8.1
 
-  '@angular/router@21.2.20(@angular/common@21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(@angular/platform-browser@21.2.20(@angular/common@21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2)))(rxjs@7.8.2)':
+  '@angular/router@21.2.21(@angular/common@21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(@angular/platform-browser@21.2.21(@angular/common@21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2)))(rxjs@7.8.2)':
     dependencies:
-      '@angular/common': 21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2)
-      '@angular/core': 21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2)
-      '@angular/platform-browser': 21.2.20(@angular/common@21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))
+      '@angular/common': 21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2)
+      '@angular/core': 21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2)
+      '@angular/platform-browser': 21.2.21(@angular/common@21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))
       rxjs: 7.8.2
       tslib: 2.8.1
 
@@ -9536,6 +9680,16 @@ snapshots:
     dependencies:
       dequal: 2.0.3
 
+  '@fastify/otel@0.20.1(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/instrumentation': 0.219.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/semantic-conventions': 1.43.0
+      minimatch: 10.2.5
+    transitivePeerDependencies:
+      - supports-color
+
   '@fastify/proxy-addr@5.1.0':
     dependencies:
       '@fastify/forwarded': 3.0.1
@@ -10027,10 +10181,10 @@ snapshots:
 
   '@lottiefiles/dotlottie-web@0.42.0': {}
 
-  '@lucide/angular@1.32.0(@angular/common@21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))':
+  '@lucide/angular@1.32.0(@angular/common@21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))':
     dependencies:
-      '@angular/common': 21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2)
-      '@angular/core': 21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2)
+      '@angular/common': 21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2)
+      '@angular/core': 21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2)
       tslib: 2.8.1
 
   '@modelcontextprotocol/sdk@1.30.0(zod@4.3.6)':
@@ -10046,7 +10200,7 @@ snapshots:
       express: 5.2.1
       express-rate-limit: 8.6.2(express@5.2.1)
       hono: 4.12.27
-      jose: 6.2.9
+      jose: 6.2.10
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
       raw-body: 3.0.2
@@ -10182,22 +10336,22 @@ snapshots:
   '@next/swc-win32-x64-msvc@15.5.2':
     optional: true
 
-  '@ngrx/signals@21.1.1(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2)':
+  '@ngrx/signals@21.1.1(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2)':
     dependencies:
-      '@angular/core': 21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2)
+      '@angular/core': 21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2)
       tslib: 2.8.1
     optionalDependencies:
       rxjs: 7.8.2
 
-  '@ngrx/store@21.1.1(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2)':
+  '@ngrx/store@21.1.1(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2)':
     dependencies:
-      '@angular/core': 21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2)
+      '@angular/core': 21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2)
       rxjs: 7.8.2
       tslib: 2.8.1
 
-  '@ngx-env/builder@21.0.1(@angular/build@21.2.21(@angular/compiler-cli@21.2.20(@angular/compiler@21.2.20)(typescript@5.9.3))(@angular/compiler@21.2.20)(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(@angular/platform-browser@21.2.20(@angular/common@21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2)))(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(@types/node@26.0.1)(chokidar@5.0.0)(jiti@2.7.0)(lightningcss@1.32.0)(postcss@8.5.16)(tailwindcss@4.3.3)(terser@5.49.1)(tslib@2.8.1)(tsx@4.23.0)(typescript@5.9.3)(vitest@4.1.11(@opentelemetry/api@1.9.1)(@types/node@26.0.1)(jsdom@28.1.0)(vite@7.3.6(@types/node@26.0.1)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.97.3)(terser@5.49.1)(tsx@4.23.0)(yaml@2.9.0)))(yaml@2.9.0))(webpack@5.109.2(lightningcss@1.32.0)(postcss@8.5.16))':
+  '@ngx-env/builder@21.0.1(@angular/build@21.2.21(@angular/compiler-cli@21.2.21(@angular/compiler@21.2.21)(typescript@5.9.3))(@angular/compiler@21.2.21)(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(@angular/platform-browser@21.2.21(@angular/common@21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2)))(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(@types/node@26.0.1)(chokidar@5.0.0)(jiti@2.7.0)(lightningcss@1.32.0)(postcss@8.5.16)(tailwindcss@4.3.3)(terser@5.49.1)(tslib@2.8.1)(tsx@4.23.0)(typescript@5.9.3)(vitest@4.1.11(@opentelemetry/api@1.9.1)(@types/node@26.0.1)(jsdom@28.1.0)(vite@7.3.6(@types/node@26.0.1)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.97.3)(terser@5.49.1)(tsx@4.23.0)(yaml@2.9.0)))(yaml@2.9.0))(webpack@5.109.2(lightningcss@1.32.0)(postcss@8.5.16))':
     dependencies:
-      '@angular/build': 21.2.21(@angular/compiler-cli@21.2.20(@angular/compiler@21.2.20)(typescript@5.9.3))(@angular/compiler@21.2.20)(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(@angular/platform-browser@21.2.20(@angular/common@21.2.20(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.20(@angular/compiler@21.2.20)(rxjs@7.8.2)))(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(@types/node@26.0.1)(chokidar@5.0.0)(jiti@2.7.0)(lightningcss@1.32.0)(postcss@8.5.16)(tailwindcss@4.3.3)(terser@5.49.1)(tslib@2.8.1)(tsx@4.23.0)(typescript@5.9.3)(vitest@4.1.11(@opentelemetry/api@1.9.1)(@types/node@26.0.1)(jsdom@28.1.0)(vite@7.3.6(@types/node@26.0.1)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.97.3)(terser@5.49.1)(tsx@4.23.0)(yaml@2.9.0)))(yaml@2.9.0)
+      '@angular/build': 21.2.21(@angular/compiler-cli@21.2.21(@angular/compiler@21.2.21)(typescript@5.9.3))(@angular/compiler@21.2.21)(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(@angular/platform-browser@21.2.21(@angular/common@21.2.21(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.21(@angular/compiler@21.2.21)(rxjs@7.8.2)))(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(@types/node@26.0.1)(chokidar@5.0.0)(jiti@2.7.0)(lightningcss@1.32.0)(postcss@8.5.16)(tailwindcss@4.3.3)(terser@5.49.1)(tslib@2.8.1)(tsx@4.23.0)(typescript@5.9.3)(vitest@4.1.11(@opentelemetry/api@1.9.1)(@types/node@26.0.1)(jsdom@28.1.0)(vite@7.3.6(@types/node@26.0.1)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.97.3)(terser@5.49.1)(tsx@4.23.0)(yaml@2.9.0)))(yaml@2.9.0)
       glob: 10.5.0
     optionalDependencies:
       '@dotenv-run/webpack': 1.5.2(webpack@5.109.2(lightningcss@1.32.0)(postcss@8.5.16))
@@ -10289,16 +10443,28 @@ snapshots:
       node-gyp: 12.4.0
       proc-log: 6.1.0
 
+  '@opentelemetry/api-logs@0.207.0':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+
+  '@opentelemetry/api-logs@0.219.0':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+
   '@opentelemetry/api-logs@0.220.0':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+
+  '@opentelemetry/api-logs@0.221.0':
     dependencies:
       '@opentelemetry/api': 1.9.1
 
   '@opentelemetry/api@1.9.1': {}
 
-  '@opentelemetry/auto-instrumentations-node@0.78.0(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))':
+  '@opentelemetry/auto-instrumentations-node@0.78.0(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))':
     dependencies:
       '@opentelemetry/api': 1.9.1
-      '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/instrumentation': 0.220.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/instrumentation-amqplib': 0.67.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/instrumentation-aws-lambda': 0.72.0(@opentelemetry/api@1.9.1)
@@ -10346,7 +10512,7 @@ snapshots:
       '@opentelemetry/resource-detector-azure': 0.28.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/resource-detector-container': 0.8.11(@opentelemetry/api@1.9.1)
       '@opentelemetry/resource-detector-gcp': 0.55.0(@opentelemetry/api@1.9.1)
-      '@opentelemetry/resources': 2.9.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/resources': 2.10.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/sdk-node': 0.220.0(@opentelemetry/api@1.9.1)
     transitivePeerDependencies:
       - supports-color
@@ -10357,9 +10523,18 @@ snapshots:
       '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
       yaml: 2.9.0
 
+  '@opentelemetry/context-async-hooks@2.10.0(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+
   '@opentelemetry/context-async-hooks@2.9.0(@opentelemetry/api@1.9.1)':
     dependencies:
       '@opentelemetry/api': 1.9.1
+
+  '@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/semantic-conventions': 1.43.0
 
   '@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1)':
     dependencies:
@@ -10469,7 +10644,7 @@ snapshots:
   '@opentelemetry/instrumentation-amqplib@0.67.0(@opentelemetry/api@1.9.1)':
     dependencies:
       '@opentelemetry/api': 1.9.1
-      '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/instrumentation': 0.220.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/semantic-conventions': 1.43.0
     transitivePeerDependencies:
@@ -10488,7 +10663,7 @@ snapshots:
   '@opentelemetry/instrumentation-aws-sdk@0.75.0(@opentelemetry/api@1.9.1)':
     dependencies:
       '@opentelemetry/api': 1.9.1
-      '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/instrumentation': 0.220.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/semantic-conventions': 1.43.0
     transitivePeerDependencies:
@@ -10515,7 +10690,7 @@ snapshots:
   '@opentelemetry/instrumentation-connect@0.63.0(@opentelemetry/api@1.9.1)':
     dependencies:
       '@opentelemetry/api': 1.9.1
-      '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/instrumentation': 0.220.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/semantic-conventions': 1.43.0
       '@types/connect': 3.4.38
@@ -10547,7 +10722,7 @@ snapshots:
   '@opentelemetry/instrumentation-express@0.68.0(@opentelemetry/api@1.9.1)':
     dependencies:
       '@opentelemetry/api': 1.9.1
-      '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/instrumentation': 0.220.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/semantic-conventions': 1.43.0
     transitivePeerDependencies:
@@ -10556,7 +10731,7 @@ snapshots:
   '@opentelemetry/instrumentation-fs@0.39.0(@opentelemetry/api@1.9.1)':
     dependencies:
       '@opentelemetry/api': 1.9.1
-      '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/instrumentation': 0.220.0(@opentelemetry/api@1.9.1)
     transitivePeerDependencies:
       - supports-color
@@ -10586,7 +10761,7 @@ snapshots:
   '@opentelemetry/instrumentation-hapi@0.66.0(@opentelemetry/api@1.9.1)':
     dependencies:
       '@opentelemetry/api': 1.9.1
-      '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/instrumentation': 0.220.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/semantic-conventions': 1.43.0
     transitivePeerDependencies:
@@ -10638,7 +10813,7 @@ snapshots:
   '@opentelemetry/instrumentation-koa@0.68.0(@opentelemetry/api@1.9.1)':
     dependencies:
       '@opentelemetry/api': 1.9.1
-      '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/instrumentation': 0.220.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/semantic-conventions': 1.43.0
     transitivePeerDependencies:
@@ -10671,7 +10846,7 @@ snapshots:
   '@opentelemetry/instrumentation-mongoose@0.66.0(@opentelemetry/api@1.9.1)':
     dependencies:
       '@opentelemetry/api': 1.9.1
-      '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/instrumentation': 0.220.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/semantic-conventions': 1.43.0
     transitivePeerDependencies:
@@ -10732,7 +10907,7 @@ snapshots:
   '@opentelemetry/instrumentation-pg@0.72.0(@opentelemetry/api@1.9.1)':
     dependencies:
       '@opentelemetry/api': 1.9.1
-      '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/instrumentation': 0.220.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/semantic-conventions': 1.43.0
       '@opentelemetry/sql-common': 0.42.0(@opentelemetry/api@1.9.1)
@@ -10745,7 +10920,7 @@ snapshots:
     dependencies:
       '@opentelemetry/api': 1.9.1
       '@opentelemetry/api-logs': 0.220.0
-      '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/instrumentation': 0.220.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/semantic-conventions': 1.43.0
     transitivePeerDependencies:
@@ -10763,7 +10938,7 @@ snapshots:
   '@opentelemetry/instrumentation-restify@0.65.0(@opentelemetry/api@1.9.1)':
     dependencies:
       '@opentelemetry/api': 1.9.1
-      '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/instrumentation': 0.220.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/semantic-conventions': 1.43.0
     transitivePeerDependencies:
@@ -10781,7 +10956,7 @@ snapshots:
     dependencies:
       '@opentelemetry/api': 1.9.1
       '@opentelemetry/api-logs': 0.220.0
-      '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/instrumentation': 0.220.0(@opentelemetry/api@1.9.1)
     transitivePeerDependencies:
       - supports-color
@@ -10805,7 +10980,7 @@ snapshots:
   '@opentelemetry/instrumentation-undici@0.30.0(@opentelemetry/api@1.9.1)':
     dependencies:
       '@opentelemetry/api': 1.9.1
-      '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/instrumentation': 0.220.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/semantic-conventions': 1.43.0
     transitivePeerDependencies:
@@ -10819,10 +10994,37 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@opentelemetry/instrumentation@0.207.0(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/api-logs': 0.207.0
+      import-in-the-middle: 2.0.6
+      require-in-the-middle: 8.0.1
+    transitivePeerDependencies:
+      - supports-color
+
+  '@opentelemetry/instrumentation@0.219.0(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/api-logs': 0.219.0
+      import-in-the-middle: 3.3.1
+      require-in-the-middle: 8.0.1
+    transitivePeerDependencies:
+      - supports-color
+
   '@opentelemetry/instrumentation@0.220.0(@opentelemetry/api@1.9.1)':
     dependencies:
       '@opentelemetry/api': 1.9.1
       '@opentelemetry/api-logs': 0.220.0
+      import-in-the-middle: 3.3.1
+      require-in-the-middle: 8.0.1
+    transitivePeerDependencies:
+      - supports-color
+
+  '@opentelemetry/instrumentation@0.221.0(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/api-logs': 0.221.0
       import-in-the-middle: 3.3.1
       require-in-the-middle: 8.0.1
     transitivePeerDependencies:
@@ -10871,37 +11073,43 @@ snapshots:
   '@opentelemetry/resource-detector-alibaba-cloud@0.35.0(@opentelemetry/api@1.9.1)':
     dependencies:
       '@opentelemetry/api': 1.9.1
-      '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
-      '@opentelemetry/resources': 2.9.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/resources': 2.10.0(@opentelemetry/api@1.9.1)
 
   '@opentelemetry/resource-detector-aws@2.20.0(@opentelemetry/api@1.9.1)':
     dependencies:
       '@opentelemetry/api': 1.9.1
-      '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
-      '@opentelemetry/resources': 2.9.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/resources': 2.10.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/semantic-conventions': 1.43.0
 
   '@opentelemetry/resource-detector-azure@0.28.0(@opentelemetry/api@1.9.1)':
     dependencies:
       '@opentelemetry/api': 1.9.1
-      '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
-      '@opentelemetry/resources': 2.9.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/resources': 2.10.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/semantic-conventions': 1.43.0
 
   '@opentelemetry/resource-detector-container@0.8.11(@opentelemetry/api@1.9.1)':
     dependencies:
       '@opentelemetry/api': 1.9.1
-      '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
-      '@opentelemetry/resources': 2.9.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/resources': 2.10.0(@opentelemetry/api@1.9.1)
 
   '@opentelemetry/resource-detector-gcp@0.55.0(@opentelemetry/api@1.9.1)':
     dependencies:
       '@opentelemetry/api': 1.9.1
-      '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
-      '@opentelemetry/resources': 2.9.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/resources': 2.10.0(@opentelemetry/api@1.9.1)
       gcp-metadata: 8.1.3
     transitivePeerDependencies:
       - supports-color
+
+  '@opentelemetry/resources@2.10.0(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/semantic-conventions': 1.43.0
 
   '@opentelemetry/resources@2.9.0(@opentelemetry/api@1.9.1)':
     dependencies:
@@ -10956,6 +11164,14 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@opentelemetry/sdk-trace-base@2.10.0(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/resources': 2.10.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-trace': 2.10.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/semantic-conventions': 1.43.0
+
   '@opentelemetry/sdk-trace-base@2.9.0(@opentelemetry/api@1.9.1)':
     dependencies:
       '@opentelemetry/api': 1.9.1
@@ -10964,12 +11180,26 @@ snapshots:
       '@opentelemetry/sdk-trace': 2.9.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/semantic-conventions': 1.43.0
 
+  '@opentelemetry/sdk-trace-node@2.10.0(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/context-async-hooks': 2.10.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-trace-base': 2.10.0(@opentelemetry/api@1.9.1)
+
   '@opentelemetry/sdk-trace-node@2.9.0(@opentelemetry/api@1.9.1)':
     dependencies:
       '@opentelemetry/api': 1.9.1
       '@opentelemetry/context-async-hooks': 2.9.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/sdk-trace-base': 2.9.0(@opentelemetry/api@1.9.1)
+
+  '@opentelemetry/sdk-trace@2.10.0(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/resources': 2.10.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/semantic-conventions': 1.43.0
 
   '@opentelemetry/sdk-trace@2.9.0(@opentelemetry/api@1.9.1)':
     dependencies:
@@ -10983,7 +11213,7 @@ snapshots:
   '@opentelemetry/sql-common@0.42.0(@opentelemetry/api@1.9.1)':
     dependencies:
       '@opentelemetry/api': 1.9.1
-      '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
 
   '@oxc-project/types@0.113.0': {}
 
@@ -11136,6 +11366,13 @@ snapshots:
   '@prisma/get-platform@7.8.0':
     dependencies:
       '@prisma/debug': 7.8.0
+
+  '@prisma/instrumentation@7.9.1(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/instrumentation': 0.207.0(@opentelemetry/api@1.9.1)
+    transitivePeerDependencies:
+      - supports-color
 
   '@prisma/query-plan-executor@7.2.0': {}
 
@@ -11897,18 +12134,18 @@ snapshots:
 
   '@sigstore/bundle@4.0.0':
     dependencies:
-      '@sigstore/protobuf-specs': 0.5.1
+      '@sigstore/protobuf-specs': 0.5.2
 
   '@sigstore/core@3.2.1': {}
 
-  '@sigstore/protobuf-specs@0.5.1': {}
+  '@sigstore/protobuf-specs@0.5.2': {}
 
   '@sigstore/sign@4.1.1':
     dependencies:
       '@gar/promise-retry': 1.0.3
       '@sigstore/bundle': 4.0.0
       '@sigstore/core': 3.2.1
-      '@sigstore/protobuf-specs': 0.5.1
+      '@sigstore/protobuf-specs': 0.5.2
       make-fetch-happen: 15.0.6
       proc-log: 6.1.0
     transitivePeerDependencies:
@@ -11916,7 +12153,7 @@ snapshots:
 
   '@sigstore/tuf@4.0.2':
     dependencies:
-      '@sigstore/protobuf-specs': 0.5.1
+      '@sigstore/protobuf-specs': 0.5.2
       tuf-js: 4.1.0
     transitivePeerDependencies:
       - supports-color
@@ -11925,7 +12162,7 @@ snapshots:
     dependencies:
       '@sigstore/bundle': 4.0.0
       '@sigstore/core': 3.2.1
-      '@sigstore/protobuf-specs': 0.5.1
+      '@sigstore/protobuf-specs': 0.5.2
 
   '@smithy/core@3.26.0':
     dependencies:
@@ -12599,6 +12836,10 @@ snapshots:
     dependencies:
       mime-types: 3.0.2
       negotiator: 1.0.0
+
+  acorn-import-attributes@1.9.5(acorn@8.17.0):
+    dependencies:
+      acorn: 8.17.0
 
   acorn-jsx@5.3.2(acorn@8.17.0):
     dependencies:
@@ -13934,6 +14175,13 @@ snapshots:
 
   immutable@5.1.9: {}
 
+  import-in-the-middle@2.0.6:
+    dependencies:
+      acorn: 8.17.0
+      acorn-import-attributes: 1.9.5(acorn@8.17.0)
+      cjs-module-lexer: 2.2.0
+      module-details-from-path: 1.0.4
+
   import-in-the-middle@3.3.1:
     dependencies:
       cjs-module-lexer: 2.2.0
@@ -14045,7 +14293,7 @@ snapshots:
 
   jiti@2.7.0: {}
 
-  jose@6.2.9: {}
+  jose@6.2.10: {}
 
   js-tokens@4.0.0: {}
 
@@ -15451,7 +15699,7 @@ snapshots:
     dependencies:
       '@sigstore/bundle': 4.0.0
       '@sigstore/core': 3.2.1
-      '@sigstore/protobuf-specs': 0.5.1
+      '@sigstore/protobuf-specs': 0.5.2
       '@sigstore/sign': 4.1.1
       '@sigstore/tuf': 4.0.2
       '@sigstore/verify': 3.1.1

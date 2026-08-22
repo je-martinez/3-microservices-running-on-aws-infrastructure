@@ -4,6 +4,10 @@ import { AuditActor } from "#shared/audit/audit-actor";
 import { MODEL_ID_PREFIXES, generateId } from "#shared/id/nano-id";
 import { deriveMessageId } from "./message-id.ts";
 import type { CognitoWebhookPayload } from "./cognito-payload.ts";
+import { hashEmail } from "#shared/logging/email-hash";
+import { appLogger } from "#shared/logging/app-logger";
+import { trace } from "@opentelemetry/api";
+import { withWorkflowSpan } from "#shared/observability/workflow-tracing";
 
 export type CaptureResult = { status: "captured" | "duplicate" };
 
@@ -75,9 +79,46 @@ export class CaptureCognitoIdentityCommand {
     this.db = db;
   }
 
+  // The payload holds a plaintext email; only its hash reaches the span, same
+  // rule as every log line ([[logging-context]]). `cognito_sub` and
+  // `trigger_source` are opaque non-PII identifiers and are what an operator
+  // actually correlates a retried trigger by. The raw payload — which the
+  // snapshot persists in full — is NOT an attribute: it is the request body,
+  // and request bodies never go on a span.
   async execute(payload: CognitoWebhookPayload): Promise<CaptureResult> {
+    return withWorkflowSpan(
+      "cognito_webhook",
+      {
+        app_event: "cognito_webhook_started",
+        cognito_sub: payload.request.userAttributes.sub,
+        email_hash: hashEmail(payload.request.userAttributes.email),
+        trigger_source: payload.triggerSource,
+      },
+      () => this.doExecute(payload),
+    );
+  }
+
+  private async doExecute(payload: CognitoWebhookPayload): Promise<CaptureResult> {
     const { sub, email } = payload.request.userAttributes;
     const messageId = deriveMessageId(sub, payload.triggerSource);
+
+    // Logged from INSIDE the span, unlike the route's old no-match line, which
+    // fired after execute() had already returned and the span had closed — so
+    // it carried a different span_id and "View logs" on the span found nothing.
+    // A webhook is an inbound call from a system we do not control: which sub
+    // arrived, from which trigger, and whether it matched is exactly what an
+    // operator reconstructs a retried or duplicated delivery from. The email
+    // reaches the line only as a hash, and the raw payload — persisted in full
+    // — never does: it is a request body.
+    appLogger.info(
+      {
+        app_event: "cognito_webhook_started",
+        cognito_sub: sub,
+        email_hash: hashEmail(email),
+        trigger_source: payload.triggerSource,
+      },
+      "Cognito identity webhook received",
+    );
 
     // Reserve both ids up front. The generated Prisma create-input types
     // require `id` — these models have no `@default`, matching
@@ -95,7 +136,25 @@ export class CaptureCognitoIdentityCommand {
       // NoMatchingUserError) — fail before writing anything, rather than
       // persisting a partial snapshot or event.
       const user = await this.db.user.findFirst({ where: { email } });
-      if (!user) throw new NoMatchingUserError(email);
+      if (!user) {
+        // Same app_event the route's log line used for this branch, now emitted
+        // here so the span and the log read as one story AND share a span_id.
+        // withWorkflowSpan marks the span ERROR from the throw.
+        appLogger.error(
+          {
+            app_event: "cognito_webhook_no_match",
+            reason: "no_matching_user",
+            cognito_sub: sub,
+            email_hash: hashEmail(email),
+            trigger_source: payload.triggerSource,
+          },
+          "cognito webhook: no matching users row for confirmed identity",
+        );
+        trace
+          .getActiveSpan()
+          ?.setAttributes({ app_event: "cognito_webhook_no_match", reason: "no_matching_user" });
+        throw new NoMatchingUserError(email);
+      }
 
       // One nested write: usersCognitoData.upsert with the event nested via
       // events: { create: [...] } in BOTH branches. Prisma runs this as a
@@ -145,6 +204,19 @@ export class CaptureCognitoIdentityCommand {
             },
           },
         });
+        appLogger.info(
+          {
+            app_event: "cognito_webhook_succeeded",
+            capture_status: "captured",
+            cognito_sub: sub,
+            user_id: user.id,
+            email_hash: hashEmail(email),
+          },
+          "Cognito identity captured",
+        );
+        trace
+          .getActiveSpan()
+          ?.setAttributes({ app_event: "cognito_webhook_succeeded", capture_status: "captured" });
         return { status: "captured" };
       } catch (err) {
         // P2002 on the message_id unique index = this exact event was
@@ -152,7 +224,26 @@ export class CaptureCognitoIdentityCommand {
         // catch: confirm it is the message_id constraint, not some other
         // unique (e.g. the snapshot's own pkey or its cognito_sub unique
         // index), before treating it as a duplicate — otherwise re-throw.
-        if (isMessageIdConflict(err)) return { status: "duplicate" };
+        if (isMessageIdConflict(err)) {
+          // A replayed trigger is a SUCCESS, not a failure — the span status
+          // stays OK and the outcome is told apart by `capture_status` alone.
+          // Logged at INFO for the same reason, with the message_id that makes
+          // the two deliveries identifiable as the same event.
+          appLogger.info(
+            {
+              app_event: "cognito_webhook_succeeded",
+              capture_status: "duplicate",
+              cognito_sub: sub,
+              user_id: user.id,
+              message_id: messageId,
+            },
+            "Cognito identity webhook replayed (already recorded)",
+          );
+          trace
+            .getActiveSpan()
+            ?.setAttributes({ app_event: "cognito_webhook_succeeded", capture_status: "duplicate" });
+          return { status: "duplicate" };
+        }
         throw err;
       }
     });

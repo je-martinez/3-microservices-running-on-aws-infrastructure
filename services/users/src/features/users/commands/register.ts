@@ -11,6 +11,8 @@ import { setLogContext } from "#shared/logging/log-context";
 import { hashEmail } from "#shared/logging/email-hash";
 import { maskEmail } from "#shared/logging/email-mask";
 import { EmailAlreadyExistsError } from "#shared/auth/auth-errors";
+import { trace } from "@opentelemetry/api";
+import { withWorkflowSpan } from "#shared/observability/workflow-tracing";
 import { toDomain, type User } from "../domain/user.ts";
 import type { CaptureCognitoIdentityCommand } from "../webhooks/capture-cognito-identity.ts";
 
@@ -56,7 +58,23 @@ export class RegisterUserCommand {
     this.captureCognitoIdentityCommand = captureCognitoIdentityCommand;
   }
 
+  // The workflow span for this flow. Its attributes are the SAME fields the
+  // flow's own log lines carry (app_event, reason on failure, user_id), so the
+  // trace and the logs tell one story. `auth_type` distinguishes this span from
+  // register-passwordless.ts's, which shares the `register` name on purpose.
+  //
+  // NEVER put PII on a span attribute: no plaintext email (email_hash only, and
+  // it is already on the log context), no password, no token. Same rule as
+  // [[logging-context]] § PII rules.
   async execute(input: RegisterInput): Promise<User> {
+    return withWorkflowSpan(
+      "register",
+      { app_event: "register_started", auth_type: "PASSWORD", email_hash: hashEmail(input.email) },
+      () => this.doExecute(input),
+    );
+  }
+
+  private async doExecute(input: RegisterInput): Promise<User> {
     // Only email_hash goes in the CONTEXT — context fields stick to every
     // later line of the request, including `request completed`. The plaintext
     // email is passed per-call-site instead, so it appears on the auth-flow
@@ -99,6 +117,14 @@ export class RegisterUserCommand {
           ? "User registration failed: a user with this email already exists"
           : "User registration failed: could not create the user in Cognito",
       );
+      // The SAME reason string the log line above carries, same branch — a
+      // trace that disagreed with its own log would be worse than no trace.
+      trace
+        .getActiveSpan()
+        ?.setAttributes({
+          app_event: "register_failed",
+          reason: err instanceof EmailAlreadyExistsError ? "duplicate_email" : "cognito_error",
+        });
       throw err;
     }
 
@@ -123,6 +149,7 @@ export class RegisterUserCommand {
         { err, app_event: "register_failed", email: maskEmail(input.email), reason: "database_error" },
         "User registration failed: could not persist the user",
       );
+      trace.getActiveSpan()?.setAttributes({ app_event: "register_failed", reason: "database_error" });
       throw err;
     }
 
@@ -192,6 +219,7 @@ export class RegisterUserCommand {
       { app_event: "register_succeeded", email: maskEmail(input.email), user_id: id },
       "User registration completed",
     );
+    trace.getActiveSpan()?.setAttributes({ app_event: "register_succeeded", user_id: id });
 
     // Fire-and-forget: awaited so a slow CloudWatch shows up in the request's own
     // duration rather than as an unhandled rejection after the response. The call

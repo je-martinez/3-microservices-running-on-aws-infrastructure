@@ -1,5 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { SpanStatusCode } from "@opentelemetry/api";
 import { RegisterPasswordlessCommand } from "#features/users/commands/register-passwordless";
+import { testSpanExporter } from "../../../setup-tracing.ts";
 import { AuditActor } from "#shared/audit/audit-actor";
 import { getActor } from "#shared/audit/actor-context";
 import { EmailAlreadyExistsError } from "#shared/auth/auth-errors";
@@ -187,5 +189,57 @@ describe("RegisterPasswordlessCommand", () => {
     // still a registration. The split lives in users_total's HasPassword
     // dimension, not in a second counter.
     expect(publish).toHaveBeenCalledWith("users_registered_total", 1, { Service: "users" });
+  });
+});
+
+// Shares the `register` span NAME with register.ts by design (spec Decision 3
+// counts both as one flow), so `auth_type` is what tells the two apart — that
+// attribute is the assertion that matters most here.
+describe("RegisterPasswordlessCommand tracing", () => {
+  beforeEach(() => testSpanExporter.reset());
+
+  it("emits a 'register' span with auth_type=PASSWORDLESS and register_succeeded on success", async () => {
+    const user = await new RegisterPasswordlessCommand(deps()).execute(input);
+
+    const span = testSpanExporter.getFinishedSpans().find((s) => s.name === "register");
+    expect(span).toBeDefined();
+    expect(span!.attributes.auth_type).toBe("PASSWORDLESS");
+    expect(span!.attributes.app_event).toBe("register_succeeded");
+    expect(span!.attributes.user_id).toBe(user.id);
+    expect(span!.status.code).toBe(SpanStatusCode.OK);
+  });
+
+  it("emits a 'register' span with ERROR status and reason=duplicate_email when the email is taken", async () => {
+    const d = deps({
+      auth: {
+        signUp: vi.fn(async () => {
+          throw new EmailAlreadyExistsError();
+        }),
+      },
+    });
+
+    await expect(new RegisterPasswordlessCommand(d).execute(input)).rejects.toBeInstanceOf(
+      EmailAlreadyExistsError,
+    );
+
+    const span = testSpanExporter.getFinishedSpans().find((s) => s.name === "register");
+    expect(span!.ended).toBe(true);
+    expect(span!.status.code).toBe(SpanStatusCode.ERROR);
+    expect(span!.attributes.app_event).toBe("register_failed");
+    expect(span!.attributes.reason).toBe("duplicate_email");
+    // Still tagged as the passwordless path even on the failure branch.
+    expect(span!.attributes.auth_type).toBe("PASSWORDLESS");
+  });
+
+  it("never puts the plaintext email on the span", async () => {
+    await new RegisterPasswordlessCommand(deps()).execute({
+      email: "ada@example.com",
+      fullName: "Ada",
+      e2eSource: false,
+    });
+
+    const span = testSpanExporter.getFinishedSpans().find((s) => s.name === "register");
+    expect(JSON.stringify(span!.attributes)).not.toContain("ada@example.com");
+    expect(span!.attributes.email_hash).toBeDefined();
   });
 });

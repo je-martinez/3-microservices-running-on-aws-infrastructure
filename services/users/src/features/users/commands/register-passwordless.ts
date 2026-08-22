@@ -12,6 +12,8 @@ import { setLogContext } from "#shared/logging/log-context";
 import { hashEmail } from "#shared/logging/email-hash";
 import { maskEmail } from "#shared/logging/email-mask";
 import { EmailAlreadyExistsError } from "#shared/auth/auth-errors";
+import { trace } from "@opentelemetry/api";
+import { withWorkflowSpan } from "#shared/observability/workflow-tracing";
 import { toDomain, type User } from "../domain/user.ts";
 import type { CaptureCognitoIdentityCommand } from "../webhooks/capture-cognito-identity.ts";
 
@@ -71,7 +73,23 @@ export class RegisterPasswordlessCommand {
     this.captureCognitoIdentityCommand = captureCognitoIdentityCommand;
   }
 
+  // Shares the `register` span name with register.ts on purpose — this is still
+  // a registration, and the two paths are told apart by `auth_type`, exactly as
+  // they already are on the `register_*` log lines. Attributes mirror those log
+  // fields; no PII ever (email_hash, never the plaintext email).
   async execute(input: RegisterPasswordlessInput): Promise<User> {
+    return withWorkflowSpan(
+      "register",
+      {
+        app_event: "register_started",
+        auth_type: "PASSWORDLESS",
+        email_hash: hashEmail(input.email),
+      },
+      () => this.doExecute(input),
+    );
+  }
+
+  private async doExecute(input: RegisterPasswordlessInput): Promise<User> {
     setLogContext({ email_hash: hashEmail(input.email) });
     appLogger.info(
       { app_event: "register_started", email: maskEmail(input.email), auth_type: "PASSWORDLESS" },
@@ -99,6 +117,13 @@ export class RegisterPasswordlessCommand {
           ? "Passwordless registration failed: a user with this email already exists"
           : "Passwordless registration failed: could not create the user in Cognito",
       );
+      // The SAME reason string the log line above carries, same branch.
+      trace
+        .getActiveSpan()
+        ?.setAttributes({
+          app_event: "register_failed",
+          reason: err instanceof EmailAlreadyExistsError ? "duplicate_email" : "cognito_error",
+        });
       throw err;
     }
 
@@ -124,6 +149,7 @@ export class RegisterPasswordlessCommand {
         { err, app_event: "register_failed", email: maskEmail(input.email), reason: "database_error" },
         "Passwordless registration failed: could not persist the user",
       );
+      trace.getActiveSpan()?.setAttributes({ app_event: "register_failed", reason: "database_error" });
       throw err;
     }
 
@@ -183,6 +209,7 @@ export class RegisterPasswordlessCommand {
       },
       "Passwordless user registration completed",
     );
+    trace.getActiveSpan()?.setAttributes({ app_event: "register_succeeded", user_id: id });
 
     // The SAME metric name and the SAME dimensions as register.ts: both paths are
     // registrations. The password/passwordless split is carried by `users_total`'s

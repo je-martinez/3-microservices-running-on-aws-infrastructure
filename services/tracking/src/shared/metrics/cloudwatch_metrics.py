@@ -42,10 +42,16 @@ from functools import lru_cache
 from typing import Any, Protocol
 
 import boto3
+from opentelemetry import trace
+from opentelemetry.trace import SpanKind, Status, StatusCode
 
 from src.shared.config.settings import get_settings
 
 logger = logging.getLogger(__name__)
+
+# Own tracer, named for its area — same convention as
+# `shared/observability/workflow_tracing.py`'s `tracking-workflow`.
+_tracer = trace.get_tracer("tracking-metrics")
 
 #: The one namespace every 3MRAI metric is published under, across all four
 #: services. Never a per-service namespace.
@@ -84,33 +90,57 @@ class CloudWatchMetricsPublisher:
         published reads as "no data" in a dashboard, not as zero, so there is no
         falsy short-circuit here.
         """
-        try:
-            self._client.put_metric_data(
-                Namespace=METRICS_NAMESPACE,
-                MetricData=[
-                    {
-                        "MetricName": name,
-                        "Value": value,
-                        "Unit": "Count",
-                        # CloudWatch's list-of-{Name,Value}, in the mapping's
-                        # own (insertion) order. The collector's query must name
-                        # this exact set — see the module docstring.
-                        "Dimensions": [
-                            {"Name": key, "Value": val}
-                            for key, val in dimensions.items()
-                        ],
-                    }
-                ],
-            )
-        except Exception:  # noqa: BLE001 - swallowed on purpose, see the docstring
-            logger.exception(
-                "metric_publish_failed",
-                extra={
-                    "app_event": "metric_publish_failed",
-                    "reason": "put_metric_data_failed",
-                    "metric_name": name,
-                },
-            )
+        # A span NAMING THE METRIC. Before this the call produced no span at all
+        # — boto3's auto-instrumentation covers the SQS publisher but was
+        # emitting nothing for CloudWatch here, so 471 metric ticks were
+        # completely invisible in the cascade: no bar, no duration, no way to see
+        # a slow or failing publish. The other three runtimes each had SOME span;
+        # this one had none.
+        #
+        # The metric name goes in the SPAN NAME, not only the attribute, for the
+        # same reason as `documentdb updateOne <STATUS>`: a waterfall renders
+        # names, and `PutMetricData` repeated N times answers nothing.
+        with _tracer.start_as_current_span(
+            f"cloudwatch PutMetricData {name}",
+            kind=SpanKind.CLIENT,
+            attributes={
+                "rpc.system": "aws-api",
+                "rpc.service": "CloudWatch",
+                "rpc.method": "PutMetricData",
+                "metric.name": name,
+            },
+        ) as span:
+            try:
+                self._client.put_metric_data(
+                    Namespace=METRICS_NAMESPACE,
+                    MetricData=[
+                        {
+                            "MetricName": name,
+                            "Value": value,
+                            "Unit": "Count",
+                            # CloudWatch's list-of-{Name,Value}, in the mapping's
+                            # own (insertion) order. The collector's query must name
+                            # this exact set — see the module docstring.
+                            "Dimensions": [
+                                {"Name": key, "Value": val}
+                                for key, val in dimensions.items()
+                            ],
+                        }
+                    ],
+                )
+                span.set_status(Status(StatusCode.OK))
+            except Exception:  # noqa: BLE001 - swallowed on purpose, see the docstring
+                # The span records what happened to the CALL; `publish` still
+                # returns normally, because its contract is that it never raises.
+                span.set_status(Status(StatusCode.ERROR, "put_metric_data_failed"))
+                logger.exception(
+                    "metric_publish_failed",
+                    extra={
+                        "app_event": "metric_publish_failed",
+                        "reason": "put_metric_data_failed",
+                        "metric_name": name,
+                    },
+                )
 
 
 class NoopMetricsPublisher:

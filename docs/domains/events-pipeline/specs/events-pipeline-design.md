@@ -4,10 +4,13 @@ type: spec
 area: events-pipeline
 status: accepted
 created: 2026-06-26
-updated: 2026-08-15
-tags: [type/spec, area/events-pipeline, status/accepted]
+updated: 2026-08-21
+tags: [type/spec, area/events-pipeline, status/accepted, issue/JE-180, issue/JE-181]
 related:
   - "[[2026-08-15-request-id-correlation-design]]"
+  - "[[linear-references]]"
+  - "[[observability-telemetry-milestone]]"
+  - "[[2026-08-21-verify-in-the-viewer-not-the-api]]"
   - "[[cqrs]]"
   - "[[ADR-0002-cqrs]]"
   - "[[nano-id]]"
@@ -32,6 +35,9 @@ related:
   - "[[ADR-0020-self-owned-password-reset]]"
   - "[[email-templates]]"
   - "[[2026-08-12-custom-business-metrics-cloudwatch-design]]"
+  - "[[2026-08-18-distributed-tracing-spans-design]]"
+  - "[[2026-08-18-distributed-tracing-spans]]"
+  - "[[ADR-0019-distributed-tracing-opentelemetry]]"
 ---
 
 # Events Pipeline Design
@@ -374,8 +380,11 @@ email the Lambda sends lands in a real, inspectable inbox rather than a mock.
 | `emails_failed_total` | counter | `EmailType=ALL`, `FailureKind=permanent\|transient` |
 
 `EmailType` takes the template key from [`src/email/catalog.ts`](#srcemailcatalogts--the-registry)
-— `user-created`, `order-created`, `auth-otp-requested`, `password-reset-requested`, and the five
-`tracking-status-changed` variants — the template actually rendered and sent, not the event type.
+— `user-created`, `order-created`, `auth-otp`, `forgot-password`, and the five
+`tracking-status-changed` variants — the template actually rendered and sent, not the event type
+(`auth-otp` renders for `AUTH_OTP_REQUESTED`; `forgot-password` renders for
+`PASSWORD_RESET_REQUESTED` — the template key and the event type are deliberately different
+strings, see the catalog section above).
 `EmailType=ALL` is a **separately published series**, not a query-time aggregate: Floci does not
 aggregate across dimensions, so a dimensionless query for the total returns an empty result. This
 is the events-pipeline's only gauge-free metric set: as a Lambda it has no long-lived process to
@@ -397,6 +406,30 @@ sites know which `EmailType` to publish:
 Without the split, "5 emails failed" would conflate "5 customers never got their receipt" with
 "SES hiccuped once and the retry worked" — two operationally opposite situations that a single
 undifferentiated counter cannot distinguish.
+
+> [!important] Amendment (2026-08-21) — the per-template breakdown was published but not collected
+> `publishEmailMetric` has always published two series per email: a per-template one and the
+> `EmailType=ALL` rollup. `GetMetricData` discovers nothing on its own (see
+> [[2026-08-12-custom-business-metrics-cloudwatch-design#1. Floci does not aggregate across
+> dimensions — and fails silently]]) — every dimension combination the collector wants must be
+> named explicitly in its `queries` block. Until this session `observability/otel-collector-config.yaml`
+> named only `EmailType: ALL`, so the per-template series reached CloudWatch and were never polled
+> into OpenObserve.
+>
+> The fix added 18 explicit queries for `emails_failed_total` — one per template (9) ×
+> `FailureKind` (`permanent`/`transient`). `emails_sent_total` deliberately stays `ALL`-only: a
+> full breakdown of both metrics would be 27 queries, and the per-template split earns its cost
+> only on **failures** ("the receipt template is broken" vs. "one OTP bounced" are different
+> incidents); per-template *send* volume is already answerable from the `email render <template>`
+> spans below, so a duplicate metrics path for it wasn't worth the query count.
+>
+> **One deliberate gap, not a bug.** The `permanent` failure is emitted precisely when a template
+> key is **missing** from the catalog — so that key, by definition, cannot appear in the 9-query
+> enumeration above, and its datapoint is invisible in the per-template breakdown. The `ALL`
+> rollup still counts it, so "an email was lost" stays answerable; the breakdown narrows a known
+> loss to its template, it does not replace `ALL` as the source of truth for "was anything lost."
+>
+> Verified: a per-template failure datapoint confirmed arriving in OpenObserve (`sum=1.0`).
 
 > [!warning] This measures handoff to SES, not inbox delivery
 > `emails_sent_total` means SES accepted the message for sending. Bounces and complaints are
@@ -630,14 +663,191 @@ for the full evidence trail.
 - **CQRS dispatch:** handler selection is by event `type`; commands and queries are never mixed in the same handler. See [[cqrs]] and [[ADR-0002-cqrs]].
 - **Env files:** the DocumentDB connection string and `EVENTS_QUEUE_URL` are generated, never hardcoded — see [[env-files]].
 - **Testing:** this component has no HTTP endpoints, so the repo's three-layer convention is adapted rather than applied literally — see [[testing]] and Tracking's producer-side testing in [[tracking-service-design]].
-- **Logging:** every line carries the shared cross-service context (`request_id`, `trace_id`, `user_id`, `order_id`, `event_id`); never the full payload or a plaintext email. See [[logging-context]]. Unlike `trace_id`, which this service has never emitted (JE-138, no OTel SDK here — see [[logging-context]]'s warning), `request_id` **is** present: the pipeline is a pure **consumer** of it. It reads the optional root `request_id` field off the envelope in `envelopeContext()` per SQS record and never mints one of its own; when the field is absent (e.g. a message queued before this field existed), it is omitted from the log line, never logged as null. This is precisely the gap [[2026-08-15-request-id-correlation-design]] exists to close — the one hop with no `trace_id` at all now still gets a correlation id, sourced from whichever producer (Orders or Tracking) set it.
+- **Logging:** every line carries the shared cross-service context (`request_id`, `trace_id`, `user_id`, `order_id`, `event_id`); never the full payload or a plaintext email. See [[logging-context]]. `request_id` is present because the pipeline is a pure **consumer** of it: it reads the optional root `request_id` field off the envelope in `envelopeContext()` per SQS record and never mints one of its own; when the field is absent (e.g. a message queued before this field existed), it is omitted from the log line, never logged as null. This closed the gap [[2026-08-15-request-id-correlation-design]] exists for — but as of JE-138 (below) `trace_id` is present too, so `request_id` is no longer this hop's *only* correlation id, just its SDK-independent one.
+- **Distributed tracing:** the SDK, backend, and span pattern are decided in [[ADR-0019-distributed-tracing-opentelemetry]] / [[2026-08-18-distributed-tracing-spans-design]] — see [Observability — tracing spans](#observability--tracing-spans) below for how this specific Lambda applies them.
+
+## Observability — tracing spans
+
+> [!info] Closed JE-138 (2026-08-19) — this Lambda now carries the full OTel SDK
+> Full design: [[2026-08-18-distributed-tracing-spans-design#Decision 5 — events-pipeline: instrument the inside, not just the entry point|Decision 5]]. Implementation: [[2026-08-18-distributed-tracing-spans]].
+
+> [!important] Revised (2026-08-21) — every record now parents to its own origin trace; `batch_size = 1` pin removed
+> The design below originally parented a record to its origin only when the batch held exactly
+> one record, falling back to a `FOLLOWS_FROM` link for multi-record batches — enforced by pinning
+> the SQS event source mapping to `batch_size = 1`. That pin is gone: `recordSpanAttachment`
+> (`functions/events-pipeline/src/handler.ts`) now parents **every** record to its own origin
+> trace regardless of batch size, and `batch_size` is back to `10` (the `modules/lambda` default)
+> in `infra/environments/local/main.tf` — a throughput knob again, not a tracing decision. Full
+> reasoning: [[2026-08-18-distributed-tracing-spans-design#Decision 4 — the SQS hop: traceparent
+> in `MessageAttributes`, every record parents to its own origin|Decision 4 (revised)]] and
+> [[ADR-0019-distributed-tracing-opentelemetry]].
+
+Span structure, one `CONSUMER` span per batch (its own trace) and one `INTERNAL` span **per
+record** (in its own origin trace — not per batch, and no longer a child of the batch span):
+
+```
+events-queue process (CONSUMER, own trace, links -> N distinct origin traces in its batch)
+
+process_record (INTERNAL, CHILD_OF its own origin trace)
++-- phase persist (INTERNAL)
+|   +-- documentdb insertOne
++-- documentdb updateOne IN_PROGRESS
++-- phase dispatch (INTERNAL)
+|   +-- email render <template>
+|   +-- ses SendEmail
+|   +-- cloudwatch PutMetricData  (x2)
+|   +-- ws publish
++-- documentdb updateOne COMPLETED
+```
+
+`events-queue process` and its `process_record` spans no longer share a trace: each record
+parents directly to the origin trace that published it (via `messageAttributes.traceparent`),
+producing one continuous cascade per origin — `create_order` -> `sqs.publish order_created` ->
+`process_record` -> `ses SendEmail` — however many records the batch holds. `batchSpanLinks`
+(`functions/events-pipeline/src/handler.ts`) gives the batch span itself one link per distinct
+origin trace present in the batch, deduplicated by trace id, so the invocation is still
+navigable from its work even though it is no longer that work's ancestor.
+
+Verified under real load at `batch_size = 10`: 167 `process_record` spans across 17
+`events-queue process` invocations (~10 records/batch), and **297 of 297 traces containing
+`process_record` also contain spans from a producer service (users/orders/tracking) — a 100%
+continuous-cascade rate**, measured with server-side aggregation in OpenObserve. A `metrics-tick`
+span (the EventBridge 1-minute rate tick) still has `refs=0` — a timer has no origin trace, so it
+correctly starts a brand-new one rather than being forced into a link.
+
+### Full record-lifecycle coverage — the three status transitions now have spans
+
+> [!info] Verified on trace `f39c148902b77f94aa9e90b762809f95` — coverage went from ~70ms/357ms to 345ms/347ms (99.5%)
+> The record's three `transition()` writes to DocumentDB (`STARTED`, `IN_PROGRESS`, `COMPLETED`/
+> `FAILED`) previously had **no span at all** — `process_record` itself reported 194ms of
+> duration against roughly 1ms of visible children, i.e. most of the record's real time was
+> invisible in the waterfall. Wrapping the two phases (`persist`, `dispatch`) and naming the two
+> `documentdb updateOne` transition writes closed that gap: the same trace now accounts for
+> 345ms of its 347ms total, up from ~70ms/357ms.
+>
+> **The status is in the span NAME, not only an attribute** —
+> `documentdb updateOne IN_PROGRESS` / `documentdb updateOne COMPLETED`, not three bars all
+> reading `updateOne` with a `status` attribute someone has to click into. A waterfall renders
+> names first; three identically-named bars require expanding each one to tell them apart, which
+> defeats the point of a waterfall as a fast visual scan.
+>
+> **`cloudwatch PutMetricData` appears twice per email metric.** `publishEmailMetric`
+> (`functions/events-pipeline/src/shared/metrics/cloudwatch-metrics.ts`) emits one call for the
+> template-specific series and a second for the cross-template `ALL` rollup — this is by design
+> (two real CloudWatch API calls, not a duplicate span for one call), and shows up in the
+> waterfall exactly as two bars under `phase dispatch`, one per `emails_sent_total`/
+> `emails_failed_total` publish. **Not a double count either**: dimensions are part of a series'
+> identity in CloudWatch, so the per-template and `ALL` series are distinct series, not one value
+> published twice — a dashboard queries one or the other and never sums them (the business-metrics
+> dashboard filters `WHERE emailtype = 'ALL'`). See [[2026-08-12-custom-business-metrics-cloudwatch-design]]
+> for the full per-template-collection story (18 `emails_failed_total` queries added 2026-08-21).
+>
+> **The two bars now name the EmailType, not just carry it as an attribute.** Both
+> `cloudwatch PutMetricData` spans were named identically (`cloudwatch PutMetricData
+> emails_sent_total`), so telling the per-template call from the `ALL` rollup took a click into
+> the attributes — the same problem the `documentdb updateOne <STATUS>` naming above already
+> solved once. The span name now carries the EmailType too:
+> `cloudwatch PutMetricData emails_sent_total (user-created)` /
+> `cloudwatch PutMetricData emails_sent_total (ALL)`, plus a `metric.email_type` attribute for
+> filtering — a name is for reading a waterfall, an attribute is for filtering a dashboard, and
+> neither should require the other.
+>
+> **Phase SPANS, not span events, are what make the lifecycle visible.** Span *events* (`
+> span.addEvent(...)`) were tried first — the semantically correct OTel primitive for an instant
+> like "message received" or "handler dispatched" — and are still emitted as secondary detail via
+> `markPhase()` in `process-record.ts`. In practice **neither viewer renders them usefully**:
+> Jaeger hides a span's events behind expanding the span and opening a separate tab, and
+> OpenObserve's trace view does not surface them at all. A marker that costs two clicks to find
+> marks nothing. They are kept anyway because they cost nothing and OpenObserve stores them in a
+> queryable `events` column — `WHERE events LIKE '%handler_failed%'` finds every record that took
+> a given path, which the waterfall itself cannot answer — but the **phase spans** (`phase
+> persist`, `phase dispatch`) are what actually make the record's lifecycle visible as bars with
+> real duration, and are the mechanism to reach for first.
+
+### Known follow-ups, tracked in Linear, not mirrored here
+
+Two issues surfaced by this instrumentation are referenced, not duplicated, per
+[[linear-references]] — current status/detail live in Linear, fetched on demand:
+
+- [JE-180](https://linear.app/je-martinez/issue/JE-180) — email template render dominates the
+  record's duration at 256MB Lambda memory: 110–237ms to render vs 59–74ms for the SES call
+  itself, measured across all three templates, and not attributable to cold start. The `phase
+  dispatch` breakdown above (`email render <template>` as its own bar) is what made this visible
+  in the first place.
+- [JE-181](https://linear.app/je-martinez/issue/JE-181) — events-pipeline logs stop reaching
+  OpenObserve after a Lambda redeploy: each redeploy opens a new CloudWatch log stream, and the
+  collector keeps following the old one, measured at 76 minutes of silence with zero collector
+  errors logged.
+
+**Why the batch span links instead of parenting.** An SQS batch carries messages from
+**distinct** traces (Users, Orders, and Tracking all publish onto the one shared queue). The
+batch span represents the invocation, which no single one of those origins caused, so it cannot
+honestly be a child of any of them — it **links** instead, one link per distinct origin trace
+present in its batch (`batchSpanLinks`, deduplicated by trace id). **Honest limitation, kept as
+such:** OpenObserve's trace view does not draw a linked span's bar inside the origin trace's own
+waterfall the way a child would — a link renders as a navigable reference instead. That is the
+price of not fabricating a hierarchy the batch invocation does not have.
+
+**Each `process_record` span, by contrast, IS a real child — of its own origin, not of the batch
+span.** This was a deliberate revision (2026-08-21): the record spans used to be children of the
+batch span, which is what forced a choice between parenting to one origin (misattributing the
+rest) or linking to all of them (no continuous cascade at all) whenever a batch held more than one
+origin. Making each record a child of its own origin instead removes that forced choice —
+`process_record` gets the strong parent-child edge into the trace that actually produced it,
+and the weaker, links-only relationship is reserved for the batch span, which is genuinely an
+invocation-level concept spanning multiple origins. See the revised design note above and
+[[2026-08-18-distributed-tracing-spans-design#Decision 4 — the SQS hop: traceparent in
+`MessageAttributes`, every record parents to its own origin|Decision 4 (revised)]] for the full
+reasoning and the conflict this dissolves.
+
+**Every internal span here is manual, not auto-instrumented — a packaging necessity, not a style
+choice.** `functions/events-pipeline/scripts/build.mjs` bundles the handler into a single
+self-contained CJS file with esbuild (`bundle: true`, `format: "cjs"` — an ESM bundle loads under
+local Node but fails on the real `nodejs20.x` runtime with `ERR_REQUIRE_CYCLE_MODULE`, verified
+empirically); the AWS SDK, `mongodb`, and `zod` are all inlined, and the zip ships no
+`node_modules`. OTel auto-instrumentation patches a module at `require()`/resolution time — once
+esbuild has inlined `@aws-sdk/client-ses`, `mongodb`, and
+`@aws-sdk/client-apigatewaymanagementapi` into one file, there is no module boundary left to
+patch. Registering `getNodeAutoInstrumentations()` here would produce **zero spans, silently**,
+for DocumentDB, SES, and the WebSocket push — the same silent-failure shape
+[[logging-context#OTel configuration belongs in the environment, not in code]] already documents
+three times over. So the DocumentDB insert, SES send, and WebSocket publish spans above are
+created by hand, using the same `startActiveSpan`/`finally` shape every other manual span in this
+design uses.
+
+**The consumer needs the `traceparent` on the record — a type-level trap called out on purpose.**
+`SqsRecord` in `handler.ts` originally declared only `messageId`/`body`; it had to widen to
+include `messageAttributes`, or a publisher's `traceparent` would arrive on the message and be
+silently dropped before it ever reached the link logic — the same "declare the field or it
+vanishes" failure class documented throughout [[logging-context]].
+
+**Lambda flush.** `BatchSpanProcessor` (not `SimpleSpanProcessor` — one HTTP request per span
+would add per-invocation latency at this Lambda's batch sizes), with `forceFlush()` called in the
+handler's `finally`. Lambda freezes the process on return, so buffered spans not explicitly
+flushed are lost or arrive late on the next cold invocation, attributed to the wrong request.
 
 ## Related
 
 - [[2026-08-15-request-id-correlation-design]] — the cross-service `request_id` correlation field.
-  This is the design's motivating service: with no OTel SDK (JE-138), the pipeline had no
-  correlation id at all until this shipped. It is a pure consumer — reads the optional envelope
-  field, never mints one.
+  This was the design's motivating service: before the OTel SDK landed (JE-138, now closed — see
+  [Observability — tracing spans](#observability--tracing-spans)), the pipeline had no
+  correlation id at all. It is a pure consumer — reads the optional envelope field, never mints
+  one.
+- [[ADR-0019-distributed-tracing-opentelemetry]]
+- [[2026-08-18-distributed-tracing-spans-design]] — the CONSUMER->INTERNAL span structure with
+  links, the manual-spans-by-packaging-necessity finding, and the SqsRecord widening trap
+  documented above.
+- [[2026-08-18-distributed-tracing-spans]] — implementation plan, verified against a real Jaeger
+  trace.
+- [[2026-08-12-custom-business-metrics-cloudwatch-design]] — the metrics design this note's
+  `## Metrics` section implements: the CloudWatch/`GetMetricData` pipeline, the per-template
+  `EmailType` breakdown, and why the collector must name every dimension set explicitly.
+- [[linear-references]] — the convention behind referencing JE-180/JE-181 above by link instead
+  of mirroring their content into this note.
+- [[observability-telemetry-milestone]] — the milestone this instrumentation work belongs to.
+- [[2026-08-21-verify-in-the-viewer-not-the-api]] — why the phase spans documented above
+  (`phase persist`/`phase dispatch`) replaced span events as the primary signal: span events
+  render in neither viewer's waterfall, verified the hard way.
 - [[cqrs]]
 - [[ADR-0002-cqrs]]
 - [[nano-id]]

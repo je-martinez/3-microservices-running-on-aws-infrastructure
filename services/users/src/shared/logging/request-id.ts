@@ -1,4 +1,4 @@
-import { NanoIdConfig, generateId } from "#shared/id/nano-id";
+import { NanoIdConfig } from "#shared/id/nano-id";
 
 /**
  * The header carrying the correlation id between services.

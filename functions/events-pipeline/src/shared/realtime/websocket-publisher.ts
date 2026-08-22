@@ -2,6 +2,7 @@ import {
   ApiGatewayManagementApiClient,
   PostToConnectionCommand,
 } from "@aws-sdk/client-apigatewaymanagementapi";
+import { SpanKind, trace } from "@opentelemetry/api";
 import {
   queryByCognitoSub,
   deleteConnection,
@@ -11,6 +12,7 @@ import {
 // every other module in this package imports (see handler.ts,
 // pipeline/process-record.ts).
 import { appLogger } from "#shared/logging/app-logger";
+import { withClientSpan } from "#shared/observability/client-span";
 
 let apiClient: ApiGatewayManagementApiClient | null = null;
 
@@ -49,8 +51,36 @@ export async function publishToUser(
   cognitoSub: string,
   message: unknown,
 ): Promise<void> {
+  // Manual PRODUCER span. Same bundling constraint as the other two outbound
+  // calls (see #shared/observability/client-span): @aws-sdk/client-apigatewaymanagementapi
+  // is inlined, so nothing auto-instruments it. A child of `process_record`,
+  // from the ambient context.
+  //
+  // The `describeError` argument is defensive only — this function's contract is
+  // that it NEVER throws (see the docstring above), so the wrapper's catch is
+  // unreachable in practice and every real failure is swallowed and logged
+  // inside. That is why the span records its outcome through attributes below
+  // rather than through status alone: a fan-out where every push failed still
+  // ends OK, because the RECORD really did succeed. `ws_push_failed` on the
+  // matching log line is where that detail lives, and the span carries the
+  // counts so the two agree.
+  return withClientSpan(
+    "ws publish",
+    SpanKind.PRODUCER,
+    { "messaging.system": "apigatewaymanagementapi", "messaging.operation": "publish" },
+    () => fanOut(cognitoSub, message),
+    (error) => (error instanceof Error ? error.message : "unknown"),
+  );
+}
+
+async function fanOut(cognitoSub: string, message: unknown): Promise<void> {
+  const span = trace.getActiveSpan();
   try {
     const connectionIds = await queryByCognitoSub(cognitoSub);
+    // Recorded even when zero, and BEFORE the early return: "the user had
+    // nothing open" and "the fan-out never got that far" are different stories,
+    // and a missing attribute cannot tell them apart.
+    span?.setAttribute("messaging.batch.message_count", connectionIds.length);
     if (connectionIds.length === 0) {
       // Normal, not an error: the user simply has nothing open right now.
       return;

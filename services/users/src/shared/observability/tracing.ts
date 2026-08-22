@@ -1,9 +1,12 @@
+import FastifyOtelInstrumentation from "@fastify/otel";
 import { DiagConsoleLogger, DiagLogLevel, diag } from "@opentelemetry/api";
 import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentations-node";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
+import { registerInstrumentations } from "@opentelemetry/instrumentation";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import { NodeSDK } from "@opentelemetry/sdk-node";
 import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
+import { PrismaInstrumentation } from "@prisma/instrumentation";
 
 // MUST be imported before anything else in the process — see the first line of
 // server.ts. The auto-instrumentations monkey-patch modules as they are
@@ -47,7 +50,53 @@ const sdk = new NodeSDK({
       // HTTP/gRPC/Prisma spans that actually describe a request.
       "@opentelemetry/instrumentation-fs": { enabled: false },
     }),
+    // Without this, every server span is named after the bare method — "POST",
+    // with no hint of which endpoint it belongs to. The span is created by
+    // instrumentation-http, which sees the request BEFORE routing and so has no
+    // `http.route`; lacking a route, it can only name the span by method. This
+    // plugin runs once Fastify has matched the route and writes the route back
+    // into the active RPC metadata, which instrumentation-http then uses to
+    // rename its span to "POST /v1/users/register" and set the `http.route`
+    // attribute. Orders and Tracking never needed an equivalent because
+    // AspNetCore and FastAPI resolve their route before the span is named.
+    //
+    // NOT @opentelemetry/instrumentation-fastify: that package is deprecated
+    // upstream in favour of this one ("maintained by the Fastify authors"), and
+    // it is absent from getNodeAutoInstrumentations' bundle — the metapackage
+    // ships express/koa/hapi but no fastify — so no amount of auto-detection
+    // would have picked it up.
+    //
+    // `registerOnInitialization` lets the SDK hook Fastify itself at import
+    // time. The alternative — `app.register(inst.plugin())` in server.ts —
+    // would work too, but only if it beat every route definition; keeping it
+    // here preserves the load-order guarantee this file exists to hold, and
+    // leaves server.ts untouched.
+    new FastifyOtelInstrumentation({ registerOnInitialization: true }),
   ],
+});
+
+// Prisma is NOT covered by getNodeAutoInstrumentations above — it ships its own
+// instrumentation package, so without this registration the DB layer produces
+// zero spans and a workflow span has no query children under it.
+//
+// This MUST run before the first PrismaClient is constructed. `prisma.ts` builds
+// the client, and it is only reached later through the Awilix container — well
+// after this file, which is loaded first via `node --import` (see the top
+// comment). Registering here is what guarantees that ordering; registering from
+// the container instead would patch nothing, silently, with no error — the same
+// load-order trap this file already documents for the auto-instrumentations.
+//
+// No `previewFeatures = ["tracing"]` in schema.prisma: that flag belonged to
+// Prisma 6. This repo is on Prisma 7, where @prisma/instrumentation is the
+// entire mechanism.
+//
+// And NOT the shape of @prisma/instrumentation's own README example: that one
+// constructs a BasicTracerProvider plus an AsyncLocalStorageContextManager
+// because it assumes a project with no SDK. NodeSDK below already owns both the
+// global tracer provider and the context manager, so duplicating either would
+// fight the one sdk.start() installs.
+registerInstrumentations({
+  instrumentations: [new PrismaInstrumentation()],
 });
 
 sdk.start();

@@ -7,6 +7,8 @@ import { appLogger } from "#shared/logging/app-logger";
 import { setLogContext } from "#shared/logging/log-context";
 import { hashEmail } from "#shared/logging/email-hash";
 import { maskEmail } from "#shared/logging/email-mask";
+import { trace } from "@opentelemetry/api";
+import { withWorkflowSpan } from "#shared/observability/workflow-tracing";
 import { toDomain, type User } from "../domain/user.ts";
 
 export interface ChangePasswordInput {
@@ -32,15 +34,54 @@ export class ChangePasswordCommand {
 
   // Returns null when the caller's identity resolves to no user, so the route
   // answers the same 404 `{ error: "not_found" }` the other /me routes do.
+  //
+  // The span opens BEFORE `currentUser.resolve()`, one step earlier than the
+  // `change_password_started` log line, which cannot fire until the email it
+  // masks is known. That is deliberate: the unresolved-caller 404 is a real
+  // outcome of this workflow and would otherwise be the one path with no span
+  // at all. It is marked with its own `reason` below rather than left blank.
+  //
+  // No PII on the span: `email_hash` is set once the user resolves; the new
+  // password never appears here, exactly as it never appears in a log line.
   async execute(currentUser: CurrentUser, input: ChangePasswordInput): Promise<User | null> {
+    return withWorkflowSpan("change_password", { app_event: "change_password_started" }, () =>
+      this.doExecute(currentUser, input),
+    );
+  }
+
+  private async doExecute(
+    currentUser: CurrentUser,
+    input: ChangePasswordInput,
+  ): Promise<User | null> {
     // Authorization is the identity itself: the caller proved who they are at
     // the gateway (JWT authorizer → x-user-id), and the password being set is
     // their own. There is no "current password" check — the token IS the proof,
     // the same standard every other /me route holds.
     const target = await currentUser.resolve();
-    if (!target) return null;
+    if (!target) {
+      // The one path of this flow that used to return silently: no started
+      // line had been emitted yet (it needs the email this resolve failed to
+      // find), so a 404 here left the log stream with nothing but the generic
+      // `request completed`. Logged inside the span, so it shares the
+      // `change_password` span_id like every other line of the flow.
+      //
+      // No email_hash: the email is precisely what could not be resolved. The
+      // caller's identity still reaches the line through the request log
+      // context.
+      appLogger.warn(
+        { app_event: "change_password_failed", reason: "unknown_user" },
+        "Password change failed: the caller resolved to no user",
+      );
+      trace
+        .getActiveSpan()
+        ?.setAttributes({ app_event: "change_password_failed", reason: "unknown_user" });
+      return null;
+    }
 
     setLogContext({ email_hash: hashEmail(target.email), user_id: target.id });
+    trace
+      .getActiveSpan()
+      ?.setAttributes({ email_hash: hashEmail(target.email), user_id: target.id });
     appLogger.info(
       { app_event: "change_password_started", email: maskEmail(target.email) },
       "Starting password change",
@@ -64,6 +105,9 @@ export class ChangePasswordCommand {
         },
         "Password change failed: the identity provider rejected the new password",
       );
+      trace
+        .getActiveSpan()
+        ?.setAttributes({ app_event: "change_password_failed", reason: "cognito_error" });
       throw err; // rethrown untouched — the HTTP contract is unchanged
     }
 
@@ -91,6 +135,7 @@ export class ChangePasswordCommand {
       },
       "Password change completed",
     );
+    trace.getActiveSpan()?.setAttribute("app_event", "change_password_succeeded");
 
     return toDomain(row as any);
   }

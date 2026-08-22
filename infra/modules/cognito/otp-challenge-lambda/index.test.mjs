@@ -42,12 +42,20 @@ function defineEvent(sessions = []) {
 // `userAttributes` is overridable so a case can drop the standard `name`
 // attribute — which is the SHIPPING state of this pool today: the Users service
 // sets email, email_verified and custom:app_user_id at sign-up and nothing else.
-function createEvent(sessions = [], userAttributes = { email: "ada@example.com", sub: "sub-123", name: "Ada Lovelace" }) {
+function createEvent(
+  sessions = [],
+  userAttributes = { email: "ada@example.com", sub: "sub-123", name: "Ada Lovelace" },
+  clientMetadata = undefined,
+) {
   return {
     triggerSource: "CreateAuthChallenge_Authentication",
     request: {
       session: sessions,
       userAttributes,
+      // Cognito forwards AdminInitiateAuth's ClientMetadata to the trigger
+      // verbatim. Omitted (not `{}`) by default, which is the shape a caller
+      // that sends none produces.
+      ...(clientMetadata === undefined ? {} : { clientMetadata }),
     },
     response: {},
   };
@@ -153,6 +161,49 @@ describe("CreateAuthChallenge", () => {
     expect(envelope).toHaveProperty("order_id", null);
     expect(envelope.user_id).toBeTruthy();
     expect(envelope.author.actor).toBeTruthy();
+  });
+
+  // The SQS hop's trace context. Cognito invokes this trigger itself, so there
+  // is no ambient trace to read here and no OTel SDK to read it with (this
+  // Lambda ships zero dependencies, deliberately). The Users service therefore
+  // hands its traceparent down through ClientMetadata, which is the only
+  // caller-controlled channel Cognito forwards, and the trigger copies it onto
+  // the SQS message the way the other three publishers do.
+  //
+  // Without this the OTP email's pipeline work lands in a trace of its own,
+  // detached from the request that asked for the code — verified in a live run
+  // before this was added.
+  it("forwards the caller's traceparent from ClientMetadata onto the SQS message", async () => {
+    const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+
+    await handler(createEvent([], undefined, { traceparent }));
+
+    const attributes = JSON.parse(sentBodies[0]).MessageAttributes;
+    expect(attributes.traceparent).toEqual({
+      DataType: "String",
+      StringValue: traceparent,
+    });
+  });
+
+  it("omits the traceparent attribute entirely when the caller sent none", async () => {
+    await handler(createEvent([]));
+
+    const attributes = JSON.parse(sentBodies[0]).MessageAttributes;
+    // ABSENT, not empty-string: SQS rejects a message attribute whose
+    // StringValue is "", so an empty traceparent would fail the publish and
+    // cost the user their login code over a telemetry field.
+    expect(attributes).not.toHaveProperty("traceparent");
+    expect(attributes.type).toBeDefined();
+  });
+
+  it("ignores a malformed traceparent rather than forwarding it", async () => {
+    // A value that cannot be a W3C traceparent would make the consumer's
+    // propagator yield nothing anyway; dropping it here keeps a broken header
+    // from travelling and looking like real context on the wire.
+    await handler(createEvent([], undefined, { traceparent: "not-a-traceparent" }));
+
+    const attributes = JSON.parse(sentBodies[0]).MessageAttributes;
+    expect(attributes).not.toHaveProperty("traceparent");
   });
 
   it("carries the user's full name so the email can greet them", async () => {

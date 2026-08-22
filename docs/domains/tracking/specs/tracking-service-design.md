@@ -4,7 +4,7 @@ type: spec
 area: tracking
 status: accepted
 created: 2026-06-26
-updated: 2026-08-16
+updated: 2026-08-21
 tags: [type/spec, area/tracking, status/accepted]
 related:
   - "[[2026-08-15-request-id-correlation-design]]"
@@ -32,6 +32,10 @@ related:
   - "[[2026-08-05-realtime-tracking-events-websocket-design]]"
   - "[[2026-08-05-realtime-tracking-events-websocket]]"
   - "[[2026-08-12-custom-business-metrics-cloudwatch-design]]"
+  - "[[2026-08-18-distributed-tracing-spans-design]]"
+  - "[[2026-08-18-distributed-tracing-spans]]"
+  - "[[ADR-0019-distributed-tracing-opentelemetry]]"
+  - "[[2026-07-31-contextvars-lost-across-task-boundaries]]"
 ---
 
 # Tracking Service Design
@@ -765,6 +769,65 @@ every already-persisted tracking, not only for code going forward.
 | Event publishing (SQS, generated queue URL) | [[env-files]], [[events-pipeline-design]] |
 | `x-user-id` injection (local) | [[nginx-njs-x-user-id-injection]] |
 | Structured logging context, incl. `request_id` | [[logging-context]] |
+| Distributed tracing backend | [[ADR-0019-distributed-tracing-opentelemetry]] |
+
+## Observability — workflow spans
+
+The 3 Tracking flows with a full `app_event` triad — `init_tracking`, `carrier_status_update`,
+`test_mode_progression` — are wrapped in a manual `INTERNAL` span via `workflow_span`, a
+synchronous `@contextmanager` in `src/shared/observability/workflow_tracing.py` (Tracking's flows
+run inside sync command handlers or `asyncio.to_thread`-wrapped sync functions, so a sync context
+manager matches every call site — no `@asynccontextmanager` needed). Same shape as Users'
+`withWorkflowSpan` and Orders' `IWorkflowTracer`: `OK` on success, `ERROR` + the same `reason` the
+log line carries on failure, closed on Python's own `with`-block `finally`. `test_mode_progression`
+spans the **whole** ~40-second, four-transition run as one span — the workflow's natural unit, the
+same granularity its log already uses (one `_started`, one `_succeeded`/`_failed` for the whole
+run), not one span per tick.
+
+Tracking also gained `opentelemetry-instrumentation-boto3sqs`, scoped deliberately to the one
+boto3 client it covers — `sqs_event_publisher.py`'s SQS client, which now produces a CLIENT span
+on publish and injects a `traceparent` `MessageAttribute` for events-pipeline's consumer to link
+back to. It does **not** cover Tracking's separate CloudWatch client
+(`shared/metrics/cloudwatch_metrics.py`) — `PutMetricData` calls stay unspanned, a deliberate
+scope limit, not a gap. Full design and implementation:
+[[2026-08-18-distributed-tracing-spans-design]] / [[2026-08-18-distributed-tracing-spans]].
+
+> [!important] Amendment (2026-08-21) — the ASGI transport was double-spanning every request, and `init_tracking` gained lifecycle milestones
+> **ASGI double-span, dropped in the collector.** `opentelemetry-instrumentation-asgi` opens a
+> span per ASGI transport message, and a normal HTTP response is two messages
+> (`http.response.start`, `http.response.body`) — so every Tracking endpoint drew a `<route>
+> http send` span **twice**, and a waterfall read as a duplicated request. Measured on
+> init-tracking: 27µs and 6µs — real spans, real durations, just not a real second request. The
+> fix is a `filter/drop_asgi_transport_spans` processor in the collector's traces pipeline
+> (`observability/otel-collector-config.yaml`), scoped by the two literal name suffixes rather
+> than by service, so it drops the same noise from any future ASGI service.
+>
+> **Why filtered in the collector, not at the source.** The library exposes `exclude_spans` only
+> as a Python **kwarg** to `instrument_app()` — no `OTEL_*` environment variable exists for it in
+> the installed `0.65b0`. Using it would mean calling `instrument_app()` explicitly in
+> `src/main.py`, which does two things this repo's OTel convention forbids: it puts OTel
+> configuration in the source tree instead of the environment (see
+> [[logging-context#OTel configuration belongs in the environment, not in code]]), and it
+> instruments **after** import — silently producing **no spans at all**, the same failure shape
+> that convention exists to prevent.
+>
+> **`init_tracking` gained lifecycle milestones.** A new `mark_phase` helper in
+> `src/shared/observability/workflow_tracing.py` records named EVENTs on the active workflow
+> span, mirroring the events-pipeline's `markPhase` (`process-record.ts`) by name and shape so a
+> reader moving between the two services meets one vocabulary. `init_tracking` now marks
+> `resolution_started` → `tracking_created` → `init_tracking_completed` on the happy path, and
+> `resolution_failed` / `creation_conflicted` on its two error branches
+> (`init_tracking_router.py`). Emitted **around** the `asyncio.to_thread` boundary, never inside
+> it: `asyncio.to_thread` **copies** the context, so an event added inside the thread attaches to
+> the copy and is silently discarded — the same trap [[2026-07-31-contextvars-lost-across-task-boundaries]]
+> already documents for merging log context across that same boundary.
+>
+> Full write-up of the ASGI trap: [[2026-08-21-asgi-instrumentation-double-spans-every-response]].
+
+Neither fix was part of the original [[2026-08-18-distributed-tracing-spans-design]] scope
+(Decision 3 covers only which flows get a workflow span, not the ASGI transport or phase
+milestones within one) — both landed later in the same milestone; see that spec's own
+2026-08-21 correction note and [[ADR-0019-distributed-tracing-opentelemetry]]'s amendment log.
 
 ## Deltas from the original design (superseded)
 
@@ -806,6 +869,16 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
 - [[2026-08-15-request-id-correlation-design]] — the cross-service `request_id` correlation
   field: Tracking seeds it in `LogContextMiddleware`, propagates via gRPC metadata to Users and
   as a root field on `TRACKING_STATUS_CHANGED`, and must list it in `_ALLOWED_KEYS`.
+- [[ADR-0019-distributed-tracing-opentelemetry]]
+- [[2026-07-31-contextvars-lost-across-task-boundaries]] — the same `asyncio.to_thread`-copies-context
+  trap `mark_phase` placement above avoids, first documented for `LogContextMiddleware`.
+- [[2026-08-21-asgi-instrumentation-double-spans-every-response]] — the ASGI transport
+  double-span lesson: why it looked like a bug, why the fix lives in the collector, and how to
+  recognize the same trap in other transport-level instrumentation.
+- [[2026-08-18-distributed-tracing-spans-design]] — the `workflow_span` context manager, the 3
+  Tracking flow spans, and the boto3sqs instrumentation this note's Observability section
+  documents.
+- [[2026-08-18-distributed-tracing-spans]] — implementation plan.
 - [[soft-delete]]
 - [[nano-id]]
 - [[audit-fields]]

@@ -85,7 +85,10 @@ resource "aws_lambda_function" "fn" {
   timeout          = 10
 
   environment {
-    variables = {
+    # var.environment_variables FIRST so the module's own values win on a key
+    # collision — a caller passing a stale COGNITO_ISSUER must not be able to
+    # break token verification from the outside.
+    variables = merge(var.environment_variables, {
       COGNITO_USER_POOL_ID = var.cognito_user_pool_id
       COGNITO_CLIENT_ID    = var.cognito_client_id
       # CONFIGURATION, not derived — see the variable's own description for
@@ -117,7 +120,7 @@ resource "aws_lambda_function" "fn" {
       # This does not hide the underlying migration: the node 22 bump is real
       # and tracked by the `runtime` field above, not by this line.
       AWS_SDK_JS_SUPPRESS_MAINTENANCE_MODE_MESSAGE = "1"
-    }
+    })
   }
 
   depends_on = [aws_cloudwatch_log_group.fn]

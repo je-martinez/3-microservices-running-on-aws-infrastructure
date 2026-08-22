@@ -1,4 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  mockTracingModule,
+  resetTracingHarness,
+  spanExporter,
+} from "../../tracing-harness.ts";
+
+// FILE-WIDE, for the reason spelled out in the harness: the real tracing module
+// calls sdk.start() at import time and opens an OTLP exporter no test collector
+// is listening on. This suite needs the harness anyway — the span NAME is now
+// part of this module's contract (see the naming test below).
+mockTracingModule();
 
 // #shared/metrics/cloudwatch-metrics reaches #shared/config/env — Zod-parsed at
 // MODULE LOAD (ADR-0014) and throwing without the full DOCDB/SES set. The values
@@ -81,6 +92,46 @@ describe("publishEmailMetric", () => {
     cwSend.mockReset();
     cwSend.mockResolvedValue({});
     resetMetricsClientForTests();
+    resetTracingHarness();
+    spanExporter.reset();
+  });
+
+  // The two publishes are two REAL round trips (52ms and 85ms measured live), so
+  // two spans is the honest rendering — but named by metric alone they render as
+  // two IDENTICAL bars in the waterfall, and telling the per-template series from
+  // the ALL rollup took a click into the attributes. Reading a cascade should not
+  // require that: same reasoning, and same shape, as `documentdb updateOne
+  // <STATUS>`.
+  //
+  // Asserted rather than left to the eye because it is the kind of detail a
+  // later refactor drops silently — the metrics keep publishing correctly and
+  // only the trace gets harder to read, which no other test would catch.
+  it("names each span after the EmailType it publishes, so the two are distinguishable", async () => {
+    await publishEmailMetric("emails_sent_total", "user-created");
+
+    const names = spanExporter
+      .getFinishedSpans()
+      .map((span) => span.name)
+      .filter((name) => name.startsWith("cloudwatch PutMetricData"));
+
+    expect(names).toEqual([
+      "cloudwatch PutMetricData emails_sent_total (user-created)",
+      "cloudwatch PutMetricData emails_sent_total (ALL)",
+    ]);
+  });
+
+  // The dimension belongs in the ATTRIBUTES too, not only in the name: a name is
+  // for reading, an attribute is for querying, and a dashboard filtering on
+  // EmailType must not have to parse the span name to do it.
+  it("keeps the EmailType dimension queryable as a span attribute", async () => {
+    await publishEmailMetric("emails_sent_total", "user-created");
+
+    const emailTypes = spanExporter
+      .getFinishedSpans()
+      .filter((span) => span.name.startsWith("cloudwatch PutMetricData"))
+      .map((span) => span.attributes["metric.email_type"]);
+
+    expect(emailTypes).toEqual(["user-created", "ALL"]);
   });
 
   it("publishes the per-type series AND the ALL rollup as two separate series", async () => {

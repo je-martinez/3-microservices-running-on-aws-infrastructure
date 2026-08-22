@@ -1,9 +1,11 @@
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
+import { context, propagation } from "@opentelemetry/api";
 import { appLogger } from "#shared/logging/app-logger";
 import { hashEmail } from "#shared/logging/email-hash";
 import { NanoIdConfig } from "#shared/id/nano-id";
 import { AuditActor } from "#shared/audit/audit-actor";
 import { getLogContext } from "#shared/logging/log-context";
+import { withPublishSpan } from "#shared/observability/publish-tracing";
 
 // `fullName` is required by the pipeline: the events-pipeline USER_CREATED
 // handler validates the payload with a Zod schema that requires BOTH `fullName`
@@ -79,6 +81,58 @@ export class NoopEventPublisher implements EventPublisher {
 const EVENT_TYPE = "USER_CREATED";
 const PASSWORD_RESET_EVENT_TYPE = "PASSWORD_RESET_REQUESTED";
 const EVENT_SOURCE = "users";
+
+// The W3C trace context for the SQS hop, shaped as SQS message attributes.
+//
+// It rides in `MessageAttributes` and NEVER in the envelope: the body is a
+// domain contract the pipeline validates with Zod, so an extra key there is
+// either rejected or silently persisted as data. Transport metadata belongs on
+// the transport, next to `type` and `source`.
+//
+// `propagation.inject` writes `traceparent` (plus `tracestate` when one exists)
+// into the carrier ONLY when there is a valid active span; with no span in
+// flight — an SDK that never started — it writes nothing at all and this returns
+// an empty object, so the key is OMITTED rather than sent blank. That
+// distinction matters more than it looks: an all-zeros or empty traceparent
+// still PARSES downstream, so the consumer would parent its span to a trace that
+// does not exist and the cascade would break silently instead of simply being
+// absent. Same "omitted, never null" rule the envelope's `request_id` and
+// `author.cognito_sub` already follow — see [[logging-context]].
+//
+// WHICH span it reads is the whole point, and the reason both callers evaluate
+// this INSIDE `withPublishSpan` rather than while building the envelope: the
+// active span there is the PRODUCER span for this send, so the consumer's work
+// hangs under the publish. Called one line earlier it would read the enclosing
+// workflow span (register, password_reset_requested) and the pipeline would
+// appear beside the publish instead of below it — silently, since a traceparent
+// naming the wrong span is still perfectly valid. That is the Orders bug
+// (commit 81c52a7).
+//
+// MEASURED CAVEAT, so nobody re-derives it from the unit tests: in production
+// this value does not survive. @opentelemetry/instrumentation-aws-sdk's
+// `requestPostSpanHook` runs after its own `<queue> send` span is started, in
+// that span's context, and injects into the SAME MessageAttributes object —
+// overwriting whatever is here, unconditionally (verified against the real
+// instrumentation with a stub SQS endpoint: a deliberately bogus traceparent
+// came out replaced). So the id on the wire is the SDK span's.
+//
+// This is kept, and is still correct, for two reasons. The SDK's span is a
+// CHILD of the publish span (measured: register -> sqs.publish user_created ->
+// events send), so the consumer joins one level inside the publish either way —
+// the subtree is identical. And this is the only injection that happens at all
+// if the aws-sdk instrumentation is ever disabled or fails to patch, which is
+// exactly the silent-failure mode this whole seam exists to survive.
+function traceparentAttributes(): Record<string, { DataType: "String"; StringValue: string }> {
+  const carrier: Record<string, string> = {};
+  propagation.inject(context.active(), carrier);
+
+  return Object.fromEntries(
+    Object.entries(carrier).map(([key, value]) => [
+      key,
+      { DataType: "String" as const, StringValue: value },
+    ]),
+  );
+}
 
 // Real implementation. `event_id` is generated INSIDE the publisher so the seam
 // signature stays untouched (the milestone design spec's preferred option). It
@@ -162,42 +216,75 @@ export class SqsEventPublisher implements EventPublisher {
       },
     };
 
-    try {
-      await this.client.send(
-        new SendMessageCommand({
-          QueueUrl: this.queueUrl,
-          MessageBody: JSON.stringify(envelope),
-          // Duplicated as message attributes so the queue can be inspected
-          // (and filtered) without deserializing the body.
-          MessageAttributes: {
-            type: { DataType: "String", StringValue: envelope.type },
-            source: { DataType: "String", StringValue: envelope.source },
+    // Everything below runs inside the PRODUCER span, which is what makes the
+    // traceparent name the publish (point 1 in withPublishSpan's doc) and both
+    // log lines carry its span_id (point 2).
+    await withPublishSpan(EVENT_TYPE.toLowerCase(), async (span) => {
+      try {
+        await this.client.send(
+          new SendMessageCommand({
+            QueueUrl: this.queueUrl,
+            MessageBody: JSON.stringify(envelope),
+            // Duplicated as message attributes so the queue can be inspected
+            // (and filtered) without deserializing the body.
+            MessageAttributes: {
+              type: { DataType: "String", StringValue: envelope.type },
+              source: { DataType: "String", StringValue: envelope.source },
+              // Built HERE, inside the span, not alongside the envelope above:
+              // `propagation.inject` reads the ACTIVE span, so one line earlier
+              // it would stamp the enclosing workflow span and the pipeline's
+              // work would hang beside the publish instead of under it.
+              ...traceparentAttributes(),
+            },
+          }),
+        );
+
+        // The span's OWN line, so "View logs" on this span answers rather than
+        // returning empty. It earns its place independently of that: it states
+        // that the event was emitted, WHICH event (type + event_id, the
+        // pipeline's idempotency key) and for WHOM — which is what makes a
+        // missing welcome email diagnosable from this side of the queue.
+        //
+        // NEVER the plaintext email: `email_hash` identifies the recipient
+        // without carrying PII, same rule as the failure line below.
+        appLogger.info(
+          {
+            app_event: "user_created_published",
+            event_type: envelope.type,
+            event_id: envelope.event_id,
+            user_id: payload.id,
+            email_hash: hashEmail(payload.email),
           },
-        }),
-      );
-    } catch (err) {
-      // DELIBERATE: swallowed, not rethrown. The user row and the Cognito
-      // account already exist by the time this runs; failing the request here
-      // would return an error for a registration that actually succeeded, and
-      // the client's natural retry would hit `email_exists` (409) forever. The
-      // welcome email is a secondary effect, so a queue outage degrades it
-      // rather than breaking the flow — the same best-effort stance
-      // register() already takes for the Cognito identity capture.
-      //
-      // NOT silent: it is logged at error with the `*_failed` app_event so it
-      // is alertable. NEVER log the plaintext email — only `email_hash` and
-      // `user_id` identify the user here.
-      appLogger.error(
-        {
-          err,
-          app_event: "user_created_publish_failed",
-          reason: "sqs_send_failed",
-          user_id: payload.id,
-          email_hash: hashEmail(payload.email),
-        },
-        "USER_CREATED publish failed (non-fatal): the user was created but no event was emitted",
-      );
-    }
+          "USER_CREATED published",
+        );
+      } catch (err) {
+        // The span must come out ERROR: the send is swallowed below, so this is
+        // the only place the failure stays visible in the trace.
+        span.markFailed(err);
+
+        // DELIBERATE: swallowed, not rethrown. The user row and the Cognito
+        // account already exist by the time this runs; failing the request here
+        // would return an error for a registration that actually succeeded, and
+        // the client's natural retry would hit `email_exists` (409) forever. The
+        // welcome email is a secondary effect, so a queue outage degrades it
+        // rather than breaking the flow — the same best-effort stance
+        // register() already takes for the Cognito identity capture.
+        //
+        // NOT silent: it is logged at error with the `*_failed` app_event so it
+        // is alertable. NEVER log the plaintext email — only `email_hash` and
+        // `user_id` identify the user here.
+        appLogger.error(
+          {
+            err,
+            app_event: "user_created_publish_failed",
+            reason: "sqs_send_failed",
+            user_id: payload.id,
+            email_hash: hashEmail(payload.email),
+          },
+          "USER_CREATED publish failed (non-fatal): the user was created but no event was emitted",
+        );
+      }
+    });
   }
 
   // Emits the event whose ONLY consumer is the forgot-password email
@@ -250,38 +337,59 @@ export class SqsEventPublisher implements EventPublisher {
       },
     };
 
-    try {
-      await this.client.send(
-        new SendMessageCommand({
-          QueueUrl: this.queueUrl,
-          MessageBody: JSON.stringify(envelope),
-          MessageAttributes: {
-            type: { DataType: "String", StringValue: envelope.type },
-            source: { DataType: "String", StringValue: envelope.source },
+    await withPublishSpan(PASSWORD_RESET_EVENT_TYPE.toLowerCase(), async (span) => {
+      try {
+        await this.client.send(
+          new SendMessageCommand({
+            QueueUrl: this.queueUrl,
+            MessageBody: JSON.stringify(envelope),
+            MessageAttributes: {
+              type: { DataType: "String", StringValue: envelope.type },
+              source: { DataType: "String", StringValue: envelope.source },
+              // Inside the span, for the same reason as USER_CREATED above.
+              ...traceparentAttributes(),
+            },
+          }),
+        );
+
+        // The span's own line — see the USER_CREATED counterpart. NEVER the code
+        // (it is the live credential this event exists to deliver) and never the
+        // plaintext email: the event_id and user_id identify the message
+        // completely, `email_hash` the recipient.
+        appLogger.info(
+          {
+            app_event: "password_reset_requested_published",
+            event_type: envelope.type,
+            event_id: envelope.event_id,
+            user_id: payload.userId,
+            email_hash: hashEmail(payload.email),
           },
-        }),
-      );
-    } catch (err) {
-      // Same best-effort stance as USER_CREATED, for the same reason: the code
-      // row is already persisted when this runs, so rethrowing would report a
-      // failure for a reset that is, on our side, entirely successful — and the
-      // caller cannot tell the difference anyway, because the endpoint answers
-      // identically whether or not the email exists (no enumeration). A queue
-      // outage costs the user their email, not a broken flow.
-      //
-      // NEVER log the code (it is the credential) and NEVER the plaintext email:
-      // only `email_hash` and `user_id` identify anyone here. `err` is a SQS SDK
-      // error and carries none of the message body.
-      appLogger.error(
-        {
-          err,
-          app_event: "password_reset_requested_publish_failed",
-          reason: "sqs_send_failed",
-          user_id: payload.userId,
-          email_hash: hashEmail(payload.email),
-        },
-        "PASSWORD_RESET_REQUESTED publish failed (non-fatal): the code was stored but no email was requested",
-      );
-    }
+          "PASSWORD_RESET_REQUESTED published",
+        );
+      } catch (err) {
+        span.markFailed(err);
+
+        // Same best-effort stance as USER_CREATED, for the same reason: the code
+        // row is already persisted when this runs, so rethrowing would report a
+        // failure for a reset that is, on our side, entirely successful — and the
+        // caller cannot tell the difference anyway, because the endpoint answers
+        // identically whether or not the email exists (no enumeration). A queue
+        // outage costs the user their email, not a broken flow.
+        //
+        // NEVER log the code (it is the credential) and NEVER the plaintext email:
+        // only `email_hash` and `user_id` identify anyone here. `err` is a SQS SDK
+        // error and carries none of the message body.
+        appLogger.error(
+          {
+            err,
+            app_event: "password_reset_requested_publish_failed",
+            reason: "sqs_send_failed",
+            user_id: payload.userId,
+            email_hash: hashEmail(payload.email),
+          },
+          "PASSWORD_RESET_REQUESTED publish failed (non-fatal): the code was stored but no email was requested",
+        );
+      }
+    });
   }
 }

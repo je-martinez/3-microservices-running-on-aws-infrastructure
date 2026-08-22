@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-08-18
+updated: 2026-08-21
 tags:
   - type/spec
   - area/shared
@@ -81,6 +81,7 @@ related:
   - "[[floci-elasticache-two-ports-and-provider-panic]]"
   - "[[2026-08-10-product-catalogue-image-categories-design]]"
   - "[[2026-08-15-request-id-correlation-design]]"
+  - "[[2026-08-18-distributed-tracing-spans-design]]"
   - "[[pencil-design-extraction]]"
   - "[[2026-08-17-web-app-foundation-design]]"
   - "[[angular-component-authoring]]"
@@ -171,7 +172,7 @@ All ADRs use continuous global numbering and live in `docs/shared/decisions/`.
 
 - [[ADR-0011-observability-signoz]] — SigNoz (via CloudWatch) as the observability backend. Superseded by [[ADR-0018-observability-openobserve]].
 - [[ADR-0018-observability-openobserve]] — OpenObserve (via CloudWatch) as the observability backend, superseding SigNoz.
-- [[ADR-0019-distributed-tracing-opentelemetry]] — OpenTelemetry SDK in both services for distributed tracing; traces go to Jaeger while logs stay in OpenObserve, re-evaluating the tracing/logs-only stance of [[ADR-0018-observability-openobserve]] after OpenObserve's trace ingest rejected the collector's OTLP batches.
+- [[ADR-0019-distributed-tracing-opentelemetry]] — OpenTelemetry SDK in all services for distributed tracing, re-evaluating the tracing/logs-only stance of [[ADR-0018-observability-openobserve]] after OpenObserve's trace ingest initially rejected the collector's OTLP batches (traces went to Jaeger meanwhile). That ingest rejection no longer reproduces on OpenObserve v0.91.1; Jaeger was removed 2026-08-21 and OpenObserve is now the single backend for both logs and traces — see the ADR's Amendment.
 
 ### Documentation & Diagrams
 
@@ -267,6 +268,7 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-08-06-multi-provider-agent-config-sync]] — Implementation plan for the sync pipeline: the frontmatter normalizer, lnai initialization with Claude Code disabled as a sync target, the `ai-config-sync` subagent and projection manifest, `make ai-sync`/`make ai-sync-check`, and vault propagation.
 - [[2026-08-10-product-catalogue-image-categories-design]] — Design replacing the Orders placeholder catalogue (`Widget`/`Gadget`/`Gizmo`) with the web-app design's eight real products, adding a nullable `ProductImage` value object (relative bucket key, dimensions, blurhash) and an uppercase `Categories` array, both stored as MySQL `json` columns following the `Order.Tags` converter/comparer pattern; per [[orders-service-design]], [[db-naming]], [[soft-delete]], [[env-files]], [[testing]], [[nano-id]].
 - [[2026-08-15-request-id-correlation-design]] — Design of a cross-service `request_id` correlation field (`req_`+nanoid), covering the gap `trace_id` leaves in the events-pipeline and realtime Lambdas (no OTel SDK, JE-138): validated inbound `x-request-id`, per-service context propagation reusing each service's existing logging mechanism, and an optional envelope root field so in-flight SQS messages don't fail schema validation; per [[logging-context]], [[nano-id]], [[events-pipeline-design]], [[ADR-0019-distributed-tracing-opentelemetry]].
+- [[2026-08-18-distributed-tracing-spans-design]] — Design for manual OpenTelemetry spans on top of the existing SDKs: a workflow-span pattern (`withWorkflowSpan`/`IWorkflowTracer`/decorator) covering the 12 flows with a full `app_event` triad, span links (not parent-child) across the SQS hop via `traceparent` in `MessageAttributes`, per-record instrumentation inside events-pipeline closing JE-138, extending the SDK into the three realtime-events Lambdas, and new Prisma/AWS-SDK auto-instrumentation; rejects a custom `x-trace-id` header and a Tracking HTTP-client instrumentation (Tracking makes no outbound HTTP calls); per [[ADR-0019-distributed-tracing-opentelemetry]], [[logging-context]], [[ADR-0003-grpc-inter-service]], [[events-pipeline-design]].
 - [[2026-08-17-web-app-foundation-design]] — Design of `apps/web/`: an Angular 21 + NgRx + Tailwind 4 web app laying out all 18 designed screens (36 responsive frames) from `assets/web-app/web-app.pen`, the `pencil-design-extraction` skill/agent that mines it, and typed phase-1 fixtures derived from the three services' `openapi.yaml` with no gateway calls yet; see [[pencil-design-extraction]] for the extraction convention this design established.
 
 ---
@@ -285,6 +287,7 @@ Durable empirical findings from spikes, incidents, and experiments.
 - [[floci-sqs-lambda-docdb-support]] — Empirical probe of Floci's SQS, Lambda (SQS event source mapping), and DocumentDB support ahead of the events-pipeline milestone: all viable as designed, with three local-only findings (no multi-document DocumentDB transactions, a non-stable DocumentDB endpoint, and a silently-dropped `update-event-source-mapping` field).
 - [[floci-websocket-apigw-dynamodb-support]] — Empirical probe of Floci's WebSocket API Gateway + DynamoDB support for the realtime-events feature: the REQUEST authorizer's context genuinely propagates (unlike the HTTP API's claim-mapping gap), two undocumented local-only URL shapes, a Cognito JWT verifier issuer-from-configuration requirement, and an unresolved gateway E2E gap.
 - [[floci-elasticache-two-ports-and-provider-panic]] — Floci backs ElastiCache with a real Valkey container; the pinned AWS provider panics reading `NodeGroups[0]` on `CreateReplicationGroup`; no subnet-group API at all; and the container's own port (6379) disagrees with the host-side proxy port ElastiCache reports, requiring a moved proxy range (6479-6499) to coexist with a developer's local Redis.
+- [[2026-08-21-verify-in-the-viewer-not-the-api]] — Confirming data reached a backend (an API query) is not confirming a feature works; three claims in one session were verified against the wrong surface (span events invisible in Jaeger's waterfall, a re-verification that stayed API-first in OpenObserve, and 56/56 spans from `_search` while the UI's own `/dag` endpoint 400'd) before the pattern was named and corrected.
 
 ---
 
