@@ -398,6 +398,39 @@ processors:
   #
   # These two conditions MUST stay exact complements. Nil guard FIRST: most
   # records arrive over fluent_forward with no log group at all.
+  # Drops the ASGI transport spans Python's zero-code instrumentation emits
+  # around every FastAPI response — `<route> http send` and `<route> http
+  # receive`.
+  #
+  # WHY THEY LOOK LIKE A BUG: a normal HTTP response is TWO ASGI messages
+  # (`http.response.start` carrying the headers, then `http.response.body`), and
+  # opentelemetry-instrumentation-asgi opens a span per message. So every
+  # Tracking endpoint shows `... http send` TWICE in the waterfall, side by side,
+  # which reads as a duplicated request. It is not: measured on
+  # POST /v1/trackings/init-tracking the two spans lasted 27µs and 6µs, are both
+  # INTERNAL, and are siblings under the one real SERVER span. They describe the
+  # framework writing bytes, not work this system performs.
+  #
+  # WHY FILTER HERE INSTEAD OF AT THE SOURCE: the library exposes `exclude_spans`
+  # ONLY as a Python keyword argument (verified in the installed 0.65b0 — it has
+  # no OTEL_* environment variable, unlike OTEL_PYTHON_FASTAPI_EXCLUDED_URLS).
+  # Passing it would mean calling FastAPIInstrumentor().instrument_app() in
+  # src/main.py, which breaks two rules this repo pays for: OTel config stays out
+  # of the source tree ([[logging-context]] — three silent failures came from
+  # configuring the SDK in code), and Tracking's Dockerfile relies on
+  # `opentelemetry-instrument` patching fastapi BEFORE src.main imports it —
+  # instrumenting after import silently produces no spans at all.
+  #
+  # SCOPED TO THE TWO NAMES, not to a service: any Python service added later
+  # gets the same treatment for free, and nothing else is touched. The real
+  # SERVER span for the same route does not match — its name has no ` http send`
+  # / ` http receive` suffix — so the endpoint stays fully visible.
+  filter/drop_asgi_transport_spans:
+    error_mode: ignore
+    traces:
+      span:
+        - 'IsMatch(name, ".* http (send|receive)$")'
+
   filter/only_nginx:
     error_mode: ignore
     logs:
@@ -1116,7 +1149,9 @@ service:
       # memory_limiter BEFORE batch, for the reason spelled out on the processor
       # itself: limiting after the batcher has already buffered the spans limits
       # nothing.
-      processors: [memory_limiter, batch]
+      # filter BEFORE batch: dropping the ASGI transport spans first keeps them
+      # out of the batches entirely rather than shipping and discarding them.
+      processors: [memory_limiter, filter/drop_asgi_transport_spans, batch]
       # ONE destination since 2026-08-21. Traces land beside the logs they share
       # a trace_id with, so "show me the logs for this span" is one query in one
       # system. Jaeger was the second destination until its reason for existing

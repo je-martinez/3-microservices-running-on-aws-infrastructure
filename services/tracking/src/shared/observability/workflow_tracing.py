@@ -60,6 +60,32 @@ from opentelemetry.trace import Span, SpanKind, Status, StatusCode
 _tracer = trace.get_tracer("tracking-workflow")
 
 
+def mark_phase(name: str, reason: str | None = None) -> None:
+    """Record a lifecycle milestone as an EVENT on the active workflow span.
+
+    The counterpart of the events-pipeline's `markPhase`
+    (`functions/events-pipeline/src/pipeline/process-record.ts`), and named to
+    match so a reader moving between the two services meets one vocabulary.
+
+    An EVENT, not a span, because a milestone is an INSTANT — it has no duration
+    to draw. What it buys is the answer to "how far did this request get?" on a
+    flow that failed: the span alone shows a workflow that ended, while the
+    events show it resolved the user and then died creating the tracking.
+
+    No-ops when nothing is recording, so it is safe to call from code paths that
+    also run outside a request (tests, the progression task before its span is
+    open).
+
+    No PII, by the rule the log lines already follow ([[logging-context]]): only
+    lifecycle vocabulary, never the payload, never an address, never an email.
+    `reason` carries the same already-sanitized token the matching `*_failed`
+    line does.
+    """
+    span = trace.get_current_span()
+    if span.is_recording():
+        span.add_event(name, {"reason": reason} if reason else None)
+
+
 @contextmanager
 def workflow_span(name: str, **attributes: str | int | float | bool) -> Iterator[Span]:
     """Run a workflow inside an INTERNAL span named after the flow.

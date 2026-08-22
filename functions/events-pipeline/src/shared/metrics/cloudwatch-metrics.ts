@@ -40,6 +40,10 @@ export async function publishMetric(
   name: string,
   value: number,
   dimensions: Record<string, string>,
+  // Distinguishes sibling publishes of the SAME metric in the waterfall. Only
+  // publishEmailMetric passes it today (per-template vs the ALL rollup); a
+  // single-series caller leaves the span named after the metric alone, as before.
+  spanLabel?: string,
 ): Promise<void> {
   // Opened BEFORE the enabled check returns, so a disabled exporter produces no
   // span at all rather than a zero-duration one implying a call was made.
@@ -65,8 +69,15 @@ export async function publishMetric(
   // identical `cloudwatch PutMetricData` bars and telling them apart — or
   // knowing what either one published — took a click into the attributes. Same
   // reasoning as `documentdb updateOne <STATUS>`.
+  //
+  // The metric name alone was not enough: both of those publishes carry the SAME
+  // metric, so they still rendered identically and the pair kept reading as a
+  // duplicated call. `spanLabel` appends what actually differs — the EmailType —
+  // which is the last step of the same idea, not a new one.
   await pipelineTracer.startActiveSpan(
-    `cloudwatch PutMetricData ${name}`,
+    spanLabel === undefined
+      ? `cloudwatch PutMetricData ${name}`
+      : `cloudwatch PutMetricData ${name} (${spanLabel})`,
     {
       kind: SpanKind.CLIENT,
       attributes: {
@@ -74,6 +85,12 @@ export async function publishMetric(
         "rpc.service": "CloudWatch",
         "rpc.method": "PutMetricData",
         "metric.name": name,
+        // Queryable form of the same distinction the span name now carries: a
+        // name is for reading a waterfall, an attribute is for filtering a
+        // dashboard, and neither should require parsing the other.
+        ...(dimensions.EmailType === undefined
+          ? {}
+          : { "metric.email_type": dimensions.EmailType }),
       },
     },
     async (span) => {
@@ -129,16 +146,18 @@ export async function publishEmailMetric(
   templateKey: string,
   extraDimensions: Record<string, string> = {},
 ): Promise<void> {
-  await publishMetric(name, 1, {
-    Service: SERVICE_DIMENSION,
-    EmailType: templateKey,
-    ...extraDimensions,
-  });
-  await publishMetric(name, 1, {
-    Service: SERVICE_DIMENSION,
-    EmailType: "ALL",
-    ...extraDimensions,
-  });
+  await publishMetric(
+    name,
+    1,
+    { Service: SERVICE_DIMENSION, EmailType: templateKey, ...extraDimensions },
+    templateKey,
+  );
+  await publishMetric(
+    name,
+    1,
+    { Service: SERVICE_DIMENSION, EmailType: "ALL", ...extraDimensions },
+    "ALL",
+  );
 }
 
 /** Test seam, mirroring resetSesClientForTests. */
