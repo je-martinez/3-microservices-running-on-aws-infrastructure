@@ -4,6 +4,7 @@ using Orders.Application.Abstractions;
 using Orders.Application.Identity;
 using Orders.Application.Orders;
 using Orders.Application.Tracking;
+using Orders.Domain;
 using Orders.Domain.Entities;
 using Orders.Domain.Pricing;
 using Orders.Infrastructure.Id;
@@ -317,8 +318,13 @@ public class CreateOrderService
             // Map the in-memory order (order.Details already populated) instead of
             // re-querying — mirrors OrderReadService.Map exactly; keep both in sync.
             return new OrderDto(
-                order.Id, order.UserId, order.CognitoSub, order.SubtotalCents, order.TaxCents, order.ShippingCents, order.TotalCents, order.CreatedAt,
-                order.Details.Select(d => new OrderLineDto(d.ProductId, d.Quantity, d.SubtotalCents, d.TaxCents, d.TotalCents)).ToList());
+                order.Id, order.UserId, order.CognitoSub,
+                Money.FromCents(order.SubtotalCents), Money.FromCents(order.TaxCents), Money.FromCents(order.ShippingCents), Money.FromCents(order.TotalCents),
+                order.CreatedAt,
+                order.Details.Select(d => new OrderLineDto(
+                    d.ProductId, d.Quantity,
+                    Money.FromCents(d.SubtotalCents), Money.FromCents(d.TaxCents), Money.FromCents(d.TotalCents)))
+                    .ToList());
         });
     }
 

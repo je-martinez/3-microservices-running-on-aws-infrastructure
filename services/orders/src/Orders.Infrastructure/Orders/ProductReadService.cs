@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Orders.Application.Orders;
+using Orders.Domain;
 using Orders.Infrastructure.Observability;
 using Orders.Infrastructure.Persistence;
 
@@ -64,7 +65,7 @@ public class ProductReadService
             });
 
     private ProductDto Map(Domain.Entities.Product p) =>
-        new(p.Id, p.Name, p.Description, p.UnitPriceCents, p.UnitsInStock,
+        new(p.Id, p.Name, p.Description, Money.FromCents(p.UnitPriceCents), p.UnitsInStock,
             p.Categories,
             p.Image is null
                 ? null

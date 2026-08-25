@@ -174,15 +174,35 @@ components:
             - integer
             - string
           format: int32
+    Money:
+      required:
+        - cents
+        - amount
+        - formatted
+        - currency
+      type: object
+      properties:
+        cents:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: int64
+        amount:
+          type: string
+        formatted:
+          type: string
+        currency:
+          type: string
     OrderDto:
       required:
         - id
         - userId
         - cognitoSub
-        - subtotalCents
-        - taxCents
-        - shippingCents
-        - totalCents
+        - subtotal
+        - tax
+        - shipping
+        - total
         - createdAt
         - lines
       type: object
@@ -193,30 +213,14 @@ components:
           type: string
         cognitoSub:
           type: string
-        subtotalCents:
-          pattern: '^-?(?:0|[1-9]\d*)$'
-          type:
-            - integer
-            - string
-          format: int64
-        taxCents:
-          pattern: '^-?(?:0|[1-9]\d*)$'
-          type:
-            - integer
-            - string
-          format: int64
-        shippingCents:
-          pattern: '^-?(?:0|[1-9]\d*)$'
-          type:
-            - integer
-            - string
-          format: int64
-        totalCents:
-          pattern: '^-?(?:0|[1-9]\d*)$'
-          type:
-            - integer
-            - string
-          format: int64
+        subtotal:
+          $ref: '#/components/schemas/Money'
+        tax:
+          $ref: '#/components/schemas/Money'
+        shipping:
+          $ref: '#/components/schemas/Money'
+        total:
+          $ref: '#/components/schemas/Money'
         createdAt:
           type: string
           format: date-time
@@ -228,9 +232,9 @@ components:
       required:
         - productId
         - quantity
-        - subtotalCents
-        - taxCents
-        - totalCents
+        - subtotal
+        - tax
+        - total
       type: object
       properties:
         productId:
@@ -241,24 +245,12 @@ components:
             - integer
             - string
           format: uint32
-        subtotalCents:
-          pattern: '^-?(?:0|[1-9]\d*)$'
-          type:
-            - integer
-            - string
-          format: int64
-        taxCents:
-          pattern: '^-?(?:0|[1-9]\d*)$'
-          type:
-            - integer
-            - string
-          format: int64
-        totalCents:
-          pattern: '^-?(?:0|[1-9]\d*)$'
-          type:
-            - integer
-            - string
-          format: int64
+        subtotal:
+          $ref: '#/components/schemas/Money'
+        tax:
+          $ref: '#/components/schemas/Money'
+        total:
+          $ref: '#/components/schemas/Money'
     OrderWithTrackingDto:
       required:
         - order
@@ -276,7 +268,7 @@ components:
         - id
         - name
         - description
-        - unitPriceCents
+        - unitPrice
         - unitsInStock
         - categories
         - image
@@ -288,12 +280,8 @@ components:
           type: string
         description:
           type: string
-        unitPriceCents:
-          pattern: '^-?(?:0|[1-9]\d*)$'
-          type:
-            - integer
-            - string
-          format: int64
+        unitPrice:
+          $ref: '#/components/schemas/Money'
         unitsInStock:
           pattern: '^-?(?:0|[1-9]\d*)$'
           type:

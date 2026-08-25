@@ -34,7 +34,8 @@ public class ProductEndpointsTests
 
         var seeded = body!.Single(p => p.Id == _factory.SeededProductId);
         Assert.Equal("Widget", seeded.Name);
-        Assert.Equal(1000, seeded.UnitPriceCents);
+        Assert.Equal(1000, seeded.UnitPrice.Cents);
+        Assert.Equal("10.00", seeded.UnitPrice.Amount);
         Assert.Equal((uint)5, seeded.UnitsInStock);
     }
 }
