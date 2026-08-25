@@ -4,11 +4,13 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-08-18
+updated: 2026-08-25
 tags: [type/spec, area/shared, status/active]
 related:
   - "[[2026-08-18-distributed-tracing-spans-design]]"
   - "[[2026-08-18-distributed-tracing-spans]]"
+  - "[[2026-08-25-cart-endpoints-design]]"
+  - "[[2026-08-25-cart-endpoints]]"
   - "[[2026-06-26-implementation-workflow]]"
   - "[[developer-experience-milestone]]"
   - "[[2026-07-19-scripts-to-python-migration-design]]"
@@ -99,6 +101,8 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-08-18-distributed-tracing-spans-design]] — design spec for manual OpenTelemetry spans: the 11 flow-log-carrying workflows across Users/Orders/Tracking, the SQS `traceparent`-in-`MessageAttributes` hop with span links (not parent-child) into events-pipeline, per-record spans there, realtime-events' 4 entry points, and the new Prisma/AWS-SDK auto-instrumentation.
 - [[2026-08-18-distributed-tracing-spans]] — implementation plan for the tracing design: per-service workflow-span helpers (`withWorkflowSpan` in Users, `IWorkflowTracer` in Orders, `workflow_span` in Tracking), the 3 SQS publishers' traceparent injection (a 4th producer, the Cognito OTP trigger, was found and fixed later — see [[ADR-0019-distributed-tracing-opentelemetry]]), events-pipeline's manual DocumentDB/SES/WS spans (auto-instrumentation cannot cross its esbuild CJS bundle), realtime-events' 4 independently-bundled Lambdas, the collector's `memory_limiter`, and a full-trace E2E with the JE-77 anti-regression assertion.
 - [[observability-telemetry-milestone]] — logical execution plan for the Observability & Telemetry milestone: task sequence and dependency graph for the distributed-tracing-spans work (5 parallel workstreams, the SQS traceparent dependency gate, events-pipeline/JE-138, and the closing full-trace E2E).
+- [[2026-08-25-cart-endpoints-design]] — design spec for moving cart state and money calculation out of the frontend into the Orders service: three `/v1/cart` endpoints backed by a new Cart aggregate, and a `Money` DTO reporting every amount in both cents and dollars.
+- [[2026-08-25-cart-endpoints]] — implementation plan for the cart endpoints: the `Money` object and its rollout across every Orders DTO, the Cart/CartItem entities with `crt_`/`cti_` id prefixes and the DB-enforced one-active-cart invariant, `CartReadService`/`CartWriteService`, the three `/v1/cart` HTTP endpoints, the order-creation cart-deletion hook, E2E coverage, and vault propagation.
 
 > [!note] No plan note for the AuditActor enum
 > [[2026-07-12-audit-actor-enum-design]] was implemented directly from the spec — there is no separate `writing-plans` plan for it.
@@ -147,3 +151,5 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-08-18-distributed-tracing-spans-design]]
 - [[2026-08-18-distributed-tracing-spans]]
 - [[observability-telemetry-milestone]]
+- [[2026-08-25-cart-endpoints-design]]
+- [[2026-08-25-cart-endpoints]]
