@@ -78,6 +78,67 @@ public class CartEndpointsTests
         Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync("/v1/cart")).StatusCode);
     }
 
+    [Fact]
+    public async Task Put_with_an_empty_items_array_returns_200_and_empties_the_cart()
+    {
+        // Correct only by inspection today: an empty array must fall through all four
+        // guards in Handle and reach ReplaceAsync with zero lines, which deletes the
+        // cart. This is the documented way to empty (and therefore delete) a cart, not
+        // a validation error.
+        var productId = await SeedProductAsync(stock: 5, priceCents: 1000);
+        var client = Client(OrdersApiFactory.KnownCognitoSub);
+        await client.DeleteAsync("/v1/cart"); // start from no cart.
+        await client.PutAsJsonAsync("/v1/cart", new
+        {
+            items = new[] { new { productId, quantity = 1 } },
+        });
+
+        var response = await client.PutAsJsonAsync("/v1/cart", new { items = Array.Empty<object>() });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonCart>();
+        Assert.Null(body!.Id);
+        Assert.Empty(body.Items);
+
+        await client.DeleteAsync("/v1/cart");
+    }
+
+    [Fact]
+    public async Task Put_with_quantity_zero_removes_that_line_only()
+    {
+        // Zero must be treated as "remove this line", not merely accepted with a 200 —
+        // asserting only the status would not prove the removal actually happened.
+        var keptProductId = await SeedProductAsync(stock: 5, priceCents: 1000);
+        var removedProductId = await SeedProductAsync(stock: 5, priceCents: 1500);
+        var client = Client(OrdersApiFactory.KnownCognitoSub);
+        await client.DeleteAsync("/v1/cart"); // start from no cart.
+        await client.PutAsJsonAsync("/v1/cart", new
+        {
+            items = new[]
+            {
+                new { productId = keptProductId, quantity = 2 },
+                new { productId = removedProductId, quantity = 1 },
+            },
+        });
+
+        var response = await client.PutAsJsonAsync("/v1/cart", new
+        {
+            items = new[]
+            {
+                new { productId = keptProductId, quantity = 2 },
+                new { productId = removedProductId, quantity = 0 },
+            },
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonCart>();
+        var line = Assert.Single(body!.Items);
+        Assert.Equal(keptProductId, line.ProductId);
+        Assert.Equal(2, line.Quantity);
+
+        await client.DeleteAsync("/v1/cart");
+    }
+
     [Theory]
     // A negative quantity is the only quantity that is an error.
     [InlineData("{\"items\":[{\"productId\":\"prd_x\",\"quantity\":-1}]}")]
@@ -108,6 +169,15 @@ public class CartEndpointsTests
 
         Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/v1/cart")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.DeleteAsync("/v1/cart")).StatusCode);
+        // PUT carries the most custom logic of the three routes, so it is the one most
+        // likely to accidentally short-circuit auth in a future edit. A well-formed body
+        // is sent so a 401 here can only be the auth middleware, never a 400 from the
+        // handler's own validation running ahead of it.
+        var putResponse = await anonymous.PutAsJsonAsync("/v1/cart", new
+        {
+            items = new[] { new { productId = "prd_x", quantity = 1 } },
+        });
+        Assert.Equal(HttpStatusCode.Unauthorized, putResponse.StatusCode);
     }
 
     // Same pattern as CartWriteServiceTests/CartReadServiceTests: a dedicated product
