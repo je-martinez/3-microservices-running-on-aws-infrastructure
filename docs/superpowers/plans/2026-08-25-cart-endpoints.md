@@ -2,16 +2,17 @@
 title: Cart Endpoints + Money Representation Implementation Plan
 type: plan
 area: orders
-status: draft
+status: active
 created: 2026-08-25
 updated: 2026-08-25
 tags:
   - type/plan
   - area/orders
-  - status/draft
+  - status/active
 propagates-to:
   - "[[orders-service-design]]"
   - "[[nano-id]]"
+  - "[[money-representation]]"
 related:
   - "[[2026-08-25-cart-endpoints-design]]"
   - "[[orders-service-design]]"
@@ -21,6 +22,7 @@ related:
   - "[[db-naming]]"
   - "[[testing]]"
   - "[[cqrs]]"
+  - "[[money-representation]]"
 ---
 
 # Cart Endpoints + Money Representation Implementation Plan
@@ -2324,3 +2326,7 @@ git commit -m "docs(vault): propagate cart endpoints and Money representation"
 - [[db-naming]]
 - [[testing]]
 - [[cqrs]]
+- [[money-representation]] — the cross-cutting convention Task 1's `Money` object propagated
+  into.
+- [[2026-08-25-cart-innodb-generated-column-fk-restriction]]
+- [[2026-08-25-route-works-in-process-but-404s-at-gateway]]

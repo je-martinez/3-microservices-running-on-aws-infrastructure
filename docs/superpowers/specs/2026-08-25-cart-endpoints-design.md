@@ -2,16 +2,17 @@
 title: Cart Endpoints + Money Representation Design
 type: spec
 area: orders
-status: draft
+status: active
 created: 2026-08-25
 updated: 2026-08-25
 tags:
   - type/spec
   - area/orders
-  - status/draft
+  - status/active
 propagates-to:
   - "[[orders-service-design]]"
   - "[[nano-id]]"
+  - "[[money-representation]]"
 related:
   - "[[orders-service-design]]"
   - "[[nano-id]]"
@@ -20,6 +21,7 @@ related:
   - "[[db-naming]]"
   - "[[testing]]"
   - "[[logging-context]]"
+  - "[[money-representation]]"
 ---
 
 # Cart Endpoints + Money Representation Design
@@ -45,7 +47,7 @@ It **replaces** each loose `*_cents` field in the HTTP DTOs of Orders:
 
 - `OrderDto`: subtotal, tax, shipping, total
 - `OrderLineDto`: subtotal, tax, total
-- `ProductDto`: unit_price
+- `ProductDto`: unitPrice
 
 This is a **breaking change** to existing response shapes. Accepted deliberately.
 
@@ -69,14 +71,11 @@ Important, and the part a future reader must not "clean up":
   never depends on the container's locale. A container with a different default culture
   would otherwise silently emit `$39,98`.
 
-> [!todo] Pending propagation
-> This spec's `Money` contract (Part A) is a reusable cross-cutting shape and belongs in a
-> new `docs/shared/conventions/money-representation.md` note per the routing table in
-> [[doc-propagation]]. That note does not exist yet — creating it is deferred to propagation
-> time (before the PR that closes this work), together with updating
-> [[orders-service-design]] and [[nano-id]]. It could not be added to `propagates-to:` above
-> because the propagation gate requires every declared target to already resolve to a real
-> note; add it there once the convention note is created.
+> [!done] Propagated
+> This spec's `Money` contract (Part A) landed in [[money-representation]] (new cross-cutting
+> convention), and Part B (the Cart aggregate + `/v1/cart` routes) landed in
+> [[orders-service-design]] and [[nano-id]] (the `crt_`/`cti_` prefixes). See those notes'
+> `## Related` sections for the back-links. Propagated 2026-08-25.
 
 ## Part B — The Cart aggregate (new, in Orders)
 
@@ -123,7 +122,8 @@ branch.
 
 ### `PUT /v1/cart` → full replacement of the item set
 
-Body: `{ "items": [{ "product_id": "prd_...", "quantity": 2 }, ...] }`
+Body: `{ "items": [{ "productId": "prd_...", "quantity": 2 }, ...] }` (camelCase on the
+wire — see [[money-representation]])
 
 - No cart existed → create it. A cart existed → sync its lines against the received array
   (insert new ones, update quantities, soft-delete the ones no longer present).
@@ -134,7 +134,7 @@ Body: `{ "items": [{ "product_id": "prd_...", "quantity": 2 }, ...] }`
   user's "if all items are removed, delete the cart" rule, and replacement semantics
   produce it naturally — no special case needed.
 - `400` on an invalid body: `items` missing/null, a **negative** `quantity`, or a duplicated
-  `product_id` within the array. Duplicates are **rejected** rather than summed: under
+  `productId` within the array. Duplicates are **rejected** rather than summed: under
   full-replacement semantics, two entries for the same product is client ambiguity, not an
   intent.
 - `404 unknown_user` when the Cognito sub does not resolve in Users (same mapping
@@ -150,10 +150,10 @@ a failure of the operation. This was an explicit user requirement.
 |---|---|
 | `quantity` ≥ 1 | The line is created or updated to that quantity |
 | `quantity: 0` | The line is removed (soft-delete) |
-| `product_id` absent from the array | The line is removed — this is full replacement |
+| `productId` absent from the array | The line is removed — this is full replacement |
 | Every line `0` (or `items: []`) | The whole **cart** is deleted |
 | `quantity` negative | `400 invalid_request` |
-| Duplicated `product_id` | `400 invalid_request` |
+| Duplicated `productId` | `400 invalid_request` |
 | `items` missing or `null` | `400 invalid_request` |
 
 `quantity: 0` and omitting the product from the array are deliberately redundant — both
@@ -219,17 +219,17 @@ have no artwork yet (`Product.Image` is `ProductImage?`).
 
 Each line carries an explicit verdict:
 
-| Situation | `available` | `unavailable_reason` |
+| Situation | `available` | `unavailableReason` |
 |---|---|---|
 | Sufficient stock | `true` | *(omitted)* |
 | Product no longer exists / is deleted | `false` | `unknown_product` |
-| `units_in_stock == 0` | `false` | `out_of_stock` |
-| `0 < units_in_stock < quantity` | `false` | `insufficient_stock` |
+| `unitsInStock == 0` | `false` | `out_of_stock` |
+| `0 < unitsInStock < quantity` | `false` | `insufficient_stock` |
 
-Per the logging/DTO convention ([[logging-context]]), `unavailable_reason` is **omitted**
+Per the logging/DTO convention ([[logging-context]]), `unavailableReason` is **omitted**
 when the line is available, never null.
 
-Every line always carries `units_in_stock` so the frontend can say "only 3 left" without
+Every line always carries `unitsInStock` so the frontend can say "only 3 left" without
 another call. For `unknown_product`, price, name, and image come back null and the line
 contributes 0 to the totals — there is no catalogue row left to read any of that from.
 
@@ -241,24 +241,24 @@ Cart-level totals:
 - `total` = subtotal + tax + shipping
 
 Unavailable lines stay out of the totals: charging for what cannot be shipped is worse than
-showing a smaller total. A line always reports its own `unit_price` and `subtotal` (what it
+showing a smaller total. A line always reports its own `unitPrice` and `subtotal` (what it
 would cost), so the frontend can render the line normally with an unavailable badge — what
 changes is only that the line is excluded from the cart-level `subtotal`/`tax`/`total`. The
 example above demonstrates exactly this: the unavailable Mechanical Keyboard line shows its
 own `subtotal` of $89.99, yet the cart `subtotal` is $39.98. The one exception is
-`unknown_product`: there `unit_price`, `subtotal`, and `image` are all null/absent, because
+`unknown_product`: there `unitPrice`, `subtotal`, and `image` are all null/absent, because
 there is no catalogue row left to read any of that from; every other unavailable line
 reports its money and artwork normally.
 
 Reuses `OrderPricing.PriceLine` as-is. Shipping is applied **once** at cart level, never per
 line — the same rule `Order.ShippingCents` already documents (a line whose total exceeded
-unit_price × quantity could not be explained from its own fields).
+unitPrice × quantity could not be explained from its own fields).
 
-`can_checkout` (cart level): `true` only when there is at least one line **and** every line
+`canCheckout` (cart level): `true` only when there is at least one line **and** every line
 is available. It is the signal that tells the frontend whether to enable the button, instead
 of the frontend walking the lines.
 
-**Honest limitation**: `can_checkout: true` does **not** guarantee
+**Honest limitation**: `canCheckout: true` does **not** guarantee
 that `POST /v1/orders` will not return `409 insufficient_stock`. Between reading the cart
 and checking out, another buyer can take the last unit. The cart informs; the only truth
 about stock remains the `SELECT ... FOR UPDATE` inside the order transaction. This window
@@ -266,17 +266,25 @@ cannot be closed without reserving stock, which was explicitly rejected.
 
 ### Example `CartDto` response
 
+> [!note] Wire casing is camelCase
+> As shipped, the HTTP DTO fields below are **camelCase** (`productId`, `unitsInStock`,
+> `unitPrice`, `unavailableReason`, `canCheckout`), matching every other Orders HTTP response —
+> see [[money-representation]] and [[orders-service-design#Wire casing]]. This example
+> originally used snake_case as a drafting artifact; corrected 2026-08-25 to match
+> `services/orders/openapi.yaml`, the generated source of truth. Fields and semantics are
+> otherwise unchanged.
+
 ```json
 {
   "id": "crt_7gK3mP1vXz9wLq2bN8rRt4Yc",
   "items": [
     {
-      "product_id": "prd_9fA2cD4eXy7zLm1qP0sTu3Rb",
+      "productId": "prd_9fA2cD4eXy7zLm1qP0sTu3Rb",
       "name": "Wireless Mouse",
       "quantity": 2,
-      "units_in_stock": 14,
+      "unitsInStock": 14,
       "available": true,
-      "unit_price": { "cents": 1999, "amount": "19.99", "formatted": "$19.99", "currency": "USD" },
+      "unitPrice": { "cents": 1999, "amount": "19.99", "formatted": "$19.99", "currency": "USD" },
       "subtotal": { "cents": 3998, "amount": "39.98", "formatted": "$39.98", "currency": "USD" },
       "image": {
         "uri": "https://assets.example.com/products/wireless-mouse.jpg",
@@ -286,13 +294,13 @@ cannot be closed without reserving stock, which was explicitly rejected.
       }
     },
     {
-      "product_id": "prd_1kL5nB8gWq3xVc6mZ2yHj9Ta",
+      "productId": "prd_1kL5nB8gWq3xVc6mZ2yHj9Ta",
       "name": "Mechanical Keyboard",
       "quantity": 1,
-      "units_in_stock": 0,
+      "unitsInStock": 0,
       "available": false,
-      "unavailable_reason": "out_of_stock",
-      "unit_price": { "cents": 8999, "amount": "89.99", "formatted": "$89.99", "currency": "USD" },
+      "unavailableReason": "out_of_stock",
+      "unitPrice": { "cents": 8999, "amount": "89.99", "formatted": "$89.99", "currency": "USD" },
       "subtotal": { "cents": 8999, "amount": "89.99", "formatted": "$89.99", "currency": "USD" },
       "image": {
         "uri": "https://assets.example.com/products/mechanical-keyboard.jpg",
@@ -306,7 +314,7 @@ cannot be closed without reserving stock, which was explicitly rejected.
   "tax": { "cents": 320, "amount": "3.20", "formatted": "$3.20", "currency": "USD" },
   "shipping": { "cents": 599, "amount": "5.99", "formatted": "$5.99", "currency": "USD" },
   "total": { "cents": 4917, "amount": "49.17", "formatted": "$49.17", "currency": "USD" },
-  "can_checkout": false
+  "canCheckout": false
 }
 ```
 
@@ -348,7 +356,7 @@ Per `services/orders/CLAUDE.md` §2b and [[testing]]:
    `quantity: 0` on one line removing just that line while the rest of the cart survives; a
    `PUT` where every line is `quantity: 0` deleting the whole cart, same as the empty-array
    case; a negative `quantity` returning `400`; all four availability verdicts; totals
-   excluding unavailable lines; `can_checkout`; and that `POST /v1/orders` leaves the cart
+   excluding unavailable lines; `canCheckout`; and that `POST /v1/orders` leaves the cart
    deleted.
 2. **Internal E2E** against the service URL with a faked `x-user-id`.
 3. **Gateway E2E** with a real Cognito JWT in `e2e/tests/gateway/` — without this the change
@@ -375,3 +383,9 @@ checkout route. No multi-currency. No changes to Users or Tracking.
 - [[db-naming]]
 - [[testing]]
 - [[logging-context]]
+- [[money-representation]] — the cross-cutting convention this spec's `Money` contract
+  propagated into.
+- [[2026-08-25-cart-innodb-generated-column-fk-restriction]] — the InnoDB errno 1215 lesson
+  from implementing the `active_cart_id` generated column.
+- [[2026-08-25-route-works-in-process-but-404s-at-gateway]] — the missing-gateway-route lesson
+  from verifying the three `/v1/cart` routes.

@@ -4,7 +4,7 @@ type: spec
 area: orders
 status: accepted
 created: 2026-06-26
-updated: 2026-08-21
+updated: 2026-08-25
 tags: [type/spec, area/orders, status/accepted]
 related:
   - "[[2026-08-15-request-id-correlation-design]]"
@@ -33,6 +33,9 @@ related:
   - "[[2026-08-12-custom-business-metrics-cloudwatch-design]]"
   - "[[2026-08-18-distributed-tracing-spans-design]]"
   - "[[2026-08-18-distributed-tracing-spans]]"
+  - "[[money-representation]]"
+  - "[[nano-id]]"
+  - "[[2026-08-25-cart-endpoints-design]]"
 ---
 
 # Orders Service Design
@@ -51,6 +54,10 @@ related:
 > later commit (`528153c`) — see [Events](#events) below. The product catalogue's display image
 > and category facets shipped later (PR #65) — see the note under [Product](#product) below;
 > category **filtering** on `GET /v1/products` remains out of scope.
+>
+> **Cart shipped 2026-08-25** — three `/v1/cart` routes plus a repo-wide `Money` wire type. See
+> [Cart](#cart) below and [[money-representation]]. Full design:
+> [[2026-08-25-cart-endpoints-design]].
 
 ## Summary
 
@@ -81,6 +88,9 @@ All routes are versioned under the `/v1` prefix. See [[versioning]] for the vers
 | `GET` | `/v1/orders/my-orders` | List all orders belonging to the authenticated user. |
 | `GET` | `/v1/orders/{order_id}` | Fetch a single order. Returns `404` if the order does not belong to the requesting user — see the ownership note below. |
 | `GET` | `/v1/products` | List the active product catalog. Private (requires `x-user-id`), no ownership filtering — products have no owner. See [[2026-07-16-orders-list-products-endpoint-design]]. |
+| `GET` | `/v1/cart` | The caller's active cart, fully priced and calculated. Always `200` — an empty cart (`id: null`, `items: []`) rather than `404`. See [Cart](#cart) below. |
+| `PUT` | `/v1/cart` | Full replacement of the cart's line set. `quantity: 0` removes a line; an empty resulting cart is deleted. `400` on a negative quantity, a duplicated `productId`, or missing/null `items`; `404 unknown_user` on the same Cognito-sub-not-found mapping `POST /v1/orders` uses. See [Cart](#cart) below. |
+| `DELETE` | `/v1/cart` | Deletes the caller's active cart and its lines. `204`, idempotent (also `204` when there was no cart). |
 | `GET` | `/v1/orders/health` (gateway) | Liveness/readiness probe. **Gateway-published path is prefixed**, not the bare `/v1/health` the service serves internally — nginx rewrites the prefixed gateway path down to the service's unprefixed `/v1/health` (health-only rewrite; see [[tracking-service-design#Gateway-prefixed health path, not bare `/v1/health`]] for the full rationale, which applies identically here: an unprefixed gateway route would fall through nginx's default proxy and silently resolve to Users). Returns `200 { "status": "ok" }` when healthy. No auth required. Used by ALB/Fargate as health check target. |
 
 > [!note] Authorization check — filter in the query, not fetch-then-compare
@@ -138,9 +148,102 @@ Orders.CreateOrder
 > up" into a single shared reference; that would silently rewrite delivery history whenever a user
 > edits their address.
 
+## Cart
+
+A user's in-progress selection of products, persisted server-side so the frontend does every
+calculation-free render and computes nothing itself. At most **one active cart per user**. Full
+design: [[2026-08-25-cart-endpoints-design]].
+
+### Cart aggregate
+
+- **`Cart`** — `id` (`crt_`), `user_id` (internal `usr_`), `cognito_sub`, standard audit fields,
+  soft-delete.
+- **`CartItem`** — `id` (`cti_`), `cart_id` (FK), `product_id`, `quantity`, standard audit
+  fields, soft-delete. Stores **no price**. Every read resolves price, name, image, and stock
+  live from the catalogue, in **one batched query** (`WHERE Id IN (...)`) for the whole cart —
+  never one query per line. This is the deliberate opposite of `Order`/`OrderDetails`, which
+  freeze prices on creation: a cart must always show the real current price so it never
+  disagrees with what checkout actually charges, while a past order must keep reporting what it
+  really cost regardless of later price changes.
+
+### The one-active-cart invariant — enforced by the database, not C#
+
+A user having at most one live cart is enforced by a **unique index over a stored generated
+column**, not by an application-level "does one already exist?" check — that check would race
+under two concurrent requests, both reading "no cart" and both inserting. The generated column
+`active_user_id` equals `user_id` while the row is live (`deleted_at IS NULL`) and is `NULL`
+once soft-deleted; MySQL ignores `NULL`s in a unique index, so a user may accumulate any number
+of deleted carts and at most one active one. `cart_item` carries the identical trick one level
+down: a generated `active_cart_id` backs a unique index over (`active_cart_id`, `product_id`),
+so a cart cannot hold two live lines for the same product while its deleted history stays intact.
+
+> [!warning] InnoDB gotcha this invariant ran into
+> A `CASCADE`/default foreign key on the column a stored generated column depends on
+> (`cart_item.cart_id` → `active_cart_id`) fails at migration time with errno 1215. See
+> [[2026-08-25-cart-innodb-generated-column-fk-restriction]].
+
+### One invariant, three triggers — "a cart with no live lines does not exist"
+
+There is exactly one deletion rule, evaluated once as a post-condition, not three special cases
+implemented separately. Three routes converge on it, through one code path
+(`CartWriteService.DeleteForUserAsync` — static and non-saving, so `POST /v1/orders` composes it
+into its own order-creation transaction rather than calling out to a separate save):
+
+1. `PUT /v1/cart` where the resulting line count is zero — whether the client sent `items: []`
+   or sent every line at `quantity: 0`. Both forms hit the same post-condition check.
+2. `DELETE /v1/cart`.
+3. `POST /v1/orders`, on successful order creation, soft-deletes the caller's active cart
+   **inside the same transaction** — a created order that left the cart alive would make the
+   user re-purchase on reload. There is no separate `/v1/cart/checkout` route; the user chose to
+   keep the cart at three verbs and let order creation consume it.
+
+### Availability verdicts
+
+Each line carries an explicit verdict, checked in this order — **`out_of_stock` before
+`insufficient_stock`**, deliberately: reversed, every empty product would report
+`insufficient_stock` and the client could not distinguish "gone" from "you asked for too many."
+
+| Situation | `available` | `unavailableReason` |
+|---|---|---|
+| Sufficient stock | `true` | *(omitted)* |
+| Product no longer exists / is deleted | `false` | `unknown_product` |
+| `unitsInStock == 0` | `false` | `out_of_stock` |
+| `0 < unitsInStock < quantity` | `false` | `insufficient_stock` |
+
+Unavailable lines are excluded from cart-level totals (`subtotal`/`tax`/`total`) — charging for
+what cannot ship is worse than showing a smaller total — but each line still reports its own
+`unitPrice` and `subtotal` (what it would cost) so the frontend renders it normally with a
+badge. The one exception is `unknown_product`: there is no catalogue row left, so `unitPrice`,
+`subtotal`, and `image` are all null.
+
+**Shipping is reported unconditionally**, so `total = subtotal + tax + shipping` holds with no
+exceptions — a deliberate choice over zeroing it, meaning an empty cart reports a non-zero
+total. The frontend must not paint `total` as "amount due" beside an empty basket.
+
+`canCheckout` is `true` only when the cart has at least one line and every line is available.
+It is a **hint**, not a guarantee — another buyer can take the last unit between reading the
+cart and checking out. The only source of truth for stock remains the `SELECT ... FOR UPDATE`
+inside the `POST /v1/orders` transaction (see [[for-update-pessimistic-locking]]); this window
+was explicitly not closed by reserving stock.
+
+### `Money` — every amount, in cents and dollars
+
+`PUT`/`GET /v1/cart` responses (and every other Orders HTTP DTO — `OrderDto`, `OrderLineDto`,
+`ProductDto`) report money as a `Money` object rather than a bare `*_cents` integer:
+`{ cents, amount, formatted, currency }`. Cross-cutting convention, not an Orders-only shape:
+see [[money-representation]]. Storage is unaffected — [[money-as-integer-cents]] still holds.
+
+### Wire casing
+
+Cart JSON is **camelCase** (`productId`, `unitsInStock`, `canCheckout`, `unavailableReason`),
+matching every other Orders HTTP response. The design spec's example body originally showed
+snake_case field names; that was a drafting artifact, corrected once the implementation shipped
+— the real names are whatever `services/orders/openapi.yaml`'s generated `CartDto`/`CartLineDto`
+schemas declare.
+
 ## Data Model
 
-All fields follow snake_case naming in the database and are mapped to PascalCase aliases in the ORM layer. See [[db-naming]]. All IDs use the prefixed nano-id format (`ord_`, `prd_`, `odd_`). See [[nano-id]]. All entities carry the standard audit fields and support soft delete only. See [[audit-fields]] and [[soft-delete]].
+All fields follow snake_case naming in the database and are mapped to PascalCase aliases in the ORM layer. See [[db-naming]]. All IDs use the prefixed nano-id format (`ord_`, `prd_`, `odd_`, `crt_`, `cti_`). See [[nano-id]]. All entities carry the standard audit fields and support soft delete only. See [[audit-fields]] and [[soft-delete]].
 
 > [!note] Money is integer cents, not decimal
 > The tables below still show the original `decimal(10,2)` columns as first designed. As shipped,
@@ -148,7 +251,10 @@ All fields follow snake_case naming in the database and are mapped to PascalCase
 > `tax_cents`, `total_cents`) with a non-persisted computed dollar property — see
 > [[money-as-integer-cents]] for the full decision and rationale. `Order` and `OrderDetails` also
 > carry both `user_id` (internal) and `cognito_sub` (gateway-supplied) — the "double identity"
-> decision recorded in [[2026-07-14-orders-service-milestone-design]].
+> decision recorded in [[2026-07-14-orders-service-milestone-design]]. **HTTP responses**
+> (`OrderDto`, `OrderLineDto`, `ProductDto`, `CartDto`, `CartLineDto`) report every amount as a
+> `Money` object (`cents`/`amount`/`formatted`/`currency`), not a bare cents integer — see
+> [[money-representation]]. This is a DTO-layer change only; storage is unaffected.
 
 > [!note] Every id-bearing column is `varchar(28)`, not `varchar(26)`
 > The width is `PREFIX_LENGTH + LENGTH` = 4 + 24 = **28**, per [[nano-id]]. A column sized for the
@@ -248,6 +354,41 @@ Line items for each order. One row per product per order.
 | `deleted_by` | `varchar(28)` | audit |
 | `deleted_at` | `datetime` | audit — null means active |
 
+### Cart
+
+At most one live row per user, enforced by the unique index described under [Cart](#cart) above.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `varchar(28)` | `crt_` prefix, nano-id |
+| `user_id` | `varchar(28)` | internal id |
+| `cognito_sub` | `varchar(255)` | gateway-supplied |
+| `active_user_id` | `varchar(28)`, nullable | **Generated, stored.** `user_id` while `deleted_at IS NULL`, else `NULL`. Backs `uq_cart_active_user_id`. |
+| `created_by` | `varchar(28)` | audit |
+| `created_at` | `datetime` | audit |
+| `updated_by` | `varchar(28)` | audit |
+| `updated_at` | `datetime` | audit |
+| `deleted_by` | `varchar(28)` | audit |
+| `deleted_at` | `datetime` | audit — null means active |
+
+### CartItem (table: `cart_item`)
+
+No price column, deliberately — see [Cart](#cart) above.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `varchar(28)` | `cti_` prefix, nano-id |
+| `cart_id` | `varchar(28)` | FK → `cart.id`, `ON DELETE RESTRICT` (not the EF default `Cascade` — see the InnoDB gotcha callout under [Cart](#cart)) |
+| `product_id` | `varchar(28)` | FK → `product.id` |
+| `quantity` | `int unsigned` | |
+| `active_cart_id` | `varchar(28)`, nullable | **Generated, stored.** `cart_id` while `deleted_at IS NULL`, else `NULL`. Backs `uq_cart_item_active_cart_product` with `product_id`. |
+| `created_by` | `varchar(28)` | audit |
+| `created_at` | `datetime` | audit |
+| `updated_by` | `varchar(28)` | audit |
+| `updated_at` | `datetime` | audit |
+| `deleted_by` | `varchar(28)` | audit |
+| `deleted_at` | `datetime` | audit — null means active |
+
 ## Events
 
 `SqsEventPublisher` publishes `ORDER_CREATED` to the shared SQS queue on every successful
@@ -300,7 +441,8 @@ and alarmable, rather than only discoverable by reading logs after the fact.
 This service follows all shared conventions defined once in the vault:
 
 - [[soft-delete]] — no physical deletes; `deleted_at`/`deleted_by` only. DB user forbidden from running `DELETE`.
-- [[nano-id]] — prefixed nano-ids for all entity IDs (`ord_`, `prd_`, `odd_`).
+- [[nano-id]] — prefixed nano-ids for all entity IDs (`ord_`, `prd_`, `odd_`, `crt_`, `cti_`).
+- [[money-representation]] — every HTTP amount is a `Money` object (`cents`/`amount`/`formatted`/`currency`), camelCase on the wire; storage stays `bigint` cents per [[money-as-integer-cents]], and the `ORDER_CREATED` SQS envelope is unaffected.
 - [[audit-fields]] — `created_by`, `created_at`, `updated_by`, `updated_at`, `deleted_by`, `deleted_at` on every entity.
 - [[db-naming]] — snake_case in DB, PascalCase aliases in EF Core models.
 - [[cqrs]] — read queries routed to the read replica; write commands routed to the write replica.
@@ -391,3 +533,10 @@ Full milestone design: [[2026-07-14-orders-service-milestone-design]].
   documented under [Product](#product) above.
 - [[2026-08-12-custom-business-metrics-cloudwatch-design]] — the design for `orders_total` and
   the `orders_total`-minus-Tracking health indicator for the Orders→Tracking integration.
+- [[2026-08-25-cart-endpoints-design]] — full design for the `Cart`/`CartItem` aggregate, the
+  three `/v1/cart` routes, and the `Money` wire type.
+- [[money-representation]] — the cross-cutting `Money` wire contract every Orders HTTP DTO uses.
+- [[2026-08-25-cart-innodb-generated-column-fk-restriction]] — the InnoDB errno 1215 gotcha the
+  `cart_item.cart_id` foreign key ran into.
+- [[2026-08-25-route-works-in-process-but-404s-at-gateway]] — the missing-gateway-route lesson
+  the cart routes surfaced.
