@@ -94,7 +94,18 @@ export default simulation((setUp) => {
     // (409) never set one. Guarding here keeps ONE contention event from
     // cascading into five derived failures that would misreport the run —
     // the 409 itself is already visible in the report and in http_errors_total.
-    .doIf((session) => session.get("orderId") !== undefined)
+    // `!= null`, NOT `!== undefined`. Gatling's Session.get returns **null** for an
+    // unset attribute (its own typing says so: "the value if it exists, null
+    // otherwise"), and `null !== undefined` is true — so the strict check never
+    // blocked and this guard was inert from the day it was written.
+    //
+    // The cost was invisible because the derived steps tolerate 404: every 409'd
+    // create still ran readOrder against the literal string "null", giving
+    // `GET /v1/orders/null` → a correct 404 that read as a service failure and broke
+    // the run's success gate. It also sent ~595 requests to `/v1/trackings/null`,
+    // which never failed anything (those steps accept 404) but inflated the tracking
+    // panels with meaningless traffic. Loose `!=` catches null and undefined both.
+    .doIf((session) => session.get("orderId") != null)
     .then(
       exec(readOrder)
         .pause(1)
