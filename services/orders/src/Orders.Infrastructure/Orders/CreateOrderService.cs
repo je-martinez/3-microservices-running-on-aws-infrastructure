@@ -7,6 +7,7 @@ using Orders.Application.Tracking;
 using Orders.Domain;
 using Orders.Domain.Entities;
 using Orders.Domain.Pricing;
+using Orders.Infrastructure.Carts;
 using Orders.Infrastructure.Id;
 using Orders.Infrastructure.Observability;
 using Orders.Infrastructure.Persistence;
@@ -242,6 +243,17 @@ public class CreateOrderService
             order.TotalCents = total;
 
             _db.Orders.Add(order);
+
+            // The cart the buyer just converted has served its purpose. Inside THIS
+            // transaction on purpose: if the order rolls back (insufficient stock, a
+            // failed write), the cart must survive — losing the selection AND the
+            // order is the worst outcome for the user.
+            //
+            // Routed through CartWriteService's shared deletion path rather than
+            // reimplemented here, so the three ways a cart dies cannot drift apart.
+            // No-ops when the caller had no cart, which is the common API-only case.
+            await CartWriteService.DeleteForUserAsync(_db, cognitoSub, ct);
+
             await _db.SaveChangesAsync(ct);
             // caller.Email and caller.FullName both come from the GetUserById round
             // trip this method already makes: the pipeline's ORDER_CREATED handler
