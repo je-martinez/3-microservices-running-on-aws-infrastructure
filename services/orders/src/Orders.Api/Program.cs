@@ -10,6 +10,7 @@ using Orders.Api.Middleware;
 using Orders.Application.Abstractions;
 using Orders.Application.Identity;
 using Orders.Application.Tracking;
+using Orders.Infrastructure.Carts;
 using Orders.Infrastructure.Config;
 using Orders.Infrastructure.Grpc;
 using Orders.Infrastructure.Id;
@@ -182,6 +183,10 @@ builder.Services.AddScoped(sp => new ProductReadService(
     assetsBaseUrl,
     sp.GetRequiredService<IWorkflowTracer>(),
     sp.GetRequiredService<ILogger<ProductReadService>>()));
+builder.Services.AddScoped(sp => new CartReadService(
+    sp.GetRequiredService<OrdersReadDbContext>(),
+    sp.GetRequiredService<IConfigurationReader>(),
+    assetsBaseUrl));
 
 // Write side (write replica in prod; same MySQL locally).
 var writerCs = builder.Configuration["DATABASE_WRITER_URL"]!;
