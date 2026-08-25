@@ -107,6 +107,16 @@ locals {
       # Products catalog (read-only, authenticated). nginx prefix-matches
       # /v1/products and forwards to orders:8080 (see nginx.conf).
       list_products = { key = "GET /v1/products", path = "/v1/products", auth = true }
+
+      # Cart (per-user, single resource — no path param, so none of the
+      # camelCase/{orderId} caveats above apply). All three are auth = true:
+      # the cart is keyed off the caller's identity (x-user-id), so there is
+      # no anonymous cart to expose, unlike login/register which must stay
+      # reachable without a token. Deliberately absent from Orders'
+      # PublicRoutes.cs for the same reason.
+      get_cart    = { key = "GET /v1/cart", path = "/v1/cart", auth = true }
+      put_cart    = { key = "PUT /v1/cart", path = "/v1/cart", auth = true }
+      delete_cart = { key = "DELETE /v1/cart", path = "/v1/cart", auth = true }
     },
     var.enable_e2e_cleanup_route ? {
       e2e_cleanup = { key = "DELETE /v1/users/e2e-cleanup", path = "/v1/users/e2e-cleanup", auth = false }
