@@ -15,6 +15,18 @@ public class CartConfiguration : IEntityTypeConfiguration<Cart>
     /// </summary>
     public const string ActiveUserIdColumn = "active_user_id";
 
+    /// <summary>
+    /// Name of the unique index enforcing one active cart per user.
+    /// </summary>
+    /// <remarks>
+    /// A constant rather than a literal at each site because the write path matches on it
+    /// to recognise the concurrent-creation race (see
+    /// <c>CartWriteService.IsActiveCartUniqueViolation</c>). If the two spellings drifted,
+    /// the retry would stop firing and the loser of the race would surface a raw 500 —
+    /// silently, since nothing else depends on the name.
+    /// </remarks>
+    public const string ActiveUserIdIndexName = "uq_cart_active_user_id";
+
     public void Configure(EntityTypeBuilder<Cart> b)
     {
         b.ToTable("cart");
@@ -46,7 +58,7 @@ public class CartConfiguration : IEntityTypeConfiguration<Cart>
 
         b.HasIndex(ActiveUserIdColumn)
             .IsUnique()
-            .HasDatabaseName("uq_cart_active_user_id");
+            .HasDatabaseName(ActiveUserIdIndexName);
 
         b.HasIndex(c => c.CognitoSub).HasDatabaseName("idx_cart_cognito_sub");
         b.HasIndex(c => c.DeletedAt).HasDatabaseName("idx_cart_deleted_at");

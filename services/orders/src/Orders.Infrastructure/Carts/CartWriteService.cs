@@ -7,6 +7,7 @@ using Orders.Domain.Entities;
 using Orders.Infrastructure.Id;
 using Orders.Infrastructure.Observability;
 using Orders.Infrastructure.Persistence;
+using Orders.Infrastructure.Persistence.Configurations;
 
 namespace Orders.Infrastructure.Carts;
 
@@ -64,22 +65,35 @@ public class CartWriteService
             "Starting cart update {app_event} {line_count}",
             "update_cart_started", command.Items.Count);
 
-        // Id-only resolution: this path never needs the caller's PII (email, name,
-        // address) — only the internal usr_ id gets stamped onto the cart. See
-        // IUserDirectory's doc comment for why the two resolution methods exist.
-        var userId = await _users.ResolveInternalUserIdAsync(cognitoSub, ct);
-        if (userId is null)
-        {
-            _logger.LogError(
-                "Cart update failed: the caller is not a known user {app_event} {reason}",
-                "update_cart_failed", "unknown_user");
-            _tracer.SetReason("unknown_user");
-            throw new UnknownUserException(cognitoSub);
-        }
-
         // Zero means "remove", so it is dropped here, once, before any persistence
         // logic runs. Everything downstream then deals only in live lines.
         var wanted = command.Items.Where(i => i.Quantity > 0).ToList();
+
+        // Identity is resolved ONLY when there are lines to persist, because the usr_ id
+        // is needed for exactly one thing: stamping it onto a cart being CREATED.
+        //
+        // Ordering this after the filter is what makes an emptying PUT agree with
+        // DELETE /v1/cart. Both are specified to reach the same state — no cart — and
+        // DELETE has never needed identity, so resolving first made `PUT {"items": []}`
+        // answer 404 unknown_user where DELETE answers 204 for the very same caller. It
+        // also made emptying a cart depend on Users being reachable to do something that
+        // never touches Users.
+        //
+        // Id-only resolution: this path never needs the caller's PII (email, name,
+        // address). See IUserDirectory's doc comment for why the two methods exist.
+        string? userId = null;
+        if (wanted.Count > 0)
+        {
+            userId = await _users.ResolveInternalUserIdAsync(cognitoSub, ct);
+            if (userId is null)
+            {
+                _logger.LogError(
+                    "Cart update failed: the caller is not a known user {app_event} {reason}",
+                    "update_cart_failed", "unknown_user");
+                _tracer.SetReason("unknown_user");
+                throw new UnknownUserException(cognitoSub);
+            }
+        }
 
         return await AmbientActor.RunAsync(AuditActor.UpdateCart, async () =>
         {
@@ -111,7 +125,9 @@ public class CartWriteService
                 cart = new Cart
                 {
                     Id = NanoId.NewId(NanoId.CartPrefix),
-                    UserId = userId,
+                    // Non-null here: userId is resolved above whenever wanted.Count > 0,
+                    // and this branch only runs in that case.
+                    UserId = userId!,
                     CognitoSub = cognitoSub,
                 };
                 _db.Carts.Add(cart);
@@ -119,7 +135,49 @@ public class CartWriteService
 
             SyncLines(cart, wanted);
 
-            await _db.SaveChangesAsync(ct);
+            try
+            {
+                await _db.SaveChangesAsync(ct);
+            }
+            catch (DbUpdateException ex) when (IsActiveCartUniqueViolation(ex))
+            {
+                // Two concurrent PUTs from a user with no cart: both read null above and
+                // both insert, and uq_cart_active_user_id stops the loser. That index is
+                // the whole reason the invariant holds (a C# "does one exist?" check
+                // would race), so hitting it is expected under concurrency rather than
+                // exceptional — and the caller should not see a 500 for something the
+                // system handled correctly.
+                //
+                // Retry ONCE by adopting the cart that won: this request wanted a cart
+                // for this user, and now there is one. Retrying more than once would be
+                // wrong — a second failure means something other than this race.
+                _logger.LogInformation(
+                    "Concurrent cart creation lost the race; retrying against the winner {app_event} {reason}",
+                    "update_cart_retried", "active_cart_exists");
+
+                await tx.RollbackAsync(ct);
+
+                await using var retryTx = await _db.Database.BeginTransactionAsync(ct);
+
+                var winner = await _db.Carts
+                    .Include(c => c.Items)
+                    .FirstOrDefaultAsync(c => c.CognitoSub == cognitoSub, ct)
+                    // If it is gone, the winner was deleted between the violation and
+                    // this read. Nothing sensible left to adopt, so let the original
+                    // exception surface rather than inventing a state.
+                    ?? throw ex;
+
+                SyncLines(winner, wanted);
+
+                await _db.SaveChangesAsync(ct);
+                await retryTx.CommitAsync(ct);
+
+                _logger.LogInformation(
+                    "Cart updated {app_event} {line_count}", "update_cart_succeeded", wanted.Count);
+
+                return await _reads.BuildAsync(winner, ct);
+            }
+
             await tx.CommitAsync(ct);
 
             _logger.LogInformation(
@@ -128,6 +186,19 @@ public class CartWriteService
             return await _reads.BuildAsync(cart, ct);
         });
     }
+
+    /// <summary>
+    /// True when this failure is the one-active-cart index rejecting a concurrent insert.
+    /// </summary>
+    /// <remarks>
+    /// Matched on the index NAME, not on the error number alone: `cart_item` carries its
+    /// own unique index, and a violation there means something quite different (the same
+    /// product twice in one cart) that a retry would not fix. Treating every duplicate-key
+    /// failure as this race would silently paper over that.
+    /// </remarks>
+    private static bool IsActiveCartUniqueViolation(DbUpdateException ex) =>
+        ex.InnerException?.Message.Contains(
+            CartConfiguration.ActiveUserIdIndexName, StringComparison.OrdinalIgnoreCase) == true;
 
     /// <summary>Deletes the caller's active cart. Idempotent.</summary>
     public async Task DeleteAsync(string cognitoSub, CancellationToken ct = default)
@@ -221,7 +292,18 @@ public class CartWriteService
 
         foreach (var (productId, quantity) in wantedById)
         {
-            var existing = cart.Items.FirstOrDefault(i => i.ProductId == productId);
+            // `&& !i.IsDeleted` is load-bearing, not defensive. The loop above may have
+            // just set DeletedAt on a line in this same collection; without the filter
+            // this would find that row and set its Quantity, leaving DeletedAt in place —
+            // a line that is updated and invisible at the same time, since BuildAsync
+            // filters deleted lines out. The result would be a product silently missing
+            // from the cart the caller just asked for.
+            //
+            // No input reaches that state today: the endpoint rejects duplicate
+            // productIds, so a product cannot be both absent from and present in one
+            // command. But ReplaceAsync is public and that validation lives one layer
+            // up, so the guard belongs here, where the invariant actually is.
+            var existing = cart.Items.FirstOrDefault(i => i.ProductId == productId && !i.IsDeleted);
             if (existing is null)
             {
                 cart.Items.Add(new CartItem
