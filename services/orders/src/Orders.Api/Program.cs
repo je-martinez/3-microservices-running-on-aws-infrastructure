@@ -186,6 +186,8 @@ builder.Services.AddScoped(sp => new ProductReadService(
 builder.Services.AddScoped(sp => new CartReadService(
     sp.GetRequiredService<OrdersReadDbContext>(),
     sp.GetRequiredService<IConfigurationReader>(),
+    sp.GetRequiredService<IWorkflowTracer>(),
+    sp.GetRequiredService<ILogger<CartReadService>>(),
     assetsBaseUrl));
 builder.Services.AddScoped<CartWriteService>();
 

@@ -132,12 +132,39 @@ public class CartWriteService
     /// <summary>Deletes the caller's active cart. Idempotent.</summary>
     public async Task DeleteAsync(string cognitoSub, CancellationToken ct = default)
     {
-        await AmbientActor.RunAsync(AuditActor.DeleteCart, async () =>
-        {
-            await DeleteForUserAsync(_db, cognitoSub, ct);
-            await _db.SaveChangesAsync(ct);
-            return true;
-        });
+        // Traced and logged unlike a plain read: this DESTROYS the user's selection.
+        // When someone asks "where did my cart go?", these are the only lines that can
+        // answer it — the deletion is a soft-delete, so the row survives, but nothing
+        // else records that the user asked for it rather than an order consuming it.
+        //
+        // A _started/_succeeded pair here, not the single line a read gets: the write
+        // has an intermediate step (the soft-delete before SaveChanges) at which
+        // _started could genuinely be the last line seen if the save faults.
+        await _tracer.TraceWorkflowAsync(
+            "delete_cart",
+            new Dictionary<string, object?> { ["app_event"] = "delete_cart_started" },
+            async () =>
+            {
+                _logger.LogInformation("Starting cart deletion {app_event}", "delete_cart_started");
+
+                await AmbientActor.RunAsync(AuditActor.DeleteCart, async () =>
+                {
+                    await DeleteForUserAsync(_db, cognitoSub, ct);
+                    await _db.SaveChangesAsync(ct);
+                    return true;
+                });
+
+                // No _failed branch, for the same reason the read has none: this method
+                // names no failure of its own. A DB fault throws out of TraceWorkflowAsync,
+                // which records it on the span and sets ERROR status.
+                //
+                // Deliberately says nothing about whether a cart existed. DELETE is
+                // idempotent by contract, so "deleted nothing" is a success, not a
+                // distinct outcome worth a second app_event value.
+                _logger.LogInformation("Cart deleted {app_event}", "delete_cart_succeeded");
+
+                return true;
+            });
     }
 
     /// <summary>
