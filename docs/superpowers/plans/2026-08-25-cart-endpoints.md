@@ -987,7 +987,30 @@ public static class CartPricing
         // drift by a cent. Same rounding mode as OrderPricing so a cart and the order it
         // becomes agree to the cent.
         var taxCents = (long)Math.Round(subtotalCents * taxRate, MidpointRounding.AwayFromZero);
+```
 
+> [!warning] Correction (final review, before merge) — this comment's claim is backwards
+> The code above is what this task originally executed and is left as the historical record
+> of what ran. It shipped with a real defect: rounding tax **once over the cart subtotal**
+> is exactly what caused the drift this comment claims it prevents. `CreateOrderService`
+> rounds tax **per line** (`OrderPricing.PriceLine`, accumulated as `tax += lineTax`), so a
+> cart computed the "once over the subtotal" way could disagree with the order it becomes by
+> a cent — worked example at this repo's 0.08 rate: three lines of 333 cents. Per-line:
+> `round(333 × 0.08) = 27` each → **81**. Whole-subtotal: `round(999 × 0.08) = round(79.92)`
+> → **80**. The user saw $10.79 and was charged $10.80.
+>
+> **Fixed in `CartPricing.Totalize`** (`services/orders/src/Orders.Infrastructure/Carts/CartPricing.cs`)
+> before merge, user-approved: the cart now sums **per-line** rounded tax, mirroring
+> `OrderPricing.PriceLine` exactly. `CreateOrderService`/the order itself was deliberately
+> **left unchanged** — it is the incumbent and it is what actually bills, so changing it
+> would rewrite the pricing of every future order and disagree with historical ones. Two
+> tests now pin the equivalence by computing the expected figure from
+> `OrderPricing.PriceLine` itself rather than a hardcoded number, so the two cannot drift
+> apart again. Full rule, generalized beyond this one cart: [[money-representation#Rounding point, not just rounding mode]].
+> Propagated to [[orders-service-design]] and a new lesson,
+> [[2026-08-25-preview-must-mirror-charging-roundings-application-point]].
+
+```csharp
         var canCheckout = lines.Count > 0 && lines.All(l => l.Available);
 
         return (
@@ -2330,3 +2353,6 @@ git commit -m "docs(vault): propagate cart endpoints and Money representation"
   into.
 - [[2026-08-25-cart-innodb-generated-column-fk-restriction]]
 - [[2026-08-25-route-works-in-process-but-404s-at-gateway]]
+- [[2026-08-25-preview-must-mirror-charging-roundings-application-point]] — the tax-rounding
+  drift found and fixed in final review, corrected in Task 4's code block above via an inline
+  amendment callout.

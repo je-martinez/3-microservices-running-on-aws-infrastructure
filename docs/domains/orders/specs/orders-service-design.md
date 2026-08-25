@@ -216,6 +216,19 @@ what cannot ship is worse than showing a smaller total — but each line still r
 badge. The one exception is `unknown_product`: there is no catalogue row left, so `unitPrice`,
 `subtotal`, and `image` are all null.
 
+**Tax is rounded per line, then summed** — `CartPricing.Totalize` mirrors
+`OrderPricing.PriceLine` (called per line inside `CreateOrderService`, accumulated as
+`tax += lineTax`) exactly, rather than rounding once over the cart's whole subtotal. The cart
+exists to show what checkout will charge, so its tax must be computed the same way checkout
+computes it — not merely with the same rounding *mode*, but at the same rounding *application
+point*. Rounding once over the subtotal instead can disagree with the per-line total by a cent
+whenever the per-line remainders would each independently round up (worked example and the
+general rule: [[money-representation#Rounding point, not just rounding mode]]). This was a real
+defect found and fixed in final review before merge — see
+[[2026-08-25-preview-must-mirror-charging-roundings-application-point]]. The order's own pricing
+(`OrderPricing.PriceLine`) was deliberately left unchanged; it is the incumbent and it is what
+actually bills.
+
 **Shipping is reported unconditionally**, so `total = subtotal + tax + shipping` holds with no
 exceptions — a deliberate choice over zeroing it, meaning an empty cart reports a non-zero
 total. The frontend must not paint `total` as "amount due" beside an empty basket.
@@ -540,3 +553,6 @@ Full milestone design: [[2026-07-14-orders-service-milestone-design]].
   `cart_item.cart_id` foreign key ran into.
 - [[2026-08-25-route-works-in-process-but-404s-at-gateway]] — the missing-gateway-route lesson
   the cart routes surfaced.
+- [[2026-08-25-preview-must-mirror-charging-roundings-application-point]] — the tax-rounding
+  drift between the cart's preview total and the order's real charge, found and fixed in
+  final review before merge.

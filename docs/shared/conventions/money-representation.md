@@ -14,6 +14,7 @@ related:
   - "[[money-as-integer-cents]]"
   - "[[db-naming]]"
   - "[[2026-08-25-cart-endpoints-design]]"
+  - "[[2026-08-25-preview-must-mirror-charging-roundings-application-point]]"
 ---
 
 # Money Representation on the Wire
@@ -70,6 +71,43 @@ Every client parsing `amount` as a decimal then breaks — **silently**, and onl
 deployment, with no error raised anywhere in the pipeline. Pinning the culture at construction
 time removes the ambient culture as a variable entirely.
 
+## Rounding point, not just rounding mode
+
+When two surfaces report the same amount computed from the same inputs — a preview and the
+operation it previews, or any two independent computations of one figure — **matching the
+rounding mode is not enough; they must also match the rounding's application point.** Rounding
+per line and summing is a different number from rounding once over the sum of those same lines,
+even with the identical rounding mode (`MidpointRounding.AwayFromZero`, here) and the identical
+rate.
+
+**Worked example**, at this repo's cart tax rate (0.08), three lines of 333 cents each:
+
+| Application point | Computation | Result |
+|---|---|---|
+| Per line, then summed | `round(333 × 0.08) = 27`, three times | **81** |
+| Once, over the summed subtotal | `round(999 × 0.08) = round(79.92)` | **80** |
+
+Both are "correct" rounding in isolation — this is not a rounding-mode bug. The two figures
+disagree by a cent whenever the per-line remainders would each independently round up, which
+the whole-subtotal rounding smooths away. A caller shown one figure and charged the other
+experiences it as a silent, small, and hard-to-explain billing discrepancy — exactly the class
+of bug `Money`/`FromCents` exists to prevent at the *representation* level, but representation
+alone does not prevent it if the two sides compute the underlying cents differently.
+
+**Found in this repo**: the Cart's preview total (`CartPricing.Totalize`) originally rounded tax
+once over the cart subtotal, while `POST /v1/orders`'s real charge (`OrderPricing.PriceLine`,
+called per line and accumulated as `tax += lineTax`) rounds per line. A user could see one total
+in the cart and be charged a cent more at checkout. Fixed by making the cart sum per-line
+rounded tax, mirroring the order exactly — see [[orders-service-design#Cart]] and
+[[2026-08-25-preview-must-mirror-charging-roundings-application-point]] for the full incident.
+
+**The rule, stated generally: a surface that previews a charge must mirror how the charging
+code applies rounding, not merely how it rounds.** If the charging code's rounding application
+point ever changes, every preview of that charge must change with it — the two are coupled by
+definition, not by coincidence, and should ideally be pinned by a test that derives the expected
+figure from the charging code itself rather than hardcoding a number (as done here, in
+`CartPricingTests`).
+
 ## Example — .NET implementation (Orders)
 
 ```csharp
@@ -99,3 +137,5 @@ Full context: `docs/superpowers/specs/2026-08-25-cart-endpoints-design.md`, Part
   change: `bigint` cents columns stay as they are.
 - [[db-naming]] — snake_case applies to DB columns and the SQS envelope, not to this HTTP shape.
 - [[2026-08-25-cart-endpoints-design]] — the spec that introduced `Money`.
+- [[2026-08-25-preview-must-mirror-charging-roundings-application-point]] — the lesson this
+  note's "Rounding point, not just rounding mode" section generalizes from.
