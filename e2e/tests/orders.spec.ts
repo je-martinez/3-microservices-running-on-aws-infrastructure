@@ -106,7 +106,14 @@ test("POST /v1/orders with x-user-id creates the order and GET /v1/orders/{id} r
   // derived per line. The confirmation email prints all four figures, so a
   // total that excluded shipping would make the receipt fail its own
   // arithmetic in front of the buyer.
-  expect(order.totalCents).toBe(order.subtotalCents + order.taxCents + order.shippingCents);
+  expect(order.total.cents).toBe(order.subtotal.cents + order.tax.cents + order.shipping.cents);
+  // Same invariant on the dollar view: the whole point of the Money shape is
+  // that clients stop dividing cents by 100, so the `.amount` string needs its
+  // own coverage rather than merely existing alongside `.cents`.
+  expect(Number(order.total.amount)).toBeCloseTo(
+    Number(order.subtotal.amount) + Number(order.tax.amount) + Number(order.shipping.amount),
+    2,
+  );
 
   const fetched = await api.get(`/v1/orders/${order.id}`, { headers: { "x-user-id": userId } });
   expect(fetched.status()).toBe(200);

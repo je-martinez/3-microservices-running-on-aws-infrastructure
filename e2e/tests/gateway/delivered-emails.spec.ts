@@ -266,12 +266,18 @@ test("captures the delivered welcome and order-confirmation emails", async ({ pa
   // the assertion the task calls for — the order TOTAL, not merely the id — and
   // it is what would catch a receipt that rendered the sample's $47.39 while
   // naming the right order.
-  const totalCents = order.totalCents ?? order.total?.cents ?? order.total;
+  const totalCents = order.total?.cents;
   expect(
     typeof totalCents,
-    `the order response carries no numeric total to check against: ${JSON.stringify(order).slice(0, 300)}`,
+    `the order response carries no numeric total.cents to check against: ${JSON.stringify(order).slice(0, 300)}`,
   ).toBe("number");
   const formattedTotal = `$${(totalCents / 100).toFixed(2)}`;
+  // The Money shape also carries its own pre-formatted string — assert it
+  // agrees with the cents-derived figure, so the `.amount`/`.formatted` view
+  // is actually covered rather than merely present.
+  expect(order.total.formatted, `order.total.formatted disagrees with cents-derived ${formattedTotal}`).toBe(
+    formattedTotal,
+  );
   expect(
     confirmation.HTML,
     `the order email does not show this order's total (${formattedTotal})`,
