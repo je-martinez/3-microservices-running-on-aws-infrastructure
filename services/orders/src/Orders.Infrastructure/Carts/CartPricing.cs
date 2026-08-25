@@ -36,12 +36,25 @@ public static class CartPricing
         decimal taxRate,
         long shippingCents)
     {
-        var subtotalCents = lines.Where(l => l.Available).Sum(l => l.Subtotal?.Cents ?? 0L);
+        var shippable = lines.Where(l => l.Available).ToList();
 
-        // Tax on the CART subtotal, rounded once — not per line then summed, which can
-        // drift by a cent. Same rounding mode as OrderPricing so a cart and the order it
-        // becomes agree to the cent.
-        var taxCents = (long)Math.Round(subtotalCents * taxRate, MidpointRounding.AwayFromZero);
+        var subtotalCents = shippable.Sum(l => l.Subtotal?.Cents ?? 0L);
+
+        // Tax is rounded PER LINE and then summed — deliberately, and not the more
+        // obvious "round once over the cart subtotal".
+        //
+        // The cart exists to show what checkout will charge, and checkout charges what
+        // CreateOrderService computes: it calls OrderPricing.PriceLine per line and
+        // accumulates `tax += lineTax`, so each line's tax is rounded before it is added.
+        // Rounding once over the subtotal instead produces a DIFFERENT figure whenever the
+        // per-line remainders would each have rounded up: three lines of 333 cents at 0.08
+        // give round(333*0.08)*3 = 81, while round(999*0.08) = 80. The user would then be
+        // shown $10.79 and charged $10.80.
+        //
+        // So this must mirror OrderPricing's application point, not merely its rounding
+        // mode. If order pricing ever changes how it applies rounding, this changes with it.
+        var taxCents = shippable.Sum(l =>
+            (long)Math.Round((l.Subtotal?.Cents ?? 0L) * taxRate, MidpointRounding.AwayFromZero));
 
         var canCheckout = lines.Count > 0 && lines.All(l => l.Available);
 

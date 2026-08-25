@@ -1,5 +1,6 @@
 using Orders.Application.Carts;
 using Orders.Domain;
+using Orders.Domain.Pricing;
 using Orders.Infrastructure.Carts;
 using Xunit;
 
@@ -97,5 +98,45 @@ public class CartPricingTests
         Assert.Equal(599, totals.Shipping.Cents);
         Assert.Equal(599, totals.Total.Cents);
         Assert.False(totals.CanCheckout);
+    }
+
+    // The cart's whole purpose is to show what checkout will charge, so its tax must
+    // equal what CreateOrderService computes for the same lines — to the cent.
+    //
+    // This case is the one that catches the difference. Three lines of 333 cents at
+    // 0.08: rounding PER LINE gives round(26.64) = 27 each → 81, while rounding once
+    // over the 999-cent subtotal gives round(79.92) = 80. The cart showed 80 and the
+    // order charged 81 until this was fixed.
+    //
+    // Asserted against OrderPricing.PriceLine directly, not a hardcoded 81, so the two
+    // cannot drift apart later: if order pricing changes, this fails rather than
+    // silently going back to disagreeing.
+    [Fact]
+    public void Cart_tax_matches_what_the_order_will_charge_for_the_same_lines()
+    {
+        CartLineDto[] lines = [Available(333, 1), Available(333, 1), Available(333, 1)];
+
+        var cart = CartPricing.Totalize(lines, TaxRate, ShippingCents);
+
+        var orderTax = lines.Sum(l => OrderPricing.PriceLine(l.UnitPrice!.Cents, l.Quantity, TaxRate).TaxCents);
+
+        Assert.Equal(orderTax, cart.Tax.Cents);
+        Assert.Equal(81, cart.Tax.Cents);          // pinned: the value the order really charges
+        Assert.Equal(999, cart.Subtotal.Cents);
+        Assert.Equal(999 + 81 + 599, cart.Total.Cents);
+    }
+
+    // A second shape, to prove the agreement is not a coincidence of that one case:
+    // quantities greater than 1, where PriceLine multiplies before rounding.
+    [Fact]
+    public void Cart_tax_matches_the_order_for_multi_unit_lines_too()
+    {
+        CartLineDto[] lines = [Available(699, 3), Available(1299, 2)];
+
+        var cart = CartPricing.Totalize(lines, TaxRate, ShippingCents);
+
+        var orderTax = lines.Sum(l => OrderPricing.PriceLine(l.UnitPrice!.Cents, l.Quantity, TaxRate).TaxCents);
+
+        Assert.Equal(orderTax, cart.Tax.Cents);
     }
 }
