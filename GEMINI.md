@@ -317,6 +317,47 @@ Flow logs carry `app_event`, valued `<flow>_started`, `<flow>_succeeded`, or
 There is **no SUCCESS severity** — SUCCESS is not an OpenTelemetry level.
 Success is `INFO` plus `app_event=*_succeeded`.
 
+## Which endpoints owe a flow log — READS INCLUDED
+
+**Every endpoint gets a workflow span and at least one flow log. A read is not
+exempt.** This was got wrong once, on the strength of an unverified claim that
+reads carry no flow logs, so it is worth stating plainly. The *shape* differs
+between reads and writes, and that difference is the whole point:
+
+- **Reads** (e.g. `list_my_orders`, `read_cart`) get a span plus **one
+  `_succeeded` line carrying a count** — no `_started` twin, no `_failed`
+  branch. There is no intermediate step at which `_started` could be the last
+  line seen, and the method names no failure of its own: a DB fault throws out
+  of the workflow wrapper, which already records it on the span. Inventing a
+  `reason` for a branch the code does not have is exactly what this convention
+  forbids.
+- **Writes** (e.g. `create_order`, `update_cart`, `delete_cart`) get the full
+  `_started` / `_succeeded` / `_failed` triad plus `reason` on failures, because
+  they *do* have real intermediate steps at which `_started` can be the last
+  thing seen.
+
+### Emit the line inside the activity
+
+The `_succeeded` line must be written **inside** the workflow span so it carries
+that span's `span_id`. The outer per-request completion line is written under the
+framework's own HTTP span and cannot serve a span-scoped log lookup — a query
+joining logs to a workflow span will simply not find it.
+
+### Never re-pass identity at a call site
+
+Do not pass `cognito_sub` / `user_id` again where an enricher already attaches
+them to every line (in the Orders service, Serilog's `LogContextEnricher`).
+Duplicating them is how a PII-adjacent field ends up somewhere nobody audits.
+Pass only the count or the flow-specific field.
+
+### Instrument the entry point, not a shared helper
+
+Put the span on the **endpoint's entry point**, not on a helper it happens to
+call. A helper reused by the write path — in Orders, `CartReadService.BuildAsync`
+renders the response for the write path too — emits a spurious nested *read* span
+inside every write when instrumented. The span belongs on `GetMyCartAsync`, the
+entry point, not on the shared builder.
+
 ## OpenTelemetry configuration lives in environment variables, not code
 
 Endpoint, protocol, and the disabling of the metrics/logs exporters all go in
@@ -438,6 +479,56 @@ pending a nice-to-have.
 
 Per-service specifics live in each `services/<svc>/CLAUDE.md` (or the equivalent
 service instruction file), section 2b.
+
+## A NEW ROUTE IS NOT DONE WHEN THE SERVICE SERVES IT
+
+A plan that adds an endpoint must carry a task for **each** item below, or state
+why one does not apply. Every one of them was missed at least once (cart
+milestone, 2026-08-25) and each was caught late — or nearly not at all.
+
+### Gateway + nginx wiring
+
+Two separate places route a request before it reaches your handler, and neither
+fails loudly:
+
+- A route absent from the gateway's route map
+  (`infra/modules/api-gateway/main.tf`) **404s at the gateway** while working
+  perfectly on the service port.
+- Without a `location` block in `infra/modules/compute/nginx/nginx.conf`, a new
+  top-level path falls through to `location /` and silently reaches **Users** —
+  not the service that owns it. It answers; it is simply the wrong service.
+
+**Diagnostic:** a 404 carrying the gateway's own `{"message":"Not Found"}` body,
+rather than the service's `{error: …}` shape, means the request never reached the
+service at all. Read the body, not just the status.
+
+**After the fix, a 401 is the good answer.** It proves the route resolves and got
+as far as the authorizer. Do not read it as a regression.
+
+### All three test layers, not two
+
+**Internal E2E is the one quietly skipped**, because the gateway spec feels like
+it covers the same ground. It does not: the gateway spec is slower and should not
+carry the exhaustive cases, so dropping the internal layer silently drops the
+exhaustive coverage with it.
+
+### Load-test scenarios
+
+Required when the route changes how users reach an **existing** flow — a new
+entry point to a covered journey leaves the old simulation measuring a path real
+users no longer take.
+
+### Observability
+
+Every endpoint owes a workflow span and at least one flow log. **Reads are not
+exempt** — see `.ai/rules/logging-and-pii.md`, "Which endpoints owe a flow log".
+
+### Preview surfaces and rounding
+
+A preview surface must mirror **how the charging code applies rounding**, not
+merely how it rounds. Matching the rounding function while applying it at a
+different point (per line vs. per total) still quotes a price the charge will not
+match. See `docs/shared/conventions/money-representation.md`.
 
 ## Load testing is a fourth, different surface
 
