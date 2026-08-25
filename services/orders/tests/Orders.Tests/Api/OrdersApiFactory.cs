@@ -64,6 +64,16 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
         await base.DisposeAsync();
     }
 
+    // A fresh write context over the same container, for tests that need to exercise
+    // EF/MySQL behaviour directly (e.g. the generated-column unique indexes) rather than
+    // through the HTTP surface. Mirrors the construction InitializeAsync already does.
+    public OrdersWriteDbContext NewWriteContext()
+    {
+        var cs = _mysql.GetConnectionString();
+        return new OrdersWriteDbContext(new DbContextOptionsBuilder<OrdersWriteDbContext>()
+            .UseMySql(cs, ServerVersion.AutoDetect(cs)).Options);
+    }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         var cs = _mysql.GetConnectionString();

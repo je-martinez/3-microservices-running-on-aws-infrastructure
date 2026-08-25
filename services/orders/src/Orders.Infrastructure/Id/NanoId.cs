@@ -50,6 +50,12 @@ public static class NanoIdConfig
     /// <inheritdoc cref="ProductPrefix"/>
     public const string OrderDetailPrefix = "odd_";
 
+    /// <inheritdoc cref="ProductPrefix"/>
+    public const string CartPrefix = "crt_";
+
+    /// <inheritdoc cref="ProductPrefix"/>
+    public const string CartItemPrefix = "cti_";
+
     /// <summary>The correlation id carried on every request — see <see cref="RequestId"/>.</summary>
     public const string RequestPrefix = "req_";
 
@@ -65,6 +71,8 @@ public static class NanoIdConfig
         ProductPrefix,
         OrderPrefix,
         OrderDetailPrefix,
+        CartPrefix,
+        CartItemPrefix,
         RequestPrefix,
         EventPrefix,
     ];
@@ -95,6 +103,12 @@ public static class NanoId
 
     /// <inheritdoc cref="NanoIdConfig.OrderDetailPrefix"/>
     public const string OrderDetailPrefix = NanoIdConfig.OrderDetailPrefix;
+
+    /// <inheritdoc cref="NanoIdConfig.CartPrefix"/>
+    public const string CartPrefix = NanoIdConfig.CartPrefix;
+
+    /// <inheritdoc cref="NanoIdConfig.CartItemPrefix"/>
+    public const string CartItemPrefix = NanoIdConfig.CartItemPrefix;
 
     /// <summary>A fresh <c>prefix_nanoid</c>, e.g. <c>ord_7gK3mP1vXz9wLq2bN8rRt4Yc</c>.</summary>
     /// <remarks>
