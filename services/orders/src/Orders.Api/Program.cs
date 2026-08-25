@@ -469,6 +469,7 @@ if (app.Environment.IsDevelopment())
 
 app.MapOrderEndpoints();
 app.MapProductEndpoints();
+app.MapCartEndpoints();
 
 // E2E cleanup surface — only when explicitly enabled (local/CI), never in prod.
 // Also mapped during build-time OpenAPI generation (entry assembly

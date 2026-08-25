@@ -124,8 +124,135 @@ paths:
                   $ref: '#/components/schemas/ProductDto'
         '401':
           description: Unauthorized
+  /v1/cart:
+    get:
+      tags:
+        - Cart
+      summary: 'Read the caller''s active cart, fully priced and calculated.'
+      operationId: GetMyCart
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartDto'
+        '401':
+          description: Unauthorized
+    put:
+      tags:
+        - Cart
+      summary: Replace the caller's cart lines; an empty set deletes the cart.
+      operationId: UpdateCart
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCartRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartDto'
+        '400':
+          description: Bad Request
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not Found
+    delete:
+      tags:
+        - Cart
+      summary: Delete the caller's active cart and all its lines.
+      operationId: DeleteCart
+      responses:
+        '204':
+          description: No Content
+        '401':
+          description: Unauthorized
 components:
   schemas:
+    CartDto:
+      required:
+        - id
+        - items
+        - subtotal
+        - tax
+        - shipping
+        - total
+        - canCheckout
+      type: object
+      properties:
+        id:
+          type:
+            - 'null'
+            - string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartLineDto'
+        subtotal:
+          $ref: '#/components/schemas/Money'
+        tax:
+          $ref: '#/components/schemas/Money'
+        shipping:
+          $ref: '#/components/schemas/Money'
+        total:
+          $ref: '#/components/schemas/Money'
+        canCheckout:
+          type: boolean
+    CartLineDto:
+      required:
+        - productId
+        - name
+        - quantity
+        - unitsInStock
+        - available
+        - unitPrice
+        - subtotal
+        - image
+        - unavailableReason
+      type: object
+      properties:
+        productId:
+          type: string
+        name:
+          type:
+            - 'null'
+            - string
+        quantity:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: uint32
+        unitsInStock:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: uint32
+        available:
+          type: boolean
+        unitPrice:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/Money'
+        subtotal:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/Money'
+        image:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/ProductImageDto'
+        unavailableReason:
+          type:
+            - 'null'
+            - string
     CreateOrderLine:
       required:
         - productId
@@ -363,8 +490,36 @@ components:
           type: string
         datetime:
           type: string
+    UpdateCartItemRequest:
+      required:
+        - productId
+        - quantity
+      type: object
+      properties:
+        productId:
+          type:
+            - 'null'
+            - string
+        quantity:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: int32
+    UpdateCartRequest:
+      required:
+        - items
+      type: object
+      properties:
+        items:
+          type:
+            - 'null'
+            - array
+          items:
+            $ref: '#/components/schemas/UpdateCartItemRequest'
 tags:
   - name: Orders
   - name: health
   - name: e2e
   - name: Products
+  - name: Cart
