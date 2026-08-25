@@ -202,6 +202,41 @@ services/orders/
     decrement stock permanently and a soft-delete does not give it back, so
     without this the catalogue drained ~17 units per run and the suite failed
     around the sixth. Mapped only when `E2E_TESTING_ENABLED`.
+  - `[GET] /v1/cart` → **always 200**. A user with no active cart gets an EMPTY
+    cart (`id: null`, `items: []`), never a 404 — the frontend then has one shape
+    to render and never branches. Prices, names, images and stock are resolved
+    LIVE from the catalogue on every read, in ONE batched query for all the
+    cart's product ids; `cart_item` deliberately stores no price, so the user can
+    never see a frozen figure that disagrees with what checkout charges (an Order
+    is the opposite, and freezes its prices on purpose).
+  - `[PUT] /v1/cart` → 200 · 400 `invalid_request` · 401 · 404 `unknown_user`.
+    FULL REPLACEMENT of the line set: a product absent from the array is removed,
+    and `quantity: 0` removes a line too (deliberately redundant, so the frontend
+    may send its list pre-filtered or not). 400 on a NEGATIVE quantity, a
+    duplicated `productId`, or a missing/null `items` — zero is a valid
+    instruction, not an error, and an empty array is the documented way to empty
+    the cart. A non-existent product is **not** a 404: the line comes back
+    flagged `available: false` with an `unavailableReason`, because that is a
+    fact about one line, not a failure of the operation.
+  - `[DELETE] /v1/cart` → 204, idempotent (204 whether or not a cart existed — a
+    404 for "already gone" would make a retry after a dropped response look like
+    a failure).
+  - **One invariant behind all three: a cart with no live lines does not exist.**
+    An emptying PUT, `DELETE /v1/cart`, and a completed order all route through
+    `CartWriteService.DeleteForUserAsync`, which is static and does NOT save, so
+    order creation composes it into its own transaction. Do not re-implement it
+    per call site.
+  - **One active cart per user is enforced by a DB unique index**, not a C#
+    check: a stored generated column (`active_user_id` = `user_id` while live,
+    NULL once soft-deleted) plus a unique index — MySQL ignores NULLs there. A
+    "does one already exist?" read would race under two concurrent requests. Note
+    the FK to `cart` is `Restrict`, not `Cascade`: InnoDB rejects a CASCADE FK on
+    a column a STORED generated column depends on (errno 1215) — see
+    [[2026-08-25-cart-innodb-generated-column-fk-restriction]].
+  - Cart routes are **absent from `PublicRoutes.cs`** — all three require
+    identity — and are wired at the gateway plus an nginx `location /v1/cart`
+    block. Without that block `/v1/cart` falls through to `location /` and
+    silently reaches **Users**, not Orders.
   - The `"E2E Source"` tag is applied at creation only when the request sent
     `x-e2e-source: true` **and** `E2E_TESTING_ENABLED` is on. Both halves are
     required: the conjunction is what stops an untrusted client tagging its own
