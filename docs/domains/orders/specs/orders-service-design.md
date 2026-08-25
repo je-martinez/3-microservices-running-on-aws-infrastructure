@@ -257,8 +257,16 @@ schemas declare.
 ### Observability — six flow events, read/write shaped differently
 
 Per [[logging-context]]'s flow-log pattern, the cart emits six `app_event` values across its
-three routes, following the read/write distinction (a read gets a span plus one `_succeeded`
-line carrying a count; a write gets the full `_started`/`_succeeded`/`_failed` triad):
+three routes, following the read/write distinction: a read gets a span plus one `_succeeded`
+line carrying a count, while a write gets `_started`/`_succeeded` and a `_failed` **only where
+the flow actually has a failure of its own to name**.
+
+`update_cart` has one — `unknown_user`, when the caller does not resolve — so it carries the
+full triad. **`delete_cart` deliberately has no `_failed`**: `DELETE` is idempotent by
+contract, so "deleted nothing" is a success rather than a distinct outcome, and a DB fault
+throws out of `TraceWorkflowAsync`, which already records it on the span and sets ERROR
+status. Inventing a `reason` for a branch the code does not have is what the convention
+forbids. **Do not query for `delete_cart_failed` — it does not exist.**
 
 | Route | `app_event` | Shape |
 |---|---|---|
