@@ -364,7 +364,7 @@ prices or the cart body, per [[logging-context]].
 > lives in `services/orders/CLAUDE.md` §4. Lesson:
 > [[2026-08-25-reads-are-not-exempt-from-observability]].
 
-## Testing — all three layers for all three routes
+## Testing — all three layers for all three routes, plus a fourth surface added after design
 
 Per `services/orders/CLAUDE.md` §2b and [[testing]]:
 
@@ -385,6 +385,18 @@ green, since the SQS event does **not** change.
 
 `openapi.yaml` must be regenerated via `dotnet build` and committed with the code (Orders
 CLAUDE.md §2a) — three new routes plus the reshaped Money DTOs.
+
+> [!info] Gap closed after design — a fourth surface, load testing, was undocumented until an audit
+> This design section, as originally written, covered only the three correctness layers above
+> — the load-test surface (`e2e/load-tests/`, a different question: "what shape under sustained
+> traffic?", not correctness) was never mentioned here despite shipping (`e2e/load-tests/src/scenarios/cart.ts`
+> — `putCart`/`getCart`/`updateCartQuantity`/`deleteCart` — plus a "Cart buyer journey" scenario
+> in `fullJourney.gatling.ts`, injected alongside the pre-existing cart-less "Buyer journey").
+> Found by a documentation audit, not a test — nothing fails when a load scenario is simply
+> undocumented. Full detail, including why `GET /v1/cart` (not `PUT`) is the load-shape change
+> this milestone introduces: [[domains/orders/testing/index#Layer 4 — load testing (a different
+> question: shape, not correctness)]]. This gap, and the observability gap in the section above,
+> both fed the root `CLAUDE.md`'s "a new route is not done when the service serves it" checklist.
 
 ## Out of scope (YAGNI)
 
@@ -411,3 +423,6 @@ checkout route. No multi-currency. No changes to Users or Tracking.
   review before merge.
 - [[2026-08-25-reads-are-not-exempt-from-observability]] — `GET`/`DELETE /v1/cart` shipped
   with no observability at all; the amendment above documents the fix.
+- [[domains/orders/testing/index]] — Layer 4 (load testing): the fourth test surface this
+  section's amendment points to, including the cart-specific scenario detail and the
+  `GET`-is-the-hot-path finding.
