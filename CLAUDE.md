@@ -70,6 +70,24 @@ dropped path param, method mismatch). An endpoint without gateway E2E is an inco
 change. Full convention: `docs/shared/conventions/testing.md` → [[testing]]; per-service
 specifics in each `services/<svc>/CLAUDE.md` §2b.
 
+**A NEW ROUTE IS NOT DONE WHEN THE SERVICE SERVES IT.** A plan that adds an endpoint must
+carry a task for each of these, or say why one does not apply. Every item below was missed
+at least once (cart milestone, 2026-08-25) and each was caught late — or nearly not at all:
+- **Gateway + nginx wiring.** A route absent from `infra/modules/api-gateway/main.tf`'s
+  route map 404s at the gateway while working perfectly on the service port. And without a
+  `location` block in `infra/modules/compute/nginx/nginx.conf`, a new top-level path falls
+  through to `location /` and silently reaches **Users**, not the service that owns it.
+  Diagnostic: a 404 carrying the gateway's own `{"message":"Not Found"}` rather than the
+  service's `{error: …}` shape means the request never reached the service. After the fix,
+  a **401 is the good answer** — it proves the route resolves and reached the authorizer.
+- **All three test layers**, not two. Internal E2E is the one quietly skipped, because the
+  gateway spec feels like it covers the same ground. It does not: it is slower and should
+  not carry the exhaustive cases.
+- **Load-test scenarios**, when the route changes how users reach an existing flow.
+- **Observability** — see the per-service logging rules; reads are not exempt.
+- **A preview surface must mirror how the charging code applies rounding**, not merely how
+  it rounds — see [[money-representation]].
+
 **Load testing lives beside E2E** in `e2e/load-tests/` (Gatling JS + Chance.js), and answers a
 different question: not "is it correct?" but "what shape does it have under sustained traffic?".
 It deliberately sends **neither** `x-e2e-source` nor `x-test-mode`, so its data persists like real

@@ -2356,3 +2356,6 @@ git commit -m "docs(vault): propagate cart endpoints and Money representation"
 - [[2026-08-25-preview-must-mirror-charging-roundings-application-point]] — the tax-rounding
   drift found and fixed in final review, corrected in Task 4's code block above via an inline
   amendment callout.
+- [[2026-08-25-reads-are-not-exempt-from-observability]] — `GET`/`DELETE /v1/cart` shipped
+  with no span or log line at all; the design spec's own "GET carries no flow logs" claim
+  carries the corresponding amendment.

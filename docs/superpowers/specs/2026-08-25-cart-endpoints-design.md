@@ -347,6 +347,23 @@ plus `reason` on failures, and the workflow span via `IWorkflowTracer`, followin
 `CreateOrderService`. `GET` carries no flow logs (it is a read, like `my-orders`). Never log
 prices or the cart body, per [[logging-context]].
 
+> [!warning] Correction (found by the user after the branch was pushed) — the claim above is false
+> This spec's own words are left as the historical record of what was planned and what shipped
+> from it, but the claim is wrong on its own terms: `OrderReadService.GetMyOrdersAsync` (the
+> `my-orders` endpoint cited as precedent) already wraps itself in a `list_my_orders` workflow
+> span and emits a `list_my_orders_succeeded` line carrying `order_count`. The precedent was
+> never opened before being cited, and its confident phrasing then went unchallenged through
+> implementation and every per-task review. `GET`/`DELETE /v1/cart` shipped with **no span and
+> no log line at all**.
+>
+> **Fixed before final merge**: `GET /v1/cart` gets a `read_cart` span plus one
+> `read_cart_succeeded` line carrying `item_count` (no `_started`/`_failed` — a read has no
+> intermediate step and no failure of its own to name); `DELETE /v1/cart` gets the full write
+> triad (`delete_cart_started`/`_succeeded`, span `delete_cart`), because deleting a user's cart
+> needs a trail even though the method is a few lines long. Full read/write log-shape rule now
+> lives in `services/orders/CLAUDE.md` §4. Lesson:
+> [[2026-08-25-reads-are-not-exempt-from-observability]].
+
 ## Testing — all three layers for all three routes
 
 Per `services/orders/CLAUDE.md` §2b and [[testing]]:
@@ -389,3 +406,8 @@ checkout route. No multi-currency. No changes to Users or Tracking.
   from implementing the `active_cart_id` generated column.
 - [[2026-08-25-route-works-in-process-but-404s-at-gateway]] — the missing-gateway-route lesson
   from verifying the three `/v1/cart` routes.
+- [[2026-08-25-preview-must-mirror-charging-roundings-application-point]] — the tax-rounding
+  drift between `CartPricing.Totalize` and `OrderPricing.PriceLine`, found and fixed in final
+  review before merge.
+- [[2026-08-25-reads-are-not-exempt-from-observability]] — `GET`/`DELETE /v1/cart` shipped
+  with no observability at all; the amendment above documents the fix.

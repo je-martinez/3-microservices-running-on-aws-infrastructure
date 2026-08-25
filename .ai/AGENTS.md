@@ -106,6 +106,14 @@ auth flows log a masked form (`jo*****e@gmail.com`), everything else uses
 There is **no SUCCESS severity**: success is `INFO` + `app_event=*_succeeded`.
 **OpenTelemetry config goes in environment variables, not code.**
 
+**Every endpoint owes a workflow span and at least one flow log — reads
+included.** The shape differs: a **read** gets one `_succeeded` line carrying a
+count (no `_started`, no `_failed` — it has no intermediate step and names no
+failure of its own), while a **write** gets the full
+`_started`/`_succeeded`/`_failed` triad plus `reason`. Emit the line **inside**
+the workflow span so it carries that span's `span_id`, and instrument the
+endpoint's **entry point**, never a helper shared with the write path.
+
 Full rule: `.ai/rules/logging-and-pii.md`.
 
 ### Testing — three layers per endpoint
@@ -115,6 +123,24 @@ Every new or changed HTTP endpoint requires **all three**: (1) unit/integration,
 Cognito JWT**. Internal tests fake the authorizer and never touch the gateway, so
 they miss gateway-only bugs. An endpoint without gateway E2E is an **incomplete
 change**.
+
+**A NEW ROUTE IS NOT DONE WHEN THE SERVICE SERVES IT.** A plan that adds an
+endpoint must carry a task for each of the following, or say why one does not
+apply — every item was missed at least once during the cart milestone:
+
+- **Gateway + nginx wiring.** A route missing from the gateway route map
+  (`infra/modules/api-gateway/main.tf`) **404s at the gateway** while working
+  perfectly on the service port; a new top-level path with no `location` block in
+  `infra/modules/compute/nginx/nginx.conf` falls through to `location /` and
+  silently reaches **Users** instead of the owning service. A 404 carrying the
+  gateway's own `{"message":"Not Found"}` rather than the service's `{error: …}`
+  shape means the request never reached the service. **After the fix a 401 is the
+  good answer** — it proves the route resolves.
+- **All three test layers, not two.** Internal E2E is the one quietly skipped.
+- **Load-test scenarios**, when the route changes how users reach an existing flow.
+- **Observability** — a span and a flow log; **reads are not exempt**.
+- **A preview surface must mirror how the charging code applies rounding**, not
+  merely how it rounds (`docs/shared/conventions/money-representation.md`).
 
 **Load testing is a separate surface** in `e2e/load-tests/` (Gatling JS), beside
 the Playwright suite in `e2e/`. It answers a different question — not "is it

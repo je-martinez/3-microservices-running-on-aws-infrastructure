@@ -74,6 +74,42 @@ rules:
   claude-memory-location: claude-only  # "no ~/.claude/ memory file" is internal
   nested-claude-md-files: claude-only  # services/<svc>/CLAUDE.md loading model
 
+  # Added 2026-08-25, after the cart milestone.
+  #
+  # route-completeness-checklist: universal. "A new route is not done when the
+  # service serves it" — gateway + nginx wiring, all three test layers, load
+  # scenarios, observability, and the preview/charging rounding rule. Nothing in
+  # it names an agent tool: the failure it prevents (a route that 404s at the
+  # gateway while working perfectly on the service port) is a property of this
+  # repo's Terraform + nginx topology and reproduces identically whichever CLI
+  # edits the code. Extends the already-universal testing-three-layers topic, so
+  # it lands in .ai/rules/testing.md and is summarized in AGENTS.md. Only the
+  # [[money-representation]] wikilink is dropped, replaced by the vault path —
+  # Obsidian link syntax does not resolve outside Claude Code.
+  route-completeness-checklist: universal
+
+  # observability-reads-included: universal, with a seam worth naming.
+  #
+  # The POLICY — every endpoint gets a workflow span and at least one flow log,
+  # READS INCLUDED, with distinct shapes for reads (one `_succeeded` with a
+  # count, no `_started`, no `_failed`) and writes (the full triad plus
+  # `reason`) — is a repo-wide logging convention. It completes the flow-event
+  # section of logging-and-pii, which previously described the triad without
+  # ever saying which endpoints owe one.
+  #
+  # Its MECHANISM is .NET-specific (`TraceWorkflowAsync`, `LogContextEnricher`,
+  # `CartReadService.BuildAsync`) but NOT Claude-specific, so it travels as
+  # illustration rather than as the rule. That distinction matters: the source
+  # lives in services/orders/CLAUDE.md, a nested file no target provider
+  # auto-loads, so declining to project it would drop the rule entirely for
+  # every provider rather than merely relocating it.
+  #
+  # Two sub-rules generalize cleanly beyond Orders and are stated as such:
+  # never re-pass identity fields an enricher already attaches, and instrument
+  # the ENTRY POINT rather than a shared helper (a helper reused by the write
+  # path emits a spurious nested read span inside every write).
+  observability-reads-included: universal
+
 skills:
   # Portable knowledge worth having in any tool.
   #

@@ -556,3 +556,6 @@ Full milestone design: [[2026-07-14-orders-service-milestone-design]].
 - [[2026-08-25-preview-must-mirror-charging-roundings-application-point]] — the tax-rounding
   drift between the cart's preview total and the order's real charge, found and fixed in
   final review before merge.
+- [[2026-08-25-reads-are-not-exempt-from-observability]] — `GET`/`DELETE /v1/cart` shipped
+  with no span or log line at all, found by the user after the branch was pushed; the
+  read/write log-shape distinction now documented in `services/orders/CLAUDE.md` §4.
