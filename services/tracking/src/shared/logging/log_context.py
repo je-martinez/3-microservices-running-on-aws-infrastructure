@@ -55,6 +55,11 @@ _ALLOWED_KEYS = frozenset(
         # the identity fields above it is ALWAYS present inside a request:
         # `resolve_request_id` either honours the caller's or mints one.
         "request_id",
+        # `hit` | `miss` | `bypass` for a cached route. OMITTED, never null, on a
+        # route that is not cached and on every route when `CACHE_ENABLED=false`
+        # — `_clean` below drops a None, so a caller merging `cache_result=None`
+        # costs nothing and adds no field.
+        "cache_result",
     }
 )
 

@@ -43,6 +43,7 @@ MANAGED_KEYS = (
     "REDIS_HOST",
     "REDIS_PORT",
     "CACHE_ENABLED",
+    "CACHE_TIMEOUT_MS",
 )
 
 
@@ -284,3 +285,16 @@ class TestCacheSettings:
     def test_redis_port_rejects_an_out_of_range_value(self) -> None:
         with pytest.raises(ValidationError):
             build(REDIS_PORT="70000")
+
+    def test_timeout_defaults_to_fifty_milliseconds(self) -> None:
+        # The fail-open budget. A default rather than a required var for the same
+        # reason as the three above, and 50ms because a cache lookup slower than
+        # that has already lost the argument for having a cache.
+        assert build().cache_timeout_ms == 50
+
+    def test_timeout_reads_from_the_environment(self) -> None:
+        assert build(CACHE_TIMEOUT_MS="120").cache_timeout_ms == 120
+
+    def test_timeout_rejects_a_non_positive_value(self) -> None:
+        with pytest.raises(ValidationError):
+            build(CACHE_TIMEOUT_MS="0")

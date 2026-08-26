@@ -151,12 +151,51 @@ async def stamp_caller_user_id(
     block, degrading the same way.
     """
     caller = CurrentCaller(cognito_sub=cognito_sub, users=users)
-    user_id = await asyncio.to_thread(_resolve_quietly, caller)
+    user_id = await asyncio.to_thread(_resolve_cached, caller)
     # Merged HERE, after the await, on the request's own context. A merge inside
     # `_resolve_quietly` would land on the thread's COPY and be discarded — the
     # trap this repo has already been bitten by twice.
     merge_log_context(user_id=user_id)
     return caller
+
+
+def _resolve_cached(caller: CurrentCaller) -> str | None:
+    """`_resolve_quietly`, with the identity cache in front of it.
+
+    Runs on a worker thread, like the call it wraps: the Redis client is the
+    blocking sync API and so is the gRPC client, so neither may touch the event
+    loop.
+
+    The cache is built here rather than injected as a dependency for one reason:
+    this function already runs on the thread, and building a gateway is a
+    dictionary lookup into an `lru_cache`, not a connection. Injecting it would
+    mean a second `Depends` on a path whose whole point is to add as little as
+    possible.
+
+    Two things stay exactly as they were. `_resolve_quietly` is still what runs
+    on a miss, so every failure it swallows is still swallowed. And the result is
+    still MEMOIZED ON THE CALLER by `CurrentCaller`, so a handler that resolves
+    later in the same request pays nothing either way — the identity cache
+    removes the cost across REQUESTS, `CurrentCaller` removes it within one.
+
+    The import is INSIDE the function on purpose. `log_identity` is imported by
+    `trackings_router`, which is imported by `main.create_app`; a module-level
+    import of `redis_client` would pull `redis` and `get_settings` into that
+    chain, and `test_openapi_spec.py` builds the app with no environment at all.
+    """
+    from src.shared.cache.identity_cache import IdentityCache
+    from src.shared.cache.redis_client import shared_cache_gateway
+
+    try:
+        cache = IdentityCache(gateway=shared_cache_gateway())
+    except Exception:  # noqa: BLE001 - an unbuildable cache is not a failure
+        # `shared_cache_gateway` reads `get_settings()`, which raises
+        # `ValidationError` on an incomplete environment — the exact failure
+        # `get_optional_users_client` above exists to absorb, and for the exact
+        # same reason: 24 read tests build the app without those variables.
+        logger.debug("identity_cache_unavailable", exc_info=True)
+        return _resolve_quietly(caller)
+    return cache.resolve(caller.cognito_sub, lambda: _resolve_quietly(caller))
 
 
 def _resolve_quietly(caller: CurrentCaller) -> str | None:

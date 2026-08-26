@@ -171,6 +171,14 @@ class Settings(BaseSettings):
     # no Redis call, and no X-Cache header at all.
     cache_enabled: bool = True
 
+    # Per-operation budget, in milliseconds. The cache exists to make a read
+    # faster; an operation slower than this has already lost its own argument, so
+    # it is abandoned and the request falls through to MySQL with
+    # `X-Cache: BYPASS`. Both the connect and the socket timeout use it — a
+    # connect that takes longer than the operation is allowed to take has already
+    # blown the budget.
+    cache_timeout_ms: int = Field(default=50, gt=0)
+
     # --- misc ---------------------------------------------------------------
     deployment_environment: str = "local"
     environment: Literal["development", "test", "production"] = "development"

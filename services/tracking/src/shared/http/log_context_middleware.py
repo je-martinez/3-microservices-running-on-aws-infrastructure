@@ -50,7 +50,11 @@ import logging
 import time
 
 from src.shared.config.settings import metrics_enabled
-from src.shared.logging.log_context import reset_log_context, set_log_context
+from src.shared.logging.log_context import (
+    merge_log_context,
+    reset_log_context,
+    set_log_context,
+)
 from src.shared.logging.request_id import REQUEST_ID_HEADER, resolve_request_id
 from src.shared.metrics.cloudwatch_metrics import (
     SERVICE_DIMENSION,
@@ -63,6 +67,11 @@ logger = logging.getLogger(__name__)
 # The header the gateway injects, carrying the JWT's `sub` — never the usr_ id.
 USER_ID_HEADER = b"x-user-id"
 
+#: The response header the cached reads stamp (`HIT` | `MISS` | `BYPASS`). Read
+#: back off the wire here rather than merged into the context by the handler,
+#: for the reason spelled out in `_capture_cache_result`.
+CACHE_HEADER = b"x-cache"
+
 #: The counter published for every 4xx/5xx response.
 HTTP_ERRORS_METRIC = "http_errors_total"
 
@@ -70,6 +79,44 @@ HTTP_ERRORS_METRIC = "http_errors_total"
 #: /v1/tracking/health and nginx rewrites), so this is the path FastAPI matches.
 #: Only its 2xx responses are exempt from the request log — see _log_request.
 HEALTH_ROUTE = "/v1/health"
+
+
+def _capture_cache_result(message) -> None:
+    """Merge the response's `X-Cache` value into the log context, as `cache_result`.
+
+    ## Why this is read off the WIRE and not merged by the handler
+
+    The obvious design — the cached read calls `merge_log_context(cache_result=…)`
+    itself — does not work, and it fails SILENTLY, which is why it is worth a
+    paragraph rather than a line.
+
+    The two cached reads are plain `def` handlers (pymysql is a blocking driver,
+    so they must not run on the event loop). FastAPI runs a `def` handler in its
+    threadpool, and a threadpool worker gets a *copy* of the request's context.
+    `merge_log_context` REBINDS the ContextVar rather than mutating the dict in
+    place — deliberately, so a task that copied the context earlier cannot be
+    mutated from under it — so a rebind performed on the worker's copy is
+    discarded the moment the handler returns. The field is visible inside the
+    handler and gone by the time this middleware emits `request completed`.
+
+    That is the same trap `log_identity.py` documents twice and works around by
+    being `async def` and merging AFTER its `to_thread` returns. The handlers
+    here cannot take that route: they are `def` by necessity.
+
+    So the value travels on the response itself, which is the one artifact that
+    definitely crosses back out of the threadpool. `http.response.start` is
+    already intercepted here to capture the status; the header is right beside it.
+    A merge performed HERE runs in the request's own task — plain ASGI middleware,
+    not `BaseHTTPMiddleware` — so it reaches the access line and every later line.
+
+    Absent header means no field: a route that is not cached, and every route
+    when `CACHE_ENABLED=false`, simply omits `cache_result` rather than logging a
+    null ([[logging-context]]).
+    """
+    for name, value in message.get("headers", []):
+        if name.lower() == CACHE_HEADER:
+            merge_log_context(cache_result=value.decode("latin-1").lower())
+            return
 
 
 class LogContextMiddleware:
@@ -112,6 +159,7 @@ class LogContextMiddleware:
         async def send_wrapper(message) -> None:
             if message["type"] == "http.response.start":
                 status_holder["status"] = message["status"]
+                _capture_cache_result(message)
             await send(message)
 
         # Set even when the sub is absent (health checks, the carrier PUT):
