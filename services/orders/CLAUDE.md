@@ -231,15 +231,24 @@ services/orders/
     cart's product ids; `cart_item` deliberately stores no price, so the user can
     never see a frozen figure that disagrees with what checkout charges (an Order
     is the opposite, and freezes its prices on purpose).
-  - `[PUT] /v1/cart` → 200 · 400 `invalid_request` · 401 · 404 `unknown_user`.
-    FULL REPLACEMENT of the line set: a product absent from the array is removed,
-    and `quantity: 0` removes a line too (deliberately redundant, so the frontend
-    may send its list pre-filtered or not). 400 on a NEGATIVE quantity, a
-    duplicated `productId`, or a missing/null `items` — zero is a valid
-    instruction, not an error, and an empty array is the documented way to empty
-    the cart. A non-existent product is **not** a 404: the line comes back
-    flagged `available: false` with an `unavailableReason`, because that is a
-    fact about one line, not a failure of the operation.
+  - `[PUT] /v1/cart` → 200 · 400 `invalid_request` · 401 · 404 `unknown_user`
+    **(only on a request that carries lines)**. FULL REPLACEMENT of the line
+    set: a product absent from the array is removed, and `quantity: 0` removes a
+    line too (deliberately redundant, so the frontend may send its list
+    pre-filtered or not). 400 on a NEGATIVE quantity, a duplicated `productId`,
+    or a missing/null `items` — zero is a valid instruction, not an error, and an
+    empty array is the documented way to empty the cart. A non-existent product
+    is **not** a 404: the line comes back flagged `available: false` with an
+    `unavailableReason`, because that is a fact about one line, not a failure of
+    the operation.
+  - **Identity is resolved ONLY when there are lines left to persist**
+    (`wanted.Count > 0`, after dropping `quantity: 0` entries), because the
+    internal `usr_` id is needed for exactly one thing: stamping it onto a cart
+    being CREATED. An emptying `PUT` (`items: []`, or every line at
+    `quantity: 0`) never calls Users and never 404s for an unresolvable caller —
+    it reaches the same "no cart" state `DELETE /v1/cart` does, and both must
+    behave alike for the same caller. Resolving identity unconditionally was the
+    original shape and a post-merge review fix; do not reintroduce it.
   - `[DELETE] /v1/cart` → 204, idempotent (204 whether or not a cart existed — a
     404 for "already gone" would make a retry after a dropped response look like
     a failure).
@@ -255,6 +264,19 @@ services/orders/
     the FK to `cart` is `Restrict`, not `Cascade`: InnoDB rejects a CASCADE FK on
     a column a STORED generated column depends on (errno 1215) — see
     [[2026-08-25-cart-innodb-generated-column-fk-restriction]].
+  - **The loser of that race is retried, not surfaced as a 500.** Two concurrent
+    `PUT`s from a caller with no cart both read `null` and both insert; the
+    unique index rejects one as a `DbUpdateException`. `CartWriteService`
+    catches it, rolls back, re-reads the winning cart, and applies the caller's
+    lines to it instead — one retry, then a normal 200. A second failure means
+    something other than this race, so it is not retried again. Detection
+    matches on the **index name**
+    (`CartConfiguration.ActiveUserIdIndexName`, shared by the schema and
+    `IsActiveCartUniqueViolation`), never the bare MySQL error number: matching
+    on the number alone would also fire on `cart_item`'s own unique index (two
+    lines for one product), where a retry is the wrong response. If the two
+    spellings ever drift, the retry silently stops firing and the 500 returns —
+    that is why it is a shared constant, not a literal repeated in each place.
   - Cart routes are **absent from `PublicRoutes.cs`** — all three require
     identity — and are wired at the gateway plus an nginx `location /v1/cart`
     block. Without that block `/v1/cart` falls through to `location /` and

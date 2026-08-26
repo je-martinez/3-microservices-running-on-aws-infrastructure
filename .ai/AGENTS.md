@@ -148,8 +148,20 @@ correct?" but "what shape does it have under sustained traffic?" — and
 deliberately sends **neither** `x-e2e-source` nor `x-test-mode`, so its data
 persists like real data and deliveries advance only through the carrier webhook.
 
-Full rule, including the load-simulation traps that cost real debugging time:
-`.ai/rules/testing.md`.
+**Never run a load simulation and the E2E suite against the same stack.** A load
+run leaves several hundred events on the **shared** SQS queue, and the
+events-pipeline Lambda drains it at **~0.83 msg/s** (records processed
+sequentially, ~376 ms each on a 256 MB function). An OTP, password-reset, or
+DELIVERED event published behind ~800 messages waits **~13 minutes**, while every
+spec awaiting an email gives up after **45 s**. **The emails are not lost — they
+arrive far too late**, but the timeout reports *"NOTHING arrived"*, which reads
+as a broken pipeline and sends you hunting a defect in dispatch, SES, or Mailpit.
+All three are fine. `e2e/support/global-setup.ts` warns when the backlog exceeds
+the threshold; when it does, wait for the queue to drain or reset with
+`make clean && make bootstrap` **instead of debugging the pipeline**.
+
+Full rule, including the load-simulation traps that cost real debugging time and
+the derivation of the queue-depth threshold: `.ai/rules/testing.md`.
 
 ### Language
 

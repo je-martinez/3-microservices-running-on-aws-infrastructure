@@ -129,6 +129,57 @@ does.
 - **Assert only on our own endpoints** — holding a third party's latency to a
   budget fails the run for something the simulation does not measure.
 
+### Never run a load simulation and the E2E suite against the same stack
+
+Not a style preference — it makes **every email-asserting spec fail**, and the
+failure looks exactly like a broken pipeline. Diagnosed 2026-08-25, after five
+E2E failures (4× OTP/password-reset, 1× tracking DELIVERED) that were all this
+one environmental cause.
+
+The mechanism, because the rule alone is not enough to recognise it:
+
+- A load run publishes several hundred `loadtest-*` events onto the **shared**
+  SQS queue — the same one Users, Orders and Tracking use.
+- The events-pipeline Lambda drains it at **~0.83 msg/s** (~50 msg/min). Records
+  are processed **sequentially** (`for (const record of event.Records)` in
+  `functions/events-pipeline/src/handler.ts`), ~**376 ms** each (p50 347, p95
+  574, over 920 records), dominated by the react-email render on a **256 MB**
+  function — Lambda CPU scales with memory.
+- So an OTP, reset, or DELIVERED event published behind ~800 messages waits
+  **~13 minutes**, while every spec awaiting an email gives up after **45 s**.
+
+**The emails are not lost — they arrive far too late.** This is the part worth
+remembering, and the reason the rule is written out rather than stated: the
+timeout reports *"NOTHING arrived"*, which reads as a broken pipeline and sends
+you hunting a defect in dispatch, SES, or Mailpit. All three are fine. Verified
+by re-running the same specs with **no code change in between**:
+
+| Queue depth | Result |
+|---|---|
+| ~800 | 2 failed — "NOTHING arrived within 45s" |
+| 0 | **14/14 passed**, emails in **13 s** |
+
+Measured drain, sampled live: `827 → 727 → 567 → 417 → 237 → 0` over ~18 min.
+
+`e2e/support/global-setup.ts` **warns** when the backlog exceeds
+`EVENTS_QUEUE_WARN_DEPTH`; the arithmetic lives in
+`e2e/support/events-queue-depth.ts`. **If you see that warning, wait for the
+queue to drain or reset with `make clean && make bootstrap`** — do not start
+debugging the pipeline.
+
+Three properties of that check are deliberate, and worth preserving if you touch
+it:
+
+- **It warns, it never fails.** It cannot tell an email-asserting run from the
+  majority of specs that never touch the pipeline, and blocking those would turn
+  a narrow problem into a total one.
+- **It is silent when the depth cannot be read** (returns `null`, never `0`). A
+  diagnostic that can itself fail a run is worse than the problem it reports.
+- **The threshold is derived, not picked round** — 45 s budget − 13 s healthy
+  delivery = 32 s headroom, × 0.83 msg/s ≈ 26, rounded **down** to 25 so the
+  warning fires slightly early. If the Lambda's per-record cost or concurrency
+  changes, **redo the arithmetic; do not nudge the constant.**
+
 ## Mocks hide schema bugs
 
 Mocked unit tests pass happily while the real schema or driver rejects the

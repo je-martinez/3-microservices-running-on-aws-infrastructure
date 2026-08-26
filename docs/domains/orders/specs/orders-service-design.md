@@ -89,7 +89,7 @@ All routes are versioned under the `/v1` prefix. See [[versioning]] for the vers
 | `GET` | `/v1/orders/{order_id}` | Fetch a single order. Returns `404` if the order does not belong to the requesting user — see the ownership note below. |
 | `GET` | `/v1/products` | List the active product catalog. Private (requires `x-user-id`), no ownership filtering — products have no owner. See [[2026-07-16-orders-list-products-endpoint-design]]. |
 | `GET` | `/v1/cart` | The caller's active cart, fully priced and calculated. Always `200` — an empty cart (`id: null`, `items: []`) rather than `404`. See [Cart](#cart) below. |
-| `PUT` | `/v1/cart` | Full replacement of the cart's line set. `quantity: 0` removes a line; an empty resulting cart is deleted. `400` on a negative quantity, a duplicated `productId`, or missing/null `items`; `404 unknown_user` on the same Cognito-sub-not-found mapping `POST /v1/orders` uses. See [Cart](#cart) below. |
+| `PUT` | `/v1/cart` | Full replacement of the cart's line set. `quantity: 0` removes a line; an empty resulting cart is deleted. `400` on a negative quantity, a duplicated `productId`, or missing/null `items`; `404 unknown_user` **only on a request that carries lines** (same Cognito-sub-not-found mapping `POST /v1/orders` uses) — an emptying `PUT` (`items: []`, or every line at `quantity: 0`) never resolves identity and always succeeds regardless of whether the caller is a known user. See [Cart](#cart) below. |
 | `DELETE` | `/v1/cart` | Deletes the caller's active cart and its lines. `204`, idempotent (also `204` when there was no cart). |
 | `GET` | `/v1/orders/health` (gateway) | Liveness/readiness probe. **Gateway-published path is prefixed**, not the bare `/v1/health` the service serves internally — nginx rewrites the prefixed gateway path down to the service's unprefixed `/v1/health` (health-only rewrite; see [[tracking-service-design#Gateway-prefixed health path, not bare `/v1/health`]] for the full rationale, which applies identically here: an unprefixed gateway route would fall through nginx's default proxy and silently resolve to Users). Returns `200 { "status": "ok" }` when healthy. No auth required. Used by ALB/Fargate as health check target. |
 
@@ -182,6 +182,24 @@ so a cart cannot hold two live lines for the same product while its deleted hist
 > (`cart_item.cart_id` → `active_cart_id`) fails at migration time with errno 1215. See
 > [[2026-08-25-cart-innodb-generated-column-fk-restriction]].
 
+**The race the index detects is resolved with a retry, not a 500.** Two concurrent `PUT`s from
+a caller with no cart both read `null` and both attempt an insert; the unique index rejects the
+loser with a `DbUpdateException`. `CartWriteService` catches that specific violation, rolls
+back the losing transaction, re-reads the cart that won, and applies the caller's lines to it
+instead — a normal `200`, not an error, for a race the system is designed to handle. Retried
+**once**: a second failure means something other than this race, and retrying it again would
+mask that. (Before a post-merge review fix, this violation escaped unhandled as a bare `500`
+for a race the database was already resolving correctly.)
+
+Detection matches on the **index name** — `CartConfiguration.ActiveUserIdIndexName`
+(`"uq_cart_active_user_id"`), a single constant read by both the schema definition and
+`CartWriteService.IsActiveCartUniqueViolation` — never on the bare MySQL error number alone.
+`cart_item` carries its **own** unique index (two live lines for the same product), whose
+violation means something a retry would not fix; matching on the error number alone would
+catch that case too and retry it wrongly. If the index-name constant and the schema's actual
+index name ever drift apart, the retry silently stops firing and the `500` returns — which is
+why it is a shared constant rather than a string literal repeated at each call site.
+
 ### One invariant, three triggers — "a cart with no live lines does not exist"
 
 There is exactly one deletion rule, evaluated once as a post-condition, not three special cases
@@ -190,7 +208,10 @@ implemented separately. Three routes converge on it, through one code path
 into its own order-creation transaction rather than calling out to a separate save):
 
 1. `PUT /v1/cart` where the resulting line count is zero — whether the client sent `items: []`
-   or sent every line at `quantity: 0`. Both forms hit the same post-condition check.
+   or sent every line at `quantity: 0`. Both forms hit the same post-condition check. Neither
+   resolves the caller's identity (see the endpoint table above): identity is needed only to
+   stamp a `usr_` id onto a cart being **created**, so an emptying `PUT` never depends on Users
+   being reachable, and never 404s for an unresolvable caller.
 2. `DELETE /v1/cart`.
 3. `POST /v1/orders`, on successful order creation, soft-deletes the caller's active cart
    **inside the same transaction** — a created order that left the cart alive would make the

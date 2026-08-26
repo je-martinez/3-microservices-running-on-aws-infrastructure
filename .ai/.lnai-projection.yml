@@ -110,6 +110,30 @@ rules:
   # path emits a spurious nested read span inside every write).
   observability-reads-included: universal
 
+  # shared-queue-backlog: universal. Added 2026-08-25, same day as the source
+  # section (e2e/CLAUDE.md, commit a4b9b3d).
+  #
+  # Universal on the strongest available test: the failure is a property of the
+  # LOCAL STACK's topology — one SQS queue shared by Users, Orders and Tracking,
+  # drained by a single sequential Lambda — and it reproduces identically no
+  # matter which CLI started the run. Nothing in it names an agent tool.
+  #
+  # It is narrower than most projected rules (one repo's test environment rather
+  # than a coding convention), and that argued for rule-file-only placement. It
+  # gets a short AGENTS.md paragraph anyway, for a specific reason: the rule's
+  # value is in RECOGNITION, and .ai/rules/testing.md only activates on a test
+  # file path. An agent debugging this reads Lambda handlers, dispatch code, or
+  # Mailpit — not a *.spec.ts — so the rule file would stay silent exactly when
+  # it is needed. The ambient line is what makes the misdiagnosis avoidable.
+  #
+  # Lands in .ai/rules/testing.md, which already owns load-testing-surface, so
+  # the "two suites, two jobs" material stays in one place rather than being
+  # split across a new file.
+  #
+  # Nothing is dropped: the source section names no Claude-specific mechanism.
+  # The `e2e-impl` agent that owns this surface already travels as a role.
+  shared-queue-backlog: universal
+
 skills:
   # Portable knowledge worth having in any tool.
   #

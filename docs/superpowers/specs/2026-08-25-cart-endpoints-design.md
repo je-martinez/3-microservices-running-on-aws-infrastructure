@@ -140,6 +140,19 @@ wire — see [[money-representation]])
 - `404 unknown_user` when the Cognito sub does not resolve in Users (same mapping
   `POST /v1/orders` already uses).
 
+> [!warning] Correction (post-merge code review) — the 404 is conditional, not unconditional
+> The line above is left as the historical record of the original design, but it shipped —
+> and was later corrected by review — as **conditional on the request carrying lines**, not
+> unconditional. `PUT {"items": []}` and `DELETE /v1/cart` are specified to reach the same
+> state (no cart), yet the PUT originally 404'd for an unresolvable caller while DELETE
+> answered 204 for that very same caller. Identity is needed for exactly one thing — stamping
+> the internal `usr_` id onto a cart being **created** — so it is now resolved only when
+> `wanted.Count > 0` (there are lines left to persist after dropping `quantity: 0` entries).
+> An emptying PUT therefore never depends on Users being reachable to do something that never
+> touches Users. Corrected rule: **`404 unknown_user` on a `PUT` that carries lines; an
+> emptying `PUT` and `DELETE` both succeed regardless of caller resolvability.** Fixed in
+> `CartWriteService.ReplaceInternalAsync`, commit `3e99e23`.
+
 A non-existent product is **not** a 404. The line is persisted and comes back flagged
 unavailable, exactly like an out-of-stock product. The problem is a field of the line, not
 a failure of the operation. This was an explicit user requirement.
