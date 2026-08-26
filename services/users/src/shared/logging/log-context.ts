@@ -31,6 +31,14 @@ export interface LogContextStore {
    */
   email?: string;
   order_id?: string;
+  /**
+   * Cache outcome for this request: "hit" | "miss" | "bypass". Set by the
+   * response-cache hooks (see features/users/http/cache-hooks.ts) on cacheable
+   * routes only. OMITTED — never null — on every other route: an absent key
+   * reads as "this route is not cached", whereas a null reads as "it is cached
+   * and somehow produced no outcome".
+   */
+  cache_result?: "hit" | "miss" | "bypass";
 }
 
 export const logContext = new AsyncLocalStorage<LogContextStore>();
