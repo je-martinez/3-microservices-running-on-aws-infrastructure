@@ -34,6 +34,22 @@ describe("parseEnv", () => {
     expect(env.E2E_TESTING_ENABLED).toBe(false);
   });
 
+  it("defaults CACHE_ENABLED to true when absent", () => {
+    expect(parseEnv(base).CACHE_ENABLED).toBe(true);
+  });
+
+  it("reads CACHE_ENABLED as a boolean, not a truthy string", () => {
+    // The trap this guards: env values are always strings, and z.coerce.boolean()
+    // would read the string "false" as true because it is non-empty. A kill
+    // switch that cannot be switched off is worse than no kill switch.
+    expect(parseEnv({ ...base, CACHE_ENABLED: "false" }).CACHE_ENABLED).toBe(false);
+    expect(parseEnv({ ...base, CACHE_ENABLED: "true" }).CACHE_ENABLED).toBe(true);
+  });
+
+  it("rejects a CACHE_ENABLED that is neither \"true\" nor \"false\"", () => {
+    expect(() => parseEnv({ ...base, CACHE_ENABLED: "1" })).toThrow();
+  });
+
   it("defaults NODE_ENV to development", () => {
     expect(parseEnv(base).NODE_ENV).toBe("development");
   });

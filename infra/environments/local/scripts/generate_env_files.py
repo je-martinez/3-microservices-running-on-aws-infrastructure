@@ -339,6 +339,10 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # "E2E Source" tag the suite asserts on. Local-only: never true
                 # in a deployed environment.
                 "E2E_TESTING_ENABLED": "true",
+                # Kill switch for the response cache. In CUSTOM, not generated,
+                # so a per-machine choice survives `make env-file` — and so the
+                # load-test A/B can flip it without a regeneration undoing it.
+                "CACHE_ENABLED": "true",
             },
         ),
         # --- orders service --------------------------------------------------
@@ -357,6 +361,16 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # tracking record, forwarding the x-user-id it received.
                 "TRACKING_BASE_URL": "http://tracking:8000",
                 "GRPC_API_KEY": GRPC_API_KEY,
+                # Redis/Valkey for the response cache (see
+                # docs/shared/conventions/x-cache-response-header.md).
+                # REDIS_HOST is the floci-valkey-<id> CONTAINER NAME on the
+                # Docker network, never "localhost" — inside this container
+                # localhost is this container. REDIS_PORT is the BACKING
+                # CONTAINER's port (6379), not the host-side proxy port the
+                # ElastiCache API reports; those differ whenever the proxy range
+                # is moved off its default. Same values Users already consumes.
+                "REDIS_HOST": redis_host,
+                "REDIS_PORT": redis_port,
                 # Orders publishes ORDER_CREATED here — the same shared queue
                 # Users and Tracking write to.
                 "EVENTS_QUEUE_URL": events_queue_url,
@@ -378,6 +392,10 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 "SEED_ON_STARTUP": "true",
                 # Gates the flag-guarded E2E cleanup endpoint. Local-only.
                 "E2E_TESTING_ENABLED": "true",
+                # Kill switch for the response cache. In CUSTOM, not generated,
+                # so a per-machine choice survives `make env-file` — and so the
+                # load-test A/B can flip it without a regeneration undoing it.
+                "CACHE_ENABLED": "true",
             },
         ),
         # --- tracking service ------------------------------------------------
@@ -405,6 +423,16 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # Orders share. Tracking presents it when calling Users, rather
                 # than validating it on the way in.
                 "GRPC_API_KEY": GRPC_API_KEY,
+                # Redis/Valkey for the response cache (see
+                # docs/shared/conventions/x-cache-response-header.md).
+                # REDIS_HOST is the floci-valkey-<id> CONTAINER NAME on the
+                # Docker network, never "localhost" — inside this container
+                # localhost is this container. REDIS_PORT is the BACKING
+                # CONTAINER's port (6379), not the host-side proxy port the
+                # ElastiCache API reports; those differ whenever the proxy range
+                # is moved off its default. Same values Users already consumes.
+                "REDIS_HOST": redis_host,
+                "REDIS_PORT": redis_port,
                 # The EXTERNAL carrier/webhook key, validated by the service
                 # itself on PUT /v1/trackings/{orderId}/status (a gateway route
                 # with NO Cognito authorizer). A DIFFERENT value from
@@ -439,6 +467,10 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # at all, and the harness's teardown gets a 405 rather than a
                 # cleanup. Local-only: never true in a deployed environment.
                 "E2E_TESTING_ENABLED": "true",
+                # Kill switch for the response cache. In CUSTOM, not generated,
+                # so a per-machine choice survives `make env-file` — and so the
+                # load-test A/B can flip it without a regeneration undoing it.
+                "CACHE_ENABLED": "true",
             },
         ),
         # --- events-pipeline service ------------------------------------------

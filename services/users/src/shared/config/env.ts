@@ -48,6 +48,14 @@ const schema = z.object({
   // localhost. Same shape as the DOCDB_HOST quirk in the events-pipeline.
   REDIS_HOST: z.string().min(1),
   REDIS_PORT: z.coerce.number().int().positive(),
+  // Kill switch for the response cache. Defaults to true so a service that never
+  // sets it still caches; the load-test A/B flips it to false. Same string->bool
+  // shape as E2E_TESTING_ENABLED above: env values are always strings, and
+  // z.coerce.boolean() would read "false" as true (a non-empty string).
+  CACHE_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
   // Feeds the schema logger's `deployment_environment` base field (see
   // shared/logging/logger.ts). Defaults to "local" for dev/test; prod deploys
   // set it explicitly.

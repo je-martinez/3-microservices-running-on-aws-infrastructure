@@ -37,6 +37,12 @@ MANAGED_KEYS = (
     # that value instead of the field's own default.
     "METRICS_ENABLED",
     "METRICS_INTERVAL_SECONDS",
+    # All three have defaults, so none belongs in MINIMAL_ENV — but they are
+    # cleared like every other managed key so a developer's real shell cannot
+    # make a default-value assertion pass for the wrong reason.
+    "REDIS_HOST",
+    "REDIS_PORT",
+    "CACHE_ENABLED",
 )
 
 
@@ -249,3 +255,32 @@ class TestExtraVars:
             OTEL_METRICS_EXPORTER="none",
         )
         assert settings.port == 8000
+
+
+class TestCacheSettings:
+    """REDIS_HOST/REDIS_PORT/CACHE_ENABLED (JE-195).
+
+    All three carry defaults on purpose: the cache fails open, and
+    `test_openapi_spec.py` builds the app with no environment at all, which a
+    required field here would break.
+    """
+
+    def test_cache_enabled_defaults_to_true(self) -> None:
+        assert build().cache_enabled is True
+
+    def test_cache_enabled_reads_false_from_the_environment(self) -> None:
+        # pydantic-settings parses the usual spellings itself; this asserts the
+        # kill switch can actually be switched off.
+        assert build(CACHE_ENABLED="false").cache_enabled is False
+
+    def test_redis_host_and_port_read_from_the_environment(self) -> None:
+        settings = build(
+            REDIS_HOST="floci-valkey-cache-3mrai-local-cache-redis",
+            REDIS_PORT="6379",
+        )
+        assert settings.redis_host == "floci-valkey-cache-3mrai-local-cache-redis"
+        assert settings.redis_port == 6379
+
+    def test_redis_port_rejects_an_out_of_range_value(self) -> None:
+        with pytest.raises(ValidationError):
+            build(REDIS_PORT="70000")

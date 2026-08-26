@@ -154,6 +154,23 @@ class Settings(BaseSettings):
     # Zod `.enum(["true","false"]).transform(...)` by hand.
     e2e_testing_enabled: bool = False
 
+    # --- cache ---------------------------------------------------------------
+    # Redis/Valkey backing the response cache. REDIS_HOST is the
+    # floci-valkey-<id> CONTAINER NAME on the Docker network, never "localhost"
+    # (from inside this container that IS this container); REDIS_PORT is the
+    # backing container's own port, not the host-side proxy port the ElastiCache
+    # API reports. Both are written by `make env-file` from Terraform outputs.
+    #
+    # Defaulted rather than required: the cache is optional by design (it fails
+    # open), and `test_openapi_spec.py` builds the app with no environment at
+    # all. A required field here would break that.
+    redis_host: str = "localhost"
+    redis_port: int = Field(default=6379, gt=0, lt=65536)
+
+    # Kill switch for the response cache. False skips the interceptor entirely —
+    # no Redis call, and no X-Cache header at all.
+    cache_enabled: bool = True
+
     # --- misc ---------------------------------------------------------------
     deployment_environment: str = "local"
     environment: Literal["development", "test", "production"] = "development"
