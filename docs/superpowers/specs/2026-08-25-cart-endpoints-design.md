@@ -4,7 +4,7 @@ type: spec
 area: orders
 status: active
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-08-26
 tags:
   - type/spec
   - area/orders
@@ -439,3 +439,8 @@ checkout route. No multi-currency. No changes to Users or Tracking.
 - [[domains/orders/testing/index]] — Layer 4 (load testing): the fourth test surface this
   section's amendment points to, including the cart-specific scenario detail and the
   `GET`-is-the-hot-path finding.
+- [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]] — this spec's Concurrency
+  section specified the retry correctly from its very first committed version; the
+  implementation shipped without it, and no review layer caught the gap until a later
+  whole-branch review. The inverse of every other lesson from this milestone: the document was
+  right, the code silently wasn't.

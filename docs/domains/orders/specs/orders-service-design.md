@@ -4,7 +4,7 @@ type: spec
 area: orders
 status: accepted
 created: 2026-06-26
-updated: 2026-08-25
+updated: 2026-08-26
 tags: [type/spec, area/orders, status/accepted]
 related:
   - "[[2026-08-15-request-id-correlation-design]]"
@@ -616,3 +616,7 @@ Full milestone design: [[2026-07-14-orders-service-milestone-design]].
   read/write log-shape distinction now documented in `services/orders/CLAUDE.md` §4.
 - [[domains/orders/testing/index]] — how Orders satisfies the three-layer testing convention
   plus its Layer 4 (load testing), including the cart's load-test scenario detail.
+- [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]] — the retry mechanism
+  documented in the "one-active-cart invariant" section above was correctly specified in the
+  design spec from its first committed version; the implementation silently shipped without
+  it, and no review layer caught the gap until a later whole-branch review.

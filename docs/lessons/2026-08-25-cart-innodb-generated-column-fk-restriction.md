@@ -4,7 +4,7 @@ type: lesson
 area: orders
 status: active
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-08-26
 tags:
   - type/lesson
   - area/orders
@@ -87,3 +87,7 @@ fault.
 - [[2026-08-25-cart-endpoints-design]] — the spec this schema came from.
 - [[soft-delete]] — why `Restrict` is a no-op in practice: the DB user cannot `DELETE`.
 - [[db-naming]] — the audit/soft-delete column conventions the generated columns build on.
+- [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]] — a sibling finding from
+  the same milestone, but the inverse shape: this note is a documentation gap (a migration
+  quirk nobody had written down yet), while that note is a code gap (a spec correctly
+  specified a behaviour the implementation silently omitted).

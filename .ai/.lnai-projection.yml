@@ -134,6 +134,35 @@ rules:
   # The `e2e-impl` agent that owns this surface already travels as a role.
   shared-queue-backlog: universal
 
+  # review-against-the-brief: universal. Added 2026-08-26, same day as the source
+  # bullet (CLAUDE.md, "Phase C review flow").
+  #
+  # Universal on the strongest available test: it describes how to READ a diff,
+  # and names no tool, skill, plugin, or Claude Code affordance. The failure it
+  # prevents — a requirement silently dropped in implementation, leaving no trace
+  # because the shipped code is self-consistent and its tests cover what was
+  # built rather than what was specified — is a property of how review works, not
+  # of which CLI performs it. Every provider in this repo reviews diffs.
+  #
+  # Lands in .ai/rules/git-and-commits.md, which already owns the Phase C review
+  # flow (chaining, batching, dependency gates, never-auto-merge), so the review
+  # discipline stays in one place rather than starting a fourth review location.
+  # NOT in testing.md despite the tests angle: the rule's claim is that tests are
+  # the thing that CANNOT catch this, so filing it under testing would put it
+  # behind a path glob that only activates on the files it says are unreliable.
+  #
+  # It also gets an AGENTS.md paragraph, for the same reason shared-queue-backlog
+  # did: its value is in RECOGNITION at review time. A rule file activates on the
+  # paths in the diff, which for a review pass is arbitrary and unrelated to
+  # review; the ambient line is what makes it present when a diff is being judged.
+  #
+  # Dropped: the [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]]
+  # wikilink, replaced by the backticked vault path per the route-completeness
+  # precedent above. The incident itself is retained inline as prose — it is the
+  # evidence for the rule, and a provider that cannot follow the link would
+  # otherwise receive an unsupported assertion.
+  review-against-the-brief: universal
+
 skills:
   # Portable knowledge worth having in any tool.
   #

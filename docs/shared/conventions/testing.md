@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-17
-updated: 2026-08-16
+updated: 2026-08-26
 tags: [type/convention, area/shared, status/active]
 related:
   - "[[ADR-0010-cognito-auth]]"
@@ -360,3 +360,8 @@ Every service implements the underlying delete as a soft-delete, per [[soft-dele
 - [[2026-08-12-custom-business-metrics-cloudwatch-design]] — the metrics-adapted three-layer
   rule above, including the non-empty-value assertion the silent-empty Floci failure mode
   requires.
+- [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]] — a limit of this
+  convention worth naming explicitly: none of its layers, however complete, is designed to
+  catch a requirement that was specified in a brief and never implemented — only a
+  requirement that was implemented incorrectly. A specified-but-dropped concurrency guard
+  produced a fully green suite.

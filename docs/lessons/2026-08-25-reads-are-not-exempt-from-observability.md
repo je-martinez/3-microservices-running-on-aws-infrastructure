@@ -4,7 +4,7 @@ type: lesson
 area: orders
 status: active
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-08-26
 tags:
   - type/lesson
   - area/orders
@@ -111,3 +111,7 @@ section (`docs/shared/conventions/testing.md` → [[testing]]).
   milestone: another case where full functional test coverage passed while a real gap (there,
   gateway wiring; here, observability) went undetected, both now folded into the root
   `CLAUDE.md`'s "a new route is not done when the service serves it" checklist.
+- [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]] — the closest sibling in
+  shape: also a claim in the design spec that turned out false, but there the spec's own words
+  were wrong ("GET carries no flow logs... like my-orders", an unchecked precedent); here the
+  spec's Concurrency section was correct and the implementation silently didn't follow it.

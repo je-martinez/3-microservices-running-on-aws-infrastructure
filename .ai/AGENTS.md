@@ -71,6 +71,24 @@ All commits and PR titles follow **Conventional Commits v1.0.0**:
 Attach context references as footers (`Refs:`, `Plan:`, `Spec:`) on a best-effort
 basis — enrichment, never a blocker.
 
+### Review the diff against the brief, not on its own merits
+
+*"Is this correct?"* and *"does this do everything it was asked to do?"* are
+different questions, and **only the first gets asked by default**. When reviewing,
+**enumerate the brief's requirements** — spec, plan, issue, task description — and
+tick each one off against the diff, rather than judging the diff holistically.
+
+A requirement silently dropped during implementation leaves **no trace**: the
+shipped code is self-consistent, it passes review on its own terms, and the tests
+written alongside it cover **what was built rather than what was specified**. The
+cart's concurrent-`PUT` retry was specified in the design spec from its first
+commit, shipped as an unhandled `500`, passed its per-task review, and was caught
+only by chance in a later whole-branch pass. **Concurrency requirements are the
+highest-risk case**, since ordinary tests structurally do not exercise them.
+
+Full rule: `.ai/rules/git-and-commits.md`. Full lesson:
+`docs/lessons/2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec.md`.
+
 ### Scripting language — Python first
 
 New scripts are **Python** by default. **JavaScript** only where the task already

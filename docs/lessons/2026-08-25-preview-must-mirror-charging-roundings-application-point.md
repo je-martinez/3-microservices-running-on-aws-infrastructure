@@ -4,7 +4,7 @@ type: lesson
 area: orders
 status: active
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-08-26
 tags:
   - type/lesson
   - area/orders
@@ -103,3 +103,7 @@ failing.
 - [[money-as-integer-cents]] — the storage-side ADR this finding does not change: both
   implementations always operated on integer cents, correctly: the bug was purely about
   when/how those cents get rounded into tax, not about float/decimal drift.
+- [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]] — a sibling finding from
+  the same milestone, but the inverse shape: this note is a wrong claim in a plan comment
+  (documentation wrong about code), while that note is a spec that was correct from its first
+  version and an implementation that silently didn't follow it (code wrong about documentation).
