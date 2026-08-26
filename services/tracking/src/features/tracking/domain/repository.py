@@ -467,6 +467,18 @@ class TrackingRepository:
         """
         moment = now or _utcnow()
         stamp = {"deleted_at": moment, "deleted_by": actor.value}
+        # Refused HERE as well as at the schema, because this is the line that
+        # actually decides which rows die. The predicate is an OR, so an empty
+        # identity on either side would match every row carrying an empty string in
+        # that column — someone else's trackings. The route's Pydantic model
+        # already rejects empties (422), but this method is public and a future
+        # caller reaching it another way must not be able to widen the blast
+        # radius by passing "".
+        if not cognito_sub or not user_id:
+            raise ValueError(
+                "soft_delete_by_user requires both identities to be non-empty"
+            )
+
         owned = or_(Tracking.cognito_sub == cognito_sub, Tracking.user_id == user_id)
 
         # NOT filtered on `deleted_at IS NULL`: an already-soft-deleted tracking may

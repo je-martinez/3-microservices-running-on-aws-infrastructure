@@ -17,15 +17,31 @@ function makeClient(fetchImpl: typeof fetch) {
 afterEach(() => vi.restoreAllMocks());
 
 describe("CascadeClient", () => {
-  it("calls Orders with the internal key and the subject in the body", async () => {
+  it("calls Orders with the internal key and BOTH identities in the body", async () => {
     const fetchImpl = vi.fn(async () => new Response("{}", { status: 200 }));
-    await makeClient(fetchImpl as any).deleteOrdersForUser("sub-1");
+    await makeClient(fetchImpl as any).deleteOrdersForUser("sub-1", "usr_1");
 
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe(`${ORDERS}/v1/orders/by-user`);
     expect(init.method).toBe("DELETE");
     expect((init.headers as Record<string, string>)["x-api-key"]).toBe(KEY);
-    expect(JSON.parse(init.body as string)).toEqual({ cognitoSub: "sub-1" });
+    // camelCase for Orders; both ids because `cognito_sub` is not the durable
+    // identity — a re-registered user gets a new one, `usr_` ids never change.
+    expect(JSON.parse(init.body as string)).toEqual({ cognitoSub: "sub-1", userId: "usr_1" });
+  });
+
+  it("refuses to send an empty identity to either service", async () => {
+    const fetchImpl = vi.fn(async () => new Response("{}", { status: 200 }));
+
+    // An empty value would widen the downstream `cognito_sub OR user_id` match if
+    // any row ever carried an empty string in the same column. Nothing is sent.
+    await expect(
+      makeClient(fetchImpl as any).deleteOrdersForUser("", "usr_1"),
+    ).rejects.toBeInstanceOf(CascadeFailedError);
+    await expect(
+      makeClient(fetchImpl as any).deleteTrackingsForUser("sub-1", ""),
+    ).rejects.toBeInstanceOf(CascadeFailedError);
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("calls Tracking with BOTH identities, snake_cased", async () => {
@@ -46,7 +62,7 @@ describe("CascadeClient", () => {
     const fetchImpl = vi.fn(async () => new Response("nope", { status: 500 }));
 
     await expect(
-      makeClient(fetchImpl as any).deleteOrdersForUser("sub-1"),
+      makeClient(fetchImpl as any).deleteOrdersForUser("sub-1", "usr_1"),
     ).rejects.toBeInstanceOf(CascadeFailedError);
   });
 
@@ -66,7 +82,7 @@ describe("CascadeClient", () => {
     const fetchImpl = vi.fn(async () => new Response("", { status: 503 }));
 
     const error = await makeClient(fetchImpl as any)
-      .deleteOrdersForUser("sub-1")
+      .deleteOrdersForUser("sub-1", "usr_1")
       .catch((e) => e as CascadeFailedError);
 
     expect(error.service).toBe("orders");
@@ -76,7 +92,7 @@ describe("CascadeClient", () => {
     const fetchImpl = vi.fn(async () => new Response("", { status: 500 }));
 
     const error = await makeClient(fetchImpl as any)
-      .deleteOrdersForUser("sub-1")
+      .deleteOrdersForUser("sub-1", "usr_1")
       .catch((e) => e as CascadeFailedError);
 
     // The error travels into logs and, in shape, toward the client. The key must

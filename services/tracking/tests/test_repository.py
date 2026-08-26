@@ -1308,6 +1308,24 @@ class TestSoftDeleteByUser:
 
         assert row(session, "ord_theirs").deleted_at is None
 
+    def test_refuses_an_empty_identity(self, session: Session) -> None:
+        """An empty value in an OR predicate would match other people's rows."""
+        repo = TrackingRepository(session)
+        seed(session, order_id="ord_empty", cognito_sub="", user_id=USER_B)
+
+        with pytest.raises(ValueError):
+            repo.soft_delete_by_user(
+                cognito_sub="", user_id=USER_A, actor=AuditActor.DELETE_BY_USER
+            )
+        with pytest.raises(ValueError):
+            repo.soft_delete_by_user(
+                cognito_sub=SUB_A, user_id="", actor=AuditActor.DELETE_BY_USER
+            )
+
+        # The row with the empty cognito_sub — the one an empty identity would
+        # have swept — is untouched.
+        assert row(session, "ord_empty").deleted_at is None
+
     def test_is_idempotent(self, session: Session) -> None:
         repo = TrackingRepository(session)
         seed(session, order_id="ord_c", cognito_sub=SUB_A, user_id=USER_A)

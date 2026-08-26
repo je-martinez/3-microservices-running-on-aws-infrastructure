@@ -113,6 +113,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/InternalDeleteResponse'
+        '400':
+          description: Bad Request
         '401':
           description: Unauthorized
   /v1/orders/e2e-cleanup:
@@ -325,9 +327,12 @@ components:
     InternalDeleteByUserRequest:
       required:
         - cognitoSub
+        - userId
       type: object
       properties:
         cognitoSub:
+          type: string
+        userId:
           type: string
     InternalDeleteResponse:
       required:

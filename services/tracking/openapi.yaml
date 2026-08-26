@@ -506,14 +506,7 @@ components:
       - cognito_sub
       - user_id
       title: InternalDeleteByUserRequest
-      description: 'Body of `DELETE /v1/trackings/by-user`.
-
-
-        Both identities travel, because the ownership predicate matches either: rows
-
-        predating migration `b17f4c2e9a30` have a NULL `cognito_sub` and are reachable
-
-        only through `user_id`.'
+      description: Body of `DELETE /v1/trackings/by-user`. Both identities are required.
     InternalDeleteByUserResponse:
       properties:
         deleted:
