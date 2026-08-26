@@ -25,6 +25,7 @@ related:
   - "[[users-service-design]]"
   - "[[orders-service-design]]"
   - "[[tracking-service-design]]"
+  - "[[2026-08-25-response-caching-layer]]"
 ---
 
 # Response Caching Layer Design
@@ -128,6 +129,20 @@ Same conceptual shape in all three services; idiomatic implementation per stack.
    On hit: return the cached body with `X-Cache: HIT` + `X-Cache-TTL` headers, without
    executing the handler. On miss: let the handler run, store the response only if it
    returned `200`, emit `X-Cache: MISS`. Non-200 responses are never cached.
+
+   **Users implementation trap.** Users today registers only two global hooks —
+   `onRequest` (`services/users/src/features/users/http/routes.ts:290`) and `onResponse`
+   (`routes.ts:134`) — and has no `preHandler`/`onSend` hook of any kind yet; the cache
+   interceptor pair would be the first of their kind in the service. This matters because
+   `@fastify/otel` **nulls `request.opentelemetry().span` inside `onSend`**, which runs
+   *before* `onResponse` (documented at
+   `services/users/src/shared/observability/request-span.ts:40`). A `cache.get`/`cache.set`
+   span emitted from the new `onSend` hook must therefore be attached via the existing
+   `getHttpServerSpan(request)` / `withHttpServerSpan(request, fn)` helpers
+   (`request-span.ts:54` and `:79`) — **never** `trace.getActiveSpan()`, which resolves to
+   `undefined` at that point in the hook chain (see the helper's own header comment on why
+   `request.opentelemetry().span` is unusable there). Getting this wrong doesn't error; it
+   silently drops the span, which is a harder failure to notice than a crash.
 3. **`CacheInvalidator`** — called explicitly by the write-path command handlers, after the
    write persists.
 
@@ -144,7 +159,7 @@ provide. The response-caching layer described above does not, by itself, cache g
 
 | Key | TTL | Invalidation |
 |---|---|---|
-| `identity:sub-to-user:v1:{cognito_sub}` | 1 h | Cognito webhook, and user deletion (soft-delete) |
+| `identity:sub-to-user:v1:{cognito_sub}` | 1 h | None — TTL only. See below. |
 
 - Lives in **Tracking and Orders only** — both resolve `user_id` from `cognito_sub`. It does
   **not** live in Users, where `user_id` comes directly from the authenticated query and needs
@@ -155,14 +170,28 @@ provide. The response-caching layer described above does not, by itself, cache g
 - Same fail-open contract as the response cache: 50ms timeout, falling back to the normal
   gRPC/DB resolution on failure. A miss or a timeout here never blocks the request; it just
   means the request pays the resolution cost it would have paid anyway.
-- The 1h TTL is safe because the mapping is effectively immutable — a `cognito_sub` never maps
-  to a different `user_id`. Webhook invalidation covers account deletion, the one case where
-  the mapping should stop resolving.
-- **Correctness detail:** when invalidating on user deletion, the user's *response*-cache
-  entries must be deleted too, or they linger until their own TTL even though the identity
-  behind them is gone. The per-user key index already required for
-  [invalidating `my-orders` and the tracking list keys](#invalidation-matrix) is exactly what
-  makes this possible — the same index drives both cleanups.
+
+**This cache is invalidated by TTL only, and that is correct, not a gap.** No event exists
+anywhere in this repo that would need to trigger an early invalidation:
+
+- Users' Cognito webhook payload schema
+  (`services/users/src/features/users/webhooks/cognito-payload.ts:18-21`) accepts exactly two
+  `triggerSource` values — `PostConfirmation_ConfirmSignUp` and
+  `PostConfirmation_ConfirmForgotPassword`. There is no identity-change event and no deletion
+  event to hook into. The same file's header comment (`:13-15`) further notes that adding any
+  additional trigger requires reworking `deriveMessageId` first, so wiring one solely to
+  invalidate this cache would not be a small addition.
+- No account-deletion flow exists in the system: a repo-wide search finds no
+  `PreUserDeletion`, `UserDeletion`, `user_deleted`, or `AdminDeleteUser` in any `.ts`/`.py`/
+  `.tf` file. The only user-deletion path today is `E2eCleanupCommand`
+  (`services/users/src/features/users/http/e2e-cleanup.ts:7`), a soft-delete gated behind
+  `E2E_TESTING_ENABLED` and not a production flow.
+- Because the `cognito_sub -> user_id` mapping is effectively immutable — a given
+  `cognito_sub` never resolves to a different `user_id` while the account exists — a stale
+  entry cannot serve a *wrong* answer, only a momentarily-late one. The 1h TTL exists to bound
+  the one real case this cache can get wrong: an account that has stopped existing. See
+  [Out of scope](#out-of-scope--account-deletion-cascade) for what changes this once a
+  deletion flow exists.
 
 ## Cache keys and TTLs
 
@@ -179,7 +208,7 @@ changes.
 | `GET /v1/trackings/{order_id}` | Tracking | `tracking:order:v1:{sub}:{user_id}:{order_id}` | 60 s | Advances via carrier webhook; short TTL plus invalidation on `PUT /status` |
 | `GET /v1/trackings` | Tracking | `tracking:list:v1:{sub}:{user_id}:{hash(order_ids)}` | 60 s | `order_ids` is an arbitrary list; normalize (sort + dedup) then hash to bound key cardinality |
 | `GET /v1/users/me` | Users | `users:me:v1:{sub}:{user_id}` | 5 min | Profile, rarely changes; invalidated on `PATCH /me` and the Cognito webhook |
-| identity mapping (Orders, Tracking) | Orders, Tracking | `identity:sub-to-user:v1:{cognito_sub}` | 1 h | Effectively immutable mapping; consulted before the response key is built, removing the gRPC/DB resolution from the hit path |
+| identity mapping (Orders, Tracking) | Orders, Tracking | `identity:sub-to-user:v1:{cognito_sub}` | 1 h | Effectively immutable mapping, TTL-only invalidation (no deletion/identity-change event exists — see [Fourth component](#fourth-component--the-identity-mapping-cache-orders-and-tracking-only)); consulted before the response key is built, removing the gRPC/DB resolution from the hit path |
 
 Explicitly excluded from caching: `/v1/health` (must reflect real state), every `e2e-*`
 endpoint, and all `POST`/`PUT`/`PATCH`/`DELETE`.
@@ -212,9 +241,19 @@ per endpoint, so the two effects are visible separately.
 | `POST /v1/orders` | the user's cart key + `orders:my-orders:v1:{sub}:{user_id}:*` + `orders:products:v1` (stock changed) |
 | `PUT /v1/trackings/{id}/status` (carrier webhook) | `tracking:order:*:{order_id}` and the owner's list keys |
 | `PATCH /v1/users/me`, Cognito webhook | `users:me:v1:{sub}:{user_id}` |
-| Cognito webhook (identity change), user deletion (soft-delete) | `identity:sub-to-user:v1:{cognito_sub}` **and** all of that user's response-cache entries (via the per-user key index) |
+| `ChangePasswordCommand`, `ConfirmPasswordResetCommand` | `users:me:v1:{sub}:{user_id}` |
 
-Three correctness details:
+The password-change row exists because both commands also mutate `mustChangePassword`, which
+is part of `UserSchema` and therefore part of the cached `GET /v1/users/me` body — not because
+the cache stores anything password-related itself. Both writes must invalidate the profile key
+for the same reason `PATCH /me` does: the cached body would otherwise disagree with the
+database until its TTL expires.
+
+The identity-mapping cache (`identity:sub-to-user:v1:{cognito_sub}`) does **not** appear in
+this matrix — it has no invalidation trigger by design; see
+[Fourth component](#fourth-component--the-identity-mapping-cache-orders-and-tracking-only).
+
+Two correctness details:
 
 - **The carrier webhook does not know the owner.** It arrives with `order_id` and
   `x-api-key`, no `x-user-id`. To invalidate a key carrying `{sub}:{user_id}` it must first
@@ -222,22 +261,50 @@ Three correctness details:
 - **Invalidating `my-orders` and the tracking list keys requires deleting several keys with a
   variable suffix** (`t0`/`t1`, the `order_ids` hash). This is solved with a per-user key
   index — a Redis SET holding that user's live keys — **not** `KEYS`/`SCAN`, which is O(N)
-  over the whole keyspace and is discouraged in production.
-- **Deleting the identity mapping on user deletion is not enough on its own.** The user's
-  response-cache entries must be deleted in the same operation, or they linger, keyed by a
-  `user_id` whose owning identity mapping no longer exists, until their own (short) TTL
-  expires. The same per-user key index used for `my-orders`/list-key cleanup drives this
-  cleanup too — one index, two invalidation paths.
+  over the whole keyspace and is discouraged in production. This index is required
+  independently of the identity-mapping cache; see
+  [Out of scope](#out-of-scope--account-deletion-cascade) for the one place the two intersect.
 
 ## Observability
 
-1. **Metrics.** Counter `cache_requests_total{service, key_prefix, result=hit|miss|bypass}`
-   plus histogram `cache_operation_duration_ms{operation=get|set}`. Hit-rate is computed in
-   OpenObserve as `hit / (hit + miss)`; `bypass` is excluded from the denominator. The
-   identity-mapping cache uses its own `key_prefix` (`identity:sub-to-user:v1`) on the same
-   counter — its hit-rate will sit near 100% given the 1h TTL on an effectively immutable
-   mapping, and it **must never be averaged together** with the response-cache hit-rates or
-   both numbers become meaningless.
+1. **Metrics — via the existing CloudWatch publisher, not an OTel metrics pipeline.** None of
+   the three services runs OTel metrics today: Orders' `AddOpenTelemetry()` call
+   (`services/orders/src/Orders.Api/Program.cs:43-80`) configures `.WithTracing(...)` only, no
+   `.WithMetrics(...)` and no `Meter`/`CreateCounter`/`CreateHistogram` anywhere in the
+   service; Tracking has no `get_meter`/`create_counter`/`create_histogram` under
+   `services/tracking/src/`; and all three services set `OTEL_METRICS_EXPORTER=none` in the
+   generated env (see `infra/environments/local/scripts/generate_env_files.py:322-327`).
+   Standing up an OTel metrics pipeline across three runtimes is a cross-cutting observability
+   change that belongs to its own milestone, not to this one — this design instead publishes
+   through the CloudWatch mechanism that already exists in all three services:
+
+   - `cache_requests_total` — dimensions `Service` (`users`|`orders`|`tracking`), `KeyPrefix`,
+     `Result` (`hit`|`miss`|`bypass`). CloudWatch calls these **dimensions**, not labels, and
+     dimension *values* must stay bounded: `KeyPrefix` is the prefix only (e.g.
+     `orders:cart:v1`), **never** a full key — a full key (with `cognito_sub`/`user_id`
+     embedded) would explode cardinality and cost, on top of the PII concern the span rule
+     below also exists for.
+   - `cache_operation_duration_ms` — dimensions `Service`, `Operation` (`get`|`set`),
+     published with unit `Milliseconds`.
+   - Both are emitted through each service's existing publisher — Orders'
+     `IMetricsPublisher.PublishAsync` (`services/orders/src/Orders.Application/Abstractions/IMetricsPublisher.cs:12-19`),
+     Users' `MetricsPublisher.publish` (`services/users/src/shared/metrics/cloudwatch-metrics.ts:26-31`),
+     Tracking's `MetricsPublisher` Protocol (`services/tracking/src/shared/metrics/cloudwatch_metrics.py:63,73,144`)
+     — under the shared `3MRAI` namespace, same as every other metric in the repo.
+   - **These publishers must not throw**, and this design relies on that existing contract
+     rather than adding its own try/catch: Orders' `IMetricsPublisher` documents "Implementations
+     MUST NOT throw"; Users' publisher logs `metric_publish_failed` and swallows; Tracking's
+     Protocol docstring states `publish` "NEVER raises". A metrics failure must not break a
+     cached read — the same governing rule the cache itself follows.
+   - **Users-specific:** new counters must publish a `0` on every tick alongside the service's
+     existing seeded metrics, per the pattern documented at
+     `services/users/src/shared/metrics/business-metrics.ts:156-195` — a panel over a series
+     that has never been published renders "Error Loading Data" rather than a readable zero.
+   - Analysis is unchanged from the original intent: hit-rate is `hit / (hit + miss)` computed
+     in OpenObserve, with `bypass` excluded from the denominator, and the identity-mapping
+     cache's `KeyPrefix` (`identity:sub-to-user:v1`) — whose hit-rate will sit near 100% given
+     its 1h TTL on an effectively immutable mapping — **must never be averaged together** with
+     the response-cache prefixes, or both numbers become meaningless.
 2. **Tracing.** A child span per operation (`cache.get`, `cache.set`) with attributes
    `cache.result`, `cache.key_prefix`, `cache.ttl_remaining`. **The full key must never go
    into a span** — it carries `cognito_sub` and `user_id`, and a span is an export destination
@@ -253,8 +320,31 @@ Three correctness details:
    `e2e/load-tests/`, per the repo's load-testing conventions.
 
 Per [[ADR-0019-distributed-tracing-opentelemetry]] and [[ADR-0018-observability-openobserve]],
-endpoint/protocol/exporter configuration goes in environment variables, never in SDK code —
-this design introduces no exception.
+endpoint/protocol/exporter configuration for **tracing and logging** goes in environment
+variables, never in SDK code — this design introduces no exception there. Metrics are the one
+signal that deliberately stays outside that OTel pipeline, for the reason given in item 1
+above: this repo's metrics travel over the existing CloudWatch publishers, not an OTel
+`Meter`, so there is no OTel metrics SDK configuration for this rule to apply to.
+
+## Out of scope — account-deletion cascade
+
+There is no `DELETE /v1/users/me` (or any account-deletion endpoint) in this repo today; see
+[Fourth component](#fourth-component--the-identity-mapping-cache-orders-and-tracking-only) for
+the evidence. Building one — with cascade into Orders and Tracking — is deferred to its own
+milestone and is explicitly **not** part of this design.
+
+This is recorded here as a known future integration point, not a gap in the design above: when
+an account-deletion endpoint exists, it must, as part of that milestone's own work, also:
+
+- Delete `identity:sub-to-user:v1:{cognito_sub}` for the deleted account.
+- Delete that user's response-cache entries via the per-user key index already required for
+  [invalidating `my-orders` and the tracking list keys](#invalidation-matrix) — the same index
+  drives both cleanups, so no new indexing mechanism is needed, only the new call site.
+
+Until that endpoint exists, the identity-mapping cache's 1h TTL is the only bound on how long a
+deleted account's mapping could theoretically still resolve — and per
+[Fourth component](#fourth-component--the-identity-mapping-cache-orders-and-tracking-only),
+that is an accepted consequence of no deletion flow existing, not a defect in this cache.
 
 ## Testing
 
@@ -283,3 +373,4 @@ All three layers per [[testing]], for every cached endpoint:
 - [[tracking-service-design]]
 - [[redis-elasticache-replication-group-floci]]
 - [[floci-elasticache-two-ports-and-provider-panic]]
+- [[2026-08-25-response-caching-layer]] — implementation plan for this design

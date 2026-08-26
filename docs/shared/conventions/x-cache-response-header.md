@@ -75,12 +75,36 @@ under its own key prefix, consulted before the response key is built:
 
 | Key | TTL | Invalidation |
 |---|---|---|
-| `identity:sub-to-user:v1:{cognito_sub}` | 1 h | Cognito webhook, and user deletion (soft-delete) |
+| `identity:sub-to-user:v1:{cognito_sub}` | 1 h | None — TTL only. See below. |
+
+**Invalidated by TTL only, and that is correct, not a gap.** No event in this repo would need
+to trigger an early invalidation: Users' Cognito webhook accepts only
+`PostConfirmation_ConfirmSignUp`/`PostConfirmation_ConfirmForgotPassword`
+(`services/users/src/features/users/webhooks/cognito-payload.ts:18-21`), and no
+account-deletion flow exists anywhere in the repo outside the E2E-only `E2eCleanupCommand`
+(`services/users/src/features/users/http/e2e-cleanup.ts:7`). Because the mapping is
+effectively immutable, a stale entry cannot serve a *wrong* answer, only a momentarily-late
+one; the 1h TTL bounds the one real case — an account that stops existing. When an
+account-deletion endpoint eventually exists, it must delete this key and the user's
+response-cache entries (via the per-user key index) as part of its own cascade. Full rationale
+and the "out of scope" note: [[2026-08-25-response-caching-layer-design]].
 
 Same fail-open contract as the response cache (50ms timeout, fall back to gRPC/DB on miss or
-error). Its hit-rate reports under its own `key_prefix` on `cache_requests_total` and must
-never be averaged together with response-cache hit-rates — the two measure different things.
-Full rationale: [[2026-08-25-response-caching-layer-design]].
+error). Its hit-rate reports under its own `KeyPrefix` dimension
+(`identity:sub-to-user:v1`) on `cache_requests_total` and must never be averaged together with
+response-cache hit-rates — the two measure different things.
+
+## Metrics
+
+Published via each service's existing CloudWatch metrics publisher (Orders'
+`IMetricsPublisher`, Users' `MetricsPublisher`, Tracking's `MetricsPublisher` Protocol) under
+the shared `3MRAI` namespace — **not** an OTel metrics pipeline; none of the three services
+runs one today (`OTEL_METRICS_EXPORTER=none` in every generated env). `cache_requests_total`
+carries CloudWatch dimensions `Service`, `KeyPrefix` (prefix only — never a full key, which
+would explode cardinality and leak `cognito_sub`/`user_id`), `Result`; `cache_operation_duration_ms`
+carries `Service`, `Operation`, unit `Milliseconds`. These publishers must not throw — a
+metrics failure must never break a cached read. Full rationale:
+[[2026-08-25-response-caching-layer-design]].
 
 ## Testing
 
