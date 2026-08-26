@@ -140,6 +140,43 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /v1/trackings/by-user:
+    delete:
+      tags:
+      - internal
+      summary: '[Internal] Soft-delete every tracking belonging to a user'
+      description: Soft-delete the user's trackings and, through the FK, their history.
+      operationId: delete_trackings_by_user_v1_trackings_by_user_delete
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InternalDeleteByUserRequest'
+      responses:
+        '200':
+          description: The user's trackings and their history are soft-deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalDeleteByUserResponse'
+        '401':
+          description: Missing or invalid internal API key
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /v1/trackings:
     get:
       tags:
@@ -454,6 +491,44 @@ components:
         from reading it back — including the deliberate omissions (`shipping_address`
 
         and `cognito_sub` are PII/identity and appear on neither).'
+    InternalDeleteByUserRequest:
+      properties:
+        cognito_sub:
+          type: string
+          minLength: 1
+          title: Cognito Sub
+        user_id:
+          type: string
+          minLength: 1
+          title: User Id
+      type: object
+      required:
+      - cognito_sub
+      - user_id
+      title: InternalDeleteByUserRequest
+      description: 'Body of `DELETE /v1/trackings/by-user`.
+
+
+        Both identities travel, because the ownership predicate matches either: rows
+
+        predating migration `b17f4c2e9a30` have a NULL `cognito_sub` and are reachable
+
+        only through `user_id`.'
+    InternalDeleteByUserResponse:
+      properties:
+        deleted:
+          type: integer
+          title: Deleted
+      type: object
+      required:
+      - deleted
+      title: InternalDeleteByUserResponse
+      description: '`200` payload of `DELETE /v1/trackings/by-user`.
+
+
+        Named `deleted` rather than `count` because it says what was counted — the same
+
+        shape Users and Orders report.'
     TrackingHistoryEntryResponse:
       properties:
         tracking_id:
@@ -609,3 +684,6 @@ tags:
   description: Carrier status updates (external x-api-key)
 - name: e2e
   description: Test-only routes (E2E_TESTING_ENABLED)
+- name: internal
+  description: Service-to-service routes. Not published on the API Gateway; authenticated
+    with the shared internal key, never a user JWT.

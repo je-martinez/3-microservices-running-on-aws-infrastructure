@@ -226,6 +226,28 @@ class E2eCleanupResponse(BaseModel):
     deleted: int
 
 
+class InternalDeleteByUserRequest(BaseModel):
+    """Body of `DELETE /v1/trackings/by-user`.
+
+    Both identities travel, because the ownership predicate matches either: rows
+    predating migration `b17f4c2e9a30` have a NULL `cognito_sub` and are reachable
+    only through `user_id`.
+    """
+
+    cognito_sub: str = Field(min_length=1)
+    user_id: str = Field(min_length=1)
+
+
+class InternalDeleteByUserResponse(BaseModel):
+    """`200` payload of `DELETE /v1/trackings/by-user`.
+
+    Named `deleted` rather than `count` because it says what was counted — the same
+    shape Users and Orders report.
+    """
+
+    deleted: int
+
+
 class ErrorResponse(BaseModel):
     """Failure payload.
 

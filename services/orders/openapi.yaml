@@ -94,6 +94,27 @@ paths:
       responses:
         '200':
           description: OK
+  /v1/orders/by-user:
+    delete:
+      tags:
+        - internal
+      summary: '[Internal] Soft-delete every order, line and cart belonging to a user.'
+      operationId: InternalDeleteByUser
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InternalDeleteByUserRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalDeleteResponse'
+        '401':
+          description: Unauthorized
   /v1/orders/e2e-cleanup:
     delete:
       tags:
@@ -296,6 +317,38 @@ components:
             - string
           format: int32
         restocked:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: int32
+    InternalDeleteByUserRequest:
+      required:
+        - cognitoSub
+      type: object
+      properties:
+        cognitoSub:
+          type: string
+    InternalDeleteResponse:
+      required:
+        - deleted
+        - deletedDetails
+        - deletedCarts
+      type: object
+      properties:
+        deleted:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: int32
+        deletedDetails:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - integer
+            - string
+          format: int32
+        deletedCarts:
           pattern: '^-?(?:0|[1-9]\d*)$'
           type:
             - integer
@@ -520,6 +573,7 @@ components:
 tags:
   - name: Orders
   - name: health
+  - name: internal
   - name: e2e
   - name: Products
   - name: Cart

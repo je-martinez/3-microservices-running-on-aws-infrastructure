@@ -259,20 +259,32 @@ class TestFlagGating:
     ) -> None:
         """Turning the flag on adds exactly ONE route, and it is this one.
 
-        Soft-delete-only is a service-wide property (`test_app_factory.py` asserts
-        no DELETE exists at all in the default shape). This pins that the E2E flag
+        Soft-delete-only is a service-wide property (`test_app_factory.py` pins
+        which DELETEs the default shape carries). This pins that the E2E flag
         widens that surface by a single, named path rather than by a family of
         test-only routes nobody reviewed.
+
+        Asserted as the DIFFERENCE between the two shapes, not as a literal list:
+        the default surface grew a permanent DELETE of its own with the
+        account-deletion cascade, and a literal list would have to be edited every
+        time an unrelated route lands — which is exactly how a list like this stops
+        being read and starts being rubber-stamped.
         """
         from src.main import create_app
 
+        def deletes() -> set[str]:
+            return {
+                route.path
+                for route in create_app().routes
+                if "DELETE" in (getattr(route, "methods", None) or set())
+            }
+
+        monkeypatch.delenv("E2E_TESTING_ENABLED", raising=False)
+        without_flag = deletes()
         monkeypatch.setenv("E2E_TESTING_ENABLED", "true")
-        deletes = [
-            route.path
-            for route in create_app().routes
-            if "DELETE" in (getattr(route, "methods", None) or set())
-        ]
-        assert deletes == [CLEANUP_PATH]
+        with_flag = deletes()
+
+        assert with_flag - without_flag == {CLEANUP_PATH}
 
 
 class TestNoCallerIdentityRequired:

@@ -11,7 +11,7 @@ import re
 from datetime import datetime, timedelta
 
 import pytest
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -1173,3 +1173,152 @@ class TestHistoryModel:
             session.get(TrackingHistory, (b.id, TrackingStatus.PLACED.value))
             is not None
         )
+
+
+# The account-deletion cascade's two identities, as they appear on a row: an
+# internal `usr_` id and the Cognito sub the gateway injects. Two DIFFERENT values
+# per person, or an ownership test cannot fail on the wrong-key bug.
+USER_A = "usr_aaaaaaaaaaaaaaaaaaaaa"
+USER_B = "usr_bbbbbbbbbbbbbbbbbbbbb"
+SUB_A = "11111111-1111-4111-8111-111111111111"
+SUB_B = "22222222-2222-4222-8222-222222222222"
+
+
+def seed(
+    session: Session,
+    *,
+    order_id: str,
+    user_id: str = USER_A,
+    cognito_sub: str | None = SUB_A,
+    with_history: bool = False,
+) -> str:
+    """Create a COMMITTED tracking (plus its first history row); return its id.
+
+    Mirrors the helper of the same name in `test_rest_e2e_cleanup.py`. `cognito_sub`
+    is passed through unchanged — including `None`, which is what a row predating
+    migration `b17f4c2e9a30` looks like and the reason the delete predicate matches
+    `user_id` as well.
+
+    `with_history=True` advances the tracking once more, so the row has a SECOND
+    transition on top of the one creation always writes: the cascade test then
+    asserts over several children rather than the single one creation guarantees.
+    """
+    repo = TrackingRepository(session)
+    tracking = repo.create(
+        order_id=order_id,
+        user_id=user_id,
+        cognito_sub=cognito_sub,
+        actor=AuditActor.CREATE_TRACKING,
+    )
+    if with_history:
+        repo.update_status(
+            tracking=tracking,
+            status=TrackingStatus.PROCESSING,
+            actor=AuditActor.CARRIER_STATUS_UPDATE,
+        )
+    session.commit()
+    return tracking.id
+
+
+def row(session: Session, order_id: str) -> Tracking:
+    """Read a tracking straight from the table by `order_id`, soft-deleted or not.
+
+    Bypasses the repository deliberately: every read there filters
+    `deleted_at IS NULL`, which is exactly what these assertions must see through.
+    """
+    session.expire_all()
+    found = session.execute(
+        select(Tracking).where(Tracking.order_id == order_id)
+    ).scalar_one_or_none()
+    assert found is not None, "the row was physically removed from the table"
+    return found
+
+
+class TestSoftDeleteByUser:
+    """The account-deletion cascade's predicate.
+
+    `cognito_sub` is the ownership key every user-scoped read filters by, but it is
+    NULLABLE on rows created before migration b17f4c2e9a30. Those rows still carry
+    `user_id`, so the predicate matches EITHER — otherwise a returning user's oldest
+    trackings would survive the deletion of their account.
+    """
+
+    def test_soft_deletes_by_cognito_sub(self, session: Session) -> None:
+        repo = TrackingRepository(session)
+        seed(session, order_id="ord_a", cognito_sub=SUB_A, user_id=USER_A)
+
+        count = repo.soft_delete_by_user(
+            cognito_sub=SUB_A, user_id=USER_A, actor=AuditActor.DELETE_BY_USER
+        )
+        session.commit()
+
+        assert count == 1
+        assert row(session, "ord_a").deleted_at is not None
+        assert row(session, "ord_a").deleted_by == AuditActor.DELETE_BY_USER.value
+
+    def test_soft_deletes_a_legacy_row_by_user_id_when_cognito_sub_is_null(
+        self, session: Session
+    ) -> None:
+        repo = TrackingRepository(session)
+        seed(session, order_id="ord_legacy", cognito_sub=None, user_id=USER_A)
+
+        count = repo.soft_delete_by_user(
+            cognito_sub=SUB_A, user_id=USER_A, actor=AuditActor.DELETE_BY_USER
+        )
+        session.commit()
+
+        assert count == 1
+        assert row(session, "ord_legacy").deleted_at is not None
+
+    def test_cascades_to_history(self, session: Session) -> None:
+        repo = TrackingRepository(session)
+        seed(
+            session,
+            order_id="ord_b",
+            cognito_sub=SUB_A,
+            user_id=USER_A,
+            with_history=True,
+        )
+
+        repo.soft_delete_by_user(
+            cognito_sub=SUB_A, user_id=USER_A, actor=AuditActor.DELETE_BY_USER
+        )
+        session.commit()
+
+        session.expire_all()
+        history = (
+            session.execute(
+                select(TrackingHistory).where(TrackingHistory.order_id == "ord_b")
+            )
+            .scalars()
+            .all()
+        )
+        assert history, "the fixture must create history rows"
+        assert all(h.deleted_at is not None for h in history)
+
+    def test_leaves_other_users_alone(self, session: Session) -> None:
+        repo = TrackingRepository(session)
+        seed(session, order_id="ord_mine", cognito_sub=SUB_A, user_id=USER_A)
+        seed(session, order_id="ord_theirs", cognito_sub=SUB_B, user_id=USER_B)
+
+        repo.soft_delete_by_user(
+            cognito_sub=SUB_A, user_id=USER_A, actor=AuditActor.DELETE_BY_USER
+        )
+        session.commit()
+
+        assert row(session, "ord_theirs").deleted_at is None
+
+    def test_is_idempotent(self, session: Session) -> None:
+        repo = TrackingRepository(session)
+        seed(session, order_id="ord_c", cognito_sub=SUB_A, user_id=USER_A)
+
+        first = repo.soft_delete_by_user(
+            cognito_sub=SUB_A, user_id=USER_A, actor=AuditActor.DELETE_BY_USER
+        )
+        session.commit()
+        second = repo.soft_delete_by_user(
+            cognito_sub=SUB_A, user_id=USER_A, actor=AuditActor.DELETE_BY_USER
+        )
+        session.commit()
+
+        assert (first, second) == (1, 0)
