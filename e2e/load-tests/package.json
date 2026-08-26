@@ -21,6 +21,7 @@
     "smoke": "tsc --noEmit && gatling run --typescript --simulation fullJourney usersPerSec=0.5 duration=20 rampUsers=3 rampDuration=5",
     "load": "tsc --noEmit && gatling run --typescript --simulation fullJourney",
     "users": "tsc --noEmit && gatling run --typescript --simulation usersJourney",
-    "auth-codes": "tsc --noEmit && gatling run --typescript --simulation authCodes"
+    "auth-codes": "tsc --noEmit && gatling run --typescript --simulation authCodes",
+    "delete-account": "tsc --noEmit && gatling run --typescript --simulation accountDeletion"
   }
 }
