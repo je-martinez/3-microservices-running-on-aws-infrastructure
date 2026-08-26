@@ -1,5 +1,6 @@
 import {
   AdminCreateUserCommand,
+  AdminDeleteUserCommand,
   AdminSetUserPasswordCommand,
   AdminUpdateUserAttributesCommand,
   AdminInitiateAuthCommand,
@@ -240,6 +241,25 @@ export class CognitoAuthProvider implements AuthProvider {
     } catch (e: any) {
       // Same mapping as setPassword: an unknown account must not be
       // distinguishable from any other failure by the error type alone.
+      if (e?.name === "UserNotFoundException") throw new InvalidCredentialsError();
+      throw e;
+    }
+  }
+
+  // Removes the account from the pool, which is what frees the email address for
+  // re-registration. See the port's note for why this is AdminDeleteUser and not
+  // AdminDisableUser, and why deleting here does not contradict our
+  // soft-delete-only rule for databases.
+  async deleteUser(email: string): Promise<void> {
+    try {
+      await this.client.send(
+        new AdminDeleteUserCommand({
+          UserPoolId: this.userPoolId,
+          Username: email,
+        }),
+      );
+    } catch (e: any) {
+      // Same mapping as setPassword and setMustChangePassword.
       if (e?.name === "UserNotFoundException") throw new InvalidCredentialsError();
       throw e;
     }

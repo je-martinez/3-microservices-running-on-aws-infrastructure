@@ -27,3 +27,7 @@ class AuditActor(StrEnum):
     # be distinguishable from one a real flow removed, which is the whole reason
     # `deleted_by` records a source rather than a user id.
     E2E_CLEANUP = "tracking_api:e2e_cleanup"
+    # DELETE /v1/trackings/by-user — the account-deletion cascade from Users. Its
+    # own actor, not the user's id: a row removed because an account was deleted
+    # must stay distinguishable from one a real flow removed.
+    DELETE_BY_USER = "tracking_api:delete_by_user"

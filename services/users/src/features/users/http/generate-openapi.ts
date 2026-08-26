@@ -27,6 +27,10 @@ process.env.WEBHOOK_SECRET ??= "generate-openapi";
 // default, so the eager parse above fails without them.
 process.env.GRPC_API_KEY ??= "generate-openapi";
 process.env.EVENTS_QUEUE_URL ??= "http://localhost:4566/000000000000/generate-openapi";
+// The account-deletion cascade's targets. Placeholders only — no request is ever
+// sent here: the `cascade` SINGLETON is never resolved by this throwaway container.
+process.env.ORDERS_BASE_URL ??= "http://localhost:8080";
+process.env.TRACKING_BASE_URL ??= "http://localhost:8000";
 // Redis (password-reset code store). Placeholders only — no connection is ever
 // opened here: the ioredis client is built by the `redis` SINGLETON, which this
 // throwaway container never registers or resolves.

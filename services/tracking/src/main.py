@@ -55,6 +55,7 @@ from src.features.tracking.api import (
     e2e_router,
     health_router,
     init_tracking_router,
+    internal_router,
     trackings_router,
 )
 from src.features.tracking.api.errors import (
@@ -180,6 +181,13 @@ def create_app() -> FastAPI:
                 "name": "e2e",
                 "description": "Test-only routes (E2E_TESTING_ENABLED)",
             },
+            {
+                "name": "internal",
+                "description": (
+                    "Service-to-service routes. Not published on the API Gateway; "
+                    "authenticated with the shared internal key, never a user JWT."
+                ),
+            },
         ],
     )
 
@@ -227,6 +235,9 @@ def create_app() -> FastAPI:
         app.include_router(e2e_router.router)
 
     app.include_router(init_tracking_router.router)
+    # Before the reads: `/by-user` is a literal segment where `/{order_id}` also
+    # matches, and Starlette matches in declaration order.
+    app.include_router(internal_router.router)
     app.include_router(trackings_router.router)
     app.include_router(carrier_router.router)
 

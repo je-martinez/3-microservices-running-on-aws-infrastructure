@@ -25,6 +25,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from src.features.tracking.domain.models import Tracking
 from src.shared.db.base import Base
 from src.shared.grpc.generated import users_pb2, users_pb2_grpc
 from src.shared.grpc.users_client import UsersGrpcClient
@@ -338,6 +339,12 @@ def session_factory(engine: Engine):
 #: environment's key — these tests must not depend on a generated env file.
 TEST_CARRIER_API_KEY = "test-carrier-api-key"
 
+#: The INTERNAL service key the test app is configured with — a different value in
+#: a different trust domain (see `shared/http/internal_auth.py`). Two literals, not
+#: one, so a suite can assert that presenting either key on the other's route is
+#: rejected; a single shared constant would make that assertion unwritable.
+TEST_GRPC_API_KEY = "test-grpc-key"
+
 
 @pytest.fixture
 def app(engine: Engine) -> FastAPI:
@@ -350,8 +357,9 @@ def app(engine: Engine) -> FastAPI:
       the HTTP surface reads and writes the same database the other fixtures set up
       and clean. The write override commits, exactly as `write_session` does, so a
       test can assert the row survived the request rather than only the response.
-    * `get_settings` — a settings object whose `tracking_carrier_api_key` is the
-      literal above, so the carrier tests neither read nor need a real env file.
+    * `get_settings` — a settings object whose `tracking_carrier_api_key` and
+      `grpc_api_key` are the two literals above, so neither the carrier tests nor
+      the internal-route tests read or need a real env file.
 
     Nothing has to be switched off to build this app: it serves HTTP and only HTTP
     (JE-108), so starting it binds no port of its own and cannot collide with a
@@ -385,7 +393,7 @@ def app(engine: Engine) -> FastAPI:
         return Settings(
             database_writer_url="mysql+pymysql://unused/unused",
             database_reader_url="mysql+pymysql://unused/unused",
-            grpc_api_key="unused-grpc-key",
+            grpc_api_key=TEST_GRPC_API_KEY,
             tracking_carrier_api_key=TEST_CARRIER_API_KEY,
         )
 
@@ -406,3 +414,47 @@ def client(app: FastAPI) -> Iterator[TestClient]:
     """
     with TestClient(app) as test_client:
         yield test_client
+
+
+@pytest.fixture
+def carrier_key() -> str:
+    """The EXTERNAL carrier key the test app is configured with.
+
+    Exposed as a fixture so a suite guarding a route that takes the INTERNAL key
+    can present the carrier's and assert it is refused, without importing the
+    other trust domain's constant by hand at every call site.
+    """
+    return TEST_CARRIER_API_KEY
+
+
+@pytest.fixture
+def seeded_tracking(session: Session) -> Tracking:
+    """One COMMITTED tracking owned by a user with two DISTINCT identities.
+
+    Committed, not merely flushed: the request under test runs on its own session,
+    so an uncommitted row would be invisible to it and every assertion would pass
+    or fail for the wrong reason.
+
+    `user_id` and `cognito_sub` are deliberately unlike each other — a `usr_` id
+    and a Cognito sub — so a test scoping by the wrong one cannot accidentally
+    match. It also carries a second history row, so a cascade assertion has more
+    than the single transition creation always writes.
+    """
+    from src.features.tracking.domain.repository import TrackingRepository
+    from src.features.tracking.domain.status import TrackingStatus
+    from src.shared.audit.audit_actor import AuditActor
+
+    repo = TrackingRepository(session)
+    tracking = repo.create(
+        order_id="ord_seeded000000000001",
+        user_id="usr_seeded00000000000a",
+        cognito_sub="33333333-3333-4333-8333-333333333333",
+        actor=AuditActor.CREATE_TRACKING,
+    )
+    repo.update_status(
+        tracking=tracking,
+        status=TrackingStatus.PROCESSING,
+        actor=AuditActor.CARRIER_STATUS_UPDATE,
+    )
+    session.commit()
+    return tracking

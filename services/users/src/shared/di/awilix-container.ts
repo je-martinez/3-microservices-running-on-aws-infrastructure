@@ -24,6 +24,8 @@ import { UpdateProfileCommand } from "#features/users/commands/update-profile";
 import { ForgotPasswordCommand } from "#features/users/commands/forgot-password";
 import { ConfirmPasswordResetCommand } from "#features/users/commands/confirm-password-reset";
 import { ChangePasswordCommand } from "#features/users/commands/change-password";
+import { DeleteAccountCommand } from "#features/users/commands/delete-account";
+import { CascadeClient } from "#shared/http/cascade-client";
 import { UserQueryService } from "#features/users/queries/get-me";
 import { E2eCleanupCommand } from "#features/users/http/e2e-cleanup";
 import { E2eIdentityQuery } from "#features/users/http/e2e-identity";
@@ -54,6 +56,8 @@ declare module "@fastify/awilix" {
     forgotPasswordCommand: ForgotPasswordCommand;
     confirmPasswordResetCommand: ConfirmPasswordResetCommand;
     changePasswordCommand: ChangePasswordCommand;
+    cascade: CascadeClient;
+    deleteAccountCommand: DeleteAccountCommand;
     userQueryService: UserQueryService;
     e2eCleanupCommand: E2eCleanupCommand;
     e2eIdentityQuery: E2eIdentityQuery;
@@ -92,6 +96,18 @@ export function registerSingletons(): void {
     auth: asFunction(
       ({ cognitoClient, env: cradleEnv }: { cognitoClient: CognitoIdentityProviderClient; env: Env }) =>
         new CognitoAuthProvider(cognitoClient, cradleEnv.COGNITO_USER_POOL_ID, cradleEnv.COGNITO_CLIENT_ID),
+      { lifetime: Lifetime.SINGLETON },
+    ),
+    // The account-deletion cascade's HTTP client. SINGLETON like every other
+    // outbound client here: it holds only configuration, and its fetch is
+    // stateless, so there is nothing per-request to rebuild.
+    cascade: asFunction(
+      ({ env: cradleEnv }: { env: Env }) =>
+        new CascadeClient({
+          ordersBaseUrl: cradleEnv.ORDERS_BASE_URL,
+          trackingBaseUrl: cradleEnv.TRACKING_BASE_URL,
+          apiKey: cradleEnv.GRPC_API_KEY,
+        }),
       { lifetime: Lifetime.SINGLETON },
     ),
     sqsClient: asFunction(
@@ -165,6 +181,7 @@ export function registerServices(): void {
     forgotPasswordCommand: asClass(ForgotPasswordCommand, { lifetime: Lifetime.SCOPED }),
     confirmPasswordResetCommand: asClass(ConfirmPasswordResetCommand, { lifetime: Lifetime.SCOPED }),
     changePasswordCommand: asClass(ChangePasswordCommand, { lifetime: Lifetime.SCOPED }),
+    deleteAccountCommand: asClass(DeleteAccountCommand, { lifetime: Lifetime.SCOPED }),
     userQueryService: asClass(UserQueryService, { lifetime: Lifetime.SCOPED }),
     e2eCleanupCommand: asClass(E2eCleanupCommand, { lifetime: Lifetime.SCOPED }),
     e2eIdentityQuery: asClass(E2eIdentityQuery, { lifetime: Lifetime.SCOPED }),

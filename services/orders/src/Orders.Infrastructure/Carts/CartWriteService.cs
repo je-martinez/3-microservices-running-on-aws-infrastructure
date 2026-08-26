@@ -17,6 +17,20 @@ namespace Orders.Infrastructure.Carts;
 /// </summary>
 public class CartWriteService
 {
+    /// <summary>
+    /// The binary collation pinned on every ownership comparison in the account-erasure
+    /// cascade — here and in <c>InternalEndpoints</c>, which references this constant.
+    /// </summary>
+    /// <remarks>
+    /// A shared constant rather than a literal repeated at each site for the same reason
+    /// <see cref="CartConfiguration.ActiveUserIdIndexName"/> is one: if the spellings
+    /// drift, the protection silently stops applying at whichever site was missed, and
+    /// nothing fails — the query still runs, just case-insensitively again. See the
+    /// canonical note on the orders sweep in <c>InternalEndpoints</c> for WHY this is
+    /// needed at all.
+    /// </remarks>
+    public const string BinaryCollation = "utf8mb4_bin";
+
     private readonly OrdersWriteDbContext _db;
     private readonly IUserDirectory _users;
     private readonly CartReadService _reads;
@@ -240,15 +254,27 @@ public class CartWriteService
 
     /// <summary>
     /// Soft-deletes a user's active cart and its lines on the GIVEN context, without
-    /// saving.
+    /// saving. Matches on <c>cognito_sub</c> ALONE.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Static and context-taking so order creation can call it INSIDE its own
     /// transaction (see CreateOrderService) rather than duplicating the deletion
     /// logic. There are three call sites — an emptying PUT, DELETE /v1/cart, and a
     /// completed order — and they must not be allowed to drift apart. The caller
     /// owns SaveChanges, which is what lets the order path make cart removal part
     /// of the same atomic commit as the order itself.
+    /// </para>
+    /// <para>
+    /// The narrow, sub-only match is DELIBERATE for these three, and must stay narrow.
+    /// All three act on behalf of a LIVE request whose identity is the current
+    /// <c>cognito_sub</c>; widening them to also match on <c>user_id</c> would let a
+    /// checkout, or an emptying PUT, destroy a cart row that merely shares an internal
+    /// id — the re-registration case where a stale row carries the same <c>usr_</c> id
+    /// under an older sub. Losing someone's selection mid-checkout is a strictly worse
+    /// outcome than leaving a stale cart behind. The account-erasure cascade wants the
+    /// opposite trade-off and has its own overload below.
+    /// </para>
     /// </remarks>
     public static async Task DeleteForUserAsync(
         OrdersWriteDbContext db,
@@ -260,6 +286,60 @@ public class CartWriteService
             .FirstOrDefaultAsync(c => c.CognitoSub == cognitoSub, ct);
 
         if (cart is not null)
+        {
+            SoftDelete(cart);
+        }
+    }
+
+    /// <summary>
+    /// Soft-deletes EVERY cart matching either identity — <c>cognito_sub</c> OR
+    /// <c>user_id</c> — for the account-erasure cascade. Does not save.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A separate entry point rather than a widened <see cref="DeleteForUserAsync(OrdersWriteDbContext, string, CancellationToken)"/>
+    /// because erasure is the one caller for which "delete slightly too much" beats
+    /// "leave data behind": the user asked for the account to go. The other three call
+    /// sites want the opposite (see the remarks above), so the two behaviours are two
+    /// methods, not one method with a flag nobody reads at the call site.
+    /// </para>
+    /// <para>
+    /// Both arguments MUST be non-empty; the caller validates this. Both columns are
+    /// <c>NOT NULL varchar</c> in MySQL, which still permits the EMPTY STRING, so an
+    /// empty value in this OR would match every row whose column was left blank —
+    /// someone else's data.
+    /// </para>
+    /// <para>
+    /// Plural, unlike the sub-only overload's <c>FirstOrDefaultAsync</c>: the whole
+    /// point of the OR is that the two identities may resolve to DIFFERENT rows, and
+    /// the one-active-cart unique index is on <c>user_id</c> only, so two live carts
+    /// with different subs and different user ids can legitimately both match here.
+    /// </para>
+    /// <para>
+    /// Both comparisons are pinned to <see cref="BinaryCollation"/>. The ownership columns
+    /// are case-INSENSITIVE (<c>utf8mb4_0900_ai_ci</c>) while the ids are MIXED-CASE and
+    /// minted case-SENSITIVELY by Users' Postgres, so without this an erasure would delete
+    /// the cart of a DIFFERENT user whose id differs only in capitalization. Pinned at the
+    /// predicate, not the schema, to scope the change to the irreversible operation — the
+    /// canonical note lives on the orders sweep in <c>InternalEndpoints</c>. The sub-only
+    /// overload above is deliberately NOT collated: it is not an erasure path.
+    /// </para>
+    /// </remarks>
+    public static async Task DeleteForUserAsync(
+        OrdersWriteDbContext db,
+        string cognitoSub,
+        string userId,
+        CancellationToken ct = default)
+    {
+        var carts = await db.Carts
+            .Include(c => c.Items)
+            .Where(c => EF.Functions.Collate(c.CognitoSub, BinaryCollation)
+                    == EF.Functions.Collate(cognitoSub, BinaryCollation)
+                || EF.Functions.Collate(c.UserId, BinaryCollation)
+                    == EF.Functions.Collate(userId, BinaryCollation))
+            .ToListAsync(ct);
+
+        foreach (var cart in carts)
         {
             SoftDelete(cart);
         }
