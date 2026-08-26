@@ -112,6 +112,12 @@ public abstract class OrdersE2eApiFactoryBase : WebApplicationFactory<Program>, 
         // Base URL the product read service prefixes onto each image's bucket key.
         // Placeholder — nothing here fetches the composed URL.
         builder.UseSetting("ASSETS_BASE_URL", "http://localhost:4566/test-assets");
+        // These hosts test the E2E-tagging surface, not the response cache, so they run
+        // with the cache OFF rather than paying for a Redis container they never assert
+        // on. That is also the cheapest way to keep them honest about the kill switch:
+        // with CACHE_ENABLED=false nothing Redis-shaped is registered at all, so a
+        // regression that made the service require Redis unconditionally fails here.
+        builder.UseSetting("CACHE_ENABLED", "false");
 
         // The test host boots the REAL Program.cs, OTel pipeline included. With
         // no OTEL_* set it falls back to the SDK default endpoint,

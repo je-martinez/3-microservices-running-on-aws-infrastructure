@@ -10,7 +10,9 @@ using Orders.Infrastructure.Id;
 using Orders.Infrastructure.Messaging;
 using Orders.Infrastructure.Metrics;
 using Orders.Infrastructure.Persistence;
+using StackExchange.Redis;
 using Testcontainers.MySql;
+using Testcontainers.Redis;
 
 namespace Orders.Tests.Api;
 
@@ -21,6 +23,12 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
 {
     private readonly MySqlContainer _mysql =
         new MySqlBuilder("mysql:8.0").WithDatabase("orders").Build();
+
+    // A REAL Redis, not a fake: the response cache is exercised end to end through the
+    // HTTP surface here, so the thing under test is the gateway talking to an actual
+    // server (TTL bookkeeping, expiry, byte-for-byte replay) rather than a dictionary
+    // that agrees with our assumptions about it.
+    private readonly RedisContainer _redis = new RedisBuilder("redis:7-alpine").Build();
 
     public const string KnownCognitoSub = "sub-known";
     public const string KnownUserId = "usr_known";
@@ -35,6 +43,7 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
     public async Task InitializeAsync()
     {
         await _mysql.StartAsync();
+        await _redis.StartAsync();
 
         var cs = _mysql.GetConnectionString();
         await using var db = new OrdersWriteDbContext(new DbContextOptionsBuilder<OrdersWriteDbContext>()
@@ -61,7 +70,26 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
     public new async Task DisposeAsync()
     {
         await _mysql.DisposeAsync();
+        await _redis.DisposeAsync();
         await base.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Empties the cache so a test can assert on a first-read MISS deterministically.
+    /// </summary>
+    /// <remarks>
+    /// This factory is a COLLECTION fixture shared by every test class in the collection,
+    /// so the cache survives across classes: without a flush, "the first read is a MISS"
+    /// would pass or fail depending on whether some earlier class had already warmed the
+    /// key. Ordering is not something a test may assume, so the state is reset instead.
+    /// <c>allowAdmin=true</c> is required — FLUSHDB is an admin command and the client
+    /// refuses it otherwise.
+    /// </remarks>
+    public async Task FlushCacheAsync()
+    {
+        await using var mux = await ConnectionMultiplexer.ConnectAsync(
+            $"{_redis.Hostname}:{_redis.GetMappedPublicPort(6379)},allowAdmin=true");
+        await mux.GetServer(mux.GetEndPoints().Single()).FlushDatabaseAsync();
     }
 
     // A fresh write context over the same container, for tests that need to exercise
@@ -95,6 +123,12 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
         // fixed placeholder: these tests assert on the composed shape, not on a
         // reachable object, and nothing fetches the URL.
         builder.UseSetting("ASSETS_BASE_URL", "http://localhost:4566/test-assets");
+        // The response cache runs for real in these tests, against the Redis container
+        // above. CACHE_ENABLED is set explicitly rather than left to its default so the
+        // intent is visible at the one place a reader looks for this factory's config.
+        builder.UseSetting("REDIS_HOST", _redis.Hostname);
+        builder.UseSetting("REDIS_PORT", _redis.GetMappedPublicPort(6379).ToString());
+        builder.UseSetting("CACHE_ENABLED", "true");
 
         builder.ConfigureTestServices(services =>
         {

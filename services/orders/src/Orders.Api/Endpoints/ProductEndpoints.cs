@@ -1,4 +1,6 @@
+using Orders.Api.Caching;
 using Orders.Application.Orders;
+using Orders.Infrastructure.Caching;
 using Orders.Infrastructure.Orders;
 
 namespace Orders.Api.Endpoints;
@@ -18,6 +20,13 @@ public static class ProductEndpoints
             .WithName("GetProducts")
             .WithSummary("List the active product catalog.")
             .Produces<IReadOnlyList<ProductDto>>(StatusCodes.Status200OK)
-            .Produces(StatusCodes.Status401Unauthorized);
+            .Produces(StatusCodes.Status401Unauthorized)
+            .WithCache(
+                // The catalogue belongs to no user: one key for everyone, and the only
+                // response key in this service with neither cognito_sub nor user_id. That
+                // is also why it is excluded from the per-user key index — there is no
+                // user whose write could invalidate it.
+                (_, _) => Task.FromResult<string?>(CacheKeys.Products),
+                CacheKeys.ProductsTtl);
     }
 }
