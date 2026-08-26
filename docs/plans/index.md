@@ -53,6 +53,7 @@ related:
   - "[[observability-telemetry-milestone]]"
   - "[[2026-08-25-response-caching-layer-design]]"
   - "[[2026-08-25-response-caching-layer]]"
+  - "[[response-caching-layer-milestone]]"
 ---
 
 # 3MRAI Plans — Index
@@ -107,6 +108,7 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-08-25-cart-endpoints]] — implementation plan for the cart endpoints: the `Money` object and its rollout across every Orders DTO, the Cart/CartItem entities with `crt_`/`cti_` id prefixes and the DB-enforced one-active-cart invariant, `CartReadService`/`CartWriteService`, the three `/v1/cart` HTTP endpoints, the order-creation cart-deletion hook, E2E coverage, and vault propagation.
 - [[2026-08-25-response-caching-layer-design]] — design spec for a shared-Redis, HTTP-layer response cache across Users/Orders/Tracking reporting `X-Cache: HIT|MISS|BYPASS` via a per-service interceptor, fail-open with a 50ms timeout, explicit post-write invalidation, and a `CACHE_ENABLED` kill switch; reuses the existing `infra/modules/redis` deployment. New shared convention: [[x-cache-response-header]].
 - [[2026-08-25-response-caching-layer]] — implementation plan for the response caching layer: the `CacheGateway`/`CachedRead`/`CacheInvalidator` trio per service (`ioredis` Users, `StackExchange.Redis` Orders, `redis-py` Tracking), the `cognito_sub -> user_id` identity cache in Orders/Tracking, CloudWatch cache metrics, and three-layer test coverage (unit/integration, internal E2E, gateway E2E) across all seven cached endpoints.
+- [[response-caching-layer-milestone]] — logical execution plan for the Response Caching Layer milestone: task sequence and dependency graph for the infra gate (JE-195), the parallel Orders/Tracking/Users branches, and the closing E2E + load-test issue (JE-200).
 
 > [!note] No plan note for the AuditActor enum
 > [[2026-07-12-audit-actor-enum-design]] was implemented directly from the spec — there is no separate `writing-plans` plan for it.
@@ -159,3 +161,4 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-08-25-cart-endpoints]]
 - [[2026-08-25-response-caching-layer-design]]
 - [[2026-08-25-response-caching-layer]]
+- [[response-caching-layer-milestone]]
