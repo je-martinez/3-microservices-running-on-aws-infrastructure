@@ -4,9 +4,10 @@ using Orders.Application.Abstractions;
 using Orders.Application.Identity;
 using Orders.Application.Orders;
 using Orders.Application.Tracking;
-using Orders.Domain;
 using Orders.Domain.Entities;
 using Orders.Domain.Pricing;
+using Orders.Domain;
+using Orders.Infrastructure.Caching;
 using Orders.Infrastructure.Carts;
 using Orders.Infrastructure.Id;
 using Orders.Infrastructure.Observability;
@@ -33,6 +34,7 @@ public class CreateOrderService
     private readonly IConfigurationReader _config;
     private readonly ITrackingInitiator _tracking;
     private readonly IWorkflowTracer _tracer;
+    private readonly ICacheInvalidator _cache;
     private readonly ILogger<CreateOrderService> _logger;
 
     public CreateOrderService(
@@ -42,6 +44,7 @@ public class CreateOrderService
         IConfigurationReader config,
         ITrackingInitiator tracking,
         IWorkflowTracer tracer,
+        ICacheInvalidator cache,
         ILogger<CreateOrderService> logger)
     {
         _db = db;
@@ -50,6 +53,7 @@ public class CreateOrderService
         _config = config;
         _tracking = tracking;
         _tracer = tracer;
+        _cache = cache;
         _logger = logger;
     }
 
@@ -284,6 +288,27 @@ public class CreateOrderService
                 subtotal, tax, shippingCents, total,
                 shippingAddressJson, eventItems, now, cognitoSub, ct);
             await tx.CommitAsync(ct);
+
+            // AFTER the commit, alongside the success log and the tracking init that
+            // already live here for the same reason: at this point the order genuinely
+            // exists.
+            //
+            // ONE commit, THREE stale things. The cart was deleted INSIDE the transaction
+            // above (via CartWriteService.DeleteForUserAsync), so its cached entry is
+            // wrong the moment this commit lands; my-orders is missing the order that was
+            // just created; and the catalogue entry is holding stock counts this order
+            // just decremented. InvalidateOrderCreationAsync removes all three — the cart
+            // and every my-orders variant through the caller's key index, the catalogue by
+            // name.
+            //
+            // Invalidating BEFORE the commit would be wrong in a way tests do not usually
+            // catch: a concurrent read landing in the window between the delete and the
+            // commit would repopulate the entry with the pre-order state, and it would
+            // then sit there, stale, for its full TTL.
+            //
+            // ICacheInvalidator swallows its own failures, so this cannot fail an order
+            // that was already paid for — the same rule the tracking init below follows.
+            await _cache.InvalidateOrderCreationAsync(cognitoSub, ct);
 
             // AFTER the commit: the order genuinely exists at this point, so the
             // success line never claims something a rollback later undid.

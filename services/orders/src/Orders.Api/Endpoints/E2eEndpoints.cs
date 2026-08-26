@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Orders.Application.Abstractions;
 using Orders.Domain.Entities;
+using Orders.Infrastructure.Caching;
 using Orders.Infrastructure.Persistence;
 
 namespace Orders.Api.Endpoints;
@@ -17,7 +18,9 @@ public static class E2eEndpoints
 
     public static void MapE2eEndpoints(this WebApplication app)
     {
-        app.MapDelete("/v1/orders/e2e-cleanup", async (OrdersWriteDbContext db) =>
+        app.MapDelete("/v1/orders/e2e-cleanup", async (
+            OrdersWriteDbContext db,
+            ICacheInvalidator cache) =>
         {
             var now = DateTime.UtcNow;
 
@@ -81,6 +84,23 @@ public static class E2eEndpoints
             // detail count is reported alongside it rather than folded in, so a teardown
             // that removed nothing is distinguishable from one that removed orders whose
             // lines were already gone.
+            // The ExecuteUpdateAsync calls above bypass SaveChanges and therefore every
+            // interceptor and write service in this codebase — nothing else in the request
+            // would ever tell the cache the catalogue moved. Without this line the
+            // restocked stock is invisible for the catalogue entry's full 10-minute TTL,
+            // which is longer than an E2E suite runs: the next run reads the drained
+            // figures and fails on fixtures that only need to place an order.
+            //
+            // Only the catalogue. Per-user entries are keyed by sub, and this endpoint
+            // deletes BY TAG across every user an E2E run touched — it has no caller
+            // identity at all to sweep by, and the orders it soft-deletes are E2E rows no
+            // real session is reading. Their entries expire on their own 2-minute TTL.
+            //
+            // CancellationToken.None, not the request's: the restock has already
+            // committed, and a client that hung up mid-teardown must not leave the
+            // catalogue entry stale for the next run.
+            await cache.InvalidateProductsAsync(CancellationToken.None);
+
             return Results.Ok(new E2eCleanupResponse(deleted, deletedDetails, restocked));
         })
             // Tagged "e2e", not "Orders": a flag-guarded, test-only surface that a

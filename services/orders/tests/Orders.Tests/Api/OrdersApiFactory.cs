@@ -32,6 +32,20 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
 
     public const string KnownCognitoSub = "sub-known";
     public const string KnownUserId = "usr_known";
+
+    // A SECOND resolvable identity. Cross-user cache isolation cannot be tested with only
+    // one: a second caller the stub does not resolve reaches the handler with a null
+    // ResolvedInternalUserId, so the key builder declines and nothing is cached for them
+    // at all — the isolation assertion would then pass because caching was SKIPPED, not
+    // because the keys were scoped. That test would prove nothing and would keep passing
+    // if the keys stopped carrying identity entirely.
+    //
+    // It lives here rather than on OrdersE2eApiFactory (which already has two identities)
+    // because that host runs with CACHE_ENABLED=false and owns no Redis container, so it
+    // emits no X-Cache header at all — deliberately, to keep the kill switch honest. This
+    // factory is the only one with a real cache, so the second identity has to be here.
+    public const string OtherCognitoSub = "sub-other";
+    public const string OtherUserId = "usr_other";
     // Users returns an email on the same GetUserById response as the id; ORDER_CREATED
     // carries it to the pipeline, so the stub must supply one.
     public const string KnownEmail = "known@example.com";
@@ -158,18 +172,33 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
 
     private sealed class StubDirectory : IUserDirectory
     {
+        // Any OTHER sub still resolves to null, which is what keeps the
+        // "unresolvable caller is never cached" case reachable.
+        private static string? IdFor(string sub) => sub switch
+        {
+            KnownCognitoSub => KnownUserId,
+            OtherCognitoSub => OtherUserId,
+            _ => null,
+        };
+
         public Task<string?> ResolveInternalUserIdAsync(string cognitoSub, CancellationToken ct = default)
-            => Task.FromResult<string?>(cognitoSub == KnownCognitoSub ? KnownUserId : null);
+            => Task.FromResult(IdFor(cognitoSub));
 
         // A populated address, so endpoint tests exercise the snapshot path rather
         // than the "user has none on file" branch.
         public Task<CallerProfile?> ResolveCallerAsync(string cognitoSub, CancellationToken ct = default)
-            => Task.FromResult(cognitoSub == KnownCognitoSub
-                ? new CallerProfile(
-                    KnownUserId,
-                    KnownEmail,
-                    KnownFullName,
-                    new CallerAddress("1 Test St", null, "Testville", null, "Testland", null))
-                : null);
+        {
+            var id = IdFor(cognitoSub);
+            return Task.FromResult(id is null
+                ? null
+                : new CallerProfile(
+                    id,
+                    // The known user keeps its fixed email/name: existing tests assert on
+                    // those exact constants in the ORDER_CREATED envelope. The second user
+                    // derives its own from its id so the two stay distinguishable.
+                    id == KnownUserId ? KnownEmail : $"{id}@example.com",
+                    id == KnownUserId ? KnownFullName : $"Test {id}",
+                    new CallerAddress("1 Test St", null, "Testville", null, "Testland", null)));
+        }
     }
 }

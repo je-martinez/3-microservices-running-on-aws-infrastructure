@@ -247,6 +247,19 @@ if (cacheEnabled)
         // 50ms. Long enough for a same-network Redis round trip, short enough that a
         // hung cache costs a read almost nothing before it falls through to MySQL.
         TimeSpan.FromMilliseconds(50)));
+    // Singleton to match the gateway it wraps: it holds no per-request state, and a
+    // scoped registration over a singleton dependency would only add allocations.
+    builder.Services.AddSingleton<ICacheInvalidator>(sp => new CacheInvalidator(
+        sp.GetRequiredService<ICacheGateway>(),
+        sp.GetRequiredService<ILogger<CacheInvalidator>>()));
+}
+else
+{
+    // The write services depend on ICacheInvalidator unconditionally, so the kill switch
+    // must still leave one registered — otherwise CACHE_ENABLED=false takes the service
+    // down at the first cart write rather than merely disabling the cache. Nothing is
+    // cached in this mode, so the no-op is the honest answer.
+    builder.Services.AddSingleton<ICacheInvalidator, NoopCacheInvalidator>();
 }
 
 // Users gRPC client for identity resolution. One channel per process (Singleton);
@@ -430,6 +443,7 @@ builder.Services.AddScoped(sp => new CreateOrderService(
     sp.GetRequiredService<IConfigurationReader>(),
     sp.GetRequiredService<ITrackingInitiator>(),
     sp.GetRequiredService<IWorkflowTracer>(),
+    sp.GetRequiredService<ICacheInvalidator>(),
     sp.GetRequiredService<ILogger<CreateOrderService>>()));
 
 var app = builder.Build();

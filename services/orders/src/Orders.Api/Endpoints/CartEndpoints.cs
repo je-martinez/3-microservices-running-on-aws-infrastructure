@@ -1,6 +1,8 @@
+using Orders.Api.Caching;
 using Orders.Api.Identity;
 using Orders.Application.Abstractions;
 using Orders.Application.Carts;
+using Orders.Infrastructure.Caching;
 using Orders.Infrastructure.Carts;
 
 namespace Orders.Api.Endpoints;
@@ -33,7 +35,14 @@ public static class CartEndpoints
             .WithName("GetMyCart")
             .WithSummary("Read the caller's active cart, fully priced and calculated.")
             .Produces<CartDto>(StatusCodes.Status200OK)
-            .Produces(StatusCodes.Status401Unauthorized);
+            .Produces(StatusCodes.Status401Unauthorized)
+            // The 60s TTL is only the safety net; correctness comes from the invalidation
+            // on every cart PUT/DELETE and on order creation.
+            //
+            // No type argument: CachedReadFilter is non-generic and stores the serialized
+            // body, so the call site never names the DTO. .Produces<CartDto> above still
+            // documents the shape for OpenAPI — that is unrelated to the cache.
+            .WithCache(UserCacheKeyBuilders.Cart, CacheKeys.CartTtl);
 
         group.MapPut("", Handle)
             .WithName("UpdateCart")
