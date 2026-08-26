@@ -22,5 +22,11 @@ export enum AuditActor {
   PasswordResetConfirmed = "users_api:password_reset_confirmed",
   ChangePassword = "users_api:change_password",
   IdentityCapture = "users_api:identity_capture",
+  // DELETE /v1/users/me — the user erasing their own account. Distinct from
+  // E2eCleanup, which also soft-deletes user rows: `deleted_by` records WHAT
+  // produced the change, and "the user asked us to" is a different fact from
+  // "the test harness swept it" — which is the whole reason this column stores a
+  // source rather than an id.
+  DeleteAccount = "users_api:delete_account",
   E2eCleanup = "users_api:e2e_cleanup",
 }

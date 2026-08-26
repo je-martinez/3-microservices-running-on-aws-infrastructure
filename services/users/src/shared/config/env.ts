@@ -28,6 +28,18 @@ const schema = z.object({
   // be deployed unguarded by omission.
   GRPC_PORT: z.coerce.number().int().positive().default(50051),
   GRPC_API_KEY: z.string().min(1),
+  // The account-deletion cascade's two downstream services. Users had no plain
+  // HTTP dependency before this — every other outbound call is gRPC, an AWS SDK
+  // client, or Redis — so these are the first of their kind here. Named to match
+  // Orders' existing TRACKING_BASE_URL, so one convention covers every
+  // service-to-service HTTP base in the repo.
+  //
+  // REQUIRED, with no default: a missing value must fail at boot with a named Zod
+  // error rather than let DELETE /v1/users/me reach a half-configured cascade and
+  // report success for orders it never deleted ([[ADR-0014-env-validation-zod]]).
+  // Both routes they point at are internal and absent from the API Gateway.
+  ORDERS_BASE_URL: z.string().url(),
+  TRACKING_BASE_URL: z.string().url(),
   // Shared events queue consumed by the events-pipeline Lambda. Required in
   // every environment and never hardcoded: `make env-file` writes it into
   // .env.local.users from the Terraform output, because Floci remints the queue

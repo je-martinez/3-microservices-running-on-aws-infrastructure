@@ -54,6 +54,9 @@ related:
   - "[[2026-08-25-response-caching-layer-design]]"
   - "[[2026-08-25-response-caching-layer]]"
   - "[[response-caching-layer-milestone]]"
+  - "[[2026-08-25-account-deletion-design]]"
+  - "[[2026-08-25-account-deletion]]"
+  - "[[account-deletion-milestone]]"
 ---
 
 # 3MRAI Plans — Index
@@ -109,6 +112,9 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-08-25-response-caching-layer-design]] — design spec for a shared-Redis, HTTP-layer response cache across Users/Orders/Tracking reporting `X-Cache: HIT|MISS|BYPASS` via a per-service interceptor, fail-open with a 50ms timeout, explicit post-write invalidation, and a `CACHE_ENABLED` kill switch; reuses the existing `infra/modules/redis` deployment. New shared convention: [[x-cache-response-header]].
 - [[2026-08-25-response-caching-layer]] — implementation plan for the response caching layer: the `CacheGateway`/`CachedRead`/`CacheInvalidator` trio per service (`ioredis` Users, `StackExchange.Redis` Orders, `redis-py` Tracking), the `cognito_sub -> user_id` identity cache in Orders/Tracking, CloudWatch cache metrics, and three-layer test coverage (unit/integration, internal E2E, gateway E2E) across all seven cached endpoints.
 - [[response-caching-layer-milestone]] — logical execution plan for the Response Caching Layer milestone: task sequence and dependency graph for the infra gate (JE-195), the parallel Orders/Tracking/Users branches, and the closing E2E + load-test issue (JE-200).
+- [[2026-08-25-account-deletion-design]] — design spec for letting a user delete their own account: `DELETE /v1/users/me` cascading synchronously to Orders and Tracking, a partial unique index on `users.email` (live rows only) so the address can be reused, and Cognito `AdminDeleteUser` as the deliberate exception to [[ADR-0004-soft-delete-only]].
+- [[2026-08-25-account-deletion]] — implementation plan for account deletion: the partial unique index and its migration, `AuthProvider.deleteUser` via `AdminDeleteUserCommand`, the two new internal cascade routes (`DELETE /v1/orders/by-user`, `DELETE /v1/trackings/by-user`) guarded by `GRPC_API_KEY`, the `CascadeClient` in Users, `DeleteAccountCommand`, the gateway route, three-layer E2E, and vault propagation.
+- [[account-deletion-milestone]] — logical execution plan for the Account Deletion milestone: task sequence and dependency graph over T1–T10, with T5–T9 chained on the independent T1–T4 foundation.
 
 > [!note] No plan note for the AuditActor enum
 > [[2026-07-12-audit-actor-enum-design]] was implemented directly from the spec — there is no separate `writing-plans` plan for it.
@@ -162,3 +168,6 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-08-25-response-caching-layer-design]]
 - [[2026-08-25-response-caching-layer]]
 - [[response-caching-layer-milestone]]
+- [[2026-08-25-account-deletion-design]]
+- [[2026-08-25-account-deletion]]
+- [[account-deletion-milestone]]

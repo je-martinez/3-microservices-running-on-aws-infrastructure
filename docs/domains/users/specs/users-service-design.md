@@ -4,9 +4,10 @@ type: spec
 area: users
 status: active
 created: 2026-06-26
-updated: 2026-08-21
+updated: 2026-08-26
 tags: [type/spec, area/users, status/active]
 related:
+  - "[[2026-08-25-account-deletion-design]]"
   - "[[2026-08-15-request-id-correlation-design]]"
   - "[[soft-delete]]"
   - "[[nano-id]]"
@@ -89,11 +90,12 @@ All routes are versioned under `/v1` (see [[versioning]]). Source of truth: `ser
 | `GET` | `/v1/users/me` | Returns the authenticated user's profile, resolved via `findByIdOrCognitoSub`, including `mustChangePassword`. |
 | `PATCH` | `/v1/users/me` | Updates the authenticated user's profile. |
 | `PATCH` | `/v1/users/me/password` | Sets a new password for the authenticated caller (no code) via `AdminSetUserPassword`; clears `mustChangePassword`. A dedicated command, not part of the general profile update — see [Password reset](#password-reset). |
+| `DELETE` | `/v1/users/me` | Deletes the caller's own account: cascades to Orders and Tracking, soft-deletes the Users row, then removes the Cognito account. `204` on success; `401` no `x-user-id`; `404` the row is already deleted; `502` a cascade leg failed. See [Account deletion](#account-deletion) below. |
 | `POST` | `/v1/webhooks/cognito` | Cognito PostConfirmation trigger webhook; shared-secret guarded (`x-webhook-secret`), no JWT authorizer. See [Cognito identity capture](#cognito-identity-capture). |
 | `DELETE` | `/v1/users/e2e-cleanup` | **[E2E only]** Soft-deletes E2E-sourced users. Gated on `E2E_TESTING_ENABLED`. |
 | `GET` | `/v1/users/e2e-identity` | **[E2E only]** Reads captured Cognito identity rows by email, for E2E assertions. Gated on `E2E_TESTING_ENABLED`. |
 
-Authentication on `GET /v1/users/me` and `PATCH /v1/users/me` is enforced via API Gateway + Cognito (see [[ADR-0009-apigw-alb-fargate]] and [[ADR-0010-cognito-auth]]); locally the identity header is injected by nginx+njs, not by API Gateway claim mapping (see [[ADR-0017-floci-local]]).
+Authentication on `GET /v1/users/me`, `PATCH /v1/users/me`, and `DELETE /v1/users/me` is enforced via API Gateway + Cognito (see [[ADR-0009-apigw-alb-fargate]] and [[ADR-0010-cognito-auth]]); locally the identity header is injected by nginx+njs, not by API Gateway claim mapping (see [[ADR-0017-floci-local]]).
 
 ## Error contract
 
@@ -105,7 +107,8 @@ A global `app.setErrorHandler` in `routes.ts` maps typed auth-domain errors (`se
 | `InvalidCredentialsError` | `POST /v1/users/login`, `POST /v1/users/refresh` | `401` | `invalid_credentials` |
 | `InvalidOtpError` | `POST /v1/users/otp/verify` | `401` | `invalid_otp` |
 | `InvalidResetCodeError` | `POST /v1/users/password/confirm` | `401` | `invalid_reset_code` — deliberately identical for an unknown email, a wrong code, and an expired code; see [Password reset](#password-reset). |
-| Not found (no error class — inline `404`) | `GET /v1/users/me`, `PATCH /v1/users/me`, `PATCH /v1/users/me/password` | `404` | `not_found` |
+| Not found (no error class — inline `404`) | `GET /v1/users/me`, `PATCH /v1/users/me`, `PATCH /v1/users/me/password`, `DELETE /v1/users/me` | `404` | `not_found` |
+| `CascadeError` (`CascadeFailedError` \| `CascadeUnavailableError`) | `DELETE /v1/users/me` | `502` | `cascade_failed` — the **only** `502` this service emits. Covers both "a downstream leg didn't confirm" and "the cascade could not even be attempted" (missing `cognitoSub`); see [Account deletion](#account-deletion) below. |
 
 `POST /v1/users/login` also returns `401 invalid_credentials` — the same generic code as a wrong
 password — when the looked-up user has `authType=PASSWORDLESS`. This is a deliberate reuse of the
@@ -125,7 +128,7 @@ Tables (all columns in `snake_case`; mapped to `camelCase`/`PascalCase` in the a
 | Column | Type | Notes |
 |---|---|---|
 | `id` | `varchar` | Prefixed nano ID, e.g. `usr_…` (see [[nano-id]]) |
-| `email` | `varchar` | Unique, not null |
+| `email` | `varchar` | Not null. **Unique among LIVE rows only** — see the callout below. |
 | `cognito_sub` | `varchar` | Nullable, **unique**. The Cognito subject, captured from the identity webhook/in-process capture. |
 | `full_name` | `varchar` | Maps to `fullName` |
 | `address` | `jsonb` | Structured address object, nullable |
@@ -138,6 +141,22 @@ Tables (all columns in `snake_case`; mapped to `camelCase`/`PascalCase` in the a
 | `deleted_by` / `deleted_at` | `varchar` / `timestamptz` | Null = active; set = soft-deleted |
 
 `isDeleted` is a computed property based on `deleted_at` (see [[audit-fields]] and [[soft-delete]]). Indexed on `deletedAt` (`@@index([deletedAt])`).
+
+> [!warning] `email` is unique among LIVE rows only — corrected 2026-08-26
+> This table previously listed `email` as plain `Unique, not null`, which stopped being true once
+> account deletion shipped. As of migration `20260826000000_partial_unique_email`, the constraint
+> is `@@unique([email], where: raw("deleted_at IS NULL"))` — a **partial** unique index, scoped to
+> live rows — not a plain column-level `@unique`. A soft-deleted row **keeps its real email
+> intact**; there is no tombstoning or rewriting to `deleted+<id>@…`, since that would destroy the
+> historical data the deletion feature exists to preserve and break the row's `email_hash` for
+> audit purposes. Full pattern: [[soft-delete#The partial-unique-index pattern]].
+>
+> **Re-registration semantics.** After a user deletes their account and registers again with the
+> same address, **two rows share that email** — one carrying `deletedAt`, one live. The old row's
+> orders and tracking data stay bound to the **old** `usr_` id and the **old** Cognito sub (which
+> Cognito never reissues to anyone). The new user sees **none** of the old history: no reattachment
+> is attempted, and "persisting the old record" means retaining it in the database for audit, not
+> showing it back to the user. Full design: [[2026-08-25-account-deletion-design]].
 
 ### `users_cognito_data` — 1:1 identity snapshot
 
@@ -296,6 +315,68 @@ boolean attribute type, so the mirrored value is the string `"true"`/`"false"`.
 That would keep a single source of truth, but requires VPC configuration and DB credentials for
 the Lambda and adds latency plus a new failure point to every token issue.
 
+## Account deletion
+
+> [!info] Shipped 2026-08-26 — Account Deletion milestone
+> Full design: [[2026-08-25-account-deletion-design]]. `DELETE /v1/users/me` is the only
+> user-facing request in this service (and in the repo) that synchronously fans out to two other
+> services plus an external identity provider before answering.
+
+`DeleteAccountCommand` (`services/users/src/features/users/commands/delete-account.ts`) deletes
+the caller's own account in a fixed order — **cascade first, account deletion last** — because
+the reverse order is unrecoverable: an account deleted before a failing cascade would leave the
+user unable to authenticate to retry, orphaning their Orders/Tracking data with no path to fix it.
+
+1. Cascade to Orders (`DELETE /v1/orders/by-user`). On failure, nothing else has been touched.
+2. Cascade to Tracking (`DELETE /v1/trackings/by-user`).
+3. Soft-delete the Users row (rewritten to an `UPDATE` by the same Prisma extension that enforces
+   [[soft-delete]] everywhere else in this service).
+4. `AuthProvider.deleteUser` → Cognito `AdminDeleteUserCommand` — the point of no return, and
+   what actually frees the email address for re-registration.
+
+Both internal cascade legs are idempotent (guarded by `deleted_at IS NULL` downstream), so a
+retry after a partial failure re-runs the succeeded leg as a no-op — the inconsistency is
+transient and self-healing, not a state requiring compensation/rollback logic.
+
+### `CascadeClient` — the first plain-HTTP outbound client in this service
+
+`services/users/src/shared/http/cascade-client.ts` calls the two internal routes. Every other
+outbound call Users makes is gRPC, an AWS SDK client, or Redis — this is the first time the
+service speaks plain HTTP to another service, shaped after Orders' own `TrackingHttpClient` so it
+is not a new *pattern* in the repo, only a new *transport* for this service. It requires two new
+env vars, `ORDERS_BASE_URL` and `TRACKING_BASE_URL`, resolved through the same generated
+env-file mechanism as every other config value ([[env-files]]).
+
+Both downstream calls carry **both** identities (`cognitoSub` and `userId`) in the body — never
+an `x-user-id` header, since the caller here is Users acting on the user's behalf, not an
+end-user request with an identity header of its own. Orders' body is camelCase
+(`{ cognitoSub, userId }`); Tracking's is snake_case (`{ cognito_sub, user_id }`) — the client
+adapts to each service's own wire convention rather than imposing one across two runtimes. An
+empty identity never leaves this client (see [[soft-delete#The per-user cascade]] for why that
+guard exists at all four layers of the cascade, not just here).
+
+### `AuthProvider.deleteUser` — `AdminDeleteUser`, deliberately not `AdminDisableUser`
+
+`CognitoAuthProvider.deleteUser(email)` calls `AdminDeleteUserCommand`, removing the Cognito
+account outright. This is what **frees the email address** — the entire point of the feature: a
+user who deletes their account must be able to register again with the same address later.
+
+**Deliberately not `AdminDisableUser`.** A disabled account keeps occupying its email in the
+pool, so a returning user would hit `UsernameExistsException` forever — the re-registration
+requirement would be unimplementable with a disable-only approach.
+
+**Why this does not violate [[ADR-0004-soft-delete-only]].** That rule governs **our databases**
+— the write user holds no `DELETE` grant, by design. Cognito is an **external identity
+provider**, not one of our databases, and what it holds is a **credential** (the sub), not a
+durable **record** of the user — the durable record is preserved in Postgres, exactly where
+ADR-0004 exists to protect it, with the soft-deleted row keeping its real email intact. Full
+boundary rationale: [[soft-delete#The ADR-0004 boundary — our databases, not Cognito]].
+
+Called **best-effort**, after the Postgres commit: a failure here must not fail the request,
+because the durable deletion has already happened by that point. But it is not silent — see
+[Observability](#observability) below for `delete_account_cognito_orphan`, the one branch of this
+flow that is deliberately alert-worthy despite being swallowed.
+
 ## Events
 
 `services/users/src/shared/messaging/event-publisher.ts` implements `SqsEventPublisher`, which
@@ -336,13 +417,23 @@ swallow-and-log, that keeps a publish failure from ever surfacing as a `500` for
 > the shared query gotchas are in [[logging-context#Metrics — the third pillar, and why it does
 > NOT go over OTLP]].
 
-Users publishes three metrics to CloudWatch, namespace `3MRAI`:
+Users publishes **four** metrics to CloudWatch, namespace `3MRAI` (three at first shipment, plus
+`users_deleted_total` added in the account-deletion milestone, 2026-08-26):
 
 | Metric | Type | Dimensions |
 |---|---|---|
 | `users_registered_total` | counter | `Service=users` |
 | `users_total` | gauge | `Service=users`, `HasPassword=true\|false` |
 | `password_resets_total` | counter | `Service=users` |
+| `users_deleted_total` | counter | `Service=users` |
+
+`users_deleted_total` increments once per successful `DELETE /v1/users/me`, published by
+`DeleteAccountCommand` after the Postgres commit — awaited but non-fatal, like every other
+counter here. It is the direct counterpart to `users_registered_total` and is **zero-seeded** in
+`BusinessMetricsPoller`: without a zero-seed, a deployment that has processed no deletions has no
+data point for this metric at all, and the registration series diverges permanently from
+`users_total` (which already drops on deletion) with nothing explaining the gap. Full design:
+[[2026-08-25-account-deletion-design]].
 
 `users_registered_total` increments once per successful `POST /v1/users/register` and
 `POST /v1/users/register/passwordless` — both are registrations, so they share the same metric
@@ -502,6 +593,17 @@ parent-child relationship — see [[2026-08-18-distributed-tracing-spans-design#
 implementation: [[2026-08-18-distributed-tracing-spans-design]] /
 [[2026-08-18-distributed-tracing-spans]].
 
+**`delete_account` is an 8th `withWorkflowSpan`-wrapped flow, shipped 2026-08-26.** `app_event`
+values: `delete_account_started`, `delete_account_succeeded`, `delete_account_failed` (`reason`
+∈ `not_found`, `missing_cognito_sub`, `cascade_failed_orders`, `cascade_failed_tracking`), plus
+`delete_account_cognito_orphan` — a **swallowed but alert-worthy** failure: `AdminDeleteUser`
+throwing after the Postgres commit leaves an orphaned sub in the Cognito pool that blocks
+re-registration, the exact outcome the feature exists to prevent, so this line must never go
+unmonitored even though it never fails the HTTP request. `CascadeClient` emits its own pair,
+`cascade_delete_succeeded`/`cascade_delete_failed`, dimensioned by `cascade_service` (`orders` \|
+`tracking`). Full event table and the four-layer empty-identity guards these events cover: see
+[[2026-08-25-account-deletion-design#Observability]] and [[2026-08-25-account-deletion-design#Empty-identity guards (four layers)]].
+
 ## Service-local decisions
 
 Decisions made specifically for this service (not cross-cutting, so they are not
@@ -521,6 +623,9 @@ convention/pattern notes in `shared/`) live in `docs/domains/users/decisions/`:
 
 ## Related
 
+- [[2026-08-25-account-deletion-design]] — full design for `DELETE /v1/users/me`, the
+  `CascadeClient`, `AuthProvider.deleteUser`, the partial-unique-index email change, and the
+  four-layer empty-identity guards.
 - [[2026-08-15-request-id-correlation-design]] — the cross-service `request_id` correlation
   field: Users seeds it at the Fastify `onRequest` hook, before the auth guard.
 - [[soft-delete]]

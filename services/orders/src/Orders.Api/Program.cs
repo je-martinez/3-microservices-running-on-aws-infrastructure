@@ -552,6 +552,10 @@ if (app.Environment.IsDevelopment())
 app.MapOrderEndpoints();
 app.MapProductEndpoints();
 app.MapCartEndpoints();
+// Internal service-to-service surface. Always mapped — unlike the E2E routes this
+// is a production path (Users' account-deletion cascade calls it), and it is kept
+// off the API Gateway rather than behind a flag.
+app.MapInternalEndpoints();
 
 // E2E cleanup surface — only when explicitly enabled (local/CI), never in prod.
 // Also mapped during build-time OpenAPI generation (entry assembly

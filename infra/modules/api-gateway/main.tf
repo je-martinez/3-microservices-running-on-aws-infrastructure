@@ -48,6 +48,15 @@ locals {
       refresh  = { key = "POST /v1/users/refresh", path = "/v1/users/refresh", auth = false }
       get_me   = { key = "GET /v1/users/me", path = "/v1/users/me", auth = true }
       patch_me = { key = "PATCH /v1/users/me", path = "/v1/users/me", auth = true }
+      # Account deletion. nginx needs no `location` block for it: /v1/users/me
+      # already falls under `location /`, which proxies to Users — only a new
+      # TOP-LEVEL path would need one (see /v1/cart and /v1/products).
+      #
+      # The two INTERNAL cascade routes this endpoint calls
+      # (DELETE /v1/orders/by-user, DELETE /v1/trackings/by-user) are deliberately
+      # absent from this map: they authenticate with the shared internal key and
+      # must not be reachable from outside the network.
+      delete_me = { key = "DELETE /v1/users/me", path = "/v1/users/me", auth = true }
 
       # Passwordless email-OTP auth. `auth = false` on all three for the same
       # reason login and register carry it: these are the routes a caller uses to

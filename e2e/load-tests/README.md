@@ -25,6 +25,7 @@ pnpm run smoke       # ~30s, low rate — a sanity check
 pnpm run load        # the default profile
 pnpm run users       # the Users journey alone
 pnpm run auth-codes  # OTP login + password reset (needs MAILPIT_API_URL)
+pnpm run delete-account  # account deletion + its synchronous cascade
 ```
 
 The email-code flows also need Mailpit:
@@ -53,6 +54,43 @@ Three populations run together, because real traffic is not uniform:
   rate.
 - **Error traffic** — deliberate 401s, a missing order, and a rejected status
   transition, so the error panels carry signal instead of sitting empty.
+
+## Account deletion lives in its own simulation
+
+`accountDeletion` covers `DELETE /v1/users/me` — register → order → delete —
+alongside a control population of ordinary browsers.
+
+**It is not a throughput test, and should not be read as one.** Account deletion
+is low-frequency, destructive and terminal: nobody deletes their account twice,
+so a sustained deletion rate is not a traffic pattern that occurs. What it
+measures is the **cascade's cost under concurrency**. `DELETE /v1/users/me` is the
+only user-facing request in 3MRAI that synchronously fans out to two other
+services *and* an external identity provider before answering — Orders' MySQL
+sweep, Tracking's MySQL sweep, its own Postgres soft-delete, then Cognito
+`AdminDeleteUser`. Its latency is the **sum** of four dependencies, so the tail
+compounds in a way no single-service endpoint's does.
+
+That shows up immediately. Measured at 1 user/sec over 45s (710 requests, 0
+failures):
+
+| Request | p95 |
+|---|---|
+| `DELETE /v1/users/me` (four-leg cascade) | **153 ms** |
+| `GET /v1/products` (single service, read) | 50 ms |
+| `GET /v1/users/me (after deletion)` | 5 ms |
+
+The **bystander scenario is the point of the design**, not filler: it runs
+ordinary browsing concurrently with the deletions, so the run can answer "do the
+cascade's write transactions degrade everyone else's reads?" — a question a
+simulation containing only deletions cannot ask. `GET /v1/products` staying flat
+is the control assertion.
+
+The injection profile is deliberately modest (defaults to 1 user/sec). Every
+virtual user here is **single-use and destructive**: it registers, buys and then
+permanently removes itself, so there is no steady state to reach — raising the
+rate burns accounts faster rather than finding a new regime. It also costs a
+Cognito create *and* delete per user on the Floci emulator, which past some rate
+becomes the bottleneck itself, at which point the run measures Floci.
 
 ## The email-code flows live in their own simulation
 
@@ -85,7 +123,7 @@ simulation does not measure.
 - **A token per virtual user.** A shared one would collapse every user-scoped
   read onto a single `cognito_sub` and hide the per-user query cost.
 
-## Two findings worth keeping
+## Three findings worth keeping
 
 **`session.userId()`, not a module counter.** A module-level counter produced
 the *same* email five times in one run: simulation modules are evaluated per
@@ -198,3 +236,24 @@ symptom: Tracking's key embeds the internal `usr_` id resolved from the
 by design — so it reads MISS forever. The simulation registers each virtual user
 through the normal flow, which keeps them resolvable. A run that reused a seeded
 or fixed sub would show 0% and look like a cache failure.
+**A body-less DELETE must not carry `Content-Type: application/json`.** Adding
+`accountDeletion` cost two full 100%-failure runs before this was understood.
+The other simulations set `.contentTypeHeader("application/json")` on the shared
+protocol, which stamps it onto **every** request including body-less ones. Users
+runs Fastify, and its content-type parser rejects that combination outright:
+
+    400 FST_ERR_CTP_EMPTY_JSON_BODY
+    "Body cannot be empty when content-type is set to 'application/json'"
+
+The obvious repair does **not** work, and is worth recording so nobody retries
+it: overriding the header per-request with `""` makes Gatling send a *literal
+empty* `Content-Type`, and the 400 becomes a **415 Unsupported Media Type**. The
+SDK has no per-request header removal. The fix is to leave `contentTypeHeader`
+off the protocol entirely — which costs nothing, because every body-carrying
+step already calls `.asJson()` and sets the header on its own request.
+
+Note this is **not** a general rule about DELETEs, and assuming it was would be
+the wrong lesson: Orders (.NET Minimal APIs) answers `204` to the identical
+header-without-body request, which is why `cart.ts`'s `deleteCart` has run for
+months without tripping on it. The strictness is Fastify's, so it applies to
+body-less writes on **Users** specifically.

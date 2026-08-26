@@ -5,6 +5,7 @@ import { diContainer, registerSingletons, registerServices } from "#shared/di/aw
 import { actorContext } from "#shared/audit/actor-context";
 import { AuthError } from "#shared/auth/auth-errors";
 import { RecordNotFoundError } from "#shared/db/db-errors";
+import { CascadeError } from "#shared/http/cascade-client";
 import { buildLoggerOptions } from "#shared/logging/logger";
 import { logContext } from "#shared/logging/log-context";
 import { REQUEST_ID_HEADER, resolveRequestId } from "#shared/logging/request-id";
@@ -244,6 +245,13 @@ export function buildApp(
     // /users/me routes already return.
     if (error instanceof RecordNotFoundError) {
       return reply.code(error.statusCode).send({ error: error.code });
+    }
+    // A cascade leg did not confirm, so the account was deliberately NOT deleted.
+    // 502 rather than 500: the failure is DOWNSTREAM, and the correct client
+    // action is to retry — both internal routes are idempotent, so retrying is
+    // safe and completes whichever leg is still outstanding.
+    if (error instanceof CascadeError) {
+      return reply.code(502).send({ error: "cascade_failed" });
     }
     throw error;
   });
@@ -524,6 +532,27 @@ export function buildApp(
       await invalidateMeCache(req, currentActor, updated.id);
 
       return reply.send(serializeUser(updated));
+    });
+
+    // Account deletion. Deliberately ABSENT from `shared/http/public-routes.ts`:
+    // that absence is what makes the onRequest hook answer 401 without an
+    // x-user-id. Listing it there would leave account deletion unauthenticated.
+    //
+    // 204 rather than 200-with-a-body: there is nothing left to describe, and the
+    // deleted row must not be echoed back. The 502 comes from the error handler
+    // when a cascade leg fails — see CascadeFailedError above.
+    r.delete("/v1/users/me", {
+      schema: {
+        tags: ["users"], operationId: "deleteMe", summary: "Delete the current user's account",
+        headers: UserIdHeader,
+        response: { 204: z.null(), 404: ErrorSchema, 502: ErrorSchema },
+      },
+    }, async (req, reply) => {
+      const { deleteAccountCommand, currentUser } = req.diScope.cradle;
+      const result = await deleteAccountCommand.execute(currentUser);
+      return result === "deleted"
+        ? reply.code(204).send(null)
+        : reply.code(404).send({ error: "not_found" });
     });
 
     // The DEDICATED change-password endpoint. It does ONE thing: set the new

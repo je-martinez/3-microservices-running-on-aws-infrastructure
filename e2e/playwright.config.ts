@@ -32,6 +32,37 @@ for (const file of [".env.local.infra", ".env.local.users", ".env.local.debug"])
   dotenv.config({ path: path.join(repoRoot, file) });
 }
 
+// ## The account-deletion cascade added two CONTAINER-internal names to a file
+// ## this suite loads WHOLESALE — strip them before anything reads them.
+//
+// `.env.local.users` gained `ORDERS_BASE_URL=http://orders:8080` and
+// `TRACKING_BASE_URL=http://tracking:8000` (the cascade's downstream URLs, on the
+// compose network). Both names are ALSO what this suite's host-side clients read
+// to reach the services on their published ports — `support/api-client.ts` and
+// `support/global-setup.ts` both do `process.env.X ?? "http://localhost:300N"`.
+//
+// So loading the file wholesale silently repoints the whole suite at hostnames
+// that do not resolve from the host, and global-setup fails EVERY project with
+// "Tracking service is not healthy at http://tracking:8000/v1/health" — a message
+// that reads as a down stack rather than as an env collision. Observed exactly
+// that on 2026-08-26, before a single account-deletion spec existed.
+//
+// This is the same hazard `.env.local.orders` was excluded for (see the note
+// below and in `support/api-client.ts`); the cascade moved it into a file that
+// cannot be excluded, because GRPC_API_KEY and the Cognito/Users vars come from
+// it. Deleting the two keys is the narrowest fix: the fallbacks in the clients
+// are the correct host values, and a genuine override can still be exported in
+// the shell (this only clears what the FILE injected — `dotenv` never overwrites
+// a variable that was already set, so a pre-set value never reached here).
+for (const containerOnly of ["ORDERS_BASE_URL", "TRACKING_BASE_URL"]) {
+  const value = process.env[containerOnly];
+  // Matches the compose-network form only (`http://orders:8080`), so a real
+  // host-side override like `http://localhost:3001` survives untouched.
+  if (value && /^https?:\/\/(orders|tracking):/.test(value)) {
+    delete process.env[containerOnly];
+  }
+}
+
 // `.env.local.tracking` is NOT loaded wholesale — only the one variable the suite
 // needs is copied out of it. TRACKING_CARRIER_API_KEY is the sole credential that
 // authenticates `PUT /v1/trackings/{orderId}/status`: that gateway route is declared

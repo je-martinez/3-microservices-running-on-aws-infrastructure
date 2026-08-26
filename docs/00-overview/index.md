@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-08-21
+updated: 2026-08-25
 tags:
   - type/spec
   - area/shared
@@ -84,6 +84,7 @@ related:
   - "[[2026-08-18-distributed-tracing-spans-design]]"
   - "[[2026-08-25-response-caching-layer-design]]"
   - "[[x-cache-response-header]]"
+  - "[[2026-08-25-account-deletion-design]]"
 ---
 
 # 3MRAI — Index
@@ -268,6 +269,7 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-08-15-request-id-correlation-design]] — Design of a cross-service `request_id` correlation field (`req_`+nanoid), covering the gap `trace_id` leaves in the events-pipeline and realtime Lambdas (no OTel SDK, JE-138): validated inbound `x-request-id`, per-service context propagation reusing each service's existing logging mechanism, and an optional envelope root field so in-flight SQS messages don't fail schema validation; per [[logging-context]], [[nano-id]], [[events-pipeline-design]], [[ADR-0019-distributed-tracing-opentelemetry]].
 - [[2026-08-18-distributed-tracing-spans-design]] — Design for manual OpenTelemetry spans on top of the existing SDKs: a workflow-span pattern (`withWorkflowSpan`/`IWorkflowTracer`/decorator) covering the 12 flows with a full `app_event` triad, span links (not parent-child) across the SQS hop via `traceparent` in `MessageAttributes`, per-record instrumentation inside events-pipeline closing JE-138, extending the SDK into the three realtime-events Lambdas, and new Prisma/AWS-SDK auto-instrumentation; rejects a custom `x-trace-id` header and a Tracking HTTP-client instrumentation (Tracking makes no outbound HTTP calls); per [[ADR-0019-distributed-tracing-opentelemetry]], [[logging-context]], [[ADR-0003-grpc-inter-service]], [[events-pipeline-design]].
 - [[2026-08-25-response-caching-layer-design]] — Design for a shared-Redis, HTTP-layer response cache across Users/Orders/Tracking reporting `X-Cache: HIT|MISS|BYPASS` via a per-service interceptor (no handler-level cache-aside, no edge/nginx caching), fail-open with a 50ms timeout, explicit post-write invalidation, and a `CACHE_ENABLED` kill switch; reuses the existing `infra/modules/redis` deployment. New shared convention: [[x-cache-response-header]]. Per [[current-caller-context]], [[logging-context]], [[env-files]], [[testing]], [[ADR-0019-distributed-tracing-opentelemetry]].
+- [[2026-08-25-account-deletion-design]] — Design for self-service account deletion (`DELETE /v1/users/me`): synchronous internal-HTTP cascade to Orders and Tracking keyed on `cognito_sub` (with a `user_id` fallback in Tracking for pre-migration rows), a partial unique index freeing the email for re-registration, `AdminDeleteUser` as the point-of-no-return that frees the email in Cognito, and a deliberate decision **not** to publish a `USER_DELETED` event; per [[ADR-0004-soft-delete-only]], [[soft-delete]], [[users-service-design]], [[orders-service-design]], [[tracking-service-design]].
 
 ---
 

@@ -226,6 +226,39 @@ class E2eCleanupResponse(BaseModel):
     deleted: int
 
 
+class InternalDeleteByUserRequest(BaseModel):
+    """Body of `DELETE /v1/trackings/by-user`. Both identities are required."""
+
+    # Kept OUT of the docstring on purpose: a model docstring becomes the schema's
+    # public `description` in openapi.yaml, and the reasoning below is internal
+    # mechanics no API consumer needs.
+    #
+    # BOTH identities travel because the ownership predicate matches either. Two
+    # reasons, and only the first is specific to this service: rows predating
+    # migration `b17f4c2e9a30` have a NULL `cognito_sub` and are reachable only
+    # through `user_id`; and `cognito_sub` is not the durable identity in the first
+    # place — a user who deletes their account and registers again gets a new one,
+    # while their `usr_` id never changes.
+    #
+    # `min_length=1` on BOTH is a safety control, not a formatting check. The
+    # predicate is an OR, so an empty value on either side could widen the match to
+    # any row carrying an empty string in the same column — someone else's data.
+    # Refused at the boundary (422); the repository guards it again at the point
+    # the rows are actually chosen.
+    cognito_sub: str = Field(min_length=1)
+    user_id: str = Field(min_length=1)
+
+
+class InternalDeleteByUserResponse(BaseModel):
+    """`200` payload of `DELETE /v1/trackings/by-user`.
+
+    Named `deleted` rather than `count` because it says what was counted — the same
+    shape Users and Orders report.
+    """
+
+    deleted: int
+
+
 class ErrorResponse(BaseModel):
     """Failure payload.
 

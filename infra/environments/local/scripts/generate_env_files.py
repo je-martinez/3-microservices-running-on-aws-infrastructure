@@ -301,6 +301,17 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 "COGNITO_USER_POOL_ID": pool_id,
                 "COGNITO_CLIENT_ID": client_id,
                 "GRPC_API_KEY": GRPC_API_KEY,
+                # The account-deletion cascade (DELETE /v1/users/me). Users calls
+                # DELETE /v1/orders/by-user and DELETE /v1/trackings/by-user over
+                # plain HTTP, authenticating with the GRPC_API_KEY above — neither
+                # route is published on the API Gateway.
+                #
+                # Container-network names and CONTAINER ports: Orders serves 8080
+                # (published to the host as 3001, which is not what a peer service
+                # dials), Tracking serves 8000. Same values Orders already uses for
+                # its own TRACKING_BASE_URL below.
+                "ORDERS_BASE_URL": "http://orders:8080",
+                "TRACKING_BASE_URL": "http://tracking:8000",
                 # Short-lived store for password-reset codes (10-minute TTL),
                 # backed by ElastiCache Redis. Deliberately not a Postgres table:
                 # the codes are regenerable and expire on their own, so Redis's

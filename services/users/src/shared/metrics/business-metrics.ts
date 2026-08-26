@@ -193,6 +193,10 @@ export class BusinessMetricsPoller {
     await Promise.all([
       this.metrics.publish("users_registered_total", 0, { Service: "users" }),
       this.metrics.publish("password_resets_total", 0, { Service: "users" }),
+      // Deletions are rarer than registrations, so this series is the one most
+      // often empty over a narrow range — the exact case the seeding above
+      // exists for.
+      this.metrics.publish("users_deleted_total", 0, { Service: "users" }),
     ]);
 
     // The cache counters get the same seeding as the error and business

@@ -37,7 +37,7 @@ path in this class that reads soft-deleted rows, and no method issues a SQL
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from sqlalchemy import Select, func, select, update
+from sqlalchemy import Select, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from src.features.tracking.domain.models import Tracking, TrackingHistory
@@ -426,6 +426,99 @@ class TrackingRepository:
                 self._has_tag(tag),
                 Tracking.deleted_at.is_(None),
             )
+            .values(**stamp)
+            .execution_options(synchronize_session=False)
+        )
+        return int(result.rowcount or 0)
+
+    def soft_delete_by_user(
+        self,
+        *,
+        cognito_sub: str,
+        user_id: str,
+        actor: AuditActor,
+        now: datetime | None = None,
+    ) -> int:
+        """Soft-delete every live tracking belonging to a user, and its history.
+
+        Returns the number of `tracking` rows stamped (history rows are not counted;
+        the caller has no use for that number).
+
+        ## Why the predicate matches EITHER identity
+
+        `cognito_sub` is the ownership key every user-scoped read filters by, and it
+        is what the caller naturally has in hand. But the column is NULLABLE on rows
+        created before migration `b17f4c2e9a30`, and those rows still carry
+        `user_id`. Matching only `cognito_sub` would silently leave a returning
+        user's oldest trackings live and unreachable — the exact failure this
+        service's own column docstring warns about. So both are matched, and Users
+        sends both.
+
+        This reintroduces the caller scoping `soft_delete_by_tag` deliberately gave
+        up: that method serves the global E2E teardown, which runs with no session
+        and therefore no identity. Here an identity IS present, which is the whole
+        point of the operation.
+
+        ## Never a SQL DELETE
+
+        Stamps `deleted_at` / `deleted_by` only ([[soft-delete]]). The application
+        database user is granted no `DELETE` privilege, so a hard delete would fail
+        at the server anyway.
+        """
+        moment = now or _utcnow()
+        stamp = {"deleted_at": moment, "deleted_by": actor.value}
+        # Refused HERE as well as at the schema, because this is the line that
+        # actually decides which rows die. The predicate is an OR, so an empty
+        # identity on either side would match every row carrying an empty string in
+        # that column — someone else's trackings. The route's Pydantic model
+        # already rejects empties (422), but this method is public and a future
+        # caller reaching it another way must not be able to widen the blast
+        # radius by passing "".
+        if not cognito_sub or not user_id:
+            raise ValueError(
+                "soft_delete_by_user requires both identities to be non-empty"
+            )
+
+        # `collate("utf8mb4_bin")` is a SAFETY control, not a tuning knob.
+        #
+        # Both columns are `utf8mb4_unicode_ci` — case-INSENSITIVE — while the ids
+        # they hold come from a MIXED-CASE alphabet (`A-Za-z0-9`, see [[nano-id]])
+        # minted by Users' Postgres, which compares case-SENSITIVELY. So Postgres
+        # can legitimately issue `usr_AbC…` and `usr_abc…` as two different people
+        # that MySQL cannot tell apart, and an erasure keyed on one would sweep the
+        # other's trackings. Verified against the live database on 2026-08-26: an id
+        # with its case inverted matched a real row.
+        #
+        # Pinned at the PREDICATE rather than fixed in the schema because that keeps
+        # the change scoped to the irreversible operation. The user-scoped READS
+        # share the same root cause and are deliberately left alone here — a read
+        # returning a neighbour's row is a bug, but a delete removing it is not
+        # recoverable without hand-written SQL.
+        owned = or_(
+            Tracking.cognito_sub.collate("utf8mb4_bin") == cognito_sub,
+            Tracking.user_id.collate("utf8mb4_bin") == user_id,
+        )
+
+        # NOT filtered on `deleted_at IS NULL`: an already-soft-deleted tracking may
+        # still have live history under it from a partial previous run, and those
+        # children should still be swept. The per-statement guards below keep the
+        # stamps idempotent.
+        owned_ids = select(Tracking.id).where(owned)
+
+        # Children first, mirroring the FK direction, so an interrupted unit of work
+        # can never leave a live history row under a deleted tracking.
+        self.session.execute(
+            update(TrackingHistory)
+            .where(
+                TrackingHistory.tracking_id.in_(owned_ids),
+                TrackingHistory.deleted_at.is_(None),
+            )
+            .values(**stamp)
+            .execution_options(synchronize_session=False)
+        )
+        result = self.session.execute(
+            update(Tracking)
+            .where(owned, Tracking.deleted_at.is_(None))
             .values(**stamp)
             .execution_options(synchronize_session=False)
         )

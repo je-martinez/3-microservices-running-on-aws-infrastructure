@@ -27,7 +27,7 @@ from src.features.tracking.domain.status import (
     TransitionRejectionReason,
 )
 from src.shared.audit.audit_actor import AuditActor
-from tests.conftest import TEST_CARRIER_API_KEY
+from tests.conftest import TEST_CARRIER_API_KEY, TEST_GRPC_API_KEY
 
 pytestmark = pytest.mark.integration
 
@@ -116,15 +116,15 @@ class TestCarrierAuth:
     def test_the_internal_grpc_key_does_not_work_here(
         self, client: TestClient, session: Session
     ) -> None:
-        """Two keys, two trust domains. The app fixture configures the gRPC key as
-        `unused-grpc-key` and the carrier key as something else; presenting the
-        internal one must be rejected exactly like any other wrong value."""
+        """Two keys, two trust domains. The app fixture configures the internal
+        gRPC key and the carrier key as two different literals; presenting the
+        internal one here must be rejected exactly like any other wrong value."""
         seed(session, order_id="ord_auth10000000000004")
         response = put(
             client,
             "ord_auth10000000000004",
             TrackingStatus.PROCESSING,
-            headers={"x-api-key": "unused-grpc-key"},
+            headers={"x-api-key": TEST_GRPC_API_KEY},
         )
         assert response.status_code == 401
 

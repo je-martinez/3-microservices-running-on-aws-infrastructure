@@ -1,6 +1,9 @@
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  // Enables the `where:` argument on @@unique/@@index below. Declarative partial
+  // indexes have been supported since Prisma 7.4; this repo runs 7.8.
+  previewFeatures = ["partialIndexes"]
 }
 
 datasource db {
@@ -17,7 +20,7 @@ enum AuthType {
 
 model User {
   id          String    @id
-  email       String    @unique
+  email       String
   cognitoSub  String?   @unique @map("cognito_sub")
   fullName    String    @map("full_name")
   address     Json?
@@ -49,6 +52,15 @@ model User {
   cognitoData UsersCognitoData?
 
   @@map("users")
+  // Scoped to LIVE rows only. A soft-deleted user keeps their real email (no
+  // tombstoning — preserving the historical value is the requirement), so a plain
+  // @unique would permanently burn the address and make re-registration
+  // impossible. Postgres scopes the constraint instead of us mangling the data.
+  //
+  // The Postgres equivalent of the STORED generated-column trick Orders uses for
+  // the cart's one-active-cart invariant (`active_user_id`): MySQL has no partial
+  // indexes, Postgres does.
+  @@unique([email], where: raw("deleted_at IS NULL"))
   @@index([deletedAt])
 }
 

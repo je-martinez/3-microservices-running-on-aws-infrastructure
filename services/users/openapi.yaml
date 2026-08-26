@@ -585,6 +585,35 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+    delete:
+      operationId: deleteMe
+      summary: Delete the current user's account
+      tags:
+        - users
+      parameters:
+        - schema:
+            type: string
+          in: header
+          name: x-user-id
+          required: false
+          description: Cognito subject forwarded by the API Gateway authorizer. Required
+            in practice — a request without it resolves no current user and is
+            answered 404 (not a 400).
+      responses:
+        "204":
+          description: Default Response
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /v1/users/me/password:
     patch:
       operationId: changeMyPassword
