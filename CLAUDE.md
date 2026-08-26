@@ -70,6 +70,24 @@ dropped path param, method mismatch). An endpoint without gateway E2E is an inco
 change. Full convention: `docs/shared/conventions/testing.md` → [[testing]]; per-service
 specifics in each `services/<svc>/CLAUDE.md` §2b.
 
+**A NEW ROUTE IS NOT DONE WHEN THE SERVICE SERVES IT.** A plan that adds an endpoint must
+carry a task for each of these, or say why one does not apply. Every item below was missed
+at least once (cart milestone, 2026-08-25) and each was caught late — or nearly not at all:
+- **Gateway + nginx wiring.** A route absent from `infra/modules/api-gateway/main.tf`'s
+  route map 404s at the gateway while working perfectly on the service port. And without a
+  `location` block in `infra/modules/compute/nginx/nginx.conf`, a new top-level path falls
+  through to `location /` and silently reaches **Users**, not the service that owns it.
+  Diagnostic: a 404 carrying the gateway's own `{"message":"Not Found"}` rather than the
+  service's `{error: …}` shape means the request never reached the service. After the fix,
+  a **401 is the good answer** — it proves the route resolves and reached the authorizer.
+- **All three test layers**, not two. Internal E2E is the one quietly skipped, because the
+  gateway spec feels like it covers the same ground. It does not: it is slower and should
+  not carry the exhaustive cases.
+- **Load-test scenarios**, when the route changes how users reach an existing flow.
+- **Observability** — see the per-service logging rules; reads are not exempt.
+- **A preview surface must mirror how the charging code applies rounding**, not merely how
+  it rounds — see [[money-representation]].
+
 **Load testing lives beside E2E** in `e2e/load-tests/` (Gatling JS + Chance.js), and answers a
 different question: not "is it correct?" but "what shape does it have under sustained traffic?".
 It deliberately sends **neither** `x-e2e-source` nor `x-test-mode`, so its data persists like real
@@ -121,6 +139,7 @@ How Phase C issues are chained and reviewed (full convention: `docs/shared/conve
 - **Batch PRs for review.** At each stop point, present the user **one list** of open PRs to review/merge — never one-by-one.
 - **Dependency gates are stop points.** If issue B is blocked by A, B must build on A's **merged** work: implement everything independent first, open those PRs, then **stop** at the first blocked issue and hand the user the batch so far. After the user merges that batch, continue with the previously-blocked issues. A milestone may have several stop points.
 - **Never auto-merge.** The user merges (or explicitly authorizes the merge of) every PR; one approval authorizes only that PR/batch, never standing auto-merge.
+- **Review the diff AGAINST the brief, not on its own merits.** "Is this correct?" and "does this do everything it was asked to do?" are different questions, and only the first gets asked by default. Enumerate the brief's requirements and tick each one off against the diff; a requirement silently dropped in implementation leaves **no trace** — the shipped code is self-consistent, it passes review on its own terms, and the tests written alongside it cover what was built rather than what was specified. This is not hypothetical: the cart's concurrent-PUT retry was specified in the design spec from its first commit, shipped as an unhandled 500, passed its per-task review, and was caught only by chance in a later whole-branch pass. **Concurrency requirements are the highest-risk case**, since ordinary tests structurally do not exercise them. See [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]].
 
 ## Project decisions & memory
 

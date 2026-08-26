@@ -77,3 +77,29 @@ absence of a reference never stops the commit.
   on A's **merged** work. Implement everything independent first, open those
   PRs, then stop and hand over the batch. Continue after the user merges it. A
   milestone may have several stop points.
+
+## Review the diff against the brief, not on its own merits
+
+*"Is this correct?"* and *"does this do everything it was asked to do?"* are
+different questions, and **only the first gets asked by default.**
+
+When reviewing, **enumerate the brief's requirements** — the spec, the plan, the
+issue, the task description — and tick each one off against the diff. Do not judge
+the diff holistically.
+
+A requirement silently dropped during implementation leaves **no trace**. The
+shipped code is self-consistent, it passes review on its own terms, and the tests
+written alongside it cover **what was built rather than what was specified**. There
+is nothing in the diff to notice, which is exactly why a holistic read cannot
+catch it.
+
+This is not hypothetical. The cart's concurrent-`PUT` retry was specified in the
+design spec from its **first commit**, shipped as an unhandled `500`, passed its
+per-task review, and was caught only by chance in a later whole-branch pass.
+
+**Concurrency requirements are the highest-risk case**, since ordinary tests
+structurally do not exercise them: a race needs two callers interleaved at a
+precise point, so a suite can be complete by its own measure and still never
+execute the path the spec was written about.
+
+Full lesson: `docs/lessons/2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec.md`.

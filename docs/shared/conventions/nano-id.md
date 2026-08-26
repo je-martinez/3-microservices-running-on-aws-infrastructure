@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-08-15
+updated: 2026-08-25
 tags: [type/convention, area/shared, status/active, issue/JE-39]
 related: ["[[db-naming]]", "[[audit-fields]]", "[[soft-delete]]", "[[users-service-design]]", "[[events-pipeline-design]]", "[[logging-context]]", "[[orders-service-design]]", "[[tracking-service-design]]"]
 ---
@@ -17,6 +17,19 @@ Entity identifiers use a Stripe-style `prefix_nanoid` format: a short per-entity
 
 - The prefix is fixed per entity type (e.g. `ord_` for orders, `usr_` for users) so an ID is self-describing.
 - This format is the primary key in our relational databases.
+
+### Registered prefixes (Orders)
+
+| Prefix | Entity |
+|---|---|
+| `prd_` | Product |
+| `ord_` | Order |
+| `odd_` | OrderDetails |
+| `crt_` | Cart |
+| `cti_` | CartItem |
+
+`crt_`/`cti_` added 2026-08-25 alongside the Cart aggregate — see
+[[2026-08-25-cart-endpoints-design]] and [[orders-service-design]].
 
 ## Rationale
 
@@ -155,3 +168,4 @@ sites deliberately bypass the extension's auto-stamp:
   `VARCHAR(28)`.
 - [[tracking-service-design]] — tracking's `NanoIdConfig`, its import-time exhaustiveness check,
   and the 6 MySQL columns migrated to `VARCHAR(28)`.
+- [[2026-08-25-cart-endpoints-design]] — added the `crt_`/`cti_` prefixes for the Cart aggregate.

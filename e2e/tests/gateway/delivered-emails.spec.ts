@@ -266,12 +266,31 @@ test("captures the delivered welcome and order-confirmation emails", async ({ pa
   // the assertion the task calls for — the order TOTAL, not merely the id — and
   // it is what would catch a receipt that rendered the sample's $47.39 while
   // naming the right order.
-  const totalCents = order.totalCents ?? order.total?.cents ?? order.total;
+  const totalCents = order.total?.cents;
   expect(
     typeof totalCents,
-    `the order response carries no numeric total to check against: ${JSON.stringify(order).slice(0, 300)}`,
+    `the order response carries no numeric total.cents to check against: ${JSON.stringify(order).slice(0, 300)}`,
   ).toBe("number");
   const formattedTotal = `$${(totalCents / 100).toFixed(2)}`;
+  // The Money shape also carries its own pre-formatted string — assert it agrees
+  // with the cents-derived figure, so the `.amount`/`.formatted` view is actually
+  // covered rather than merely present.
+  //
+  // Derived with Intl, NOT with the `toFixed(2)` used for the email below: the
+  // service builds `Money.Formatted` with "C2" against en-US, which inserts a
+  // thousands separator ($1,000.00), while the email template's own formatCents
+  // uses toFixed and does not ($1000.00). Comparing `.formatted` against the
+  // toFixed string passes for every total under $1000 and then fails on the first
+  // order that crosses it — a spurious failure that would read as a service bug.
+  // The two formats genuinely differ; each assertion must use its own.
+  const moneyFormattedTotal = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(totalCents / 100);
+  expect(
+    order.total.formatted,
+    `order.total.formatted disagrees with cents-derived ${moneyFormattedTotal}`,
+  ).toBe(moneyFormattedTotal);
   expect(
     confirmation.HTML,
     `the order email does not show this order's total (${formattedTotal})`,

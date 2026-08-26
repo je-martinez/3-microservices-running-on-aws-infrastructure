@@ -35,7 +35,7 @@ public class CreateOrderEndpointTests
         var body = await resp.Content.ReadFromJsonAsync<OrderDto>();
         Assert.NotNull(body);
         Assert.StartsWith("ord_", body!.Id);
-        Assert.True(body.TotalCents > 0);
+        Assert.True(body.Total.Cents > 0);
         var line = Assert.Single(body.Lines);
         Assert.Equal(_factory.SeededProductId, line.ProductId);
         Assert.Equal(2u, line.Quantity);
@@ -68,8 +68,8 @@ public class CreateOrderEndpointTests
         var line = Assert.Single(body!.Lines);
         Assert.Equal(_factory.SeededProductId, line.ProductId);
         Assert.Equal(2u, line.Quantity);
-        Assert.True(body.SubtotalCents > 0);
-        Assert.True(body.TotalCents > 0);
+        Assert.True(body.Subtotal.Cents > 0);
+        Assert.True(body.Total.Cents > 0);
     }
 
     [Fact]

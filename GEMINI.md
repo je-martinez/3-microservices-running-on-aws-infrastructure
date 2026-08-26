@@ -185,6 +185,32 @@ absence of a reference never stops the commit.
   PRs, then stop and hand over the batch. Continue after the user merges it. A
   milestone may have several stop points.
 
+## Review the diff against the brief, not on its own merits
+
+*"Is this correct?"* and *"does this do everything it was asked to do?"* are
+different questions, and **only the first gets asked by default.**
+
+When reviewing, **enumerate the brief's requirements** — the spec, the plan, the
+issue, the task description — and tick each one off against the diff. Do not judge
+the diff holistically.
+
+A requirement silently dropped during implementation leaves **no trace**. The
+shipped code is self-consistent, it passes review on its own terms, and the tests
+written alongside it cover **what was built rather than what was specified**. There
+is nothing in the diff to notice, which is exactly why a holistic read cannot
+catch it.
+
+This is not hypothetical. The cart's concurrent-`PUT` retry was specified in the
+design spec from its **first commit**, shipped as an unhandled `500`, passed its
+per-task review, and was caught only by chance in a later whole-branch pass.
+
+**Concurrency requirements are the highest-risk case**, since ordinary tests
+structurally do not exercise them: a race needs two callers interleaved at a
+precise point, so a suite can be complete by its own measure and still never
+execute the path the spec was written about.
+
+Full lesson: `docs/lessons/2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec.md`.
+
 ---
 
 ## language-and-scope.md
@@ -317,6 +343,47 @@ Flow logs carry `app_event`, valued `<flow>_started`, `<flow>_succeeded`, or
 There is **no SUCCESS severity** — SUCCESS is not an OpenTelemetry level.
 Success is `INFO` plus `app_event=*_succeeded`.
 
+## Which endpoints owe a flow log — READS INCLUDED
+
+**Every endpoint gets a workflow span and at least one flow log. A read is not
+exempt.** This was got wrong once, on the strength of an unverified claim that
+reads carry no flow logs, so it is worth stating plainly. The *shape* differs
+between reads and writes, and that difference is the whole point:
+
+- **Reads** (e.g. `list_my_orders`, `read_cart`) get a span plus **one
+  `_succeeded` line carrying a count** — no `_started` twin, no `_failed`
+  branch. There is no intermediate step at which `_started` could be the last
+  line seen, and the method names no failure of its own: a DB fault throws out
+  of the workflow wrapper, which already records it on the span. Inventing a
+  `reason` for a branch the code does not have is exactly what this convention
+  forbids.
+- **Writes** (e.g. `create_order`, `update_cart`, `delete_cart`) get the full
+  `_started` / `_succeeded` / `_failed` triad plus `reason` on failures, because
+  they *do* have real intermediate steps at which `_started` can be the last
+  thing seen.
+
+### Emit the line inside the activity
+
+The `_succeeded` line must be written **inside** the workflow span so it carries
+that span's `span_id`. The outer per-request completion line is written under the
+framework's own HTTP span and cannot serve a span-scoped log lookup — a query
+joining logs to a workflow span will simply not find it.
+
+### Never re-pass identity at a call site
+
+Do not pass `cognito_sub` / `user_id` again where an enricher already attaches
+them to every line (in the Orders service, Serilog's `LogContextEnricher`).
+Duplicating them is how a PII-adjacent field ends up somewhere nobody audits.
+Pass only the count or the flow-specific field.
+
+### Instrument the entry point, not a shared helper
+
+Put the span on the **endpoint's entry point**, not on a helper it happens to
+call. A helper reused by the write path — in Orders, `CartReadService.BuildAsync`
+renders the response for the write path too — emits a spurious nested *read* span
+inside every write when instrumented. The span belongs on `GetMyCartAsync`, the
+entry point, not on the shared builder.
+
 ## OpenTelemetry configuration lives in environment variables, not code
 
 Endpoint, protocol, and the disabling of the metrics/logs exporters all go in
@@ -439,6 +506,56 @@ pending a nice-to-have.
 Per-service specifics live in each `services/<svc>/CLAUDE.md` (or the equivalent
 service instruction file), section 2b.
 
+## A NEW ROUTE IS NOT DONE WHEN THE SERVICE SERVES IT
+
+A plan that adds an endpoint must carry a task for **each** item below, or state
+why one does not apply. Every one of them was missed at least once (cart
+milestone, 2026-08-25) and each was caught late — or nearly not at all.
+
+### Gateway + nginx wiring
+
+Two separate places route a request before it reaches your handler, and neither
+fails loudly:
+
+- A route absent from the gateway's route map
+  (`infra/modules/api-gateway/main.tf`) **404s at the gateway** while working
+  perfectly on the service port.
+- Without a `location` block in `infra/modules/compute/nginx/nginx.conf`, a new
+  top-level path falls through to `location /` and silently reaches **Users** —
+  not the service that owns it. It answers; it is simply the wrong service.
+
+**Diagnostic:** a 404 carrying the gateway's own `{"message":"Not Found"}` body,
+rather than the service's `{error: …}` shape, means the request never reached the
+service at all. Read the body, not just the status.
+
+**After the fix, a 401 is the good answer.** It proves the route resolves and got
+as far as the authorizer. Do not read it as a regression.
+
+### All three test layers, not two
+
+**Internal E2E is the one quietly skipped**, because the gateway spec feels like
+it covers the same ground. It does not: the gateway spec is slower and should not
+carry the exhaustive cases, so dropping the internal layer silently drops the
+exhaustive coverage with it.
+
+### Load-test scenarios
+
+Required when the route changes how users reach an **existing** flow — a new
+entry point to a covered journey leaves the old simulation measuring a path real
+users no longer take.
+
+### Observability
+
+Every endpoint owes a workflow span and at least one flow log. **Reads are not
+exempt** — see `.ai/rules/logging-and-pii.md`, "Which endpoints owe a flow log".
+
+### Preview surfaces and rounding
+
+A preview surface must mirror **how the charging code applies rounding**, not
+merely how it rounds. Matching the rounding function while applying it at a
+different point (per line vs. per total) still quotes a price the charge will not
+match. See `docs/shared/conventions/money-representation.md`.
+
 ## Load testing is a fourth, different surface
 
 Load tests live in `e2e/load-tests/` (Gatling JS + Chance.js), beside the
@@ -484,6 +601,57 @@ does.
   measured in seconds never smears a service's real ~26ms latency.
 - **Assert only on our own endpoints** — holding a third party's latency to a
   budget fails the run for something the simulation does not measure.
+
+### Never run a load simulation and the E2E suite against the same stack
+
+Not a style preference — it makes **every email-asserting spec fail**, and the
+failure looks exactly like a broken pipeline. Diagnosed 2026-08-25, after five
+E2E failures (4× OTP/password-reset, 1× tracking DELIVERED) that were all this
+one environmental cause.
+
+The mechanism, because the rule alone is not enough to recognise it:
+
+- A load run publishes several hundred `loadtest-*` events onto the **shared**
+  SQS queue — the same one Users, Orders and Tracking use.
+- The events-pipeline Lambda drains it at **~0.83 msg/s** (~50 msg/min). Records
+  are processed **sequentially** (`for (const record of event.Records)` in
+  `functions/events-pipeline/src/handler.ts`), ~**376 ms** each (p50 347, p95
+  574, over 920 records), dominated by the react-email render on a **256 MB**
+  function — Lambda CPU scales with memory.
+- So an OTP, reset, or DELIVERED event published behind ~800 messages waits
+  **~13 minutes**, while every spec awaiting an email gives up after **45 s**.
+
+**The emails are not lost — they arrive far too late.** This is the part worth
+remembering, and the reason the rule is written out rather than stated: the
+timeout reports *"NOTHING arrived"*, which reads as a broken pipeline and sends
+you hunting a defect in dispatch, SES, or Mailpit. All three are fine. Verified
+by re-running the same specs with **no code change in between**:
+
+| Queue depth | Result |
+|---|---|
+| ~800 | 2 failed — "NOTHING arrived within 45s" |
+| 0 | **14/14 passed**, emails in **13 s** |
+
+Measured drain, sampled live: `827 → 727 → 567 → 417 → 237 → 0` over ~18 min.
+
+`e2e/support/global-setup.ts` **warns** when the backlog exceeds
+`EVENTS_QUEUE_WARN_DEPTH`; the arithmetic lives in
+`e2e/support/events-queue-depth.ts`. **If you see that warning, wait for the
+queue to drain or reset with `make clean && make bootstrap`** — do not start
+debugging the pipeline.
+
+Three properties of that check are deliberate, and worth preserving if you touch
+it:
+
+- **It warns, it never fails.** It cannot tell an email-asserting run from the
+  majority of specs that never touch the pipeline, and blocking those would turn
+  a narrow problem into a total one.
+- **It is silent when the depth cannot be read** (returns `null`, never `0`). A
+  diagnostic that can itself fail a run is worse than the problem it reports.
+- **The threshold is derived, not picked round** — 45 s budget − 13 s healthy
+  delivery = 32 s headroom, × 0.83 msg/s ≈ 26, rounded **down** to 25 so the
+  warning fires slightly early. If the Lambda's per-record cost or concurrency
+  changes, **redo the arithmetic; do not nudge the constant.**
 
 ## Mocks hide schema bugs
 

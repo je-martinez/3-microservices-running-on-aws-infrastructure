@@ -186,9 +186,11 @@ public class CreateOrderServiceTests : IAsyncLifetime
         // Returned DTO reflects the totals/lines without a re-query.
         Assert.Equal("usr_a", dto.UserId);
         Assert.Equal("sub-a", dto.CognitoSub);
-        Assert.Equal(3000, dto.SubtotalCents);           // 3 * 1000
-        Assert.Equal(300, dto.TaxCents);                 // 10%
-        Assert.Equal(4800, dto.TotalCents);              // 3000 + 300 + 1500 shipping
+        Assert.Equal(3000, dto.Subtotal.Cents);           // 3 * 1000
+        Assert.Equal("30.00", dto.Subtotal.Amount);
+        Assert.Equal(300, dto.Tax.Cents);                 // 10%
+        Assert.Equal(4800, dto.Total.Cents);              // 3000 + 300 + 1500 shipping
+        Assert.Equal("48.00", dto.Total.Amount);
         var dtoLine = Assert.Single(dto.Lines);
         Assert.Equal(productId, dtoLine.ProductId);
         Assert.Equal(3u, dtoLine.Quantity);
@@ -273,9 +275,11 @@ public class CreateOrderServiceTests : IAsyncLifetime
         var dtoLine = Assert.Single(dto.Lines);
         Assert.Equal(productId, dtoLine.ProductId);
         Assert.Equal(5u, dtoLine.Quantity);
-        Assert.Equal(5000, dto.SubtotalCents);           // 5 * 1000
-        Assert.Equal(500, dto.TaxCents);                 // 10%
-        Assert.Equal(7000, dto.TotalCents);              // 5000 + 500 + 1500 shipping
+        Assert.Equal(5000, dto.Subtotal.Cents);           // 5 * 1000
+        Assert.Equal("50.00", dto.Subtotal.Amount);
+        Assert.Equal(500, dto.Tax.Cents);                 // 10%
+        Assert.Equal(7000, dto.Total.Cents);              // 5000 + 500 + 1500 shipping
+        Assert.Equal("70.00", dto.Total.Amount);
 
         var product = await db.Products.FirstAsync(p => p.Id == productId);
         Assert.Equal(5u, product.UnitsInStock);          // 10 - (2 + 3)

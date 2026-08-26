@@ -90,7 +90,8 @@ public class ProductReadServiceTests : IAsyncLifetime
         var active = Assert.Single(products, p => p.Id == "prd_active1");
         Assert.Equal("Widget", active.Name);
         Assert.Equal("An active widget", active.Description);
-        Assert.Equal(1999, active.UnitPriceCents);
+        Assert.Equal(1999, active.UnitPrice.Cents);
+        Assert.Equal("19.99", active.UnitPrice.Amount);
         Assert.Equal(42u, active.UnitsInStock);
 
         // Global query filter (ProductConfiguration.HasQueryFilter) must hide the

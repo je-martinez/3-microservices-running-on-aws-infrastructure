@@ -17,6 +17,8 @@ namespace Orders.Application.Abstractions;
 public static class AuditActor
 {
     public const string CreateOrder = "orders_api:create_order";
+    public const string UpdateCart = "orders_api:update_cart";
+    public const string DeleteCart = "orders_api:delete_cart";
     public const string ProductSeed = "orders_api:product_seed";
     public const string ConfigSeed = "orders_api:config_seed";
     public const string E2eCleanup = "orders_api:e2e_cleanup";

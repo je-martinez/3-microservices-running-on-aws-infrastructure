@@ -1,12 +1,14 @@
+using Orders.Domain;
+
 namespace Orders.Application.Orders;
 
-// Pure read DTO for the product catalog. Money in integer cents (service
-// convention). No audit/soft-delete fields.
+// Pure read DTO for the product catalog. Money is reported in cents AND dollars
+// via Money, so no client divides by 100. No audit/soft-delete fields.
 public record ProductDto(
     string Id,
     string Name,
     string Description,
-    long UnitPriceCents,
+    Money UnitPrice,
     uint UnitsInStock,
     IReadOnlyList<string> Categories,
     ProductImageDto? Image);

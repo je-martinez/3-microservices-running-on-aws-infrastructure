@@ -71,6 +71,24 @@ All commits and PR titles follow **Conventional Commits v1.0.0**:
 Attach context references as footers (`Refs:`, `Plan:`, `Spec:`) on a best-effort
 basis — enrichment, never a blocker.
 
+### Review the diff against the brief, not on its own merits
+
+*"Is this correct?"* and *"does this do everything it was asked to do?"* are
+different questions, and **only the first gets asked by default**. When reviewing,
+**enumerate the brief's requirements** — spec, plan, issue, task description — and
+tick each one off against the diff, rather than judging the diff holistically.
+
+A requirement silently dropped during implementation leaves **no trace**: the
+shipped code is self-consistent, it passes review on its own terms, and the tests
+written alongside it cover **what was built rather than what was specified**. The
+cart's concurrent-`PUT` retry was specified in the design spec from its first
+commit, shipped as an unhandled `500`, passed its per-task review, and was caught
+only by chance in a later whole-branch pass. **Concurrency requirements are the
+highest-risk case**, since ordinary tests structurally do not exercise them.
+
+Full rule: `.ai/rules/git-and-commits.md`. Full lesson:
+`docs/lessons/2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec.md`.
+
 ### Scripting language — Python first
 
 New scripts are **Python** by default. **JavaScript** only where the task already
@@ -106,6 +124,14 @@ auth flows log a masked form (`jo*****e@gmail.com`), everything else uses
 There is **no SUCCESS severity**: success is `INFO` + `app_event=*_succeeded`.
 **OpenTelemetry config goes in environment variables, not code.**
 
+**Every endpoint owes a workflow span and at least one flow log — reads
+included.** The shape differs: a **read** gets one `_succeeded` line carrying a
+count (no `_started`, no `_failed` — it has no intermediate step and names no
+failure of its own), while a **write** gets the full
+`_started`/`_succeeded`/`_failed` triad plus `reason`. Emit the line **inside**
+the workflow span so it carries that span's `span_id`, and instrument the
+endpoint's **entry point**, never a helper shared with the write path.
+
 Full rule: `.ai/rules/logging-and-pii.md`.
 
 ### Testing — three layers per endpoint
@@ -116,14 +142,44 @@ Cognito JWT**. Internal tests fake the authorizer and never touch the gateway, s
 they miss gateway-only bugs. An endpoint without gateway E2E is an **incomplete
 change**.
 
+**A NEW ROUTE IS NOT DONE WHEN THE SERVICE SERVES IT.** A plan that adds an
+endpoint must carry a task for each of the following, or say why one does not
+apply — every item was missed at least once during the cart milestone:
+
+- **Gateway + nginx wiring.** A route missing from the gateway route map
+  (`infra/modules/api-gateway/main.tf`) **404s at the gateway** while working
+  perfectly on the service port; a new top-level path with no `location` block in
+  `infra/modules/compute/nginx/nginx.conf` falls through to `location /` and
+  silently reaches **Users** instead of the owning service. A 404 carrying the
+  gateway's own `{"message":"Not Found"}` rather than the service's `{error: …}`
+  shape means the request never reached the service. **After the fix a 401 is the
+  good answer** — it proves the route resolves.
+- **All three test layers, not two.** Internal E2E is the one quietly skipped.
+- **Load-test scenarios**, when the route changes how users reach an existing flow.
+- **Observability** — a span and a flow log; **reads are not exempt**.
+- **A preview surface must mirror how the charging code applies rounding**, not
+  merely how it rounds (`docs/shared/conventions/money-representation.md`).
+
 **Load testing is a separate surface** in `e2e/load-tests/` (Gatling JS), beside
 the Playwright suite in `e2e/`. It answers a different question — not "is it
 correct?" but "what shape does it have under sustained traffic?" — and
 deliberately sends **neither** `x-e2e-source` nor `x-test-mode`, so its data
 persists like real data and deliveries advance only through the carrier webhook.
 
-Full rule, including the load-simulation traps that cost real debugging time:
-`.ai/rules/testing.md`.
+**Never run a load simulation and the E2E suite against the same stack.** A load
+run leaves several hundred events on the **shared** SQS queue, and the
+events-pipeline Lambda drains it at **~0.83 msg/s** (records processed
+sequentially, ~376 ms each on a 256 MB function). An OTP, password-reset, or
+DELIVERED event published behind ~800 messages waits **~13 minutes**, while every
+spec awaiting an email gives up after **45 s**. **The emails are not lost — they
+arrive far too late**, but the timeout reports *"NOTHING arrived"*, which reads
+as a broken pipeline and sends you hunting a defect in dispatch, SES, or Mailpit.
+All three are fine. `e2e/support/global-setup.ts` warns when the backlog exceeds
+the threshold; when it does, wait for the queue to drain or reset with
+`make clean && make bootstrap` **instead of debugging the pipeline**.
+
+Full rule, including the load-simulation traps that cost real debugging time and
+the derivation of the queue-depth threshold: `.ai/rules/testing.md`.
 
 ### Language
 

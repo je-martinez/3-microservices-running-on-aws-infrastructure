@@ -535,3 +535,7 @@ had none.
   conventions, and the full detail behind the three Floci/OpenObserve gotchas above.
 - [[health-check-logging]] — the health-check exemption from the `request completed` line while
   the probe succeeds, and why it is scoped by status rather than by suppressing the route.
+- [[2026-08-25-reads-are-not-exempt-from-observability]] — a read endpoint (`GET /v1/cart`)
+  and a small write (`DELETE /v1/cart`) shipped with no span or log line at all; the
+  read/write log-shape distinction (one `_succeeded` line with a count for reads, the full
+  triad for writes) that resulted.

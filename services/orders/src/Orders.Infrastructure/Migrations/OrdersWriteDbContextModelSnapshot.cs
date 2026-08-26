@@ -22,6 +22,145 @@ namespace Orders.Infrastructure.Migrations
 
             MySqlModelBuilderExtensions.AutoIncrementColumns(modelBuilder);
 
+            modelBuilder.Entity("Orders.Domain.Entities.Cart", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CognitoSub")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)")
+                        .HasColumnName("cognito_sub");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("active_user_id")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
+                        .HasColumnName("active_user_id")
+                        .HasComputedColumnSql("(CASE WHEN `deleted_at` IS NULL THEN `user_id` ELSE NULL END)", true);
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CognitoSub")
+                        .HasDatabaseName("idx_cart_cognito_sub");
+
+                    b.HasIndex("DeletedAt")
+                        .HasDatabaseName("idx_cart_deleted_at");
+
+                    b.HasIndex("active_user_id")
+                        .IsUnique()
+                        .HasDatabaseName("uq_cart_active_user_id");
+
+                    b.ToTable("cart", (string)null);
+                });
+
+            modelBuilder.Entity("Orders.Domain.Entities.CartItem", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CartId")
+                        .IsRequired()
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
+                        .HasColumnName("cart_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<string>("ProductId")
+                        .IsRequired()
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
+                        .HasColumnName("product_id");
+
+                    b.Property<uint>("Quantity")
+                        .HasColumnType("int unsigned")
+                        .HasColumnName("quantity");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("active_cart_id")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasMaxLength(28)
+                        .HasColumnType("varchar(28)")
+                        .HasColumnName("active_cart_id")
+                        .HasComputedColumnSql("(CASE WHEN `deleted_at` IS NULL THEN `cart_id` ELSE NULL END)", true);
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CartId");
+
+                    b.HasIndex("DeletedAt")
+                        .HasDatabaseName("idx_cart_item_deleted_at");
+
+                    b.HasIndex("active_cart_id", "ProductId")
+                        .IsUnique()
+                        .HasDatabaseName("uq_cart_item_active_cart_product");
+
+                    b.ToTable("cart_item", (string)null);
+                });
+
             modelBuilder.Entity("Orders.Domain.Entities.Configuration", b =>
                 {
                     b.Property<string>("Key")
@@ -312,6 +451,15 @@ namespace Orders.Infrastructure.Migrations
                     b.ToTable("product", (string)null);
                 });
 
+            modelBuilder.Entity("Orders.Domain.Entities.CartItem", b =>
+                {
+                    b.HasOne("Orders.Domain.Entities.Cart", null)
+                        .WithMany("Items")
+                        .HasForeignKey("CartId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Orders.Domain.Entities.OrderDetail", b =>
                 {
                     b.HasOne("Orders.Domain.Entities.Order", null)
@@ -319,6 +467,11 @@ namespace Orders.Infrastructure.Migrations
                         .HasForeignKey("OrderId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Orders.Domain.Entities.Cart", b =>
+                {
+                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("Orders.Domain.Entities.Order", b =>
