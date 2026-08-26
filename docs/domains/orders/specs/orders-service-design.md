@@ -7,6 +7,7 @@ created: 2026-06-26
 updated: 2026-08-26
 tags: [type/spec, area/orders, status/accepted]
 related:
+  - "[[2026-08-25-account-deletion-design]]"
   - "[[2026-08-15-request-id-correlation-design]]"
   - "[[soft-delete]]"
   - "[[nano-id]]"
@@ -91,6 +92,7 @@ All routes are versioned under the `/v1` prefix. See [[versioning]] for the vers
 | `GET` | `/v1/cart` | The caller's active cart, fully priced and calculated. Always `200` — an empty cart (`id: null`, `items: []`) rather than `404`. See [Cart](#cart) below. |
 | `PUT` | `/v1/cart` | Full replacement of the cart's line set. `quantity: 0` removes a line; an empty resulting cart is deleted. `400` on a negative quantity, a duplicated `productId`, or missing/null `items`; `404 unknown_user` **only on a request that carries lines** (same Cognito-sub-not-found mapping `POST /v1/orders` uses) — an emptying `PUT` (`items: []`, or every line at `quantity: 0`) never resolves identity and always succeeds regardless of whether the caller is a known user. See [Cart](#cart) below. |
 | `DELETE` | `/v1/cart` | Deletes the caller's active cart and its lines. `204`, idempotent (also `204` when there was no cart). |
+| `DELETE` | `/v1/orders/by-user` | **Internal.** Explicitly **NOT on the API Gateway** — see [Account-deletion cascade (internal)](#account-deletion-cascade-internal) below. Soft-deletes every order, order line, and cart belonging to a user, matching `cognito_sub OR user_id`. Authenticated with the shared `GRPC_API_KEY`, the same secret [[grpc-api-key-authorization]] already covers — but validated **inbound** here for the first time, not merely presented outbound. |
 | `GET` | `/v1/orders/health` (gateway) | Liveness/readiness probe. **Gateway-published path is prefixed**, not the bare `/v1/health` the service serves internally — nginx rewrites the prefixed gateway path down to the service's unprefixed `/v1/health` (health-only rewrite; see [[tracking-service-design#Gateway-prefixed health path, not bare `/v1/health`]] for the full rationale, which applies identically here: an unprefixed gateway route would fall through nginx's default proxy and silently resolve to Users). Returns `200 { "status": "ok" }` when healthy. No auth required. Used by ALB/Fargate as health check target. |
 
 > [!note] Authorization check — filter in the query, not fetch-then-compare
@@ -307,6 +309,108 @@ the same `app_event`/`reason` as its log line, per [[logging-context]]. This sha
 gap where `GET`/`DELETE` originally shipped with **none** of it — is documented in
 [[2026-08-25-reads-are-not-exempt-from-observability]]; full rule in
 `services/orders/CLAUDE.md` §4.
+
+## Account-deletion cascade (internal)
+
+> [!info] Shipped 2026-08-26 — Account Deletion milestone
+> Full design: [[2026-08-25-account-deletion-design]]. `DELETE /v1/orders/by-user` is one of two
+> internal cascade legs `DELETE /v1/users/me` calls synchronously; see
+> [[users-service-design#Account deletion]] for the caller side.
+
+`InternalEndpoints.cs` maps `DELETE /v1/orders/by-user`, a service-to-service route that soft-
+deletes every order, order line, and cart belonging to a user. It is **not published on the API
+Gateway** — reachable only inside the compose/ECS network — and is **not** behind Cognito.
+
+### Inbound authentication — Orders validates `GRPC_API_KEY` inbound for the first time
+
+Every previous use of `GRPC_API_KEY` in this service was **outbound**: Orders presenting it as
+`x-api-key` gRPC metadata when calling Users' `GetUserById` (see
+[[grpc-api-key-authorization]]). This route is the first time Orders sits on the **other** side
+of that same secret — validating it **inbound**, on a plain REST route rather than gRPC
+metadata. The handler reads the `x-api-key` header and compares it to `GRPC_API_KEY` using a
+constant-time comparison, rejecting a missing or mismatched key with `401` before the request
+body is even parsed.
+
+`[[grpc-api-key-authorization]]`'s own text previously framed Orders purely as a **presenter** of
+this key; that framing is now incomplete and has been corrected there to record both directions.
+
+### Exempted from the `x-user-id` guard, not exempted from authentication
+
+`PublicRoutes.cs` lists `DELETE /v1/orders/by-user` alongside the health check and the E2E
+cleanup route. **"Public" here means only "exempt from the `x-user-id` guard"** — it does **not**
+mean unauthenticated or externally reachable. The route is absent from the gateway and its
+handler requires the `GRPC_API_KEY` before touching anything; it carries no end-user identity by
+design, because the subject travels in the request **body** (`{ cognitoSub, userId }`) — the
+caller is Users acting on a user's behalf, not the user's own request, so there is no end-user
+`x-user-id` to guard on in the first place.
+
+### Sweep order — details before orders, and why
+
+The cascade stamps `order_details` **before** `orders`, mirroring the existing E2E cleanup:
+
+1. **Details first.** The detail predicate is a subquery over the parent `orders` table
+   (`order_id IN (SELECT id FROM orders WHERE cognito_sub = @sub OR user_id = @uid)`). If orders
+   were soft-deleted first, they would be **hidden from their own children's subquery** by the
+   global EF Core query filter that excludes soft-deleted rows by default — orphaning every
+   detail line as a live child of a parent that the sweep can no longer see. Reversing the order
+   is not a style choice; it is the one ordering that avoids that trap.
+2. **Details are selected via `order_id IN (...)`, not the ownership columns directly** —
+   `order_details` carries `user_id`/`cognito_sub` denormalized, but has **no index** on either
+   (only `order_id`, `product_id`, `deleted_at`), so filtering on them directly would table-scan.
+3. **Orders**, matched on the same `cognito_sub OR user_id` predicate as the detail subquery,
+   exactly — if the two predicates diverged, the cascade could soft-delete a parent order while
+   leaving its lines live, the precise orphaning bug the ordering above exists to avoid.
+4. **The cart**, through the dedicated 3-arg `CartWriteService.DeleteForUserAsync` overload — see
+   [[soft-delete#The per-user cascade]] for why this is a separate overload from the narrow 2-arg
+   form the live cart routes use, and never the same one.
+
+### The `cognito_sub OR user_id` predicate
+
+Every statement in the cascade — details, orders, and the cart lookup feeding
+`DeleteForUserAsync` — matches **either** identity, not `cognito_sub` alone. `cognito_sub` is not
+the durable identity: a user who deletes their account and registers again gets a **new** sub
+from Cognito, while their internal `usr_` id never changes. Matching only the sub would leave a
+row whose sub is stale or empty silently unreachable by the erasure request. This costs nothing
+— `Order` and `OrderDetails` already index both columns (`idx_order_user_id`,
+`idx_order_cognito_sub`). **Orders' ordinary reads still filter by `cognito_sub` alone** — the
+widening described here is erasure-only; see [[soft-delete#The per-user cascade]] for the
+service-agnostic statement of this rule, shared verbatim with Tracking.
+
+### `DeleteForUserAsync` — two overloads, one deliberately kept narrow
+
+`CartWriteService` now exposes **two** overloads, not one:
+
+- **2-arg** `DeleteForUserAsync(db, cognitoSub, ct)` — pre-existing, **unchanged**. Scoped to the
+  caller's current sub alone, matching at most one cart. Still the only form `DELETE /v1/cart`,
+  an emptying `PUT /v1/cart`, and `POST /v1/orders`'s post-checkout cleanup use — each acts for a
+  **live request** whose identity is the current sub. Widening it would let a checkout destroy a
+  cart that merely shares a `usr_` id under an older sub, losing someone's basket mid-purchase.
+- **3-arg** `DeleteForUserAsync(db, cognitoSub, userId, ct)` — **new**, matching `cognito_sub OR
+  user_id`. The cascade's **only** caller. Static and non-saving like its sibling, so the handler
+  enlists it inside `AmbientActor.RunAsync` and calls `SaveChangesAsync` itself under the audit
+  actor below.
+
+### Audit actor and observability
+
+The cascade is a **hybrid** write, not a single mechanism: order and detail rows go through
+`ExecuteUpdateAsync` (bypassing `SaveChanges`, and therefore the `AuditInterceptor`), while the
+cart goes through ordinary `SaveChanges` under `AmbientActor`. `DeletedBy` on every row this
+route touches is stamped with `AuditActor.DeleteByUser` = `"orders_api:delete_by_user"`
+(`Orders.Application/Abstractions/AuditActor.cs`) — see [[soft-delete#Implementation (Orders, EF Core)]]
+for the now-two deliberate `ExecuteUpdateAsync` exceptions to the interceptor.
+
+The route emits the standard `internal_delete_by_user` triad, wrapped in `IWorkflowTracer`:
+
+| `app_event` | When | `reason` values |
+|---|---|---|
+| `internal_delete_by_user_started` | Once the API key has passed | — |
+| `internal_delete_by_user_succeeded` | With per-table counts (`deleted`, `deletedDetails`, `deletedCarts`) | — |
+| `internal_delete_by_user_failed` | Bad/missing key, missing identity, or a DB fault | `invalid_api_key`, `cognito_sub_required`, `user_id_required`, `db_error` |
+
+**`invalid_api_key` is logged and returned OUTSIDE the workflow span, deliberately.** An
+unauthenticated request never started the flow, so there is no flow to trace — the span and the
+`_started` line both begin only after the key check passes. Full event contract:
+[[2026-08-25-account-deletion-design#Observability]].
 
 ## Data Model
 
@@ -558,6 +662,9 @@ Full milestone design: [[2026-07-14-orders-service-milestone-design]].
 
 ## Related
 
+- [[2026-08-25-account-deletion-design]] — full design for the internal
+  `DELETE /v1/orders/by-user` cascade: the `cognito_sub OR user_id` predicate, the sweep order,
+  and the four-layer empty-identity guards.
 - [[2026-08-15-request-id-correlation-design]] — the cross-service `request_id` correlation
   field: seeded in `CallerContextMiddleware`, correlation scope opened in the outermost
   middleware, propagated to Tracking via HTTP header and to `ORDER_CREATED` as an envelope field.

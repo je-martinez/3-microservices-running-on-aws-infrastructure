@@ -1326,6 +1326,29 @@ class TestSoftDeleteByUser:
         # have swept — is untouched.
         assert row(session, "ord_empty").deleted_at is None
 
+    def test_does_not_match_an_identity_differing_only_in_case(
+        self, session: Session
+    ) -> None:
+        """The columns are case-insensitive; the ids are mixed-case. See the
+        `collate` note in `soft_delete_by_user` — without it, erasing one user
+        sweeps another whose id differs only in capitalization."""
+        repo = TrackingRepository(session)
+        # A MIXED-CASE sub, unlike the all-digit UUID fixtures: swapping the case of
+        # those changes nothing, so the OR would still match by that arm and the test
+        # would pass for the wrong reason.
+        mixed_sub = "AbCdEf01-2345-4111-8111-abcdefabcdef"
+        seed(session, order_id="ord_case", cognito_sub=mixed_sub, user_id=USER_A)
+
+        count = repo.soft_delete_by_user(
+            cognito_sub=mixed_sub.swapcase(),
+            user_id=USER_A.swapcase(),
+            actor=AuditActor.DELETE_BY_USER,
+        )
+        session.commit()
+
+        assert count == 0
+        assert row(session, "ord_case").deleted_at is None
+
     def test_is_idempotent(self, session: Session) -> None:
         repo = TrackingRepository(session)
         seed(session, order_id="ord_c", cognito_sub=SUB_A, user_id=USER_A)

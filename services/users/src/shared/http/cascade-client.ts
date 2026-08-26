@@ -1,14 +1,39 @@
 import { appLogger } from "#shared/logging/app-logger";
 
+// Base for every reason the cascade did not complete. The route maps this one
+// type to 502, so a new failure mode gets the right status by subclassing rather
+// than by touching the error handler.
+export class CascadeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CascadeError";
+  }
+}
+
 // Raised when a cascade leg does not confirm the delete. Carries WHICH service
 // failed, so the 502 the user sees can be traced to a side without reading logs.
-export class CascadeFailedError extends Error {
+export class CascadeFailedError extends CascadeError {
   constructor(
     readonly service: "orders" | "tracking",
     readonly detail: string,
   ) {
     super(`${service} cascade failed: ${detail}`);
     this.name = "CascadeFailedError";
+  }
+}
+
+// Raised when the cascade cannot even be ATTEMPTED — today, a user row with no
+// `cognitoSub`, the key both downstream services filter by.
+//
+// A distinct type rather than a CascadeFailedError with an arbitrary `service`:
+// nothing downstream was called, so blaming one of them puts a lie in the logs
+// and the trace. It still maps to 502, because from the caller's side the fact is
+// the same — the deletion did not happen, the account is intact, and the fix is
+// not theirs to make.
+export class CascadeUnavailableError extends CascadeError {
+  constructor(readonly reason: string) {
+    super(`cascade not attempted: ${reason}`);
+    this.name = "CascadeUnavailableError";
   }
 }
 

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { DeleteAccountCommand } from "#features/users/commands/delete-account";
 import { AuditActor } from "#shared/audit/audit-actor";
 import { getActor } from "#shared/audit/actor-context";
-import { CascadeFailedError } from "#shared/http/cascade-client";
+import { CascadeFailedError, CascadeUnavailableError } from "#shared/http/cascade-client";
 import { CurrentUser } from "#shared/auth/current-user";
 import { captureAppLogs, lineFor } from "../../../helpers/capture-app-logs.ts";
 
@@ -215,6 +215,21 @@ describe("DeleteAccountCommand", () => {
     expect(cascade.deleteOrdersForUser).not.toHaveBeenCalled();
     expect(db.user.delete).not.toHaveBeenCalled();
     expect(lineFor(lines, "delete_account_failed")?.reason).toBe("missing_cognito_sub");
+  });
+
+  it("blames no downstream service when the cascade was never attempted", async () => {
+    const { db, cascade, auth, metricsPublisher } = makeDeps({ ...TARGET, cognitoSub: null } as any);
+    const currentUser = new CurrentUser({ db, identity: "usr_1" });
+
+    const error = await new DeleteAccountCommand({ db, cascade, auth, metricsPublisher } as any)
+      .execute(currentUser)
+      .catch((e) => e);
+
+    // A CascadeFailedError would have to name a service, and naming one for a call
+    // that never happened puts a lie in the logs and the trace.
+    expect(error).toBeInstanceOf(CascadeUnavailableError);
+    expect(error).not.toBeInstanceOf(CascadeFailedError);
+    expect(String(error.message)).not.toContain("orders");
   });
 
   it("publishes the users_deleted_total counter", async () => {

@@ -14,6 +14,13 @@ namespace Orders.Api.Endpoints;
 /// </summary>
 public static class InternalEndpoints
 {
+    /// <summary>
+    /// Binary collation pinned on the cascade's ownership predicates. Taken from
+    /// <see cref="CartWriteService"/> rather than spelled out again here, so the API and
+    /// Infrastructure halves of the same cascade cannot drift onto different collations.
+    /// </summary>
+    private const string BinaryCollation = CartWriteService.BinaryCollation;
+
     public static void MapInternalEndpoints(this WebApplication app)
     {
         app.MapDelete("/v1/orders/by-user", async (
@@ -125,13 +132,20 @@ public static class InternalEndpoints
                         // them would table-scan.
                         //
                         // The inner selection mirrors the orders predicate below EXACTLY,
-                        // OR included. If it did not, the cascade would soft-delete a parent
-                        // order while leaving its lines live — orphaned children of a
-                        // deleted parent, the precise bug the ordering below exists to avoid.
+                        // OR included — the binary collation too. If it did not, the cascade
+                        // would soft-delete a parent order while leaving its lines live —
+                        // orphaned children of a deleted parent, the precise bug the ordering
+                        // below exists to avoid.
+                        //
+                        // COLLATE utf8mb4_bin: see the note on the orders sweep below. It has
+                        // to be here as well, or the two predicates select different row sets
+                        // and the cascade goes right back to being inconsistent.
                         deletedDetails = await db.OrderDetails
                             .Where(d => db.Orders
-                                .Where(o => o.CognitoSub == body.CognitoSub
-                                    || o.UserId == body.UserId)
+                                .Where(o => EF.Functions.Collate(o.CognitoSub, BinaryCollation)
+                                        == EF.Functions.Collate(body.CognitoSub, BinaryCollation)
+                                    || EF.Functions.Collate(o.UserId, BinaryCollation)
+                                        == EF.Functions.Collate(body.UserId, BinaryCollation))
                                 .Select(o => o.Id)
                                 .Contains(d.OrderId) && d.DeletedAt == null)
                             .ExecuteUpdateAsync(s => s
@@ -152,9 +166,39 @@ public static class InternalEndpoints
                         // a row whose sub was left empty or fell out of sync is still
                         // reachable by an erasure request, and it is free — Orders indexes
                         // both columns (idx_order_user_id, idx_order_cognito_sub).
+                        //
+                        // COLLATE utf8mb4_bin IS A SAFETY CONTROL, NOT A TUNING KNOB — and
+                        // this is the canonical note the other two sites in this cascade
+                        // point back to.
+                        //
+                        // `order.user_id` and `order.cognito_sub` are utf8mb4_0900_ai_ci —
+                        // case-INSENSITIVE — while the ids they hold come from a MIXED-CASE
+                        // alphabet (`A-Za-z0-9`, see NanoIdConfig.Alphabet and [[nano-id]])
+                        // minted by Users' Postgres, which compares case-SENSITIVELY. So
+                        // Postgres can legitimately issue `usr_AbC…` and `usr_abc…` as two
+                        // DIFFERENT people that MySQL cannot tell apart, and an erasure keyed
+                        // on one would sweep the other's orders, lines and cart — reporting a
+                        // cheerful 200 with a non-zero count and logging *_succeeded while
+                        // doing it. Verified against the live database on 2026-08-26:
+                        // `SELECT 'usr_AbC' = 'usr_abc'` returns 1, and a real row matched its
+                        // own id with the case inverted.
+                        //
+                        // Pinned at the PREDICATE rather than fixed in the schema because that
+                        // keeps the change scoped to the IRREVERSIBLE operation. The
+                        // user-scoped READS share the same root cause and are deliberately
+                        // left alone: a read returning a neighbour's row is a bug, but a soft
+                        // delete removing it has no undelete primitive anywhere in this
+                        // service, so recovery means hand-written SQL. Mirrors Tracking's
+                        // sibling route, which pins the same collation on the same predicate.
+                        //
+                        // BOTH SIDES are collated. Pinning only the column leaves MySQL to
+                        // resolve the comparison's collation from the two operands, and a
+                        // mismatch there is an error rather than the behaviour wanted.
                         deleted = await db.Orders
-                            .Where(o => (o.CognitoSub == body.CognitoSub
-                                    || o.UserId == body.UserId)
+                            .Where(o => (EF.Functions.Collate(o.CognitoSub, BinaryCollation)
+                                        == EF.Functions.Collate(body.CognitoSub, BinaryCollation)
+                                    || EF.Functions.Collate(o.UserId, BinaryCollation)
+                                        == EF.Functions.Collate(body.UserId, BinaryCollation))
                                 && o.DeletedAt == null)
                             .ExecuteUpdateAsync(s => s
                                 .SetProperty(o => o.DeletedAt, now)
@@ -174,9 +218,18 @@ public static class InternalEndpoints
                         // prefers deleting too much to leaving data behind.
                         await AmbientActor.RunAsync(AuditActor.DeleteByUser, async () =>
                         {
+                            // Collated like the two statements above (see the canonical note
+                            // on the orders sweep), and for a second reason of its own: this
+                            // count is what the response and the _succeeded line report as
+                            // deleted_carts. Left case-insensitive it would count a
+                            // neighbour's cart that DeleteForUserAsync — correctly collated —
+                            // does not delete, so the number reported would not describe what
+                            // happened.
                             var before = await db.Carts
-                                .CountAsync(c => c.CognitoSub == body.CognitoSub
-                                    || c.UserId == body.UserId, ct);
+                                .CountAsync(c => EF.Functions.Collate(c.CognitoSub, BinaryCollation)
+                                        == EF.Functions.Collate(body.CognitoSub, BinaryCollation)
+                                    || EF.Functions.Collate(c.UserId, BinaryCollation)
+                                        == EF.Functions.Collate(body.UserId, BinaryCollation), ct);
                             await CartWriteService.DeleteForUserAsync(
                                 db, body.CognitoSub, body.UserId, ct);
                             await db.SaveChangesAsync(ct);

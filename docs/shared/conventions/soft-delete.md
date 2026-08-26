@@ -4,9 +4,9 @@ type: convention
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-08-03
+updated: 2026-08-26
 tags: [type/convention, area/shared, status/active, issue/JE-39]
-related: ["[[audit-fields]]", "[[nano-id]]", "[[orders-service-design]]", "[[tracking-service-design]]"]
+related: ["[[audit-fields]]", "[[nano-id]]", "[[orders-service-design]]", "[[tracking-service-design]]", "[[users-service-design]]", "[[2026-08-25-account-deletion-design]]"]
 ---
 
 # Soft delete only
@@ -22,6 +22,77 @@ There are **no hard deletes anywhere**. Deleting a record means setting its `del
 ## Rationale
 
 Data is never lost: every record stays recoverable and auditable. Enforcing this at the database-privilege level — not just in application code — makes the guarantee impossible to bypass, and it pairs directly with our [[audit-fields]] so each deletion records who and when.
+
+## The partial-unique-index pattern
+
+> [!info] Added 2026-08-26 — Account Deletion milestone
+> Full design: [[2026-08-25-account-deletion-design]].
+
+Soft delete creates a problem plain uniqueness constraints don't anticipate: a natural key (an
+email, a slug, any value a user would recognize) must stay unique among **live** rows, while a
+soft-deleted row is explicitly allowed to keep the same value it always had — the whole point of
+soft delete is that the old row is preserved intact, not tombstoned or rewritten. A plain
+`UNIQUE` constraint can't express that distinction; it blocks a second live row from ever reusing
+a value a deleted row still holds.
+
+**Postgres** supports this declaratively via a **partial unique index** — `UNIQUE (...) WHERE
+<condition>` — scoped to rows matching the condition only. In Prisma (≥7.4, `partialIndexes`
+preview feature), the equivalent is `@@unique([...], where: raw("deleted_at IS NULL"))` on the
+model, plus enabling `previewFeatures = ["partialIndexes"]` on the generator block. No raw-SQL
+migration is required; the index is generated declaratively from the schema.
+
+**MySQL has no partial indexes.** The equivalent there is a **stored generated column** whose
+value collapses to `NULL` exactly when the row is soft-deleted, backing an ordinary unique index
+— MySQL's unique indexes already ignore `NULL`s, so a column that is `NULL` on every deleted row
+is invisible to the constraint while carrying the natural key's value on every live row. This is
+not a new pattern for this decision: it is the identical trick Orders' cart aggregate already
+uses for its one-active-cart-per-user invariant (`active_user_id`, a generated column equal to
+`user_id` while `deleted_at IS NULL` and `NULL` otherwise — see
+[[orders-service-design#The one-active-cart invariant — enforced by the database, not C#]]).
+
+**Worked example — `users.email`.** Before account deletion, `email` was a plain `@unique`
+column. As shipped (migration `20260826000000_partial_unique_email`), it is
+`@@unique([email], where: raw("deleted_at IS NULL"))` — unique among live rows only. A
+soft-deleted user's row keeps its **real** email intact (no tombstoning to
+`deleted+<id>@…`, which would destroy the historical data the deletion feature exists to
+preserve and break the row's `email_hash` for audit), and a **new** registration can reuse the
+same address, producing two rows that share an email: one carrying `deletedAt`, one live. Full
+data-model detail: [[users-service-design#Data Model]].
+
+## The per-user cascade
+
+> [!info] Added 2026-08-26 — Account Deletion milestone
+> Full design: [[2026-08-25-account-deletion-design]].
+
+Two primitives implement "soft-delete everything belonging to this user, across services,
+synchronously" — `soft_delete_by_user` (Tracking) and the 3-arg
+`CartWriteService.DeleteForUserAsync` overload plus the `ExecuteUpdateAsync` sweep in Orders'
+`InternalEndpoints.cs` (no equivalent single named method in Orders; the cascade is split across
+two `ExecuteUpdateAsync` calls and one `SaveChanges` call under `AmbientActor`). Both are the
+per-**identity** analogues of the pre-existing per-**tag** primitives (`soft_delete_by_tag` in
+Tracking, the E2E cleanup's `ExecuteUpdateAsync` in Orders) that already served the E2E teardown
+— same never-a-SQL-DELETE shape, same FK-following order, different selector.
+
+**The rule, as shipped:** an erasure cascade matches `cognito_sub OR user_id` in **both**
+services, while every ordinary read continues to key on `cognito_sub` **alone**. This widening is
+erasure-only and deliberate, for two reasons:
+
+1. `cognito_sub` is not the durable identity. A user who deletes their account and registers
+   again gets a **new** sub minted by Cognito, while their internal `usr_` id never changes. A
+   cascade keyed on `cognito_sub` alone would leave a row whose sub is stale or empty perfectly
+   intact and silently unreachable — the deletion request would still answer success, with a
+   cascade count of zero, while the data survives.
+2. Tracking has a **second**, independent reason: `cognito_sub` is nullable on rows predating
+   migration `b17f4c2e9a30`, reachable only through `user_id`.
+
+It costs nothing — both services already index both columns (Orders:
+`idx_order_user_id`/`idx_order_cognito_sub`; Tracking: the equivalent pair) — but it is not free
+of risk: `cognito_sub`/`user_id` are `NOT NULL varchar` columns in both services' schemas, which
+still permits `""`. An empty identity reaching either side of the `OR` would match every row
+carrying an empty string in that column — someone else's data — which is why empty identities are
+refused at **four** independent layers across the whole cascade (Users' outbound client, Orders'
+route, Tracking's schema, Tracking's repository); full table:
+[[2026-08-25-account-deletion-design#Empty-identity guards (four layers)]].
 
 ## Implementation (Users service, [JE-39](https://linear.app/issue/JE-39))
 
@@ -42,8 +113,19 @@ Orders' `e2e-cleanup` endpoint (`services/orders/src/Orders.Api/Endpoints/E2eEnd
 `Orders.Infrastructure/Persistence/AuditInterceptor.cs`) that normally stamps audit fields never
 runs for it. `DeletedBy` is therefore set explicitly in the `ExecuteUpdateAsync` call itself,
 mirroring the actor the interceptor would otherwise have set. The rest of Orders' writes go through
-ordinary `SaveChanges` and pick up the interceptor as usual; the E2E cleanup is the one deliberate
-bulk-update exception.
+ordinary `SaveChanges` and pick up the interceptor as usual.
+
+> [!info] A second `ExecuteUpdateAsync` exception, and a hybrid handler (2026-08-26)
+> The E2E cleanup is no longer the **only** deliberate `ExecuteUpdateAsync` bypass. The
+> account-deletion cascade (`DELETE /v1/orders/by-user`, `InternalEndpoints.cs`) adds a
+> **second**: it stamps `order_details` and `orders` via two `ExecuteUpdateAsync` calls (bypassing
+> the interceptor, `DeletedBy` set explicitly in each call, same shape as the E2E cleanup), but
+> the cart leg of the same handler goes through **ordinary `SaveChanges` under
+> `AmbientActor.RunAsync`**, using the interceptor as normal. One HTTP handler is therefore a
+> **hybrid**: two bulk statements that bypass audit stamping entirely, one call that uses it. Both
+> `ExecuteUpdateAsync` exceptions stamp the same actor, `AuditActor.DeleteByUser` =
+> `"orders_api:delete_by_user"`. Full design:
+> [[orders-service-design#Account-deletion cascade (internal)]].
 
 ## Implementation (Tracking, SQLAlchemy)
 
@@ -53,9 +135,38 @@ direction — stamping `deleted_at`/`deleted_by` and never issuing a SQL `DELETE
 repository goes through `_live()`, which appends `deleted_at IS NULL`, so a stamped row disappears
 from every read path without a matching hard delete anywhere in the code.
 
+**`soft_delete_by_user` (added 2026-08-26)** is the per-identity sibling in the same file: same
+two-statement, children-then-parents shape, but selected by `cognito_sub OR user_id` instead of a
+tag, and its **parent** selection is deliberately not filtered on `deleted_at IS NULL` — an
+already-soft-deleted tracking may still have live history from a partial previous cascade run,
+and that history must remain reachable on retry. Idempotency instead comes from the per-statement
+`deleted_at IS NULL` guard on each `UPDATE`. Full design:
+[[tracking-service-design#Account-deletion cascade (internal)]].
+
+## The ADR-0004 boundary — our databases, not Cognito
+
+> [!info] Added 2026-08-26 — Account Deletion milestone
+
+[[ADR-0004-soft-delete-only]] and this convention govern **our databases** — the write user in
+each service holds no `DELETE` grant, which is what makes the rule structural rather than merely
+conventional. Account deletion's Cognito step, `AuthProvider.deleteUser` → `AdminDeleteUser`
+(Users), does **not** violate that rule, because Cognito is not one of our databases: it is an
+**external identity provider**, and what it holds for a user is a **credential** (the Cognito
+sub), not a durable **record** of them. The durable record stays exactly where this convention
+protects it — in Postgres, as a soft-deleted row keeping its real email intact.
+
+`AdminDeleteUser` was chosen over `AdminDisableUser` specifically because a disabled account
+still **occupies its email in the pool**, permanently blocking the confirmed re-registration
+requirement (`UsernameExistsException` forever). Deleting the Cognito account is what actually
+frees the email address; nothing about it removes or rewrites the Postgres record this convention
+protects. Full rationale: [[users-service-design#Account deletion]] and
+[[2026-08-25-account-deletion-design]].
+
 ## Related
 
 - [[audit-fields]] — `deletedAt`/`deletedBy` and the computed `isDeleted` that soft-delete relies on.
 - [[nano-id]] — stamped by the same Prisma client extension; its per-model map shares the extensibility trade-off with `isDeleted`'s per-model registration.
-- [[orders-service-design]] — Orders' `e2e-cleanup` endpoint, the `ExecuteUpdateAsync`/`AuditInterceptor` bypass documented above.
-- [[tracking-service-design]] — Tracking's `e2e-cleanup` endpoint and `soft_delete_by_tag`, documented above.
+- [[orders-service-design]] — Orders' `e2e-cleanup` endpoint, the `ExecuteUpdateAsync`/`AuditInterceptor` bypass, and the account-deletion cascade's second `ExecuteUpdateAsync` exception and hybrid handler, documented above.
+- [[tracking-service-design]] — Tracking's `e2e-cleanup` endpoint, `soft_delete_by_tag`, and the account-deletion `soft_delete_by_user` sibling, documented above.
+- [[users-service-design]] — the partial-unique-index worked example (`users.email`), and `AuthProvider.deleteUser`'s role at the ADR-0004/Cognito boundary, documented above.
+- [[2026-08-25-account-deletion-design]] — the full account-deletion design this note's "partial-unique-index pattern", "per-user cascade", and "ADR-0004 boundary" sections propagate from.

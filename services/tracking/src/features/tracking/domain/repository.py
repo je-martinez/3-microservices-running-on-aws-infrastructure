@@ -479,7 +479,25 @@ class TrackingRepository:
                 "soft_delete_by_user requires both identities to be non-empty"
             )
 
-        owned = or_(Tracking.cognito_sub == cognito_sub, Tracking.user_id == user_id)
+        # `collate("utf8mb4_bin")` is a SAFETY control, not a tuning knob.
+        #
+        # Both columns are `utf8mb4_unicode_ci` — case-INSENSITIVE — while the ids
+        # they hold come from a MIXED-CASE alphabet (`A-Za-z0-9`, see [[nano-id]])
+        # minted by Users' Postgres, which compares case-SENSITIVELY. So Postgres
+        # can legitimately issue `usr_AbC…` and `usr_abc…` as two different people
+        # that MySQL cannot tell apart, and an erasure keyed on one would sweep the
+        # other's trackings. Verified against the live database on 2026-08-26: an id
+        # with its case inverted matched a real row.
+        #
+        # Pinned at the PREDICATE rather than fixed in the schema because that keeps
+        # the change scoped to the irreversible operation. The user-scoped READS
+        # share the same root cause and are deliberately left alone here — a read
+        # returning a neighbour's row is a bug, but a delete removing it is not
+        # recoverable without hand-written SQL.
+        owned = or_(
+            Tracking.cognito_sub.collate("utf8mb4_bin") == cognito_sub,
+            Tracking.user_id.collate("utf8mb4_bin") == user_id,
+        )
 
         # NOT filtered on `deleted_at IS NULL`: an already-soft-deleted tracking may
         # still have live history under it from a partial previous run, and those

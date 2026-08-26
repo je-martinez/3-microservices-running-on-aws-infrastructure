@@ -9,7 +9,7 @@ import { appLogger } from "#shared/logging/app-logger";
 import { hashEmail } from "#shared/logging/email-hash";
 import { setLogContext } from "#shared/logging/log-context";
 import { trace } from "@opentelemetry/api";
-import { CascadeFailedError } from "#shared/http/cascade-client";
+import { CascadeFailedError, CascadeUnavailableError } from "#shared/http/cascade-client";
 import { withWorkflowSpan } from "#shared/observability/workflow-tracing";
 
 export type DeleteAccountResult = "deleted" | "not_found";
@@ -111,7 +111,7 @@ export class DeleteAccountCommand {
       trace
         .getActiveSpan()
         ?.setAttributes({ app_event: "delete_account_failed", reason: "missing_cognito_sub" });
-      throw new CascadeFailedError("orders", "missing cognito sub");
+      throw new CascadeUnavailableError("missing_cognito_sub");
     }
 
     // 1 & 2 — the cascades. A throw here propagates to the route as a 502 with

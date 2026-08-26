@@ -5,7 +5,7 @@ import { diContainer, registerSingletons, registerServices } from "#shared/di/aw
 import { actorContext } from "#shared/audit/actor-context";
 import { AuthError } from "#shared/auth/auth-errors";
 import { RecordNotFoundError } from "#shared/db/db-errors";
-import { CascadeFailedError } from "#shared/http/cascade-client";
+import { CascadeError } from "#shared/http/cascade-client";
 import { buildLoggerOptions } from "#shared/logging/logger";
 import { logContext } from "#shared/logging/log-context";
 import { REQUEST_ID_HEADER, resolveRequestId } from "#shared/logging/request-id";
@@ -242,7 +242,7 @@ export function buildApp(
     // 502 rather than 500: the failure is DOWNSTREAM, and the correct client
     // action is to retry — both internal routes are idempotent, so retrying is
     // safe and completes whichever leg is still outstanding.
-    if (error instanceof CascadeFailedError) {
+    if (error instanceof CascadeError) {
       return reply.code(502).send({ error: "cascade_failed" });
     }
     throw error;

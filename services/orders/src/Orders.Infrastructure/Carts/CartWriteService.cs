@@ -17,6 +17,20 @@ namespace Orders.Infrastructure.Carts;
 /// </summary>
 public class CartWriteService
 {
+    /// <summary>
+    /// The binary collation pinned on every ownership comparison in the account-erasure
+    /// cascade — here and in <c>InternalEndpoints</c>, which references this constant.
+    /// </summary>
+    /// <remarks>
+    /// A shared constant rather than a literal repeated at each site for the same reason
+    /// <see cref="CartConfiguration.ActiveUserIdIndexName"/> is one: if the spellings
+    /// drift, the protection silently stops applying at whichever site was missed, and
+    /// nothing fails — the query still runs, just case-insensitively again. See the
+    /// canonical note on the orders sweep in <c>InternalEndpoints</c> for WHY this is
+    /// needed at all.
+    /// </remarks>
+    public const string BinaryCollation = "utf8mb4_bin";
+
     private readonly OrdersWriteDbContext _db;
     private readonly IUserDirectory _users;
     private readonly CartReadService _reads;
@@ -301,6 +315,15 @@ public class CartWriteService
     /// the one-active-cart unique index is on <c>user_id</c> only, so two live carts
     /// with different subs and different user ids can legitimately both match here.
     /// </para>
+    /// <para>
+    /// Both comparisons are pinned to <see cref="BinaryCollation"/>. The ownership columns
+    /// are case-INSENSITIVE (<c>utf8mb4_0900_ai_ci</c>) while the ids are MIXED-CASE and
+    /// minted case-SENSITIVELY by Users' Postgres, so without this an erasure would delete
+    /// the cart of a DIFFERENT user whose id differs only in capitalization. Pinned at the
+    /// predicate, not the schema, to scope the change to the irreversible operation — the
+    /// canonical note lives on the orders sweep in <c>InternalEndpoints</c>. The sub-only
+    /// overload above is deliberately NOT collated: it is not an erasure path.
+    /// </para>
     /// </remarks>
     public static async Task DeleteForUserAsync(
         OrdersWriteDbContext db,
@@ -310,7 +333,10 @@ public class CartWriteService
     {
         var carts = await db.Carts
             .Include(c => c.Items)
-            .Where(c => c.CognitoSub == cognitoSub || c.UserId == userId)
+            .Where(c => EF.Functions.Collate(c.CognitoSub, BinaryCollation)
+                    == EF.Functions.Collate(cognitoSub, BinaryCollation)
+                || EF.Functions.Collate(c.UserId, BinaryCollation)
+                    == EF.Functions.Collate(userId, BinaryCollation))
             .ToListAsync(ct);
 
         foreach (var cart in carts)

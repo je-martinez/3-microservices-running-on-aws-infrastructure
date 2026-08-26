@@ -284,6 +284,144 @@ public class InternalDeleteByUserTests : IClassFixture<OrdersE2eApiFactory>
             .FirstAsync(o => o.Id == theirs)).DeletedAt);
     }
 
+    // ---------------------------------------------------------------------------
+    // CASE SENSITIVITY — the data-loss defect this block exists for.
+    //
+    // The ownership columns are utf8mb4_0900_ai_ci (case-INSENSITIVE) while the ids
+    // they hold are MIXED-CASE (NanoIdConfig.Alphabet is A-Za-z0-9) and are minted by
+    // Users' Postgres, which compares case-SENSITIVELY. Postgres can therefore issue
+    // `usr_AbC…` and `usr_abc…` as two DIFFERENT people that MySQL reads as one, so an
+    // erasure keyed on either would sweep the other's orders, lines and cart — and
+    // report success while doing it. The handler pins utf8mb4_bin on every ownership
+    // predicate in the cascade to stop that.
+    //
+    // Fixture ids below are built to CONTAIN LETTERS on purpose: `swapcase()` on an
+    // all-digit or all-punctuation id is a no-op, and a test seeded that way passes
+    // whether or not the collation is there. That trap already bit the equivalent test
+    // in Tracking.
+    // ---------------------------------------------------------------------------
+
+    // A mixed-case pair, so inverting the case genuinely produces a DIFFERENT string.
+    private const string MixedSub = "SuB-CaSe-SeNsItIvE-AbCdEf";
+
+    private static string SwapCase(string value) =>
+        new(value.Select(c => char.IsUpper(c) ? char.ToLowerInvariant(c)
+            : char.IsLower(c) ? char.ToUpperInvariant(c)
+            : c).ToArray());
+
+    [Fact]
+    public async Task Deletes_nothing_when_both_identities_differ_only_in_case()
+    {
+        // NanoId's alphabet is A-Za-z0-9, so a minted id reliably carries letters —
+        // but assert it, because a fixture that happened to be all digits would make
+        // this test pass for the wrong reason entirely.
+        var userId = NanoId.NewId("usr_");
+        Assert.NotEqual(userId, SwapCase(userId));
+        Assert.NotEqual(MixedSub, SwapCase(MixedSub));
+
+        var orderId = await SeedOrderAsync(MixedSub, userId);
+
+        var response = await _factory.CreateClient()
+            .SendAsync(Request(SwapCase(MixedSub), usr: SwapCase(userId)));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        // Not merely "did not throw": the count must be ZERO. Case-insensitively both
+        // arms of the OR would have matched, so an unfixed handler reports 1 here.
+        var body = await response.Content.ReadFromJsonAsync<InternalDeleteResponse>();
+        Assert.Equal(0, body!.Deleted);
+
+        await using var db = _factory.NewContext();
+        var order = await db.Orders.AsNoTracking().IgnoreQueryFilters()
+            .FirstAsync(o => o.Id == orderId);
+        Assert.Null(order.DeletedAt);
+    }
+
+    // THE REAL-WORLD SHAPE: two live users whose internal ids differ ONLY in case.
+    // Erasing one must leave the other entirely intact — order, line and cart.
+    [Fact]
+    public async Task Does_not_touch_a_user_whose_id_differs_only_in_case()
+    {
+        var victimUserId = NanoId.NewId("usr_");
+        var neighbourUserId = SwapCase(victimUserId);
+        Assert.NotEqual(victimUserId, neighbourUserId);
+
+        // Distinct subs: this test is about the user_id arm of the OR, so the subs must
+        // not be what saves (or condemns) either row.
+        var victimOrder = await SeedOrderAsync("sub-case-victim", victimUserId);
+        var neighbourOrder = await SeedOrderAsync("sub-case-neighbour", neighbourUserId);
+        var neighbourDetail =
+            await SeedDetailAsync(neighbourOrder, "sub-case-neighbour", neighbourUserId);
+        var neighbourCart = await SeedCartAsync("sub-case-neighbour", neighbourUserId);
+
+        var response = await _factory.CreateClient()
+            .SendAsync(Request("sub-case-victim", usr: victimUserId));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        // Exactly the victim's single order, and none of the neighbour's rows.
+        var body = await response.Content.ReadFromJsonAsync<InternalDeleteResponse>();
+        Assert.Equal(1, body!.Deleted);
+        Assert.Equal(0, body.DeletedCarts);
+
+        await using var db = _factory.NewContext();
+
+        Assert.NotNull((await db.Orders.AsNoTracking().IgnoreQueryFilters()
+            .FirstAsync(o => o.Id == victimOrder)).DeletedAt);
+
+        // The neighbour survives across ALL THREE tables the cascade touches — each is
+        // a separately collated predicate, so each can regress on its own.
+        Assert.Null((await db.Orders.AsNoTracking().IgnoreQueryFilters()
+            .FirstAsync(o => o.Id == neighbourOrder)).DeletedAt);
+        Assert.Null((await db.OrderDetails.AsNoTracking().IgnoreQueryFilters()
+            .FirstAsync(d => d.Id == neighbourDetail)).DeletedAt);
+        Assert.Null((await db.Carts.AsNoTracking().IgnoreQueryFilters()
+            .FirstAsync(c => c.Id == neighbourCart)).DeletedAt);
+    }
+
+    // Proves the COLLATE reaches the SERVER. An EF.Functions call that silently
+    // client-evaluated would leave the defect fully in place while every assertion
+    // above still passed — the rows would be filtered in memory, correctly, and the
+    // database would go on comparing case-insensitively for the ExecuteUpdate that
+    // actually deletes. Asserting on the generated SQL is the only way to tell those
+    // two worlds apart.
+    [Fact]
+    public void The_cascade_predicate_compiles_to_SQL_that_carries_the_collation()
+    {
+        using var db = _factory.NewContext();
+
+        var sql = db.Orders
+            .Where(o => (EF.Functions.Collate(o.CognitoSub, "utf8mb4_bin")
+                        == EF.Functions.Collate("sub-x", "utf8mb4_bin")
+                    || EF.Functions.Collate(o.UserId, "utf8mb4_bin")
+                        == EF.Functions.Collate("usr_x", "utf8mb4_bin"))
+                && o.DeletedAt == null)
+            .ToQueryString();
+
+        Assert.Contains("COLLATE utf8mb4_bin", sql, StringComparison.OrdinalIgnoreCase);
+        // Both arms of the OR, not just the first: a collation applied to only one
+        // column leaves the other comparison case-insensitive.
+        Assert.Equal(
+            4,
+            System.Text.RegularExpressions.Regex.Matches(
+                sql, "COLLATE utf8mb4_bin",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase).Count);
+    }
+
+    // A cart for the case tests. Seeded directly rather than through PUT /v1/cart,
+    // because the neighbour's identity is not one the stub directory can resolve.
+    private async Task<string> SeedCartAsync(string sub, string userId)
+    {
+        await using var db = _factory.NewContext();
+        var cartId = NanoId.NewId(NanoId.CartPrefix);
+        db.Carts.Add(new Cart
+        {
+            Id = cartId,
+            UserId = userId,
+            CognitoSub = sub,
+        });
+        await db.SaveChangesAsync();
+        return cartId;
+    }
+
     private async Task<string> SeedDetailAsync(string orderId, string sub, string userId)
     {
         await using var db = _factory.NewContext();

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { createContainer, asValue } from "awilix";
 import { buildApp } from "#features/users/http/routes";
-import { CascadeFailedError } from "#shared/http/cascade-client";
+import { CascadeFailedError, CascadeUnavailableError } from "#shared/http/cascade-client";
 
 // A container carrying only what DELETE /v1/users/me touches. `db` is still
 // required because routes.ts's onRequest hook builds a CurrentUser on every
@@ -92,5 +92,26 @@ describe("DELETE /v1/users/me", () => {
     // The internal topology stays internal; the service name lives on the error
     // for logs, not in the response body.
     expect(JSON.stringify(res.json())).not.toContain("tracking");
+  });
+
+  it("502s when the cascade could not even be attempted", async () => {
+    const app = makeApp(
+      vi.fn(async () => {
+        throw new CascadeUnavailableError("missing_cognito_sub");
+      }),
+    );
+
+    const res = await app.inject({
+      method: "DELETE",
+      url: "/v1/users/me",
+      headers: { "x-user-id": "sub-1" },
+    });
+
+    // Same status as a leg refusing: from the caller's side the fact is identical
+    // — the deletion did not happen and the account is intact. The error handler
+    // matches the BASE class, so a new cascade failure mode gets 502 by
+    // subclassing rather than by editing the handler.
+    expect(res.statusCode).toBe(502);
+    expect(res.json()).toEqual({ error: "cascade_failed" });
   });
 });
