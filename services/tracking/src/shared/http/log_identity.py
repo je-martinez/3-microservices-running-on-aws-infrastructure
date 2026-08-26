@@ -178,6 +178,23 @@ def _resolve_cached(caller: CurrentCaller) -> str | None:
     later in the same request pays nothing either way — the identity cache
     removes the cost across REQUESTS, `CurrentCaller` removes it within one.
 
+    ## Why the result is seeded back onto the caller
+
+    That second sentence was only true on a MISS. `IdentityCache.resolve` answers
+    a HIT WITHOUT running the loader — correctly, that is the point — but the
+    loader (`_resolve_quietly`) is the only thing that memoizes on the caller. So
+    on a hit the id came back as a return value, got merged into the log context,
+    and `caller.resolved_internal_user_id` stayed `None`. Both read handlers read
+    that PROPERTY to build their cache key, `CacheKeys` refuses a key with a
+    `None` user_id, and the RESPONSE cache therefore did nothing at all from the
+    second request onward — for the hour the identity entry lives. The two caches
+    are only connected through this one line.
+
+    Seeding is unconditional rather than hit-only because it is idempotent: after
+    a miss the loader has already set the same value, and after a failure
+    `user_id` is `None` and `seed_resolved_internal_user_id` is not called at all,
+    leaving the negative memo `_resolve_quietly` recorded intact.
+
     The import is INSIDE the function on purpose. `log_identity` is imported by
     `trackings_router`, which is imported by `main.create_app`; a module-level
     import of `redis_client` would pull `redis` and `get_settings` into that
@@ -195,7 +212,13 @@ def _resolve_cached(caller: CurrentCaller) -> str | None:
         # same reason: 24 read tests build the app without those variables.
         logger.debug("identity_cache_unavailable", exc_info=True)
         return _resolve_quietly(caller)
-    return cache.resolve(caller.cognito_sub, lambda: _resolve_quietly(caller))
+    user_id = cache.resolve(caller.cognito_sub, lambda: _resolve_quietly(caller))
+    if user_id:
+        # The line that makes a cache HIT usable by the RESPONSE cache. See the
+        # docstring: without it the handlers' `resolved_internal_user_id` stays
+        # `None` and nothing downstream can be keyed.
+        caller.seed_resolved_internal_user_id(user_id)
+    return user_id
 
 
 def _resolve_quietly(caller: CurrentCaller) -> str | None:
