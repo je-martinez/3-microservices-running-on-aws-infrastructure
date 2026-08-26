@@ -1,3 +1,5 @@
+import { readEventsQueueDepth, EVENTS_QUEUE_WARN_DEPTH } from "./events-queue-depth.js";
+
 // The local stack (Floci + terraform apply + generated .env + docker compose)
 // is provisioned by `make bootstrap` from the repo root — a multi-minute
 // process that includes a full terraform apply. Re-running it implicitly on
@@ -62,4 +64,41 @@ export default async function globalSetup() {
       `API Gateway is not healthy at ${gatewayBase}/v1/orders/health.`,
     );
   }
+
+  await warnOnEventsQueueBacklog();
+}
+
+// Warns when the shared events queue is backed up far enough that any email
+// assertion in this run will time out for a reason that has nothing to do with
+// the code under test.
+//
+// ## Why a warning and NOT a hard failure
+//
+// global-setup runs ONCE for the whole invocation, before any spec is selected,
+// so it cannot tell an email-asserting run from the large majority of specs that
+// never touch the pipeline at all. Failing here would let a transient load-test
+// backlog block the ENTIRE suite — turning a narrow, self-healing problem into a
+// total blocker. A loud warning gives the reader the diagnosis they would
+// otherwise spend an hour deriving, without taking the decision out of their
+// hands.
+//
+// It is also silent on `null` (see readEventsQueueDepth): a check that cannot
+// read the depth says nothing rather than guessing.
+async function warnOnEventsQueueBacklog() {
+  const depth = await readEventsQueueDepth();
+  if (depth === null || depth <= EVENTS_QUEUE_WARN_DEPTH) return;
+
+  // ~1 msg/s, so the depth doubles as a rough ETA in seconds.
+  const etaMinutes = Math.ceil(depth / 60);
+
+  console.warn(
+    `[global-setup] WARNING: the events queue is ${depth} messages deep ` +
+      `(warning above ${EVENTS_QUEUE_WARN_DEPTH}). The events-pipeline Lambda drains it at ` +
+      `roughly 1 msg/s, so a newly published event waits behind that backlog for about ` +
+      `${etaMinutes} minute(s) — well past the 45s budget every email-asserting spec uses. ` +
+      "Those specs will fail reporting that NOTHING arrived; the emails are NOT lost, they " +
+      "arrive far too late. This is what a Gatling load run leaves behind (see e2e/CLAUDE.md " +
+      "§4). Wait for the queue to drain, or reset with `make clean && make bootstrap`. " +
+      "Specs that assert no email are unaffected.",
+  );
 }

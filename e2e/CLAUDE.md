@@ -69,6 +69,43 @@ turns on them:
   simulation drives it through the **carrier webhook** — the way a real carrier
   does.
 
+### Do not run a load simulation and the E2E suite against the same stack
+
+Not a style preference — it makes **every email-asserting spec fail**, and the
+failure looks exactly like a broken pipeline. Diagnosed 2026-08-25, after five
+E2E failures (4× OTP/password-reset, 1× tracking DELIVERED) that were all this.
+
+The mechanism, because the rule alone is not enough to recognise it:
+
+- A load run publishes several hundred `loadtest-*` events onto the **shared**
+  SQS queue — the same one Users, Orders and Tracking use.
+- The events-pipeline Lambda drains it at **~1 msg/s**. Records are processed
+  **sequentially** (`for (const record of event.Records)` in
+  `functions/events-pipeline/src/handler.ts`), ~**376 ms** each (p50 347, p95
+  574, over 920 records), dominated by the react-email render on a **256 MB**
+  function — Lambda CPU scales with memory.
+- So an OTP, reset or DELIVERED event published behind ~800 messages waits
+  **~13 minutes**, while every spec awaiting an email gives up after **45 s**.
+
+**The emails are not lost — they arrive far too late.** This is the part worth
+remembering: `waitForEmailTo` fails with *"NOTHING arrived"*, which reads as a
+broken pipeline and sends you hunting a defect in dispatch, SES or Mailpit. All
+three are fine. Verified by re-running the same specs with no code change:
+
+| Queue depth | Result |
+|---|---|
+| ~800 | 2 failed — "NOTHING arrived within 45s" |
+| 0 | **14/14 passed**, emails in **13 s** |
+
+Measured drain, sampled live: `827 → 727 → 567 → 417 → 237 → 0` over ~18 min,
+a steady ~50 msg/min.
+
+`support/global-setup.ts` **warns** (never fails — it cannot tell an
+email-asserting run from the majority of specs that never touch the pipeline)
+when the queue is deeper than `EVENTS_QUEUE_WARN_DEPTH`; the threshold's
+arithmetic lives in `support/events-queue-depth.ts`. If you see that warning,
+wait for the queue to drain or reset with `make clean && make bootstrap`.
+
 ## 5. Auth surfaces
 
 - **Gateway specs** get a real token via `support/auth.ts` (register + login
