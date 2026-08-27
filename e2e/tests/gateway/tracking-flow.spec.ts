@@ -8,6 +8,10 @@ import {
   waitForEmailTo,
   type MailpitMessage,
 } from "../../support/mailpit-client.js";
+import {
+  waitForMyOrdersTrackingReadable,
+  waitForOrderTrackingReadable,
+} from "../../support/tracking-readiness.js";
 
 // The full cross-service journey, through the gateway only, in the order a real
 // client would walk it:
@@ -416,7 +420,25 @@ test("includeTracking returns Tracking's payload mapped onto the shape Orders de
 
   // Orders calls init-tracking after its own transaction commits, so give the row a
   // moment to exist before asking for it.
+  //
+  // ## Waiting for Tracking's own 200 is NOT enough here — measured, not assumed
+  //
+  // `waitForTracking` proves the row exists in TRACKING. This spec asserts on what
+  // ORDERS returns, and the two are not the same instant: Orders reads Tracking over
+  // HTTP with a bounded 2s budget (`TrackingHttpClient.ReadTimeout`), and a read that
+  // overruns it degrades to `tracking: null` by design. Observed on this stack —
+  // `tracking_read_failed reason="unreachable" status=0` exactly 2006ms after the
+  // request, for an order whose tracking Tracking was already serving; the next read
+  // succeeded in 1262ms. Across three runs Orders lagged Tracking's 200 by 1.8–4.0s.
+  //
+  // That is what made this test fail once the cache stopped storing null trackings:
+  // the null it read was never a cache artefact, it was this window. So the wait is
+  // on ORDERS' OWN response — the thing actually asserted on — for both the single
+  // read and the list read, which fan out through DIFFERENT routes into Tracking
+  // (single vs. batch) and become ready independently.
   await waitForTracking(api, order.id);
+  await waitForOrderTrackingReadable(api, `v1/orders/${order.id}?includeTracking=true`);
+  await waitForMyOrdersTrackingReadable(api, "v1/orders/my-orders?includeTracking=true");
 
   // --- The default must stay untouched -------------------------------------
   // Every existing caller reads this endpoint without the parameter, and their payload

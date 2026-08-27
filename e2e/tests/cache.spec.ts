@@ -9,6 +9,10 @@ import {
   expectMissOrHit,
   expectNoCacheHeaderOnWrite,
 } from "../support/cache-headers.js";
+import {
+  settleAfterTrackingBurst,
+  waitForMyOrdersTrackingReadable,
+} from "../support/tracking-readiness.js";
 
 // Internal E2E for the response cache: two consecutive GETs must produce
 // MISS then HIT, and an intervening write must return the next read to MISS.
@@ -293,6 +297,12 @@ test("GET /v1/cart: user B never gets a HIT on user A's warm cart", async () => 
 // independently, and one extra assertion proves they are genuinely separate
 // entries rather than one shared entry that happens to look right.
 test("GET /v1/orders/my-orders: MISS then HIT, per includeTracking variant", async () => {
+  // Above the 30s default: unlike its siblings this test waits for an
+  // asynchronously created tracking to become readable through Orders, and may
+  // re-sweep and retry the t1 pair when Tracking's single dev worker is slow (see
+  // the t1 block below). Still BOUNDED — a tracking that never arrives fails.
+  test.setTimeout(120_000);
+
   const api = await ordersClient();
   const userId = await registerCaller();
   const product = await firstProductWithStock(api, userId);
@@ -302,7 +312,42 @@ test("GET /v1/orders/my-orders: MISS then HIT, per includeTracking variant", asy
   });
   expect(created.status(), `order creation failed: ${await created.text()}`).toBe(201);
 
-  // Variant t0 — the default.
+  // ## The tracking window, and why the setup ends with a WRITE
+  //
+  // Orders declines to STORE a `t1` list whose orders do not all carry a tracking
+  // (TrackingCacheRules.AllOrdersHaveTracking) — a tracking is created
+  // asynchronously, and freezing its momentary absence into a 2-minute entry would
+  // pin the one order the user is actually watching at `tracking: null`. Correct,
+  // and it means a `t1` pair taken inside that window MISSes TWICE: the first read
+  // stored nothing for the second to hit.
+  //
+  // So the window is left first. But the wait's own final read is a MISS that DOES
+  // store — leaving `t1` warm, which would turn the pair below into HIT/HIT and
+  // make `expectMiss` fail for a new reason. Verified against the running service:
+  // poll until ready (MISS, stores) → next two reads HIT, HIT.
+  //
+  // A `PUT /v1/cart` fixes that without weakening anything. It sweeps the caller's
+  // whole key index — `InvalidateCartAsync` is broader than its name and removes
+  // every my-orders variant too (see CacheInvalidator) — so BOTH variants return to
+  // genuinely cold while the order and its now-readable tracking are untouched.
+  // The alternative, relaxing `expectMiss`, would pass against a cache that stores
+  // nothing at all.
+  await waitForMyOrdersTrackingReadable(api, "/v1/orders/my-orders?includeTracking=true", {
+    "x-user-id": userId,
+  });
+  const sweep = await api.put("/v1/cart", {
+    headers: { "x-user-id": userId },
+    data: { items: [{ productId: product.id, quantity: 1 }] },
+  });
+  expect(sweep.status(), `PUT /v1/cart (cold-start sweep) failed: ${await sweep.text()}`).toBe(200);
+  // Let Tracking's single dev-mode worker drain before the reads below burst at it,
+  // or Orders' 2s read budget expires and the t1 MISS stores nothing — see
+  // support/tracking-readiness.ts for the measurements behind this.
+  await settleAfterTrackingBurst();
+
+  // Variant t0 — the default. NO wait of its own: a t0 list carries no tracking at
+  // all and caches unconditionally, so a wait here would hide a regression rather
+  // than prevent a flake.
   const t0First = await api.get("/v1/orders/my-orders", { headers: { "x-user-id": userId } });
   expect(t0First.status()).toBe(200);
   expectMiss(t0First, "first GET /v1/orders/my-orders (includeTracking omitted)");
@@ -311,22 +356,70 @@ test("GET /v1/orders/my-orders: MISS then HIT, per includeTracking variant", asy
 
   // Variant t1 — a DIFFERENT key. Its first read must be a MISS even though t0
   // is now warm; a HIT here would mean the parameter is not part of the key.
-  const t1First = await api.get("/v1/orders/my-orders?includeTracking=true", {
-    headers: { "x-user-id": userId },
-  });
-  expect(t1First.status()).toBe(200);
-  expectMiss(
-    t1First,
-    "first GET /v1/orders/my-orders?includeTracking=true (t0 is warm — this must still MISS)",
-  );
-  const t1Second = await api.get("/v1/orders/my-orders?includeTracking=true", {
-    headers: { "x-user-id": userId },
-  });
-  expectHit(t1Second, "second GET /v1/orders/my-orders?includeTracking=true", TTL.myOrders);
+  //
+  // ## Why this pair retries, and why the assertion is NOT weakened
+  //
+  // Storing a `t1` entry requires Orders to actually HAVE the tracking, and it
+  // fetches that from Tracking under a hard 2s budget
+  // (`TrackingHttpClient.ReadTimeout`), degrading to `tracking: null` on overrun —
+  // which the cache then correctly declines to store, so the pair MISSes twice.
+  // Tracking serves this batch route from a SINGLE uvicorn dev worker: measured
+  // during a full run of this file, p50 1546ms but p90 4792ms (max 6726ms), with 11
+  // of 29 reads overrunning the budget purely because the rest of the suite keeps
+  // that worker busy. In isolation the same pair was MISS→HIT 5 times out of 5.
+  //
+  // Same hazard and same remedy as the `/v1/products` test at the top of this file.
+  // Every attempt re-sweeps for a genuinely cold key and still demands a REAL MISS
+  // followed by a REAL HIT; only a run of slow reads is retried, and exhausting the
+  // attempts FAILS. Accepting "MISS then MISS" would be the weakening — it would
+  // pass against a cache that stores nothing at all.
+  const t1Attempts = 4;
+  let t1Second: Awaited<ReturnType<typeof api.get>> | undefined;
+  let t1SecondHeader: string | undefined;
+  for (let attempt = 1; attempt <= t1Attempts; attempt++) {
+    const t1First = await api.get("/v1/orders/my-orders?includeTracking=true", {
+      headers: { "x-user-id": userId },
+    });
+    expect(t1First.status()).toBe(200);
+    expectMiss(
+      t1First,
+      `first GET /v1/orders/my-orders?includeTracking=true (t0 is warm — this must still MISS, attempt ${attempt})`,
+    );
+
+    t1Second = await api.get("/v1/orders/my-orders?includeTracking=true", {
+      headers: { "x-user-id": userId },
+    });
+    t1SecondHeader = cacheHeaderOf(t1Second);
+    if (t1SecondHeader === "HIT") {
+      expectHit(t1Second, "second GET /v1/orders/my-orders?includeTracking=true", TTL.myOrders);
+      break;
+    }
+
+    // Not stored: the read to Tracking overran its budget, so this attempt saw
+    // `tracking: null`. Re-sweep so the next attempt starts cold, and let the
+    // single worker drain.
+    if (attempt < t1Attempts) {
+      const resweep = await api.put("/v1/cart", {
+        headers: { "x-user-id": userId },
+        data: { items: [{ productId: product.id, quantity: 1 }] },
+      });
+      expect(resweep.status()).toBe(200);
+      await settleAfterTrackingBurst();
+    }
+  }
+  expect(
+    t1SecondHeader,
+    `second GET /v1/orders/my-orders?includeTracking=true was never a HIT in ${t1Attempts} ` +
+      "attempts. Each attempt did observe a real MISS first, so the key is correct — what is " +
+      "failing is STORAGE: Orders declines to cache a t1 list whose tracking is missing, and its " +
+      "read to Tracking keeps overrunning the 2s TrackingHttpClient.ReadTimeout. Check the Orders " +
+      'logs for `tracking_read_failed reason="unreachable"` and Tracking\'s own duration_ms on ' +
+      "GET /v1/trackings — seconds there means a Tracking performance problem, not a cache defect.",
+  ).toBe("HIT");
 
   // And the two entries really are different content, not merely different
   // keys — the `true` variant wraps each order in a {order, tracking} envelope.
-  expect(await t1Second.json()).not.toEqual(await t0Second.json());
+  expect(await t1Second!.json()).not.toEqual(await t0Second.json());
 });
 
 test("POST /v1/orders invalidates BOTH my-orders variants", async () => {
