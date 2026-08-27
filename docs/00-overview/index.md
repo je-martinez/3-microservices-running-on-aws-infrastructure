@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-08-25
+updated: 2026-08-27
 tags:
   - type/spec
   - area/shared
@@ -289,6 +289,7 @@ Durable empirical findings from spikes, incidents, and experiments.
 - [[floci-elasticache-two-ports-and-provider-panic]] — Floci backs ElastiCache with a real Valkey container; the pinned AWS provider panics reading `NodeGroups[0]` on `CreateReplicationGroup`; no subnet-group API at all; and the container's own port (6379) disagrees with the host-side proxy port ElastiCache reports, requiring a moved proxy range (6479-6499) to coexist with a developer's local Redis.
 - [[2026-08-21-verify-in-the-viewer-not-the-api]] — Confirming data reached a backend (an API query) is not confirming a feature works; three claims in one session were verified against the wrong surface (span events invisible in Jaeger's waterfall, a re-verification that stayed API-first in OpenObserve, and 56/56 spans from `_search` while the UI's own `/dag` endpoint 400'd) before the pattern was named and corrected.
 - [[2026-08-26-cache-keys-built-from-a-raw-identity-header]] — A per-user cache key built from the raw `x-user-id` header (Cognito sub or `usr_` id, both valid) could not be invalidated by `DELETE /v1/users/me`'s canonical-identity cascade, leaving a deleted account's cached data live until TTL; fixed by invalidating both aliases, with normalizing keys at write time deliberately deferred as an accepted hit-rate cost. Per [[x-cache-response-header]], [[2026-08-25-response-caching-layer-design]].
+- [[2026-08-27-accumulated-local-state-degrades-the-stack-silently]] — A long-running local stack silently degraded to ~1700x normal latency on unchanged code, twice, and was misdiagnosed as a code defect both times until `/v1/health` on the same container proved it was the environment; invalidated three load-test A/B runs and two E2E specs before a `make clean` + `make bootstrap` restored it. Root mechanism unconfirmed, tracked as an open Deuda Técnica issue.
 
 ---
 
