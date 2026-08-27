@@ -24,6 +24,14 @@ here, deletes this key explicitly through `invalidation.invalidate_user`. The 1h
 TTL remains the backstop for the path where that eviction could not run (a Redis
 outage during the cascade, which fails open by design).
 
+Note that ONE person can own more than one entry here, because the key is built
+from the raw `x-user-id` header and a client may authenticate with either the
+Cognito sub or the internal `usr_` id (`CacheKeys` module docstring). The values
+agree — both resolve to the same `usr_` id — so a duplicate cannot serve a wrong
+answer, but the cascade has to delete BOTH or the leftover one keeps resolving a
+deleted account for the rest of its hour. That is exactly the bug
+`invalidate_user` now sweeps for.
+
 ## Negatives are never cached
 
 A `None` answer means one of: Users has no record, Users was unreachable, or no

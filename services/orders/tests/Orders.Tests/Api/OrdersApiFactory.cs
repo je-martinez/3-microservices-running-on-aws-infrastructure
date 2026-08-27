@@ -46,6 +46,15 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
     // factory is the only one with a real cache, so the second identity has to be here.
     public const string OtherCognitoSub = "sub-other";
     public const string OtherUserId = "usr_other";
+
+    // A THIRD caller that authenticates with its internal usr_ id rather than a sub, and
+    // resolves to itself. Not an artificial shape: Users' gRPC GetUserById accepts EITHER
+    // a usr_ id or a Cognito sub, CallerContextMiddleware stores the raw x-user-id header
+    // verbatim as the "sub", and the E2E suite's direct path (e2e/support/api-client.ts)
+    // sends exactly this. Cache keys are therefore filed under a usr_ id for a real,
+    // routinely-exercised class of caller — which is the half the account-deletion cascade
+    // used to miss entirely, since it swept only the canonical sub it got from Users.
+    public const string SelfResolvingUserId = "usr_selfref";
     // Users returns an email on the same GetUserById response as the id; ORDER_CREATED
     // carries it to the pipeline, so the stub must supply one.
     public const string KnownEmail = "known@example.com";
@@ -221,6 +230,9 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
         {
             KnownCognitoSub => KnownUserId,
             OtherCognitoSub => OtherUserId,
+            // Resolves to ITSELF, mirroring the real GetUserById, which looks a caller up
+            // by either identifier and returns the same user either way.
+            SelfResolvingUserId => SelfResolvingUserId,
             _ => null,
         };
 

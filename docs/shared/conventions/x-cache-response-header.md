@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: draft
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-08-26
 tags:
   - type/convention
   - area/shared
@@ -18,6 +18,7 @@ related:
   - "[[users-service-design]]"
   - "[[orders-service-design]]"
   - "[[tracking-service-design]]"
+  - "[[2026-08-26-cache-keys-built-from-a-raw-identity-header]]"
 ---
 
 # X-Cache Response Header
@@ -38,6 +39,14 @@ rationale: [[2026-08-25-response-caching-layer-design]].
 `BYPASS` is deliberately distinct from `MISS` so a Redis outage does not read as a poor
 hit-rate in the metrics — it is excluded from the hit-rate denominator
 (`hit / (hit + miss)`).
+
+> [!danger] Trap: keys built from a raw identity header cannot be invalidated by a canonical identity
+> Per-user keys are built from the raw `x-user-id` header value, which can legitimately be
+> either a Cognito sub or a `usr_` internal id (`GetUserById` resolves either). A deletion
+> cascade invalidating by the **canonical** sub/user_id pair will silently miss keys written
+> under the other alias, leaving a deleted account's data live until TTL expiry. Full incident,
+> root cause, and the accepted trade-off (invalidate-by-both-aliases, not normalize-at-write):
+> [[2026-08-26-cache-keys-built-from-a-raw-identity-header]].
 
 ## Backing store
 
@@ -123,3 +132,6 @@ can silently strip an unknown response header).
 - [[users-service-design]]
 - [[orders-service-design]]
 - [[tracking-service-design]]
+- [[2026-08-26-cache-keys-built-from-a-raw-identity-header]] — the raw-identity-header
+  invalidation trap this cache design fell into; read before trusting a comment that claims a
+  key is "keyed on X alone."

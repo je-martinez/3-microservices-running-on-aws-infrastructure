@@ -47,26 +47,75 @@ public class CacheInvalidator : ICacheInvalidator
     public Task InvalidateProductsAsync(CancellationToken ct) =>
         Guarded("products", () => _cache.InvalidateAsync(new[] { CacheKeys.Products }, ct));
 
-    public Task InvalidateDeletedUserAsync(string cognitoSub, CancellationToken ct) =>
-        // The index sweep covers every RESPONSE entry of this user — cart, both my-orders
-        // variants, and each order-by-id key, whose ids this layer has never seen and
-        // could not name. That is what the index is for; KEYS/SCAN is O(N) over the whole
-        // keyspace and is not an option.
+    public Task InvalidateDeletedUserAsync(
+        string cognitoSub, string? userId, CancellationToken ct) =>
+        // BOTH identities are swept, because a cache key here is built from whichever
+        // identifier the CLIENT put in x-user-id — not from a canonical one.
+        // CallerContextMiddleware stores that header verbatim, and Users' GetUserById
+        // accepts either a usr_ id or a sub, so both spellings genuinely occur. Sweeping
+        // only the sub deleted a key that had never existed while the deleted user's real
+        // usr_-keyed entries kept serving their orders for the rest of their TTL.
+        //
+        // The index sweep covers every RESPONSE entry under an identity — cart, both
+        // my-orders variants, and each order-by-id key, whose ids this layer has never
+        // seen and could not name. That is what the index is for; KEYS/SCAN is O(N) over
+        // the whole keyspace and is not an option.
         //
         // The identity entry is deleted BY NAME because it is the one per-user key that
         // never enters the index: CachedUserDirectory stores it with a plain SetAsync,
         // and only CachedReadFilter calls TrackKeyAsync. Left behind, it would keep
-        // resolving a deleted user's sub to a usr_ id for the rest of its 1h TTL — the
-        // longest-lived entry in the service, and the one whose staleness outlasts every
-        // response key the sweep above removes.
+        // resolving a deleted user's identifier to a usr_ id for the rest of its 1h TTL —
+        // the longest-lived entry in the service, and the one whose staleness outlasts
+        // every response key the sweep above removes.
         //
         // Deliberately no catalogue invalidation: see the remarks on ICacheInvalidator.
         // The cascade restores no stock, so the catalogue is not stale.
+        //
+        // KNOWN TRADE-OFF (see ICacheInvalidator): sweeping both is correct but not
+        // frugal — the same person occupies two key sets rather than one. Normalizing
+        // keys onto a canonical identity was considered and not chosen.
         Guarded("deleted_user", async () =>
         {
-            await _cache.InvalidateUserKeysAsync(cognitoSub, ct);
-            await _cache.InvalidateAsync(new[] { CacheKeys.Identity(cognitoSub) }, ct);
+            // Deduplicated, and the degenerate case is the COMMON one on the direct
+            // path: the E2E harness sends the usr_ id as both fields, so both segments
+            // are identical and a naive pass would issue every DELETE twice on a hot
+            // route. An empty/whitespace user_id is dropped for a different reason —
+            // the route 400s on it today, but a key built from an empty segment belongs
+            // to nobody and this layer must not depend on that guard staying put.
+            var identities = Identities(cognitoSub, userId);
+
+            foreach (var identity in identities)
+            {
+                await _cache.InvalidateUserKeysAsync(identity, ct);
+            }
+
+            await _cache.InvalidateAsync(
+                identities.Select(CacheKeys.Identity).ToArray(), ct);
         });
+
+    /// <summary>
+    /// The distinct, non-empty identifiers a deleted user's keys may be filed under,
+    /// in a stable order (sub first).
+    /// </summary>
+    private static IReadOnlyList<string> Identities(string cognitoSub, string? userId)
+    {
+        var identities = new List<string>(2);
+
+        if (!string.IsNullOrWhiteSpace(cognitoSub))
+        {
+            identities.Add(cognitoSub);
+        }
+
+        // Ordinal, not the current culture: these are opaque identifiers, and a
+        // culture-sensitive comparison could call two distinct ids equal and skip a sweep.
+        if (!string.IsNullOrWhiteSpace(userId)
+            && !string.Equals(userId, cognitoSub, StringComparison.Ordinal))
+        {
+            identities.Add(userId);
+        }
+
+        return identities;
+    }
 
     /// <summary>
     /// Runs an invalidation and swallows any failure, logging it.

@@ -276,12 +276,24 @@ public static class InternalEndpoints
                     // its own failures and logs a WARN with a machine-readable reason, so
                     // nothing propagates from here.
                     //
-                    // Only the sub is passed: it keys both the per-user response index and
-                    // the identity entry, and no cache key is reachable by user_id alone.
-                    // A cascade matching purely on user_id therefore leaves the sub's
-                    // entries untouched — correctly, since they belong to whatever sub is
-                    // cached, and the caller told us which one that is.
-                    await cache.InvalidateDeletedUserAsync(body.CognitoSub, ct);
+                    // BOTH identities are passed, and this route is the ONLY caller that
+                    // holds both. Cache keys in this service are built from whatever the
+                    // client put in x-user-id — CallerContextMiddleware stores that header
+                    // verbatim as the sub without normalizing it, and Users' gRPC
+                    // GetUserById resolves either a usr_ id or a Cognito sub, so clients
+                    // legitimately send either. A user who authenticates with their usr_
+                    // id owns orders:index:v1:usr_… and identity:sub-to-user:v1:usr_…,
+                    // which a sweep of the sub alone never reaches.
+                    //
+                    // Passing only the sub here was a DATA LEAK, not an inefficiency: the
+                    // cascade deleted a sub-keyed index that had never existed while the
+                    // deleted user's real usr_-keyed entries survived, so GET
+                    // /v1/orders/my-orders kept replaying an erased account's orders from
+                    // cache (X-Cache: HIT) for up to 2 minutes, and their identity mapping
+                    // kept resolving for up to an hour. The invalidator deduplicates, so
+                    // the direct path — where both fields hold the same usr_ id — still
+                    // issues one sweep.
+                    await cache.InvalidateDeletedUserAsync(body.CognitoSub, body.UserId, ct);
 
                     // Carries BOTH subjects and all three counts. Without cognito_sub the
                     // line could not be joined to a user at all, and the detail/cart counts

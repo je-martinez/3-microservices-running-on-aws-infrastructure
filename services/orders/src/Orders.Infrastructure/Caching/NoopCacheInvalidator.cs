@@ -25,6 +25,6 @@ public class NoopCacheInvalidator : ICacheInvalidator
 
     public Task InvalidateProductsAsync(CancellationToken ct) => Task.CompletedTask;
 
-    public Task InvalidateDeletedUserAsync(string cognitoSub, CancellationToken ct) =>
-        Task.CompletedTask;
+    public Task InvalidateDeletedUserAsync(
+        string cognitoSub, string? userId, CancellationToken ct) => Task.CompletedTask;
 }

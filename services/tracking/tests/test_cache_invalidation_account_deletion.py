@@ -87,14 +87,23 @@ def shared_identity_cache(
 
 @pytest.fixture
 def resolving_app(app: FastAPI) -> FastAPI:
-    """Identity resolution stubbed for BOTH test users.
+    """Identity resolution stubbed for BOTH test users, under EITHER identifier.
 
     Without it `_resolve_quietly` swallows the failure to reach Users, every
     caller arrives with `user_id is None`, and `CacheKeys` legitimately declines
     to cache — so nothing would be warmed and nothing would be asserted.
+
+    `USER_A -> USER_A` and `USER_B -> USER_B` are in the mapping because the real
+    `users.v1.Users/GetUserById` accepts BOTH identifiers and answers the same
+    record for each (`UsersGrpcClient.resolve` names its argument `identifier`
+    for exactly that reason). A stub that only knew the subs would make a client
+    authenticating with the `usr_` id resolve to `None` — which does not happen in
+    production, and would silently turn `TestEitherIdentifierAuthenticates` below
+    into a test of the "unresolvable caller, nothing cached" path instead of the
+    leak it exists to catch.
     """
     app.dependency_overrides[get_users_client] = lambda: StubResolver(
-        {SUB_A: USER_A, SUB_B: USER_B}
+        {SUB_A: USER_A, SUB_B: USER_B, USER_A: USER_A, USER_B: USER_B}
     )
     return app
 
@@ -468,3 +477,336 @@ class TestCacheDisabled:
 
         assert response.status_code == 200
         assert redis_double.exists(single_key("ord_deloff00000000002"))
+
+
+class TestEitherIdentifierAuthenticates:
+    """The leak: a key written under the `usr_` id survived the cascade.
+
+    Every test ABOVE warms with `as_user(SUB_A)` and deletes with
+    `cascade_body(SUB_A, USER_A)` — the warm key and the cascade identity agree,
+    so the whole file was green while the bug was live.
+
+    They do not have to agree. `caller.cognito_sub` is the RAW `x-user-id` header,
+    and a client may authenticate with the internal `usr_` id instead of the
+    Cognito sub: Users' `GetUserById` resolves both, which is why the E2E suite
+    and `e2e/support/api-client.ts` send the `usr_` id on the direct path. Such a
+    caller's live keys are
+
+        tracking:index:v1:usr_a…:usr_a…
+        identity:sub-to-user:v1:usr_a…
+
+    while the cascade arrives holding the CANONICAL pair (a UUID sub and the
+    `usr_` id) and, before the fix, deleted only
+
+        tracking:index:v1:<uuid-sub>:usr_a…
+        identity:sub-to-user:v1:<uuid-sub>
+
+    — keys that were never written. The real entries served the deleted user's
+    data for the rest of their TTL: 60s for a response entry, an hour for the
+    identity mapping. Reproduced live in Orders, which has the identical design.
+
+    ## Why these tests seed `cognito_sub=USER_A` instead of the default `SUB_A`
+
+    Not a shortcut to force the leak — it is what the `usr_`-id path actually
+    persists. Tracking stores the `x-user-id` header VERBATIM as the row's
+    `cognito_sub` (`e2e/support/api-client.ts` says so explicitly: "the service
+    stores it verbatim as `cognito_sub` — the ownership key its user-scoped reads
+    filter by"), and the reads filter on that column. So a client that creates and
+    reads with the `usr_` id owns rows whose `cognito_sub` IS the `usr_` id, and
+    both halves are self-consistent.
+
+    Seeding the default `SUB_A` and then reading with `as_user(USER_A)` would 404
+    instead — `test_rest_reads.py` pins that on purpose, to stop the ownership
+    filter drifting back to `user_id`. Nothing would be cached, and every
+    assertion below would pass vacuously against the unfixed code. That is the
+    trap this file's header warns about, in its sharpest form: the FIRST draft of
+    these tests hit exactly it.
+    """
+
+    def test_the_usr_id_warmup_really_keys_by_the_usr_id(
+        self,
+        cascade_client: TestClient,
+        session: Session,
+        redis_double: fakeredis.FakeRedis,
+    ) -> None:
+        """The CONTROL, and it is not optional.
+
+        Every assertion below is "these keys are gone", which passes vacuously if
+        the keys were never written — precisely the failure mode this whole file's
+        header warns about. This proves the `usr_`-id header really does produce
+        `usr_` id in the SUB position, so the eviction tests have something to
+        evict.
+        """
+        order_id = "ord_delboth000000001"
+        seed(session, order_id=order_id, cognito_sub=USER_A)
+        cascade_client.get(f"/v1/trackings/{order_id}", headers=as_user(USER_A))
+
+        assert redis_double.exists(single_key(order_id, sub=USER_A, user=USER_A))
+        assert redis_double.exists(index_key(sub=USER_A, user=USER_A))
+        assert redis_double.exists(identity_key(sub=USER_A))
+        # And nothing under the canonical sub — the caller never sent it, so the
+        # pre-fix cascade was deleting keys that did not exist.
+        assert not redis_double.exists(index_key(sub=SUB_A, user=USER_A))
+        assert not redis_double.exists(identity_key(sub=SUB_A))
+
+    def test_entries_keyed_by_the_usr_id_are_evicted_by_the_canonical_cascade(
+        self,
+        cascade_client: TestClient,
+        session: Session,
+        redis_double: fakeredis.FakeRedis,
+    ) -> None:
+        """The failing-before/passing-after assertion for the response entries."""
+        order_id = "ord_delboth000000002"
+        seed(session, order_id=order_id, cognito_sub=USER_A)
+        cascade_client.get(f"/v1/trackings/{order_id}", headers=as_user(USER_A))
+        cascade_client.get(
+            f"/v1/trackings?order_ids={order_id}", headers=as_user(USER_A)
+        )
+        assert redis_double.exists(single_key(order_id, sub=USER_A, user=USER_A))
+
+        response = cascade_client.request(
+            "DELETE",
+            PATH,
+            json=cascade_body(SUB_A, USER_A),
+            headers=internal_headers(),
+        )
+
+        assert response.status_code == 200
+        assert redis_double.keys(f"tracking:order:v1:{USER_A}:*") == []
+        assert redis_double.keys(f"tracking:list:v1:{USER_A}:*") == []
+        assert not redis_double.exists(index_key(sub=USER_A, user=USER_A))
+
+    def test_the_identity_mapping_under_the_usr_id_is_evicted(
+        self,
+        cascade_client: TestClient,
+        session: Session,
+        redis_double: fakeredis.FakeRedis,
+    ) -> None:
+        """The hour-long half of the leak.
+
+        A response entry expires in 60s; this one lives for `IDENTITY_TTL_SECONDS`
+        (3600) and keeps resolving a `usr_` id for an account that is gone.
+        """
+        order_id = "ord_delboth000000003"
+        seed(session, order_id=order_id, cognito_sub=USER_A)
+        cascade_client.get(f"/v1/trackings/{order_id}", headers=as_user(USER_A))
+        assert redis_double.exists(identity_key(sub=USER_A))
+
+        cascade_client.request(
+            "DELETE",
+            PATH,
+            json=cascade_body(SUB_A, USER_A),
+            headers=internal_headers(),
+        )
+
+        assert not redis_double.exists(identity_key(sub=USER_A))
+
+    def test_a_user_read_under_BOTH_identifiers_is_fully_evicted(
+        self,
+        cascade_client: TestClient,
+        session: Session,
+        redis_double: fakeredis.FakeRedis,
+    ) -> None:
+        """The realistic case: the same person hits both paths.
+
+        The gateway path injects the Cognito sub; the direct path the E2E client
+        uses sends the `usr_` id. One person, two index keys, two identity keys —
+        and the cascade names them once. Sweeping only the canonical pair leaves
+        exactly half of this behind.
+        """
+        via_sub = "ord_delboth000000004"
+        via_usr = "ord_delboth000000005"
+        seed(session, order_id=via_sub)
+        seed(session, order_id=via_usr, cognito_sub=USER_A)
+        cascade_client.get(f"/v1/trackings/{via_sub}", headers=as_user(SUB_A))
+        cascade_client.get(f"/v1/trackings/{via_usr}", headers=as_user(USER_A))
+        assert redis_double.exists(single_key(via_sub))
+        assert redis_double.exists(single_key(via_usr, sub=USER_A, user=USER_A))
+
+        cascade_client.request(
+            "DELETE",
+            PATH,
+            json=cascade_body(SUB_A, USER_A),
+            headers=internal_headers(),
+        )
+
+        assert redis_double.keys("tracking:*") == []
+        assert not redis_double.exists(identity_key(sub=SUB_A))
+        assert not redis_double.exists(identity_key(sub=USER_A))
+
+    def test_a_second_user_survives_the_widened_sweep(
+        self,
+        cascade_client: TestClient,
+        session: Session,
+        redis_double: fakeredis.FakeRedis,
+    ) -> None:
+        """Widening the sweep must not widen its SCOPE.
+
+        Sweeping two identifiers instead of one is two extra DELETEs, not a
+        broader match: an implementation that reached for `KEYS tracking:*` — or
+        that dropped a segment from the index key — would pass every other test in
+        this class and fail only this one.
+        """
+        mine = "ord_delboth000000006"
+        theirs = "ord_delboth000000007"
+        seed(session, order_id=mine, cognito_sub=USER_A)
+        seed(session, order_id=theirs, user_id=USER_B, cognito_sub=USER_B)
+        cascade_client.get(f"/v1/trackings/{mine}", headers=as_user(USER_A))
+        cascade_client.get(f"/v1/trackings/{theirs}", headers=as_user(USER_B))
+        assert redis_double.exists(
+            single_key(theirs, sub=USER_B, user=USER_B)
+        )
+
+        cascade_client.request(
+            "DELETE",
+            PATH,
+            json=cascade_body(SUB_A, USER_A),
+            headers=internal_headers(),
+        )
+
+        assert not redis_double.exists(
+            single_key(mine, sub=USER_A, user=USER_A)
+        )
+        assert redis_double.exists(
+            single_key(theirs, sub=USER_B, user=USER_B)
+        )
+        assert redis_double.exists(identity_key(sub=USER_B))
+
+    def test_a_re_read_after_the_cascade_is_a_MISS_not_a_HIT(
+        self,
+        cascade_client: TestClient,
+        session: Session,
+    ) -> None:
+        """The symptom as the user observed it in Orders, end to end.
+
+        There the deletion returned its success, and a re-read still answered
+        `X-Cache: HIT` carrying the deleted person's data. This is what ties the
+        key-level assertions above back to the thing that actually leaked: a
+        reader does not care which Redis keys exist, only that a deleted account's
+        data stops coming back.
+
+        The `MISS`/`HIT` pair BEFORE the cascade is what makes the assertion
+        after it meaningful — it proves this order really was being served from
+        cache, so the `404` afterwards is an eviction rather than a request that
+        was never cached in the first place.
+
+        The final answer is asserted as a `404` and NOT as `X-Cache: MISS`: the
+        header is set on the injected `Response`, which FastAPI merges only into a
+        RETURNED body, so an `HTTPException` path carries no `X-Cache` at all.
+        Before the fix this line failed with `200` and the deleted person's
+        tracking — which is the leak stated in the only terms that matter.
+        """
+        order_id = "ord_delboth000000008"
+        seed(session, order_id=order_id, cognito_sub=USER_A)
+        url = f"/v1/trackings/{order_id}"
+        first = cascade_client.get(url, headers=as_user(USER_A))
+        second = cascade_client.get(url, headers=as_user(USER_A))
+        assert [first.headers["x-cache"], second.headers["x-cache"]] == ["MISS", "HIT"]
+
+        cascade_client.request(
+            "DELETE",
+            PATH,
+            json=cascade_body(SUB_A, USER_A),
+            headers=internal_headers(),
+        )
+
+        after = cascade_client.get(url, headers=as_user(USER_A))
+        # The whole bug in one assertion: `200` here means the cache served a
+        # deleted person's tracking.
+        assert after.status_code == 404
+        assert "x-cache" not in after.headers
+
+
+class TestIdenticalIdentifiersAreNotSweptTwice:
+    """Deduplication: the direct path can send the `usr_` id as BOTH fields.
+
+    `e2e/support/api-client.ts` does exactly that, so the cascade legitimately
+    arrives with `cognito_sub == user_id`. Issuing the same DELETE twice is
+    pointless noise on a write path, and a test that only ever passed two
+    DIFFERENT values could not notice.
+    """
+
+    def test_one_identifier_produces_one_sweep_per_namespace(self) -> None:
+        """Asserted at the unit level, where the calls are countable.
+
+        The gateway is a recorder rather than the fake Redis: "the key is gone"
+        cannot distinguish one DELETE from two, which is the whole property under
+        test.
+        """
+        from src.shared.cache.invalidation import invalidate_user
+
+        class RecordingGateway:
+            def __init__(self) -> None:
+                self.indexes: list[str] = []
+                self.keys: list[str] = []
+
+            def invalidate_index(self, index_key: str) -> None:
+                self.indexes.append(index_key)
+
+            def invalidate(self, *keys: str) -> None:
+                self.keys.extend(keys)
+
+        gateway = RecordingGateway()
+        invalidate_user(gateway, cognito_sub=USER_A, user_id=USER_A)  # type: ignore[arg-type]
+
+        assert gateway.indexes == [f"tracking:index:v1:{USER_A}:{USER_A}"]
+        assert gateway.keys == [f"identity:sub-to-user:v1:{USER_A}"]
+
+    def test_two_identifiers_sweep_both_and_only_both(self) -> None:
+        """The counterpart: distinct values must produce distinct sweeps.
+
+        Together with the test above this pins the exact key set — a fix that
+        deduplicated too eagerly (or swept a third, invented combination) fails
+        one of the two.
+        """
+        from src.shared.cache.invalidation import invalidate_user
+
+        class RecordingGateway:
+            def __init__(self) -> None:
+                self.indexes: list[str] = []
+                self.keys: list[str] = []
+
+            def invalidate_index(self, index_key: str) -> None:
+                self.indexes.append(index_key)
+
+            def invalidate(self, *keys: str) -> None:
+                self.keys.extend(keys)
+
+        gateway = RecordingGateway()
+        invalidate_user(gateway, cognito_sub=SUB_A, user_id=USER_A)  # type: ignore[arg-type]
+
+        assert gateway.indexes == [
+            f"tracking:index:v1:{SUB_A}:{USER_A}",
+            f"tracking:index:v1:{USER_A}:{USER_A}",
+        ]
+        assert gateway.keys == [
+            f"identity:sub-to-user:v1:{SUB_A}",
+            f"identity:sub-to-user:v1:{USER_A}",
+        ]
+
+    def test_an_empty_identity_builds_no_key(self) -> None:
+        """Defensive: the route rejects empty identities with 422 today.
+
+        If that guard is ever relaxed, an empty string must not become
+        `tracking:index:v1::usr_a…` — a real, well-formed key that some other
+        caller could own. Dropping it is the fail-safe direction; the remaining
+        identifier is still swept.
+        """
+        from src.shared.cache.invalidation import invalidate_user
+
+        class RecordingGateway:
+            def __init__(self) -> None:
+                self.indexes: list[str] = []
+                self.keys: list[str] = []
+
+            def invalidate_index(self, index_key: str) -> None:
+                self.indexes.append(index_key)
+
+            def invalidate(self, *keys: str) -> None:
+                self.keys.extend(keys)
+
+        gateway = RecordingGateway()
+        invalidate_user(gateway, cognito_sub="", user_id=USER_A)  # type: ignore[arg-type]
+
+        assert gateway.indexes == [f"tracking:index:v1:{USER_A}:{USER_A}"]
+        assert gateway.keys == [f"identity:sub-to-user:v1:{USER_A}"]

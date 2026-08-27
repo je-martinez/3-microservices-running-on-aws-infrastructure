@@ -8,6 +8,27 @@ Every response key carries BOTH identities — `cognito_sub` and `user_id`.
 travel so a key is unambiguous under either identity model, and so the per-user
 index below can be reconstructed from either.
 
+## The `cognito_sub` parameter is the RAW header, not always a Cognito sub
+
+Read this before writing anything that INVALIDATES a key. Every builder here is
+called with `caller.cognito_sub`, which is the `x-user-id` header verbatim —
+whichever identifier the client chose to send. Clients legitimately send either
+one: Users' `GetUserById` resolves the Cognito sub and the internal `usr_` id
+alike, which is why the E2E suite and `e2e/support/api-client.ts` send the `usr_`
+id on the direct path. So these are all live key shapes for ONE person:
+
+    tracking:order:v1:<uuid-sub>:usr_abc:ord_1
+    tracking:order:v1:usr_abc:usr_abc:ord_1
+    identity:sub-to-user:v1:<uuid-sub>
+    identity:sub-to-user:v1:usr_abc
+
+The `user_id` segment is stable (it is always the resolved `usr_` id); the FIRST
+segment is not. Assuming otherwise is what let a deleted account's entries survive
+their full TTL — the cascade holds the canonical sub and deleted keys built from
+it, which were not the keys the client had written. See
+`invalidation.invalidate_user`, which sweeps under both identifiers, and its
+recorded limitation about not normalizing keys onto one canonical identity.
+
 ## Why a builder may answer `None`
 
 `user_id` is resolved lazily, over gRPC to Users, and that resolution is allowed
@@ -78,10 +99,14 @@ class CacheKeys:
 
     @staticmethod
     def identity(cognito_sub: str) -> str:
-        """Key for the `cognito_sub -> user_id` mapping.
+        """Key for the `identifier -> user_id` mapping.
 
         Never `None`: this is the cache consulted to OBTAIN a `user_id`, so it
-        cannot require one. Keyed on the sub alone.
+        cannot require one. Keyed on the first identity alone.
+
+        **That identity is whatever the caller sent, not necessarily a Cognito
+        sub** — see the warning below. An invalidator must not assume this key is
+        reachable under the canonical sub only.
         """
         return f"identity:sub-to-user:{VERSION}:{cognito_sub}"
 
@@ -93,6 +118,9 @@ class CacheKeys:
         therefore cannot be reconstructed at invalidation time. `KEYS` and `SCAN`
         are the wrong answer: both are O(N) over the whole keyspace, and `KEYS`
         blocks the server while it runs.
+
+        Same warning as `identity`: the first segment is the RAW header value, so
+        one person can own more than one index.
         """
         return f"tracking:index:{VERSION}:{cognito_sub}:{user_id}"
 

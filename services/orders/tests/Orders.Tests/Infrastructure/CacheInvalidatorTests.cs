@@ -20,16 +20,56 @@ public class CacheInvalidatorTests
         new(gateway, NullLogger<CacheInvalidator>.Instance);
 
     [Fact]
-    public async Task Deleting_a_user_sweeps_their_index_and_their_identity_entry()
+    public async Task Deleting_a_user_sweeps_both_identities_and_both_identity_entries()
     {
         var spy = new SpyGateway();
 
-        await Invalidator(spy).InvalidateDeletedUserAsync("sub-gone", default);
+        await Invalidator(spy).InvalidateDeletedUserAsync("sub-gone", "usr_gone", default);
 
-        // The response entries, by index: their exact names carry order ids and a t0/t1
-        // suffix this layer has never seen, so they are unreachable any other way.
+        // The response entries, by index, under BOTH identifiers: keys are built from
+        // whatever the client sent in x-user-id, and Users' GetUserById accepts either
+        // spelling, so a user's live keys may be filed under either. Sweeping only the
+        // sub — what this did before — left the usr_-keyed entries serving a deleted
+        // account's orders for the rest of their TTL. Their exact names carry order ids
+        // and a t0/t1 suffix this layer has never seen, so the index is the only reach.
+        Assert.Equal(["sub-gone", "usr_gone"], spy.SweptSubs);
+        // The identity entries, by name: the one per-user key family that never enters
+        // the index, and the longest-lived in the service at 1h.
+        Assert.Equal(
+            [CacheKeys.Identity("sub-gone"), CacheKeys.Identity("usr_gone")],
+            spy.DeletedKeys);
+    }
+
+    [Fact]
+    public async Task Identical_identities_are_swept_once_not_twice()
+    {
+        // The degenerate case is the COMMON one on the direct path: the E2E harness
+        // authenticates with the usr_ id, so the cascade receives it in BOTH fields.
+        // Correctness is unaffected either way — the duplicate is pure noise on a hot
+        // route, and this pins that it is not emitted.
+        var spy = new SpyGateway();
+
+        await Invalidator(spy).InvalidateDeletedUserAsync("usr_same", "usr_same", default);
+
+        Assert.Equal(["usr_same"], spy.SweptSubs);
+        Assert.Equal([CacheKeys.Identity("usr_same")], spy.DeletedKeys);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task A_missing_user_id_never_becomes_a_key(string? userId)
+    {
+        // The route rejects an empty user_id with a 400 today, so this is defence against
+        // that guard changing rather than against a call shape reachable now. An empty
+        // segment would build `orders:index:v1:` / `identity:sub-to-user:v1:` — keys
+        // belonging to nobody, and a delete this layer has no business issuing.
+        var spy = new SpyGateway();
+
+        await Invalidator(spy).InvalidateDeletedUserAsync("sub-gone", userId, default);
+
         Assert.Equal(["sub-gone"], spy.SweptSubs);
-        // The identity entry, by name: the one per-user key that never enters the index.
         Assert.Equal([CacheKeys.Identity("sub-gone")], spy.DeletedKeys);
     }
 
@@ -43,7 +83,7 @@ public class CacheInvalidatorTests
         // an order DOES decrement stock.
         var spy = new SpyGateway();
 
-        await Invalidator(spy).InvalidateDeletedUserAsync("sub-gone", default);
+        await Invalidator(spy).InvalidateDeletedUserAsync("sub-gone", "usr_gone", default);
 
         Assert.DoesNotContain(CacheKeys.Products, spy.DeletedKeys);
     }
@@ -54,7 +94,8 @@ public class CacheInvalidatorTests
         // The rows are ALREADY deleted when this runs. Throwing here would tell Users the
         // cascade did not happen when it did, and Users would then fail the whole account
         // deletion for the person. No exception may escape, whichever call faults.
-        await Invalidator(new ThrowingGateway()).InvalidateDeletedUserAsync("sub-gone", default);
+        await Invalidator(new ThrowingGateway())
+            .InvalidateDeletedUserAsync("sub-gone", "usr_gone", default);
     }
 
     /// <summary>Records what was asked of the cache, without a Redis.</summary>

@@ -47,10 +47,29 @@ public interface ICacheInvalidator
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Takes the <c>cognito_sub</c> twice over, in effect: the sub keys BOTH the per-user
-    /// response index and the identity entry. The <c>user_id</c> is deliberately absent
-    /// from the signature — no key is reachable by it alone, and the index already spans
-    /// every response key that carries it.
+    /// Takes BOTH identities because keys are built from whichever identifier the CLIENT
+    /// sent in <c>x-user-id</c>, not from a canonical one. Users' gRPC <c>GetUserById</c>
+    /// resolves either a <c>usr_</c> id or a Cognito sub, so both are legitimate on the
+    /// wire, and <c>CallerContextMiddleware</c> stores the raw header value verbatim. A
+    /// user who authenticates with their <c>usr_</c> id therefore owns
+    /// <c>orders:index:v1:usr_…</c> and <c>identity:sub-to-user:v1:usr_…</c>, which a
+    /// sweep of the sub alone does not reach.
+    /// </para>
+    /// <para>
+    /// That is not hypothetical: the cascade is the one caller holding the CANONICAL pair
+    /// from Users, so passing only the sub deleted a key that had never existed while the
+    /// deleted user's real entries survived — their orders replayed from cache for up to
+    /// 2 minutes and their identity mapping resolved for up to an hour after the account
+    /// was gone. Sweeping both namespaces is what closes that leak.
+    /// </para>
+    /// <para>
+    /// KNOWN TRADE-OFF, chosen deliberately over normalizing keys to one canonical
+    /// identity: the same person still gets TWO separate sets of entries depending on
+    /// which identifier they authenticated with, so memory is spent twice and the hit
+    /// rate is below what the design assumes. Invalidating both is correct but not
+    /// frugal; normalizing at the key builder would be, at the cost of a resolution on
+    /// the read path. Recorded here so the duplication reads as a decision, not an
+    /// oversight.
     /// </para>
     /// <para>
     /// The identity entry needs naming explicitly because it is the one per-user key NOT
@@ -67,5 +86,12 @@ public interface ICacheInvalidator
     /// catalogue for everybody for nothing.
     /// </para>
     /// </remarks>
-    Task InvalidateDeletedUserAsync(string cognitoSub, CancellationToken ct);
+    /// <param name="cognitoSub">The deleted user's Cognito sub. Required.</param>
+    /// <param name="userId">
+    /// The deleted user's internal <c>usr_</c> id. May be null/empty — the route rejects
+    /// that with a 400 today, but this layer does not depend on that guard holding, and
+    /// an empty segment would build a key belonging to nobody. Ignored when it equals
+    /// <paramref name="cognitoSub"/>, which the direct/E2E path does send.
+    /// </param>
+    Task InvalidateDeletedUserAsync(string cognitoSub, string? userId, CancellationToken ct);
 }
