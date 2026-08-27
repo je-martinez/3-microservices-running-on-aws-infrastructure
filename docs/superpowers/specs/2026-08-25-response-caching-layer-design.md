@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: draft
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-08-26
 tags:
   - type/spec
   - area/shared
@@ -26,6 +26,9 @@ related:
   - "[[orders-service-design]]"
   - "[[tracking-service-design]]"
   - "[[2026-08-25-response-caching-layer]]"
+  - "[[2026-08-26-cache-keys-built-from-a-raw-identity-header]]"
+  - "[[2026-08-25-account-deletion-design]]"
+  - "[[account-deletion-milestone]]"
 ---
 
 # Response Caching Layer Design
@@ -159,7 +162,7 @@ provide. The response-caching layer described above does not, by itself, cache g
 
 | Key | TTL | Invalidation |
 |---|---|---|
-| `identity:sub-to-user:v1:{cognito_sub}` | 1 h | None — TTL only. See below. |
+| `identity:sub-to-user:v1:{cognito_sub}` | 1 h | Account deletion, in addition to TTL. See below. |
 
 - Lives in **Tracking and Orders only** — both resolve `user_id` from `cognito_sub`. It does
   **not** live in Users, where `user_id` comes directly from the authenticated query and needs
@@ -171,8 +174,25 @@ provide. The response-caching layer described above does not, by itself, cache g
   gRPC/DB resolution on failure. A miss or a timeout here never blocks the request; it just
   means the request pays the resolution cost it would have paid anyway.
 
-**This cache is invalidated by TTL only, and that is correct, not a gap.** No event exists
-anywhere in this repo that would need to trigger an early invalidation:
+> [!warning] Corrected 2026-08-26 — this cache is no longer TTL-only
+> **At the time this section was written, it was accurate**: no account-deletion flow existed
+> anywhere in the repo (see the reasoning preserved below), so TTL was the only bound on
+> staleness. The account-deletion milestone ([[2026-08-25-account-deletion-design]],
+> [[account-deletion-milestone]]) shipped `DELETE /v1/users/me` and, as part of its own
+> cascade, added the invalidation this section said could not exist:
+> `services/tracking/src/shared/cache/invalidation.py:213-214` deletes
+> `CacheKeys.identity(identifier)`, called from
+> `services/tracking/src/features/tracking/api/internal_router.py:165-171`; Orders does the
+> same in `services/orders/src/Orders.Infrastructure/Caching/CacheInvalidator.cs:92-93`
+> (`InvalidateDeletedUserAsync`), called from
+> `services/orders/src/Orders.Api/Endpoints/InternalEndpoints.cs:296`. **The reasoning below
+> was correct when written and is why the TTL-only design was sound at the time** — it is
+> preserved as the record of that reasoning, not as the current invalidation contract. See
+> [Account-deletion cascade](#account-deletion-cascade-landed-2026-08-26) below for what
+> actually shipped, including the raw-identity-header trap the cascade fell into.
+
+**Originally: invalidated by TTL only, and that was correct, not a gap** (superseded above). No
+event existed anywhere in this repo that would need to trigger an early invalidation:
 
 - Users' Cognito webhook payload schema
   (`services/users/src/features/users/webhooks/cognito-payload.ts:18-21`) accepts exactly two
@@ -180,24 +200,39 @@ anywhere in this repo that would need to trigger an early invalidation:
   `PostConfirmation_ConfirmForgotPassword`. There is no identity-change event and no deletion
   event to hook into. The same file's header comment (`:13-15`) further notes that adding any
   additional trigger requires reworking `deriveMessageId` first, so wiring one solely to
-  invalidate this cache would not be a small addition.
-- No account-deletion flow exists in the system: a repo-wide search finds no
+  invalidate this cache would not be a small addition. (Still true — deletion is invalidated
+  from the cascade's internal routes, not from a Cognito webhook.)
+- At the time, no account-deletion flow existed in the system: a repo-wide search found no
   `PreUserDeletion`, `UserDeletion`, `user_deleted`, or `AdminDeleteUser` in any `.ts`/`.py`/
-  `.tf` file. The only user-deletion path today is `E2eCleanupCommand`
+  `.tf` file. The only user-deletion path was `E2eCleanupCommand`
   (`services/users/src/features/users/http/e2e-cleanup.ts:7`), a soft-delete gated behind
-  `E2E_TESTING_ENABLED` and not a production flow.
+  `E2E_TESTING_ENABLED` and not a production flow. **This premise is what changed.**
 - Because the `cognito_sub -> user_id` mapping is effectively immutable — a given
   `cognito_sub` never resolves to a different `user_id` while the account exists — a stale
-  entry cannot serve a *wrong* answer, only a momentarily-late one. The 1h TTL exists to bound
-  the one real case this cache can get wrong: an account that has stopped existing. See
-  [Out of scope](#out-of-scope--account-deletion-cascade) for what changes this once a
-  deletion flow exists.
+  entry cannot serve a *wrong* answer for an existing account, only a momentarily-late one.
+  This part still holds; it is why TTL alone was an adequate bound for every case except
+  deletion, which is exactly the case the cascade now covers explicitly rather than waiting out
+  the hour.
 
 ## Cache keys and TTLs
 
-Every key carries **both** `cognito_sub` and `user_id`, except the product catalog, which
-belongs to no user. A `v1` segment allows mass invalidation by version bump if a DTO shape
-changes.
+Every response key carries **both** an identity segment and `user_id`, except the product
+catalog, which belongs to no user. A `v1` segment allows mass invalidation by version bump if a
+DTO shape changes.
+
+> [!danger] Corrected 2026-08-26 — the identity segment is the RAW `x-user-id` header, not the canonical `cognito_sub`
+> This spec originally called that first segment `{cognito_sub}` throughout, implying it is
+> always the canonical Cognito sub. **It is not.** Every builder is called with
+> `caller.cognito_sub`, which is the `x-user-id` header stored verbatim — whichever identifier
+> the client sent. Users' `GetUserById` resolves either a Cognito sub or an internal `usr_` id,
+> and clients legitimately send either (the E2E suite sends the `usr_` id on the direct path).
+> The same person can therefore produce two different cache keys depending on which identifier
+> they authenticate with. See `services/tracking/src/shared/cache/keys.py:11-30` and `:101-111`,
+> `services/orders/src/Orders.Infrastructure/Caching/CacheKeys.cs:32-42`, and
+> [[2026-08-26-cache-keys-built-from-a-raw-identity-header]] for the incident this false premise
+> caused: a canonical-identity deletion cascade silently missed keys written under the other
+> alias. The tables below use `{sub}` as shorthand for this raw header value, not for a
+> guaranteed-canonical Cognito sub.
 
 | Endpoint | Service | Key | TTL | Reason |
 |---|---|---|---|---|
@@ -208,7 +243,8 @@ changes.
 | `GET /v1/trackings/{order_id}` | Tracking | `tracking:order:v1:{sub}:{user_id}:{order_id}` | 60 s | Advances via carrier webhook; short TTL plus invalidation on `PUT /status` |
 | `GET /v1/trackings` | Tracking | `tracking:list:v1:{sub}:{user_id}:{hash(order_ids)}` | 60 s | `order_ids` is an arbitrary list; normalize (sort + dedup) then hash to bound key cardinality |
 | `GET /v1/users/me` | Users | `users:me:v1:{sub}:{user_id}` | 5 min | Profile, rarely changes; invalidated on `PATCH /me` and the Cognito webhook |
-| identity mapping (Orders, Tracking) | Orders, Tracking | `identity:sub-to-user:v1:{cognito_sub}` | 1 h | Effectively immutable mapping, TTL-only invalidation (no deletion/identity-change event exists — see [Fourth component](#fourth-component--the-identity-mapping-cache-orders-and-tracking-only)); consulted before the response key is built, removing the gRPC/DB resolution from the hit path |
+| identity mapping (Orders, Tracking) | Orders, Tracking | `identity:sub-to-user:v1:{sub}` | 1 h | Effectively immutable mapping; TTL plus explicit invalidation on account deletion (corrected 2026-08-26 — see [Fourth component](#fourth-component--the-identity-mapping-cache-orders-and-tracking-only)); consulted before the response key is built, removing the gRPC/DB resolution from the hit path |
+| per-user key index (Orders, Tracking) | Orders, Tracking | Orders: `orders:index:v1:{sub}` (one segment); Tracking: `tracking:index:v1:{sub}:{user_id}` (two segments) | 1 h | A Redis SET of that user's live response-cache keys, added per `set()` so `my-orders`/tracking-list/order-by-id keys with a variable suffix can be swept without `KEYS`/`SCAN`. TTL is deliberately longer than every response TTL it guards, so the index cannot expire before an entry it points at. **Required by this design (see [Two correctness details](#two-correctness-details) below) but omitted from the original key table** — corrected 2026-08-26, added as B2 in the propagation audit. Users has no index: it caches exactly one route (`GET /v1/users/me`), so a single explicit key is invalidated directly and an index buys nothing. |
 
 Explicitly excluded from caching: `/v1/health` (must reflect real state), every `e2e-*`
 endpoint, and all `POST`/`PUT`/`PATCH`/`DELETE`.
@@ -235,13 +271,27 @@ per endpoint, so the two effects are visible separately.
 
 ## Invalidation matrix
 
+> [!warning] Corrected 2026-08-26 — the Orders rows named key-level deletes; the shipped code sweeps the whole per-user index
+> The two Orders rows below originally read "Keys removed: `orders:cart:v1:{sub}:{user_id}`"
+> and "the user's cart key + `orders:my-orders:v1:{sub}:{user_id}:*` + `orders:products:v1`" —
+> phrasing that implies a targeted delete of exactly the named key(s). What shipped in
+> `CacheInvalidator.cs` is broader: `InvalidateCartAsync`
+> (`services/orders/src/Orders.Infrastructure/Caching/CacheInvalidator.cs:19-31`) sweeps the
+> **entire per-user index** — cart AND every `my-orders` entry AND every order-by-id entry for
+> that user, not just the cart key. Its own comment says "Broader than the name suggests."
+> `InvalidateOrderCreationAsync` (`:41-45`) does the same sweep plus the separate catalogue
+> delete. The table below now names the actual operation.
+
 | Write | Keys removed |
 |---|---|
-| `PUT /v1/cart`, `DELETE /v1/cart` | `orders:cart:v1:{sub}:{user_id}` |
-| `POST /v1/orders` | the user's cart key + `orders:my-orders:v1:{sub}:{user_id}:*` + `orders:products:v1` (stock changed) |
-| `PUT /v1/trackings/{id}/status` (carrier webhook) | `tracking:order:*:{order_id}` and the owner's list keys |
+| `PUT /v1/cart`, `DELETE /v1/cart` | **Not** a single-key delete — `InvalidateCartAsync` sweeps the caller's entire per-user index (`orders:index:v1:{sub}`), which removes the cart key AND every `my-orders`/order-by-id entry for that user in one operation |
+| `POST /v1/orders` | Same per-user index sweep as above (cart + all `my-orders` + all order-by-id entries) via `InvalidateOrderCreationAsync`, plus `orders:products:v1` (stock changed) as a separate, explicit delete |
+| `PUT /v1/trackings/{id}/status` (carrier webhook) | `tracking:order:*:{order_id}` and the owner's list keys, via the owner's per-user index in Tracking |
 | `PATCH /v1/users/me`, Cognito webhook | `users:me:v1:{sub}:{user_id}` |
 | `ChangePasswordCommand`, `ConfirmPasswordResetCommand` | `users:me:v1:{sub}:{user_id}` |
+| `E2eEndpoints` restock (Orders, E2E-only) | `orders:products:v1` only, via `InvalidateProductsAsync` — restocking a drained catalogue after an E2E run leaves per-user entries alone, since the endpoint has no caller identity to sweep by (`services/orders/src/Orders.Api/Endpoints/E2eEndpoints.cs:102`). **Missing from the original matrix — added 2026-08-26 (A2/B5).** |
+| Users E2E cleanup (`E2eCleanupCommand`) | `users:me:v1:{sub}:{user_id}` for every soft-deleted E2E row, via `invalidate(ME_KEY_PREFIX, ...keys)` (`services/users/src/features/users/http/e2e-cleanup.ts:63`). **Missing from the original matrix — added 2026-08-26 (A2/B5).** |
+| Account-deletion cascade (all three services) | `identity:sub-to-user:v1:{identity}` for both identity aliases plus each service's per-user index, from `services/users/src/features/users/commands/delete-account.ts:179` (profile key), `services/orders/src/Orders.Api/Endpoints/InternalEndpoints.cs:296` (`InvalidateDeletedUserAsync`), and `services/tracking/src/features/tracking/api/internal_router.py:165` (`invalidate_user`). **Missing from the original matrix — added 2026-08-26 (A2/B5); see [Account-deletion cascade](#account-deletion-cascade-landed-2026-08-26) for the raw-identity-header trap this cascade fell into and fixed.** |
 
 The password-change row exists because both commands also mutate `mustChangePassword`, which
 is part of `UserSchema` and therefore part of the cached `GET /v1/users/me` body — not because
@@ -249,9 +299,21 @@ the cache stores anything password-related itself. Both writes must invalidate t
 for the same reason `PATCH /me` does: the cached body would otherwise disagree with the
 database until its TTL expires.
 
-The identity-mapping cache (`identity:sub-to-user:v1:{cognito_sub}`) does **not** appear in
-this matrix — it has no invalidation trigger by design; see
-[Fourth component](#fourth-component--the-identity-mapping-cache-orders-and-tracking-only).
+The identity-mapping cache (`identity:sub-to-user:v1:{sub}`) is now invalidated explicitly by
+the account-deletion cascade row above, in addition to its 1h TTL — see the correction in
+[Fourth component](#fourth-component--the-identity-mapping-cache-orders-and-tracking-only) for
+why the original "no invalidation trigger by design" claim was true when written and is no
+longer true.
+
+> [!bug] A real staleness gap the original matrix never named: the Cognito webhook
+> The original matrix implied a Cognito-webhook row invalidates the identity cache alongside
+> `users:me:v1`. It does not, and never did: `capture-cognito-identity.ts` has zero cache
+> references. This is a genuine gap, not a documentation slip — when the Cognito webhook writes
+> a new/changed `cognitoSub`, any response or identity-cache entry keyed on the OLD value is not
+> invalidated by that event; it only clears on its own TTL (up to 5 min for the profile, up to
+> 1 h for the identity mapping). Recorded here as a known limitation (A1, corrected 2026-08-26),
+> not fixed by this correction pass — fixing it means reworking `deriveMessageId` first, per the
+> header comment in `services/users/src/features/users/webhooks/cognito-payload.ts:13-15`.
 
 Two correctness details:
 
@@ -260,10 +322,39 @@ Two correctness details:
   resolve the owner by reading `cognito_sub` from the tracking row itself, before deleting.
 - **Invalidating `my-orders` and the tracking list keys requires deleting several keys with a
   variable suffix** (`t0`/`t1`, the `order_ids` hash). This is solved with a per-user key
-  index — a Redis SET holding that user's live keys — **not** `KEYS`/`SCAN`, which is O(N)
-  over the whole keyspace and is discouraged in production. This index is required
-  independently of the identity-mapping cache; see
-  [Out of scope](#out-of-scope--account-deletion-cascade) for the one place the two intersect.
+  index — a Redis SET holding that user's live keys, listed in [Cache keys and TTLs](#cache-keys-and-ttls)
+  — **not** `KEYS`/`SCAN`, which is O(N) over the whole keyspace and is discouraged in
+  production. This index is required independently of the identity-mapping cache; see
+  [Account-deletion cascade](#account-deletion-cascade-landed-2026-08-26) for the one place the
+  two intersect.
+
+## Account-deletion cascade (landed 2026-08-26)
+
+**This section replaces the "Out of scope" note this spec originally carried.** At the time of
+writing, `DELETE /v1/users/me` did not exist (see the reasoning preserved in [Fourth
+component](#fourth-component--the-identity-mapping-cache-orders-and-tracking-only)); it shipped
+from the separate account-deletion milestone
+([[2026-08-25-account-deletion-design]], [[account-deletion-milestone]]) with exactly the
+cascade this spec had predicted:
+
+- Deletes `identity:sub-to-user:v1:{identity}` for the deleted account — from
+  `services/users/src/features/users/commands/delete-account.ts:179` (the profile key),
+  `services/orders/src/Orders.Api/Endpoints/InternalEndpoints.cs:296`
+  (`InvalidateDeletedUserAsync`), and
+  `services/tracking/src/features/tracking/api/internal_router.py:165` (`invalidate_user`).
+- Deletes that user's response-cache entries via the per-user key index each service already
+  needed for the `my-orders`/tracking-list sweep — the same index drives both cleanups, per the
+  prediction above.
+
+**One thing the original prediction did not anticipate: which identity to sweep by.** The
+cascade holds the caller's *canonical* `cognito_sub` and `user_id`, but per-user keys are built
+from whichever raw identifier the client sent to `x-user-id` (see the correction in [Cache keys
+and TTLs](#cache-keys-and-ttls)). The first cascade implementation swept only the canonical sub,
+silently missing keys written under the `usr_`-id alias and leaving a deleted account's data
+live until TTL expiry — up to 1 hour for the identity mapping. Fixed by sweeping **both**
+aliases and deduplicating; full incident and the accepted trade-off (invalidate-by-both, not
+normalize-at-write):
+[[2026-08-26-cache-keys-built-from-a-raw-identity-header]].
 
 ## Observability
 
@@ -279,13 +370,40 @@ Two correctness details:
    through the CloudWatch mechanism that already exists in all three services:
 
    - `cache_requests_total` — dimensions `Service` (`users`|`orders`|`tracking`), `KeyPrefix`,
-     `Result` (`hit`|`miss`|`bypass`). CloudWatch calls these **dimensions**, not labels, and
-     dimension *values* must stay bounded: `KeyPrefix` is the prefix only (e.g.
-     `orders:cart:v1`), **never** a full key — a full key (with `cognito_sub`/`user_id`
-     embedded) would explode cardinality and cost, on top of the PII concern the span rule
-     below also exists for.
-   - `cache_operation_duration_ms` — dimensions `Service`, `Operation` (`get`|`set`),
-     published with unit `Milliseconds`.
+     `Result`. CloudWatch calls these **dimensions**, not labels, and dimension *values* must
+     stay bounded: `KeyPrefix` is the prefix only (e.g. `orders:cart:v1`), **never** a full
+     key — a full key (with `cognito_sub`/`user_id` embedded) would explode cardinality and
+     cost, on top of the PII concern the span rule below also exists for.
+
+     > [!warning] Corrected 2026-08-26 — `Result` is not just `hit`\|`miss`\|`bypass`, and each service's write path publishes differently (C5/C6)
+     > This spec originally documented `Result` as a closed three-value enum and implied
+     > `cache_requests_total` is published uniformly on every operation. Neither holds as
+     > shipped:
+     > - **`Result` also carries write-path values, per service.** Users publishes `del`
+     >   (`services/users/src/shared/cache/cache-gateway.ts:154,177,189`). Tracking publishes
+     >   `invalidate` and `invalidate_index` as their own operation names, not as a `Result`
+     >   value on `get`/`set` (`services/tracking/src/shared/cache/gateway.py:210,236`). Orders
+     >   publishes only `get`/`set` results — its `InvalidateAsync`/`TrackKeyAsync`/
+     >   `InvalidateUserKeysAsync` never call `RecordAsync` at all
+     >   (`services/orders/src/Orders.Infrastructure/Caching/CacheGateway.cs`).
+     >   `cache_requests_total` is therefore **not published on writes** in Tracking (`set`
+     >   calls `_record(None, ...)`, `gateway.py:189`, and `invalidate`/`invalidate_index` do
+     >   the same at `:210`/`:236` — `result=None` means no `Result`-dimensioned metric goes
+     >   out) or in Orders (`SetAsync`/`InvalidateAsync`/`TrackKeyAsync`/
+     >   `InvalidateUserKeysAsync` publish duration only, never `cache_requests_total`) — but
+     >   Users **does** publish `Result: "bypass"` for a write failure
+     >   (`cache-gateway.ts:208`, via `reportUnavailable` calling `report("bypass", ...)`).
+     > - **The documented hit-rate formula therefore has a different denominator per service.**
+     >   Users' `hit + miss + bypass` counts include write-path bypasses that Tracking's and
+     >   Orders' equivalents never contribute. Document this divergence honestly in dashboards
+     >   rather than treating the three services' `cache_requests_total` as directly comparable
+     >   — a cross-service hit-rate comparison computed naively will be wrong, not merely
+     >   imprecise.
+   - `cache_operation_duration_ms` — dimensions `Service`, `Operation` (values also diverge per
+     service: Users emits `get`|`set`|`del`; Tracking emits `get`|`set`|`invalidate`|
+     `invalidate_index`; Orders emits `get`|`set`|`invalidate`|`index` — see
+     `CacheGateway.cs`'s `PublishDurationAsync` call sites, whose second argument is the literal
+     string passed, not a shared enum), published with unit `Milliseconds`.
    - Both are emitted through each service's existing publisher — Orders'
      `IMetricsPublisher.PublishAsync` (`services/orders/src/Orders.Application/Abstractions/IMetricsPublisher.cs:12-19`),
      Users' `MetricsPublisher.publish` (`services/users/src/shared/metrics/cloudwatch-metrics.ts:26-31`),
@@ -300,11 +418,13 @@ Two correctness details:
      existing seeded metrics, per the pattern documented at
      `services/users/src/shared/metrics/business-metrics.ts:156-195` — a panel over a series
      that has never been published renders "Error Loading Data" rather than a readable zero.
-   - Analysis is unchanged from the original intent: hit-rate is `hit / (hit + miss)` computed
-     in OpenObserve, with `bypass` excluded from the denominator, and the identity-mapping
-     cache's `KeyPrefix` (`identity:sub-to-user:v1`) — whose hit-rate will sit near 100% given
-     its 1h TTL on an effectively immutable mapping — **must never be averaged together** with
-     the response-cache prefixes, or both numbers become meaningless.
+   - Analysis is unchanged from the original intent for the response-cache prefixes: hit-rate is
+     `hit / (hit + miss)` computed in OpenObserve, with `bypass` excluded from the denominator,
+     and the identity-mapping cache's `KeyPrefix` (`identity:sub-to-user:v1`) — whose hit-rate
+     will sit near 100% given its 1h TTL on an effectively immutable mapping — **must never be
+     averaged together** with the response-cache prefixes, or both numbers become meaningless.
+     Per the correction above, also do not average this formula's *result* across services
+     without accounting for the denominator divergence.
 2. **Tracing.** A child span per operation (`cache.get`, `cache.set`) with attributes
    `cache.result`, `cache.key_prefix`, `cache.ttl_remaining`. **The full key must never go
    into a span** — it carries `cognito_sub` and `user_id`, and a span is an export destination
@@ -313,6 +433,57 @@ Two correctness details:
 3. **Logging.** `cache_result` is added to the shared logging context in all three services,
    alongside `trace_id`/`cognito_sub`/`user_id` (see [[logging-context]]). Omitted — never
    null — on non-cacheable routes.
+
+   > [!warning] Corrected 2026-08-26 — a fifth `X-Cache` state exists, undocumented (C7), and a corrupt entry is classified differently per service (C8)
+   > **The unkeyable caller.** This spec's header contract (and [[x-cache-response-header]])
+   > names three states — `HIT`/`MISS`/`BYPASS` — plus "no header = cache disabled". A caller
+   > whose `user_id` cannot be resolved is a distinct, real case the header contract never
+   > named, and the three services disagree on how to report it:
+   > - **Tracking** stamps `X-Cache: MISS` (`services/tracking/src/features/tracking/api/trackings_router.py:184-185`, guarded by `if key is None`).
+   > - **Orders** emits **no header at all** (`services/orders/src/Orders.Api/Caching/CachedReadFilter.cs:73-77` — `key is null` falls through to `next(ctx)` with nothing set).
+   > - **Users** likewise emits **no header** (`services/users/src/features/users/http/cache-hooks.ts:81-86` — a missing `row?.id` returns from the `preHandler` with no header set, and no `onSend` hook fires to add one).
+   >
+   > Orders' and Users' "no header" for this case is indistinguishable, on the wire, from
+   > `CACHE_ENABLED=false` — the documented meaning of "no header." Tracking's `MISS` is
+   > indistinguishable from an actual cache miss. Neither is wrong exactly, but the three-way
+   > divergence was undocumented; record it as a known fifth state ("unkeyable caller") with no
+   > single agreed representation across services, rather than assuming `X-Cache`'s three/four
+   > documented values are exhaustive.
+   >
+   > **A corrupt cache entry is also classified inconsistently.** This spec's fail-open section
+   > implies uniform treatment; the shipped behavior is not uniform:
+   > - **Tracking** treats an unparseable JSON payload as a `MISS` (not `BYPASS`) and logs
+   >   `app_event=cache_entry_unreadable` (`services/tracking/src/shared/cache/gateway.py:127-143`)
+   >   — the reasoning given is that Redis itself is fine, only the entry is bad, so the right
+   >   response is to recompute and overwrite, which a `MISS` triggers and a `BYPASS` also would.
+   > - **Users** treats the same case as `BYPASS`
+   >   (`services/users/src/shared/cache/cache-gateway.ts:87-93` — a `JSON.parse` failure falls
+   >   into the same `catch` as a Redis outage).
+   > - **Orders** splits it further: a stored `null` deserializes cleanly and is treated as
+   >   `MISS`; a deserialization exception is caught and treated as `BYPASS`
+   >   (`services/orders/src/Orders.Infrastructure/Caching/CacheGateway.cs:73-97`).
+   >
+   > All three choices are individually defensible (fail-open never breaks a read either way),
+   > but a dashboard built assuming one uniform classification will misattribute corrupt-entry
+   > noise to genuine cache unavailability in Users, and to genuine misses in Tracking.
+
+   > [!warning] Corrected 2026-08-26 — the `reason` vocabulary is not shared across services (C9)
+   > This design's failure-mode section implies `reason` is a shared, machine-readable
+   > vocabulary. As shipped, each service defines its own strings independently and they do not
+   > overlap:
+   > - **Orders**: `cache_timeout`, `redis_error` (`CacheGateway.cs`'s `ReasonFor`),
+   >   `invalidate_failed`, `track_key_failed`, `invalidate_user_keys_failed` (named directly at
+   >   each `LogUnavailable` call site in `CacheGateway.cs`).
+   > - **Tracking**: a single `redis_unavailable` for every gateway failure
+   >   (`services/tracking/src/shared/cache/gateway.py:270`), plus `malformed_payload` for a
+   >   corrupt entry (`:138`), and — from a different module —
+   >   `cache_invalidation_skipped` with `no_owner_sub`/`no_owner_user_id`
+   >   (`services/tracking/src/shared/cache/invalidation.py:78,95`) for the carrier-webhook case
+   >   that cannot resolve an owner.
+   > - **Users**: `timeout`, `redis_error` (`services/users/src/shared/cache/cache-gateway.ts:200`).
+   >
+   > Record the actual per-service vocabulary above rather than treating `reason` as a shared
+   > enum when building alerts or dashboards that filter on it.
 4. **Load test.** A dedicated Gatling scenario runs the same traffic profile twice, cache
    enabled and disabled via `CACHE_ENABLED`, reporting p50/p95/p99 and hit-rate per endpoint,
    **plus the identity-cache hit-rate reported alongside the response hit-rates** so the two
@@ -326,25 +497,27 @@ signal that deliberately stays outside that OTel pipeline, for the reason given 
 above: this repo's metrics travel over the existing CloudWatch publishers, not an OTel
 `Meter`, so there is no OTel metrics SDK configuration for this rule to apply to.
 
-## Out of scope — account-deletion cascade
+## Out of scope when written, landed 2026-08-26 — see [Account-deletion cascade](#account-deletion-cascade-landed-2026-08-26)
 
-There is no `DELETE /v1/users/me` (or any account-deletion endpoint) in this repo today; see
-[Fourth component](#fourth-component--the-identity-mapping-cache-orders-and-tracking-only) for
-the evidence. Building one — with cascade into Orders and Tracking — is deferred to its own
-milestone and is explicitly **not** part of this design.
-
-This is recorded here as a known future integration point, not a gap in the design above: when
-an account-deletion endpoint exists, it must, as part of that milestone's own work, also:
+**This section is preserved for its history, not as current fact.** At the time this spec was
+written, there was no `DELETE /v1/users/me` (or any account-deletion endpoint) in this repo —
+see the original evidence preserved in [Fourth
+component](#fourth-component--the-identity-mapping-cache-orders-and-tracking-only) — and this
+section deferred building one to its own milestone, predicting exactly what that milestone
+would need to do:
 
 - Delete `identity:sub-to-user:v1:{cognito_sub}` for the deleted account.
 - Delete that user's response-cache entries via the per-user key index already required for
   [invalidating `my-orders` and the tracking list keys](#invalidation-matrix) — the same index
   drives both cleanups, so no new indexing mechanism is needed, only the new call site.
 
-Until that endpoint exists, the identity-mapping cache's 1h TTL is the only bound on how long a
-deleted account's mapping could theoretically still resolve — and per
-[Fourth component](#fourth-component--the-identity-mapping-cache-orders-and-tracking-only),
-that is an accepted consequence of no deletion flow existing, not a defect in this cache.
+**That prediction is now what shipped**, plus one correction the prediction did not anticipate
+(sweeping by canonical identity alone missed keys written under a raw-header alias). See
+[Account-deletion cascade (landed 2026-08-26)](#account-deletion-cascade-landed-2026-08-26)
+above for the current, accurate account of what exists — this section is kept only so the
+"deferred, not a gap" reasoning that was correct when written remains visible, rather than
+silently disappearing and inviting the same "no deletion flow exists" conclusion to be
+re-derived from an out-of-date read of this note.
 
 ## Testing
 
@@ -374,3 +547,8 @@ All three layers per [[testing]], for every cached endpoint:
 - [[redis-elasticache-replication-group-floci]]
 - [[floci-elasticache-two-ports-and-provider-panic]]
 - [[2026-08-25-response-caching-layer]] — implementation plan for this design
+- [[2026-08-26-cache-keys-built-from-a-raw-identity-header]] — the raw-identity-header
+  invalidation trap the account-deletion cascade fell into, corrected 2026-08-26
+- [[2026-08-25-account-deletion-design]] — the milestone that shipped `DELETE /v1/users/me` and
+  the identity-cache/response-cache cascade this spec originally deferred
+- [[account-deletion-milestone]] — milestone map for the above

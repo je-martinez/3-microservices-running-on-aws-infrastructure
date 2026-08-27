@@ -7,6 +7,8 @@ created: 2026-06-26
 updated: 2026-08-26
 tags: [type/spec, area/users, status/active]
 related:
+  - "[[2026-08-25-response-caching-layer-design]]"
+  - "[[x-cache-response-header]]"
   - "[[2026-08-25-account-deletion-design]]"
   - "[[2026-08-15-request-id-correlation-design]]"
   - "[[soft-delete]]"
@@ -377,6 +379,91 @@ because the durable deletion has already happened by that point. But it is not s
 [Observability](#observability) below for `delete_account_cognito_orphan`, the one branch of this
 flow that is deliberately alert-worthy despite being swallowed.
 
+## Response caching
+
+> [!info] Shipped 2026-08-25 — Response Caching Layer milestone
+> Full cross-service design: [[2026-08-25-response-caching-layer-design]]. Header contract:
+> [[x-cache-response-header]]. Users caches exactly **one** route and has **no** identity cache —
+> both are deliberate, not partial implementation.
+
+`GET /v1/users/me` is the only cached route in this service. Key `users:me:v1:{sub}:{user_id}`
+(both identity components — see [[2026-08-25-response-caching-layer-design#Cache keys and TTLs]]),
+5-minute TTL. `CACHE_ENABLED` (env, see [[env-files]]) is the kill switch: with it `false` the
+gateway registered in the Awilix cradle simply no-ops on every call, so nothing 500s and no
+`X-Cache` header is ever emitted — the same "invisible, not a permanent BYPASS" contract every
+service follows.
+
+**Users deliberately has no identity-mapping cache.** The fourth component
+[[2026-08-25-response-caching-layer-design#Fourth component — the identity-mapping cache (Orders and Tracking only)]]
+describes exists only in Orders and Tracking, both of which resolve `user_id` from `cognito_sub`
+over the network (gRPC/DB) before they can build a response key. Users needs no such resolution:
+the authenticated query already returns the row `GET /v1/users/me` serves, so there is nothing to
+cache in front of it.
+
+### `preHandler`/`onSend` — the service's first hook pair of this kind, and the `@fastify/otel` trap
+
+`registerMeCacheHooks` (`services/users/src/features/users/http/cache-hooks.ts`) adds a
+`preHandler` + `onSend` pair scoped to `GET /v1/users/me` only (checked by both method and route
+URL, so the `PATCH`s on the same path never see the hook). Before this, Users registered only two
+global hooks — `onRequest` and `onResponse` (`http/routes.ts`) — so this is the **first**
+`preHandler`/`onSend` pair in the service.
+
+That ordering is load-bearing, not incidental: **`@fastify/otel` nulls
+`request.opentelemetry().span` inside `onSend`**, which runs *before* `onResponse` — where the
+existing `getHttpServerSpan`/`withHttpServerSpan` helpers
+(`services/users/src/shared/observability/request-span.ts`) were written to restore the request's
+real HTTP-server span in exactly the hook that loses it. The `onSend` cache-write path therefore
+attaches its `cache.set` span via `withHttpServerSpan(req, …)` — **never** `trace.getActiveSpan()`,
+which resolves to the hook's own transient span (or nothing) at that point in the chain, per the
+helper's own header comment. Getting this wrong does not error; it silently drops the span from
+the waterfall, which is a harder failure to notice than a crash. `withHttpServerSpan` is not
+awaited on the `cache.set` call — `CacheGateway.set` swallows its own failures by contract, so
+holding the response open for a Redis round trip would hand back the latency the cache exists to
+remove.
+
+### The cached value is the serialized body, not the entity
+
+`onSend` stores `JSON.parse(payload)` — the **already-serialized** response body, parsed back into
+an object for symmetric storage — never the raw Prisma entity. `serializeUser` (`routes.ts`)
+converts `createdAt`/`updatedAt`/`deletedAt` to ISO strings before the Zod response serializer
+runs; caching the entity instead would replay values the serializer never validated, producing a
+body that differs from a MISS for the same user. A hit re-serializes with `JSON.stringify`, which
+preserves key order, so the two responses are byte-identical.
+
+### The spec's original claim about identity resolution was wrong — the code resolves it first
+
+> [!warning] Corrected against the implementation, 2026-08-26
+> An earlier version of [[2026-08-25-response-caching-layer-design]] stated Users needs no
+> identity resolution to build its cache key. **The code contradicts that.**
+> `cache-hooks.ts:74-86` `await`s `currentUser.resolve()` **before** consulting the cache — on a
+> **hit** as well as a miss — because `currentActor` (the Awilix-resolved caller) is the raw
+> `x-user-id` header value, which may be a Cognito `sub` **or** a `usr_` id (see
+> `findByIdOrCognitoSub` under [Identity resolution](#identity-resolution)). The key needs the
+> *resolved* `row.id`, and `resolve()` is the only place that becomes known — so it must run
+> first, unconditionally. `resolve()` caches its own promise, so a MISS's subsequent handler call
+> reuses the same lookup rather than paying it twice. When the row cannot be found (a valid token
+> whose user no longer exists), there is no key to build and the request bypasses the cache
+> silently, falling through to the handler's own `404` — which is never cached, since only `200`s
+> populate the cache. Trust the code over the spec here.
+
+### Invalidation
+
+Every write that can change the cached body invalidates `users:me:v1:{sub}:{user_id}`, via
+`invalidateMeCache`/`cacheGateway.invalidate` (both exported for reuse from `cache-hooks.ts`):
+
+| Call site | Why |
+|---|---|
+| `PATCH /v1/users/me` (`routes.ts`) | The profile itself changed. |
+| `PATCH /v1/users/me/password` (`routes.ts`) | Clears `mustChangePassword`, which is part of the cached `UserSchema` body — see [Password reset](#password-reset). |
+| `ConfirmPasswordResetCommand` | Same reason: clears `mustChangePassword` via the Redis-code flow. Invalidation is skipped when the user cannot be resolved — no sub, no cached entry. |
+| `DeleteAccountCommand` | Drops the deleted user's cached profile after the Postgres soft-delete; a failure here is logged and swallowed — the entry still expires on its own TTL, and a 500 for an otherwise-successful deletion would be strictly worse. |
+| `E2eCleanupCommand` | Sweeps the cached profile for every row the harness soft-deletes, keyed off the rows read **before** deletion (a row with no `cognitoSub` was never cached and is skipped). |
+
+Every call site guards on the gateway being resolvable at all (`resolveGateway`'s
+try/catch around the Awilix cradle lookup) — a container built with no `cacheGateway` registered
+(most of the unit-test suite) must turn a profile write into its normal `200`, not a `500` from an
+unrelated resolution error.
+
 ## Events
 
 `services/users/src/shared/messaging/event-publisher.ts` implements `SqsEventPublisher`, which
@@ -552,6 +639,7 @@ column is schema-free `Json?`.
 | Three-layer testing (unit/integration, internal E2E, gateway E2E) | [[testing]] |
 | Distributed tracing backend | [[ADR-0019-distributed-tracing-opentelemetry]] |
 | Self-owned password reset (never Cognito's `ForgotPassword`) | [[ADR-0020-self-owned-password-reset]] |
+| Response caching (`X-Cache` header contract, `CACHE_ENABLED` kill switch) | [[2026-08-25-response-caching-layer-design]], [[x-cache-response-header]] |
 
 ## Observability
 
@@ -691,3 +779,11 @@ convention/pattern notes in `shared/`) live in `docs/domains/users/decisions/`:
   this flow depends on.
 - [[2026-08-12-custom-business-metrics-cloudwatch-design]] — the design for the three CloudWatch
   metrics Users publishes and the `BusinessMetricsPoller`'s start-in-`server.ts` constraint.
+- [[2026-08-25-response-caching-layer-design]] — the cross-service response-caching design:
+  Users' one cached route (`GET /v1/users/me`), why it has no identity-mapping cache, and the
+  50ms fail-open budget every service shares.
+- [[x-cache-response-header]] — the `X-Cache`/`X-Cache-TTL` response-header contract Users'
+  cache hooks implement.
+- [[2026-08-26-cache-keys-built-from-a-raw-identity-header]] — the cross-service lesson: a cache
+  key built from the raw `x-user-id` header (not a canonical identity) is what let a deleted
+  account's cached entries outlive the account.

@@ -7,6 +7,8 @@ created: 2026-06-26
 updated: 2026-08-26
 tags: [type/spec, area/tracking, status/accepted]
 related:
+  - "[[2026-08-25-response-caching-layer-design]]"
+  - "[[x-cache-response-header]]"
   - "[[2026-08-25-account-deletion-design]]"
   - "[[2026-08-15-request-id-correlation-design]]"
   - "[[soft-delete]]"
@@ -431,6 +433,139 @@ event — a network dependency.
 > there drops the field silently, with no error — and the middleware's header-reading loop must
 > not `break` on the first header match, or a second header (e.g. `x-user-id`) is lost. Full
 > design: [[2026-08-15-request-id-correlation-design]].
+
+## Response caching
+
+> [!info] Shipped 2026-08-25 — Response Caching Layer milestone
+> Full cross-service design: [[2026-08-25-response-caching-layer-design]]. Header contract:
+> [[x-cache-response-header]]. Tracking runs the full four-component shape — response cache,
+> identity-mapping cache, invalidation, and the kill switch — and is the one service with a
+> service-local `cache_timeout_ms` setting.
+
+### Cached reads and their TTL
+
+Both REST reads are cached, 60s TTL each, matching the delivery-status update cadence:
+
+| Route | Key | Notes |
+|---|---|---|
+| `GET /v1/trackings/{orderId}` | `tracking:order:v1:{sub}:{user_id}:{order_id}` | `CacheKeys.tracking_order` |
+| `GET /v1/trackings?order_ids=...` | `tracking:list:v1:{sub}:{user_id}:{hash}` | see [Normalized-then-hashed list key](#normalized-then-hashed-list-key) below |
+
+`_serve_cached`/`_store_cached` (`api/trackings_router.py`) are the shared helper pair both routes
+call. A key builder that returns `None` — because `user_id` could not be resolved this request
+(see [The identity cache](#the-identity-cache-and-seed_resolved_internal_user_id) below) — makes
+the route skip caching entirely: a `MISS` with no Redis write, served correctly from MySQL. With
+`CACHE_ENABLED=false` (`CacheEnabledDep`) `_serve_cached` stamps **no** `X-Cache` header at all,
+the same "invisible, not a permanent BYPASS" contract every service in this design follows.
+
+### Normalized-then-hashed list key
+
+`order_ids` on the batch read is an arbitrary, caller-supplied list up to `MAX_BATCH_ORDER_IDS`
+(100). `CacheKeys.tracking_list` sorts and deduplicates the list **before** hashing it
+(`_hash_order_ids`, `shared/cache/keys.py`), so `?order_ids=b,a` and `?order_ids=a,b,a` collapse to
+one key — both a cardinality bound (raw-list keying would make the key space combinatorial) and a
+hit-rate improvement, since two callers asking for the same set in different orders now share an
+entry. sha256, not Python's built-in `hash()` — the latter is salted per process
+(`PYTHONHASHSEED`), so two replicas would compute *different* keys for the same request and the
+cache would never hit across them. Truncated to 16 hex characters (64 bits), negligible collision
+risk for this keyspace, short enough to read in `redis-cli`.
+
+### `tracking:index:v1:{sub}:{user_id}` — the per-user key index
+
+Required because the list key embeds a hash of an arbitrary id set and therefore cannot be
+reconstructed at invalidation time. `CacheKeys.user_index` builds it; the read path adds every list
+key to it as it writes (`gateway.set(..., index_key=...)`); invalidation deletes every member and
+then the index itself (`invalidate_index`). Deliberately **not** `KEYS`/`SCAN` — both are O(N) over
+the whole keyspace, and `KEYS` blocks the server for the duration of the sweep, which is
+unacceptable on a write path a carrier webhook or an account-deletion cascade can trigger.
+
+### The identity cache, and `seed_resolved_internal_user_id`
+
+Tracking's identity-mapping cache (`IdentityCache`, `shared/cache/identity_cache.py`) is the
+Tracking half of
+[[2026-08-25-response-caching-layer-design#Fourth component — the identity-mapping cache (Orders and Tracking only)]]:
+key `identity:sub-to-user:v1:{cognito_sub}`, 1h TTL, consulted before a response key can even be
+built, since every response key carries `user_id` and Tracking only learns it from an outbound
+gRPC call to Users. TTL-only invalidation is correct here, not a gap: a `cognito_sub` never
+resolves to a different `user_id` while the account exists, so a stale entry can only be *late*,
+never *wrong* — see `shared/cache/identity_cache.py`'s module docstring for the full argument, and
+[Account-deletion cascade (internal)](#account-deletion-cascade-internal) below for the one case
+(a deleted account) that is no longer left to the TTL alone.
+
+> [!important] `seed_resolved_internal_user_id` — the single line the whole response cache depends
+> on
+> `caller.py`'s `CurrentCaller` memoizes `user_id` per request, filled one of two ways: a real gRPC
+> call (`resolve_internal_user_id`), or a value already known from elsewhere via
+> `seed_resolved_internal_user_id` (`caller.py:121-133`) — **no I/O**, just populating the memo. The
+> load-bearing call site is `log_identity.py:218-220`: on an identity-cache **hit**,
+> `IdentityCache.resolve` returns the `user_id` *without running its loader* — correctly, that is
+> the entire point of a cache hit — but the loader is the only thing that would otherwise call
+> `caller.seed_resolved_internal_user_id`. Without this line, a hit leaves `_resolved` at `None`,
+> `resolved_internal_user_id` (the property both cached-read handlers consult to build their
+> response key) answers `None`, `CacheKeys` refuses to build a key for a `None` `user_id`, and the
+> response cache **silently does nothing at all from the second request onward**, for the full hour
+> the identity entry lives — this is exactly what happened in production before the line was added.
+> The two caches are connected through this one call.
+
+### `cache_timeout_ms` — a settings field that exists only in this service
+
+`Settings.cache_timeout_ms` (`shared/config/settings.py`, default `50`, `Field(gt=0)`) is a
+**Pydantic settings field**, unlike Orders and Tracking's siblings: Orders hardcodes `50` ms as a
+`TimeSpan.FromMilliseconds(50)` literal in `Program.cs`, and Users hardcodes `TIMEOUT_MS = 50` as a
+module constant in `cache-gateway.ts`. Both the connect and the socket timeout use this one budget
+— a connect slower than the whole operation budget has already blown it. The behavior is identical
+across all three services (fail open on timeout); only Tracking's is externally configurable
+without a code change.
+
+### `NullCacheGateway` — the kill switch
+
+`shared/cache/gateway.py`'s `NullCacheGateway` is the binding used when `CACHE_ENABLED=false`, and
+it is a **null object**, not a gateway with an `if` inside it: every route has exactly one code
+path, and "the cache is off" is expressed by *which object is bound* rather than a branch in every
+handler. `get_cache_gateway` (`shared/http/cache_dependencies.py`) also degrades to it when a real
+gateway cannot even be constructed (an incomplete environment) — the same object a disabled cache
+binds, so an unbuildable cache behaves precisely like a deliberately-disabled one. Its `get` answers
+a plain `MISS`; the routes read `cache_is_enabled` separately to decide whether to emit an
+`X-Cache` header at all, so a disabled cache emits **no** header — never `MISS`, never `BYPASS`.
+
+### `cache_result` is captured by middleware off the response header — not set by the handler
+
+`_serve_cached`/`_store_cached` stamp `X-Cache` on the **response object**, not on the log context,
+and deliberately so: the cached-read handlers in `trackings_router.py` are plain `def` functions
+(pymysql is a blocking driver), which FastAPI runs in its threadpool — and a threadpool worker holds
+only a **copy** of the request's context. A `merge_log_context` call made from inside one of those
+handlers would set the copy and be silently discarded on return, the same `asyncio.to_thread`
+context-loss trap [[2026-07-31-contextvars-lost-across-task-boundaries]] documents for
+`LogContextMiddleware`. `LogContextMiddleware._capture_cache_result` reads the `X-Cache` header back
+off the **response**, on the request's own async context, after the handler has already run —
+sidestepping the trap entirely rather than requiring every cached handler to remember it.
+
+### Invalidation
+
+Two shapes, both in `shared/cache/invalidation.py`, both scheduled as a `BackgroundTask` — never
+called inline — because they must run **strictly after** their triggering transaction commits (see
+the long comment in `carrier_router.py` for why this is a property of the ASGI response cycle, not
+a timing hope):
+
+- **`invalidate_tracking`** — the carrier-webhook leg (`PUT /v1/trackings/{orderId}/status`,
+  `api/carrier_router.py`). The webhook carries no `x-user-id` at all (it is authenticated by
+  `TRACKING_CARRIER_API_KEY`, not a Cognito JWT), so the owner comes off the **persisted row**
+  `update_tracking_status` already returned: `Tracking.cognito_sub` and `Tracking.user_id`, the
+  same identity the reads' ownership filter compares against. Deletes the single-read key by name
+  (reconstructible, since the webhook holds the order it just wrote) and invalidates the caller's
+  index (covering the unreconstructible list-key hashes). A `NULL cognito_sub` is a deliberate
+  no-op: a row with no owner sub is unreachable over the user-scoped reads in the first place, so
+  it was never cached and there is nothing to evict.
+- **`invalidate_user`** — the account-deletion cascade leg (`DELETE /v1/trackings/by-user`,
+  `api/internal_router.py`, guarded by `InternalAuth`/`GRPC_API_KEY`). Sweeps **both** namespaces
+  under **both** of the deleted person's identifiers — the response-entry index and the identity
+  mapping — for the same raw-header reason documented in
+  [[2026-08-26-cache-keys-built-from-a-raw-identity-header]]: a response key is built from
+  whichever identifier the *client* authenticated with, while the cascade's body carries only the
+  canonical `cognito_sub`/`user_id` pair, so sweeping the canonical pair alone leaves a
+  `usr_`-id-keyed entry resolving a deleted account for up to an hour. `BackgroundTask` scheduling
+  applies here too — the deletion has already committed by the time this runs, so a Redis failure
+  must never surface as a failed account deletion.
 
 ## Account-deletion cascade (internal)
 
@@ -886,6 +1021,7 @@ every already-persisted tracking, not only for code going forward.
 | `x-user-id` injection (local) | [[nginx-njs-x-user-id-injection]] |
 | Structured logging context, incl. `request_id` | [[logging-context]] |
 | Distributed tracing backend | [[ADR-0019-distributed-tracing-opentelemetry]] |
+| Response caching (`X-Cache` header contract, `CACHE_ENABLED` kill switch) | [[2026-08-25-response-caching-layer-design]], [[x-cache-response-header]] |
 
 ## Observability — workflow spans
 
@@ -1047,3 +1183,12 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
 - [[2026-08-12-custom-business-metrics-cloudwatch-design]] — the design for
   `orders_by_tracking_status_total`, the DELIVERED/IN_PROGRESS split, and the `main.py` lifespan
   it added.
+- [[2026-08-25-response-caching-layer-design]] — the full cross-service response-caching
+  design: the two cached reads and their TTL, the normalized-then-hashed list key, the
+  identity-mapping cache, and the fail-open 50ms budget. See
+  [Response caching](#response-caching) above.
+- [[x-cache-response-header]] — the `X-Cache`/`X-Cache-TTL` response-header contract Tracking's
+  `_serve_cached`/`_store_cached` helpers implement.
+- [[2026-08-26-cache-keys-built-from-a-raw-identity-header]] — the data leak this service's
+  account-deletion cascade (`invalidate_user`) exists to close: a response key built from the
+  raw `x-user-id` header, not the canonical identity pair the cascade receives.

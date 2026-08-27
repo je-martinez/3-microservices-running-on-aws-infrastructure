@@ -7,6 +7,8 @@ created: 2026-06-26
 updated: 2026-08-26
 tags: [type/spec, area/orders, status/accepted]
 related:
+  - "[[2026-08-25-response-caching-layer-design]]"
+  - "[[x-cache-response-header]]"
   - "[[2026-08-25-account-deletion-design]]"
   - "[[2026-08-15-request-id-correlation-design]]"
   - "[[soft-delete]]"
@@ -309,6 +311,120 @@ the same `app_event`/`reason` as its log line, per [[logging-context]]. This sha
 gap where `GET`/`DELETE` originally shipped with **none** of it — is documented in
 [[2026-08-25-reads-are-not-exempt-from-observability]]; full rule in
 `services/orders/CLAUDE.md` §4.
+
+## Response caching
+
+> [!info] Shipped 2026-08-25 — Response Caching Layer milestone
+> Full cross-service design: [[2026-08-25-response-caching-layer-design]]. Header contract:
+> [[x-cache-response-header]]. Orders is the one service that also runs the fourth,
+> identity-mapping component of that design.
+
+### The four cached routes
+
+| Route | Key | TTL | `.WithCache(...)` call site |
+|---|---|---|---|
+| `GET /v1/products` | `orders:products:v1` | 10 min | `Endpoints/ProductEndpoints.cs` |
+| `GET /v1/cart` | `orders:cart:v1:{sub}:{userId}` | 60 s | `Endpoints/CartEndpoints.cs` |
+| `GET /v1/orders/my-orders` | `orders:my-orders:v1:{sub}:{userId}:t{0\|1}` | 2 min | `Endpoints/OrderEndpoints.cs` |
+| `GET /v1/orders/{orderId}` | `orders:order:v1:{sub}:{userId}:{orderId}:t{0\|1}` | 2 min | `Endpoints/OrderEndpoints.cs` |
+
+### `.WithCache(...)` — an `IEndpointFilter`, not middleware, and not generic
+
+`CachedReadFilter` (`Orders.Api/Caching/CachedReadFilter.cs`) is an `IEndpointFilter` applied at
+route-mapping time via a `.WithCache(keyBuilder, ttl)` extension method. A **filter**, deliberately,
+not middleware: `HttpErrorMetricsMiddleware` elsewhere in this service documents choosing
+middleware specifically *because* a filter misses short-circuited responses — the opposite
+argument applies here. The cache must wrap only the handler and must never stamp `X-Cache` on the
+`401` `CallerContextMiddleware` produces before routing ever reaches the endpoint; a filter runs
+inside the endpoint, which is exactly the scope wanted.
+
+**Why the filter is not generic (`CachedReadFilter<T>`).** `GET /v1/orders/my-orders` returns two
+different result types from **one** route: `Ok<IReadOnlyList<OrderDto>>` when
+`includeTracking=false`, `Ok<OrderWithTrackingDto[]>` when it is true
+(`Orders.Api/Caching/CachedReadFilter.cs:32-43`). A generic filter matching `IValueHttpResult<T>`
+would bind to only one of those two `T`s, so the other variant would never be cached — a silent,
+permanent `MISS` that every test exercising only one variant would still pass. `IValueHttpResult<T>`
+is not covariant in `T`, so `T = object` does not rescue it either. `CachedReadFilter` instead
+matches the **non-generic** `IValueHttpResult` and stores the response as pre-serialized JSON — a
+shape that works identically across every route regardless of its DTO, and has a second benefit: a
+`HIT` replays the exact bytes a `MISS` produced, so the two responses cannot drift through a
+serializer difference.
+
+**Why the app's own `JsonSerializerOptions` must be used on write, and only matters on a HIT**
+(`CachedReadFilter.cs:101-107,130-134`). Minimal APIs serialize `Results.Ok<T>` with the
+framework's web defaults (camelCase); calling `JsonSerializer.Serialize(value)` with no options
+uses PascalCase. Mixing the two means a stored `MISS` body is camelCase but a naively-serialized
+cache write would produce PascalCase — every client reading `unitPrice` would see `undefined`/a
+missing field **on a `HIT` only**, since a `MISS` always goes through the framework's real
+serializer. `ResolveJsonOptions` reads the app's own `IOptions<JsonOptions>` (falling back to
+`JsonSerializerOptions.Web` if that service is somehow unavailable) so a cached body and a fresh
+one are byte-identical.
+
+On a hit the handler never runs at all; `X-Cache: HIT` + `X-Cache-TTL` are stamped and the stored
+bytes are replayed verbatim. On a miss the handler runs, and only a `200` response populates the
+cache — a per-user key additionally joins the caller's Redis-SET index (`TrackKeyAsync`) so a later
+write can invalidate it without `KEYS`/`SCAN`; the product catalogue key is excluded from indexing,
+since it belongs to no user. `WithCache` adds **no OpenAPI metadata** — the route's documented
+contract is unchanged by caching, and `X-Cache` is operational, not part of the schema.
+
+### `orders:index:v1:{sub}` — the per-user key index
+
+A Redis SET per caller (`CacheKeys.UserIndex`), populated by every cacheable per-user write and
+consulted by invalidation instead of `KEYS`/`SCAN`. TTL 1 h — longer than any response entry it
+tracks, so the index cannot expire out from under a key it is the only way to reach. This is what
+lets `InvalidateOrderCreationAsync` clear the cart, both `my-orders` variants (`t0`/`t1`), and every
+order-by-id variant in one sweep, without reconstructing key names the invalidator was never told.
+
+### `CachedUserDirectory` — the identity-mapping cache, as an `IUserDirectory` decorator
+
+`Orders.Infrastructure/Identity/CachedUserDirectory.cs` wraps the gRPC-backed `IUserDirectory` and
+is the Orders half of
+[[2026-08-25-response-caching-layer-design#Fourth component — the identity-mapping cache (Orders and Tracking only)]].
+Key `identity:sub-to-user:v1:{cognitoSub}`, 1 h TTL. It sits **in front of** the response cache:
+every per-user response key carries `userId`, so this resolution must run before a response key can
+even be built — on hits too — which is exactly why `CallerContextMiddleware`'s once-per-request
+resolution stops paying a gRPC round trip on the hot path once this cache is warm. Registered as a
+plain decorator (`Program.cs`) so nothing that consumes `IUserDirectory` changes.
+
+**Never caches a negative resolution.** A `null` means "not found right now" — caching that behind
+a 1h TTL would freeze a just-created user as unknown to Orders for up to an hour after Users
+already knows about them. Only a **positive** resolution is stored.
+
+**Deliberately does NOT cache the full profile.** `ResolveCallerAsync` (email, name, delivery
+address) passes straight through to the inner directory, uncached. The full profile is read only on
+the order-creation write path, where the caching saving would be negligible and the PII sitting in
+Redis for an hour would not be.
+
+### `NoopCacheInvalidator` — bound when `CACHE_ENABLED=false`, because the write services take `ICacheInvalidator` unconditionally
+
+`Program.cs` registers `ICacheGateway` only when `CACHE_ENABLED` is `true` (default). The **write**
+services (`CreateOrderService`, `CartWriteService` callers, the account-deletion cascade handler)
+take `ICacheInvalidator` as a plain constructor dependency, with no conditional — so the kill switch
+must still leave *something* registered, or `CACHE_ENABLED=false` would take the service down at
+the first cart write instead of merely disabling the cache. `NoopCacheInvalidator` is that
+something: every method is a no-op `Task.CompletedTask`, deliberately **not** a `CacheInvalidator`
+wired to a `NoopCacheGateway` — with nothing cached there is nothing to invalidate, so the honest
+implementation does nothing rather than routing calls through a gateway that would discard them
+anyway.
+
+### Account-deletion cascade invalidation
+
+`InvalidateDeletedUserAsync(cognitoSub, userId, ct)` — called from `Endpoints/InternalEndpoints.cs`
+inside `DELETE /v1/orders/by-user` (see
+[Account-deletion cascade (internal)](#account-deletion-cascade-internal) below) — sweeps **both**
+identities, not just the canonical pair the cascade receives. Cache keys are built from whichever
+identifier the *client* put in `x-user-id`, verbatim (`CallerContextMiddleware` stores the raw
+header value, and Users' `GetUserById` accepts either a `usr_` id or a Cognito sub) — so a user who
+authenticated with their `usr_` id owns `orders:index:v1:usr_…` and
+`identity:sub-to-user:v1:usr_…`, which a sweep of the sub alone never reaches. This is not
+theoretical: it produced a real data leak, where a deleted user's orders kept replaying from cache
+for up to 2 minutes and their identity mapping kept resolving for up to an hour after the account
+was gone — see [[2026-08-26-cache-keys-built-from-a-raw-identity-header]]. The sweep removes the
+user index (covering the cart, both `my-orders` variants, and every order-by-id entry) under each
+identity, plus the identity-mapping key by name (it is the one per-user entry never in the index,
+since only `CachedReadFilter` calls `TrackKeyAsync`). The shared product catalogue is deliberately
+**not** invalidated here — the cascade never touches `product.units_in_stock`, unlike the E2E
+restock, which does.
 
 ## Account-deletion cascade (internal)
 
@@ -633,6 +749,10 @@ This service follows all shared conventions defined once in the vault:
   `SqsEventPublisher`'s `SendMessageAsync` produces a CLIENT span, and the publisher now injects
   `Activity.Current?.Id` (a W3C `traceparent` string) into the message's `MessageAttributes` for
   events-pipeline's consumer to link back to.
+- [[2026-08-25-response-caching-layer-design]] — the four `.WithCache(...)` routes, the
+  identity-mapping cache (`CachedUserDirectory`), and the `NoopCacheInvalidator` kill-switch
+  binding. See [Response caching](#response-caching) above. Header contract:
+  [[x-cache-response-header]].
 
 Additional ADRs and service-local decisions:
 
@@ -727,3 +847,12 @@ Full milestone design: [[2026-07-14-orders-service-milestone-design]].
   documented in the "one-active-cart invariant" section above was correctly specified in the
   design spec from its first committed version; the implementation silently shipped without
   it, and no review layer caught the gap until a later whole-branch review.
+- [[2026-08-25-response-caching-layer-design]] — the full cross-service response-caching
+  design: the four cached routes and their TTLs, `CachedReadFilter`'s non-generic shape and
+  camelCase serialization requirement, `CachedUserDirectory`'s identity-mapping cache, and the
+  `NoopCacheInvalidator` kill-switch binding. See [Response caching](#response-caching) above.
+- [[x-cache-response-header]] — the `X-Cache`/`X-Cache-TTL` response-header contract
+  `CachedReadFilter` implements.
+- [[2026-08-26-cache-keys-built-from-a-raw-identity-header]] — the data leak found in this
+  service's account-deletion cascade: cache keys built from the raw `x-user-id` header,
+  swept incompletely when the cascade invalidated only the canonical identity pair.

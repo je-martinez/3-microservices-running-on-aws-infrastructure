@@ -4,7 +4,7 @@ type: plan
 area: shared
 status: draft
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-08-26
 tags:
   - type/plan
   - area/shared
@@ -20,6 +20,9 @@ related:
   - "[[ADR-0004-soft-delete-only]]"
   - "[[soft-delete]]"
   - "[[testing]]"
+  - "[[2026-08-25-response-caching-layer-design]]"
+  - "[[response-caching-layer-milestone]]"
+  - "[[2026-08-26-cache-keys-built-from-a-raw-identity-header]]"
 ---
 
 # Account Deletion Milestone
@@ -131,6 +134,36 @@ the route live to be reachable at all, **and** on T1, since the re-registration 
 proof that the partial unique index actually does its job. T10 depends on everything, since
 propagation covers every decision made across all nine other tasks.
 
+## Cache invalidation cascade
+
+**Added 2026-08-26 — missing from this note despite this milestone owning the cascade.** T3
+and T4's internal cascade routes (`DELETE /v1/orders/by-user`, `DELETE /v1/trackings/by-user`)
+each invalidate the response-caching layer's identity mapping and per-user key index for the
+deleted account, in addition to the deletion itself:
+
+- Tracking: `services/tracking/src/shared/cache/invalidation.py:213-214`
+  (`invalidate_user`), called from
+  `services/tracking/src/features/tracking/api/internal_router.py:165-171`.
+- Orders: `services/orders/src/Orders.Infrastructure/Caching/CacheInvalidator.cs:92-93`
+  (`InvalidateDeletedUserAsync`), called from
+  `services/orders/src/Orders.Api/Endpoints/InternalEndpoints.cs:296`.
+- Users: T6/T7's `DeleteAccountCommand` invalidates the profile cache directly at
+  `services/users/src/features/users/commands/delete-account.ts:179-181`.
+
+Both invalidations are **fail-open by the same rule as the rest of the cache**: the deletion has
+already committed, so a Redis failure here must never turn a successful account deletion into a
+failed one. `ICacheInvalidator`/`invalidate_user` swallow their own failures and log a `WARN`.
+
+**Both aliases, not the canonical identity alone.** Per-user cache keys are built from whichever
+raw `x-user-id` header value a client sent — not always the canonical `cognito_sub` — and the
+cascade holds the canonical `cognito_sub`/`user_id` pair, not that raw header. The first
+implementation swept only the canonical identity and silently missed keys written under the
+other alias, leaking a deleted account's cached responses (up to 2 min for orders, 5 min for the
+profile, and 1 hour for the identity mapping) after a `204` had already told the caller deletion
+succeeded. Fixed by sweeping both identity aliases and deduplicating. Full incident:
+[[2026-08-26-cache-keys-built-from-a-raw-identity-header]]. Full cascade design:
+[[2026-08-25-response-caching-layer-design#Account-deletion cascade (landed 2026-08-26)]].
+
 ## Stop points (batch review)
 
 Per [[phase-c-review-flow]]:
@@ -156,3 +189,9 @@ Per [[phase-c-review-flow]]:
   deliberately does not.
 - [[soft-delete]] — the per-service primitives reused by T3/T4, extended by T10.
 - [[testing]] — the three-layer test convention T9 satisfies.
+- [[2026-08-25-response-caching-layer-design]] — the cache invalidation contract T3/T4/T6
+  implement as part of the deletion cascade.
+- [[response-caching-layer-milestone]] — the caching milestone whose "out of scope" cascade
+  this milestone shipped.
+- [[2026-08-26-cache-keys-built-from-a-raw-identity-header]] — the raw-identity-header
+  invalidation incident this milestone's cascade caused and fixed.

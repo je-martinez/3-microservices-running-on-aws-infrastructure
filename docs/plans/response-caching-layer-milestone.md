@@ -4,7 +4,7 @@ type: plan
 area: shared
 status: draft
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-08-26
 tags:
   - type/plan
   - area/shared
@@ -24,6 +24,8 @@ related:
   - "[[2026-08-25-response-caching-layer]]"
   - "[[x-cache-response-header]]"
   - "[[testing]]"
+  - "[[account-deletion-milestone]]"
+  - "[[2026-08-26-cache-keys-built-from-a-raw-identity-header]]"
 ---
 
 # Response Caching Layer Milestone
@@ -144,23 +146,47 @@ Reference copy of the cache-key contract from [[2026-08-25-response-caching-laye
 | `tracking:order:v1:{sub}:{user_id}:{order_id}` | 60 s |
 | `tracking:list:v1:{sub}:{user_id}:{hash}` | 60 s |
 | `users:me:v1:{sub}:{user_id}` | 5 min |
-| `identity:sub-to-user:v1:{cognito_sub}` (Orders + Tracking only) | 1 h |
+| `identity:sub-to-user:v1:{sub}` (Orders + Tracking only) | 1 h |
+| `orders:index:v1:{sub}` (Orders per-user key index) | 1 h |
+| `tracking:index:v1:{sub}:{user_id}` (Tracking per-user key index) | 1 h |
 
-## Out of scope
+> [!note] `{sub}` here is the raw `x-user-id` header, not a guaranteed-canonical Cognito sub;
+> and the two index rows were required by the design from the start but missing from this
+> table — both corrected 2026-08-26. See
+> [[2026-08-25-response-caching-layer-design#Cache keys and TTLs]].
 
-An account-deletion endpoint (`DELETE /v1/users/me`) with cascade to Orders and Tracking is
-deferred to its own milestone. When it lands it must also invalidate the identity mapping and
-the user's response-cache entries via the per-user key index — see
-[[2026-08-25-response-caching-layer-design#Out of scope — account-deletion cascade]].
+## Account-deletion cascade (landed 2026-08-26, corrects "Out of scope" below)
+
+`DELETE /v1/users/me` shipped from the separate account-deletion milestone
+([[account-deletion-milestone]]) and, as its own cascade, invalidates the identity mapping and
+each service's per-user response-cache entries via the per-user key index above — exactly what
+the "Out of scope" note below had predicted would be needed. One correction the prediction
+didn't anticipate: the first cascade implementation swept only the canonical
+`cognito_sub`/`user_id` pair and missed keys written under the raw `x-user-id` header alias,
+leaking a deleted account's cached data for up to its full TTL. Fixed by sweeping both
+identities. Full incident: [[2026-08-26-cache-keys-built-from-a-raw-identity-header]]. Full
+cascade detail: [[2026-08-25-response-caching-layer-design#Account-deletion cascade (landed 2026-08-26)]].
+
+## Out of scope (as originally written — see the correction above)
+
+An account-deletion endpoint (`DELETE /v1/users/me`) with cascade to Orders and Tracking was, at
+the time this milestone was planned, deferred to its own milestone. That milestone has since
+landed — see [Account-deletion cascade](#account-deletion-cascade-landed-2026-08-26-corrects-out-of-scope-below)
+above. This note is preserved to show the original plan matched what eventually shipped.
 
 ## Corrected premises during planning
 
 Three premises from the original spec draft were corrected while writing the implementation
 plan, each worth recording here because it changed the design:
 
-1. **No Cognito user-deletion event.** The Cognito webhook has no user-deletion event, so the
-   identity cache ([[2026-08-25-response-caching-layer-design#Fourth component — the identity-mapping cache (Orders and Tracking only)]])
-   is TTL-invalidated only, not event-invalidated.
+1. **No Cognito user-deletion event, at the time.** The Cognito webhook has no user-deletion
+   event — that part still holds — so the identity cache
+   ([[2026-08-25-response-caching-layer-design#Fourth component — the identity-mapping cache (Orders and Tracking only)]])
+   was TTL-invalidated only when this premise was recorded. **This premise no longer describes
+   the shipped system**: the account-deletion milestone's cascade invalidates the identity
+   cache directly on deletion (see the section above), not via the Cognito webhook — deletion
+   invalidation and Cognito-webhook invalidation were never the same mechanism, and only the
+   former now exists.
 2. **No OTel metrics pipeline in any service.** No service has an OTel metrics pipeline today,
    so the cache metrics go through each service's existing CloudWatch publishers rather than
    through OTel instruments.
@@ -183,3 +209,7 @@ plan, each worth recording here because it changed the design:
   implements across all three services.
 - [[testing]] — the three-test-layer convention (unit/integration, internal E2E, gateway E2E)
   this milestone's JE-200 closes out.
+- [[account-deletion-milestone]] — the milestone that landed the account-deletion cascade this
+  note originally deferred as "out of scope."
+- [[2026-08-26-cache-keys-built-from-a-raw-identity-header]] — the raw-identity-header
+  invalidation trap the account-deletion cascade fell into and fixed.
