@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Orders.Application.Abstractions;
 using Orders.Application.Identity;
+using Orders.Application.Tracking;
 using Orders.Domain.Entities;
 using Orders.Infrastructure.Id;
 using Orders.Infrastructure.Messaging;
@@ -62,6 +63,39 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
     // confirmation email can greet the buyer by name.
     public const string KnownFullName = "Known Buyer";
     public string SeededProductId { get; private set; } = string.Empty;
+
+    /// <summary>
+    /// The trackings the stubbed <see cref="ITrackingReader"/> will report, keyed by order id.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Empty by default, which is FAITHFUL rather than convenient: the real
+    /// <c>TrackingHttpClient</c> here points at a placeholder base address nothing is
+    /// listening on, and its port reports every failure as "no tracking" — so an unstubbed
+    /// host already answers <c>tracking: null</c> for every order. The stub makes that state
+    /// explicit and, crucially, makes its OPPOSITE reachable: without it there is no way to
+    /// exercise "the tracking has now appeared", and a test for the async-tracking window
+    /// could only ever assert the null half.
+    /// </para>
+    /// <para>
+    /// Mutable and shared, because this factory is a COLLECTION fixture. A test that sets it
+    /// must clear it again — <see cref="ClearTrackings"/> — or it leaks into every later
+    /// class in the collection.
+    /// </para>
+    /// </remarks>
+    public Dictionary<string, TrackingDto> StubTrackings { get; } = new();
+
+    /// <summary>Builds a minimal well-formed tracking for <paramref name="orderId"/>.</summary>
+    public static TrackingDto TrackingFor(string orderId, string userId = KnownUserId) =>
+        new(
+            Id: $"trk_{orderId}",
+            UserId: userId,
+            OrderId: orderId,
+            Status: "PENDING",
+            Datetime: "2026-08-26T00:00:00Z",
+            History: Array.Empty<TrackingHistoryEntryDto>());
+
+    public void ClearTrackings() => StubTrackings.Clear();
 
     public async Task InitializeAsync()
     {
@@ -212,6 +246,19 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
             // Same reason as the publisher above: the OrdersMetricsPublisher hosted
             // service ticks while these tests run, and the real client would attempt a
             // PutMetricData against a CloudWatch that is not there.
+            // The tracking READ port, stubbed off StubTrackings above. The real typed
+            // client would attempt an HTTP call to a placeholder address on every
+            // includeTracking=true read; it degrades to null rather than throwing, so
+            // leaving it in place would work — but only for the null half of the
+            // behaviour, and slowly (a per-read connection failure).
+            var trackingReader = services.SingleOrDefault(
+                d => d.ServiceType == typeof(ITrackingReader));
+            if (trackingReader is not null)
+            {
+                services.Remove(trackingReader);
+            }
+            services.AddScoped<ITrackingReader>(_ => new StubTrackingReader(this));
+
             var metricsDescriptor = services.SingleOrDefault(
                 d => d.ServiceType == typeof(IMetricsPublisher));
             if (metricsDescriptor is not null)
@@ -220,6 +267,32 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
             }
             services.AddSingleton<IMetricsPublisher>(new NoopMetricsPublisher());
         });
+    }
+
+    /// <summary>
+    /// Reports whatever <see cref="StubTrackings"/> currently holds for the requested ids.
+    /// </summary>
+    /// <remarks>
+    /// Reads the dictionary at CALL time, not at construction, so a test can flip the state
+    /// mid-test — which is the entire point: the async-tracking window is a transition from
+    /// "absent" to "present" between two reads on one order.
+    /// </remarks>
+    private sealed class StubTrackingReader : ITrackingReader
+    {
+        private readonly OrdersApiFactory _factory;
+
+        public StubTrackingReader(OrdersApiFactory factory) => _factory = factory;
+
+        public Task<IReadOnlyDictionary<string, TrackingDto>> GetTrackingsAsync(
+            IReadOnlyCollection<string> orderIds,
+            string cognitoSub,
+            CancellationToken ct = default)
+        {
+            var found = orderIds
+                .Where(_factory.StubTrackings.ContainsKey)
+                .ToDictionary(id => id, id => _factory.StubTrackings[id]);
+            return Task.FromResult<IReadOnlyDictionary<string, TrackingDto>>(found);
+        }
     }
 
     private sealed class StubDirectory : IUserDirectory

@@ -11,11 +11,14 @@ namespace Orders.Tests.Api;
 /// order creation owes all three cached families at once.
 /// </summary>
 [Collection(OrdersApiCollection.Name)]
-public class OrderCacheTests
+public class OrderCacheTests : IDisposable
 {
     private readonly OrdersApiFactory _factory;
 
     public OrderCacheTests(OrdersApiFactory factory) => _factory = factory;
+
+    // StubTrackings is shared collection state; clear what this class stubbed.
+    public void Dispose() => _factory.ClearTrackings();
 
     private HttpClient Client(string sub)
     {
@@ -52,6 +55,22 @@ public class OrderCacheTests
             lines = new[] { new { productId, quantity = 1 } },
         });
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+
+        // Every order in the list needs a tracking, or the t1 variant is deliberately NOT
+        // stored and the HIT assertions below cannot hold — see TrackingCacheRules. This
+        // test is about KEY SEPARATION, not about the null-tracking rule, so it puts the
+        // list into the state where caching is legitimate and leaves that rule to
+        // TrackingNullCacheTests. The list is read first because this collection is shared:
+        // orders created by other classes for this same caller appear in it too, so
+        // stubbing only the order created above would leave the list incomplete.
+        var listed = await (await client.GetAsync("/v1/orders/my-orders"))
+            .Content.ReadFromJsonAsync<JsonElement>();
+        foreach (var element in listed.EnumerateArray())
+        {
+            var id = element.GetProperty("id").GetString()!;
+            _factory.StubTrackings[id] = OrdersApiFactory.TrackingFor(id);
+        }
+
         await _factory.FlushCacheAsync();
 
         var bareFirst = await client.GetAsync("/v1/orders/my-orders");

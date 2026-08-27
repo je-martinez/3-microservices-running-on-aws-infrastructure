@@ -17,6 +17,26 @@ public delegate Task<string?> CacheKeyBuilder(
     ICurrentCaller caller);
 
 /// <summary>
+/// Decides whether THIS response is worth storing, given the value the handler produced.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Returning <c>false</c> serves the response normally and stores nothing — the request
+/// still reports <c>MISS</c>, and the next read re-runs the handler.
+/// </para>
+/// <para>
+/// <b>Why a per-route predicate rather than a rule inside the filter.</b> The filter is
+/// deliberately blind to the response shape (see the class remarks): it matches the
+/// NON-generic <c>IValueHttpResult</c> so one instance can serve a route returning two
+/// different types. Teaching it to recognise <c>OrderWithTrackingDto</c> would spend
+/// exactly that generality, and would put knowledge of an Application DTO into the
+/// caching primitive. The route already knows its own shapes, so the route supplies the
+/// rule.
+/// </para>
+/// </remarks>
+public delegate bool CacheStorePredicate(object value);
+
+/// <summary>
 /// Serves a cacheable GET from Redis, reporting the outcome on <c>X-Cache</c>.
 /// </summary>
 /// <remarks>
@@ -46,11 +66,16 @@ public sealed class CachedReadFilter : IEndpointFilter
 {
     private readonly CacheKeyBuilder _keyBuilder;
     private readonly TimeSpan _ttl;
+    private readonly CacheStorePredicate? _shouldStore;
 
-    public CachedReadFilter(CacheKeyBuilder keyBuilder, TimeSpan ttl)
+    public CachedReadFilter(
+        CacheKeyBuilder keyBuilder,
+        TimeSpan ttl,
+        CacheStorePredicate? shouldStore = null)
     {
         _keyBuilder = keyBuilder;
         _ttl = ttl;
+        _shouldStore = shouldStore;
     }
 
     public async ValueTask<object?> InvokeAsync(
@@ -96,7 +121,11 @@ public sealed class CachedReadFilter : IEndpointFilter
         // filter serve a route returning two different shapes.
         if (cached.Result != CacheResult.Bypass
             && result is IStatusCodeHttpResult { StatusCode: StatusCodes.Status200OK }
-            && result is IValueHttpResult { Value: { } value })
+            && result is IValueHttpResult { Value: { } value }
+            // A 200 the route declines to store: served normally, written nowhere. The
+            // response still reported MISS above, so the next read re-runs the handler
+            // rather than replaying a fact that was only true for an instant.
+            && (_shouldStore is null || _shouldStore(value)))
         {
             // MUST use the app's own serializer options, not JsonSerializer's defaults.
             // Minimal APIs serialize Results.Ok<T> with the web defaults (camelCase);
@@ -144,9 +173,14 @@ public static class CachedReadFilterExtensions
     /// unchanged by caching, and <c>X-Cache</c> is an operational header rather than part
     /// of the contract. <c>openapi.yaml</c> must come out of a rebuild with no diff.
     /// </remarks>
+    /// <param name="shouldStore">
+    /// Optional veto on storing a particular 200, for routes whose response can legitimately
+    /// carry a value that is only momentarily true. Omitted, every 200 is stored.
+    /// </param>
     public static RouteHandlerBuilder WithCache(
         this RouteHandlerBuilder builder,
         CacheKeyBuilder keyBuilder,
-        TimeSpan ttl) =>
-        builder.AddEndpointFilter(new CachedReadFilter(keyBuilder, ttl));
+        TimeSpan ttl,
+        CacheStorePredicate? shouldStore = null) =>
+        builder.AddEndpointFilter(new CachedReadFilter(keyBuilder, ttl, shouldStore));
 }

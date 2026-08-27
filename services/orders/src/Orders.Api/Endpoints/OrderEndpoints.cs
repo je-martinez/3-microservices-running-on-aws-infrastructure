@@ -70,7 +70,17 @@ public static class OrderEndpoints
             // What keeps the two shapes in SEPARATE entries is the KEY, not the filter:
             // CacheKeys.MyOrders' t0/t1 segment, driven by UserCacheKeyBuilders reading
             // the query string.
-            .WithCache(UserCacheKeyBuilders.MyOrders, CacheKeys.OrdersTtl);
+            //
+            // The t1 variant additionally declines to store a list in which ANY order is
+            // still missing its tracking: tracking is created after the order commits, so
+            // a null there is a momentary absence, not a fact worth freezing for 2
+            // minutes. See TrackingCacheRules.AllOrdersHaveTracking for why "every"
+            // rather than "any". The t0 variant is unaffected — its value is not an
+            // OrderWithTrackingDto, so the predicate passes it straight through.
+            .WithCache(
+                UserCacheKeyBuilders.MyOrders,
+                CacheKeys.OrdersTtl,
+                TrackingCacheRules.AllOrdersHaveTracking);
 
         group.MapGet("/{orderId}", async (
             string orderId,
@@ -110,7 +120,14 @@ public static class OrderEndpoints
             // "no such order" is re-evaluated on every request rather than cached —
             // which is what you want, since a 404 is also what another user's order
             // returns, and what a not-yet-visible order returns.
-            .WithCache(UserCacheKeyBuilders.OrderById, CacheKeys.OrdersTtl);
+            //
+            // And, as on my-orders, a t1 response whose tracking has not appeared yet is
+            // served but NOT stored — the same reasoning CachedUserDirectory applies to a
+            // null identity resolution.
+            .WithCache(
+                UserCacheKeyBuilders.OrderById,
+                CacheKeys.OrdersTtl,
+                TrackingCacheRules.SingleOrderHasTracking);
 
         // Tagged "health", not "Orders": it is mapped here only because this is
         // where the top-level routes live, but it is not an order operation — it
