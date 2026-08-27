@@ -133,7 +133,7 @@ it is the property a plain domain-package layout does not give you for free.
 
 ```
 services/tracking-go/
-├── .go-version              ← goenv, pinned 1.25.14
+├── .go-version              ← goenv, pinned 1.26.7
 ├── go.mod / go.sum
 ├── Makefile
 ├── .golangci.yml
@@ -261,7 +261,7 @@ Waves are cut where real signature dependencies exist; within a wave, agents tou
 files.
 
 **Wave 0 — Foundations (sequential, 1 agent).** The only non-parallel part. `go.mod`,
-`.go-version` + goenv rule (`1.25.14`), `sqlc.yaml`, the golang-migrate baseline translated
+`.go-version` + goenv rule (`1.26.7`), `sqlc.yaml`, the golang-migrate baseline translated
 from Alembic, `sqlc generate` against the real schema, the **pure domain types and rules**
 under `internal/domain` (`Tracking`, `TrackingHistory`, `Status`, transitions, `DELIVERED`
 terminality, `nano_id`/`tracking_number`), the `Makefile`/`.golangci.yml`/`.gitignore`
@@ -440,12 +440,21 @@ vault.
 
 - **goenv is already installed** — `goenv 3.1.4` at `/opt/homebrew/bin/goenv`. The version
   manager itself is not a blocker; only the Go toolchain is missing (`goenv list` reports "no
-  Go versions installed yet"). Wave 0 runs `goenv install 1.25.14`, not a goenv install step.
-- **Go version pinned: 1.25.14 (user-confirmed).** Latest patch of the 1.25 series, with the
-  whole chosen ecosystem (Gin, `otelgin`, sqlc, golang-migrate) proven against it — the same
-  conservative criterion already applied to Node 24.18.0 in `.nvmrc`: stability over novelty.
-  Wave 0 creates `services/tracking-go/.go-version` containing `1.25.14` and runs
-  `goenv install 1.25.14`.
+  Go versions installed yet"). Wave 0 runs `goenv install 1.26.7`, not a goenv install step.
+- **Go version pinned: 1.26.7 (user-confirmed, revised from an initial 1.25.14).** The version
+  was first set to 1.25.14 on the same conservative criterion already applied to Node 24.18.0
+  in `.nvmrc` — "latest patch of a mature series, stability over novelty." That argument turned
+  out to be wrong: `goenv` warns that **Go 1.25 reached end-of-life on 2026-08-19**, eight days
+  before this decision, and no longer receives security patches — Go's support policy maintains
+  only the two most recent major (i.e. minor-numbered) release series at any time. So 1.25.14
+  was in fact the **riskier** choice despite being a ".14" — patch count does not offset a
+  series being out of support. **1.26.7 is the genuinely conservative pick**: in active support,
+  one series behind the latest (1.27), with accumulated patches, and the whole chosen ecosystem
+  (Gin, `otelgin`, sqlc, golang-migrate) already proven against it. **1.27.0 was considered and
+  declined** — a fresh `.0` of a brand-new series is unnecessary friction to take on in wave 0.
+  Corroborating detail worth keeping: the `golangci-lint` binary that `goenv` installs alongside
+  is itself built with go1.26.7, i.e. the tooling ecosystem has already moved. Wave 0 creates
+  `services/tracking-go/.go-version` containing `1.26.7` and runs `goenv install 1.26.7`.
 - **Go skills: resolved, 9 installed.** Sourced from `samber/cc-skills-golang` (~37K installs
   each; samber also authors the well-known `lo`/`mo` Go libraries), installed into the repo
   (`.agents/skills/` with `.claude/skills/` symlinks) and recorded in `skills-lock.json`:

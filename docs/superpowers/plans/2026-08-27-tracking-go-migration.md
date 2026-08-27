@@ -34,7 +34,7 @@ related:
 
 **Architecture:** Hexagonal (ports and adapters). `internal/domain` is pure — it imports no framework, no driver, no SDK — so the compiler prevents infrastructure leaking into business rules. Use cases live in `internal/app`, each declaring the narrow port it consumes (there is no central `ports.go` and no shared repository interface). Adapters under `internal/adapter/{http,mysql,redis,sqs,grpcusers,otel}`. All dependencies are wired by hand in `cmd/server/main.go` — no DI container, no code generation for wiring, no reflection.
 
-**Tech Stack:** Go 1.25.14 (pinned via goenv, `.go-version`) · Gin · sqlc + `database/sql` + `go-sql-driver/mysql` · golang-migrate · `go-redis` · `aws-sdk-go-v2` (SQS, CloudWatch) · `grpc-go` · OpenTelemetry Go SDK (`otelgin`, `otelsql`, `otelgrpc`) · `log/slog`.
+**Tech Stack:** Go 1.26.7 (pinned via goenv, `.go-version`) · Gin · sqlc + `database/sql` + `go-sql-driver/mysql` · golang-migrate · `go-redis` · `aws-sdk-go-v2` (SQS, CloudWatch) · `grpc-go` · OpenTelemetry Go SDK (`otelgin`, `otelsql`, `otelgrpc`) · `log/slog`.
 
 **Spec:** `docs/superpowers/specs/2026-08-27-tracking-go-migration-design.md`
 
@@ -43,7 +43,7 @@ related:
 These apply to EVERY task. They are copied verbatim from the spec and from the extracted Python contracts; do not restate them per task, but never violate them.
 
 **Language and tooling**
-- Go version is exactly `1.25.14`, pinned in `services/tracking-go/.go-version`. Before ANY Go command run `goenv local 1.25.14` (or ensure `goenv version` reports it). goenv 3.1.4 is already installed; the toolchain itself is not — `goenv install 1.25.14` is a wave-0 step.
+- Go version is exactly `1.26.7`, pinned in `services/tracking-go/.go-version`. Before ANY Go command run `goenv local 1.26.7` (or ensure `goenv version` reports it). goenv 3.1.4 is already installed; the toolchain itself is not — `goenv install 1.26.7` is a wave-0 step.
 - Module path: `github.com/jemartinez/3mrai/services/tracking-go`.
 - `gofmt -s -w .` before every commit. `golangci-lint run` must pass.
 - Never use `npm`/`yarn` anywhere in this repo (pnpm only); irrelevant to Go tasks but applies to any E2E/load-test work.
@@ -162,7 +162,7 @@ go: cannot find main module, but found no go.mod in ...
 or, if goenv has no such toolchain installed:
 
 ```
-goenv: version `1.25.14' is not installed
+goenv: version `1.26.7' is not installed
 ```
 
 Either message is the expected failure. This is the "red" state.
@@ -172,16 +172,16 @@ Either message is the expected failure. This is the "red" state.
 Install and pin the toolchain (goenv 3.1.4 is already present; the Go toolchain is not):
 
 ```bash
-goenv install 1.25.14
-cd services/tracking-go && goenv local 1.25.14
-goenv version   # must print: 1.25.14 (set by .../services/tracking-go/.go-version)
-go version      # must print: go version go1.25.14 darwin/arm64
+goenv install 1.26.7
+cd services/tracking-go && goenv local 1.26.7
+goenv version   # must print: 1.26.7 (set by .../services/tracking-go/.go-version)
+go version      # must print: go version go1.26.7 darwin/arm64
 ```
 
-`goenv local 1.25.14` writes `services/tracking-go/.go-version`. Verify its content is exactly:
+`goenv local 1.26.7` writes `services/tracking-go/.go-version`. Verify its content is exactly:
 
 ```
-1.25.14
+1.26.7
 ```
 
 Initialize the module:
@@ -195,7 +195,7 @@ cd services/tracking-go && go mod init github.com/jemartinez/3mrai/services/trac
 ```
 module github.com/jemartinez/3mrai/services/tracking-go
 
-go 1.25.14
+go 1.26.7
 ```
 
 Create `services/tracking-go/.gitignore`:
@@ -276,9 +276,9 @@ help: ## Show this help
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
 .PHONY: verify-toolchain
-verify-toolchain: ## Fail loudly if the active Go is not 1.25.14
-	@test "$$($(GO) env GOVERSION)" = "go1.25.14" || \
-		{ echo "ERROR: active Go is $$($(GO) env GOVERSION), want go1.25.14. Run: goenv local 1.25.14"; exit 1; }
+verify-toolchain: ## Fail loudly if the active Go is not 1.26.7
+	@test "$$($(GO) env GOVERSION)" = "go1.26.7" || \
+		{ echo "ERROR: active Go is $$($(GO) env GOVERSION), want go1.26.7. Run: goenv local 1.26.7"; exit 1; }
 
 .PHONY: fmt
 fmt: ## Format all Go source in place
@@ -338,7 +338,7 @@ cd services/tracking-go && make fmt-check && make lint
 
 ```bash
 git add services/tracking-go && \
-git commit -m "build(tracking): scaffold tracking-go module with goenv-pinned Go 1.25.14"
+git commit -m "build(tracking): scaffold tracking-go module with goenv-pinned Go 1.26.7"
 ```
 
 ---
@@ -3608,7 +3608,7 @@ func TestEchoSQL(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && go test ./internal/platform/config/...
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && go test ./internal/platform/config/...
 ```
 
 Expected: `internal/platform/config/config_test.go:8:2: no required module provides package .../internal/platform/config` — the package does not exist yet. (If the directory exists but is empty, the failure is `build constraints exclude all Go files`.)
@@ -3901,7 +3901,7 @@ func MySQLDSN(sqlAlchemyDSN string) (string, error) {
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && gofmt -s -w ./internal/platform/config && go test ./internal/platform/config/... -v
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && gofmt -s -w ./internal/platform/config && go test ./internal/platform/config/... -v
 ```
 
 Expected: all subtests `--- PASS`, ending in `ok  github.com/jemartinez/3mrai/services/tracking-go/internal/platform/config`.
@@ -4204,7 +4204,7 @@ func TestWithAttrsCarriesFields(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && go test ./internal/platform/logging/...
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && go test ./internal/platform/logging/...
 ```
 
 Expected: `no required module provides package .../internal/platform/logging`.
@@ -4475,7 +4475,7 @@ func Install(deploymentEnvironment string) *slog.Logger {
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && gofmt -s -w ./internal/platform/logging && go test ./internal/platform/logging/... -v
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && gofmt -s -w ./internal/platform/logging && go test ./internal/platform/logging/... -v
 ```
 
 Expected: every subtest `--- PASS`, ending `ok  .../internal/platform/logging`.
@@ -4988,7 +4988,7 @@ func TestRequestIDIsSeededOnA404(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && go test ./internal/platform/logging/... ./internal/adapter/http/...
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && go test ./internal/platform/logging/... ./internal/adapter/http/...
 ```
 
 Expected: `undefined: logging.WithLogFields`, `undefined: logging.ResolveRequestID`, `undefined: logging.NewContextHandler`, and `no required module provides package .../internal/adapter/http`.
@@ -5317,7 +5317,7 @@ func logRequest(c *gin.Context, log *slog.Logger, started time.Time) {
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && gofmt -s -w ./internal && go test ./internal/platform/logging/... ./internal/adapter/http/... -v
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && gofmt -s -w ./internal && go test ./internal/platform/logging/... ./internal/adapter/http/... -v
 ```
 
 Expected: every subtest `--- PASS` in both packages.
@@ -5638,7 +5638,7 @@ func TestExplicitTraceIDWins(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && go test ./internal/adapter/otel/...
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && go test ./internal/adapter/otel/...
 ```
 
 Expected: `no required module provides package .../internal/adapter/otel` (after `go get` of the OTel modules, `undefined: tracing.WorkflowSpan`).
@@ -5647,7 +5647,7 @@ Expected: `no required module provides package .../internal/adapter/otel` (after
 
 First add the dependencies:
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && \
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && \
 go get go.opentelemetry.io/otel \
        go.opentelemetry.io/otel/sdk \
        go.opentelemetry.io/otel/trace \
@@ -5913,7 +5913,7 @@ func (h *TraceHandler) Handle(ctx context.Context, r slog.Record) error {
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && gofmt -s -w ./internal/adapter/otel && go test ./internal/adapter/otel/... -v
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && gofmt -s -w ./internal/adapter/otel && go test ./internal/adapter/otel/... -v
 ```
 
 Expected: every subtest `--- PASS`, ending `ok  .../internal/adapter/otel`.
@@ -6344,7 +6344,7 @@ func TestTickerStopsOnContextCancellation(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && go test ./internal/adapter/cloudwatch/...
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && go test ./internal/adapter/cloudwatch/...
 ```
 
 Expected: `no required module provides package .../internal/adapter/cloudwatch`.
@@ -6352,7 +6352,7 @@ Expected: `no required module provides package .../internal/adapter/cloudwatch`.
 - [ ] **Step 3: Write minimal implementation**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && \
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && \
 go get github.com/aws/aws-sdk-go-v2/config github.com/aws/aws-sdk-go-v2/service/cloudwatch
 ```
 
@@ -6649,7 +6649,7 @@ func publishTick(ctx context.Context, p Publisher, counts StatusCounter, log *sl
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && gofmt -s -w ./internal/adapter && go test ./internal/adapter/cloudwatch/... -race -v
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && gofmt -s -w ./internal/adapter && go test ./internal/adapter/cloudwatch/... -race -v
 ```
 
 Expected: every subtest `--- PASS`, no race warnings.
@@ -6861,7 +6861,7 @@ func TestPrefixOf(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && go test ./internal/adapter/redis/...
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && go test ./internal/adapter/redis/...
 ```
 
 Expected: `no required module provides package .../internal/adapter/redis`.
@@ -7022,7 +7022,7 @@ func hashOrderIDs(orderIDs []string) string {
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && gofmt -s -w ./internal/adapter/redis && go test ./internal/adapter/redis/... -v
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && gofmt -s -w ./internal/adapter/redis && go test ./internal/adapter/redis/... -v
 ```
 
 Expected: every subtest `--- PASS`.
@@ -7351,7 +7351,7 @@ var _ = errors.New // keep the import if a future case needs it
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && go test ./internal/adapter/redis/...
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && go test ./internal/adapter/redis/...
 ```
 
 Expected: `undefined: cache.NewGateway`, `undefined: cache.NewClient`, `undefined: cache.NewNullGateway`, plus missing `miniredis`/`go-redis` modules.
@@ -7359,7 +7359,7 @@ Expected: `undefined: cache.NewGateway`, `undefined: cache.NewClient`, `undefine
 - [ ] **Step 3: Write minimal implementation**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && \
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && \
 go get github.com/redis/go-redis/v9 && go get -t github.com/alicebob/miniredis/v2
 ```
 
@@ -7714,7 +7714,7 @@ func NewClient(host string, port, timeoutMS int) *goredis.Client {
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && gofmt -s -w ./internal/adapter/redis && go test ./internal/adapter/redis/... -race -v
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && gofmt -s -w ./internal/adapter/redis && go test ./internal/adapter/redis/... -race -v
 ```
 
 Expected: every subtest `--- PASS`.
@@ -8004,7 +8004,7 @@ func TestInvalidateUserNeverFailsWithRedisDown(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && go test ./internal/adapter/redis/...
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && go test ./internal/adapter/redis/...
 ```
 
 Expected: `undefined: cache.NewIdentityCache`, `undefined: cache.InvalidateTracking`, `undefined: cache.InvalidateUser`.
@@ -8254,7 +8254,7 @@ func distinct(values ...string) []string {
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && gofmt -s -w ./internal/adapter/redis && go test ./internal/adapter/redis/... -race -v
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && gofmt -s -w ./internal/adapter/redis && go test ./internal/adapter/redis/... -race -v
 ```
 
 Expected: every subtest `--- PASS`, `TestInvalidateUserSweepsBothIdentifiers` included.
@@ -8676,7 +8676,7 @@ func TestActorSpellings(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && go test ./internal/adapter/http/... ./internal/domain/audit/...
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && go test ./internal/adapter/http/... ./internal/domain/audit/...
 ```
 
 Expected: `undefined: adapterhttp.RequireCallerSub`, `undefined: adapterhttp.RequireCarrierKey`, and `no required module provides package .../internal/domain/audit`.
@@ -8966,7 +8966,7 @@ func headerIsTrue(value string) bool {
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && gofmt -s -w ./internal && go test ./internal/adapter/http/... ./internal/domain/audit/... -v
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && gofmt -s -w ./internal && go test ./internal/adapter/http/... ./internal/domain/audit/... -v
 ```
 
 Expected: every subtest `--- PASS`, `TestCarrierAndInternalKeysAreNotInterchangeable` included.
@@ -9289,7 +9289,7 @@ func TestDialRejectsAnEmptyAPIKey(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && go test ./internal/adapter/grpcusers/...
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && go test ./internal/adapter/grpcusers/...
 ```
 
 Expected: `no required module provides package .../internal/adapter/grpcusers`.
@@ -9304,7 +9304,7 @@ mkdir -p services/tracking-go/proto services/tracking-go/internal/adapter/grpcus
 cp services/tracking/proto/users.proto services/tracking-go/proto/users.proto 2>/dev/null || \
   cp services/users/proto/users.proto services/tracking-go/proto/users.proto
 
-cd services/tracking-go && goenv local 1.25.14 && \
+cd services/tracking-go && goenv local 1.26.7 && \
 go get google.golang.org/grpc google.golang.org/protobuf \
        go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc && \
 go install google.golang.org/protobuf/cmd/protoc-gen-go@latest && \
@@ -9550,7 +9550,7 @@ func (c *Client) callMetadata(ctx context.Context) metadata.MD {
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && gofmt -s -w ./internal/adapter/grpcusers && go test ./internal/adapter/grpcusers/... -race -v
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && gofmt -s -w ./internal/adapter/grpcusers && go test ./internal/adapter/grpcusers/... -race -v
 ```
 
 Expected: every subtest `--- PASS`, `TestOnlyNotFoundMeansUnknownUser` covering all seven status codes.
@@ -10136,7 +10136,7 @@ var _ = sqstypes.MessageAttributeValue{}
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && go test ./internal/adapter/sqs/...
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && go test ./internal/adapter/sqs/...
 ```
 
 Expected: `no required module provides package .../internal/adapter/sqs`.
@@ -10144,7 +10144,7 @@ Expected: `no required module provides package .../internal/adapter/sqs`.
 - [ ] **Step 3: Write minimal implementation**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && go get github.com/aws/aws-sdk-go-v2/service/sqs
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && go get github.com/aws/aws-sdk-go-v2/service/sqs
 ```
 
 `services/tracking-go/internal/adapter/sqs/emailhash.go`:
@@ -10632,7 +10632,7 @@ func (noopPublisher) PublishTrackingStatusChanged(context.Context, StatusChanged
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.25.14 && gofmt -s -w ./internal/adapter/sqs && go test ./internal/adapter/sqs/... -race -v
+cd /Users/josemartinez/orca/workspaces/3-microservices-running-on-aws-infrastructure/beluga/services/tracking-go && goenv local 1.26.7 && gofmt -s -w ./internal/adapter/sqs && go test ./internal/adapter/sqs/... -race -v
 ```
 
 Expected: every subtest `--- PASS`, the four omission-rule subtests and the four failure-reason subtests included.
@@ -11320,7 +11320,7 @@ func TestCreateWritesBothRowsFromOneNow(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd services/tracking-go && goenv local 1.25.14
+cd services/tracking-go && goenv local 1.26.7
 go test ./internal/app/... ./internal/adapter/http/... ./internal/adapter/mysql/... -run 'CreateTracking|InitTracking|Create' -v
 ```
 
@@ -11801,7 +11801,7 @@ Finally, register in `cmd/server/main.go`:
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd services/tracking-go && goenv local 1.25.14
+cd services/tracking-go && goenv local 1.26.7
 gofmt -s -w . && go vet ./... && golangci-lint run
 go test ./internal/app/... ./internal/adapter/http/... -run 'CreateTracking|InitTracking' -v
 TRACKING_DATABASE_URL="$TRACKING_DATABASE_URL" go test ./internal/adapter/mysql/... -run Create -v
@@ -12288,7 +12288,7 @@ func TestScopedReadsFilterByCognitoSub(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd services/tracking-go && goenv local 1.25.14
+cd services/tracking-go && goenv local 1.26.7
 go test ./internal/app/... ./internal/adapter/http/... -run 'MyTracking|SingleRead|BatchRead|ParseOrderIDs' -v
 TRACKING_DATABASE_URL="$TRACKING_DATABASE_URL" go test ./internal/adapter/mysql/... -run ScopedReads -v
 ```
@@ -12553,7 +12553,7 @@ parameterised one:
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd services/tracking-go && goenv local 1.25.14
+cd services/tracking-go && goenv local 1.26.7
 gofmt -s -w . && go vet ./... && golangci-lint run
 go test ./internal/app/... ./internal/adapter/http/... -run 'MyTracking|SingleRead|BatchRead|ParseOrderIDs' -v
 TRACKING_DATABASE_URL="$TRACKING_DATABASE_URL" go test ./internal/adapter/mysql/... -run ScopedReads -v
@@ -12985,7 +12985,7 @@ ends with the new status (proving the re-read).
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd services/tracking-go && goenv local 1.25.14
+cd services/tracking-go && goenv local 1.26.7
 go test ./internal/app/... ./internal/adapter/http/... -run 'UpdateStatus|CarrierPut' -v
 TRACKING_DATABASE_URL="$TRACKING_DATABASE_URL" go test ./internal/adapter/mysql/... -run ApplyTransition -v
 ```
@@ -13220,7 +13220,7 @@ not even a prefix or a length.
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd services/tracking-go && goenv local 1.25.14
+cd services/tracking-go && goenv local 1.26.7
 gofmt -s -w . && go vet ./... && golangci-lint run
 go test ./internal/app/... ./internal/adapter/http/... -run 'UpdateStatus|CarrierPut' -v
 TRACKING_DATABASE_URL="$TRACKING_DATABASE_URL" go test ./internal/adapter/mysql/... -run ApplyTransition -v
@@ -13671,7 +13671,7 @@ func TestE2ECleanupRoute(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd services/tracking-go && goenv local 1.25.14
+cd services/tracking-go && goenv local 1.26.7
 go test ./internal/app/... ./internal/adapter/http/... -run 'DeleteByUser|E2ECleanup' -v
 TRACKING_DATABASE_URL="$TRACKING_DATABASE_URL" go test ./internal/adapter/mysql/... -run SoftDelete -v
 ```
@@ -13884,7 +13884,7 @@ and in the router construction:
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd services/tracking-go && goenv local 1.25.14
+cd services/tracking-go && goenv local 1.26.7
 gofmt -s -w . && go vet ./... && golangci-lint run
 go test ./internal/app/... ./internal/adapter/http/... -run 'DeleteByUser|E2ECleanup' -v
 TRACKING_DATABASE_URL="$TRACKING_DATABASE_URL" go test ./internal/adapter/mysql/... -run SoftDelete -v
@@ -14133,7 +14133,7 @@ func TestTheNestedErrorBodiesAreAnAllowlistEntry(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd services/tracking-go && goenv local 1.25.14
+cd services/tracking-go && goenv local 1.26.7
 go test ./internal/openapi/... -v
 ```
 
@@ -14245,7 +14245,7 @@ code change must regenerate and commit it in the SAME change.
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd services/tracking-go && goenv local 1.25.14
+cd services/tracking-go && goenv local 1.26.7
 go run ./cmd/genopenapi
 gofmt -s -w . && golangci-lint run
 env -u TRACKING_DATABASE_URL go test ./internal/openapi/... -v
@@ -14583,7 +14583,7 @@ func TestProgression(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd services/tracking-go && goenv local 1.25.14
+cd services/tracking-go && goenv local 1.26.7
 go test ./internal/app/... -run Progression -v
 ```
 
@@ -14858,7 +14858,7 @@ graceful-shutdown path:
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd services/tracking-go && goenv local 1.25.14
+cd services/tracking-go && goenv local 1.26.7
 gofmt -s -w . && go vet ./... && golangci-lint run
 go test ./internal/app/... -run Progression -v -race
 ```
@@ -14996,7 +14996,7 @@ make apply-compute
 
 ```bash
 # Layer 1 — Go integration, real MySQL
-cd services/tracking-go && goenv local 1.25.14
+cd services/tracking-go && goenv local 1.26.7
 TRACKING_DATABASE_URL="$TRACKING_DATABASE_URL" go test ./... -v
 
 # Layer 2 — internal E2E against the GO port, spec UNEDITED
@@ -15270,7 +15270,7 @@ before.
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd services/tracking-go && goenv local 1.25.14
+cd services/tracking-go && goenv local 1.26.7
 go test ./internal/adapter/otel/... -run 'Traceparent|LogContext|Inbox|CloudWatch' -v
 ```
 

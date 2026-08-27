@@ -62,6 +62,8 @@ alongside the rest of the stack.
   Python and pnpm respectively). Any Go command (`go build`, `go test`, `go run`, `sqlc
   generate`, `migrate`) must be run with the pinned version active, exactly as the repo
   already requires `nvm use` before any Node command.
+- **Pinned Go version: 1.26.7** (revised from an initial 1.25.14 — see Consequences below for
+  why the first choice inverted).
 
 ## Consequences
 
@@ -82,6 +84,18 @@ alongside the rest of the stack.
 - A missing `goenv local <version>` step (or a stale shell not picking up the pinned version)
   is the Go-toolchain equivalent of the `nvm use` failure mode already documented for Node —
   the wrong compiler on `PATH` silently building against a different Go version's stdlib.
+- **The pinned version was revised from 1.25.14 to 1.26.7 eight days after Go 1.25 reached
+  end-of-life.** The original pin argued "latest patch of a mature series, stability over
+  novelty," explicitly mirroring the Node 24.18.0 criterion in `.nvmrc`. That argument inverted
+  once it surfaced that Go's support policy maintains only the two most recent major (i.e.
+  minor-numbered) release series at a time, and Go 1.25 fell out of that window on 2026-08-19 —
+  no further security patches, regardless of how many patch releases it had accumulated. 1.26.7
+  is the version that actually satisfies the original criterion: in active support, one series
+  behind the latest (1.27), with accumulated patches, and the chosen ecosystem (Gin, `otelgin`,
+  sqlc, golang-migrate) already proven against it. 1.27.0 was considered and declined as
+  unnecessary novelty-risk for wave 0. Lesson for future toolchain pins in this repo: "latest
+  patch of a series" is not sufficient by itself — the series itself must still be inside its
+  vendor's support window at pin time, not just at some earlier point during evaluation.
 
 ## Related
 
