@@ -231,6 +231,19 @@ if (cacheEnabled)
                 + "`make env-file`; see docs/shared/conventions/env-files.md."));
     var redisPort = builder.Configuration.GetValue("REDIS_PORT", 6379);
 
+    // 50ms. Long enough for a same-network Redis round trip, short enough that a hung
+    // cache costs a read almost nothing before it falls through to MySQL.
+    //
+    // This is the MULTIPLEXER's own budget, and that is the whole point. No method on
+    // IDatabaseAsync takes a CancellationToken, so the gateway previously enforced the
+    // 50ms with `.WaitAsync(cts.Token)`, which abandons the AWAIT and leaves the command
+    // in flight until StackExchange.Redis's own timeout — left at its 5000ms default.
+    // Under concurrency the abandoned commands accumulated and every new one queued
+    // behind them. Configured here, the library aborts the operation itself and raises
+    // RedisTimeoutException, which the gateway catches into a BYPASS: same fail-open
+    // contract, but the operation actually stops.
+    const int redisTimeoutMs = 50;
+
     builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
         ConnectionMultiplexer.Connect(new ConfigurationOptions
         {
@@ -239,14 +252,13 @@ if (cacheEnabled)
             // fail-open, so "cannot connect" is a BYPASS on every read, not an outage.
             AbortOnConnectFail = false,
             ConnectTimeout = 1000,
+            AsyncTimeout = redisTimeoutMs,
+            SyncTimeout = redisTimeoutMs,
         }));
     builder.Services.AddSingleton<ICacheGateway>(sp => new CacheGateway(
         sp.GetRequiredService<IConnectionMultiplexer>().GetDatabase(),
         sp.GetRequiredService<IMetricsPublisher>(),
-        sp.GetRequiredService<ILogger<CacheGateway>>(),
-        // 50ms. Long enough for a same-network Redis round trip, short enough that a
-        // hung cache costs a read almost nothing before it falls through to MySQL.
-        TimeSpan.FromMilliseconds(50)));
+        sp.GetRequiredService<ILogger<CacheGateway>>()));
     // Singleton to match the gateway it wraps: it holds no per-request state, and a
     // scoped registration over a singleton dependency would only add allocations.
     builder.Services.AddSingleton<ICacheInvalidator>(sp => new CacheInvalidator(

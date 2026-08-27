@@ -32,8 +32,7 @@ namespace Orders.Tests.Infrastructure;
 public class CacheGatewayTests
 {
     private static CacheGateway Gateway(IDatabase db) =>
-        new(db, new NoopMetricsPublisher(), NullLogger<CacheGateway>.Instance,
-            timeout: TimeSpan.FromMilliseconds(50));
+        new(db, new NoopMetricsPublisher(), NullLogger<CacheGateway>.Instance);
 
     [Fact]
     public async Task Get_returns_Bypass_when_redis_throws()
@@ -46,19 +45,57 @@ public class CacheGatewayTests
         Assert.Null(outcome.Value);
     }
 
+    /// <summary>
+    /// A multiplexer timeout degrades to BYPASS, exactly like any other Redis failure.
+    /// </summary>
+    /// <remarks>
+    /// The timeout now belongs to StackExchange.Redis itself (AsyncTimeout/SyncTimeout,
+    /// set in Program.cs) rather than to a WaitAsync wrapper in the gateway, because no
+    /// IDatabaseAsync method accepts a CancellationToken and WaitAsync could therefore
+    /// only abandon the await while the command stayed in flight. So the behaviour worth
+    /// pinning here is that the exception the library raises when it gives up —
+    /// RedisTimeoutException — is caught and fails open, and is reported as a timeout
+    /// rather than as a generic error.
+    /// </remarks>
     [Fact]
-    public async Task Get_returns_Bypass_when_redis_exceeds_the_timeout()
+    public async Task Get_returns_Bypass_when_the_multiplexer_times_out()
     {
-        var db = RedisDatabaseFake.Slow(TimeSpan.FromMilliseconds(500));
+        var db = RedisDatabaseFake.TimingOut();
+
         var sw = Stopwatch.StartNew();
-
         var outcome = await Gateway(db).GetAsync<string>("orders:products:v1", default);
-
         sw.Stop();
+
         Assert.Equal(CacheResult.Bypass, outcome.Result);
+        Assert.Null(outcome.Value);
+        // No stall: the gateway must not add a wait of its own on top of the library's.
         Assert.True(
             sw.ElapsedMilliseconds < 300,
-            $"the 50ms timeout did not fire; the call took {sw.ElapsedMilliseconds}ms");
+            $"the gateway stalled on a timed-out read; it took {sw.ElapsedMilliseconds}ms");
+    }
+
+    /// <summary>
+    /// A cached read costs exactly ONE Redis round trip.
+    /// </summary>
+    /// <remarks>
+    /// The value and its TTL used to be two commands (StringGetAsync then
+    /// KeyTimeToLiveAsync), doubling what every hit put on the multiplexer for a number
+    /// that only feeds the X-Cache-TTL header. A regression here is invisible in behaviour
+    /// and only shows up as latency under concurrency, so it is asserted directly.
+    /// </remarks>
+    [Fact]
+    public async Task A_hit_costs_a_single_round_trip()
+    {
+        var db = RedisDatabaseFake.InMemory();
+        var database = db.AsDatabase();
+        await Gateway(database).SetAsync(
+            "orders:products:v1", "cached", TimeSpan.FromMinutes(10), default);
+        db.ResetCommandCount();
+
+        var outcome = await Gateway(database).GetAsync<string>("orders:products:v1", default);
+
+        Assert.Equal(CacheResult.Hit, outcome.Result);
+        Assert.Equal(1, db.CommandCount);
     }
 
     [Fact]
@@ -141,35 +178,47 @@ internal sealed class RedisDatabaseFake
 {
     private readonly Dictionary<string, (string Value, DateTimeOffset? ExpiresAt)> _strings = new();
 
+    private int _commandCount;
+
     public Dictionary<string, HashSet<string>> Sets { get; } = new();
 
     /// <summary>A working, dictionary-backed Redis with real TTL bookkeeping.</summary>
     public static RedisDatabaseFake InMemory() => new();
 
+    /// <summary>The number of Redis commands issued since the last reset.</summary>
+    public int CommandCount => _commandCount;
+
+    public void ResetCommandCount() => _commandCount = 0;
+
     /// <summary>A Redis that answers every call with a connection failure.</summary>
     public static IDatabase Throwing() => Build(_ => throw NewConnectionException());
 
-    /// <summary>A Redis that answers, but only after <paramref name="delay"/>.</summary>
-    public static IDatabase Slow(TimeSpan delay) => Build(async _ =>
-    {
-        await Task.Delay(delay);
-        return (RedisValue)"never-observed";
-    });
+    /// <summary>
+    /// A Redis whose multiplexer gives up, as it does once AsyncTimeout is configured.
+    /// </summary>
+    /// <remarks>
+    /// The library raises this synchronously from the command call once it decides the
+    /// operation cannot complete in budget; the fake does the same rather than stalling,
+    /// because the wait being GONE from the gateway is precisely what is under test.
+    /// </remarks>
+    public static IDatabase TimingOut() => Build(_ => throw NewTimeoutException());
 
     // StackExchange.Redis's exceptions have no public constructor taking just a message,
     // so the fake raises the one it CAN construct. The gateway catches Exception, and the
     // distinction it cares about (cancellation vs anything else) is preserved.
     private static Exception NewConnectionException() =>
-        new RedisTimeoutException("fake redis failure", CommandStatus.WaitingToBeSent);
+        new RedisConnectionException(ConnectionFailureType.SocketFailure, "fake redis failure");
+
+    private static Exception NewTimeoutException() =>
+        new RedisTimeoutException("fake redis timeout", CommandStatus.WaitingToBeSent);
 
     private static IDatabase Build(Func<RedisKey, Task<RedisValue>> onStringGet)
     {
         var mock = new Mock<IDatabase>(MockBehavior.Strict);
 
-        mock.Setup(d => d.StringGetAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
-            .Returns((RedisKey k, CommandFlags _) => onStringGet(k));
-        mock.Setup(d => d.KeyTimeToLiveAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
-            .Returns((RedisKey _, CommandFlags _) => throw NewConnectionException());
+        mock.Setup(d => d.StringGetWithExpiryAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
+            .Returns((RedisKey k, CommandFlags _) => onStringGet(k)
+                .ContinueWith(t => new RedisValueWithExpiry(t.GetAwaiter().GetResult(), null)));
         mock.Setup(d => d.StringSetAsync(
                 It.IsAny<RedisKey>(), It.IsAny<RedisValue>(), It.IsAny<TimeSpan?>(),
                 It.IsAny<bool>(), It.IsAny<When>(), It.IsAny<CommandFlags>()))
@@ -197,11 +246,14 @@ internal sealed class RedisDatabaseFake
     {
         var mock = new Mock<IDatabase>(MockBehavior.Strict);
 
-        mock.Setup(d => d.StringGetAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
-            .Returns((RedisKey k, CommandFlags _) => Task.FromResult(Read(k!)));
-
-        mock.Setup(d => d.KeyTimeToLiveAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
-            .Returns((RedisKey k, CommandFlags _) => Task.FromResult(Ttl(k!)));
+        // ONE command returning value + TTL together, mirroring the real GETEX-style
+        // round trip the gateway now issues.
+        mock.Setup(d => d.StringGetWithExpiryAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
+            .Returns((RedisKey k, CommandFlags _) =>
+            {
+                _commandCount++;
+                return Task.FromResult(new RedisValueWithExpiry(Read(k!), Ttl(k!)));
+            });
 
         mock.Setup(d => d.StringSetAsync(
                 It.IsAny<RedisKey>(), It.IsAny<RedisValue>(), It.IsAny<TimeSpan?>(),
