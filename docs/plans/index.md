@@ -4,9 +4,13 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-08-25
+updated: 2026-08-27
 tags: [type/spec, area/shared, status/active]
 related:
+  - "[[2026-08-27-tracking-go-migration-design]]"
+  - "[[2026-08-27-tracking-go-migration]]"
+  - "[[tracking-go-migration-milestone]]"
+  - "[[ADR-0021-tracking-go-gin-sqlc-stack]]"
   - "[[2026-08-18-distributed-tracing-spans-design]]"
   - "[[2026-08-18-distributed-tracing-spans]]"
   - "[[2026-08-25-cart-endpoints-design]]"
@@ -115,6 +119,9 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-08-25-account-deletion-design]] — design spec for letting a user delete their own account: `DELETE /v1/users/me` cascading synchronously to Orders and Tracking, a partial unique index on `users.email` (live rows only) so the address can be reused, and Cognito `AdminDeleteUser` as the deliberate exception to [[ADR-0004-soft-delete-only]].
 - [[2026-08-25-account-deletion]] — implementation plan for account deletion: the partial unique index and its migration, `AuthProvider.deleteUser` via `AdminDeleteUserCommand`, the two new internal cascade routes (`DELETE /v1/orders/by-user`, `DELETE /v1/trackings/by-user`) guarded by `GRPC_API_KEY`, the `CascadeClient` in Users, `DeleteAccountCommand`, the gateway route, three-layer E2E, and vault propagation.
 - [[account-deletion-milestone]] — logical execution plan for the Account Deletion milestone: task sequence and dependency graph over T1–T10, with T5–T9 chained on the independent T1–T4 foundation.
+- [[2026-08-27-tracking-go-migration-design]] — design spec for migrating Tracking from Python/FastAPI to Go/Gin: a faithful layer-by-layer port (Gin + sqlc + golang-migrate, see [[ADR-0021-tracking-go-gin-sqlc-stack]]) built alongside the untouched Python service against the same database, a new `tracking-go-impl` agent fanned out across foundation/platform/endpoint/TestMode/verification waves, and a four-part closing gate (three test layers, empty `openapi.yaml` diff, measured Gatling comparison, observability parity) before the Python folder is deleted.
+- [[2026-08-27-tracking-go-migration]] — implementation plan for the Go migration: 28 tasks across Wave 0 Foundations (sequential), Wave 1 Platform (4 parallel agents), Wave 2 Endpoints (5 parallel agents), Wave 2.5 TestMode (gated on both creation and the carrier webhook), Wave 3 Verification (3 parallel agents), and Wave 4's single irreversible cutover task.
+- [[tracking-go-migration-milestone]] — logical execution plan for the Tracking Go Migration milestone: task sequence, wave phases, and the blocking dependency graph across all 28 tasks.
 
 > [!note] No plan note for the AuditActor enum
 > [[2026-07-12-audit-actor-enum-design]] was implemented directly from the spec — there is no separate `writing-plans` plan for it.
@@ -171,3 +178,7 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-08-25-account-deletion-design]]
 - [[2026-08-25-account-deletion]]
 - [[account-deletion-milestone]]
+- [[2026-08-27-tracking-go-migration-design]]
+- [[2026-08-27-tracking-go-migration]]
+- [[tracking-go-migration-milestone]]
+- [[ADR-0021-tracking-go-gin-sqlc-stack]]

@@ -4,7 +4,7 @@ type: spec
 area: tracking
 status: accepted
 created: 2026-06-26
-updated: 2026-08-26
+updated: 2026-08-27
 tags: [type/spec, area/tracking, status/accepted]
 related:
   - "[[2026-08-25-response-caching-layer-design]]"
@@ -39,6 +39,8 @@ related:
   - "[[2026-08-18-distributed-tracing-spans]]"
   - "[[ADR-0019-distributed-tracing-opentelemetry]]"
   - "[[2026-07-31-contextvars-lost-across-task-boundaries]]"
+  - "[[2026-08-27-tracking-go-migration-design]]"
+  - "[[ADR-0021-tracking-go-gin-sqlc-stack]]"
 ---
 
 # Tracking Service Design
@@ -51,6 +53,15 @@ related:
 > `enable_tracking_routes = true` in `infra/environments/local/main.tf` — so the gateway routes
 > below are live, not inert (the flag-guarded `e2e-cleanup` route is service-local, not a gateway
 > route — see [E2E cleanup](#e2e-cleanup-delete-v1trackingse2e-cleanup)).
+>
+> **2026-08-27 — Go migration planned, not yet started.** This note describes the Python/FastAPI
+> implementation, which remains the current, running service. A migration to Go/Gin is designed
+> in [[2026-08-27-tracking-go-migration-design]] (stack decisions: [[ADR-0021-tracking-go-gin-sqlc-stack]]):
+> a faithful layer-by-layer port built alongside the untouched Python service under
+> `services/tracking-go/`, cut over only once a four-part closing gate passes (all three test
+> layers, an empty `openapi.yaml` diff, a measured Gatling comparison, and observability parity).
+> Until that gate passes and the Python folder is deleted, everything below still describes the
+> service actually serving traffic.
 >
 > Verified from a destroyed environment, not incrementally: `make clean` (with `./data`
 > deleted) → `make bootstrap` completed in **one pass** → **70/70 E2E tests pass**, including
@@ -1121,6 +1132,11 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
 
 ## Related
 
+- [[2026-08-27-tracking-go-migration-design]] — design for porting this service from
+  Python/FastAPI to Go/Gin (faithful layer-by-layer port, coexisting `services/tracking-go/`,
+  wave-based agent team, and the closing gate that must pass before the Python folder in this
+  note is deleted). See [[ADR-0021-tracking-go-gin-sqlc-stack]] for the Go stack decisions
+  (Gin, sqlc, golang-migrate, goenv).
 - [[2026-08-25-account-deletion-design]] — full design for the internal
   `DELETE /v1/trackings/by-user` cascade: the route-ordering trap, `soft_delete_by_user`, the
   `cognito_sub OR user_id` predicate, and the four-layer empty-identity guards.
