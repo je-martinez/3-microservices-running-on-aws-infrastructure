@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Orders.Api.Identity;
 using Orders.Application.Abstractions;
+using Orders.Infrastructure.Caching;
 using Orders.Infrastructure.Carts;
 using Orders.Infrastructure.Observability;
 using Orders.Infrastructure.Persistence;
@@ -39,6 +40,10 @@ public static class InternalEndpoints
             IConfiguration config,
             OrdersWriteDbContext db,
             IWorkflowTracer tracer,
+            // The INTERFACE, never ICacheGateway: with CACHE_ENABLED=false no gateway is
+            // registered at all, and resolving one directly would make the kill switch
+            // take this route down. NoopCacheInvalidator satisfies this in that branch.
+            ICacheInvalidator cache,
             // Injected rather than loggerFactory.CreateLogger("…literal…"): every other
             // logging site in Orders takes ILogger<T>, and a hand-typed category string
             // silently diverges from reality the moment this file is renamed or moved,
@@ -254,6 +259,29 @@ public static class InternalEndpoints
                         tracer.SetReason("db_error");
                         throw;
                     }
+
+                    // AFTER the cascade has committed, and OUTSIDE the try above — which
+                    // rethrows, so reaching this line already means every statement landed.
+                    // Invalidating earlier would be wrong in the way the write services
+                    // document: a concurrent read in the window before the commit would
+                    // repopulate the entries with the pre-deletion state, and they would
+                    // then sit there, stale, for their full TTL — up to an hour for the
+                    // identity mapping.
+                    //
+                    // FAIL-OPEN, and here that matters more than anywhere else in the
+                    // service. The rows are already gone; a Redis fault must not turn a
+                    // cascade that HAPPENED into a 500 that tells Users it did not, because
+                    // Users would then fail the whole account deletion for a person whose
+                    // orders this service has genuinely erased. ICacheInvalidator swallows
+                    // its own failures and logs a WARN with a machine-readable reason, so
+                    // nothing propagates from here.
+                    //
+                    // Only the sub is passed: it keys both the per-user response index and
+                    // the identity entry, and no cache key is reachable by user_id alone.
+                    // A cascade matching purely on user_id therefore leaves the sub's
+                    // entries untouched — correctly, since they belong to whatever sub is
+                    // cached, and the caller told us which one that is.
+                    await cache.InvalidateDeletedUserAsync(body.CognitoSub, ct);
 
                     // Carries BOTH subjects and all three counts. Without cognito_sub the
                     // line could not be joined to a user at all, and the detail/cart counts

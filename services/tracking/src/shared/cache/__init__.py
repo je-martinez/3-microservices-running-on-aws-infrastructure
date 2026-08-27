@@ -8,7 +8,8 @@ Four pieces, matching the shared design ([[2026-08-25-response-caching-layer-des
                         metric/span/log emission for every operation.
 * `identity_cache.py` — the `cognito_sub -> user_id` mapping, which must be
                         resolved BEFORE a response key can be built.
-* `invalidation.py`   — what the carrier webhook deletes after its write lands.
+* `invalidation.py`   — what the carrier webhook and the account-deletion
+                        cascade delete after their write lands.
 
 Governing rule for all four: **the cache may never break or degrade a read.**
 Every Redis touch is wrapped, timed and swallowed; a failure answers
@@ -22,7 +23,7 @@ environment at all. Callers that need the process-wide gateway import
 
 from .gateway import CacheEntry, CacheGateway, NullCacheGateway
 from .identity_cache import IdentityCache
-from .invalidation import invalidate_tracking
+from .invalidation import invalidate_tracking, invalidate_user
 from .keys import CacheKeys
 
 __all__ = [
@@ -32,4 +33,5 @@ __all__ = [
     "IdentityCache",
     "NullCacheGateway",
     "invalidate_tracking",
+    "invalidate_user",
 ]

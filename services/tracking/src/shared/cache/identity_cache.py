@@ -12,14 +12,17 @@ latency the response cache was supposed to remove.
 ## Why TTL-only invalidation is correct here, not a gap
 
 A `cognito_sub` never resolves to a different `user_id` while the account exists,
-so a stale entry cannot serve a WRONG answer — only a late one. And there is no
-event in this repo that could trigger an early invalidation: Users' Cognito
+so a stale entry cannot serve a WRONG answer — only a late one. Users' Cognito
 webhook accepts exactly two `triggerSource` values
 (`PostConfirmation_ConfirmSignUp`, `PostConfirmation_ConfirmForgotPassword`),
-neither of which is an identity change, and no account-deletion flow exists
-anywhere in the system. The 1h TTL bounds the one case this could get wrong — an
-account that has stopped existing — and when a deletion endpoint is built,
-deleting this key is part of THAT milestone's work.
+neither of which is an identity change, so nothing short of a deletion could make
+an entry wrong.
+
+The one case that CAN — an account that has stopped existing — is no longer left
+to the TTL. `DELETE /v1/trackings/by-user`, the account-deletion cascade's leg
+here, deletes this key explicitly through `invalidation.invalidate_user`. The 1h
+TTL remains the backstop for the path where that eviction could not run (a Redis
+outage during the cascade, which fails open by design).
 
 ## Negatives are never cached
 

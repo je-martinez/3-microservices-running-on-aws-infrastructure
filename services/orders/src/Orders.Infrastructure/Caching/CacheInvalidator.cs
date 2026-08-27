@@ -47,6 +47,27 @@ public class CacheInvalidator : ICacheInvalidator
     public Task InvalidateProductsAsync(CancellationToken ct) =>
         Guarded("products", () => _cache.InvalidateAsync(new[] { CacheKeys.Products }, ct));
 
+    public Task InvalidateDeletedUserAsync(string cognitoSub, CancellationToken ct) =>
+        // The index sweep covers every RESPONSE entry of this user — cart, both my-orders
+        // variants, and each order-by-id key, whose ids this layer has never seen and
+        // could not name. That is what the index is for; KEYS/SCAN is O(N) over the whole
+        // keyspace and is not an option.
+        //
+        // The identity entry is deleted BY NAME because it is the one per-user key that
+        // never enters the index: CachedUserDirectory stores it with a plain SetAsync,
+        // and only CachedReadFilter calls TrackKeyAsync. Left behind, it would keep
+        // resolving a deleted user's sub to a usr_ id for the rest of its 1h TTL — the
+        // longest-lived entry in the service, and the one whose staleness outlasts every
+        // response key the sweep above removes.
+        //
+        // Deliberately no catalogue invalidation: see the remarks on ICacheInvalidator.
+        // The cascade restores no stock, so the catalogue is not stale.
+        Guarded("deleted_user", async () =>
+        {
+            await _cache.InvalidateUserKeysAsync(cognitoSub, ct);
+            await _cache.InvalidateAsync(new[] { CacheKeys.Identity(cognitoSub) }, ct);
+        });
+
     /// <summary>
     /// Runs an invalidation and swallows any failure, logging it.
     /// </summary>

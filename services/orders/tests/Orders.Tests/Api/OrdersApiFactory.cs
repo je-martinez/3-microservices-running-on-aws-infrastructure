@@ -106,6 +106,49 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
         await mux.GetServer(mux.GetEndPoints().Single()).FlushDatabaseAsync();
     }
 
+    /// <summary>
+    /// Whether <paramref name="key"/> is present in Redis right now.
+    /// </summary>
+    /// <remarks>
+    /// For the entries that have NO HTTP surface to infer their presence from. The
+    /// identity mapping (<c>identity:sub-to-user:v1:*</c>) is the case that forced this:
+    /// it is read by <c>CachedUserDirectory</c> BEHIND every route, never returned to a
+    /// client and never reflected in an <c>X-Cache</c> header, so "was it invalidated?"
+    /// is unanswerable through the API. A test that settled for the header alone would
+    /// assert nothing about the very entry most likely to be forgotten, since it is the
+    /// one key that is not in the per-user index.
+    /// </remarks>
+    public async Task<bool> CacheKeyExistsAsync(string key)
+    {
+        await using var mux = await ConnectionMultiplexer.ConnectAsync(
+            $"{_redis.Hostname}:{_redis.GetMappedPublicPort(6379)}");
+        return await mux.GetDatabase().KeyExistsAsync(key);
+    }
+
+    /// <summary>
+    /// Writes <paramref name="value"/> at <paramref name="key"/> directly, bypassing the
+    /// service.
+    /// </summary>
+    /// <remarks>
+    /// For entries no request on THIS host can create. The identity mapping is the case:
+    /// <c>ConfigureTestServices</c> replaces <c>IUserDirectory</c> wholesale with a stub,
+    /// which discards the <c>CachedUserDirectory</c> decorator that writes that key in
+    /// production — so it is unreachable through the API here no matter what is called.
+    /// A test needing to prove that key gets INVALIDATED must therefore put it there
+    /// itself; the alternative is asserting that an absent key is absent, which passes
+    /// against an invalidator that does nothing at all.
+    /// <para>
+    /// <paramref name="value"/> is raw JSON, matching what <c>CacheGateway.SetAsync</c>
+    /// serializes — a bare string entry is stored quoted.
+    /// </para>
+    /// </remarks>
+    public async Task SetCacheKeyAsync(string key, string value, TimeSpan ttl)
+    {
+        await using var mux = await ConnectionMultiplexer.ConnectAsync(
+            $"{_redis.Hostname}:{_redis.GetMappedPublicPort(6379)}");
+        await mux.GetDatabase().StringSetAsync(key, value, ttl);
+    }
+
     // A fresh write context over the same container, for tests that need to exercise
     // EF/MySQL behaviour directly (e.g. the generated-column unique indexes) rather than
     // through the HTTP surface. Mirrors the construction InitializeAsync already does.

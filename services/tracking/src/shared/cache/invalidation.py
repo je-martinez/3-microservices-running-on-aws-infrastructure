@@ -1,4 +1,15 @@
-"""What the carrier webhook clears, and what it can afford not to know.
+"""What a write clears after it lands — and what it can afford not to know.
+
+Two callers, two shapes of eviction:
+
+* `invalidate_tracking` — the carrier webhook. One order changed status.
+* `invalidate_user` — the account-deletion cascade. A whole person is gone,
+  including their `cognito_sub -> user_id` mapping.
+
+Both run STRICTLY AFTER their transaction commits, scheduled as a `BackgroundTask`
+rather than called inline; see the long comment in `carrier_router.py` for why the
+ordering is a property of the ASGI response cycle and not a timing hope.
+
 
 ## The webhook has no caller identity
 
@@ -95,6 +106,57 @@ def invalidate_tracking(
         extra={
             "app_event": "cache_invalidated",
             "order_id": order_id,
+            "cognito_sub": cognito_sub,
+        },
+    )
+
+
+def invalidate_user(
+    gateway: CacheGateway | NullCacheGateway,
+    *,
+    cognito_sub: str,
+    user_id: str,
+) -> None:
+    """Evict everything the account-deletion cascade leaves behind.
+
+    Called by `DELETE /v1/trackings/by-user` — the leg Users invokes when an
+    account is deleted — and, unlike `invalidate_tracking`, it clears TWO
+    namespaces because a deletion invalidates more than one order's worth of
+    state:
+
+    * **The response entries**, all of them, through the per-user index. There is
+      no `order_id` here at all: the cascade names a person, not a shipment, so
+      even the single-read keys — which the webhook CAN reconstruct because it
+      holds the order it just wrote — are unreconstructible from this request.
+      The index is the only handle on them, which is precisely the case it was
+      built for. Not `KEYS`, not `SCAN`, for the reasons in the module docstring.
+    * **The identity mapping**, `identity:sub-to-user:v1:{sub}`. Left in place it
+      keeps answering `user_id` for a person who no longer exists, for up to its
+      full hour (`IDENTITY_TTL_SECONDS`) — the one case `identity_cache.py`
+      documents its TTL-only invalidation as bounding, with "when a deletion
+      endpoint is built, deleting this key is part of THAT milestone's work".
+      This is that work.
+
+    Both identities are REQUIRED here rather than nullable, and the route's
+    schema already enforces non-empty strings for both — the cascade's body
+    carries exactly the pair a key is built from. The defensive `if not` guards
+    `invalidate_tracking` needs (a nullable column read off a row) have no
+    counterpart on this path.
+
+    Never raises: every gateway method swallows its own failures, so a Redis
+    outage costs at most the entries' own TTL. That matters more here than on the
+    webhook — the deletion has already COMMITTED by the time this runs, so
+    raising would tell Users the cascade failed when it did not, and fail the
+    whole account deletion for the person.
+    """
+    gateway.invalidate_index(CacheKeys.user_index(cognito_sub, user_id))
+    gateway.invalidate(CacheKeys.identity(cognito_sub))
+
+    logger.info(
+        "cache_invalidated",
+        extra={
+            "app_event": "cache_invalidated",
+            "reason": "account_deleted",
             "cognito_sub": cognito_sub,
         },
     )
