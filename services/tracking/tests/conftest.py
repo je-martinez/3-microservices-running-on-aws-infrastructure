@@ -18,6 +18,7 @@ from concurrent import futures
 from contextlib import contextmanager
 from pathlib import Path
 
+import fakeredis
 import grpc
 import pytest
 from fastapi import FastAPI
@@ -26,9 +27,11 @@ from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.features.tracking.domain.models import Tracking
+from src.shared.cache.gateway import CacheGateway
 from src.shared.db.base import Base
 from src.shared.grpc.generated import users_pb2, users_pb2_grpc
 from src.shared.grpc.users_client import UsersGrpcClient
+from src.shared.metrics.cloudwatch_metrics import NoopMetricsPublisher
 
 # services/tracking/tests/conftest.py -> repo root
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -347,10 +350,29 @@ TEST_GRPC_API_KEY = "test-grpc-key"
 
 
 @pytest.fixture
-def app(engine: Engine) -> FastAPI:
+def redis_double() -> fakeredis.FakeRedis:
+    """An in-process Redis for the cache suite.
+
+    A fake, not a real server, and deliberately: the DB fixtures hit real MySQL
+    because a mock cannot catch a schema or driver bug, but a cache has neither
+    a schema nor a dialect. `fakeredis` implements the exact client API this
+    service calls, TTL semantics included, so the code under test is the
+    production code path — while the suite keeps needing only MySQL to run.
+    """
+    return fakeredis.FakeRedis(decode_responses=True)
+
+
+@pytest.fixture
+def cache_gateway(redis_double: fakeredis.FakeRedis) -> CacheGateway:
+    """A real `CacheGateway` over the fake, publishing metrics nowhere."""
+    return CacheGateway(client=redis_double, metrics=NoopMetricsPublisher())
+
+
+@pytest.fixture
+def app(engine: Engine, cache_gateway: CacheGateway) -> FastAPI:
     """The real app, with its DB sessions and settings bound to the test engine.
 
-    Three overrides, each replacing a process-wide singleton with a test-scoped
+    Four overrides, each replacing a process-wide singleton with a test-scoped
     one:
 
     * `get_read_session` / `get_write_session` — sessions on the TEST engine, so
@@ -360,6 +382,9 @@ def app(engine: Engine) -> FastAPI:
     * `get_settings` — a settings object whose `tracking_carrier_api_key` and
       `grpc_api_key` are the two literals above, so neither the carrier tests nor
       the internal-route tests read or need a real env file.
+    * `get_cache_gateway` — a real `CacheGateway` over an in-process `fakeredis`,
+      so the cached reads exercise the production cache code path without the
+      suite depending on a running Redis.
 
     Nothing has to be switched off to build this app: it serves HTTP and only HTTP
     (JE-108), so starting it binds no port of its own and cannot collide with a
@@ -367,6 +392,7 @@ def app(engine: Engine) -> FastAPI:
     """
     from src.main import create_app
     from src.shared.config.settings import Settings, get_settings
+    from src.shared.http.cache_dependencies import get_cache_gateway
     from src.shared.http.dependencies import get_read_session, get_write_session
 
     factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
@@ -395,12 +421,20 @@ def app(engine: Engine) -> FastAPI:
             database_reader_url="mysql+pymysql://unused/unused",
             grpc_api_key=TEST_GRPC_API_KEY,
             tracking_carrier_api_key=TEST_CARRIER_API_KEY,
+            # Explicit rather than inherited from the field default: the cached
+            # routes read this to decide whether to emit an `X-Cache` header at
+            # all, so a suite that left it implicit would stop testing the
+            # header the day the default changed.
+            cache_enabled=True,
         )
 
     application = create_app()
     application.dependency_overrides[get_read_session] = override_read
     application.dependency_overrides[get_write_session] = override_write
     application.dependency_overrides[get_settings] = override_settings
+    # The fourth seam, beside the two sessions and the settings: the cache
+    # gateway, pointed at an in-process fake so no suite needs a Redis.
+    application.dependency_overrides[get_cache_gateway] = lambda: cache_gateway
     return application
 
 

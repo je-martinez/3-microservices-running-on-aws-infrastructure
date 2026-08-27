@@ -4,10 +4,11 @@ using Orders.Application.Abstractions;
 using Orders.Application.Carts;
 using Orders.Application.Identity;
 using Orders.Domain.Entities;
+using Orders.Infrastructure.Caching;
 using Orders.Infrastructure.Id;
 using Orders.Infrastructure.Observability;
-using Orders.Infrastructure.Persistence;
 using Orders.Infrastructure.Persistence.Configurations;
+using Orders.Infrastructure.Persistence;
 
 namespace Orders.Infrastructure.Carts;
 
@@ -35,6 +36,7 @@ public class CartWriteService
     private readonly IUserDirectory _users;
     private readonly CartReadService _reads;
     private readonly IWorkflowTracer _tracer;
+    private readonly ICacheInvalidator _cache;
     private readonly ILogger<CartWriteService> _logger;
 
     public CartWriteService(
@@ -42,12 +44,14 @@ public class CartWriteService
         IUserDirectory users,
         CartReadService reads,
         IWorkflowTracer tracer,
+        ICacheInvalidator cache,
         ILogger<CartWriteService> logger)
     {
         _db = db;
         _users = users;
         _reads = reads;
         _tracer = tracer;
+        _cache = cache;
         _logger = logger;
     }
 
@@ -68,7 +72,27 @@ public class CartWriteService
         _tracer.TraceWorkflowAsync(
             "update_cart",
             new Dictionary<string, object?> { ["app_event"] = "update_cart_started" },
-            () => ReplaceInternalAsync(command, cognitoSub, ct));
+            async () =>
+            {
+                var cart = await ReplaceInternalAsync(command, cognitoSub, ct);
+
+                // AFTER the write has persisted, never before — invalidating first lets a
+                // concurrent read repopulate the stale value in the window between the
+                // delete and the commit landing.
+                //
+                // THIS is the seam, and it is the only one that works.
+                // ReplaceInternalAsync commits in THREE places: the emptied branch, the
+                // unique-index race retry, and the normal path. Putting the call after any
+                // one of them covers one third of the writes; putting it here, after the
+                // method returns, covers all three by construction — including a fourth
+                // commit site somebody adds later.
+                //
+                // It is deliberately NOT inside a finally: a throw means no commit
+                // happened (every path rolls back), so there is nothing stale to forget.
+                await _cache.InvalidateCartAsync(cognitoSub, ct);
+
+                return cart;
+            });
 
     private async Task<CartDto> ReplaceInternalAsync(
         UpdateCartCommand command,
@@ -238,6 +262,12 @@ public class CartWriteService
                     await _db.SaveChangesAsync(ct);
                     return true;
                 });
+
+                // After the save, for the same reason ReplaceAsync invalidates after its
+                // commit. There is no explicit transaction on this path — SaveChangesAsync
+                // above IS the commit — so this is the first moment the deletion is
+                // durable.
+                await _cache.InvalidateCartAsync(cognitoSub, ct);
 
                 // No _failed branch, for the same reason the read has none: this method
                 // names no failure of its own. A DB fault throws out of TraceWorkflowAsync,

@@ -3,12 +3,13 @@ import { SpanStatusCode } from "@opentelemetry/api";
 import { ConfirmPasswordResetCommand } from "#features/users/commands/confirm-password-reset";
 import { testSpanExporter } from "../../../setup-tracing.ts";
 import { InvalidResetCodeError } from "#shared/auth/auth-errors";
+import { ME_KEY_PREFIX, meCacheKey } from "#shared/cache/cache-keys";
 
 const EMAIL = "jose@example.com";
 const CODE = "123456";
 const NEW_PASSWORD = "N3wP@ssw0rd!";
 
-const USER = { id: "usr_1", email: EMAIL, fullName: "Jose" };
+const USER = { id: "usr_1", email: EMAIL, fullName: "Jose", cognitoSub: "sub-1" };
 
 function build(
   overrides: {
@@ -36,15 +37,19 @@ function build(
     verifyAndConsume: vi.fn(async () => overrides.accepted ?? true),
   };
   const metricsPublisher = { publish: vi.fn(async () => undefined) };
+  // The reset clears `mustChangePassword`, a field of the cached
+  // GET /v1/users/me body, so the command must drop that entry.
+  const cacheGateway = { invalidate: vi.fn(async () => undefined) };
 
   const command = new ConfirmPasswordResetCommand({
     db: db as never,
     auth: auth as never,
     resetCodeStore: resetCodeStore as never,
     metricsPublisher: metricsPublisher as never,
+    cacheGateway: cacheGateway as never,
   });
 
-  return { command, db, auth, resetCodeStore, metricsPublisher };
+  return { command, db, auth, resetCodeStore, metricsPublisher, cacheGateway };
 }
 
 const input = { email: EMAIL, code: CODE, newPassword: NEW_PASSWORD };
@@ -210,5 +215,37 @@ describe("ConfirmPasswordResetCommand tracing", () => {
     expect(serialized).not.toContain(NEW_PASSWORD);
     expect(serialized).not.toContain(EMAIL);
     expect(span!.attributes.email_hash).toBeDefined();
+  });
+});
+
+describe("ConfirmPasswordResetCommand cache invalidation", () => {
+  it("drops the caller's cached profile after clearing mustChangePassword", async () => {
+    const { command, cacheGateway } = build();
+
+    await command.execute(input);
+
+    expect(cacheGateway.invalidate).toHaveBeenCalledWith(
+      ME_KEY_PREFIX,
+      meCacheKey("sub-1", "usr_1"),
+    );
+  });
+
+  it("skips invalidation for a user whose Cognito identity was never captured", async () => {
+    // No sub means no read ever cached them: the key needs both halves.
+    const { command, cacheGateway } = build({
+      user: { id: "usr_2", email: EMAIL, fullName: "Jose", cognitoSub: null },
+    });
+
+    await command.execute(input);
+
+    expect(cacheGateway.invalidate).not.toHaveBeenCalled();
+  });
+
+  it("does not invalidate when the code is rejected", async () => {
+    const { command, cacheGateway } = build({ accepted: false });
+
+    await expect(command.execute(input)).rejects.toBeInstanceOf(InvalidResetCodeError);
+
+    expect(cacheGateway.invalidate).not.toHaveBeenCalled();
   });
 });

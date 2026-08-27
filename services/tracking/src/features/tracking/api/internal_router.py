@@ -10,19 +10,26 @@ first — the same reasoning that governs `/init-tracking` and `/e2e-cleanup`.
 
 `def`, not `async def`: pymysql blocks, so a sync handler runs in the threadpool
 instead of stalling the event loop.
+
+Besides the rows, the deletion clears the user's cache footprint — every response
+entry of theirs plus their `cognito_sub -> user_id` identity mapping — scheduled
+as a `BackgroundTask` so it can only run once the write has committed. See the
+comment on that line, and `shared/cache/invalidation.invalidate_user`.
 """
 
 from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, BackgroundTasks
 
 from src.features.tracking.api.schemas import (
     InternalDeleteByUserRequest,
     InternalDeleteByUserResponse,
 )
 from src.features.tracking.commands.delete_by_user import delete_by_user
+from src.shared.cache.invalidation import invalidate_user
+from src.shared.http.cache_dependencies import CacheEnabledDep, CacheGatewayDep
 from src.shared.http.dependencies import WriteSession
 from src.shared.http.internal_auth import InternalAuth
 from src.shared.logging import merge_log_context
@@ -53,6 +60,9 @@ DB_ERROR_REASON = "db_error"
 def delete_trackings_by_user(
     body: InternalDeleteByUserRequest,
     session: WriteSession,
+    background: BackgroundTasks,
+    cache: CacheGatewayDep,
+    cache_enabled: CacheEnabledDep,
 ) -> InternalDeleteByUserResponse:
     """Soft-delete the user's trackings and, through the FK, their history."""
     # NOTE: this docstring is the endpoint's `description` in the generated
@@ -121,6 +131,44 @@ def delete_trackings_by_user(
 
         span.set_attribute("app_event", "internal_delete_by_user_succeeded")
         span.set_attribute("deleted_count", deleted)
+
+        # ---------------------------------------------------------------
+        # Cache eviction is SCHEDULED, not executed here — the same ordering
+        # problem the carrier webhook has, solved the same way rather than with
+        # a second pattern for one problem.
+        #
+        # This handler does not own the transaction: `WriteSession` is a
+        # GENERATOR dependency over `write_session()`, whose body commits in its
+        # TEARDOWN, after the handler has returned. Evicting at this line would
+        # therefore run BEFORE the commit, opening the stale-repopulation window
+        # the design forbids: a concurrent read misses, queries MySQL, still sees
+        # the not-yet-deleted rows (its transaction cannot see an uncommitted
+        # change), and writes that soon-to-be-wrong body back under the key just
+        # cleared. A `BackgroundTask` runs after the response is sent, which is
+        # after every dependency teardown, which is after `session.commit()`.
+        #
+        # The identities are read HERE, as `add_task` ARGUMENTS, so they are
+        # plain strings by the time the session is gone — the webhook's rule
+        # about never handing a detached ORM entity to a background task. They
+        # come off the request BODY on this route (§5b: it is the one place the
+        # two identities arrive in the body rather than the `x-user-id` header),
+        # which is the same pair the cache keys embed.
+        #
+        # The failure branch above raises out of the handler, so this line is
+        # unreachable on a fault and no eviction is scheduled for a deletion that
+        # never landed — structural, rather than a status check to keep in sync.
+        #
+        # `invalidate_user` never raises, and that is load-bearing rather than
+        # merely tidy: the deletion has already COMMITTED, so a Redis outage that
+        # failed the response would tell Users the cascade did not happen when it
+        # did, and fail the whole account deletion for the person.
+        if cache_enabled:
+            background.add_task(
+                invalidate_user,
+                cache,
+                cognito_sub=body.cognito_sub,
+                user_id=body.user_id,
+            )
 
         logger.info(
             "internal_delete_by_user_succeeded",

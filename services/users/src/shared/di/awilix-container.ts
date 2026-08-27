@@ -14,6 +14,7 @@ import { CognitoAuthProvider } from "../auth/cognito-auth-provider.ts";
 import type { AuthProvider } from "../auth/auth-provider.ts";
 import { createRedisClient, type RedisClient } from "../cache/redis.ts";
 import { ResetCodeStore } from "../cache/reset-code-store.ts";
+import { CacheGateway } from "../cache/cache-gateway.ts";
 import { RegisterUserCommand } from "#features/users/commands/register";
 import { RegisterPasswordlessCommand } from "#features/users/commands/register-passwordless";
 import { LoginUserCommand } from "#features/users/commands/login";
@@ -46,6 +47,7 @@ declare module "@fastify/awilix" {
     businessMetricsPoller: BusinessMetricsPoller;
     redis: RedisClient;
     resetCodeStore: ResetCodeStore;
+    cacheGateway: CacheGateway;
     registerUserCommand: RegisterUserCommand;
     registerPasswordlessCommand: RegisterPasswordlessCommand;
     loginUserCommand: LoginUserCommand;
@@ -163,6 +165,15 @@ export function registerSingletons(): void {
     // Stateless wrapper over `redis`, so it costs nothing to share and there is
     // no per-request state to keep apart — SINGLETON alongside its client.
     resetCodeStore: asClass(ResetCodeStore, { lifetime: Lifetime.SINGLETON }),
+    // Stateless over the SINGLETON `redis` client — SINGLETON alongside it, the
+    // same reasoning as resetCodeStore. It opens no connection of its own; a
+    // second ioredis client would mean a second TCP socket and a second
+    // reconnect state machine for no gain.
+    //
+    // asClass is correct here (unlike metricsPublisher above): every name this
+    // constructor destructures — redis, metricsPublisher, env — IS a registered
+    // cradle key, so PROXY injection resolves all three. The DI test proves it.
+    cacheGateway: asClass(CacheGateway, { lifetime: Lifetime.SINGLETON }),
   });
 }
 

@@ -4,6 +4,8 @@ import { AuditActor } from "#shared/audit/audit-actor";
 import { getActor } from "#shared/audit/actor-context";
 import { CascadeFailedError, CascadeUnavailableError } from "#shared/http/cascade-client";
 import { CurrentUser } from "#shared/auth/current-user";
+import { CacheGateway } from "#shared/cache/cache-gateway";
+import { ME_KEY_PREFIX, meCacheKey } from "#shared/cache/cache-keys";
 import { captureAppLogs, lineFor } from "../../../helpers/capture-app-logs.ts";
 
 const TARGET = {
@@ -40,6 +42,67 @@ function makeDeps(target: typeof TARGET | null = TARGET) {
   const metricsPublisher = { publish: vi.fn(async () => {}) };
   return { db, cascade, auth, metricsPublisher, del, seenActor };
 }
+
+// Map-backed stand-in for the ioredis commands CacheGateway uses, the same
+// shape as tests/shared/cache/cache-gateway.test.ts. `pipeline()` is real here
+// for the reason recorded there: a fake missing it makes every `get` throw and
+// report BYPASS, which reads exactly like a working fail-open — so a cache
+// assertion would pass without the cache ever having held anything.
+function fakeRedis() {
+  const data = new Map<string, string>();
+  const ttls = new Map<string, number>();
+  const self = {
+    data,
+    get: vi.fn(async (key: string) => data.get(key) ?? null),
+    set: vi.fn(async (key: string, value: string, _mode: string, ttl: number) => {
+      data.set(key, value);
+      ttls.set(key, ttl * 1000);
+      return "OK";
+    }),
+    pttl: vi.fn(async (key: string) => ttls.get(key) ?? -2),
+    del: vi.fn(async (...keys: string[]) => {
+      let n = 0;
+      for (const k of keys) if (data.delete(k)) n++;
+      return n;
+    }),
+    pipeline: vi.fn(() => {
+      const ops: Array<() => Promise<unknown>> = [];
+      const chain = {
+        get(key: string) {
+          ops.push(() => self.get(key));
+          return chain;
+        },
+        pttl(key: string) {
+          ops.push(() => self.pttl(key));
+          return chain;
+        },
+        async exec() {
+          const out: Array<[null, unknown]> = [];
+          for (const op of ops) out.push([null, await op()]);
+          return out;
+        },
+      };
+      return chain;
+    }),
+  };
+  return self;
+}
+
+// A REAL CacheGateway over the fake client, not a stub of the gateway itself.
+// Asserting on a stubbed `invalidate` call would only prove the command called
+// a method; these tests warm a genuine entry and then assert it is gone, which
+// is the property that actually matters.
+function makeCache(cacheEnabled = true) {
+  const redis = fakeRedis();
+  const gateway = new CacheGateway({
+    redis: redis as never,
+    metricsPublisher: { publish: vi.fn(async () => {}) } as never,
+    env: { CACHE_ENABLED: cacheEnabled } as never,
+  });
+  return { redis, gateway };
+}
+
+const ME_KEY = meCacheKey("sub-1", "usr_1");
 
 describe("DeleteAccountCommand", () => {
   it("cascades to BOTH services before deleting the account", async () => {
@@ -256,5 +319,136 @@ describe("DeleteAccountCommand", () => {
 
     // A deletion that did not happen must not be counted.
     expect(metricsPublisher.publish).not.toHaveBeenCalled();
+  });
+
+  // ── Cache invalidation ───────────────────────────────────────────────────
+  // GET /v1/users/me is cached for 5 minutes under users:me:v1:<sub>:<id>.
+  // Without invalidation, a deleted account keeps serving its profile from
+  // Redis for the rest of the TTL.
+
+  it("drops the deleted user's cached profile", async () => {
+    const { db, cascade, auth, metricsPublisher } = makeDeps();
+    const { redis, gateway } = makeCache();
+
+    // WARM IT FIRST. A test that deletes without ever populating the entry
+    // passes against a no-op implementation, which is the vacuous pass this
+    // milestone kept producing.
+    await gateway.set(ME_KEY, ME_KEY_PREFIX, { id: "usr_1" }, 300);
+    expect(redis.data.has(ME_KEY)).toBe(true);
+
+    const currentUser = new CurrentUser({ db, identity: "sub-1" });
+    const result = await new DeleteAccountCommand({
+      db, cascade, auth, metricsPublisher, cacheGateway: gateway,
+    } as any).execute(currentUser);
+
+    expect(result).toBe("deleted");
+    // The load-bearing assertion: the entry is GONE from the store, not merely
+    // that some method was called.
+    expect(redis.data.has(ME_KEY)).toBe(false);
+    expect(await gateway.get(ME_KEY, ME_KEY_PREFIX)).toMatchObject({ hit: false });
+  });
+
+  it("invalidates only AFTER the row is deleted", async () => {
+    const { db, cascade, auth, metricsPublisher } = makeDeps();
+    const { redis, gateway } = makeCache();
+    await gateway.set(ME_KEY, ME_KEY_PREFIX, { id: "usr_1" }, 300);
+
+    const order: string[] = [];
+    db.user.delete.mockImplementation(async () => {
+      order.push("delete");
+      return TARGET;
+    });
+    redis.del.mockImplementation(async (...keys: string[]) => {
+      order.push("invalidate");
+      let n = 0;
+      for (const k of keys) if (redis.data.delete(k)) n++;
+      return n;
+    });
+
+    const currentUser = new CurrentUser({ db, identity: "sub-1" });
+    await new DeleteAccountCommand({
+      db, cascade, auth, metricsPublisher, cacheGateway: gateway,
+    } as any).execute(currentUser);
+
+    // Invalidating first leaves a window where a concurrent read re-populates
+    // the entry from a row that still exists — a profile for a deleted account
+    // living the full 5-minute TTL.
+    expect(order).toEqual(["delete", "invalidate"]);
+  });
+
+  it("uses the read path's exact key: both cognito_sub and user_id", async () => {
+    const { db, cascade, auth, metricsPublisher } = makeDeps();
+    const { redis, gateway } = makeCache();
+
+    // A near-miss key for the SAME user id under a different sub. Keying on
+    // only one half would take this one out too (or miss the real one).
+    const otherKey = meCacheKey("sub-other", "usr_1");
+    await gateway.set(ME_KEY, ME_KEY_PREFIX, { id: "usr_1" }, 300);
+    await gateway.set(otherKey, ME_KEY_PREFIX, { id: "usr_1" }, 300);
+
+    const currentUser = new CurrentUser({ db, identity: "sub-1" });
+    await new DeleteAccountCommand({
+      db, cascade, auth, metricsPublisher, cacheGateway: gateway,
+    } as any).execute(currentUser);
+
+    expect(redis.del).toHaveBeenCalledWith(ME_KEY);
+    expect(redis.data.has(ME_KEY)).toBe(false);
+    expect(redis.data.has(otherKey)).toBe(true);
+  });
+
+  it("still reports success when Redis fails during invalidation", async () => {
+    const { db, cascade, auth, metricsPublisher } = makeDeps();
+    const { redis, gateway } = makeCache();
+    await gateway.set(ME_KEY, ME_KEY_PREFIX, { id: "usr_1" }, 300);
+    redis.del.mockRejectedValue(new Error("redis down"));
+
+    const currentUser = new CurrentUser({ db, identity: "sub-1" });
+    const lines = await captureAppLogs(async () => {
+      const result = await new DeleteAccountCommand({
+        db, cascade, auth, metricsPublisher, cacheGateway: gateway,
+      } as any).execute(currentUser);
+
+      // FAIL-OPEN. Postgres has committed by now; throwing would tell the user
+      // their account was not deleted when it was.
+      expect(result).toBe("deleted");
+    });
+
+    expect(lineFor(lines, "delete_account_succeeded")).toBeDefined();
+    const warn = lineFor(lines, "cache_unavailable");
+    expect(warn?.severity_text).toBe("WARN");
+    // Machine-readable reason, and only the key PREFIX — never the full key,
+    // which carries cognito_sub and user_id.
+    expect(warn?.reason).toBeTypeOf("string");
+    expect(JSON.stringify(lines)).not.toContain(ME_KEY);
+  });
+
+  it("deletes the account with the cache disabled", async () => {
+    const { db, cascade, auth, metricsPublisher } = makeDeps();
+    const { redis, gateway } = makeCache(false);
+
+    const currentUser = new CurrentUser({ db, identity: "sub-1" });
+    const result = await new DeleteAccountCommand({
+      db, cascade, auth, metricsPublisher, cacheGateway: gateway,
+    } as any).execute(currentUser);
+
+    // CACHE_ENABLED=false: the gateway no-ops, so nothing is cached and there
+    // is nothing to delete — but the deletion itself must still complete.
+    expect(result).toBe("deleted");
+    expect(db.user.delete).toHaveBeenCalled();
+    expect(redis.del).not.toHaveBeenCalled();
+  });
+
+  it("deletes the account when no cacheGateway is registered at all", async () => {
+    const { db, cascade, auth, metricsPublisher } = makeDeps();
+
+    const currentUser = new CurrentUser({ db, identity: "sub-1" });
+    const result = await new DeleteAccountCommand({
+      db, cascade, auth, metricsPublisher,
+    } as any).execute(currentUser);
+
+    // The route tests build containers with no cacheGateway. An account
+    // deletion that 500s for want of a cache would be worse than a stale entry.
+    expect(result).toBe("deleted");
+    expect(db.user.delete).toHaveBeenCalled();
   });
 });

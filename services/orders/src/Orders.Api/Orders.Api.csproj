@@ -27,6 +27,7 @@
          src/Orders.Api/Logging/SchemaLogFormatter.cs and Program.cs wiring. -->
     <PackageReference Include="Serilog.AspNetCore" Version="8.0.3" />
     <PackageReference Include="Serilog.Formatting.Compact" Version="3.0.0" />
+    <PackageReference Include="StackExchange.Redis" Version="2.8.24" />
   </ItemGroup>
 
   <PropertyGroup>

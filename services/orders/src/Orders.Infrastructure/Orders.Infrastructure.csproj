@@ -27,6 +27,15 @@
     <PackageReference Include="Nanoid" Version="3.1.0" />
     <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" Version="9.0.0" />
     <PackageReference Include="RestSharp" Version="114.0.0" />
+    <!-- Redis transport for the response cache (CacheGateway). Task 1 added this
+         package to Orders.Api because that is where the connection multiplexer is
+         constructed; the gateway itself lives here, per the dependency-direction
+         rule (anything touching a transport is Infrastructure, not Application),
+         so the reference is needed on BOTH projects. Same version on purpose:
+         two different versions of the same package across projects resolves to
+         one of them at runtime and the other project silently binds to an
+         assembly it was not compiled against. -->
+    <PackageReference Include="StackExchange.Redis" Version="2.8.24" />
   </ItemGroup>
 
   <!-- Generate the Users gRPC stubs from the shared repo-root proto. Namespace

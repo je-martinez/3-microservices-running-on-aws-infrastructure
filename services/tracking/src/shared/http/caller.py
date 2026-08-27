@@ -23,6 +23,17 @@ request context, a trace attribute, an error report). The safe shape is the one
 where *nothing* can accidentally cause a call; only `resolve_internal_user_id()`
 can, and its name says so.
 
+## Two ways the memo gets filled, exactly one of which is a network call
+
+`resolve_internal_user_id()` fills it by CALLING Users.
+`seed_resolved_internal_user_id()` fills it from a value someone else already
+has — specifically the identity cache's Redis hit, which answers the same
+question without the RPC. The invariant above is unchanged by the second: it is
+an explicit method, not a property, and it makes no call at all. Both exist
+because the property is the ONLY thing the read handlers consult, so a value
+obtained by any means has to land in the same place for the response cache to be
+able to build a key.
+
 ## Why cached per request
 
 The write path may need the `usr_` id more than once (persist it, then log it,
@@ -106,6 +117,66 @@ class CurrentCaller:
         `resolve_internal_user_id()` instead.
         """
         return self._resolved.internal_id if self._resolved else None
+
+    def seed_resolved_internal_user_id(self, internal_id: str) -> None:
+        """Populate the resolution from a TRUSTED CACHED value. NO I/O.
+
+        The identity cache (`shared/cache/identity_cache.py`) answers
+        `cognito_sub -> user_id` from Redis without running its loader, and the
+        loader is the ONLY thing that would otherwise set the memo below. Without
+        this method a cache HIT left `_resolved` at `None`, so
+        `resolved_internal_user_id` answered `None`, `CacheKeys` declined to build
+        a key, and the response cache silently stopped caching anything for every
+        request after the first — which is exactly what happened in production.
+
+        Deliberately verbose in name, and deliberately NOT a setter on the
+        property: this is the one supported way to fill the memo without a
+        network call, and a reader of a call site should see that a value is
+        being INJECTED rather than looked up. The module's central invariant is
+        untouched — no property triggers resolution, and this method makes no
+        call either.
+
+        ## Only `internal_id` is known here
+
+        The identity cache stores the `usr_` id and nothing else, on purpose:
+        `email` and `full_name` are PII and are kept out of Redis
+        ([[logging-context]]). So the `ResolvedUser` built here is PARTIAL, and
+        the two absent fields take their "missing" spellings rather than a
+        fabricated value — `email=None` ("Users has no address on file", the same
+        value `UsersGrpcClient.resolve` normalizes `""` to) and `full_name=""`.
+
+        That partiality is safe for the ONE consumer that can observe it. Only
+        `resolved_internal_user_id` reads `_resolved` off a seeded caller, and it
+        reads `internal_id` alone. The publisher that needs `email` and
+        `full_name` sits on the WRITE path
+        (`update_tracking_status` / the events publisher), which never builds a
+        caller through `stamp_caller_user_id` — it takes the persisted row's
+        identities and resolves the user through its own gRPC call. If that ever
+        changes, a seeded caller must NOT be handed to it: an `email=None` there
+        is indistinguishable from "Users holds no email" and would drop a
+        notification rather than fail loudly.
+
+        `_has_resolved` is set too, so a subsequent `resolve_internal_user_id()`
+        returns the seeded id instead of making the call this seeding exists to
+        avoid.
+
+        Ignores a falsy `internal_id` rather than storing one: an empty string
+        would make `resolved_internal_user_id` answer `""`, which `CacheKeys`
+        treats as unkeyable anyway, while `_has_resolved` would suppress the real
+        lookup. Doing nothing degrades to today's behaviour — no caching — which
+        is the documented fail-open direction.
+        """
+        if not internal_id:
+            return
+        self._resolved = ResolvedUser(
+            internal_id=internal_id,
+            cognito_sub=self._cognito_sub,
+            # NOT fabricated: see the docstring. These are the two fields the
+            # identity cache does not carry, in their genuine "absent" spellings.
+            email=None,
+            full_name="",
+        )
+        self._has_resolved = True
 
     def resolve_internal_user_id(self) -> str:
         """Resolve the caller's internal `usr_` id, caching it for this request.

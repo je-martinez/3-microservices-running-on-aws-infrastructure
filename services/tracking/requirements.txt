@@ -26,3 +26,11 @@ PyYAML==6.0.2
 # SAME version as grpcio: grpc_tools emits a version guard into the generated
 # _pb2_grpc module that raises when the installed grpcio is older.
 grpcio-tools==1.83.0
+# In-process Redis double for the cache suite. Chosen over a real Redis on purpose:
+# the DB suite must hit real MySQL (a mock cannot catch a schema or driver bug — see
+# tests/conftest.py), but a cache has NO schema and NO dialect, so a real server buys
+# nothing and costs a hard dependency on Floci's valkey container being up for a suite
+# that otherwise only needs MySQL. fakeredis implements the exact `redis` client API
+# this code calls (get/setex/delete/sadd/smembers/ttl/expire), including TTL
+# semantics, so the code under test is the production code path.
+fakeredis==2.26.2

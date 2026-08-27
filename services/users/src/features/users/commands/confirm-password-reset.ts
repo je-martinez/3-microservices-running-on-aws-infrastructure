@@ -1,6 +1,7 @@
 import type { Db } from "#shared/db/prisma";
 import type { AuthProvider } from "#shared/auth/auth-provider";
 import type { ResetCodeStore } from "#shared/cache/reset-code-store";
+import type { CacheGateway } from "#shared/cache/cache-gateway";
 import type { MetricsPublisher } from "#shared/metrics/cloudwatch-metrics";
 import { runAsActor } from "#shared/audit/actor-context";
 import { AuditActor } from "#shared/audit/audit-actor";
@@ -9,6 +10,7 @@ import { setLogContext } from "#shared/logging/log-context";
 import { hashEmail } from "#shared/logging/email-hash";
 import { maskEmail } from "#shared/logging/email-mask";
 import { InvalidResetCodeError } from "#shared/auth/auth-errors";
+import { ME_KEY_PREFIX, meCacheKey } from "#shared/cache/cache-keys";
 import { trace } from "@opentelemetry/api";
 import { withWorkflowSpan } from "#shared/observability/workflow-tracing";
 
@@ -29,22 +31,26 @@ export class ConfirmPasswordResetCommand {
   private readonly auth: AuthProvider;
   private readonly resetCodeStore: ResetCodeStore;
   private readonly metrics: MetricsPublisher;
+  private readonly cacheGateway: CacheGateway;
 
   constructor({
     db,
     auth,
     resetCodeStore,
     metricsPublisher,
+    cacheGateway,
   }: {
     db: Db;
     auth: AuthProvider;
     resetCodeStore: ResetCodeStore;
     metricsPublisher: MetricsPublisher;
+    cacheGateway: CacheGateway;
   }) {
     this.db = db;
     this.auth = auth;
     this.resetCodeStore = resetCodeStore;
     this.metrics = metricsPublisher;
+    this.cacheGateway = cacheGateway;
   }
 
   // NEVER put `input.code` or `input.newPassword` on a span attribute. Both are
@@ -118,6 +124,22 @@ export class ConfirmPasswordResetCommand {
         data: { mustChangePassword: false },
       }),
     );
+
+    // ==== WHY A PASSWORD RESET INVALIDATES THE PROFILE CACHE ====
+    // Nothing password-related is ever cached. But the write above CLEARS
+    // `mustChangePassword`, which is a field of UserSchema and therefore part
+    // of the cached GET /v1/users/me body. Without this the frontend keeps
+    // reading `mustChangePassword: true` for up to five minutes after the
+    // reset and sends the user round the forced-change flow again.
+    //
+    // AFTER the write has persisted, never before. This flow is unauthenticated
+    // (identified by email, not by x-user-id), so the key's sub half comes from
+    // the row itself; a user whose Cognito identity was never captured has no
+    // sub and therefore no cached entry to drop.
+    const cognitoSub = (user as { cognitoSub?: string | null } | null)?.cognitoSub;
+    if (cognitoSub) {
+      await this.cacheGateway.invalidate(ME_KEY_PREFIX, meCacheKey(cognitoSub, user!.id));
+    }
 
     // Mirror the cleared flag onto Cognito so the next token carries
     // must_change_password=false. Best-effort for the same reason as in

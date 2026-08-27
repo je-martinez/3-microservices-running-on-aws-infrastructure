@@ -33,7 +33,10 @@ Run `nvm use` first (repo pins Node **24.18.0**), and **pnpm only** — never np
 
 **Gatling** (`e2e/load-tests/`):
 - `pnpm run smoke` (~30s sanity) · `pnpm run load` · `pnpm run users` ·
-  `pnpm run auth-codes`
+  `pnpm run auth-codes` · `pnpm run cache-ab` (the cache A/B; drive it via
+  `make load-test-cache-ab-on` / `-off`, which flip `CACHE_ENABLED` and restart
+  the services for you — then `make cache-toggle V=true` to restore, or every
+  cache spec fails with "no X-Cache header at all")
 - **No JDK.** The CLI downloads its own runtime into `~/.gatling/`.
 - Tune any profile without editing a file:
   `pnpm exec gatling run --typescript --simulation fullJourney usersPerSec=5 duration=600`

@@ -22,6 +22,7 @@
     "load": "tsc --noEmit && gatling run --typescript --simulation fullJourney",
     "users": "tsc --noEmit && gatling run --typescript --simulation usersJourney",
     "auth-codes": "tsc --noEmit && gatling run --typescript --simulation authCodes",
+    "cache-ab": "tsc --noEmit && gatling run --typescript --simulation cacheAB",
     "delete-account": "tsc --noEmit && gatling run --typescript --simulation accountDeletion"
   }
 }

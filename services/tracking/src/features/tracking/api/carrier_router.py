@@ -37,7 +37,7 @@ from __future__ import annotations
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Path, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Path, status
 
 from src.features.tracking.api.errors import RejectedStatusUpdate
 from src.features.tracking.api.schemas import (
@@ -51,6 +51,8 @@ from src.features.tracking.commands.update_status import (
     update_tracking_status,
 )
 from src.features.tracking.domain.status import InvalidTransitionError
+from src.shared.cache.invalidation import invalidate_tracking
+from src.shared.http.cache_dependencies import CacheEnabledDep, CacheGatewayDep
 from src.shared.http.carrier_auth import CarrierAuth
 from src.shared.http.dependencies import WriteSession
 from src.shared.observability import workflow_span
@@ -83,6 +85,9 @@ INVALID_STATUS_REASON = "invalid_status"
 def update_status(
     session: WriteSession,
     payload: UpdateStatusRequest,
+    background: BackgroundTasks,
+    cache: CacheGatewayDep,
+    cache_enabled: CacheEnabledDep,
     order_id: Annotated[str, Path(description="The order's id")],
 ) -> TrackingResponse:
     """Advance a tracking's status and append the transition to its history.
@@ -138,6 +143,53 @@ def update_status(
         span.set_attribute("app_event", "carrier_status_update_succeeded")
         span.set_attribute("tracking_id", tracking.id)
         span.set_attribute("status", tracking.status)
+
+        # ---------------------------------------------------------------
+        # Invalidation is SCHEDULED, not executed here — and the ordering is
+        # the whole point.
+        #
+        # This handler does not own the transaction. `get_write_session`
+        # (shared/http/dependencies.py) is a GENERATOR dependency over
+        # `write_session()` (shared/db/engine.py), whose body is
+        # `yield session; session.commit()`. FastAPI resumes a generator
+        # dependency only after the handler has returned and the response has
+        # been produced. So at THIS line the update is written but not
+        # committed.
+        #
+        # Deleting the key now would open exactly the window the design
+        # forbids: between the DELETE and the COMMIT, a concurrent read
+        # misses, queries MySQL, reads the PRE-update row (its transaction
+        # cannot see an uncommitted change), and writes that stale body back
+        # under the key just cleared — where it then serves a superseded
+        # status for a full 60s TTL. Invalidating before the write lands is
+        # worse than not invalidating at all, because it looks correct.
+        #
+        # A BackgroundTask runs after the response is sent, which is after
+        # every dependency teardown, which is after `session.commit()`. That
+        # ordering is a property of the ASGI response cycle, not a timing
+        # hope.
+        #
+        # The identities come off the PERSISTED entity, never the request —
+        # the carrier sends none (no `x-user-id`; the gateway route is
+        # `auth = false`). They are read HERE, as arguments to `add_task`, so
+        # they are plain strings by the time the session is gone. Passing the
+        # `Tracking` entity itself would be the bug: `write_session` closes
+        # the session in its `finally`, and touching a detached instance
+        # afterwards is a bet on `expire_on_commit=False` that two strings
+        # make unnecessary.
+        #
+        # None of the three failure branches above needs a guard: each raises
+        # out of the handler, so this line is never reached and no task is
+        # scheduled, while `write_session` rolls back. Structural, rather than
+        # a status check somebody can forget to update.
+        if cache_enabled:
+            background.add_task(
+                invalidate_tracking,
+                cache,
+                order_id=order_id,
+                cognito_sub=tracking.cognito_sub,
+                user_id=tracking.user_id,
+            )
 
         logger.info(
             "carrier_status_update_succeeded",

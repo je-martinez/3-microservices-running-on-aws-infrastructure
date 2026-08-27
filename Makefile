@@ -50,7 +50,7 @@ export EXECUTION_LOG_TABLE ?= 3mrai-local-tfstate-execution-log
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke backend-up infra-init infra-plan infra-up post-infra infra-down infra-output env-file migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean observability-up observability-down observability-dashboards observability-traces-schema redeploy-lambdas scripts-setup ai-sync ai-sync-check
+.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke cache-toggle load-test-cache-ab-on load-test-cache-ab-off backend-up infra-init infra-plan infra-up post-infra infra-down infra-output env-file migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean observability-up observability-down observability-dashboards observability-traces-schema redeploy-lambdas scripts-setup ai-sync ai-sync-check
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -146,6 +146,48 @@ load-test-smoke: ## Short Gatling run (~20s) to check the simulation still works
 	  API_GATEWAY_URL="$$(grep '^API_GATEWAY_URL=' ../../.env.local.infra | cut -d= -f2-)" \
 	  TRACKING_CARRIER_API_KEY="$$(grep '^TRACKING_CARRIER_API_KEY=' ../../.env.local.tracking | cut -d= -f2-)" \
 	  pnpm run smoke
+
+cache-toggle: ## Flip CACHE_ENABLED in all three env files + restart. Usage: make cache-toggle V=false
+	@# CACHE_ENABLED lives in the CUSTOM box of each generated env file, which
+	@# `make env-file` preserves verbatim — so this edit survives a regeneration.
+	@# Editing the AUTO box instead would be silently reverted on the next apply.
+	@#
+	@# `sed -i ''` is the BSD/macOS spelling this repo's tooling assumes
+	@# (Platform: darwin); on GNU sed it must be a bare `-i`. Shell rather than
+	@# Python only because a Make recipe IS shell by definition — the repo's
+	@# Python-first rule governs standalone scripts, and this is in-recipe glue.
+	@test -n "$(V)" || { echo "Usage: make cache-toggle V=true|false"; exit 1; }
+	@for f in .env.local.orders .env.local.tracking .env.local.users; do \
+	  grep -q '^CACHE_ENABLED=' $$f || { echo "CACHE_ENABLED missing from $$f — is Task 1 merged?"; exit 1; }; \
+	  sed -i '' "s/^CACHE_ENABLED=.*/CACHE_ENABLED=$(V)/" $$f; \
+	  echo "$$f: $$(grep '^CACHE_ENABLED=' $$f)"; \
+	done
+	@# The flag is read at process start, so the services MUST be restarted for
+	@# it to take effect. `--force-recreate` because compose does NOT recreate a
+	@# container merely because its env_file changed on disk.
+	docker compose up -d --force-recreate users orders tracking
+	@echo "Waiting for the three services to answer their health checks..."
+	@until curl -sf http://localhost:3000/v1/health >/dev/null; do sleep 1; done
+	@until curl -sf http://localhost:3001/v1/health >/dev/null; do sleep 1; done
+	@until curl -sf http://localhost:3002/v1/health >/dev/null; do sleep 1; done
+	@echo "All three services healthy with CACHE_ENABLED=$(V)."
+
+load-test-cache-ab-on: ## A/B leg A — the cache simulation with CACHE_ENABLED=true.
+	$(MAKE) cache-toggle V=true
+	cd e2e/load-tests && \
+	  API_GATEWAY_URL="$$(grep '^API_GATEWAY_URL=' ../../.env.local.infra | cut -d= -f2-)" \
+	  TRACKING_CARRIER_API_KEY="$$(grep '^TRACKING_CARRIER_API_KEY=' ../../.env.local.tracking | cut -d= -f2-)" \
+	  pnpm run cache-ab leg=cache-on
+
+load-test-cache-ab-off: ## A/B leg B — the SAME simulation with CACHE_ENABLED=false.
+	@# Leaves the flag OFF when it finishes. Run `make cache-toggle V=true`
+	@# afterwards: with it off, every assertion in e2e/tests/cache.spec.ts and
+	@# tests/gateway/cache.spec.ts fails with "no X-Cache header at all".
+	$(MAKE) cache-toggle V=false
+	cd e2e/load-tests && \
+	  API_GATEWAY_URL="$$(grep '^API_GATEWAY_URL=' ../../.env.local.infra | cut -d= -f2-)" \
+	  TRACKING_CARRIER_API_KEY="$$(grep '^TRACKING_CARRIER_API_KEY=' ../../.env.local.tracking | cut -d= -f2-)" \
+	  pnpm run cache-ab leg=cache-off
 
 test-all: ## All three layers for both services (unit + internal E2E + gateway E2E). E2E needs the stack up.
 	$(MAKE) test-unit

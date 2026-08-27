@@ -99,7 +99,8 @@ from __future__ import annotations
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Path, Query, status
+from fastapi import APIRouter, HTTPException, Path, Query, Response, status
+from pydantic import BaseModel
 
 from src.features.tracking.api.schemas import (
     TrackingListResponse,
@@ -109,6 +110,8 @@ from src.features.tracking.queries.get_my_trackings import (
     get_my_tracking_by_order_id,
     get_my_trackings_by_order_ids,
 )
+from src.shared.cache.keys import CacheKeys
+from src.shared.http.cache_dependencies import CacheEnabledDep, CacheGatewayDep
 from src.shared.http.dependencies import ReadSession
 from src.shared.http.log_identity import IdentifiedCaller
 from src.shared.observability import workflow_span
@@ -129,6 +132,98 @@ TOO_MANY_ORDER_IDS_REASON = "too_many_order_ids"
 #: `reason` for the single read's `404`. The token the `get_tracking_failed` line
 #: already logs — the span and the log are the same field seen from two systems.
 NOT_FOUND_REASON = "not_found"
+
+#: Both reads carry the same TTL: a tracking advances through the carrier
+#: webhook, which invalidates explicitly, so the TTL is only the safety net
+#: bounding how long a MISSED invalidation could serve stale data.
+READ_TTL_SECONDS = 60
+
+
+def _serve_cached(
+    response: Response,
+    cache: CacheGatewayDep,
+    cache_enabled: CacheEnabledDep,
+    key: str | None,
+) -> dict | None:
+    """Consult the cache and stamp the response headers. Returns the body, or None.
+
+    Three outcomes, and the header is the only place they are distinguishable to
+    a client:
+
+    * `HIT`    — a body, plus `X-Cache-TTL`. The handler does not run.
+    * `MISS`   — no body. The handler runs; `_store_cached` writes the result.
+    * `BYPASS` — no body, and Redis was unreachable. Kept distinct from MISS so
+      an outage does not read as a poor hit rate on the dashboard.
+
+    `key is None` means the caller's `user_id` could not be resolved, so no key
+    can be built (see `CacheKeys`). That is a MISS with no write — the read is
+    served correctly and simply is not cached.
+
+    With `CACHE_ENABLED=false` this returns None and stamps NOTHING: a disabled
+    cache emits no header at all, which is what makes the load test's A/B run
+    comparable — the control arm looks exactly like a service with no cache.
+
+    ## The header is the ONLY thing set here — `cache_result` is NOT merged
+
+    Setting the log field from this function would be the obvious thing, and it
+    does not work. These handlers are plain `def`, so FastAPI runs them in its
+    threadpool, and a threadpool worker holds a COPY of the request's context.
+    `merge_log_context` REBINDS the ContextVar rather than mutating the dict, so
+    a rebind performed on the worker's copy dies with that copy when the handler
+    returns: the field is visible inside the handler and absent from the
+    `request completed` line. A silent failure, with nothing anywhere reporting
+    it — the same trap `log_identity.py` documents twice.
+
+    `LogContextMiddleware._capture_cache_result` reads the header back off
+    `http.response.start` instead, in the request's own task, and merges it
+    there. See that function for the full reasoning.
+    """
+    if not cache_enabled:
+        return None
+    if key is None:
+        response.headers["X-Cache"] = "MISS"
+        return None
+
+    entry = cache.get(key)
+    if entry.bypassed:
+        response.headers["X-Cache"] = "BYPASS"
+        return None
+    if entry.hit:
+        response.headers["X-Cache"] = "HIT"
+        if entry.ttl_remaining is not None:
+            response.headers["X-Cache-TTL"] = str(entry.ttl_remaining)
+        return entry.value
+    response.headers["X-Cache"] = "MISS"
+    return None
+
+
+def _store_cached(
+    cache: CacheGatewayDep,
+    cache_enabled: CacheEnabledDep,
+    key: str | None,
+    index_key: str | None,
+    body: BaseModel,
+) -> None:
+    """Write a successful response into the cache. Only ever called on a 200.
+
+    Reached only after the handler returned normally, so a `404`, a `400` and a
+    `401` — each of which raises — can never get here. That is deliberately
+    structural rather than a status check: a status check is something a future
+    branch can forget to update, while an exception simply never arrives.
+
+    `body.model_dump(mode="json")` and not `.model_dump()`: the response carries
+    `datetime` fields, and `mode="json"` is what renders them as the ISO strings
+    `json.dumps` can serialize — without it the gateway's `json.dumps` raises
+    `TypeError`, which it swallows, and the entry is silently never written.
+    """
+    if not cache_enabled or key is None:
+        return
+    cache.set(
+        key,
+        body.model_dump(mode="json"),
+        READ_TTL_SECONDS,
+        index_key=index_key,
+    )
 
 
 def _parse_order_ids(raw: str) -> list[str]:
@@ -164,6 +259,9 @@ def _parse_order_ids(raw: str) -> list[str]:
 def get_trackings(
     caller: IdentifiedCaller,
     session: ReadSession,
+    response: Response,
+    cache: CacheGatewayDep,
+    cache_enabled: CacheEnabledDep,
     order_ids: Annotated[
         str,
         Query(
@@ -182,6 +280,25 @@ def get_trackings(
     exist" — see the ownership rule in the module docstring.
     """
     parsed = _parse_order_ids(order_ids)
+
+    # `resolved_internal_user_id`, the PROPERTY, not `resolve_internal_user_id()`:
+    # the id has already been resolved and memoized by `stamp_caller_user_id`
+    # before this handler ran, so the property IS the resolved value. Calling the
+    # method instead would raise `UnknownUserError` on a caller Users cannot
+    # resolve — turning a 200 this service serves fine today into a 500, which is
+    # exactly the regression the "skip caching when unresolved" rule prevents.
+    user_id = caller.resolved_internal_user_id
+    key = CacheKeys.tracking_list(caller.cognito_sub, user_id, parsed)
+
+    cached = _serve_cached(response, cache, cache_enabled, key)
+    if cached is not None:
+        # Validated back through the response model rather than returned raw: a
+        # stored entry written by an older deployment could have a shape this
+        # version no longer serves, and a validation error here is caught by the
+        # gateway's own JSON guard on the next read. Returning the model also
+        # means FastAPI serializes it exactly as it does a fresh one, so a HIT
+        # and a MISS are byte-identical bodies.
+        return TrackingListResponse.model_validate(cached)
 
     # Parsed BEFORE the span opens, so `requested_count` is the number of distinct
     # ids the read will actually run against rather than however many commas the
@@ -232,12 +349,24 @@ def get_trackings(
         span.set_attribute("app_event", "list_trackings_succeeded")
         span.set_attribute("found_count", len(found))
 
-        return TrackingListResponse(
+        result = TrackingListResponse(
             trackings=[
                 TrackingResponse.from_entity(item.tracking, item.history)
                 for item in found
             ]
         )
+
+    # Written OUTSIDE the span, after it closes: the cache write is not part of
+    # the business flow the span names, and a Redis round trip inside it would
+    # inflate the duration a reader takes for "how long the read took".
+    _store_cached(
+        cache,
+        cache_enabled,
+        key,
+        CacheKeys.user_index(caller.cognito_sub, user_id) if user_id else None,
+        result,
+    )
+    return result
 
 
 @router.get(
@@ -255,6 +384,9 @@ def get_trackings(
 def get_tracking(
     caller: IdentifiedCaller,
     session: ReadSession,
+    response: Response,
+    cache: CacheGatewayDep,
+    cache_enabled: CacheEnabledDep,
     order_id: Annotated[str, Path(description="The order's id")],
 ) -> TrackingResponse:
     """Return one of the caller's trackings with its history, or `404`.
@@ -265,6 +397,14 @@ def get_tracking(
     `cognito_sub` are part of the shared context and are safe to log, unlike the
     shipping address, which this surface does not even carry.
     """
+    # The property, never the method — see the note in `get_trackings`.
+    user_id = caller.resolved_internal_user_id
+    key = CacheKeys.tracking_order(caller.cognito_sub, user_id, order_id)
+
+    cached = _serve_cached(response, cache, cache_enabled, key)
+    if cached is not None:
+        return TrackingResponse.model_validate(cached)
+
     with workflow_span(
         "get_tracking",
         app_event="get_tracking_started",
@@ -302,4 +442,14 @@ def get_tracking(
         span.set_attribute("tracking_id", found.tracking.id)
         span.set_attribute("status", found.tracking.status)
 
-        return TrackingResponse.from_entity(found.tracking, found.history)
+        result = TrackingResponse.from_entity(found.tracking, found.history)
+
+    # See `get_trackings`: written after the span closes, not inside it.
+    _store_cached(
+        cache,
+        cache_enabled,
+        key,
+        CacheKeys.user_index(caller.cognito_sub, user_id) if user_id else None,
+        result,
+    )
+    return result

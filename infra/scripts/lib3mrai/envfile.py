@@ -100,17 +100,30 @@ def write_env_file(
 ) -> None:
     """Write `path` with a fresh AUTO box and the file's existing CUSTOM block.
 
-    `custom_defaults` seed the CUSTOM box only when the file has no custom
-    content yet — a first run gets working defaults, and later runs never
-    overwrite what the developer changed.
+    `custom_defaults` seed the CUSTOM box PER KEY: a default is appended only
+    when that key is absent from the box, so a first run gets working defaults
+    and later runs never overwrite what the developer changed.
+
+    Per key, not all-or-nothing, because the two are indistinguishable on a
+    first run and diverge the moment a NEW default is added to a service that
+    already has a CUSTOM box — which is every existing checkout. Seeding only
+    an empty box would silently skip the new key for everyone but a fresh
+    clone, and the service would boot without it (JE-195).
     """
     for key, value in generated.items():
         if value is None or value == "":
             raise MissingValue(f"{path.name}: required value '{key}' is empty")
 
     existing_custom = read_custom_block(path)
-    if not existing_custom and custom_defaults:
-        existing_custom = [f"{k}={v}" for k, v in custom_defaults.items()]
+    for key, value in (custom_defaults or {}).items():
+        # A commented-out assignment counts as present: the developer
+        # deliberately disabled it, and re-seeding would silently undo that.
+        if not any(
+            line.split("=", 1)[0].strip().lstrip("#").strip() == key
+            for line in existing_custom
+            if "=" in line
+        ):
+            existing_custom.append(f"{key}={value}")
 
     out: list[str] = [f"# {header}", AUTO_BEGIN]
     out += [f"{k}={v}" for k, v in generated.items()]

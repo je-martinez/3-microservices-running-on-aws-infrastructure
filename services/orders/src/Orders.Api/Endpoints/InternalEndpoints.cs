@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Orders.Api.Identity;
 using Orders.Application.Abstractions;
+using Orders.Infrastructure.Caching;
 using Orders.Infrastructure.Carts;
 using Orders.Infrastructure.Observability;
 using Orders.Infrastructure.Persistence;
@@ -39,6 +40,10 @@ public static class InternalEndpoints
             IConfiguration config,
             OrdersWriteDbContext db,
             IWorkflowTracer tracer,
+            // The INTERFACE, never ICacheGateway: with CACHE_ENABLED=false no gateway is
+            // registered at all, and resolving one directly would make the kill switch
+            // take this route down. NoopCacheInvalidator satisfies this in that branch.
+            ICacheInvalidator cache,
             // Injected rather than loggerFactory.CreateLogger("…literal…"): every other
             // logging site in Orders takes ILogger<T>, and a hand-typed category string
             // silently diverges from reality the moment this file is renamed or moved,
@@ -254,6 +259,41 @@ public static class InternalEndpoints
                         tracer.SetReason("db_error");
                         throw;
                     }
+
+                    // AFTER the cascade has committed, and OUTSIDE the try above — which
+                    // rethrows, so reaching this line already means every statement landed.
+                    // Invalidating earlier would be wrong in the way the write services
+                    // document: a concurrent read in the window before the commit would
+                    // repopulate the entries with the pre-deletion state, and they would
+                    // then sit there, stale, for their full TTL — up to an hour for the
+                    // identity mapping.
+                    //
+                    // FAIL-OPEN, and here that matters more than anywhere else in the
+                    // service. The rows are already gone; a Redis fault must not turn a
+                    // cascade that HAPPENED into a 500 that tells Users it did not, because
+                    // Users would then fail the whole account deletion for a person whose
+                    // orders this service has genuinely erased. ICacheInvalidator swallows
+                    // its own failures and logs a WARN with a machine-readable reason, so
+                    // nothing propagates from here.
+                    //
+                    // BOTH identities are passed, and this route is the ONLY caller that
+                    // holds both. Cache keys in this service are built from whatever the
+                    // client put in x-user-id — CallerContextMiddleware stores that header
+                    // verbatim as the sub without normalizing it, and Users' gRPC
+                    // GetUserById resolves either a usr_ id or a Cognito sub, so clients
+                    // legitimately send either. A user who authenticates with their usr_
+                    // id owns orders:index:v1:usr_… and identity:sub-to-user:v1:usr_…,
+                    // which a sweep of the sub alone never reaches.
+                    //
+                    // Passing only the sub here was a DATA LEAK, not an inefficiency: the
+                    // cascade deleted a sub-keyed index that had never existed while the
+                    // deleted user's real usr_-keyed entries survived, so GET
+                    // /v1/orders/my-orders kept replaying an erased account's orders from
+                    // cache (X-Cache: HIT) for up to 2 minutes, and their identity mapping
+                    // kept resolving for up to an hour. The invalidator deduplicates, so
+                    // the direct path — where both fields hold the same usr_ id — still
+                    // issues one sweep.
+                    await cache.InvalidateDeletedUserAsync(body.CognitoSub, body.UserId, ct);
 
                     // Carries BOTH subjects and all three counts. Without cognito_sub the
                     // line could not be joined to a user at all, and the detail/cart counts

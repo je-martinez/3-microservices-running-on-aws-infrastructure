@@ -22,6 +22,9 @@ alembic==1.14.1
 # mysqlclient. The DSN is mysql+pymysql:// (see .env.local.tracking).
 pymysql==1.1.1
 nanoid==2.0.0
+# Redis client for the response cache. Runtime dependency (the service dials
+# Redis on every cached read), so it lives here rather than in requirements.txt.
+redis==5.2.1
 # gRPC CLIENT only — Tracking serves no gRPC (JE-108 removed the server). This is
 # here for the outbound call to Users' `GetUserById`, which resolves the caller's
 # Cognito sub to the internal `usr_` id (JE-101). `protobuf` is pinned alongside it

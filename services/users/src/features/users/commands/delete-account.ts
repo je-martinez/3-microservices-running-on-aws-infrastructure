@@ -3,6 +3,7 @@ import type { AuthProvider } from "#shared/auth/auth-provider";
 import type { CurrentUser } from "#shared/auth/current-user";
 import type { CascadeClient } from "#shared/http/cascade-client";
 import type { MetricsPublisher } from "#shared/metrics/cloudwatch-metrics";
+import type { CacheGateway } from "#shared/cache/cache-gateway";
 import { runAsActor } from "#shared/audit/actor-context";
 import { AuditActor } from "#shared/audit/audit-actor";
 import { appLogger } from "#shared/logging/app-logger";
@@ -11,6 +12,7 @@ import { setLogContext } from "#shared/logging/log-context";
 import { trace } from "@opentelemetry/api";
 import { CascadeFailedError, CascadeUnavailableError } from "#shared/http/cascade-client";
 import { withWorkflowSpan } from "#shared/observability/workflow-tracing";
+import { ME_KEY_PREFIX, meCacheKey } from "#shared/cache/cache-keys";
 
 export type DeleteAccountResult = "deleted" | "not_found";
 
@@ -33,22 +35,31 @@ export class DeleteAccountCommand {
   private readonly cascade: CascadeClient;
   private readonly auth: AuthProvider;
   private readonly metrics: MetricsPublisher;
+  // OPTIONAL on purpose, mirroring `resolveGateway`'s guard in cache-hooks.ts.
+  // With CACHE_ENABLED=false the gateway is still registered and simply no-ops,
+  // but a container that registers none at all (the route tests build exactly
+  // that) must still be able to delete an account. An account deletion that
+  // 500s because no cache is wired would be a far worse bug than a stale entry.
+  private readonly cacheGateway: CacheGateway | undefined;
 
   constructor({
     db,
     cascade,
     auth,
     metricsPublisher,
+    cacheGateway,
   }: {
     db: Db;
     cascade: CascadeClient;
     auth: AuthProvider;
     metricsPublisher: MetricsPublisher;
+    cacheGateway?: CacheGateway;
   }) {
     this.db = db;
     this.cascade = cascade;
     this.auth = auth;
     this.metrics = metricsPublisher;
+    this.cacheGateway = cacheGateway;
   }
 
   async execute(currentUser: CurrentUser): Promise<DeleteAccountResult> {
@@ -143,6 +154,50 @@ export class DeleteAccountCommand {
     await runAsActor(AuditActor.DeleteAccount, () =>
       this.db.user.delete({ where: { id: target.id } }),
     );
+
+    // 3b — drop the cached GET /v1/users/me body for this user.
+    //
+    // ==== WHY AFTER THE DELETE, NOT BEFORE ====
+    // Invalidating first leaves a window in which a concurrent read misses,
+    // queries a row that still exists, and re-populates the entry the delete
+    // was about to orphan — a profile for a deleted account, readable for the
+    // full 5-minute TTL. Running after the write means the worst case is a
+    // stale entry the TTL still clears, never a freshly-minted one.
+    //
+    // The key needs `cognitoSub` and `id`, and both are already in hand from
+    // `currentUser.resolve()` above (the `!target.cognitoSub` guard has also
+    // already proved the sub is non-null). No pre-read is needed here — unlike
+    // E2eCleanupCommand, which had to fetch its rows before deleting them
+    // because the soft-delete extension hides them from every later find*.
+    //
+    // FAIL-OPEN, exactly like the Cognito step below: Postgres has committed,
+    // so throwing on a Redis failure would report a deletion that did not
+    // happen when it did. `invalidate` already swallows its own failures
+    // (CacheGateway), so this catch is belt-and-braces for a gateway that
+    // rejects some other way.
+    try {
+      await this.cacheGateway?.invalidate(
+        ME_KEY_PREFIX,
+        meCacheKey(target.cognitoSub, target.id),
+      );
+    } catch (err) {
+      // WARN, not ERROR: nothing is broken for the user — the account IS gone,
+      // and the stale entry expires on its own. `reason` is machine-readable
+      // per [[logging-context]]. Only the key PREFIX is ever logged; the full
+      // key carries cognito_sub and user_id.
+      appLogger.warn(
+        {
+          err,
+          app_event: "cache_unavailable",
+          reason: "redis_error",
+          cache_operation: "del",
+          cache_key_prefix: ME_KEY_PREFIX,
+          email_hash,
+          user_id: target.id,
+        },
+        "Account deleted, but its cached profile could not be invalidated; it expires on its own TTL",
+      );
+    }
 
     // 4 — Cognito: the point of no return, and what actually frees the email.
     //
