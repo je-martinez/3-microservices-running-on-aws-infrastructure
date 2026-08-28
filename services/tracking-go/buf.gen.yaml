@@ -1,0 +1,19 @@
+# Generates the Go client stubs for the SHARED proto at ../../proto/users.proto.
+#
+# buf rather than protoc: protoc is a native binary this machine does not have,
+# while buf installs with `go install` like every other tool here. The Python
+# service commits its generated stubs for the same reason -- generation needs a
+# toolchain the runtime image should not carry.
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/grpcusers/gen
+plugins:
+  - local: protoc-gen-go
+    out: internal/adapter/grpcusers/gen
+    opt: paths=source_relative
+  - local: protoc-gen-go-grpc
+    out: internal/adapter/grpcusers/gen
+    opt: paths=source_relative
