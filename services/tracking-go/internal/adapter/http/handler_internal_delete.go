@@ -61,6 +61,29 @@ func NewInternalDeleteHandler(uc *app.DeleteByUser, log *slog.Logger, tracer tra
 	return &InternalDeleteHandler{uc: uc, log: log, tracer: tracer}
 }
 
+// RegisterInternalDelete mounts DELETE /v1/trackings/by-user BEHIND the internal
+// key guard.
+//
+// The guard is applied HERE, in the same call that mounts the route, and that is
+// the whole reason this seam exists rather than two lines in main.go. This is the
+// widest blast radius in the service — an unauthenticated mass soft-delete — and
+// a route mounted in one place while its guard is applied in another is a route
+// somebody eventually mounts without the guard.
+//
+// internalAPIKey is GRPC_API_KEY, the shared service-to-service secret, NEVER
+// TRACKING_CARRIER_API_KEY: handing an external carrier a credential that also
+// erases a user's delivery history is exactly the confusion the two separate
+// config fields exist to prevent.
+//
+// The literal `by-user` sits where GET /v1/trackings/:order_id's wildcard also
+// matches, and coexists with it ONLY because Gin keeps one radix tree per METHOD
+// and these are DELETE. A GET literal under this prefix would panic the process
+// at startup — see NewRouter.
+func RegisterInternalDelete(router gin.IRouter, handler *InternalDeleteHandler, internalAPIKey string) {
+	group := router.Group("/v1/trackings", RequireInternalKey(internalAPIKey, handler.log))
+	group.DELETE("/by-user", handler.Handle)
+}
+
 // Handle soft-deletes the user's trackings and, through the FK, their history.
 //
 // It NEVER logs the api key that authenticated it, in any form. Both identities

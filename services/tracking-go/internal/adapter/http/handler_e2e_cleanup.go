@@ -45,6 +45,30 @@ func NewE2ECleanupHandler(uc *app.E2ECleanup, log *slog.Logger, tracer trace.Tra
 	return &E2ECleanupHandler{uc: uc, log: log, tracer: tracer}
 }
 
+// RegisterE2ECleanup mounts DELETE /v1/trackings/e2e-cleanup.
+//
+// # CALL THIS ONLY WHEN E2E_TESTING_ENABLED
+//
+// The flag check is the CALLER's, deliberately, and this function takes no flag
+// argument at all. A guard parameter here would make "registered but refusing" an
+// expressible state, and a route that exists and answers 403 is still a route: it
+// appears in the OpenAPI document, it is probeable, and it is one edited condition
+// away from being live. Not existing is the stronger guarantee, and it is what the
+// Python does (`if e2e_testing_enabled(): app.include_router(...)`) and what Users
+// and Orders both do.
+//
+// With the flag off and the route absent, a DELETE to this path answers 405 rather
+// than 404 — GET /v1/trackings/:order_id matches it in another method's tree and
+// HandleMethodNotAllowed is on. That 405 is the Python's answer too.
+//
+// No auth middleware, and that is not an omission: the harness's teardown runs
+// once, globally, with no user session, so a route requiring a caller would answer
+// 401 to its only real caller. What protects it is the conjunction documented on
+// E2ECleanupHandler — this registration being conditional is one half of it.
+func RegisterE2ECleanup(router gin.IRoutes, handler *E2ECleanupHandler) {
+	router.DELETE("/v1/trackings/e2e-cleanup", handler.Handle)
+}
+
 // Handle soft-deletes every live tracking tagged as an E2E fixture.
 //
 // 200 with {"deleted": N} rather than a bodiless 204, ALWAYS — including zero
