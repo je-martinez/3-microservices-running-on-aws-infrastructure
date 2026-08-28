@@ -19,6 +19,7 @@ related:
   - "[[2026-08-27-tracking-go-migration]]"
   - "[[ADR-0021-tracking-go-gin-sqlc-stack]]"
   - "[[testing]]"
+  - "[[2026-08-27-go-vs-python-performance]]"
 ---
 
 # Tracking Go Migration Milestone
@@ -82,7 +83,7 @@ proves equivalence.
 | 23 | `openapi.yaml` generation + comparison test | `internal/openapi/{spec.go,allowlist.go}`, `cmd/genopenapi/main.go` | [[2026-08-27-tracking-go-migration]] |
 | 24 | TestMode automatic progression | `internal/app/progression.go`, `internal/adapter/http/progression_hook.go` | [[testmode-in-process-asyncio-task]] |
 | 25 | The three test layers | `internal/adapter/mysql/suite_test.go`, `docker-compose.yml` (+`tracking-go` service), nginx switch | [[testing]] |
-| 26 | Performance comparison | measured Gatling comparison (`e2e/load-tests/`), vault note via `obsidian-vault` | [[2026-08-27-tracking-go-migration]] |
+| 26 | Performance comparison | measured Gatling comparison (`e2e/load-tests/`), vault note via `obsidian-vault` — see [[2026-08-27-go-vs-python-performance]] (**partially met**: resource/startup metrics measured, load-test latency deferred — see below) | [[2026-08-27-tracking-go-migration]] |
 | 27 | Observability parity | `internal/adapter/otel/propagation_test.go`, vault note via `obsidian-vault` | [[logging-context]] |
 | 28 | Delete the Python service | `git rm -r services/tracking`, nginx/Makefile/env-file updates | [[2026-08-27-tracking-go-migration]] |
 
@@ -330,6 +331,18 @@ Per [[phase-c-review-flow]]:
    confirmed against the actual diff, not assumed from a green test run alone (see
    [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]]).
 
+   > [!warning] Criterion 3 (Performance) is only PARTIALLY met as of Task 26
+   > [[2026-08-27-go-vs-python-performance]] measured both arms honestly and found: resource and
+   > startup metrics (image size, cold start, memory) are trustworthy and Go wins all four;
+   > latency and throughput under sustained load are **not measurable on this stack** — the
+   > local AWS emulator (Floci), not either service, is the bottleneck, and both arms collapse
+   > to a near-identical ~94% KO rate under the same load-test simulation. The note records this
+   > as unmeasured rather than estimating it, and lists what a trustworthy latency run would
+   > require (fresh `make bootstrap`, measure before the E2E suite runs, and neutralize the
+   > `METRICS_ENABLED` gate Python currently ignores on the cache path). Task 28 must not read
+   > criterion 3 as a clean pass — it is green on resource/startup and open on latency/throughput
+   > until that follow-up run happens.
+
 ## Related
 
 - [[milestone-plan]] — convention this plan follows.
@@ -343,3 +356,5 @@ Per [[phase-c-review-flow]]:
 - [[ADR-0021-tracking-go-gin-sqlc-stack]] — the stack decision (Gin + sqlc + golang-migrate)
   the whole milestone builds against.
 - [[testing]] — the three-layer test convention Task 25 closes out for the new service.
+- [[2026-08-27-go-vs-python-performance]] — Task 26's measured performance comparison; closing
+  gate criterion 3 is partially met by it (resource/startup measured, load latency deferred).

@@ -4,13 +4,14 @@ type: runbook
 area: tracking
 status: active
 created: 2026-07-31
-updated: 2026-08-06
+updated: 2026-08-27
 tags: [type/runbook, area/tracking, status/active]
 related:
   - "[[testing]]"
   - "[[tracking-service-design]]"
   - "[[user-id-vs-cognito-sub-ownership-key]]"
   - "[[orders-service-design]]"
+  - "[[2026-08-27-go-vs-python-performance]]"
 ---
 
 # Tracking Testing
@@ -83,6 +84,16 @@ This requires the local stack up via `make bootstrap` (see [[local-dev]]). The g
 auto-loads the repo-root `.env` and registers→logs in a dedicated E2E user
 (`e2e/support/auth.ts`) to obtain the real JWT used as the `Authorization: Bearer` header.
 
+## Layer 4 — performance (Go migration closing gate)
+
+[[2026-08-27-go-vs-python-performance]] records the measured Go-vs-Python comparison run as
+closing-gate criterion 3 of the [[2026-08-27-tracking-go-migration-design|Go migration]]
+(Task 26). Resource and startup metrics (image size, cold start, memory) were measured reliably
+and Go wins all four; latency and throughput under sustained load were **not** measurable on
+this stack — the local AWS emulator (Floci), not either runtime, was the bottleneck. See that
+note for the full methodology, the two measurement defects it caught, and what a trustworthy
+latency run would require.
+
 ## Checklist for a new Tracking endpoint
 
 1. Add a pytest unit/integration test under `services/tracking/tests/`, run against the live
@@ -113,3 +124,5 @@ auto-loads the repo-root `.env` and registers→logs in a dedicated E2E user
 - [[two-api-keys-two-trust-domains]]
 - [[orders-service-design]] — Orders' equivalent testing runbook and identical ownership
   pattern.
+- [[2026-08-27-go-vs-python-performance]] — the measured Go-vs-Python performance comparison,
+  the fourth verification axis alongside the three test layers above.

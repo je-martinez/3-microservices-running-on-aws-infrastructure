@@ -89,6 +89,69 @@ These apply to EVERY task. They are copied verbatim from the spec and from the e
 **Git**
 - Leave all work in the working tree. Implementers NEVER run git and never touch Linear. The main session commits via the A/B/C/D/E menu.
 
+## Plan corrections
+
+Implementing Wave 0 (2026-08-27) surfaced seven defects in this plan, already fixed in the
+committed code. Implementing Wave 2 Task 19 (2026-08-27) surfaced six more, plus one
+whole missing task. The tasks below are corrected in place; this section is the record of
+what changed and why, so a reader of a later wave does not wonder why the code diverges
+from an earlier reading of the plan.
+
+1. **Task 4:** `NewTracking.Tags` was typed `Tags` (an adapter type from Task 6, `package mysql`), which does not compile from the domain and violates the plan's own purity rule. Corrected to `[]string`, matching `Tracking.Tags`.
+2. **Task 4:** the `tracking.go` import block omitted `errors`, needed for the sentinel errors. Added.
+3. **Task 6:** the `sqlc.yaml` `tags` override named `package: mysql` — the very package sqlc generates `models.go` into — causing `import cycle not allowed`; a bare `go_type: "Tags"` is also rejected by sqlc ("not a Go basic type"). Fixed by moving `Tags` into its own package, `internal/adapter/mysql/tagtype`, referenced as `tagtype.Tags`.
+4. **Task 6:** the `shipping_address` override duplicated sqlc's own default mapping to `json.RawMessage`, causing `json redeclared in this block` (sqlc already imports `encoding/json` for a nullable JSON column). Removed the override; the resulting Go type is unchanged.
+5. **Task 2, verification query 4:** expected `DELETE_RULE='RESTRICT'`; MySQL's `information_schema.REFERENTIAL_CONSTRAINTS` actually reports `NO ACTION` for an FK with no explicit clause (confirmed against the live Alembic-managed `tracking` database too) — InnoDB treats the two as synonyms. Corrected the expected value.
+6. **Task 3's** guard-rail test trips `staticcheck` QF1001 on `!(StatusDelivered < StatusPlaced)`; De Morgan's would invert the very statement the comment tells the reader to check. Kept the assertion and added a narrow `//nolint` with that rationale.
+7. **Task 7's** HTTP tests used `httptest.NewRequest`, which the `noctx` linter (Task 1's `.golangci.yml`) rejects. Corrected to `httptest.NewRequestWithContext(t.Context(), ...)` in Task 7, and in every later task that had already copied the old idiom (Wave 2: Tasks 19–21).
+8. **Task 19's** `Execute` body set `Status: domain.StatusPlaced, Actor: audit.CreateTracking` on the `domain.NewTracking{...}` literal — neither field exists on that struct (Task 4), so it does not compile. Both are correctly NOT caller inputs: the repository itself stamps `domain.InitialStatus` and `audit.CreateTracking` when it writes the row. Removed both lines from the plan's `Execute` body.
+9. **Task 19's** `CreateTrackingInput` declared `ShippingAddress map[string]any`. The domain type (Task 4) and the sqlc column are both bytes — `ShippingAddress []byte` (`json.RawMessage`) — never a map. Corrected the field type in the plan. This is not just a compile error: a `map[string]any` round-trip through `encoding/json` destroys key order and re-formats numbers (e.g. `1.0` becomes `1`), and this field is an opaque snapshot owned by Orders that Tracking only stores verbatim — Tracking must never re-serialize it.
+10. **Task 19's** handler called `E2ESourceFromContext(c)` and `TestModeFromContext(c)`. Wave 1 (Task 16) named these functions `IsE2ESource(c)` and `IsTestMode(c)`. Corrected every reference in the plan to the real names.
+11. **Wave 2's test helpers collide across packages.** Tasks 19, 20 and 21 all hand out `newTestRouter`, `testDeps` and `ptr` inside the shared `package http_test`, and the three tasks run in parallel — the names collided immediately during implementation, and one agent renamed another's already-committed helpers to get a green build. **Corrected: each task's helpers now carry a task-specific prefix** — Task 19 (init-tracking) uses `initDeps` / `newInitRouter`; Task 20 (reads) uses `readsDeps` / `newReadsRouter`; Task 21 (carrier webhook) uses `carrierDeps` / `newCarrierRouter`. A `ptr` generic helper is defined once, in whichever of the three tasks runs first, and the other two reuse it rather than redeclaring it. **Wave 2's five tasks share test packages** (`http_test`, `app_test`, `mysql_test`) — every helper a task defines must carry that task's prefix, not a generic name, even where this plan's prose still shows the generic form.
+12. **Task 19's file list omitted `response_test.go` and the route-registration seam.** The implementation added `services/tracking-go/internal/adapter/http/response_test.go` (tests for `NewTrackingResponse` and `ISO`) and exposed `RegisterInitTracking(router gin.IRoutes, handler *InitTrackingHandler)` — mirroring Task 7's `RegisterHealth` seam — rather than registering the route inline in `main.go`. Both are now in the task's Files block and Produces section.
+13. **Task 19's repository-test sketch is vulnerable to `t.Context()` being cancelled before `t.Cleanup` runs.** The sketch's own `ctx := context.Background()` is correct, but `t.Context()` — the idiom this plan tells every HTTP test to use (correction 7) — is cancelled the instant the test function returns, **before** any `t.Cleanup` callback runs. A repository test that swaps in `t.Context()` for its DB context, or that registers `t.Cleanup(func() { truncate(t, db) })` using a context derived from `t.Context()`, fails every cleanup with `context canceled` — the truncate never completes, and the next test in the file inherits dirty rows. Corrected the sketch to add an explicit `t.Cleanup(func() { truncate(t, db) })` using `context.Background()` (never `t.Context()`) inside the cleanup, with a comment naming the trap so a later task does not copy `t.Context()` into a repository test by analogy with the HTTP tests.
+
+### Missing task — the composition root
+
+`cmd/server/main.go` (Task 7) currently wires only `adapterhttp.NewRouter()`, which
+registers `RegisterHealth` and nothing else. It has no config load, no database pool, no
+gRPC client, no cache gateway and no event publisher. Every Wave 2 task needs it, and NO
+Wave 2 task can create it without conflicting with the other four running in parallel —
+so all five correctly left it alone, each exposing a `Register*` seam instead
+(`RegisterHealth`, `RegisterInitTracking`, `RegisterCarrierRoutes`, and the reads' and
+deletes' equivalents).
+
+The plan has **no task that wires them together**. It needs one, sequenced **after Wave
+2.5 (Task 24, TestMode) and before Wave 3 (Task 25)** — after 2.5 because TestMode's
+`ProgressionHook` also needs real wiring into `main.go`, and before Wave 3 because the
+three test layers (Task 25) cannot run against a service whose routes are never
+registered; internal E2E and gateway E2E both need a running binary that actually serves
+`/v1/trackings/*`, not just `/v1/health`.
+
+What it must do:
+- Load config (Task 8's environment configuration).
+- Open the write and read database pools with `parseTime=true&loc=UTC` (Global
+  Constraints, "Time" — non-negotiable, or timestamps decode as `[]byte` / wrong zone).
+- Construct the Redis gateway (Task 14), or the null gateway when caching is disabled —
+  same pattern as `METRICS_ENABLED` below: the gateway is injected, not branched on
+  inline.
+- Construct the SQS publisher (Task 18), or the noop publisher when disabled.
+- Construct the outbound gRPC Users client (Task 17).
+- Construct the CloudWatch metrics publisher (Task 12) and start its periodic ticker.
+- Construct the OTel provider (Task 11) and register its shutdown alongside the existing
+  graceful-shutdown path.
+- Wire the middleware chain **in this order**: `gin.Recovery()` OUTSIDE
+  `LogContextMiddleware` — Recovery must sit further from the handler so it observes a
+  panic unwinding through the log-context middleware and re-raises it, rather than the
+  log-context middleware swallowing the unwind before Recovery ever sees it.
+- Call every `Register*` seam produced by Waves 2 and 2.5 (`RegisterHealth`,
+  `RegisterInitTracking`, the reads' registration, `RegisterCarrierRoutes`, the deletes'
+  registration, and TestMode's hook wiring).
+- Gate `METRICS_ENABLED` **here**, not inside the middleware or the use cases: the
+  metrics publisher is an injected dependency, and a `nil` publisher already disables the
+  metric at the call site (Task 12's contract). The composition root is the one place
+  that decides whether that dependency exists at all.
+
 ---
 ## Wave 0 — Foundations
 
@@ -367,7 +430,7 @@ This task translates the four Alembic revisions (`da01eaebb060` → `b17f4c2e9a3
 
 4. **`tracking_history` deliberately has NO surrogate `id`, NO `tags`, NO `shipping_address`.** All three omissions are intentional. The shipping address is fixed for the lifetime of a tracking, so snapshotting it per transition would store the same JSON five times. The composite primary key `(tracking_id, status)` is a SECOND enforcement of the forward-only state machine: a tracking can hold at most one row per status, so a duplicate transition fails at INSERT even if an application-level guard is somehow bypassed.
 
-5. **The FK carries no `ON DELETE` / `ON UPDATE` clause**, so MySQL applies `RESTRICT`. This is correct and deliberate: the application never issues `DELETE` (it soft-deletes by stamping `deleted_at`), and the database user has no `DELETE` grant. Do not "helpfully" add `ON DELETE CASCADE`.
+5. **The FK carries no `ON DELETE` / `ON UPDATE` clause**, so MySQL applies `RESTRICT`. This is correct and deliberate: the application never issues `DELETE` (it soft-deletes by stamping `deleted_at`), and the database user has no `DELETE` grant. Do not "helpfully" add `ON DELETE CASCADE`. Note for Step 4's verification query: `information_schema.REFERENTIAL_CONSTRAINTS` reports this FK's `DELETE_RULE`/`UPDATE_RULE` as `NO ACTION`, not the literal word `RESTRICT` — InnoDB treats the two as synonyms and the FK still blocks the delete either way; only the catalog's label differs from the DDL's implied default.
 
 6. **golang-migrate and Alembic are MUTUALLY BLIND.** golang-migrate tracks state in `schema_migrations (version BIGINT, dirty BOOLEAN)`; Alembic tracks it in `alembic_version (version_num VARCHAR(32))`. Neither reads the other's table. During coexistence both services share ONE database, so the baseline must be applied to an already-migrated schema as a **no-op stamp**, never re-run — re-running it would fail on `CREATE TABLE` against existing tables. Step 3 below covers this explicitly.
 
@@ -468,7 +531,13 @@ WHERE TABLE_SCHEMA = DATABASE()
 ORDER BY ORDINAL_POSITION;
 
 -- 4. The FK exists with RESTRICT (MySQL's default when no clause is given).
---    Expected: DELETE_RULE='RESTRICT', UPDATE_RULE='RESTRICT'.
+--    Expected: DELETE_RULE='NO ACTION', UPDATE_RULE='NO ACTION'. InnoDB reports
+--    NO ACTION rather than the literal word RESTRICT in this catalog view when
+--    no ON DELETE/ON UPDATE clause was given — the two are SYNONYMS in InnoDB,
+--    not a weaker behavior; the FK still blocks the delete. Verified against
+--    the live Alembic-managed `tracking` database, which reports the same
+--    NO ACTION for this FK — the SQL here was always right, only the expected
+--    value in this comment was wrong.
 SELECT CONSTRAINT_NAME, DELETE_RULE, UPDATE_RULE
 FROM information_schema.REFERENTIAL_CONSTRAINTS
 WHERE CONSTRAINT_SCHEMA = DATABASE()
@@ -665,7 +734,7 @@ Expected, query by query:
 - Query 1: two rows — `tracking / utf8mb4_unicode_ci` and `tracking_history / utf8mb4_unicode_ci`. If either says `utf8mb4_0900_ai_ci`, the `COLLATE` clause was dropped.
 - Query 2: `tags | NO | json_array()`.
 - Query 3: exactly two rows — `tracking_id | 1`, `status | 2`.
-- Query 4: `fk_tracking_history_tracking_id | RESTRICT | RESTRICT`.
+- Query 4: `fk_tracking_history_tracking_id | NO ACTION | NO ACTION`. InnoDB reports `NO ACTION` here, not `RESTRICT`, even though no `ON DELETE`/`ON UPDATE` clause was given — the two are synonyms in InnoDB (the FK still blocks the delete). Confirmed against the live Alembic-managed `tracking` database, which reports the same `NO ACTION` for its equivalent FK.
 - Query 5: two rows — `uq_tracking_order_id`, `uq_tracking_tracking_number`.
 - Query 6: exactly eight `idx_` names.
 
@@ -774,6 +843,12 @@ import (
 func TestStatusOrderIsProgressionNotAlphabetical(t *testing.T) {
 	// The guard rail for this entire file: if ordering ever came from comparing
 	// the string values, DELIVERED would sort before PLACED.
+	//
+	//nolint:staticcheck // QF1001: De Morgan's would invert this into
+	// `StatusDelivered >= StatusPlaced`, which reads as the OPPOSITE of what the
+	// comment above tells the reader to check — this is a precondition guard,
+	// not a hot path, so keep the negated form the comment explains rather than
+	// "simplifying" it back into something that contradicts its own comment.
 	if !(StatusDelivered < StatusPlaced) {
 		t.Fatal("precondition changed: DELIVERED no longer sorts before PLACED as a string")
 	}
@@ -1460,6 +1535,7 @@ Create `services/tracking-go/internal/domain/tracking.go`:
 package domain
 
 import (
+	"errors"
 	"sort"
 	"time"
 )
@@ -1639,7 +1715,13 @@ type NewTracking struct {
 
 	// Tags carries E2ESourceTag when, and only when, the request sent
 	// x-e2e-source: true AND E2E_TESTING_ENABLED is on.
-	Tags Tags
+	//
+	// Typed []string, matching Tracking.Tags — NOT the adapter's `tagtype.Tags`
+	// (Task 6, package `internal/adapter/mysql/tagtype`). The domain cannot
+	// reference an adapter type without violating the purity rule this plan
+	// itself sets: the mysql adapter converts []string <-> tagtype.Tags at its
+	// own boundary, never the other way around.
+	Tags []string
 }
 
 // TrackingWithHistory is a tracking together with its ordered history.
@@ -2199,9 +2281,9 @@ git commit -m "feat(tracking): crypto/rand nano-ID and tracking-number generator
 
 **Files:**
 - Create: `services/tracking-go/sqlc.yaml`
-- Create: `services/tracking-go/internal/adapter/mysql/tags.go`
+- Create: `services/tracking-go/internal/adapter/mysql/tagtype/tags.go`
 - Create: `services/tracking-go/internal/adapter/mysql/queries/tracking.sql`
-- Test: `services/tracking-go/internal/adapter/mysql/tags_test.go`
+- Test: `services/tracking-go/internal/adapter/mysql/tagtype/tags_test.go`
 - Generated (do not hand-edit): `services/tracking-go/internal/adapter/mysql/db.go`, `models.go`, `tracking.sql.go`
 - Modify: `services/tracking-go/Makefile` (add `sqlc-generate`, `sqlc-verify`)
 
@@ -2210,14 +2292,18 @@ git commit -m "feat(tracking): crypto/rand nano-ID and tracking-number generator
 - Produces:
 
 ```go
-package mysql
+package tagtype
 
-// Hand-written, referenced by sqlc's overrides:
+// Hand-written, referenced by sqlc's overrides. Lives in ITS OWN package,
+// separate from package mysql: an override naming package mysql for a type
+// sqlc itself generates INTO package mysql makes the generated file import
+// itself ("import cycle not allowed"). tagtype has no sqlc-generated code in
+// it, so it can be imported by the generated file without a cycle.
 type Tags []string
 func (t *Tags) Scan(src any) error
 func (t Tags) Value() (driver.Value, error)
 
-// Generated by sqlc:
+// Generated by sqlc, into package mysql, referencing tagtype.Tags:
 type Querier interface { /* one method per query in queries/tracking.sql */ }
 type Queries struct{ /* ... */ }
 func New(db DBTX) *Queries
@@ -2228,17 +2314,17 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries
 
 - `version: "2"`, `engine: "mysql"`, `sql_package: "database/sql"` (not pgx — this is MySQL), `emit_json_tags: false`.
 - `schema:` points at `migrations/` so the generated models are derived from the same DDL the database actually runs. There is no second schema definition to drift.
-- **Override `tracking.tags` to the hand-written `Tags` type** implementing `sql.Scanner` / `driver.Valuer` over `[]string`. Without the override sqlc yields `json.RawMessage`, pushing marshalling into every call site.
-- **Leave `shipping_address` as `json.RawMessage`/`[]byte`, nullable. Do NOT define a Go struct for it.** The Python explicitly rejected a strict model: the shape is owned by Orders/Users, and an additive upstream field must not turn into a creation outage for data this service only stores and never inspects.
+- **Override `tracking.tags` to `tagtype.Tags`**, a hand-written type in its own package (`internal/adapter/mysql/tagtype`) implementing `sql.Scanner` / `driver.Valuer` over `[]string`. It must NOT live in package `mysql` itself: sqlc generates `models.go` INTO package `mysql`, so an override naming `package: mysql` makes the generated file import its own package — `import cycle not allowed`. A bare `go_type: "Tags"` (no import/package) is also rejected by sqlc with "not a Go basic type". Without any override sqlc yields `json.RawMessage`, pushing marshalling into every call site.
+- **Do NOT override `shipping_address`.** sqlc already maps a nullable JSON column to `json.RawMessage` on its own and imports `encoding/json` itself; adding an override with the same target type makes the generated file import `encoding/json` twice — `json redeclared in this block`. Leaving it un-overridden yields the identical Go type (`json.RawMessage`, nullable). The Python explicitly rejected a strict model here regardless: the shape is owned by Orders/Users, and an additive upstream field must not turn into a creation outage for data this service only stores and never inspects. `models_test.go` (Step 4) asserts both override outcomes — the `Tags` override present and the `shipping_address` non-override — so a lost or incorrect override fails a test rather than silently changing a type.
 - **Backtick `` `datetime` `` in every query and alias it** (`` `datetime` AS occurred_at ``). Unbackticked it is a type keyword and produces a syntax error pointing somewhere unhelpful.
 - **`IN (sqlc.slice('ids'))` generates INVALID SQL for an EMPTY slice.** sqlc expands the placeholder per element, so zero elements yields `IN ()`, which MySQL rejects with a syntax error. **The caller must short-circuit to an empty result without querying** — exactly what the Python does. This is called out again in the query file's comments so it cannot be missed by whoever writes the repository in Wave 1.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `services/tracking-go/internal/adapter/mysql/tags_test.go`:
+Create `services/tracking-go/internal/adapter/mysql/tagtype/tags_test.go`:
 
 ```go
-package mysql
+package tagtype
 
 import (
 	"database/sql/driver"
@@ -2341,24 +2427,24 @@ var (
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd services/tracking-go && go test ./internal/adapter/mysql/
+cd services/tracking-go && go test ./internal/adapter/mysql/tagtype/
 ```
 
 Expected output:
 
 ```
-# github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/mysql [github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/mysql.test]
+# github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/mysql/tagtype [github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/mysql/tagtype.test]
 ./tags_test.go:11:9: undefined: Tags
 ...
-FAIL	github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/mysql [build failed]
+FAIL	github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/mysql/tagtype [build failed]
 ```
 
 - [ ] **Step 3: Write minimal implementation**
 
-Create `services/tracking-go/internal/adapter/mysql/tags.go`:
+Create `services/tracking-go/internal/adapter/mysql/tagtype/tags.go`:
 
 ```go
-package mysql
+package tagtype
 
 import (
 	"database/sql/driver"
@@ -2370,8 +2456,12 @@ import (
 //
 // MySQL has no array type, so the portable equivalent of Users' Postgres text[]
 // is a JSON array, queried with JSON_CONTAINS. This type is referenced by an
-// override in sqlc.yaml so the generated model exposes []string rather than
-// json.RawMessage, keeping marshalling out of every call site.
+// override in sqlc.yaml so the generated model exposes tagtype.Tags rather
+// than json.RawMessage, keeping marshalling out of every call site.
+//
+// It lives in its OWN package, not package mysql: sqlc generates models.go
+// INTO package mysql, so an override naming package mysql for this type would
+// make the generated file import itself ("import cycle not allowed").
 type Tags []string
 
 // Value marshals the tags to a JSON array.
@@ -2454,23 +2544,29 @@ sql:
         emit_result_struct_pointers: false
         emit_params_struct_pointers: false
         overrides:
-          # tags -> the hand-written Tags type (tags.go), which implements
-          # sql.Scanner and driver.Valuer over []string.
+          # tags -> the hand-written tagtype.Tags type (tagtype/tags.go), which
+          # implements sql.Scanner and driver.Valuer over []string.
+          #
+          # The override's `package` MUST be a package OTHER than the one sqlc
+          # generates into ("mysql", see gen.go.package above). Naming "mysql"
+          # here makes the generated models.go import itself: "import cycle not
+          # allowed". A bare `go_type: "Tags"` (no import/package) is also
+          # rejected by sqlc: "not a Go basic type". tagtype is a standalone
+          # package for exactly this reason.
           - column: "tracking.tags"
             go_type:
-              import: "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/mysql"
-              package: "mysql"
+              import: "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/mysql/tagtype"
+              package: "tagtype"
               type: "Tags"
-          # shipping_address stays RAW JSON. Deliberately NOT a Go struct: the
-          # shape is owned by Orders/Users, this service only stores and returns
-          # it, and a strict model would turn an additive upstream field into a
-          # tracking-creation outage.
-          - column: "tracking.shipping_address"
-            go_type:
-              import: "encoding/json"
-              package: "json"
-              type: "RawMessage"
-            nullable: true
+          # shipping_address has DELIBERATELY NO override. sqlc already maps a
+          # nullable JSON column to json.RawMessage on its own and imports
+          # encoding/json itself; adding an override with the same target type
+          # here makes the generated file import encoding/json TWICE — "json
+          # redeclared in this block". Leaving it un-overridden yields the
+          # identical Go type. Deliberately NOT a Go struct either way: the
+          # shape is owned by Orders/Users, this service only stores and
+          # returns it, and a strict model would turn an additive upstream
+          # field into a tracking-creation outage.
 ```
 
 Create `services/tracking-go/internal/adapter/mysql/queries/tracking.sql`:
@@ -2738,14 +2834,14 @@ go mod tidy
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-cd services/tracking-go && go test -race -v ./internal/adapter/mysql/
+cd services/tracking-go && go test -race -v ./internal/adapter/mysql/tagtype/
 ```
 
 Expected: every `Tags` test reports `--- PASS`, ending with:
 
 ```
 PASS
-ok  	github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/mysql	0.0XXs
+ok  	github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/mysql/tagtype	0.0XXs
 ```
 
 Confirm the generated files exist and that the overrides landed:
@@ -2756,7 +2852,7 @@ ls internal/adapter/mysql/db.go internal/adapter/mysql/models.go internal/adapte
 grep -n 'Tags\|ShippingAddress\|OccurredAt' internal/adapter/mysql/models.go
 ```
 
-Expected in `models.go`: a `Tags Tags` field (not `json.RawMessage`), and a `ShippingAddress json.RawMessage` field. Confirm the whole module builds, that generated code is not stale, and that lint is clean:
+Expected in `models.go`: a `Tags tagtype.Tags` field (not `json.RawMessage`), and a `ShippingAddress json.RawMessage` field (sqlc's own default mapping for a nullable JSON column, produced WITHOUT an override — see Step 3). `models_test.go` asserts both outcomes, so a lost or incorrect override fails a test rather than silently changing a type. Confirm the whole module builds, that generated code is not stale, and that lint is clean:
 
 ```bash
 cd services/tracking-go && sqlc diff && go build ./... && go test -race ./... && make fmt-check && make lint
@@ -2802,6 +2898,7 @@ func NewRouter() *gin.Engine
 - **Response is exactly `{"status":"ok"}` with HTTP 200.** No auth (an ALB/Fargate probe carries neither `x-user-id` nor an API key) and **no database access**. This is a liveness check answering "is this process up and serving HTTP"; folding a `SELECT 1` into it would make a transient database blip cycle otherwise-healthy tasks.
 - **Graceful shutdown** via `signal.NotifyContext` + `srv.Shutdown(ctx)`.
 - **12-Factor:** configuration from environment variables, logs to stdout.
+- **Every HTTP test in this file builds its request with `httptest.NewRequestWithContext(t.Context(), ...)`, never plain `httptest.NewRequest(...)`.** Task 1's `.golangci.yml` enables the `noctx` linter, which rejects a request built without a context. This is the FIRST task to write an HTTP handler test, and every later task's handler tests copy this idiom — carry it forward rather than reintroducing the wall each time.
 
 **GIN ROUTING NOTE — this task must carry it forward, because it is a startup-time crash, not a runtime 404:**
 
@@ -2836,7 +2933,7 @@ func TestHealthReturns200AndExactBody(t *testing.T) {
 	router := NewRouter()
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/health", nil)
 	router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -2868,7 +2965,7 @@ func TestHealthIsServedUnprefixed(t *testing.T) {
 	router := NewRouter()
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/v1/tracking/health", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/tracking/health", nil)
 	router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusNotFound {
@@ -2883,7 +2980,7 @@ func TestHealthRequiresNoAuthHeaders(t *testing.T) {
 	router := NewRouter()
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/health", nil)
 	req.Header.Del("x-user-id")
 	router.ServeHTTP(rec, req)
 
@@ -2899,7 +2996,7 @@ func TestHealthRejectsOtherMethods(t *testing.T) {
 	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 		t.Run(method, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(method, "/v1/health", nil)
+			req := httptest.NewRequestWithContext(t.Context(), method, "/v1/health", nil)
 			router.ServeHTTP(rec, req)
 
 			// HandleMethodNotAllowed is enabled, so a path that exists under a
@@ -3219,7 +3316,7 @@ Review against this section's stated rules, not merely against whether the code 
 | Source Python file | Destination Go file(s) | Tacit rules found |
 |---|---|---|
 | `services/tracking/src/features/tracking/domain/status.py` | `services/tracking-go/internal/domain/status.go`<br>`services/tracking-go/internal/domain/status_test.go` | Ordering comes from an explicit ordered slice, NEVER from comparing values — `StrEnum` (and Go's `string` underlying type) compares alphabetically, where `DELIVERED < PLACED`. The three guards run in a load-bearing order: terminal first, so `DELIVERED → DELIVERED` reports `already_delivered` (guard 1), not `not_strictly_forward` (guard 3). Three distinct reason values, not one boolean, so each guard is independently testable and the logging convention's `reason` field on `*_failed` is machine-readable. Skipping is legal (`PLACED → DELIVERED`) — forward-only, not next-step-only. `next_status` returns nil/`ok=false` at the terminal status rather than raising: reaching the end is how a TestMode run FINISHES. `parse_status` is case-sensitive because the five values are a wire contract shared with the proto. |
-| `services/tracking/src/features/tracking/domain/models.py` | `services/tracking-go/internal/domain/tracking.go`<br>`services/tracking-go/internal/domain/tracking_test.go`<br>`services/tracking-go/internal/adapter/mysql/tags.go` | History ordering is `datetime ASC, then progression position ASC` — the tiebreaker is load-bearing, and a bare datetime sort bit the Python service in a real MySQL test: `DATETIME` has fsp 0, one unit of work stamps rows from one `now`, and MySQL then falls back to PK order `(tracking_id, status)`, which is ALPHABETICAL (DELIVERED first). `cognito_sub`, not `user_id`, is the ownership key: `x-user-id` carries the JWT `sub`, so scoping by `user_id` compares a `sub` to a `usr_` id and 404s every read while looking implemented. `shipping_address` is raw JSON with no Go struct — its shape is owned by Orders/Users and a strict model turns an additive upstream field into a creation outage. `tags` is JSON (MySQL has no array type), NOT NULL with a `[]` default, because `JSON_CONTAINS(NULL, …)` is NULL rather than FALSE. `E2E Source` is shared VERBATIM with Users. `ID_LENGTH` is DERIVED from the generator's constants, never restated — MySQL truncates an over-long value silently. `tracking_history` has no surrogate id, no tags, no shipping_address, and its composite PK is a second enforcement of the state machine. |
+| `services/tracking/src/features/tracking/domain/models.py` | `services/tracking-go/internal/domain/tracking.go`<br>`services/tracking-go/internal/domain/tracking_test.go` | History ordering is `datetime ASC, then progression position ASC` — the tiebreaker is load-bearing, and a bare datetime sort bit the Python service in a real MySQL test: `DATETIME` has fsp 0, one unit of work stamps rows from one `now`, and MySQL then falls back to PK order `(tracking_id, status)`, which is ALPHABETICAL (DELIVERED first). `cognito_sub`, not `user_id`, is the ownership key: `x-user-id` carries the JWT `sub`, so scoping by `user_id` compares a `sub` to a `usr_` id and 404s every read while looking implemented. `shipping_address` is raw JSON with no Go struct — its shape is owned by Orders/Users and a strict model turns an additive upstream field into a creation outage. `tags` is `[]string` in the domain (JSON in MySQL, which has no array type — the adapter's `tagtype.Tags`, Task 6, converts at the persistence boundary; the domain never references it, to keep the purity rule intact), NOT NULL with a `[]` default, because `JSON_CONTAINS(NULL, …)` is NULL rather than FALSE. `E2E Source` is shared VERBATIM with Users. `ID_LENGTH` is DERIVED from the generator's constants, never restated — MySQL truncates an over-long value silently. `tracking_history` has no surrogate id, no tags, no shipping_address, and its composite PK is a second enforcement of the state machine. |
 | `services/tracking/src/shared/db/nano_id.py` | `services/tracking-go/internal/domain/id.go`<br>`services/tracking-go/internal/domain/id_test.go` | Alphabet is 62 symbols in an exact order with NO `_` and NO `-`: nanoid's default includes both, and a leading `-` reads as a shell flag while `_` disappears against an underscored column name. 62^24 is MORE entropy than the 64^21 it replaced. Length 24 is the RANDOM portion only; stored width is prefix(4)+24=28. CROSS-SERVICE CONTRACT with Users (`shared/id/nano-id.ts`) and Orders (`Orders.Infrastructure/Id/NanoId.cs`) — changing one means changing all three. `TrackingHistory` deliberately gets no prefix and no generated id. `req_` shares the format on purpose so no second notion of "how long" can appear. Modulo bias must be avoided: 62 does not divide 256, so use `crypto/rand.Int` (rejection sampling), never `randomByte % 62`. |
 | `services/tracking/src/shared/db/tracking_number.py` | `services/tracking-go/internal/domain/id.go`<br>`services/tracking-go/internal/domain/id_test.go` | `secrets`/`crypto/rand`, never `random`/`math/rand`: a Mersenne Twister's state is reconstructible from a few outputs, and the number appears in emails and URLs, so a guessable one lets somebody enumerate other people's shipments. Alphabet is the 36 uppercase alphanumerics MINUS `I`, `O`, `0`, `1` — the pairs a reader confuses when transcribing. Format `3MRAI-XXXX-XXXX-XXXX`, width 20, derived from prefix+groups rather than a literal. NO checksum: 60 bits of entropy plus the UNIQUE constraint means a collision is a failed INSERT, not two shipments sharing a number. The number is OURS, not a carrier's — the row exists from `PLACED`, before any shipper is involved; a real carrier number would be a second, differently-named column. |
 | `services/tracking/alembic/versions/*.py`<br>(`da01eaebb060`, `b17f4c2e9a30`, `0a1cc6845c4a`, `c93b7d1f52ae`) | `services/tracking-go/migrations/000001_baseline.up.sql`<br>`services/tracking-go/migrations/000001_baseline.down.sql`<br>`services/tracking-go/migrations/README.md` | Four revisions squash into one baseline; the Go service declares the schema the history arrived at rather than replaying it. `DEFAULT (JSON_ARRAY())` parentheses are MANDATORY — MySQL rejects a bare literal default on a JSON column. Charset/collation were NEVER declared in Python (inherited `utf8mb4_unicode_ci` from the server), so the baseline must declare them explicitly: MySQL 8 defaults to `utf8mb4_0900_ai_ci`, silently changing comparison semantics. `datetime` must be backticked in DDL and in every query, and aliased on select (`` `datetime` AS occurred_at ``). The FK carries no ON DELETE/ON UPDATE (MySQL defaults to RESTRICT); the app never issues DELETE and the DB user has no DELETE grant. golang-migrate (`schema_migrations`) and Alembic (`alembic_version`) are MUTUALLY BLIND — during coexistence both services share ONE database, so the baseline is applied as a no-op stamp (`migrate force 1`), never re-run, and `alembic_version` stays until Python deletion, then is dropped, because leaving both is a silent trap for a stray `alembic upgrade head`. Down migration drops `tracking_history` first, since the RESTRICT FK blocks dropping the parent. |
@@ -10752,12 +10849,18 @@ observable by a shipped client.
 - Create: `services/tracking-go/internal/app/create_tracking.go`
 - Create: `services/tracking-go/internal/app/create_tracking_test.go`
 - Create: `services/tracking-go/internal/adapter/http/response.go`
+- Create: `services/tracking-go/internal/adapter/http/response_test.go`
 - Create: `services/tracking-go/internal/adapter/http/errors.go`
 - Create: `services/tracking-go/internal/adapter/http/handler_init_tracking.go`
 - Create: `services/tracking-go/internal/adapter/http/handler_init_tracking_test.go`
 - Create: `services/tracking-go/internal/adapter/mysql/create_tracking.go`
 - Create: `services/tracking-go/internal/adapter/mysql/create_tracking_test.go`
 - Modify: `services/tracking-go/cmd/server/main.go`
+
+`response_test.go` covers `NewTrackingResponse` and `ISO` directly — the datetime
+formatting rule (isoformat + "Z", empty string not null) and the shipping_address/
+cognito_sub exclusion are wire-contract invariants worth a unit test of their own,
+not only exercised indirectly through the handler test.
 
 **Interfaces:**
 
@@ -10786,9 +10889,15 @@ Produces:
 package app
 
 type CreateTrackingInput struct {
-	OrderID         string
-	CognitoSub      string
-	ShippingAddress map[string]any
+	OrderID    string
+	CognitoSub string
+	// ShippingAddress is opaque bytes (json.RawMessage), NOT map[string]any.
+	// The domain type (Task 4) and the sqlc column agree: this field is a
+	// snapshot owned by Orders that Tracking only stores, never re-serializes.
+	// A map round-trip through encoding/json would reorder keys and reformat
+	// numbers (1.0 becomes 1) — silently corrupting a payload this service
+	// does not own the shape of.
+	ShippingAddress []byte
 	E2ESource       bool
 }
 
@@ -10851,6 +10960,13 @@ func (h *InitTrackingHandler) Handle(c *gin.Context)
 type ProgressionHook interface {
 	Start(orderID string)
 }
+
+// RegisterInitTracking mounts POST /v1/trackings/init-tracking. The composition
+// root (main.go, the missing task recorded under "Plan corrections") calls this
+// seam rather than this task registering the route inline — the same pattern
+// Task 7 established with RegisterHealth, so five parallel Wave 2 tasks can each
+// own their route without touching a shared main.go.
+func RegisterInitTracking(router gin.IRoutes, handler *InitTrackingHandler)
 ```
 
 **Contract this task must reproduce (extracted from `services/tracking/src/features/tracking/api/init_tracking_router.py` and `commands/create_tracking.py`):**
@@ -11078,10 +11194,10 @@ import (
 func TestInitTrackingHandler(t *testing.T) {
 	t.Run("201 wraps the tracking under a tracking key", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/v1/trackings/init-tracking",
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/trackings/init-tracking",
 			strings.NewReader(`{"order_id":"ord_1"}`))
 		req.Header.Set("x-user-id", "sub-abc")
-		newTestRouter(t, testDeps{}).ServeHTTP(rec, req)
+		newInitRouter(t, initDeps{}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("status = %d, want 201: %s", rec.Code, rec.Body)
@@ -11107,10 +11223,10 @@ func TestInitTrackingHandler(t *testing.T) {
 
 	t.Run("an unknown body field is 422 NAMING the field", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/v1/trackings/init-tracking",
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/trackings/init-tracking",
 			strings.NewReader(`{"order_id":"ord_1","user_id":"usr_someone_else"}`))
 		req.Header.Set("x-user-id", "sub-abc")
-		newTestRouter(t, testDeps{}).ServeHTTP(rec, req)
+		newInitRouter(t, initDeps{}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("status = %d, want 422 — encoding/json silently ignores unknown "+
@@ -11123,10 +11239,10 @@ func TestInitTrackingHandler(t *testing.T) {
 
 	t.Run("shipping_address accepts an arbitrary object", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/v1/trackings/init-tracking",
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/trackings/init-tracking",
 			strings.NewReader(`{"order_id":"ord_1","shipping_address":{"street":"a","future_field":{"deep":1}}}`))
 		req.Header.Set("x-user-id", "sub-abc")
-		newTestRouter(t, testDeps{}).ServeHTTP(rec, req)
+		newInitRouter(t, initDeps{}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("status = %d, want 201 — the address is free-form by design: %s",
@@ -11136,10 +11252,10 @@ func TestInitTrackingHandler(t *testing.T) {
 
 	t.Run("order_id longer than 28 is 422", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/v1/trackings/init-tracking",
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/trackings/init-tracking",
 			strings.NewReader(`{"order_id":"`+strings.Repeat("a", 29)+`"}`))
 		req.Header.Set("x-user-id", "sub-abc")
-		newTestRouter(t, testDeps{}).ServeHTTP(rec, req)
+		newInitRouter(t, initDeps{}).ServeHTTP(rec, req)
 		if rec.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("status = %d, want 422", rec.Code)
 		}
@@ -11152,12 +11268,12 @@ func TestInitTrackingHandler(t *testing.T) {
 		} {
 			t.Run(name, func(t *testing.T) {
 				rec := httptest.NewRecorder()
-				req := httptest.NewRequest(http.MethodPost, "/v1/trackings/init-tracking",
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/trackings/init-tracking",
 					strings.NewReader(`{"order_id":"ord_1"}`))
 				if header != nil {
 					req.Header.Set("x-user-id", *header)
 				}
-				newTestRouter(t, testDeps{}).ServeHTTP(rec, req)
+				newInitRouter(t, initDeps{}).ServeHTTP(rec, req)
 
 				if rec.Code != http.StatusUnauthorized {
 					t.Fatalf("status = %d, want 401", rec.Code)
@@ -11174,20 +11290,20 @@ func TestInitTrackingHandler(t *testing.T) {
 	t.Run("404 and 409 use the NESTED body shape", func(t *testing.T) {
 		cases := []struct {
 			name     string
-			deps     testDeps
+			deps     initDeps
 			wantCode int
 			wantRsn  string
 		}{
-			{"unknown user", testDeps{resolverErr: errUserNotFound}, 404, "unknown_user"},
-			{"already exists", testDeps{alreadyExists: true}, 409, "tracking_already_exists"},
+			{"unknown user", initDeps{resolverErr: errUserNotFound}, 404, "unknown_user"},
+			{"already exists", initDeps{alreadyExists: true}, 409, "tracking_already_exists"},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
 				rec := httptest.NewRecorder()
-				req := httptest.NewRequest(http.MethodPost, "/v1/trackings/init-tracking",
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/trackings/init-tracking",
 					strings.NewReader(`{"order_id":"ord_1"}`))
 				req.Header.Set("x-user-id", "sub-abc")
-				newTestRouter(t, tc.deps).ServeHTTP(rec, req)
+				newInitRouter(t, tc.deps).ServeHTTP(rec, req)
 
 				if rec.Code != tc.wantCode {
 					t.Fatalf("status = %d, want %d", rec.Code, tc.wantCode)
@@ -11211,10 +11327,10 @@ func TestInitTrackingHandler(t *testing.T) {
 
 	t.Run("a non-NotFound gRPC failure is 500, never 404", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/v1/trackings/init-tracking",
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/trackings/init-tracking",
 			strings.NewReader(`{"order_id":"ord_1"}`))
 		req.Header.Set("x-user-id", "sub-abc")
-		newTestRouter(t, testDeps{resolverErr: errUsersUnavailable}).ServeHTTP(rec, req)
+		newInitRouter(t, initDeps{resolverErr: errUsersUnavailable}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusInternalServerError {
 			t.Fatalf("status = %d, want 500 — an outage must not read as unknown user", rec.Code)
@@ -11222,12 +11338,12 @@ func TestInitTrackingHandler(t *testing.T) {
 	})
 
 	t.Run("creation emits NO sqs event", func(t *testing.T) {
-		deps := testDeps{}
+		deps := initDeps{}
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/v1/trackings/init-tracking",
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/trackings/init-tracking",
 			strings.NewReader(`{"order_id":"ord_1"}`))
 		req.Header.Set("x-user-id", "sub-abc")
-		router := newTestRouter(t, deps)
+		router := newInitRouter(t, deps)
 		router.ServeHTTP(rec, req)
 
 		if n := deps.publisher.Count(); n != 0 {
@@ -11236,13 +11352,13 @@ func TestInitTrackingHandler(t *testing.T) {
 	})
 
 	t.Run("the progression hook fires only for x-test-mode and only after commit", func(t *testing.T) {
-		deps := testDeps{}
+		deps := initDeps{}
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/v1/trackings/init-tracking",
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/trackings/init-tracking",
 			strings.NewReader(`{"order_id":"ord_1"}`))
 		req.Header.Set("x-user-id", "sub-abc")
 		req.Header.Set("x-test-mode", "true")
-		newTestRouter(t, deps).ServeHTTP(rec, req)
+		newInitRouter(t, deps).ServeHTTP(rec, req)
 
 		if !deps.hook.Started("ord_1") {
 			t.Fatal("x-test-mode did not invoke the progression hook")
@@ -11254,12 +11370,12 @@ func TestInitTrackingHandler(t *testing.T) {
 	})
 
 	t.Run("without x-test-mode the hook never fires", func(t *testing.T) {
-		deps := testDeps{}
+		deps := initDeps{}
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/v1/trackings/init-tracking",
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/trackings/init-tracking",
 			strings.NewReader(`{"order_id":"ord_1"}`))
 		req.Header.Set("x-user-id", "sub-abc")
-		newTestRouter(t, deps).ServeHTTP(rec, req)
+		newInitRouter(t, deps).ServeHTTP(rec, req)
 		if deps.hook.Started("ord_1") {
 			t.Fatal("the hook fired without x-test-mode")
 		}
@@ -11274,6 +11390,7 @@ package mysql_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -11283,15 +11400,25 @@ import (
 func TestCreateWritesBothRowsFromOneNow(t *testing.T) {
 	db := requireMySQL(t) // skips with a clear message when TRACKING_DATABASE_URL is unset
 	repo := newRepo(db)
+
+	// A context that outlives the test function, NOT t.Context(). t.Context()
+	// is cancelled the instant this function returns — BEFORE any t.Cleanup
+	// callback runs. A cleanup (below) that inherits a cancelled context fails
+	// every time with "context canceled", the truncate never completes, and
+	// the next test in this file inherits dirty rows. Every HTTP handler test
+	// in this plan uses t.Context() correctly (the request is fully served
+	// before the test returns); a repository test's cleanup runs AFTER return,
+	// so it needs a context that is still alive then. Do not copy t.Context()
+	// into a repository test by analogy with the handler tests.
 	ctx := context.Background()
 	truncate(t, db)
+	t.Cleanup(func() { truncate(t, db) })
 
 	now := time.Now().UTC().Truncate(time.Second)
 	got, err := repo.Create(ctx, domain.NewTracking{
 		OrderID:    "ord_create_1",
 		UserID:     "usr_internal",
 		CognitoSub: "sub-abc-123",
-		Status:     domain.StatusPlaced,
 		Tags:       []string{domain.E2ESourceTag},
 	}, now)
 	if err != nil {
@@ -11304,13 +11431,17 @@ func TestCreateWritesBothRowsFromOneNow(t *testing.T) {
 		t.Errorf("tracking=%v history=%v — both rows must carry the SAME minted now %v",
 			got.Tracking.Datetime, got.History[0].Datetime, now)
 	}
+	if got.Tracking.Status != domain.InitialStatus {
+		t.Errorf("status = %q, want the repository-stamped InitialStatus %q",
+			got.Tracking.Status, domain.InitialStatus)
+	}
 	if got.Tracking.CreatedBy != "tracking_api:create_tracking" {
 		t.Errorf("created_by = %q, want tracking_api:create_tracking", got.Tracking.CreatedBy)
 	}
 
 	// The unique index adjudicates a duplicate; the repository must translate it.
 	if _, err := repo.Create(ctx, domain.NewTracking{
-		OrderID: "ord_create_1", UserID: "usr_internal", Status: domain.StatusPlaced,
+		OrderID: "ord_create_1", UserID: "usr_internal",
 	}, now); !errors.Is(err, domain.ErrTrackingAlreadyExists) {
 		t.Fatalf("duplicate insert err = %v, want ErrTrackingAlreadyExists", err)
 	}
@@ -11359,9 +11490,11 @@ type TrackingCreator interface {
 }
 
 type CreateTrackingInput struct {
-	OrderID         string
-	CognitoSub      string
-	ShippingAddress map[string]any
+	OrderID    string
+	CognitoSub string
+	// Opaque bytes (json.RawMessage) — see the Produces section above. Never
+	// map[string]any: this field is stored verbatim, not re-serialized.
+	ShippingAddress []byte
 	E2ESource       bool
 }
 
@@ -11415,14 +11548,18 @@ func (uc *CreateTracking) Execute(ctx context.Context, in CreateTrackingInput) (
 	// Guard 2 — the unique index, translated by the adapter into the SAME error.
 	// The pre-check cannot be airtight: two concurrent requests can both SELECT
 	// nothing before either INSERTs, and only the database can adjudicate that.
+	//
+	// NewTracking carries no Status or Actor field: both are correctly NOT
+	// caller inputs. The repository (internal/adapter/mysql/create_tracking.go)
+	// stamps domain.InitialStatus and audit.CreateTracking itself when it
+	// writes the row, so the use case cannot smuggle in a different status or
+	// a spoofed actor through this literal.
 	return uc.writer.Create(ctx, domain.NewTracking{
 		OrderID:         in.OrderID,
 		UserID:          userID,
 		CognitoSub:      in.CognitoSub,
 		ShippingAddress: in.ShippingAddress,
 		Tags:            tags,
-		Status:          domain.StatusPlaced,
-		Actor:           audit.CreateTracking,
 	}, now)
 }
 ```
@@ -11622,8 +11759,11 @@ type NoopProgression struct{}
 func (NoopProgression) Start(string) {}
 
 type initTrackingRequest struct {
-	OrderID         string         `json:"order_id"`
-	ShippingAddress map[string]any `json:"shipping_address"`
+	OrderID string `json:"order_id"`
+	// json.RawMessage decodes the object verbatim — byte-for-byte, key order
+	// and number formatting preserved — so it can be stored and later
+	// re-emitted without this service ever parsing a shape it does not own.
+	ShippingAddress json.RawMessage `json:"shipping_address"`
 }
 
 type InitTrackingHandler struct {
@@ -11698,7 +11838,7 @@ func (h *InitTrackingHandler) Handle(c *gin.Context) {
 		ShippingAddress: payload.ShippingAddress,
 		// Already the AND of the header and E2E_TESTING_ENABLED — the middleware
 		// evaluates both, so this handler cannot tag a row on the header alone.
-		E2ESource: E2ESourceFromContext(c),
+		E2ESource: IsE2ESource(c),
 	})
 	switch {
 	case errors.Is(err, app.ErrUnknownUser):
@@ -11746,7 +11886,7 @@ func (h *InitTrackingHandler) Handle(c *gin.Context) {
 	// the Python service, not a theoretical concern.
 	c.JSON(http.StatusCreated, InitTrackingResponse{Tracking: NewTrackingResponse(created)})
 
-	if TestModeFromContext(c) {
+	if IsTestMode(c) {
 		h.hook.Start(payload.OrderID)
 	}
 }
@@ -11783,20 +11923,33 @@ the passed `now` in `datetime`, `created_at` and `updated_at`, and
 inputs. A MySQL error 1062 on `uq_tracking_order_id` is translated to
 `domain.ErrTrackingAlreadyExists`; anything else is returned unchanged.
 
-Finally, register in `cmd/server/main.go`:
+Finally, expose the registration seam — this task does NOT touch `cmd/server/main.go`
+itself. Five Wave 2 tasks run in parallel and each owns a different route; wiring
+`main.go` directly here would conflict with the other four. `RegisterInitTracking`
+(declared above, alongside `InitTrackingHandler`) is what the composition root — the
+missing task recorded under "Plan corrections" above, sequenced after Wave 2.5 and
+before Wave 3 — calls instead:
 
 ```go
-	// Registered BEFORE the reads router: /init-tracking is a literal segment
-	// sitting where GET /{order_id} also matches, and Gin's tree resolves a
-	// static segment ahead of a parameter — declaring the literal first keeps
-	// that property explicit rather than incidental.
-	initTracking := adapterhttp.NewInitTrackingHandler(
-		app.NewCreateTracking(usersClient, trackingRepo, nil),
-		adapterhttp.NoopProgression{}, // Wave 2.5 replaces this
-		logger, tracer,
-	)
-	v1.POST("/v1/trackings/init-tracking", initTracking.Handle)
+// internal/adapter/http/handler_init_tracking.go
+
+// RegisterInitTracking mounts POST /v1/trackings/init-tracking.
+//
+// Registered BEFORE the reads router: /init-tracking is a literal segment sitting
+// where GET /{order_id} also matches, and Gin's tree resolves a static segment
+// ahead of a parameter — declaring the literal first keeps that property explicit
+// rather than incidental. The composition root is responsible for ordering the
+// Register* calls; this function only mounts its own route.
+func RegisterInitTracking(router gin.IRoutes, handler *InitTrackingHandler) {
+	router.POST("/v1/trackings/init-tracking", handler.Handle)
+}
 ```
+
+This task's own `Files` block ends at `handler_init_tracking.go` — it produces the
+seam, not a wired server. `Modify: cmd/server/main.go` in the Files block above is
+therefore misleading as written by a Wave 2 task in isolation: nothing in THIS task
+touches that file; it is listed because the composition root task will modify it to
+call `RegisterInitTracking`, not because Task 19 does.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -12061,7 +12214,7 @@ func TestSingleRead(t *testing.T) {
 
 	t.Run("missing x-user-id is 401 shape A", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/v1/trackings/ord_1", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/trackings/ord_1", nil)
 		newTestRouter(t, testDeps{}).ServeHTTP(rec, req)
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("status = %d, want 401", rec.Code)
@@ -12073,7 +12226,7 @@ func TestSingleRead(t *testing.T) {
 		router := newTestRouter(t, deps)
 
 		first := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/v1/trackings/ord_1", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/trackings/ord_1", nil)
 		req.Header.Set("x-user-id", "sub-owner")
 		router.ServeHTTP(first, req)
 		if got := first.Header().Get("X-Cache"); got != "MISS" {
@@ -12081,7 +12234,7 @@ func TestSingleRead(t *testing.T) {
 		}
 
 		second := httptest.NewRecorder()
-		req2 := httptest.NewRequest(http.MethodGet, "/v1/trackings/ord_1", nil)
+		req2 := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/trackings/ord_1", nil)
 		req2.Header.Set("x-user-id", "sub-owner")
 		router.ServeHTTP(second, req2)
 		if got := second.Header().Get("X-Cache"); got != "HIT" {
@@ -12857,7 +13010,7 @@ func TestCarrierPut(t *testing.T) {
 	put := func(t *testing.T, deps testDeps, apiKey, body string) *httptest.ResponseRecorder {
 		t.Helper()
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPut, "/v1/trackings/ord_1/status",
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/v1/trackings/ord_1/status",
 			strings.NewReader(body))
 		if apiKey != "" {
 			req.Header.Set("x-api-key", apiKey)

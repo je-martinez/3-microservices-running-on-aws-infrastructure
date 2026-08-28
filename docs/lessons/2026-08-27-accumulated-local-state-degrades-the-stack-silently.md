@@ -103,3 +103,7 @@ symptom precisely. An open Deuda Técnica issue in Linear tracks the root-cause 
 - [[testing]] — the layered-testing convention; the misattributed `cache.spec.ts` /
   `gateway/cache.spec.ts` failures are a concrete instance of an E2E layer catching a symptom
   whose real cause was environmental, not the code under test.
+- [[2026-08-27-go-vs-python-performance]] — a second, later instance of the same symptom shape
+  (environment masquerading as a code/runtime result) found during the Tracking Go migration's
+  load-test comparison; that note identifies the bottleneck directly (Floci pinned at 100-205%
+  CPU) rather than leaving the mechanism unconfirmed as this lesson does.

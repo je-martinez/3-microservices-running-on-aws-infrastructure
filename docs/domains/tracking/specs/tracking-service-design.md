@@ -38,6 +38,7 @@ related:
   - "[[2026-08-18-distributed-tracing-spans-design]]"
   - "[[2026-08-18-distributed-tracing-spans]]"
   - "[[ADR-0019-distributed-tracing-opentelemetry]]"
+  - "[[2026-08-27-go-vs-python-performance]]"
   - "[[2026-07-31-contextvars-lost-across-task-boundaries]]"
   - "[[2026-08-27-tracking-go-migration-design]]"
   - "[[ADR-0021-tracking-go-gin-sqlc-stack]]"
@@ -1137,6 +1138,9 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
   wave-based agent team, and the closing gate that must pass before the Python folder in this
   note is deleted). See [[ADR-0021-tracking-go-gin-sqlc-stack]] for the Go stack decisions
   (Gin, sqlc, golang-migrate, goenv).
+- [[2026-08-27-go-vs-python-performance]] — the measured performance comparison satisfying the
+  migration's closing-gate criterion 3: Go wins all four measurable resource/startup dimensions,
+  latency/throughput under load unmeasurable on this stack (Floci-bound, not code-bound).
 - [[2026-08-25-account-deletion-design]] — full design for the internal
   `DELETE /v1/trackings/by-user` cascade: the route-ordering trap, `soft_delete_by_user`, the
   `cognito_sub OR user_id` predicate, and the four-layer empty-identity guards.
