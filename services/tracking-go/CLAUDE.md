@@ -127,15 +127,23 @@ It may import **only the Go standard library**. No gin, no sqlc-generated
 package, no redis, no aws-sdk, no grpc, no otel, **not even `net/http`**. A domain
 file importing any of those is a defect even if the tests pass.
 
-Verify it directly — this is fast and unambiguous:
+**This is enforced by a test**, not by review: `internal/domain/purity_test.go` walks
+the full transitive closure and fails naming the offending import and the shortest
+path to it. Run it like any other test.
 
-```
-go list -deps ./internal/domain/... | grep -v '^github.com/jemartinez/3mrai' | grep '\.'
-```
+Do NOT verify this by grepping for a dot in the package path. That heuristic is
+wrong on Go 1.26.7: the closure contains `crypto/internal/entropy/v1.0.0`, which is
+standard library and does contain dots, so the grep reports a violation against a
+domain that is perfectly pure. The test asks the toolchain instead, via the
+`Standard` field of `go list -deps -json`.
 
-Anything printed other than Go-internal packages (e.g. `crypto/internal/...`) is a
-violation. Business rules that compile without a framework are business rules that
-can be tested without one. The rule is stated in `internal/domain/doc.go`.
+Nor is an AST-based check sufficient: it sees only DIRECT imports, so a domain file
+importing a local helper that itself imports gin would pass. The test covers the
+transitive case, and that mutation was used to prove it.
+
+Business rules that compile without a framework are business rules that can be
+tested without one. The rule is stated in `internal/domain/doc.go`; the test is what
+makes it true rather than aspirational.
 
 ### Ports are declared by their CONSUMERS
 
