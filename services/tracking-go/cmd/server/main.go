@@ -530,19 +530,67 @@ func openPool(sqlAlchemyDSN string) (*sql.DB, error) {
 
 // poolTracingOptions is the ONE declaration of how database spans are shaped.
 //
-// Extracted so the PII guard (TestDatabaseSpansCarryNoQueryText) can assert
-// against the very options production uses. Inlined, that test had to restate
-// them, and a restated option set is one that can silently stop matching the
-// real one — leaving the leak guarded only in the test's own copy.
+// Extracted so the PII guard (TestDatabaseSpansCarryNoQueryText) and the
+// ErrSkip guard (TestDatabaseSpansDoNotRecordErrSkip) can assert against the
+// very options production uses. Inlined, those tests had to restate them, and a
+// restated option set is one that can silently stop matching the real one —
+// leaving the leak guarded only in the test's own copy.
+//
+// Both defaults here work AGAINST us, in opposite directions: otelsql records
+// too much (the query text, which is PII) and treats too much as an error
+// (driver.ErrSkip, which is not one).
 func poolTracingOptions() []otelsql.Option {
 	return []otelsql.Option{
 		// The semconv system attribute, so a span is attributable to MySQL
 		// rather than to "some database".
 		otelsql.WithAttributes(semconv.DBSystemNameMySQL),
-		// THE PII GUARD. See the block above openPool: otelsql records
-		// db.query.text BY DEFAULT, and this service's write statements carry
-		// shipping_address.
-		otelsql.WithSpanOptions(otelsql.SpanOptions{DisableQuery: true}),
+		otelsql.WithSpanOptions(otelsql.SpanOptions{
+			// THE PII GUARD. See the block above openPool: otelsql records
+			// db.query.text BY DEFAULT, and this service's write statements
+			// carry shipping_address.
+			DisableQuery: true,
+
+			// driver.ErrSkip IS NOT AN ERROR. It is a database/sql SENTINEL:
+			// a driver returns it to say "I do not implement this optional
+			// fast path" (CheckNamedValue, ExecerContext, QueryerContext…),
+			// and database/sql then falls back to the generic path and the
+			// call succeeds. It is internal control flow, and it happens on
+			// the ORDINARY path here — go-sql-driver/mysql returns ErrSkip
+			// from Exec and query whenever a statement carries arguments and
+			// InterpolateParams is off, which is the default and therefore
+			// every parameterized statement this service runs. otelsql's own
+			// conn.go returns it as well, from each optional interface the
+			// wrapped driver lacks.
+			//
+			// Left at its default, otelsql calls span.RecordError and
+			// SetStatus(codes.Error) on it, and the traces fill with
+			// exception events reading
+			//
+			//	driver: skip fast-path; continue as if unimplemented
+			//
+			// for something that never went wrong. Two costs, and the first
+			// is the expensive one: it TRAINS whoever reads the waterfall to
+			// ignore errors on database spans, which is exactly the habit
+			// that scrolls past a real one. And the error status makes spans
+			// render as failed when the query succeeded.
+			//
+			// Suppressing it buys a trace where an error on a DB span means a
+			// database problem. Do NOT remove this thinking you are restoring
+			// error visibility: genuine driver errors still take
+			// recordSpanError's default branch and are recorded exactly as
+			// before — only the ErrSkip sentinel is filtered.
+			DisableErrSkip: true,
+		}),
+		// The METRICS half of the same non-event: without it, ErrSkip is
+		// stamped as error.type="database/sql/driver.ErrSkip" on the
+		// db.client.operation.duration measurement — verified against v0.43.0,
+		// not assumed — so the dashboards count a fast-path fallback as a
+		// failed database call.
+		// Set TOGETHER with DisableErrSkip on purpose — suppressing it in
+		// spans while metrics still counted it would leave a dashboard and a
+		// trace disagreeing about the same non-event, which is a worse
+		// diagnostic position than either alone.
+		otelsql.WithDisableSkipErrMeasurement(true),
 	}
 }
 

@@ -160,7 +160,7 @@ var requiredSeams = []wiringSeam{
 	// without otelgin there is no SERVER span, so workflow spans start as fresh
 	// ROOTS and one request appears in OpenObserve as several unrelated traces.
 	{pkgOTel, "GinFilter", "otelgin is not in the middleware chain: no inbound HTTP span exists, the caller's traceparent is dropped, and one flow renders as several disconnected traces"},
-	{pkgMain, "poolTracingOptions", "the database pools are opened untraced, so no SQL span appears under any request — and the PII guard that disables query capture goes with it"},
+	{pkgMain, "poolTracingOptions", "the database pools are opened untraced, so no SQL span appears under any request — and both span-shaping guards go with it: the PII one that disables query capture, and the one that stops driver.ErrSkip being recorded as an error"},
 
 	// ── Metrics ─────────────────────────────────────────────────────────────
 	{pkgCloudWatch, "NewPublisher", "no custom metric is ever published; every 3MRAI dashboard panel for this service reads 'no data'"},

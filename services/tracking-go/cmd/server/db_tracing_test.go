@@ -11,8 +11,12 @@ import (
 	"github.com/XSAM/otelsql"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
@@ -227,4 +231,183 @@ func (fakeConn) Close() error                        { return nil }
 func (fakeConn) Begin() (driver.Tx, error)           { return nil, io.EOF }
 func (fakeConn) ExecContext(context.Context, string, []driver.NamedValue) (driver.Result, error) {
 	return driver.RowsAffected(1), nil
+}
+
+// TestDatabaseSpansDoNotRecordErrSkip pins the second otelsql default that works
+// against us, and it is the mirror image of the PII one above: that test asserts
+// something is ABSENT from the attributes, this one asserts something is absent
+// from the EVENTS and the STATUS.
+//
+// driver.ErrSkip is a database/sql SENTINEL, not a failure. A driver returns it
+// to say "I do not implement this optional fast path, use the generic one", and
+// database/sql then falls back and the call succeeds. go-sql-driver/mysql
+// returns it in the ORDINARY course of business — mysqlConn.Exec and
+// mysqlConn.query both return it whenever a statement carries arguments and
+// InterpolateParams is off, which is the default and therefore every
+// parameterized statement this service runs. otelsql's own conn.go returns it
+// too, from every optional interface the wrapped driver does not implement.
+//
+// otelsql nevertheless calls span.RecordError + SetStatus(codes.Error) on it,
+// so traces fill with exception events for something that never went wrong.
+// That is worse than noise: it teaches whoever reads the waterfall that errors
+// on DB spans are normal, which is precisely when a real one gets scrolled past,
+// and the error status makes successful spans render as failed.
+//
+// # THE FAKE DRIVER MIMICS go-sql-driver/mysql, IT DOES NOT INVENT A CASE
+//
+// errSkipConn.ExecContext returns driver.ErrSkip exactly as mysqlConn does with
+// args and no interpolation. otelsql wraps that call in sql.conn.exec and passes
+// the returned error to recordSpanError, so the sentinel travels the real code
+// path — this is an observation of a genuine ErrSkip span, not an assertion
+// about a boolean field.
+func TestDatabaseSpansDoNotRecordErrSkip(t *testing.T) {
+	spansOf := dbSpanRecorder(t)
+
+	db := otelsql.OpenDB(errSkipConnector{}, poolTracingOptions()...)
+	t.Cleanup(func() { _ = db.Close() })
+
+	// database/sql swallows ErrSkip and falls back to prepare-then-exec, which
+	// this fake ALLOWS TO SUCCEED — so the statement below succeeds, exactly as
+	// it does against MySQL. That is the whole point of the assertion: a span
+	// was being marked as an error for a call that worked.
+	//nolint:errcheck // the span, not the result, is the assertion.
+	_, _ = db.ExecContext(context.Background(),
+		"UPDATE trackings SET status = ? WHERE order_id = ?",
+		"SHIPPED", "ord_errskip_probe")
+
+	var sawExecSpan bool
+	for _, span := range spansOf() {
+		if span.Name() != "sql.conn.exec" {
+			continue
+		}
+		sawExecSpan = true
+
+		for _, event := range span.Events() {
+			if event.Name == semconv.ExceptionEventName {
+				t.Errorf("span %q records an exception event for driver.ErrSkip — "+
+					"ErrSkip is a database/sql control-flow sentinel meaning "+
+					"\"fast path not implemented, use the generic one\", not a failure; "+
+					"poolTracingOptions must keep passing "+
+					"otelsql SpanOptions{DisableErrSkip: true}", span.Name())
+			}
+		}
+		if span.Status().Code == codes.Error {
+			t.Errorf("span %q has status ERROR (%q) for driver.ErrSkip — "+
+				"a successful query would render as a failed span; "+
+				"poolTracingOptions must keep passing "+
+				"otelsql SpanOptions{DisableErrSkip: true}",
+				span.Name(), span.Status().Description)
+		}
+	}
+
+	// Without this the test would pass by never producing the span at all —
+	// the vacuous shape the PII test above already had to be rescued from.
+	if !sawExecSpan {
+		t.Fatal("no sql.conn.exec span was produced, so no ErrSkip ever reached a " +
+			"span; this test is not exercising the path it claims to guard")
+	}
+}
+
+// errSkipConnector's connection declines the ExecContext fast path the way
+// go-sql-driver/mysql declines it: by returning driver.ErrSkip.
+type errSkipConnector struct{}
+
+func (errSkipConnector) Connect(context.Context) (driver.Conn, error) { return errSkipConn{}, nil }
+func (errSkipConnector) Driver() driver.Driver                        { return errSkipDriver{} }
+
+type errSkipDriver struct{}
+
+func (errSkipDriver) Open(string) (driver.Conn, error) { return errSkipConn{}, nil }
+
+type errSkipConn struct{}
+
+func (errSkipConn) Close() error              { return nil }
+func (errSkipConn) Begin() (driver.Tx, error) { return nil, io.EOF }
+
+func (errSkipConn) ExecContext(context.Context, string, []driver.NamedValue) (driver.Result, error) {
+	return nil, driver.ErrSkip
+}
+
+// Prepare SUCCEEDS, and that is not incidental. database/sql answers ErrSkip by
+// falling back to prepare-then-exec, which is what really happens against MySQL:
+// the fast path is declined, the statement is prepared, and the call SUCCEEDS.
+// A Prepare that failed here would put a genuine error on the fallback's own
+// span and measurement — measured: it stamped
+// error.type="*errors.errorString" on db.client.operation.duration — and the
+// tests would then be asserting against that failure rather than against
+// ErrSkip, which is the one thing they exist to isolate.
+func (errSkipConn) Prepare(string) (driver.Stmt, error) { return errSkipStmt{}, nil }
+
+type errSkipStmt struct{}
+
+func (errSkipStmt) Close() error                               { return nil }
+func (errSkipStmt) NumInput() int                              { return -1 }
+func (errSkipStmt) Exec([]driver.Value) (driver.Result, error) { return driver.RowsAffected(1), nil }
+func (errSkipStmt) Query([]driver.Value) (driver.Rows, error)  { return nil, io.EOF }
+
+// TestDatabaseMetricsDoNotCountErrSkipAsAnError is the METRICS half of the same
+// non-event, and it exists as a separate test because it fails on a separate
+// option.
+//
+// DisableErrSkip governs SPANS only. Left to its default,
+// DisableSkipErrMeasurement stamps error.type="database/sql/driver.ErrSkip" on
+// the db.client.operation.duration measurement, so every fast-path fallback is
+// counted as a failed database call. Setting one flag and not the other is the
+// worst of the three states: the trace waterfall would say the query was fine
+// while the dashboard said it errored, over the same non-event, and whoever
+// noticed the disagreement would have to rediscover ErrSkip from scratch to
+// resolve it.
+//
+// Measured through a real SDK reader rather than by reading the option back,
+// for the same reason as the span test: the assertion is what the collector
+// receives.
+func TestDatabaseMetricsDoNotCountErrSkipAsAnError(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	previous := otel.GetMeterProvider()
+	otel.SetMeterProvider(mp)
+	t.Cleanup(func() {
+		_ = mp.Shutdown(context.Background())
+		otel.SetMeterProvider(previous)
+	})
+
+	db := otelsql.OpenDB(errSkipConnector{}, poolTracingOptions()...)
+	t.Cleanup(func() { _ = db.Close() })
+
+	//nolint:errcheck // the recorded measurement, not the result, is the assertion.
+	_, _ = db.ExecContext(context.Background(),
+		"UPDATE trackings SET status = ? WHERE order_id = ?",
+		"SHIPPED", "ord_errskip_probe")
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &collected); err != nil {
+		t.Fatalf("collecting metrics: %v", err)
+	}
+
+	var sawDurationPoint bool
+	for _, scope := range collected.ScopeMetrics {
+		for _, m := range scope.Metrics {
+			histogram, ok := m.Data.(metricdata.Histogram[float64])
+			if !ok {
+				continue
+			}
+			for _, point := range histogram.DataPoints {
+				sawDurationPoint = true
+				if errorType, present := point.Attributes.Value("error.type"); present {
+					t.Errorf("metric %q carries error.type=%q for driver.ErrSkip — "+
+						"a fast-path fallback is being counted as a failed database "+
+						"call, so the dashboard disagrees with the trace over the "+
+						"same non-event; poolTracingOptions must keep passing "+
+						"otelsql.WithDisableSkipErrMeasurement(true)",
+						m.Name, errorType.AsString())
+				}
+			}
+		}
+	}
+
+	if !sawDurationPoint {
+		t.Fatal("no duration histogram point was recorded, so no ErrSkip ever " +
+			"reached a measurement; this test is not exercising the path it " +
+			"claims to guard")
+	}
 }
