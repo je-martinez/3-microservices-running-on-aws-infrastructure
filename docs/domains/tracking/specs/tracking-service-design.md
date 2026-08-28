@@ -44,6 +44,7 @@ related:
   - "[[ADR-0021-tracking-go-gin-sqlc-stack]]"
   - "[[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]]"
   - "[[2026-08-27-a-producer-side-test-proves-nothing-about-what-the-consumer-accepts]]"
+  - "[[2026-08-27-a-librarys-defaults-encode-assumptions-about-a-generic-service]]"
 ---
 
 # Tracking Service Design
@@ -1132,6 +1133,16 @@ every already-persisted tracking, not only for code going forward.
 > worth keeping, but the file paths and library names are Python-specific and gone from the
 > running service. The equivalent Go wiring lives in `internal/adapter/otel/` (`provider.go`,
 > `workflow.go`, `loghandler.go`).
+>
+> **The Go database instrumentation (`otelsql`) needed two of its own defaults overridden** —
+> unrelated to the ASGI bug above, and specific to the Go driver stack: it records the literal
+> SQL text on spans by default (a PII leak, since write paths carry `shipping_address`), and it
+> records the `database/sql` sentinel `driver.ErrSkip` as an ERROR on spans and metrics by
+> default, even though `go-sql-driver/mysql` returns it on essentially every ordinary
+> parameterized query. Both are disabled in `cmd/server/main.go`'s `poolTracingOptions`. See
+> [services/tracking-go/CLAUDE.md §11](../../../../services/tracking-go/CLAUDE.md) and
+> [[2026-08-27-a-librarys-defaults-encode-assumptions-about-a-generic-service]] for the full
+> write-up and the generalised lesson.
 
 **Four** Tracking flows carried a full `app_event` triad — `init_tracking`,
 `carrier_status_update`, `test_mode_progression`, and (added 2026-08-26)
@@ -1247,6 +1258,10 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
   wire-contract lesson: a `shipping_address` emitted as a JSON string against a consumer schema
   requiring an object, silently dropped with no retry, and why the fix has to parse the
   consumer's actual Zod schema rather than a redescription of it.
+- [[2026-08-27-a-librarys-defaults-encode-assumptions-about-a-generic-service]] — `otelsql`'s
+  `db.query.text` (PII leak) and `driver.ErrSkip` (false error on every ordinary query) defaults,
+  both wrong for this service and both overridden in `poolTracingOptions`; see the Observability
+  section above and `services/tracking-go/CLAUDE.md` §11.
 - [[2026-08-25-account-deletion-design]] — full design for the internal
   `DELETE /v1/trackings/by-user` cascade: the route-ordering trap, `soft_delete_by_user`, the
   `cognito_sub OR user_id` predicate, and the four-layer empty-identity guards.

@@ -5,7 +5,7 @@ area: shared
 status: accepted
 id: ADR-0019
 created: 2026-07-19
-updated: 2026-08-21
+updated: 2026-08-27
 deciders: [Jose E. Martinez]
 supersedes: null
 superseded-by: null
@@ -31,6 +31,7 @@ related:
   - "[[openobserve-runbook]]"
   - "[[observability-telemetry-milestone]]"
   - "[[2026-08-21-verify-in-the-viewer-not-the-api]]"
+  - "[[2026-08-27-a-librarys-defaults-encode-assumptions-about-a-generic-service]]"
 ---
 
 # ADR-0019: Distributed Tracing via OpenTelemetry, Split from OpenObserve to Jaeger
@@ -232,6 +233,19 @@ logs stay in OpenObserve.**
 > in `MessageAttributes`, every record parents to its own origin|Decision 4 (revised)]] and
 > [[events-pipeline-design#Observability — tracing spans]].
 
+> [!important] Amendment (2026-08-27) — `otelsql`'s instrumentation defaults are wrong for this service, twice
+> Tracking's Go port surfaced two `otelsql` defaults that are individually reasonable for a
+> generic service and individually wrong here: `db.query.text` is recorded by default and this
+> service's write paths carry `shipping_address` (a PII leak onto the span); `driver.ErrSkip` —
+> a `database/sql` sentinel meaning "fast path unimplemented, use the generic one", returned by
+> `go-sql-driver/mysql` on essentially every parameterized statement — is recorded as an ERROR
+> by default on both spans and the `db.client.operation.duration` metric, so every ordinary
+> query carried a false exception and the error status rendered successful spans as failed. Both
+> are now disabled together (`SpanOptions{DisableQuery: true, DisableErrSkip: true}` plus
+> `WithDisableSkipErrMeasurement(true)`) in `services/tracking-go/cmd/server/main.go`. Full
+> write-up, including the diagnostic that told a real error apart from the suppressed sentinel:
+> [[2026-08-27-a-librarys-defaults-encode-assumptions-about-a-generic-service]].
+
 > [!important] Amendment (2026-08-21) — a FOURTH SQS publisher: the Cognito OTP trigger
 > **What was missed.** [JE-155/156/157](https://linear.app/je-martinez/issue/JE-155) made
 > "the 3 SQS publishers" (Users, Orders, Tracking) inject `traceparent` — but `AUTH_OTP_REQUESTED`
@@ -298,3 +312,7 @@ logs stay in OpenObserve.**
   same session: confirming data reached OpenObserve via `_search` is not confirming the trace
   waterfall (`/dag`) actually renders it, which is exactly the `gen_ai_operation_name` gap this
   Amendment documents.
+- [[2026-08-27-a-librarys-defaults-encode-assumptions-about-a-generic-service]] — the
+  2026-08-27 Amendment's lesson: `otelsql`'s `db.query.text` and `driver.ErrSkip` defaults, both
+  wrong for Tracking, and the generalised claim that a library's instrumentation defaults
+  assume a generic service.

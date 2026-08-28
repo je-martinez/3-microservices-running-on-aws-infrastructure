@@ -701,7 +701,16 @@ The same rule governs logs: **unknown context fields are omitted, never null**.
 request bodies, plaintext email, or **`shipping_address`**. Emails travel as
 `email_hash`; auth flows elsewhere use a masked form.
 
-> **`otelsql` records `db.query.text` BY DEFAULT — verified, not assumed.** An
+> ### `otelsql`'s defaults are tuned for a generic service, and two of them are wrong for this one
+>
+> Both were found the same way: not by reading the library's docs and guessing, but by
+> instrumenting a real call and reading what it actually emitted. Two hostile defaults
+> from the *same* library is the signal to check deliberately for a pattern rather than
+> patch each in isolation and move on — see
+> [[2026-08-27-a-librarys-defaults-encode-assumptions-about-a-generic-service]] for the
+> generalised version of this lesson (it is not Tracking-specific).
+>
+> **1 — `otelsql` records `db.query.text` BY DEFAULT — verified, not assumed.** An
 > instrumented `UPDATE` emitted
 > `db.query.text = "UPDATE trackings SET shipping_address='221B Baker Street' ..."`
 > with no options set. This service's write paths carry exactly that column, and a
@@ -710,6 +719,32 @@ request bodies, plaintext email, or **`shipping_address`**. Emails travel as
 > in `cmd/server/main.go`'s `poolTracingOptions`, and that option is one of the
 > seams the reachability gate pins. Nothing needed is lost: the span name and the
 > SQL method still identify the query.
+>
+> **2 — `otelsql` records `driver.ErrSkip` as an ERROR by default, on both spans AND
+> metrics.** `driver.ErrSkip` is a `database/sql` sentinel meaning "this optional fast
+> path is not implemented, use the generic one" — internal control flow, not a
+> failure. It is not rare here: `go-sql-driver/mysql` returns it from
+> `connection.go:439` and `:498` for **every** parameterized statement while
+> `InterpolateParams` is off, which is the default — so before the fix, essentially
+> every query this service made carried a false exception on its span, and the error
+> status rendered successful spans as failed. Beyond noise, a false error on a
+> database span **trains whoever reads the waterfall to ignore errors there**, which
+> is exactly the habit that lets a real one go unnoticed. `otelsql` also stamps
+> `error.type` on the `db.client.operation.duration` **metric** for the same
+> non-event, independently of the span setting — so **both**
+> `SpanOptions.DisableErrSkip` **and** `WithDisableSkipErrMeasurement(true)` are ON
+> together in `poolTracingOptions`. Suppressing only the span half would leave a
+> dashboard and a trace disagreeing about the same non-event. Fixed in commit
+> `81c8ffe`.
+>
+> **Diagnostic worth keeping.** While writing the regression test for #2, a fake
+> driver whose `Prepare` call failed produced `error.type = *errors.errorString` on
+> the span — the exact string originally reported from the waterfall. That was the
+> fake failing in the prepare-then-exec fallback, not a reproduction of the product
+> bug. **After this fix, a stray `*errors.errorString` (or any non-`ErrSkip` type) on
+> a database span is no longer `ErrSkip` and DOES deserve investigation** — the
+> suppression is scoped to the one sentinel, not to "errors on database spans" in
+> general.
 
 Related: sqlc is configured with `emit_json_tags: false`. The generated models are
 persistence structs; the HTTP response types are separate and hand-written,

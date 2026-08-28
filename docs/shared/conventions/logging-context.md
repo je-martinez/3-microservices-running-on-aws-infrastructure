@@ -28,6 +28,7 @@ related:
   - "[[health-check-logging]]"
   - "[[2026-08-18-distributed-tracing-spans-design]]"
   - "[[2026-08-18-distributed-tracing-spans]]"
+  - "[[2026-08-27-a-librarys-defaults-encode-assumptions-about-a-generic-service]]"
 ---
 
 # Logging Context
@@ -190,6 +191,14 @@ shared context table already follows.
 > line, so a producer that keeps the log clean keeps the span clean too — but it is stated here
 > explicitly because "the log rule" and "the span rule" are easy to treat as two separate things
 > to remember, and they are one rule applied to two exporters.
+>
+> This includes **library-level instrumentation, not just spans this repo writes by hand**:
+> Tracking's `otelsql` wrapper records `db.query.text` — the literal SQL, including bound
+> values — by default, and had to be explicitly disabled once a real instrumented `UPDATE` was
+> observed emitting `shipping_address` in plaintext on the span. A database-instrumentation
+> library's defaults assume a generic service; verify them against what your service's queries
+> actually carry. See
+> [[2026-08-27-a-librarys-defaults-encode-assumptions-about-a-generic-service]].
 
 > [!warning] Pitfall — mask at the call site, not in the ambient context
 > The masked email goes on the **log call site**, not in the AsyncLocalStorage context. Putting
@@ -523,6 +532,10 @@ had none.
   (events-pipeline) and JE-159 (realtime-events), and established that workflow spans carry the
   same `app_event`/`reason` attributes as the flow log line.
 - [[2026-08-18-distributed-tracing-spans]] — the implementation plan; verified end to end
+- [[2026-08-27-a-librarys-defaults-encode-assumptions-about-a-generic-service]] — `otelsql`'s
+  `db.query.text` default (a PII leak onto spans) and `driver.ErrSkip` default (a false error on
+  every ordinary query), and the generalised lesson that a library's instrumentation defaults
+  assume a generic service.
   against a real Jaeger trace.
 - [[2026-08-05-passwordless-otp-auth-design]] — the entropy reasoning behind the never-log-an-OTP
   rule and the full logging design for `otp_challenge_created`.
