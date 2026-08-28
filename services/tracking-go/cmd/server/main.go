@@ -35,12 +35,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/XSAM/otelsql"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	awscw "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	awssqs "github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
 	goredis "github.com/redis/go-redis/v9"
+	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/cloudwatch"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/grpcusers"
@@ -188,6 +190,49 @@ func run() error {
 	}
 	defer func() { _ = readerDB.Close() }()
 
+	// ── AWS clients ──────────────────────────────────────────────────────────
+	//
+	// One shared SDK config. AWS_ENDPOINT_URL is applied only when SET: locally it
+	// is Floci, and in a deployed environment it must be ABSENT so the SDK
+	// resolves the real endpoint itself. That is why config carries it as a
+	// *string — an empty-string default would point the SDK at nothing.
+	//
+	// This block sits BEFORE the cache gateway, and the order is load-bearing:
+	// the gateway's metrics port is bound below from cwPublisher, so the
+	// publisher must already exist. Built the other way round, the cache had
+	// nothing to publish through and got the noop unconditionally — which is
+	// exactly the bug selectCacheMetrics now pins.
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(cfg.AWSRegion))
+	if err != nil {
+		return err
+	}
+
+	sqsOptions := []func(*awssqs.Options){}
+	cwOptions := []func(*awscw.Options){}
+	if cfg.AWSEndpointURL != nil {
+		endpoint := *cfg.AWSEndpointURL
+		sqsOptions = append(sqsOptions, func(o *awssqs.Options) { o.BaseEndpoint = &endpoint })
+		cwOptions = append(cwOptions, func(o *awscw.Options) { o.BaseEndpoint = &endpoint })
+	}
+
+	// ── Metrics: THE GATE LIVES HERE ─────────────────────────────────────────
+	//
+	// METRICS_ENABLED is read in this one place. Every consumer downstream takes
+	// an INJECTED publisher, so there is no flag inside the middleware, none
+	// inside the ticker, none inside the cache gateway and none in any use case.
+	// Off means the dependency is never constructed — not that a constructed
+	// publisher is skipped.
+	//
+	// cwPublisher stays nil when the flag is off, and each consumer below is
+	// given the shape that means "no metrics" in ITS OWN vocabulary: a nil
+	// interface for the HTTP middleware (which disables the metric at the call
+	// site), the noop object for the cache gateway (which calls straight through
+	// its port with no nil check), and no ticker goroutine at all.
+	var cwPublisher cloudwatch.Publisher
+	if cfg.MetricsEnabled {
+		cwPublisher = cloudwatch.NewPublisher(awscw.NewFromConfig(awsCfg, cwOptions...))
+	}
+
 	// ── The cache gateway ────────────────────────────────────────────────────
 	//
 	// With CACHE_ENABLED false, NO REDIS CLIENT IS CONSTRUCTED AT ALL — not one
@@ -202,35 +247,23 @@ func run() error {
 	// The client arrives as a FACTORY so "not constructed" is the literal
 	// behaviour rather than a claim — SelectGateway is unit-tested by counting
 	// how many times this closure runs.
+	//
+	// THE METRICS PORT IS BOUND HERE, and it is a real binding rather than the
+	// noop it used to be. The gateway computes cache_requests_total and
+	// cache_operation_duration_ms on EVERY operation; passing the noop
+	// unconditionally meant both were computed and discarded even with
+	// METRICS_ENABLED=true, leaving two documented series permanently at "no
+	// data" while both halves' unit tests stayed green. See selectCacheMetrics.
 	gateway, closeCache := cache.SelectGateway(
 		cfg.CacheEnabled,
 		func() *goredis.Client {
 			return cache.NewClient(cfg.RedisHost, cfg.RedisPort, cfg.CacheTimeoutMS)
 		},
-		cache.NewNoopMetrics(),
+		selectCacheMetrics(cfg.MetricsEnabled, cwPublisher),
 		logger,
 	)
 	if closeCache != nil {
 		defer func() { _ = closeCache() }()
-	}
-
-	// ── AWS clients ──────────────────────────────────────────────────────────
-	//
-	// One shared SDK config. AWS_ENDPOINT_URL is applied only when SET: locally it
-	// is Floci, and in a deployed environment it must be ABSENT so the SDK
-	// resolves the real endpoint itself. That is why config carries it as a
-	// *string — an empty-string default would point the SDK at nothing.
-	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(cfg.AWSRegion))
-	if err != nil {
-		return err
-	}
-
-	sqsOptions := []func(*awssqs.Options){}
-	cwOptions := []func(*awscw.Options){}
-	if cfg.AWSEndpointURL != nil {
-		endpoint := *cfg.AWSEndpointURL
-		sqsOptions = append(sqsOptions, func(o *awssqs.Options) { o.BaseEndpoint = &endpoint })
-		cwOptions = append(cwOptions, func(o *awscw.Options) { o.BaseEndpoint = &endpoint })
 	}
 
 	// ── The outbound Users client ────────────────────────────────────────────
@@ -283,19 +316,19 @@ func run() error {
 
 	// ── Metrics: THE GATE LIVES HERE ─────────────────────────────────────────
 	//
-	// METRICS_ENABLED is read in this one place. The middleware takes an INJECTED
-	// publisher and a nil one already disables the metric at the call site, so
-	// there is no flag inside the middleware, none inside the ticker, and none in
-	// any use case. Off means the dependency is never constructed and the
-	// goroutine never starts — not that a constructed publisher is skipped.
+	// The publisher itself was constructed ABOVE, before the cache gateway, so
+	// the gateway could be bound to it. What remains here are the two consumers
+	// that need it in their own shape: the HTTP middleware and the ticker.
 	//
 	// adapterhttp.MetricPublisher is an INTERFACE, so this must stay a nil
 	// INTERFACE rather than a typed nil: a (*publisher)(nil) stored in an
 	// interface is non-nil to `== nil` and the middleware would call through it.
+	// cwPublisher is declared as the cloudwatch.Publisher INTERFACE and left at
+	// its zero value when the flag is off, which is a true nil interface — the
+	// assignment below therefore propagates nil-ness correctly.
 	var metrics adapterhttp.MetricPublisher
 	var tickerDone <-chan struct{}
-	if cfg.MetricsEnabled {
-		cwPublisher := cloudwatch.NewPublisher(awscw.NewFromConfig(awsCfg, cwOptions...))
+	if cwPublisher != nil {
 		metrics = cwPublisher
 
 		// ctx, the PROCESS LIFETIME context — NEVER a request's. This goroutine
@@ -446,19 +479,71 @@ func run() error {
 	}
 }
 
-// openPool converts a SQLAlchemy DSN and opens the pool.
+// openPool converts a SQLAlchemy DSN and opens an INSTRUMENTED pool.
 //
-// sql.Open does NOT dial — it only validates the DSN — so a database that is
-// still starting does not prevent this process from coming up and serving its
-// liveness probe. That is deliberate: the health check answers "is this process
-// serving HTTP", and folding a connectivity check into startup would make a
-// transient database blip cycle otherwise-healthy tasks.
+// otelsql.Open does NOT dial — like sql.Open it only validates the DSN — so a
+// database that is still starting does not prevent this process from coming up
+// and serving its liveness probe. That is deliberate: the health check answers
+// "is this process serving HTTP", and folding a connectivity check into startup
+// would make a transient database blip cycle otherwise-healthy tasks.
+//
+// # WHY THE otelsql WRAPPING LIVES HERE
+//
+// Go has no opentelemetry-instrument, so the SQL spans Python got for free must
+// be wired by hand. This is the ONE place a pool is opened, and every repository
+// takes a plain *sql.DB — which otelsql.Open returns — so wrapping here
+// instruments all four repositories at once, changes no adapter, and leaves no
+// second, uninstrumented way to open a pool.
+//
+// What it buys: a workflow span that spends 300ms shows WHICH query spent it,
+// instead of an opaque gap. The DB spans are CLIENT spans and hang off whatever
+// span is active on the context passed to ExecContext/QueryContext — which is
+// why every repository method taking a ctx (they all do) matters.
+//
+// THE QUERY TEXT IS SUPPRESSED, and that is the load-bearing option here.
+//
+// otelsql records db.query.text BY DEFAULT — verified, not assumed: an
+// instrumented UPDATE emitted
+//
+//	db.query.text = "UPDATE trackings SET shipping_address='221B Baker Street' ..."
+//
+// with no options set. This service's write paths carry exactly that column, and
+// shipping_address is named PII in the repo's logging rules; a span attribute
+// fans out to the collector and to OpenObserve just as a log line does, so the
+// same prohibition applies. DisableQuery is therefore ON.
+//
+// What is lost is nothing that was needed: the span name and the SQL method
+// still identify WHICH call was slow, which is the question these spans exist to
+// answer. Turning this off to "see the query" would leak a customer's address
+// into observability storage.
 func openPool(sqlAlchemyDSN string) (*sql.DB, error) {
 	dsn, err := config.MySQLDSN(sqlAlchemyDSN)
 	if err != nil {
 		return nil, err
 	}
-	return sql.Open("mysql", dsn)
+	// No tracer provider is passed: otelsql falls back to the global one, which
+	// SetupTracing installed above. Passing an option whose value came out empty
+	// LOSES to auto-detection with no error at all — the same trap the OTLP
+	// exporter's configuration avoids by reading its environment variables.
+	return otelsql.Open("mysql", dsn, poolTracingOptions()...)
+}
+
+// poolTracingOptions is the ONE declaration of how database spans are shaped.
+//
+// Extracted so the PII guard (TestDatabaseSpansCarryNoQueryText) can assert
+// against the very options production uses. Inlined, that test had to restate
+// them, and a restated option set is one that can silently stop matching the
+// real one — leaving the leak guarded only in the test's own copy.
+func poolTracingOptions() []otelsql.Option {
+	return []otelsql.Option{
+		// The semconv system attribute, so a span is attributable to MySQL
+		// rather than to "some database".
+		otelsql.WithAttributes(semconv.DBSystemNameMySQL),
+		// THE PII GUARD. See the block above openPool: otelsql records
+		// db.query.text BY DEFAULT, and this service's write statements carry
+		// shipping_address.
+		otelsql.WithSpanOptions(otelsql.SpanOptions{DisableQuery: true}),
+	}
 }
 
 // userResolverOrNil keeps a typed nil out of the interface field.

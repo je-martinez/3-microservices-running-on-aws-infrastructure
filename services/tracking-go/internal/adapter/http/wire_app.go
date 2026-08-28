@@ -5,12 +5,15 @@ import (
 	"log/slog"
 
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 
 	adaptermysql "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/mysql"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/notify"
+	tracing "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/otel"
 	cache "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/redis"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/sqs"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/app"
+	"github.com/jemartinez/3mrai/services/tracking-go/internal/platform/logging"
 )
 
 // AppRouterOptions is everything the composed router needs from OUTSIDE the HTTP
@@ -85,12 +88,55 @@ type AppRouterOptions struct {
 //     producing the error response is still Recovery's job. Inverted, that
 //     re-raise has nothing outside it to catch it and the panic escapes to
 //     net/http: the connection is dropped with NO response rather than a 500.
-//  2. LogContextMiddleware is next, still OUTSIDE routing, so a 401 from a key
+//  2. otelgin.Middleware is next, and it MUST sit ABOVE LogContextMiddleware.
+//     See the block below — this ordering is the difference between a request
+//     line that can be joined to its trace and one that cannot.
+//  3. LogContextMiddleware follows, still OUTSIDE routing, so a 401 from a key
 //     guard and a 404 from the router — the requests people ask about most —
 //     still get a request id and a log line. Users shipped the opposite ordering
 //     and 401s had no id.
-//  3. The two flag middlewares are last: they only annotate the request for the
+//  4. The two flag middlewares are last: they only annotate the request for the
 //     handlers, and nothing above them reads what they set.
+//
+// # WHY otelgin GOES ABOVE LogContextMiddleware AND NOT BELOW
+//
+// Read otelgin's Middleware and the reason is structural rather than stylistic.
+// It does two things around c.Next():
+//
+//	savedCtx := c.Request.Context()
+//	defer func() { c.Request = c.Request.WithContext(savedCtx) }()  // RESTORES
+//	ctx := propagators.Extract(savedCtx, HeaderCarrier(c.Request.Header))
+//	ctx, span := tracer.Start(ctx, ...)
+//	c.Request = c.Request.WithContext(ctx)                          // installs
+//	c.Next()
+//
+// The span is on the request context only for the DURATION of c.Next(), and the
+// deferred restore puts the pre-span context back on the way out.
+//
+// Registering otelgin EARLIER makes it OUTER, so the nesting is:
+//
+//	Recovery( otelgin( LogContext( flags( handler ) ) ) )
+//
+// LogContextMiddleware writes its one `request completed` line AFTER its own
+// c.Next() returns — but that moment is still INSIDE otelgin's c.Next(), so the
+// span is installed on the request context and TraceHandler stamps trace_id and
+// span_id onto the line.
+//
+// Inverted, LogContextMiddleware becomes the outer one and its line is written
+// after otelgin's deferred restore has already stripped the span: the request's
+// context carries no span, TraceHandler finds no valid span context, and the
+// line is emitted with trace_id and span_id OMITTED. Valid JSON, correct fields,
+// silently unjoinable to the trace it belongs to — the same failure this service
+// already shipped once (0 of 348 lines carried a trace_id) reappearing in a new
+// place. That inversion is a mutation that fails
+// TestTheRequestLineCarriesTheTraceID.
+//
+// It sits BELOW gin.Recovery for the same reason everything does: Recovery must
+// stay outermost so a panic still produces a 500.
+//
+// GinFilter is passed so the liveness probe produces no span. Python excludes it
+// with OTEL_PYTHON_FASTAPI_EXCLUDED_URLS="/v1/health$"; Go has no such variable,
+// so DEFINING the filter is not excluding anything — it has to be handed over.
 func NewAppRouter(opts AppRouterOptions) *gin.Engine {
 	log := opts.Logger
 	if log == nil {
@@ -110,6 +156,17 @@ func NewAppRouter(opts AppRouterOptions) *gin.Engine {
 	router := gin.New()
 	router.Use(
 		gin.Recovery(),
+		// The INBOUND half of trace propagation, and the only thing that reads
+		// the gateway's traceparent. Without it every workflow span this service
+		// opens starts a NEW root trace: the flow still appears complete in
+		// OpenObserve, just as a second unrelated trace beside the caller's.
+		//
+		// No provider or propagator is passed. otelgin falls back to
+		// otel.GetTracerProvider() and otel.GetTextMapPropagator(), which
+		// SetupTracing has already installed — and passing the globals
+		// explicitly here would only reintroduce the option-versus-autodetection
+		// trap that cost this repo three silent failures.
+		otelgin.Middleware(logging.ServiceName, otelgin.WithFilter(tracing.GinFilter)),
 		LogContextMiddleware(log, opts.Metrics),
 		E2ESourceMiddleware(opts.E2ETestingEnabled),
 		TestModeMiddleware(),
