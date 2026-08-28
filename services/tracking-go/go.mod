@@ -8,6 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.69.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/redis/go-redis/v9 v9.22.0
+	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.71.0
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.46.0
 	go.opentelemetry.io/otel/sdk v1.46.0
@@ -19,6 +20,7 @@ require (
 require (
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.0 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sqs v1.48.0 // indirect
 	github.com/aws/smithy-go v1.28.1 // indirect
 	github.com/bytedance/gopkg v0.1.4 // indirect
 	github.com/bytedance/sonic v1.15.2 // indirect
