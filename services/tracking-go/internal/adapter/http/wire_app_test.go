@@ -2,6 +2,7 @@ package http_test
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"net/http/httptest"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -239,5 +241,79 @@ func TestRecoverySitsOutsideLogContext(t *testing.T) {
 			"A 200 here means gin.Recovery is registered INSIDE LogContextMiddleware: "+
 			"it swallows the panic before the log middleware observes it unwinding, so "+
 			"the crash is logged as a success and never counted as a 5xx.", int(status))
+	}
+}
+
+// ─── The identity stamp ──────────────────────────────────────────────────────
+
+// wireCountingResolver counts resolutions so a wiring test can assert WHICH
+// routes reach Users. Two different values for the two identities, so it cannot
+// pass by echoing the header back.
+type wireCountingResolver struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (r *wireCountingResolver) ResolveInternalUserID(context.Context, string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls++
+	return "usr_wire_abc", nil
+}
+
+func (r *wireCountingResolver) Calls() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.calls
+}
+
+// TestTheIdentityStampIsAppliedToTheReadsAndNowhereElse is the composition
+// root's half of this task.
+//
+// StampResolvedUserID itself is covered by its own suite; what cannot be covered
+// there is whether NewAppRouter ever CALLS it, and on which routes. A dropped
+// group here would put the response cache back to permanently inert — with every
+// other test in this package still green, because each one stamps the usr_ id in
+// its own fixture middleware.
+//
+// The reads are asserted through their 401: with no x-user-id the middleware has
+// nothing to resolve, so a resolution count of 1 on a request that CARRIES one,
+// and 0 on the identityless routes, is what separates "applied per-route" from
+// "applied globally".
+func TestTheIdentityStampIsAppliedToTheReadsAndNowhereElse(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		method string
+		target string
+		// wantCalls is how many times Users must be reached for this request.
+		wantCalls int
+	}{
+		{"the single read resolves", nethttp.MethodGet, "/v1/trackings/ord_1", 1},
+		{"the batch read resolves", nethttp.MethodGet, "/v1/trackings?order_ids=ord_1", 1},
+		{"health never resolves", nethttp.MethodGet, "/v1/health", 0},
+		{"the carrier PUT never resolves", nethttp.MethodPut, "/v1/trackings/ord_1/status", 0},
+		{"the cascade delete never resolves", nethttp.MethodDelete, "/v1/trackings/by-user", 0},
+		{"the e2e cleanup never resolves", nethttp.MethodDelete, "/v1/trackings/e2e-cleanup", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resolver := &wireCountingResolver{}
+			opts := wireOptions(t, true)
+			opts.Users = resolver
+			router := adapterhttp.NewAppRouter(opts)
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(t.Context(), tc.method, tc.target, nil)
+			// Sent on EVERY request, the identityless ones included. A middleware
+			// guarding merely on "the header is present" would fire on these
+			// strays and pay a gRPC call on a request that has no business
+			// making one; applying it per-route is what makes that structural.
+			req.Header.Set("x-user-id", "sub-wire-owner")
+			router.ServeHTTP(rec, req)
+
+			if got := resolver.Calls(); got != tc.wantCalls {
+				t.Fatalf("Users was reached %d times on %s %s, want %d",
+					got, tc.method, tc.target, tc.wantCalls)
+			}
+		})
 	}
 }

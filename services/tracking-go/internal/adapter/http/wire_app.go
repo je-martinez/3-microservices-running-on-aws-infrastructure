@@ -97,6 +97,16 @@ func NewAppRouter(opts AppRouterOptions) *gin.Engine {
 		log = slog.Default()
 	}
 
+	// The gateway is normalized ONCE, here, so every consumer below receives a
+	// real object. main always supplies one (SelectGateway returns the null
+	// gateway when CACHE_ENABLED is false), but a hand-built options struct in a
+	// test may not — and the identity cache dereferences it directly, unlike the
+	// reads handler which null-objects it internally.
+	gateway := opts.Gateway
+	if gateway == nil {
+		gateway = cache.NewNullGateway()
+	}
+
 	router := gin.New()
 	router.Use(
 		gin.Recovery(),
@@ -127,14 +137,51 @@ func NewAppRouter(opts AppRouterOptions) *gin.Engine {
 	))
 
 	// The two user-scoped reads. READER pool — the only routes that use it.
-	WireReads(router, opts.ReaderDB, opts.Gateway, opts.CacheEnabled, log)
+	//
+	// # They and ONLY they carry the identity stamp
+	//
+	// StampResolvedUserID is applied to a GROUP, not with router.Use, because
+	// three of this service's surfaces have no caller identity at all: the
+	// carrier PUT (its gateway route declares no authorizer), and both deletes
+	// (API-key authenticated, subject in the body or in a tag). A global
+	// middleware guarding on "is x-user-id present?" would still fire on a stray
+	// header sent to the carrier PUT, and would silently start resolving on the
+	// next route somebody adds. Per-route inverts the default — the same reason
+	// RequireCallerSub is per-route rather than middleware-plus-an-allowlist,
+	// and the direct equivalent of the Python's `IdentifiedCaller` dependency.
+	//
+	// Health is exempt by the same structure: the ALB probes it continuously,
+	// and resolving there would turn a liveness check into a dependency on
+	// Users being up.
+	//
+	// WITHOUT THIS LINE THE RESPONSE CACHE IS ENTIRELY INERT. Both read handlers
+	// build their cache key from ResolvedUserID(c), and the key builders decline
+	// to build one without a usr_ id — so nothing calling SetResolvedUserID means
+	// every read is a MISS forever, while every part of the code looks correct.
+	//
+	// Creation is deliberately NOT in this group: it resolves the id itself and
+	// answers 404 when Users has no record, and stamping first would change
+	// nothing there (a negative is never cached, so it still makes its own call)
+	// while blurring which path is allowed to fail.
+	reads := router.Group("", StampResolvedUserID(
+		// A nil app.UserResolver arrives as a nil internalIDResolver, which the
+		// middleware treats as "nothing to resolve with" and no-ops.
+		opts.Users,
+		// THROUGH THE IDENTITY CACHE, never straight to gRPC: that cache exists
+		// so a response-cache hit does not still pay a gRPC round trip. Built
+		// over the SAME gateway, so CACHE_ENABLED=false makes it a null object
+		// and every request falls through to the direct call.
+		cache.NewIdentityCache(gateway),
+		log,
+	))
+	WireReads(reads, opts.ReaderDB, gateway, opts.CacheEnabled, log)
 
 	// The carrier webhook. Its own external key, declared at the group level.
 	RegisterCarrierRoutes(router, NewCarrierHandler(
 		app.NewUpdateStatus(
 			adaptermysql.NewStatusRepository(opts.WriterDB),
 			notify.NewStatusEventPublisher(opts.Publisher),
-			notify.NewTrackingCacheInvalidator(opts.Gateway, log),
+			notify.NewTrackingCacheInvalidator(gateway, log),
 			nil,
 		),
 		log,
@@ -144,7 +191,7 @@ func NewAppRouter(opts AppRouterOptions) *gin.Engine {
 	// The account-deletion cascade's leg. Internal key, applied by the seam.
 	softDeletes := adaptermysql.NewSoftDeleteRepository(opts.WriterDB)
 	RegisterInternalDelete(router, NewInternalDeleteHandler(
-		app.NewDeleteByUser(softDeletes, cache.NewUserInvalidator(opts.Gateway, log), nil),
+		app.NewDeleteByUser(softDeletes, cache.NewUserInvalidator(gateway, log), nil),
 		log,
 		nil,
 	), opts.InternalAPIKey)
