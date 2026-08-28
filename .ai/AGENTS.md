@@ -285,12 +285,23 @@ not tool-enforceable — treat it as a norm.*
 
 ### tracking-impl
 
-Code implementer for the 3MRAI **Tracking** service (FastAPI, Aurora MySQL). Use
-to implement a single Tracking-service task from the plan. Writes **source code
-only** — never touches git, never touches Linear. Reads
-`services/tracking/CLAUDE.md` for its stack and conventions and the vault spec
-note for the design, implements the task, and leaves the work in the working tree
-for the main session to commit.
+Code implementer for the 3MRAI **Tracking** service (Go, Gin, sqlc,
+golang-migrate, Aurora MySQL). Use to implement a single Tracking-service task.
+Writes **ONLY source code** — never runs git and never touches Linear. Reads
+`services/tracking-go/CLAUDE.md` for its stack/conventions and the vault spec
+note for the design, implements the task, runs what it wrote, and leaves the work
+in the working tree for the main session to commit.
+
+Tracking was Python/FastAPI until the **2026-08-27 migration**; `services/tracking/`
+is deleted and `services/tracking-go/` is the service. There is **one** implementer
+for it — this one. The directory keeps its `-go` suffix because renaming a Go module
+path has no upside. Three rules from that service's memory are worth stating here,
+because each encodes a bug that already cost this repo debugging time: ownership is
+filtered by **`cognito_sub`, never `user_id`**; scoped and unscoped reads are
+**separate methods** (Go's zero value for a string is `""`, not nil, so an optional
+parameter silently turns "unscoped" into "scoped to the empty string"); and a
+goroutine outliving a request must **not** inherit the request's `context.Context`,
+which is cancelled when the response is sent.
 
 *In Claude Code this is a subagent whose tools are restricted to
 Read/Write/Edit/Bash/Glob/Grep. In this environment that restriction is

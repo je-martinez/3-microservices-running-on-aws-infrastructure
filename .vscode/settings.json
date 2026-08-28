@@ -6,5 +6,11 @@
   // allowImportingTsExtensions, target esnext) and reports spurious errors.
   // pnpm does not hoist typescript to the repo root, so point at the package.
   "typescript.tsdk": "services/users/node_modules/typescript/lib",
-  "typescript.enablePromptUseWorkspaceTsdk": true
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  // Go toolchain, pinned to the version in services/tracking-go/.go-version via
+  // goenv. Set so the editor's Go extension resolves the same toolchain that
+  // `make verify-toolchain` enforces, instead of whatever `go` is first on PATH.
+  "go.toolsGopath": "${env:HOME}/go/tools",
+  "go.goroot": "${env:HOME}/.goenv/versions/1.26.7",
+  "go.gopath": "${env:HOME}/go/1.26.7"
 }

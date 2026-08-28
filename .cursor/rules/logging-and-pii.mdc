@@ -5,6 +5,7 @@ globs:
   - "**/*.js"
   - "**/*.py"
   - "**/*.cs"
+  - "**/*.go"
 alwaysApply: false
 ---
 
