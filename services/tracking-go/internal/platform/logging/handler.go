@@ -80,9 +80,28 @@ func NewHandler(w io.Writer, serviceName, deploymentEnvironment string, level sl
 	}
 }
 
-// New builds a *slog.Logger at INFO over NewHandler.
+// New builds a *slog.Logger at INFO over NewHandler, ALREADY WRAPPED in
+// NewContextHandler.
+//
+// The enrichment belongs in the DEFAULT constructor, not in an opt-in one beside
+// it, because the failure mode is SILENCE. A logger built without the wrapper
+// emits perfectly valid JSON that simply carries no request_id, cognito_sub or
+// order_id — nothing errors, no test that does not look for those fields fails,
+// and the loss shows up only as an empty dashboard weeks later. That is exactly
+// how this service ran with the wrapper defined, tested, and used nowhere: New
+// built the base handler and wrapped nothing.
+//
+// The base handler stays reachable as NewHandler for the tests that assert the
+// RENDERING rules in isolation; every path that builds a logger for the service
+// goes through here or through Install.
+//
+// It does NOT wrap the trace handler: that one lives in internal/adapter/otel
+// and this package must not import it (a platform package depending on the OTel
+// SDK would make every consumer of the log schema depend on it too). The
+// composition root applies it on the outside — see cmd/server/main.go.
 func New(w io.Writer, serviceName, deploymentEnvironment string) *slog.Logger {
-	return slog.New(NewHandler(w, serviceName, deploymentEnvironment, slog.LevelInfo))
+	return slog.New(NewContextHandler(
+		NewHandler(w, serviceName, deploymentEnvironment, slog.LevelInfo)))
 }
 
 func (h *Handler) Enabled(_ context.Context, level slog.Level) bool {

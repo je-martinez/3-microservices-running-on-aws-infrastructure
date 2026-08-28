@@ -46,12 +46,12 @@ import (
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/grpcusers"
 	adapterhttp "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/http"
 	adaptermysql "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/mysql"
+	"github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/notify"
 	tracing "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/otel"
 	cache "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/redis"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/sqs"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/app"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/platform/config"
-	"github.com/jemartinez/3mrai/services/tracking-go/internal/platform/logging"
 )
 
 const (
@@ -94,7 +94,20 @@ func run() error {
 	if deploymentEnvironment == "" {
 		deploymentEnvironment = "local"
 	}
-	logger := logging.Install(deploymentEnvironment)
+	// installProcessLogger is where the two log enrichers meet, and the ONLY
+	// constructor that builds the complete one. internal/platform/logging cannot
+	// apply the trace layer (its package must not import the OTel adapter), so a
+	// logger built there carries the correlation fields but never
+	// trace_id/span_id — logs and traces travel different transports and nothing
+	// else joins them. See logging_wiring.go for the wrapper order and why it is
+	// that one.
+	//
+	// It runs BEFORE SetupTracing on purpose: TraceHandler reads the ambient span
+	// off the context at Handle time, not the provider at construction time, so a
+	// logger built now stamps ids correctly the moment spans start flowing — and
+	// the startup lines in between (including a tracing_setup_failed warning) are
+	// correctly emitted with the trace fields OMITTED rather than zeroed.
+	logger := installProcessLogger(os.Stdout, deploymentEnvironment)
 
 	// Config, and a LOUD failure on a missing required variable. Exactly four are
 	// required; every optional one has already fallen back to its default by the
@@ -300,6 +313,41 @@ func run() error {
 			logger)
 	}
 
+	// ── TestMode progression ─────────────────────────────────────────────────
+	//
+	// ctx, the PROCESS LIFETIME context — NEVER a request's, and this is the one
+	// place that decision is made. net/http cancels a request's context the
+	// instant its response is written, so a run that inherited one would die at
+	// its first tick — and the symptom would be indistinguishable from the
+	// ACCEPTED, DOCUMENTED restart limitation ("the tracking froze partway
+	// through"). The bug would disguise itself as a known limitation and nobody
+	// would investigate it. app.Progression.Start therefore takes no context at
+	// all; the only one it can use is the one handed in here.
+	//
+	// The WRITER pool, and its OWN UpdateStatus: every tick both reads and
+	// writes, and the transitions must be the same ones the carrier PUT performs
+	// — same guards, same history row, same event, same invalidation. Only the
+	// actor differs, and the progression supplies it per call.
+	//
+	// KNOWN LIMITATION, ACCEPTED: a restart mid-run loses the goroutine and the
+	// tracking stays frozen. See app.Progression. Do NOT add a durable scheduler.
+	progressionStatuses := adaptermysql.NewStatusRepository(writerDB)
+	progression := app.NewProgression(
+		ctx,
+		progressionStatuses,
+		app.NewUpdateStatus(
+			progressionStatuses,
+			notify.NewStatusEventPublisher(publisher),
+			notify.NewTrackingCacheInvalidator(gateway, logger),
+			nil, // the production clock: UTC, truncated to the second
+		),
+		app.DefaultProgressionInterval,
+		logger,
+		// The WORKFLOW tracer: the Python opens this span through workflow_span,
+		// and one query in OpenObserve must mean the same thing in both runtimes.
+		tracing.Tracer(tracing.TracerWorkflow),
+	)
+
 	// ── The router ───────────────────────────────────────────────────────────
 	router := adapterhttp.NewAppRouter(adapterhttp.AppRouterOptions{
 		WriterDB:          writerDB,
@@ -314,10 +362,10 @@ func run() error {
 		// non-nil. Left as the zero interface when there is no client.
 		Users:     userResolverOrNil(userResolver),
 		Publisher: publisher,
-		// Wave 2.5 supplies the real progression; until then creation works and
-		// nothing advances. A NAMED no-op, so the wiring reads as "deliberately
-		// does nothing" rather than an oversight.
-		Hook:    adapterhttp.NoopProgression{},
+		// The real TestMode progression, constructed above on the PROCESS
+		// context. The handler invokes it only after the response is written,
+		// and therefore after the creating transaction has committed.
+		Hook:    adapterhttp.NewTestModeProgressionHook(progression),
 		Metrics: metrics,
 		Logger:  logger,
 	})
@@ -355,10 +403,25 @@ func run() error {
 		}
 	})
 
+	// drainProgressions joins every in-flight TestMode run. ctx's cancellation is
+	// what ends them; this only waits, and LOGS if the budget runs out — the
+	// process must not exit leaving goroutines mid-flight without at least
+	// saying so.
+	//
+	// A FRESH context: ctx is already cancelled by the time this runs, so passing
+	// it would make Wait report an incomplete drain immediately, every time,
+	// whatever actually happened.
+	drainProgressions := sync.OnceFunc(func() {
+		drainCtx, cancel := context.WithTimeout(context.Background(), shutdownGracePeriod)
+		defer cancel()
+		progression.Wait(drainCtx)
+	})
+
 	select {
 	case err := <-serverErr:
 		stop()
 		stopTicker()
+		drainProgressions()
 		return err
 
 	case <-ctx.Done():
@@ -372,9 +435,11 @@ func run() error {
 
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			stopTicker()
+			drainProgressions()
 			return err
 		}
 		stopTicker()
+		drainProgressions()
 		logger.Info("http server stopped cleanly",
 			slog.String("app_event", "http_server_stopped"))
 		return nil
