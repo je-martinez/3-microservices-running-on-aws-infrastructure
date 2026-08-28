@@ -43,9 +43,23 @@ sql:
           # it, and a strict model would turn an additive upstream field into a
           # tracking-creation outage.
           #
-          # NO explicit override is needed, and adding one BREAKS the build:
-          # sqlc already maps a nullable JSON column to json.RawMessage and
-          # imports "encoding/json" itself, so an override naming that same
-          # import makes it emit the import a second time —
-          # `json redeclared in this block`. The generated field is verified to
-          # be json.RawMessage by the assertion test in models_test.go.
+          # []byte, NOT json.RawMessage, and the difference is not cosmetic.
+          # json.RawMessage does not implement sql.Scanner, so scanning a NULL
+          # column into it fails AT RUNTIME:
+          #
+          #   sql: Scan error on column index 4, name "shipping_address":
+          #   unsupported Scan, storing driver.Value type <nil>
+          #   into type *json.RawMessage
+          #
+          # The column is nullable and most rows have no address, so this is the
+          # common path, not an edge case. []byte accepts NULL as a nil slice.
+          # Verified against a real MySQL row; the assertion in models_test.go
+          # pins the generated type so a future override cannot silently undo it.
+          #
+          # The override names no import, which is what keeps sqlc from emitting
+          # "encoding/json" twice (`json redeclared in this block`) -- the reason
+          # an earlier attempt at an override was reverted rather than fixed.
+          - column: "tracking.shipping_address"
+            go_type:
+              type: "byte"
+              slice: true

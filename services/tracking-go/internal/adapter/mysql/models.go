@@ -6,7 +6,6 @@ package mysql
 
 import (
 	"database/sql"
-	"encoding/json"
 	"time"
 
 	tagtype "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/mysql/tagtype"
@@ -17,7 +16,7 @@ type Tracking struct {
 	UserID          string
 	OrderID         string
 	Status          string
-	ShippingAddress json.RawMessage
+	ShippingAddress []byte
 	Datetime        time.Time
 	CreatedBy       sql.NullString
 	CreatedAt       time.Time

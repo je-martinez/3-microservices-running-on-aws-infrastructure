@@ -38,7 +38,7 @@ type CreateTrackingParams struct {
 	UserID          string
 	OrderID         string
 	Status          string
-	ShippingAddress json.RawMessage
+	ShippingAddress []byte
 	Datetime        time.Time
 	CreatedBy       sql.NullString
 	CreatedAt       time.Time
@@ -151,7 +151,7 @@ type GetTrackingByOrderIDRow struct {
 	UserID          string
 	OrderID         string
 	Status          string
-	ShippingAddress json.RawMessage
+	ShippingAddress []byte
 	OccurredAt      time.Time
 	CreatedBy       sql.NullString
 	CreatedAt       time.Time
@@ -241,7 +241,7 @@ type GetTrackingByOrderIDScopedRow struct {
 	UserID          string
 	OrderID         string
 	Status          string
-	ShippingAddress json.RawMessage
+	ShippingAddress []byte
 	OccurredAt      time.Time
 	CreatedBy       sql.NullString
 	CreatedAt       time.Time
@@ -432,7 +432,7 @@ type ListTrackingsByCognitoSubRow struct {
 	UserID          string
 	OrderID         string
 	Status          string
-	ShippingAddress json.RawMessage
+	ShippingAddress []byte
 	OccurredAt      time.Time
 	CreatedBy       sql.NullString
 	CreatedAt       time.Time
@@ -512,7 +512,7 @@ type ListTrackingsByIDsRow struct {
 	UserID          string
 	OrderID         string
 	Status          string
-	ShippingAddress json.RawMessage
+	ShippingAddress []byte
 	OccurredAt      time.Time
 	CreatedBy       sql.NullString
 	CreatedAt       time.Time
