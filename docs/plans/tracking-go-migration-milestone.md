@@ -2,13 +2,13 @@
 title: "Tracking Go Migration Milestone"
 type: plan
 area: tracking
-status: draft
+status: active
 created: 2026-08-27
 updated: 2026-08-27
 tags:
   - type/plan
   - area/tracking
-  - status/draft
+  - status/active
   - milestone/tracking-go-migration
 propagates-to: none — milestone-plan note; the implementation plan it maps ([[2026-08-27-tracking-go-migration]]) carries propagates-to for the actual decisions
 related:
@@ -20,6 +20,9 @@ related:
   - "[[ADR-0021-tracking-go-gin-sqlc-stack]]"
   - "[[testing]]"
   - "[[2026-08-27-go-vs-python-performance]]"
+  - "[[tracking-service-design]]"
+  - "[[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]]"
+  - "[[2026-08-27-a-producer-side-test-proves-nothing-about-what-the-consumer-accepts]]"
 ---
 
 # Tracking Go Migration Milestone
@@ -28,6 +31,44 @@ Logical execution plan for the **Tracking Go Migration** milestone. This note tr
 milestone's task sequence and blocking dependencies. The detailed step-by-step plan lives in
 [[2026-08-27-tracking-go-migration]] (superpowers plan); the design in
 [[2026-08-27-tracking-go-migration-design]]. This note is the milestone-level map.
+
+> [!success] Cutover executed (2026-08-27) — `services/tracking-go/` is now THE Tracking service
+> All 28 tasks through Wave 3 (Verification) landed. The closing gate was **three of four
+> criteria met** — Task 28 (Wave 4, cutover) was executed on that basis, by explicit user
+> decision, rather than deferred pending a fourth-criterion re-run:
+>
+> 1. **All three test layers — PASS.** Internal E2E 22/22, gateway E2E with a real Cognito JWT
+>    17/17, against the **same, unedited** gateway specs (`git diff -- e2e/tests/` empty).
+> 2. **`openapi.yaml` — PASS.** Five documented differences, all inside the closed, capped
+>    allowlist; four are the known Python-spec-vs-Python-code disagreement (FastAPI cannot
+>    express its own `HTTPException` wrapping), the fifth documents a `500` both services serve
+>    that Python's generator never declared.
+> 3. **Performance — PARTIALLY met, and left that way.** See
+>    [[2026-08-27-go-vs-python-performance]]: resource/startup metrics (image size, cold start,
+>    memory at rest and under load) are measured and trustworthy, and Go wins all four.
+>    Latency/throughput under sustained load are **not measurable on this stack** — Floci (the
+>    local AWS emulator), not either service, was the bottleneck; both arms collapsed to a
+>    near-identical ~94% KO rate under the same simulation, which is itself the proof the
+>    environment was measured rather than the service. This was **not** re-run before cutover;
+>    the note's own "How to obtain trustworthy latency numbers" section remains open follow-up
+>    work, out of scope for this milestone's completion.
+> 4. **Observability parity — PASS, after a blocking bug it found.** See
+>    [[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]] for
+>    the five wiring-hazard instances the parity check caught (unregistered routes, an inert
+>    response cache, zero correlated log lines, discarded cache metrics, a dropped
+>    `traceparent`) — all fixed before this criterion closed green.
+>
+> Two additional defects were found and fixed during Wave 3/cutover, outside the four named
+> criteria: a silent email/WebSocket-push loss from a producer/consumer wire-contract mismatch
+> (see [[2026-08-27-a-producer-side-test-proves-nothing-about-what-the-consumer-accepts]]), and
+> a false "Go is 400x faster" performance result caused by a stale container publishing zero
+> metrics (documented in [[2026-08-27-go-vs-python-performance]]).
+>
+> `services/tracking/` (Python) is being removed as part of this cutover. Every note in this
+> vault that named Tracking's runtime as Python/FastAPI has been updated; see
+> [[tracking-service-design]] (now describing the Go implementation),
+> [[architecture]]/[[system-context]] (runtime table), and [[ADR-0021-tracking-go-gin-sqlc-stack]]
+> (status/consequences).
 
 > [!info] No Linear milestone yet
 > No Linear milestone or issues exist for this work yet — no issue IDs to link. The task
@@ -85,7 +126,7 @@ proves equivalence.
 | 25 | The three test layers | `internal/adapter/mysql/suite_test.go`, `docker-compose.yml` (+`tracking-go` service), nginx switch | [[testing]] |
 | 26 | Performance comparison | measured Gatling comparison (`e2e/load-tests/`), vault note via `obsidian-vault` — see [[2026-08-27-go-vs-python-performance]] (**partially met**: resource/startup metrics measured, load-test latency deferred — see below) | [[2026-08-27-tracking-go-migration]] |
 | 27 | Observability parity | `internal/adapter/otel/propagation_test.go`, vault note via `obsidian-vault` | [[logging-context]] |
-| 28 | Delete the Python service | `git rm -r services/tracking`, nginx/Makefile/env-file updates | [[2026-08-27-tracking-go-migration]] |
+| 28 | Delete the Python service — **executed** | `git rm -r services/tracking`, nginx/Makefile/env-file updates | [[2026-08-27-tracking-go-migration]] |
 
 ## Dependencies
 
@@ -339,9 +380,14 @@ Per [[phase-c-review-flow]]:
    > to a near-identical ~94% KO rate under the same load-test simulation. The note records this
    > as unmeasured rather than estimating it, and lists what a trustworthy latency run would
    > require (fresh `make bootstrap`, measure before the E2E suite runs, and neutralize the
-   > `METRICS_ENABLED` gate Python currently ignores on the cache path). Task 28 must not read
-   > criterion 3 as a clean pass — it is green on resource/startup and open on latency/throughput
-   > until that follow-up run happens.
+   > `METRICS_ENABLED` gate Python ignored on the cache path). Task 28 must not read
+   > criterion 3 as a clean pass — it is green on resource/startup and open on latency/throughput.
+   >
+   > **Resolution (2026-08-27): Task 28 was executed anyway, on the closing gate's three-of-four
+   > status, by explicit user decision.** The latency/throughput follow-up run described above
+   > was **not** performed before cutover and remains open follow-up work — it is not blocking,
+   > and it is not forgotten; it is simply outside this milestone's completed scope. Do not read
+   > the milestone's completion as a retroactive claim that criterion 3 became fully met.
 
 ## Related
 
@@ -358,3 +404,11 @@ Per [[phase-c-review-flow]]:
 - [[testing]] — the three-layer test convention Task 25 closes out for the new service.
 - [[2026-08-27-go-vs-python-performance]] — Task 26's measured performance comparison; closing
   gate criterion 3 is partially met by it (resource/startup measured, load latency deferred).
+- [[tracking-service-design]] — the service spec, now describing the Go implementation this
+  milestone shipped; the propagation target for the migration's behavioural decisions.
+- [[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]] — the
+  wiring-hazard lesson from Task 27 (observability parity): five instances of correct,
+  unit-tested code never reached from `main()`, and the reachability gate that now guards it.
+- [[2026-08-27-a-producer-side-test-proves-nothing-about-what-the-consumer-accepts]] — the
+  wire-contract lesson: a silent email/WebSocket-push loss caught only by driving a real
+  transition through the real events-pipeline Lambda, not by any producer-side unit test.

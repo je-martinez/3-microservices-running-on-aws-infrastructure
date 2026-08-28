@@ -133,14 +133,17 @@ locals {
 
     # ─── Tracking routes ──────────────────────────────────────────────────────
     #
-    # Gated behind var.enable_tracking_routes (default FALSE) because the
-    # Tracking service does not exist yet: `services/tracking/src/` is empty and
-    # its Dockerfile is fully commented out. Creating these routes while nginx
-    # has no `tracking` upstream would publish gateway paths that resolve to the
-    # WRONG backend (nginx's default `location /` sends anything unmatched to
-    # users:3000), which is worse than a 404 — a health probe would return
-    # Users' 200 and look green. Flip the flag on in the same change that adds
-    # the nginx upstream and a running service.
+    # Gated behind var.enable_tracking_routes (default FALSE). The gate exists
+    # because creating these routes while nginx has no `tracking` upstream would
+    # publish gateway paths that resolve to the WRONG backend (nginx's default
+    # `location /` sends anything unmatched to users:3000) — worse than a 404,
+    # since a health probe would return Users' 200 and look green. Turn it on in
+    # the same change that adds the nginx upstream and a running service; the
+    # local environment already does (environments/local/main.tf).
+    #
+    # Note this module names no compose service: the routes are paths, and the
+    # backend is chosen downstream by nginx's `set $backend`. That is why the Go
+    # cutover needed no change here at all — `tracking` kept its name.
     #
     # This differs from enable_e2e_cleanup_route (default true) on purpose: that
     # route's backend already exists and the service itself 404s when disabled,

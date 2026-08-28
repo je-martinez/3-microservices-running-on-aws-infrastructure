@@ -314,192 +314,86 @@ services:
         - action: rebuild
           path: ./services/orders/src
 
-  # Tracking service (FastAPI + uvicorn on Python 3.12, SQLAlchemy/pymysql → MySQL).
-  # Build context is ./services/tracking — NOT the repo root like Users and Orders.
-  # It needs nothing from outside its own tree: the Users gRPC stubs generated from
-  # proto/users.proto are COMMITTED under src/shared/grpc/generated/, so the shared
-  # .proto is read neither at build nor at run time (verified — contrast Users,
-  # whose gRPC SERVER loads /app/proto/users.proto at boot).
+  # Tracking service (Go 1.26 + Gin, sqlc/database-sql → MySQL).
+  #
+  # THIS IS THE GO SERVICE. It was `tracking-go`, running beside a Python
+  # FastAPI service of the same name, for the duration of the migration; at
+  # cutover it took the `tracking` key, the host port and the env file the
+  # Python service used, so nothing downstream had to learn a new name. The
+  # nginx `set $backend tracking;` lines, TRACKING_BASE_URL, `make doctor`'s
+  # port map and every doc that says "Tracking runs on 3002" all keep meaning
+  # what they meant — they now resolve to this container.
+  #
+  # Build context is ./services/tracking-go — NOT the repo root like Users and
+  # Orders. It needs nothing from outside its own tree: the Users gRPC stubs
+  # generated from proto/users.proto are COMMITTED under
+  # internal/adapter/grpcusers/gen/, so the shared .proto is read neither at
+  # build nor at run time (contrast Users, whose gRPC SERVER loads
+  # /app/proto/users.proto at boot).
+  #
   # Reachable as `tracking` on 3mrai-network so the Nginx ECS task can
-  # proxy_pass to http://tracking:8000. REST-only: Tracking serves no gRPC (JE-108),
-  # so there is no second port to publish.
+  # proxy_pass to http://tracking:8000. REST-only: Tracking serves no gRPC
+  # (JE-108), so there is no second port to publish.
   tracking:
-    build: ./services/tracking
+    build: ./services/tracking-go
     networks: [3mrai-network]
     ports:
-      # Host 3002 → container 8000 (uvicorn --port). 3000/3001 are taken by Users
-      # and Orders. Health: GET /v1/health (unprefixed — the gateway publishes
-      # /v1/tracking/health and nginx rewrites; see health_router.py).
+      # Host 3002 → container 8000. 3000/3001 are taken by Users and Orders.
+      # Health: GET /v1/health (unprefixed — the gateway publishes
+      # /v1/tracking/health and nginx rewrites).
       - "3002:8000"
     depends_on:
       floci:
         condition: service_healthy
-      # NOT depends_on: users. Tracking's only gRPC is an OUTBOUND client to Users,
-      # dialed lazily per request on POST /v1/trackings/init-tracking — nothing at
-      # boot, and neither the reads, the carrier PUT, nor the healthcheck touch it.
-      # Orders declares `users: service_started` for the same lazy client; the
-      # difference is only that Orders' compose block predates this reasoning being
-      # written down. `service_started` buys no ordering guarantee that matters here
-      # (a started container is not a listening gRPC server), so adding it would be
-      # coupling that looks like a guarantee without being one.
+      # NOT depends_on: users. Tracking's only gRPC is an OUTBOUND client to
+      # Users, and main.go dials it LAZILY (grpc.NewClient returns without
+      # connecting); a dial failure there is logged and swallowed, so nothing at
+      # boot touches Users at all. Orders declares `users: service_started` for
+      # the same lazy client; the difference is only that Orders' compose block
+      # predates this reasoning being written down. `service_started` buys no
+      # ordering guarantee that matters here (a started container is not a
+      # listening gRPC server), so adding it would be coupling that looks like a
+      # guarantee without being one.
     # Environment comes from the GENERATED .env.local.tracking — see the note on
     # the users service above for why nothing is declared inline. An
     # `environment:` block here would silently WIN over env_file, so the service
-    # would never see its generated DB URLs, gRPC port, or API keys.
+    # would never see its generated DB URLs, gRPC target, or API keys.
     env_file:
       - .env.local.tracking
-    healthcheck:
-      # python -m urllib, NOT curl: python:3.12-slim ships neither curl nor wget
-      # (verified), and installing curl just for a probe would add an apt layer to
-      # buy nothing — the interpreter is already in the image.
-      # Hits the service's own UNPREFIXED /v1/health. The handler deliberately does
-      # NOT touch the database (it is a liveness probe), so this reports healthy
-      # even while Floci's MySQL is down — which is correct: a transient DB blip
-      # must not cycle an otherwise-serving task.
-      test:
-        - CMD
-        - python
-        - -c
-        - import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/v1/health', timeout=2).status == 200 else 1)
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      # uvicorn imports the app graph (FastAPI + SQLAlchemy + grpc) before it
-      # listens; failures inside this window do not count against `retries`.
-      start_period: 10s
+    # NO healthcheck, and NO in-image HEALTHCHECK either. The runtime stage is
+    # gcr.io/distroless/static-debian12, which ships no shell, no curl and no
+    # wget, so there is no command inside the container that can probe it — and
+    # the Python predecessor's trick (`python -c ...`) has no analogue, because
+    # the only executable in this image is the server binary itself.
+    #
+    # Nothing depends_on this service, so no `condition: service_healthy` is left
+    # unsatisfiable by the omission. Probe it from the host instead:
+    #   curl -fsS http://localhost:3002/v1/health
+    # Adding a probe would mean either giving the binary a `-healthcheck` mode or
+    # dropping to a distro base — both real options, neither taken yet.
+    #
     # stdout → the observability collector's fluent_forward receiver.
     # localhost:24224 because the Docker daemon resolves fluentd-address from the
     # HOST, not this network. fluentd-async so the service still starts when the
     # observability profile (and thus the collector) is not running.
+    #
+    # tag: "tracking" — the same value the Python service used, so every saved
+    # OpenObserve query, dashboard panel and collector pipeline that filters on
+    # it keeps working across the cutover. During the migration this was
+    # "tracking-go" precisely so a log query could tell the two runtimes apart;
+    # with one runtime left there is nothing to tell apart.
     logging:
       driver: fluentd
       options:
         fluentd-address: "localhost:24224"
         fluentd-async: "true"
         tag: "tracking"
-    # Adds --reload to the image's CMD. Tracking is INTERPRETED Python, so the
-    # `sync` below is genuinely enough to get new code into the container — unlike
-    # Users (compiled to dist/) and Orders (compiled to a DLL), which both need
-    # `rebuild`. But a sync only helps if the process re-imports the file, so the
-    # reload watcher is required for the pair to work.
-    # It lives HERE and not in the Dockerfile CMD on purpose: --reload is a
-    # local-dev tool (extra watcher process, reload-on-touch) that must not follow
-    # the image into a deployment.
-    #
-    # `opentelemetry-instrument` MUST be kept as the prefix: this override REPLACES
-    # the image CMD, which is where the wrapper lives. Dropping it here silently
-    # disables tracing for local dev only — the container starts, serves, and logs
-    # normally, but produces no spans and no trace_id on any log line, while the
-    # deployed image (running the unoverridden CMD) is fine. That divergence is
-    # exactly the kind of thing that gets debugged as "the tracing backend is broken".
-    # This REPLACES the image CMD, so every flag the image sets has to be
-    # repeated here — the same trap `opentelemetry-instrument` fell into. Drop
-    # `--log-config` and uvicorn's three startup lines go back to plain text
-    # LOCALLY while the deployed image stays correct, which is the hardest kind
-    # of divergence to notice.
-    #
-    # `--reload` is the reason this override exists at all: it is a local-dev
-    # tool (an extra watcher process) that must not follow the image into a
-    # deployment. It also makes two of those three lines appear — the reloader
-    # ones — but "Uvicorn running" is printed in every environment.
-    command:
-      [
-        "opentelemetry-instrument",
-        "uvicorn",
-        "src.main:app",
-        "--host",
-        "0.0.0.0",
-        "--port",
-        "8000",
-        "--reload",
-        "--log-config",
-        "uvicorn-log-config.yaml",
-      ]
-    develop:
-      watch:
-        - action: sync
-          path: ./services/tracking/src
-          target: /app/src
-
-  # ── Tracking, the GO PORT — runs BESIDE the Python service ──────────────────
-  # TEMPORARY, for the duration of the tracking-go migration. Both containers are
-  # up at once so the same request can be sent to either, the SAME untouched E2E
-  # specs can be pointed at either, and the gateway can be moved between them by
-  # changing ONE WORD in infra/modules/compute/nginx/nginx.conf (see the block
-  # marked "THE SWITCH" there — it is `set $backend tracking;` today).
-  #
-  # Coexistence is what makes the migration reversible: reverting is not a
-  # rebuild or a redeploy, it is flipping that word back and reloading nginx,
-  # because the Python container never stopped running.
-  #
-  # THE SAME DATABASE, deliberately. Both services read and write the one
-  # `tracking` schema Alembic created; the Go baseline migration is STAMPED, not
-  # replayed (services/tracking-go/migrations/README.md), so there is no second
-  # DDL history and no divergence to reconcile. Two runtimes over one schema is
-  # the only arrangement in which "does Go behave the same?" is answerable.
-  #
-  # Build context is ./services/tracking-go — NOT the repo root, the same choice
-  # its Python peer makes: the Users gRPC stubs are committed inside the tree, so
-  # nothing outside it is needed at build or run time.
-  tracking-go:
-    build: ./services/tracking-go
-    networks: [3mrai-network]
-    ports:
-      # Host 3012 → container 8000. The CONTAINER port is 8000, the same as the
-      # Python service's — they are separate network namespaces, so there is no
-      # collision, and keeping it identical is what lets nginx's proxy_pass carry
-      # one port for both backends and switch only the hostname.
-      # Host 3012 because 3000/3001/3002 are Users/Orders/Tracking-Python.
-      - "3012:8000"
-    depends_on:
-      floci:
-        condition: service_healthy
-      # NOT depends_on: users — the identical reasoning as the Python service
-      # above, and it still holds for this runtime: Tracking's only gRPC is an
-      # OUTBOUND client to Users, and main.go dials it LAZILY (grpc.NewClient
-      # returns without connecting). A dial failure there is logged and
-      # swallowed, so nothing at boot touches Users at all.
-    # Its OWN generated env file, whose AUTO block is byte-identical to
-    # .env.local.tracking's apart from the Go-only ENVIRONMENT key — see the
-    # entry in infra/environments/local/scripts/generate_env_files.py for why the
-    # two are generated from the same values rather than copied.
-    # Nothing is declared inline: an `environment:` block would silently WIN over
-    # env_file and the service would never see its generated DB URLs.
-    env_file:
-      - .env.local.tracking-go
-    # NO healthcheck, and NO in-image HEALTHCHECK either. The runtime stage is
-    # gcr.io/distroless/static-debian12, which ships no shell, no curl and no
-    # wget, so there is no command inside the container that can probe it — and
-    # the Python peer's trick (`python -c ...`) has no analogue, because the only
-    # executable in this image is the server binary itself.
-    #
-    # Nothing depends_on this service, so no `condition: service_healthy` is left
-    # unsatisfiable by the omission. Probe it from the host instead:
-    #   curl -fsS http://localhost:3012/v1/health
-    # Adding a probe would mean either giving the binary a `-healthcheck` mode or
-    # dropping to a distro base — both real options, neither worth taking to make
-    # `docker ps` print "healthy" for a container in a temporary migration.
-    # stdout → the observability collector's fluent_forward receiver, exactly as
-    # the Python service does. localhost:24224 because the Docker daemon resolves
-    # fluentd-address from the HOST, not this network; fluentd-async so the
-    # service still starts when the observability profile is not running.
-    #
-    # tag: "tracking-go" — DISTINCT from the Python service's "tracking", on
-    # purpose and in contrast to OTEL_SERVICE_NAME, which is deliberately
-    # "tracking" for BOTH (see the Dockerfile). The two want opposite things: a
-    # trace query must span the cutover as one service, while a LOG query must be
-    # able to say which runtime emitted a line — that is the whole comparison.
-    logging:
-      driver: fluentd
-      options:
-        fluentd-address: "localhost:24224"
-        fluentd-async: "true"
-        tag: "tracking-go"
-    # NO `develop.watch` block, unlike the Python service. Go is COMPILED: a
-    # synced .go file would change nothing in a running container, and the sync
-    # would be a mechanism that looks like hot-reload while doing nothing. Pick
-    # up a code change with:
-    #   docker compose up -d --build tracking-go
+    # NO `develop.watch` block, unlike Users and the Python service this
+    # replaced. Go is COMPILED: a synced .go file would change nothing in a
+    # running container, and the sync would be a mechanism that looks like
+    # hot-reload while doing nothing. Orders (also compiled) uses `rebuild` for
+    # this reason; that is a real option here too. Pick up a code change with:
+    #   docker compose up -d --build tracking
 
   # NOTE: there is deliberately NO `events-pipeline` compose service.
   # The pipeline is a REAL Lambda on Floci, deployed by Terraform together with

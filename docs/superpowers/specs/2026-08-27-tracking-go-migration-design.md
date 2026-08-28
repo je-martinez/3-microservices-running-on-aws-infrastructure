@@ -2,18 +2,21 @@
 title: Migrating the Tracking Service from Python/FastAPI to Go/Gin
 type: spec
 area: tracking
-status: draft
+status: active
 created: 2026-08-27
 updated: 2026-08-27
 tags:
   - type/spec
   - area/tracking
-  - status/draft
+  - status/active
 propagates-to:
   - "[[tracking-service-design]]"
   - "[[testmode-in-process-asyncio-task]]"
   - "[[ADR-0021-tracking-go-gin-sqlc-stack]]"
   - "[[plans/index]]"
+  - "[[tracking-go-migration-milestone]]"
+  - "[[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]]"
+  - "[[2026-08-27-a-producer-side-test-proves-nothing-about-what-the-consumer-accepts]]"
 related:
   - "[[tracking-service-design]]"
   - "[[testmode-in-process-asyncio-task]]"
@@ -28,9 +31,24 @@ related:
   - "[[package-manager]]"
   - "[[events-pipeline-design]]"
   - "[[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]]"
+  - "[[tracking-go-migration-milestone]]"
+  - "[[2026-08-27-go-vs-python-performance]]"
+  - "[[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]]"
+  - "[[2026-08-27-a-producer-side-test-proves-nothing-about-what-the-consumer-accepts]]"
 ---
 
 # Migrating the Tracking Service from Python/FastAPI to Go/Gin
+
+> [!success] Cutover executed (2026-08-27)
+> The migration described in this spec shipped: `services/tracking-go/` is now THE Tracking
+> service and `services/tracking/` (Python) is being removed. The closing gate below was **three
+> of four criteria met** at cutover — see [[2026-08-27-go-vs-python-performance]] for the
+> performance criterion's partial status, and
+> [[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]] /
+> [[2026-08-27-a-producer-side-test-proves-nothing-about-what-the-consumer-accepts]] for the
+> defects the verification wave caught. The service's current, organized-vault design of record
+> is [[tracking-service-design]]; the milestone-level execution record is
+> [[tracking-go-migration-milestone]].
 
 ## Motivation
 
@@ -500,3 +518,11 @@ vault.
 - [[events-pipeline-design]]
 - [[env-files]]
 - [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]]
+- [[tracking-go-migration-milestone]] — the milestone-level execution record: task sequence,
+  wave dependency graph, and the closing-gate outcome at cutover.
+- [[2026-08-27-go-vs-python-performance]] — the measured performance comparison satisfying the
+  closing gate's criterion 3 (partially — resource/startup measured, load latency deferred).
+- [[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]] — the
+  wiring-hazard lesson from the observability-parity verification (criterion 4).
+- [[2026-08-27-a-producer-side-test-proves-nothing-about-what-the-consumer-accepts]] — the
+  wire-contract lesson from event-parity verification: a silent email/WebSocket-push loss.

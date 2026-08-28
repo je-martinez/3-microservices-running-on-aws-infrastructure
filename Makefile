@@ -24,6 +24,19 @@ PY        := $(VENV)/bin/python
 # never hardcode 7001=Postgres / 7002=MySQL. Also imported by bootstrap.py.
 DISCOVER_DB_PORT := $(TF_LOCAL_DIR)/scripts/discover_db_port.py
 
+# Directories prepended to PATH for any recipe that shells out to Go.
+#
+# Two entries, both required: the goenv SHIM dir (what puts `go` on PATH at the
+# version .go-version pins) and the directory holding `goenv` itself, which the
+# shim re-execs. Resolved rather than hardcoded — goenv is a git checkout under
+# ~/.goenv for some installs and Homebrew for others, and pinning either spelling
+# breaks the other machine. `shell command -v` returns empty when goenv is absent,
+# which is harmless here: the service's own verify-toolchain target is what
+# reports the missing toolchain, with the command to fix it.
+GOENV_ROOT := $(HOME)/.goenv
+GOENV_BIN  := $(dir $(shell command -v goenv 2>/dev/null))
+GOENV_PATH := $(GOENV_ROOT)/shims:$(GOENV_BIN)
+
 # Terraform talks to Floci through the host-published port; the AWS provider in
 # environments/local/providers.tf pins every endpoint to localhost:4566.
 export AWS_ENDPOINT_URL    ?= $(FLOCI_URL)
@@ -90,7 +103,7 @@ ps: ## Show container status
 
 ## --- Tests (the three-layer convention: docs/shared/conventions/testing.md) ---
 
-test-unit: ## Layer 1 — unit/integration for orders (dotnet), users + both Lambdas + the Cognito trigger (vitest), tracking (pytest) + e2e typecheck. No stack needed.
+test-unit: ## Layer 1 — unit/integration for orders (dotnet), users + both Lambdas + the Cognito trigger (vitest), tracking (go test) + e2e typecheck. Tracking needs the local DB.
 	dotnet test services/orders/Orders.sln
 	pnpm --filter @3mrai/users test
 	# Safe in the no-stack layer: the events-pipeline suites that need real
@@ -111,12 +124,27 @@ test-unit: ## Layer 1 — unit/integration for orders (dotnet), users + both Lam
 	# infra/modules/cognito/main.tf).
 	pnpm --filter @3mrai/realtime-events test
 	pnpm --filter @3mrai/cognito-otp-challenge-lambda test
-	# Tracking's suite is pytest, not vitest, and runs from its own venv. It was
-	# absent here for the same reason as the others: nothing had a reason to add
-	# it. It talks to the shared local database (services/tracking/CLAUDE.md
-	# §5c-bis), so it belongs in this layer only because that database is part of
-	# the local stack anyone running tests already has.
-	cd services/tracking && .venv/bin/python -m pytest -q
+	# Tracking's suite is `go test`, not vitest, and it needs the Go toolchain
+	# goenv pins in services/tracking-go/.go-version — `make test-db` verifies
+	# that before running anything.
+	#
+	# test-db, NOT test. `make test` in that service FAILS without a database on
+	# purpose: internal/adapter/mysql's tests need a real MySQL, and without one
+	# they skip while the package still prints `ok`. That hollow green already
+	# cost the migration a debugging session, which is why the gate exists. So
+	# this layer runs the real thing against the shared local database — the same
+	# reason its pytest predecessor lived here: that database is part of the local
+	# stack anyone running tests already has. Without the stack up, use
+	# `make -C services/tracking-go test-no-db`, which skips loudly.
+	#
+	# GOENV_PATH (top of this file) is prepended because goenv is activated by a
+	# shell rc file and make recipes run under a NON-interactive /bin/sh that
+	# never sources one — so a bare `go` here is `go: command not found` even on
+	# a machine whose terminal resolves it fine. It carries the SHIM directory
+	# (so .go-version stays the single source of truth for which Go) and goenv's
+	# OWN directory, because the shim re-execs `goenv` and fails with
+	# "exec: goenv: not found" without it.
+	PATH="$(GOENV_PATH):$$PATH" $(MAKE) -C services/tracking-go test-db
 	pnpm --filter @3mrai/e2e typecheck
 
 test-e2e: ## Layers 2+3 — Playwright internal + gateway for both services. REQUIRES `make bootstrap` up.
@@ -266,48 +294,85 @@ migrate: ## Apply Prisma migrations (users) against Floci's Postgres (idempotent
 		node node_modules/prisma/build/index.js migrate deploy --schema=./prisma/schema.prisma
 	@echo "Prisma migrations applied."
 
-migrate-tracking: ## Apply Alembic migrations (tracking) against Floci's MySQL (idempotent)
-	@# `alembic upgrade head` (services/tracking/CLAUDE.md §2). Idempotent: on an
-	@# up-to-date database it is a no-op, so bootstrap and a manual re-run are both safe.
+migrate-tracking: ## Apply golang-migrate migrations (tracking) against Floci's MySQL (idempotent)
+	@# golang-migrate, NOT Alembic — Tracking is Go now (services/tracking-go).
+	@# Idempotent: `up` is a no-op once schema_migrations is at head, so bootstrap
+	@# and a manual re-run are both safe.
 	@#
-	@# CAVEAT — "up-to-date" is decided by the STAMP, not by the tables. Alembic
-	@# compares `alembic_version` against head and does nothing if they match, so a
-	@# database whose stamp is current but whose TABLES are missing gets a no-op
-	@# that prints "Alembic migrations applied" and applies nothing. The recovery
-	@# command reports success while leaving the environment broken.
-	@# Symptom: the service 500s with `Table 'tracking.tracking' doesn't exist`.
-	@# Recovery: `DROP TABLE tracking.alembic_version` first, then re-run this.
-	@# The one local path that used to produce that state (the pytest suite's
-	@# teardown dropping the shared database) is fixed — see
-	@# services/tracking/CLAUDE.md §5c-bis — but a manual DROP or a restored
-	@# backup can still get there.
+	@# STAMPED, NOT REPLAYED, on a database Alembic already built. The baseline
+	@# migration is a squash of the four Alembic revisions the Python service
+	@# arrived at (services/tracking-go/migrations/README.md), so running `up`
+	@# against an existing local database fails on CREATE TABLE. The recipe below
+	@# handles both cases: a database whose tables already exist gets
+	@# `force 1` (writes version=1 WITHOUT running any SQL), and a fresh one gets
+	@# a real `up`. That is why it probes for the `tracking` table first rather
+	@# than just running `up`.
 	@#
-	@# Runs INSIDE a one-off tracking container, not on the host. Three reasons:
-	@#   1. Dependencies. alembic/SQLAlchemy/pymysql live in the per-service venv
-	@#      services/tracking/.venv, which a fresh clone does NOT have — the repo-root
-	@#      .venv is for the INFRA scripts only and deliberately carries none of them.
-	@#      The image already ships alembic/ + alembic.ini + the runtime venv (see
-	@#      services/tracking/Dockerfile), so the container needs no second toolchain.
-	@#   2. The DB URL. `.env.local.tracking` holds the IN-NETWORK writer URL
-	@#      (mysql+pymysql://test:test@floci:<discovered-port>/tracking) and alembic/env.py
-	@#      reads DATABASE_WRITER_URL straight from the environment. `compose run` mounts
-	@#      that same generated file via the service's `env_file:`, so the recipe needs no
-	@#      port discovery and no URL rewriting at all. A host-side run would have to
-	@#      rebuild the URL against `localhost` plus the discovered port — Floci reassigns
-	@#      those (7000-7099, by cluster creation order) on every apply, so that would be a
-	@#      second, drift-prone copy of a value the env file already resolved correctly.
-	@#   3. Credentials. Like `make migrate` (Users/Prisma), migrations run as the cluster
-	@#      SUPERUSER (test/test) because they execute DDL, and the least-privilege app user
-	@#      has no DDL grant by design (ADR-0004). The generated URL is already the
-	@#      superuser one, so this comes for free rather than being re-derived.
-	@# Trade-off: this REQUIRES the tracking image to exist, so the build must precede it
-	@# (bootstrap builds it in the same step chain). `--no-deps` keeps the one-off from
-	@# starting anything else, and `--rm` leaves no stopped container behind. The
-	@# `--entrypoint` override replaces the image CMD (uvicorn) for this run only; the
-	@# long-running service container is untouched.
-	$(COMPOSE) build tracking
-	$(COMPOSE) run --rm --no-deps --entrypoint alembic tracking upgrade head
-	@echo "Alembic migrations applied (tracking)."
+	@# CAVEAT, inherited from Alembic and unchanged in shape: "up to date" is
+	@# decided by the VERSION TABLE, not by the tables. A database whose
+	@# schema_migrations says 1 but whose tables are gone gets a silent no-op
+	@# here. Symptom: the service 500s with `Table 'tracking.tracking' doesn't
+	@# exist`. Recovery: `DROP TABLE tracking.schema_migrations` first, then
+	@# re-run this. `make doctor` cross-checks tables against the databases that
+	@# should hold them precisely so this surfaces before a request does.
+	@#
+	@# Runs in a ONE-OFF migrate/migrate container on the compose network, not on
+	@# the host and not in the service image. Three reasons:
+	@#   1. The service image is gcr.io/distroless/static-debian12 — it holds the
+	@#      server binary and nothing else. There is no `migrate` in it and no
+	@#      shell to invoke one, so the Python service's `compose run --entrypoint`
+	@#      trick has no analogue.
+	@#   2. The DB URL. `.env.local.tracking` holds the IN-NETWORK writer URL and
+	@#      `--network 3mrai_3mrai-network` is what makes the `floci` hostname in
+	@#      it resolve. A host-side run would have to rebuild the URL against
+	@#      localhost plus the discovered port — Floci reassigns those (7000-7099,
+	@#      by cluster creation order) on every apply, so that would be a second,
+	@#      drift-prone copy of a value the env file already resolved correctly.
+	@#   3. Credentials. Like `make migrate` (Users/Prisma), migrations run as the
+	@#      cluster SUPERUSER (test/test) because they execute DDL, and the
+	@#      least-privilege app user has no DDL grant by design (ADR-0004). The
+	@#      generated URL is already the superuser one.
+	@#
+	@# The DSN rewrite mirrors services/tracking-go/Makefile: the generated value
+	@# keeps the SQLAlchemy-flavoured `mysql+pymysql://` spelling (the Go service
+	@# parses it itself), and golang-migrate wants `mysql://user:pass@tcp(host:port)/db`.
+	@# The image is PINNED, like every other image in this repo — a `latest`
+	@# migrate could change its DSN parsing under a green bootstrap.
+	@# --ssl-mode=DISABLED on the probe is LOAD-BEARING, not tidiness. The mysql
+	@# 8.0 client defaults to TLS and Floci does not terminate it, so without the
+	@# flag the probe dies with `SSL connection error: unexpected eof`. That is
+	@# the same limitation infra/CLAUDE.md records for the mysql Terraform
+	@# provider (which is why the app users use mysql_native_password).
+	@#
+	@# The probe's exit status is CHECKED SEPARATELY from its output, because the
+	@# obvious `if docker run ... | grep -q 1` conflates "the table is absent"
+	@# with "the probe could not connect" — and those want opposite actions. Under
+	@# the conflated form a TLS failure silently selected the `up` branch, which
+	@# then died on `Error 1050: Table 'tracking' already exists` AFTER golang-
+	@# migrate had written (version=1, dirty=1). Measured here, first run. A dirty
+	@# flag makes every later invocation refuse outright, so the cost of guessing
+	@# wrong is a wedged database, not a retry.
+	@dsn="$$(sed -n 's|^DATABASE_WRITER_URL=mysql+pymysql://||p' .env.local.tracking | sed 's|?.*||')"; \
+	test -n "$$dsn" || { echo "ERROR: no DATABASE_WRITER_URL in .env.local.tracking — run 'make env-file'"; exit 1; }; \
+	creds="$${dsn%%@*}"; rest="$${dsn#*@}"; hostport="$${rest%%/*}"; dbname="$${rest#*/}"; \
+	migrate_dsn="mysql://$$creds@tcp($$hostport)/$$dbname"; \
+	existing="$$(docker run --rm --network 3mrai_3mrai-network mysql:8.0 \
+	     mysql --ssl-mode=DISABLED -h "$${hostport%%:*}" -P "$${hostport##*:}" \
+	           -u "$${creds%%:*}" -p"$${creds#*:}" -N -B \
+	           -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$$dbname' AND table_name='tracking'" \
+	     2>/dev/null)" \
+	  || { echo "ERROR: could not reach MySQL at $$hostport to check whether tracking.tracking exists."; \
+	       echo "       Refusing to guess: running 'up' against an existing schema leaves schema_migrations DIRTY."; exit 1; }; \
+	if [ "$$existing" = "1" ]; then \
+	  echo "tracking.tracking already exists — stamping baseline instead of replaying it."; \
+	  docker run --rm --network 3mrai_3mrai-network -v "$$PWD/services/tracking-go/migrations:/migrations" \
+	    migrate/migrate:v4.17.1 -path=/migrations -database "$$migrate_dsn" force 1; \
+	else \
+	  echo "Fresh database — applying migrations."; \
+	  docker run --rm --network 3mrai_3mrai-network -v "$$PWD/services/tracking-go/migrations:/migrations" \
+	    migrate/migrate:v4.17.1 -path=/migrations -database "$$migrate_dsn" up; \
+	fi
+	@echo "golang-migrate migrations applied (tracking)."
 
 post-infra: scripts-setup ## Harden a bootstrapped environment: MySQL provider grants + least-privilege DB app-users (phase 2)
 	@# REQUIRES a successful `make bootstrap` first — phase 2 reads phase-1's
@@ -441,7 +506,7 @@ bootstrap-provision: scripts-setup ## Phase 1 of bootstrap: Floci + terraform + 
 
 bootstrap-converge: scripts-setup ## Phase 2 of bootstrap: migrations + services + nginx alias. SAFE to re-run.
 	@# The resume path for a `bootstrap` that died partway. Every step here is
-	@# idempotent — Prisma and Alembic are no-ops on an up-to-date database,
+	@# idempotent — Prisma and golang-migrate are no-ops on an up-to-date database,
 	@# `compose up -d` reconciles rather than duplicates, and bootstrap.py
 	@# returns early when the alias already resolves — so re-running costs time
 	@# and nothing else.
@@ -476,10 +541,10 @@ bootstrap-converge: scripts-setup ## Phase 2 of bootstrap: migrations + services
 	@# locally. Bring it up after users so the Users gRPC gate (users:50051) is
 	@# reachable for POST /v1/orders.
 	$(COMPOSE) up -d --build orders
-	@# Tracking, LAST in the chain, and unlike Orders it does NOT self-migrate: it has
-	@# real Alembic migrations that nothing invoked until `migrate-tracking` existed, so
-	@# the migration is an explicit step here (the Orders comment above explains why that
-	@# service owns its schema instead).
+	@# Tracking, LAST in the chain, and unlike Orders it does NOT self-migrate: it
+	@# has real golang-migrate migrations that nothing invokes on boot, so the
+	@# migration is an explicit step here (the Orders comment above explains why
+	@# that service owns its schema instead).
 	@#
 	@# Placement. Only two things actually gate it:
 	@#   - Its MySQL cluster and the `tracking` database must exist — both are created by
@@ -491,8 +556,12 @@ bootstrap-converge: scripts-setup ## Phase 2 of bootstrap: migrations + services
 	@# boot. That is the same reasoning that keeps its compose `depends_on` at `floci`
 	@# alone, and this ordering must not contradict it: Tracking is placed here for
 	@# readability (services grouped at the end), NOT because it depends on users/orders.
-	@# migrate-tracking builds the image itself, which is also what the container-based
-	@# migrate needs, so the build below is a cache hit.
+	@#
+	@# migrate-tracking does NOT build the Tracking image any more, and no longer
+	@# needs to: it runs golang-migrate in its own pinned container rather than
+	@# `compose run` inside the service image (which is distroless and holds no
+	@# migration tool). So the order below is migrate-then-build rather than
+	@# build-then-migrate-then-build, and the `--build` here is the only build.
 	$(MAKE) migrate-tracking
 	$(COMPOSE) up -d --build tracking
 	@# LAST, deliberately — see the ordering note at the top of this target.

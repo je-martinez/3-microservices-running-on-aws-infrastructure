@@ -21,6 +21,9 @@ related:
   - "[[package-manager]]"
   - "[[ADR-0003-grpc-inter-service]]"
   - "[[ADR-0019-distributed-tracing-opentelemetry]]"
+  - "[[2026-08-27-go-vs-python-performance]]"
+  - "[[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]]"
+  - "[[2026-08-27-a-producer-side-test-proves-nothing-about-what-the-consumer-accepts]]"
 ---
 
 # ADR-0021: Tracking's Go Port Uses Gin, sqlc, and golang-migrate
@@ -97,6 +100,43 @@ alongside the rest of the stack.
   patch of a series" is not sufficient by itself — the series itself must still be inside its
   vendor's support window at pin time, not just at some earlier point during evaluation.
 
+### Outcome (2026-08-27) — the migration shipped; the stack decision is closed, not merely accepted in the abstract
+
+The migration described in [[2026-08-27-tracking-go-migration-design]] completed and the
+cutover was executed: `services/tracking-go/` is now THE Tracking service and
+`services/tracking/` (Python) is being removed. The closing gate was **three of four criteria
+met** (all three test layers, the `openapi.yaml` diff, and observability parity all PASS;
+measured performance PARTIALLY met — resource/startup metrics measured and Go wins all four,
+load-test latency/throughput not measurable on this stack — see
+[[2026-08-27-go-vs-python-performance]]), and the cutover proceeded on that basis by explicit
+user decision rather than waiting on a fully-controlled latency re-run.
+
+This stack combination (Gin + sqlc + golang-migrate + manual constructor injection over a
+hexagonal layout) is not merely a decision recorded — it is now the decision the running
+Tracking service is built on. Two additional consequences surfaced only once real production
+wiring was exercised, worth recording here because they are downstream effects of choosing this
+specific stack shape, not of "Go" in the abstract:
+
+- **Hexagonal architecture's isolation-by-construction, combined with manual DI (no container
+  to complain about an unwired dependency), produced five instances of correct, fully
+  unit-tested code that was never reached from `main()`** — unregistered routes, an inert
+  response cache, zero log lines carrying a `trace_id`, discarded cache metrics, and a dropped
+  gateway `traceparent`. All five passed `golangci-lint`'s `unused` check, which is structurally
+  blind to a dead **exported** symbol — exactly what every hexagonal seam is. The guard now in
+  place is a static call-graph reachability test from `main()`, not a linter change; full
+  write-up: [[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]].
+- **sqlc's compile-time SQL safety and Go's strict typing do not extend across a wire boundary
+  this service doesn't share types over.** The SQS producer emitted `shipping_address` as a
+  string where the consumer's Zod schema required an object; the producer's own unit test had
+  encoded the wrong shape as its expectation, so nothing in this service's test suite could have
+  caught it. Full write-up:
+  [[2026-08-27-a-producer-side-test-proves-nothing-about-what-the-consumer-accepts]].
+
+Neither finding invalidates the stack decision above — both are properties of hexagonal
+architecture and cross-language SQS messaging generally, not defects specific to Gin, sqlc, or
+golang-migrate — but both are direct consequences of the architectural choices this ADR
+accepted, and are recorded here for that reason.
+
 ## Related
 
 - [[2026-08-27-tracking-go-migration-design]] — the full migration design this stack decision
@@ -113,3 +153,11 @@ alongside the rest of the stack.
 - [[ADR-0019-distributed-tracing-opentelemetry]] — the OTel backend and env-var-vs-code
   scoping the Go port's observability wiring must respect (see the migration design's
   Observability and event parity section).
+- [[2026-08-27-go-vs-python-performance]] — the measured performance comparison behind the
+  Outcome section's "three of four criteria met" status.
+- [[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]] — the
+  wiring-hazard consequence of this stack's hexagonal-plus-manual-DI shape, discovered during
+  the migration's observability parity check.
+- [[2026-08-27-a-producer-side-test-proves-nothing-about-what-the-consumer-accepts]] — the
+  wire-contract consequence of this stack's cross-language SQS messaging, discovered during
+  the migration's event-parity verification.

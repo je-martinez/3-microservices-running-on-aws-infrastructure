@@ -18,6 +18,7 @@ related:
   - "[[2026-08-27-tracking-go-migration]]"
   - "[[2026-08-27-accumulated-local-state-degrades-the-stack-silently]]"
   - "[[testing]]"
+  - "[[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]]"
 ---
 
 # Tracking Go vs Python — measured performance comparison
@@ -131,3 +132,6 @@ of either runtime, and it would not exist against real CloudWatch.
   degradation finding from the same milestone; distinct confirmed cause, same symptom shape.
 - [[testing]] — the three-layer testing convention this performance comparison sits alongside,
   as a fourth, non-functional verification axis.
+- [[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]] — the
+  wiring-hazard lesson this note's "Two defects found while measuring" §1 (the stale container
+  publishing zero cache metrics) is one instance of.

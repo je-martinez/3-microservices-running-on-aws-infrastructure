@@ -57,10 +57,13 @@ test-cover: verify-toolchain ## Run tests and write coverage.out
 # been observed to swap. Hardcoding 7002 here would work until the next
 # `make floci-up` and then fail in a way that looks like a broken test.
 #
-# So the DSN is DISCOVERED, from the generated .env.local.tracking-go, which
+# So the DSN is DISCOVERED, from the generated .env.local.tracking, which
 # `make env-file` writes from Terraform outputs. That file is the single place
 # the discovered port already lives; re-discovering it here would be a second
 # source that can disagree with the first.
+#
+# It read .env.local.tracking-go until the cutover, when this service took over
+# the `tracking` compose key and its env file. There is no -go file any more.
 #
 # Two rewrites are applied to the value found there:
 #   - the SQLAlchemy driver prefix `mysql+pymysql://` becomes `mysql://`, which
@@ -68,7 +71,7 @@ test-cover: verify-toolchain ## Run tests and write coverage.out
 #   - the compose hostname `floci` becomes 127.0.0.1, because `make test-db`
 #     runs on the HOST, outside the compose network, where `floci` does not
 #     resolve.
-ENV_FILE       := ../../.env.local.tracking-go
+ENV_FILE       := ../../.env.local.tracking
 TRACKING_DB_URL = $(shell sed -n 's|^DATABASE_WRITER_URL=mysql+pymysql://|mysql://|p' $(ENV_FILE) | sed 's|@floci:|@127.0.0.1:|' | sed 's|?.*||')
 # The server DSN drops the database segment: the count and soft-delete suites
 # each CREATE THEIR OWN throwaway schema rather than touching the shared

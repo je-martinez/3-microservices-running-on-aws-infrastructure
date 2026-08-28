@@ -1,7 +1,7 @@
 # CLAUDE.md — Tracking service (Go)
 
 Nested project memory for the **Tracking** microservice, Go implementation.
-Source of truth for this service's stack and conventions. The `tracking-go-impl`
+Source of truth for this service's stack and conventions. The `tracking-impl`
 agent reads this first, every time. Cross-cutting rules are **referenced**, never
 duplicated.
 
@@ -762,7 +762,7 @@ branches log, because those are what the request line cannot explain.
 
 - Converse with the user in **Spanish**; write code, comments and commit-ready work
   in **English**.
-- `tracking-go-impl` writes **only source code** — it **never runs git** and
+- `tracking-impl` writes **only source code** — it **never runs git** and
   **never touches Linear**.
 - Leave finished work in the **working tree** for the **main session** to commit
   (`github-ops` is an optional helper for complex git batches — see

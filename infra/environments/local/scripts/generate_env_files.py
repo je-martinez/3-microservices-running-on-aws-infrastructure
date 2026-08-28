@@ -3,21 +3,21 @@
 
 Usage: generate_env_files.py [--repo-root PATH]
 
-Produces eight files, each for one consumer:
+Produces seven files, each for one consumer:
 
   .env                        the ONLY four vars docker-compose interpolates as ${VAR}
   .env.local.infra            terraform outputs — read by the E2E suite and by humans
   .env.local.users            the Users service environment    (compose env_file:)
   .env.local.orders           the Orders service environment   (compose env_file:)
   .env.local.tracking         the Tracking service environment (compose env_file:)
-  .env.local.tracking-go      the Tracking GO port's environment (compose env_file:)
   .env.local.events-pipeline  the events-pipeline environment  (compose env_file:)
   .env.local.debug            HOST-reachable connection strings for a SQL client
 
-`.env.local.tracking-go` is TEMPORARY — it exists only while the Go rewrite runs
-beside the Python service, and its generated block is deliberately identical to
-`.env.local.tracking`'s so the two runtimes cannot be configured differently. It
-goes away with `services/tracking/`.
+There was an eighth, `.env.local.tracking-go`, while the Go rewrite ran beside
+the Python service. It is gone: the Go service IS Tracking now and reads
+`.env.local.tracking`. A stale copy may still sit in the working tree of a
+checkout that predates the cutover — nothing reads it, and `make env-file` no
+longer rewrites it, so delete it by hand if it bothers you.
 
 WHY PER-SERVICE FILES, and not the single `.services` file originally sketched:
 DATABASE_WRITER_URL and DATABASE_READER_URL exist in EVERY service with
@@ -416,9 +416,17 @@ def build(repo_root: Path) -> dict[Path, dict]:
             },
         ),
         # --- tracking service ------------------------------------------------
-        # Python/FastAPI/SQLAlchemy. Same MySQL cluster as Orders, different
-        # database — hence the same discovered port with `/tracking` as the
-        # database segment.
+        # Go/Gin/sqlc. Same MySQL cluster as Orders, different database — hence
+        # the same discovered port with `/tracking` as the database segment.
+        #
+        # The DSN keeps the SQLAlchemy-flavoured `mysql+pymysql://` spelling it
+        # had under the Python service, and that is deliberate rather than
+        # leftover: the Go service PARSES that prefix itself
+        # (internal/platform/config/dsn.go), the same string is what
+        # services/tracking-go/Makefile's `test-db` reads to discover the port,
+        # and .env.local.debug derives the host-side URL from the same value.
+        # Changing the spelling here would silently break all three at once for
+        # no gain.
         repo_root / ".env.local.tracking": dict(
             header="Tracking service environment. Loaded via env_file: in docker-compose.yml.",
             generated={
@@ -468,16 +476,22 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # here, milliseconds in the Node/.NET services — each matches its
                 # own settings type rather than forcing one unit across stacks.
                 "METRICS_INTERVAL_SECONDS": METRICS_INTERVAL_SECONDS,
-                # The lifespan starts the gauge loop only when this is true. The
-                # test suite sets it false: conftest builds the real app and
-                # TestClient enters the lifespan, so an ungated loop would open a
-                # database session on every test run.
+                # Gates the gauge loop. The test suite sets it false so a run
+                # does not open a database session per test.
                 "METRICS_ENABLED": "true",
+                # REQUIRED by the Go service and with no Python counterpart:
+                # config.Load REJECTS any value outside development/test/
+                # production, so an absent key is a boot failure, not a default.
+                # It also drives EchoSQL. The Python predecessor inferred the
+                # same thing from its own settings type, which is why this key
+                # arrived with the Go cutover rather than existing all along.
+                "ENVIRONMENT": "development",
             },
             custom_defaults={
-                # uvicorn's default port; 3000/8080 are taken by Users/Orders.
-                # Tracking serves HTTP only — it has no gRPC port because it has
-                # no gRPC server.
+                # The CONTAINER-side port; 3000/8080 are taken by Users/Orders
+                # inside their own containers, and the HOST mapping (3002) lives
+                # in docker-compose.yml, not here. Tracking serves HTTP only — it
+                # has no gRPC port because it has no gRPC server.
                 "PORT": "8000",
                 # Gates the flag-guarded E2E cleanup endpoint, the same way it
                 # does for Users and Orders. Without it the route is not mounted
@@ -487,82 +501,6 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # Kill switch for the response cache. In CUSTOM, not generated,
                 # so a per-machine choice survives `make env-file` — and so the
                 # load-test A/B can flip it without a regeneration undoing it.
-                "CACHE_ENABLED": "true",
-            },
-        ),
-        # --- tracking service, Go port ----------------------------------------
-        # The Go rewrite of Tracking, running BESIDE the Python service during
-        # the migration so both can be exercised against the same database, the
-        # same Redis, the same queue and the same Cognito, and so the gateway can
-        # be moved between them by changing one word in nginx.conf.
-        #
-        # EVERY GENERATED VALUE HERE IS THE SAME OBJECT the Python file above
-        # receives — not a copy that happens to match today. That is the point:
-        # if the two files could drift, a behavioural difference between the
-        # runtimes would be indistinguishable from a configuration difference,
-        # and the whole comparison would stop being evidence. The Go service
-        # reads the SAME variable NAMES (see internal/platform/config/config.go)
-        # and converts the SQLAlchemy `mysql+pymysql://` DSN spelling itself
-        # (internal/platform/dsn.go), so no key needs a Go-specific form.
-        #
-        # A separate FILE rather than a second `env_file:` line pointing at
-        # .env.local.tracking, because this repo's convention is one generated
-        # file per compose service ([[env-files]]) — and because the CUSTOM box
-        # below must be able to diverge: PORT is the one value that genuinely
-        # differs, and a shared file could not hold two.
-        #
-        # DELETE THIS ENTRY when services/tracking/ is removed at the end of the
-        # migration; at that point the Go service inherits .env.local.tracking
-        # and this file has no reason to exist.
-        repo_root / ".env.local.tracking-go": dict(
-            header=(
-                "Tracking service (Go port) environment. Loaded via env_file: in "
-                "docker-compose.yml. Mirrors .env.local.tracking during the migration."
-            ),
-            generated={
-                "AWS_ENDPOINT_URL": AWS_ENDPOINT,
-                "AWS_REGION": AWS_REGION,
-                "AWS_ACCESS_KEY_ID": "test",
-                "AWS_SECRET_ACCESS_KEY": "test",
-                # THE SAME DATABASE as the Python service, deliberately and
-                # safely: the Go baseline migration is STAMPED, never re-run
-                # (services/tracking-go/migrations/README.md), so both runtimes
-                # read and write one schema that only Alembic has ever created.
-                "DATABASE_WRITER_URL": tracking_db,
-                "DATABASE_READER_URL": tracking_db,
-                "USERS_GRPC_URL": "http://users:50051",
-                "GRPC_API_KEY": GRPC_API_KEY,
-                "REDIS_HOST": redis_host,
-                "REDIS_PORT": redis_port,
-                # The EXTERNAL carrier key, a different trust domain from
-                # GRPC_API_KEY — see the note on the Python entry above.
-                "TRACKING_CARRIER_API_KEY": TRACKING_CARRIER_API_KEY,
-                "EVENTS_QUEUE_URL": events_queue_url,
-                "OTEL_EXPORTER_OTLP_ENDPOINT": OTLP_ENDPOINT,
-                "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
-                "OTEL_METRICS_EXPORTER": "none",
-                "OTEL_LOGS_EXPORTER": "none",
-                "METRICS_INTERVAL_SECONDS": METRICS_INTERVAL_SECONDS,
-                "METRICS_ENABLED": "true",
-                # Go-ONLY, with no Python counterpart: config.Load rejects any
-                # value outside development/test/production, and it drives
-                # EchoSQL. The Python service infers the same thing from its own
-                # settings type, so there is nothing to mirror.
-                "ENVIRONMENT": "development",
-            },
-            custom_defaults={
-                # The CONTAINER-side port, and the one value that is NOT shared
-                # with the Python service's file. Both listen on 8000 inside
-                # their own container — they are separate network namespaces, so
-                # there is no collision. The HOST ports differ (3002 vs 3012) and
-                # that difference lives in docker-compose.yml, not here.
-                "PORT": "8000",
-                # Gates the E2E cleanup route. WITHOUT THIS THE ROUTE IS NOT
-                # MOUNTED AT ALL, and the Playwright teardown gets a 404/405
-                # rather than a cleanup — which surfaces later as
-                # "[teardown] tracking: cleanup failed", pointing at the feature
-                # under test instead of at this flag.
-                "E2E_TESTING_ENABLED": "true",
                 "CACHE_ENABLED": "true",
             },
         ),
