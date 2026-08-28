@@ -11,7 +11,7 @@ tags:
   - status/active
 propagates-to:
   - "[[tracking-service-design]]"
-  - "[[testmode-in-process-asyncio-task]]"
+  - "[[testmode-in-process-no-durable-scheduler]]"
   - "[[ADR-0021-tracking-go-gin-sqlc-stack]]"
   - "[[plans/index]]"
   - "[[tracking-go-migration-milestone]]"
@@ -19,7 +19,7 @@ propagates-to:
   - "[[2026-08-27-a-producer-side-test-proves-nothing-about-what-the-consumer-accepts]]"
 related:
   - "[[tracking-service-design]]"
-  - "[[testmode-in-process-asyncio-task]]"
+  - "[[testmode-in-process-no-durable-scheduler]]"
   - "[[user-id-vs-cognito-sub-ownership-key]]"
   - "[[two-api-keys-two-trust-domains]]"
   - "[[ADR-0021-tracking-go-gin-sqlc-stack]]"
@@ -333,7 +333,7 @@ Scope: the `PLACED → PROCESSING → SHIPPED → OUT_FOR_DELIVERY → DELIVERED
 history rows, and the injectable interval (production 10s, tests ~0).
 
 **This piece is not translated, it is redesigned.** The vault ADR's decision
-([[testmode-in-process-asyncio-task]]) — in-process goroutine, no durable scheduler — stands
+([[testmode-in-process-no-durable-scheduler]]) — in-process goroutine, no durable scheduler — stands
 and is NOT revisited. But the Python implementation carries scaffolding Go does not need:
 
 - The `run_coroutine_threadsafe` bridge was already dead in Python (its own comment says so;
@@ -504,7 +504,7 @@ vault.
 
 - [[plans/index]] — indexes this design spec among the vault's implementation plans.
 - [[tracking-service-design]]
-- [[testmode-in-process-asyncio-task]]
+- [[testmode-in-process-no-durable-scheduler]]
 - [[user-id-vs-cognito-sub-ownership-key]]
 - [[two-api-keys-two-trust-domains]]
 - [[ADR-0021-tracking-go-gin-sqlc-stack]]

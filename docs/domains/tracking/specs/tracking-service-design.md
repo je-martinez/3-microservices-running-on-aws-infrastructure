@@ -28,7 +28,7 @@ related:
   - "[[grpc-api-key-authorization]]"
   - "[[user-id-vs-cognito-sub-ownership-key]]"
   - "[[two-api-keys-two-trust-domains]]"
-  - "[[testmode-in-process-asyncio-task]]"
+  - "[[testmode-in-process-no-durable-scheduler]]"
   - "[[events-pipeline-design]]"
   - "[[env-files]]"
   - "[[2026-08-03-events-pipeline-milestone-design]]"
@@ -826,7 +826,7 @@ history entries in total. When `TestMode` is false or absent, no automatic progr
 status only advances through the `PUT /v1/trackings/{orderId}/status` endpoint below.
 
 Scheduling mechanism, and the accepted limitation if the process restarts mid-progression:
-[[testmode-in-process-asyncio-task]] (the ADR's decision — in-process, no durable scheduler —
+[[testmode-in-process-no-durable-scheduler]] (the ADR's decision — in-process, no durable scheduler —
 was carried into the Go port unchanged; the retired Python service scheduled it as an
 `asyncio` task, the Go service as a goroutine holding the **process-lifetime** context, never
 the request's — see `services/tracking-go/CLAUDE.md` §10 for the Go-specific trap of a
@@ -1053,7 +1053,7 @@ consumer to notice.
 
 - **Tracking (owner):** `internal/domain/status.go`, `internal/domain/tracking.go`,
   `internal/app/update_status.go` (the carrier PUT and TestMode's shared transition function —
-  see [[testmode-in-process-asyncio-task]]), `internal/adapter/http` request/response DTOs for
+  see [[testmode-in-process-no-durable-scheduler]]), `internal/adapter/http` request/response DTOs for
   the status field, `internal/domain/audit/actor.go`
 - **events-pipeline (consumer):** `src/handlers/tracking-status-changed.ts`,
   `src/handlers/index.ts`, `src/email/catalog.ts`, `emails/tracking-status-changed.tsx`
@@ -1295,8 +1295,9 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
   by `cognito_sub`, never `user_id`, and the incident that motivated it.
 - [[two-api-keys-two-trust-domains]] — the ADR formalizing why `GRPC_API_KEY` and
   `TRACKING_CARRIER_API_KEY` must never collapse into one secret.
-- [[testmode-in-process-asyncio-task]] — the ADR formalizing the in-process `asyncio`
-  scheduling choice for TestMode and its accepted restart-loses-progress limitation.
+- [[testmode-in-process-no-durable-scheduler]] — the ADR formalizing the in-process scheduling
+  choice for TestMode (a goroutine, not a durable scheduler) and its accepted
+  restart-loses-progress limitation.
 - [[events-pipeline-design]] — the consuming side of `TRACKING_STATUS_CHANGED`: the shared SQS
   queue, the dispatch map, the error taxonomy, and the `tracking-status-changed` email template
   family (one event type, five rendered variants).

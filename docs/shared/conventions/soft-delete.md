@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-08-26
+updated: 2026-08-27
 tags: [type/convention, area/shared, status/active, issue/JE-39]
 related: ["[[audit-fields]]", "[[nano-id]]", "[[orders-service-design]]", "[[tracking-service-design]]", "[[users-service-design]]", "[[2026-08-25-account-deletion-design]]"]
 ---
@@ -65,11 +65,11 @@ data-model detail: [[users-service-design#Data Model]].
 > Full design: [[2026-08-25-account-deletion-design]].
 
 Two primitives implement "soft-delete everything belonging to this user, across services,
-synchronously" — `soft_delete_by_user` (Tracking) and the 3-arg
+synchronously" — `SoftDeleteByUser` (Tracking) and the 3-arg
 `CartWriteService.DeleteForUserAsync` overload plus the `ExecuteUpdateAsync` sweep in Orders'
 `InternalEndpoints.cs` (no equivalent single named method in Orders; the cascade is split across
 two `ExecuteUpdateAsync` calls and one `SaveChanges` call under `AmbientActor`). Both are the
-per-**identity** analogues of the pre-existing per-**tag** primitives (`soft_delete_by_tag` in
+per-**identity** analogues of the pre-existing per-**tag** primitives (`SoftDeleteByTag` in
 Tracking, the E2E cleanup's `ExecuteUpdateAsync` in Orders) that already served the E2E teardown
 — same never-a-SQL-DELETE shape, same FK-following order, different selector.
 
@@ -127,17 +127,18 @@ ordinary `SaveChanges` and pick up the interceptor as usual.
 > `"orders_api:delete_by_user"`. Full design:
 > [[orders-service-design#Account-deletion cascade (internal)]].
 
-## Implementation (Tracking, SQLAlchemy)
+## Implementation (Tracking, Go/sqlc)
 
-`TrackingRepository.soft_delete_by_tag` (`services/tracking/src/features/tracking/domain/repository.py`)
-issues two bulk `UPDATE` statements — `Tracking_History` first, then `Tracking`, following the FK
-direction — stamping `deleted_at`/`deleted_by` and never issuing a SQL `DELETE`. Every read in the
-repository goes through `_live()`, which appends `deleted_at IS NULL`, so a stamped row disappears
-from every read path without a matching hard delete anywhere in the code.
+`SoftDeleteRepository.SoftDeleteByTag`
+(`services/tracking-go/internal/adapter/mysql/soft_delete.go`) issues two bulk `UPDATE`
+statements — `Tracking_History` first, then `Tracking`, following the FK direction — stamping
+`deleted_at`/`deleted_by` and never issuing a SQL `DELETE`. Every read goes through a query
+that appends `deleted_at IS NULL`, so a stamped row disappears from every read path without a
+matching hard delete anywhere in the code.
 
-**`soft_delete_by_user` (added 2026-08-26)** is the per-identity sibling in the same file: same
-two-statement, children-then-parents shape, but selected by `cognito_sub OR user_id` instead of a
-tag, and its **parent** selection is deliberately not filtered on `deleted_at IS NULL` — an
+**`SoftDeleteByUser`** is the per-identity sibling in the same file: same two-statement,
+children-then-parents shape, but selected by `cognito_sub OR user_id` instead of a tag, and its
+**parent** selection is deliberately not filtered on `deleted_at IS NULL` — an
 already-soft-deleted tracking may still have live history from a partial previous cascade run,
 and that history must remain reachable on retry. Idempotency instead comes from the per-statement
 `deleted_at IS NULL` guard on each `UPDATE`. Full design:
@@ -167,6 +168,6 @@ protects. Full rationale: [[users-service-design#Account deletion]] and
 - [[audit-fields]] — `deletedAt`/`deletedBy` and the computed `isDeleted` that soft-delete relies on.
 - [[nano-id]] — stamped by the same Prisma client extension; its per-model map shares the extensibility trade-off with `isDeleted`'s per-model registration.
 - [[orders-service-design]] — Orders' `e2e-cleanup` endpoint, the `ExecuteUpdateAsync`/`AuditInterceptor` bypass, and the account-deletion cascade's second `ExecuteUpdateAsync` exception and hybrid handler, documented above.
-- [[tracking-service-design]] — Tracking's `e2e-cleanup` endpoint, `soft_delete_by_tag`, and the account-deletion `soft_delete_by_user` sibling, documented above.
+- [[tracking-service-design]] — Tracking's `e2e-cleanup` endpoint, `SoftDeleteByTag`, and the account-deletion `SoftDeleteByUser` sibling, documented above.
 - [[users-service-design]] — the partial-unique-index worked example (`users.email`), and `AuthProvider.deleteUser`'s role at the ADR-0004/Cognito boundary, documented above.
 - [[2026-08-25-account-deletion-design]] — the full account-deletion design this note's "partial-unique-index pattern", "per-user cascade", and "ADR-0004 boundary" sections propagate from.

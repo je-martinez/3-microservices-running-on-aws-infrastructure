@@ -8,7 +8,7 @@ deciders: ["Jose E. Martinez"]
 supersedes: null
 superseded-by: null
 created: 2026-07-31
-updated: 2026-08-26
+updated: 2026-08-27
 tags: [type/adr, area/tracking, status/accepted]
 related:
   - "[[tracking-service-design]]"
@@ -17,6 +17,7 @@ related:
   - "[[ADR-0007-secrets-parameter-store]]"
   - "[[logging-context]]"
   - "[[2026-08-25-account-deletion-design]]"
+  - "[[2026-08-27-tracking-go-migration-design]]"
 ---
 
 # Two API keys, two trust domains — GRPC_API_KEY and TRACKING_CARRIER_API_KEY must never collapse
@@ -36,8 +37,8 @@ domains:
   > **Correction (2026-08-26):** this decision originally described `GRPC_API_KEY` as purely
   > **outbound** for Tracking — something it only ever sends, never validates. That stopped being
   > true when the account-deletion milestone added `DELETE /v1/trackings/by-user`, an internal
-  > REST route Tracking itself validates the same key **inbound** on (via `InternalAuth`), the
-  > same secret and mechanism, a different transport and direction. Orders gained the identical
+  > REST route Tracking itself validates the same key **inbound** on (via `RequireInternalKey`),
+  > the same secret and mechanism, a different transport and direction. Orders gained the identical
   > inbound-validation role on its own `DELETE /v1/orders/by-user` — see
   > [[orders-service-design#Account-deletion cascade (internal)]] and
   > [[tracking-service-design#Account-deletion cascade (internal)]]. `GRPC_API_KEY` being
@@ -63,11 +64,16 @@ while being catastrophically wrong in production.
 separately, and never reused as each other**:
 
 - `GRPC_API_KEY` is read by the outbound gRPC client code that calls Users **and**, since the
-  account-deletion milestone (2026-08-26), validated inbound by `InternalAuth` on
+  account-deletion milestone (2026-08-26), validated inbound by `RequireInternalKey` on
   `DELETE /v1/trackings/by-user` — see
   [[tracking-service-design#Account-deletion cascade (internal)]]. It is still never checked
   against Tracking's Cognito-authenticated REST surface (the reads, `init-tracking`) or the
   carrier PUT endpoint — those two keep their own schemes.
+- **`RequireCarrierKey` and `RequireInternalKey` are two separate functions**
+  (`services/tracking-go/internal/adapter/http/auth.go`) living side by side, rather than one
+  helper parameterized by which key to check — one function per trust domain makes the
+  wrong-key mistake structurally harder to make by accident. They share only the rejection
+  path, never the secrets.
 - `TRACKING_CARRIER_API_KEY` is read only by the `PUT /v1/trackings/{orderId}/status` handler;
   it is never attached to any outbound call Tracking makes, and it is never accepted on the
   internal `by-user` route above.
@@ -107,3 +113,6 @@ separately, and never reused as each other**:
 - [[ADR-0003-grpc-inter-service]] — why the internal call is gRPC at all.
 - [[ADR-0007-secrets-parameter-store]] — both keys' storage/rotation mechanism.
 - [[logging-context]] — failed carrier-auth attempts are logged; the key value itself never is.
+- [[2026-08-27-tracking-go-migration-design]] — the Go port that carried this decision forward
+  unchanged; `RequireCarrierKey`/`RequireInternalKey` are its two-functions-per-trust-domain
+  implementation.

@@ -122,7 +122,7 @@ proves equivalence.
 | 21 | `PUT /v1/trackings/{order_id}/status` — the carrier webhook | shared transition function + handler (consumed by Task 24) | [[2026-08-27-tracking-go-migration]] |
 | 22 | `DELETE /v1/trackings/by-user` + `DELETE /v1/trackings/e2e-cleanup` | `internal/app/delete_by_user.go` + shared soft-delete mechanism | [[2026-08-27-tracking-go-migration]] |
 | 23 | `openapi.yaml` generation + comparison test | `internal/openapi/{spec.go,allowlist.go}`, `cmd/genopenapi/main.go` | [[2026-08-27-tracking-go-migration]] |
-| 24 | TestMode automatic progression | `internal/app/progression.go`, `internal/adapter/http/progression_hook.go` | [[testmode-in-process-asyncio-task]] |
+| 24 | TestMode automatic progression | `internal/app/progression.go`, `internal/adapter/http/progression_hook.go` | [[testmode-in-process-no-durable-scheduler]] |
 | 25 | The three test layers | `internal/adapter/mysql/suite_test.go`, `docker-compose.yml` (+`tracking-go` service), nginx switch | [[testing]] |
 | 26 | Performance comparison | measured Gatling comparison (`e2e/load-tests/`), vault note via `obsidian-vault` — see [[2026-08-27-go-vs-python-performance]] (**partially met**: resource/startup metrics measured, load-test latency deferred — see below) | [[2026-08-27-tracking-go-migration]] |
 | 27 | Observability parity | `internal/adapter/otel/propagation_test.go`, vault note via `obsidian-vault` | [[logging-context]] |

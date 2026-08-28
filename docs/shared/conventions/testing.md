@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-17
-updated: 2026-08-26
+updated: 2026-08-27
 tags: [type/convention, area/shared, status/active]
 related:
   - "[[ADR-0010-cognito-auth]]"
@@ -30,12 +30,14 @@ Every HTTP endpoint MUST have all three test layers before it is considered done
 
 1. **Unit / integration** — the endpoint's logic tested in isolation. Orders uses xUnit with
    Testcontainers-MySQL through the in-process `WebApplicationFactory`; Users uses vitest with a
-   mocked container; Tracking uses pytest against a **live** MySQL rather than mocks — specifically
-   the **shared local `tracking` database** (Floci grants the `test` user no `CREATE DATABASE`
-   privilege, so a throwaway per-run database is not an option), which means any fixture touching
-   the schema must restore it exactly as found. See
+   mocked container; Tracking uses `go test` against a **live** MySQL rather than mocks —
+   specifically the **shared local `tracking` database** (Floci grants the `test` user no
+   `CREATE DATABASE` privilege, so a throwaway per-run database is not an option), which means
+   any fixture touching the schema must restore it exactly as found. `make test` alone silently
+   **skips** the database-backed tests and still prints `ok`; `make test-db` (or
+   `TRACKING_DATABASE_URL`/`TRACKING_TEST_MYSQL_DSN` set by hand) is what actually runs them. See
    [[tracking/testing/index#Layer 1 — unit / integration]] and
-   `services/tracking/CLAUDE.md` §5c-bis for the full mechanics.
+   `services/tracking-go/CLAUDE.md` §6 for the full mechanics.
 2. **Internal E2E** — the service's own URL hit directly, bypassing the gateway, with `x-user-id`
    faked. Each service has its own internal Playwright spec running against its own port: orders
    against `http://localhost:3001`, users against `http://localhost:3000`, tracking against

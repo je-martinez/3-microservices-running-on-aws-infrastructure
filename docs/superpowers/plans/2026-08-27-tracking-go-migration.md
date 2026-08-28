@@ -11,7 +11,7 @@ tags:
   - status/draft
 propagates-to:
   - "[[tracking-service-design]]"
-  - "[[testmode-in-process-asyncio-task]]"
+  - "[[testmode-in-process-no-durable-scheduler]]"
   - "[[ADR-0021-tracking-go-gin-sqlc-stack]]"
   - "[[plans/index]]"
 related:
@@ -19,7 +19,7 @@ related:
   - "[[ADR-0021-tracking-go-gin-sqlc-stack]]"
   - "[[user-id-vs-cognito-sub-ownership-key]]"
   - "[[two-api-keys-two-trust-domains]]"
-  - "[[testmode-in-process-asyncio-task]]"
+  - "[[testmode-in-process-no-durable-scheduler]]"
   - "[[logging-context]]"
   - "[[testing]]"
   - "[[git-workflow]]"
@@ -15623,7 +15623,7 @@ line-by-line port would drop.
 - [[ADR-0021-tracking-go-gin-sqlc-stack]] — the stack decision (Gin + sqlc + golang-migrate) this plan builds against.
 - [[user-id-vs-cognito-sub-ownership-key]] — the ownership-key rule several tasks (creation, reads, soft-delete) preserve from the Python service.
 - [[two-api-keys-two-trust-domains]] — the auth-scheme distinction Task 16 ports into the four auth schemes.
-- [[testmode-in-process-asyncio-task]] — the TestMode background-progression decision Task 24 re-implements for Go, including its accepted restart limitation.
+- [[testmode-in-process-no-durable-scheduler]] — the TestMode background-progression decision Task 24 re-implements for Go, including its accepted restart limitation.
 - [[logging-context]] — the shared cross-service log-context contract Tasks 9-10 implement in `log/slog`.
 - [[testing]] — the three-test-layer convention Task 25 closes out for the new service.
 - [[git-workflow]] — the branch/PR flow this plan is executed under.
