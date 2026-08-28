@@ -5,6 +5,7 @@ go 1.26.7
 require (
 	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/aws/aws-sdk-go-v2 v1.45.0
+	github.com/aws/aws-sdk-go-v2/config v1.33.0
 	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.69.0
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.48.0
 	github.com/gin-gonic/gin v1.12.0
@@ -22,7 +23,6 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
-	github.com/aws/aws-sdk-go-v2/config v1.33.0 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.0 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.19.0 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.0 // indirect
@@ -65,6 +65,7 @@ require (
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.mongodb.org/mongo-driver/v2 v2.8.1 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
+	go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin v0.71.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.46.0 // indirect
 	go.opentelemetry.io/otel/metric v1.46.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect

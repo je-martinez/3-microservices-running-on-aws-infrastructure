@@ -18,6 +18,7 @@ import (
 
 	adapterhttp "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/http"
 	cache "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/redis"
+	"github.com/jemartinez/3mrai/services/tracking-go/internal/openapi"
 )
 
 // The composition root's tests. Everything here is a MIS-WIRE detector: the
@@ -315,5 +316,52 @@ func TestTheIdentityStampIsAppliedToTheReadsAndNowhereElse(t *testing.T) {
 					got, tc.method, tc.target, tc.wantCalls)
 			}
 		})
+	}
+}
+
+// ─── The document and the router describe the SAME service ───────────────────
+
+// TestTheOpenAPIDocumentDescribesExactlyTheseRoutes ties the hand-written spec to
+// the route table Gin actually holds.
+//
+// internal/openapi enumerates seven routes against itself, which proves the
+// document is internally consistent and nothing more: it never sees a gin.Engine,
+// so a route added to NewAppRouter and forgotten in the document would leave every
+// test in that package green. This is the only assertion in the repo that fails
+// when the two drift, and it belongs here rather than there — this is the package
+// that can build the real router, and openapi must keep importing nothing.
+//
+// It compares PATH TEMPLATES, so gin's ":order_id" is normalized to the "{order_id}"
+// OpenAPI writes. Different syntax for the same route, and mapping between them is
+// exactly the translation a reader has to do by hand otherwise.
+func TestTheOpenAPIDocumentDescribesExactlyTheseRoutes(t *testing.T) {
+	// E2E on, matching the document: it describes the FULL contract including the
+	// flag-guarded cleanup route, the same choice the Python generator makes.
+	router := adapterhttp.NewAppRouter(wireOptions(t, true))
+
+	inRouter := map[string]bool{}
+	for _, route := range router.Routes() {
+		path := strings.ReplaceAll(route.Path, ":order_id", "{order_id}")
+		inRouter[strings.ToLower(route.Method)+" "+path] = true
+	}
+
+	inDocument := map[string]bool{}
+	for path, item := range openapi.BuildSpec()["paths"].(map[string]any) {
+		for method := range item.(map[string]any) {
+			inDocument[method+" "+path] = true
+		}
+	}
+
+	for route := range inRouter {
+		if !inDocument[route] {
+			t.Errorf("%s is served but ABSENT from openapi.yaml — a route people can "+
+				"call and no consumer can discover", route)
+		}
+	}
+	for route := range inDocument {
+		if !inRouter[route] {
+			t.Errorf("%s is documented but NOT SERVED — the contract promises a route "+
+				"that answers 404", route)
+		}
 	}
 }
