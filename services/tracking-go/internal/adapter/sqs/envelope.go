@@ -3,6 +3,7 @@ package sqs
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"time"
 
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/domain/audit"
@@ -56,9 +57,18 @@ type StatusChanged struct {
 	// ChangedAt is the transition's own timestamp, NOT updated_at, which moves on
 	// any write.
 	ChangedAt time.Time
-	// ShippingAddress is nil when the row holds NULL. The omission check is an
-	// EXPLICIT nil check, never truthiness — an empty string is a value.
-	ShippingAddress *string
+	// ShippingAddress is the row's RAW JSON, forwarded byte-for-byte, and nil
+	// when the column holds NULL.
+	//
+	// json.RawMessage and NOT *string. The column is a MySQL JSON object owned by
+	// Orders, and the consumer's schema is
+	// `z.record(z.string(), z.unknown()).optional()` — an OBJECT. A *string here
+	// re-encodes those bytes as a JSON STRING CONTAINING JSON, which fails that
+	// record() as a PermanentError: the record is CONSUMED rather than retried,
+	// and the email and the WebSocket push are lost while this producer logs
+	// success. The domain already models it as opaque []byte (domain.Tracking);
+	// this type is what stops the adapter narrowing it on the way out.
+	ShippingAddress json.RawMessage
 	History         []HistoryEntry
 	// Actor is what ORIGINATED the transition, threaded down from the command.
 	// Never a constant chosen here: this publisher serves both the carrier
@@ -114,13 +124,21 @@ type payload struct {
 	FullName       string `json:"full_name"`
 	OrderID        string `json:"order_id"`
 	TrackingNumber string `json:"tracking_number"`
-	// A POINTER, so omitempty drops the key on nil and KEEPS it on a pointer to
-	// "": the key is OMITTED when the row's column is NULL, never sent as null,
-	// and an explicit empty string still travels as a value. A
-	// "shipping_address": null would make the template branch on two spellings of
-	// "no address" instead of one.
-	ShippingAddress *string        `json:"shipping_address,omitempty"`
-	History         []historyEntry `json:"history"`
+	// RAW JSON, emitted as the OBJECT the consumer's Zod schema requires:
+	// `shipping_address: z.record(z.string(), z.unknown()).optional()` in
+	// functions/events-pipeline/src/handlers/tracking-status-changed.ts. THAT FILE
+	// IS THE AUTHORITY for this field's type, not this struct.
+	//
+	// json.RawMessage's omitempty DOES drop the key on nil and on zero length
+	// (verified against Go 1.26.7, not assumed) — but omitempty alone is NOT
+	// sufficient, because a JSON column can legally hold the literal document
+	// `null`, whose bytes are non-empty and would marshal straight through as
+	// "shipping_address": null. The schema is `.optional()` and NOT `.nullable()`,
+	// so that null is a rejection exactly like the wrong type. buildEnvelope
+	// therefore normalizes those bytes to nil BEFORE they reach this field:
+	// omitted, never null.
+	ShippingAddress json.RawMessage `json:"shipping_address,omitempty"`
+	History         []historyEntry  `json:"history"`
 }
 
 type historyEntry struct {

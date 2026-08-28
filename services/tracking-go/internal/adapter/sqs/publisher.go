@@ -40,6 +40,7 @@
 package sqs
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -238,10 +239,9 @@ func buildEnvelope(ctx context.Context, in StatusChanged, user grpcusers.Resolve
 			FullName:       user.FullName,
 			OrderID:        in.OrderID,
 			TrackingNumber: in.TrackingNumber,
-			// An EXPLICIT nil check (the pointer's own nil-ness, which omitempty
-			// reads), never truthiness: an empty string is a value the row
-			// actually holds, and only NULL means "no address".
-			ShippingAddress: in.ShippingAddress,
+			// Raw JSON forwarded byte-for-byte as an OBJECT, or omitted. Never a
+			// string, and never null — see omittableAddress.
+			ShippingAddress: omittableAddress(in.ShippingAddress),
 			History:         history,
 		},
 	}
@@ -254,6 +254,38 @@ func buildEnvelope(ctx context.Context, in StatusChanged, user grpcusers.Resolve
 		}
 	}
 	return env
+}
+
+// omittableAddress returns the address bytes to place on the wire, or nil to have
+// omitempty drop the key entirely.
+//
+// It returns nil in three cases, and all three are the SAME requirement seen from
+// different angles: `shipping_address` in the pipeline's Zod schema is
+// `.optional()` and NOT `.nullable()`, so the only two acceptable states are a
+// JSON OBJECT or NO KEY AT ALL. Anything else is a PermanentError that consumes
+// the record and silently loses the email and the WebSocket push.
+//
+//   - nil bytes — the column is NULL. The common case: most rows have no address.
+//   - zero-length bytes — not a JSON document at all. A *string field used to make
+//     "" a forwardable "value"; raw JSON has no such spelling, and emitting it
+//     would be a syntax error downstream rather than an empty address.
+//   - the literal document `null` — which a MySQL JSON column can legally hold.
+//     omitempty does NOT catch this one: the bytes are non-empty, so they would
+//     marshal through as "shipping_address": null. This is the case a naive
+//     "just switch the type and trust omitempty" fix leaves behind.
+//
+// Anything else is forwarded UNPARSED. The shape is owned by Orders, and parsing
+// it here would turn an additive upstream field into a lost notification — the
+// same reasoning that keeps it []byte in the domain and z.record() in the
+// consumer.
+func omittableAddress(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	if string(bytes.TrimSpace(raw)) == "null" {
+		return nil
+	}
+	return raw
 }
 
 // buildMessageAttributes returns type, source, and the W3C trace context.

@@ -61,8 +61,14 @@ func (s stubResolver) Resolve(context.Context, string) (grpcusers.ResolvedUser, 
 
 func quietLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
+// realisticAddressJSON is the shape the shipping_address COLUMN actually holds:
+// a JSON OBJECT snapshot owned by Orders, stored in a MySQL JSON column and read
+// back as raw bytes. Not a one-line street string — the Python producer maps the
+// column through SQLAlchemy's `Mapped[dict | None]` and serialises a dict, so the
+// pipeline has only ever received an object here.
+const realisticAddressJSON = `{"city": "Austin", "line1": "1 Test St", "state": "TX", "country": "US", "postal_code": "78701"}`
+
 func fullInput() sqs.StatusChanged {
-	address := "1 Main St, Springfield"
 	return sqs.StatusChanged{
 		OrderID:         "ord_abc",
 		UserID:          "usr_abc",
@@ -70,7 +76,7 @@ func fullInput() sqs.StatusChanged {
 		PreviousStatus:  "PLACED",
 		TrackingNumber:  "TRK123456789",
 		ChangedAt:       time.Date(2026, 8, 27, 12, 34, 56, 0, time.UTC),
-		ShippingAddress: &address,
+		ShippingAddress: json.RawMessage(realisticAddressJSON),
 		History: []sqs.HistoryEntry{
 			{Status: "PLACED", Datetime: time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)},
 			{Status: "IN_TRANSIT", Datetime: time.Date(2026, 8, 27, 12, 34, 56, 0, time.UTC)},
@@ -151,8 +157,28 @@ func TestEnvelopeShape(t *testing.T) {
 	if payload["tracking_number"] != "TRK123456789" {
 		t.Errorf("payload.tracking_number = %v", payload["tracking_number"])
 	}
-	if payload["shipping_address"] != "1 Main St, Springfield" {
-		t.Errorf("payload.shipping_address = %v", payload["shipping_address"])
+	// A JSON OBJECT, and the assertion is written against the CONSUMER's schema
+	// rather than against whatever this producer happens to emit:
+	// functions/events-pipeline/src/handlers/tracking-status-changed.ts declares
+	// `shipping_address: z.record(z.string(), z.unknown()).optional()`. A Go
+	// *string here serialises as a JSON STRING CONTAINING JSON
+	// ("{\"city\": \"Austin\"}"), which fails that record() and is a
+	// PermanentError: the record is CONSUMED, not retried, and the email and the
+	// WebSocket push are lost with the producer logging success.
+	address, isObject := payload["shipping_address"].(map[string]any)
+	if !isObject {
+		t.Fatalf("payload.shipping_address decoded as %T (%v), want a JSON object (map[string]any); "+
+			"the pipeline's Zod schema is z.record(z.string(), z.unknown()) and rejects a string",
+			payload["shipping_address"], payload["shipping_address"])
+	}
+	if address["city"] != "Austin" {
+		t.Errorf("payload.shipping_address.city = %v, want Austin", address["city"])
+	}
+	if address["line1"] != "1 Test St" {
+		t.Errorf("payload.shipping_address.line1 = %v, want 1 Test St", address["line1"])
+	}
+	if address["postal_code"] != "78701" {
+		t.Errorf("payload.shipping_address.postal_code = %v, want 78701", address["postal_code"])
 	}
 	if payload["changed_at"] != "2026-08-27T12:34:56" {
 		t.Errorf("payload.changed_at = %v, want the naive ISO-8601 Python's isoformat() emits", payload["changed_at"])
@@ -242,7 +268,10 @@ func TestOmissionRules(t *testing.T) {
 		}
 	})
 
-	t.Run("shipping_address omitted on an explicit nil, not on emptiness", func(t *testing.T) {
+	// The column is NULLABLE and most rows hold no address, so this is the COMMON
+	// path, not an edge case. The pipeline's schema is `.optional()` and NOT
+	// `.nullable()`: an emitted null fails Zod exactly as a wrong type does.
+	t.Run("shipping_address omitted when the column is NULL", func(t *testing.T) {
 		client := &fakeSQS{}
 		p := sqs.NewPublisher(client, "q",
 			stubResolver{user: grpcusers.ResolvedUser{Email: "a@b.com"}}, quietLog())
@@ -250,19 +279,67 @@ func TestOmissionRules(t *testing.T) {
 		in := fullInput()
 		in.ShippingAddress = nil
 		p.PublishTrackingStatusChanged(t.Context(), in)
+
+		body := *client.last().MessageBody
 		payload, _ := decodeEnvelope(t, client.last())["payload"].(map[string]any)
 		if _, present := payload["shipping_address"]; present {
-			t.Errorf("shipping_address = %v on a nil address, want the key absent", payload["shipping_address"])
+			t.Errorf("shipping_address = %v on a NULL column, want the key absent", payload["shipping_address"])
 		}
+		// Asserted on the RAW BODY too: a decoded map cannot tell an omitted key
+		// from one explicitly set to null, so the map check alone would pass on
+		// the very shape Zod rejects.
+		if strings.Contains(body, `"shipping_address"`) {
+			t.Errorf("shipping_address appears on the wire for a NULL column: %s", body)
+		}
+	})
 
-		// An EXPLICIT empty string is a value, not an absence: the check is a nil
-		// check, never truthiness.
-		empty := ""
-		in.ShippingAddress = &empty
+	// Empty bytes are NOT a value. A *string field made "" a legal address to
+	// forward; raw JSON has no such spelling — "" is not a JSON document, and
+	// emitting it would be a syntax error in the consumer, not an empty address.
+	t.Run("shipping_address omitted on empty bytes, never emitted as invalid JSON", func(t *testing.T) {
+		for name, empty := range map[string]json.RawMessage{
+			"nil":         nil,
+			"zero-length": {},
+		} {
+			t.Run(name, func(t *testing.T) {
+				client := &fakeSQS{}
+				p := sqs.NewPublisher(client, "q",
+					stubResolver{user: grpcusers.ResolvedUser{Email: "a@b.com"}}, quietLog())
+
+				in := fullInput()
+				in.ShippingAddress = empty
+				p.PublishTrackingStatusChanged(t.Context(), in)
+
+				if client.count() == 0 {
+					t.Fatal("nothing was published; an absent address must not abort the event")
+				}
+				payload, _ := decodeEnvelope(t, client.last())["payload"].(map[string]any)
+				if _, present := payload["shipping_address"]; present {
+					t.Errorf("shipping_address = %v, want the key absent", payload["shipping_address"])
+				}
+			})
+		}
+	})
+
+	// A JSON column can legally hold the literal document `null`. omitempty does
+	// NOT save us there — the bytes are non-empty, so they marshal straight
+	// through as `"shipping_address": null`, the exact shape Zod rejects.
+	t.Run("shipping_address omitted when the column holds the JSON literal null", func(t *testing.T) {
+		client := &fakeSQS{}
+		p := sqs.NewPublisher(client, "q",
+			stubResolver{user: grpcusers.ResolvedUser{Email: "a@b.com"}}, quietLog())
+
+		in := fullInput()
+		in.ShippingAddress = json.RawMessage(`null`)
 		p.PublishTrackingStatusChanged(t.Context(), in)
-		payload, _ = decodeEnvelope(t, client.last())["payload"].(map[string]any)
-		if got, present := payload["shipping_address"]; !present || got != "" {
-			t.Errorf("shipping_address = %v (present=%v), want an empty string present", got, present)
+
+		body := *client.last().MessageBody
+		if strings.Contains(body, `"shipping_address":null`) {
+			t.Errorf("shipping_address was emitted as null; the schema is .optional(), NOT .nullable(): %s", body)
+		}
+		payload, _ := decodeEnvelope(t, client.last())["payload"].(map[string]any)
+		if _, present := payload["shipping_address"]; present {
+			t.Errorf("shipping_address = %v, want the key absent", payload["shipping_address"])
 		}
 	})
 
@@ -435,7 +512,7 @@ func TestNoPIIIsLogged(t *testing.T) {
 
 	p.PublishTrackingStatusChanged(t.Context(), fullInput())
 
-	for _, forbidden := range []string{"person@example.com", "Ada Lovelace", "1 Main St"} {
+	for _, forbidden := range []string{"person@example.com", "Ada Lovelace", "1 Test St", "Austin", "78701"} {
 		if strings.Contains(buf.String(), forbidden) {
 			t.Errorf("the log leaked PII %q: %s", forbidden, buf.String())
 		}

@@ -74,11 +74,15 @@ func (p *StatusEventPublisher) PublishTrackingStatusChanged(
 		// The TRANSITION's own timestamp, not updated_at, which moves on any
 		// write.
 		ChangedAt: t.Tracking.Datetime,
-		// An EXPLICIT nil check, never truthiness: only a NULL column means "no
-		// address", and the downstream Zod schema REJECTS a null — a violation is
-		// a PermanentError that consumes the record and loses the email and the
-		// WebSocket push, with nothing upstream noticing.
-		ShippingAddress: shippingAddressPtr(t.Tracking.ShippingAddress),
+		// Forwarded BYTE-FOR-BYTE as the raw JSON the column holds. There is
+		// deliberately no conversion step here any more: the previous *string
+		// narrowing re-encoded the object as a JSON string, which the pipeline's
+		// `z.record(z.string(), z.unknown())` rejects as a PermanentError —
+		// consuming the record and losing the email and the WebSocket push while
+		// this service logged success. The publisher owns the omit-vs-null
+		// decision (sqs.omittableAddress); this adapter's job is only to not lose
+		// the shape on the way there.
+		ShippingAddress: t.Tracking.ShippingAddress,
 		History:         history,
 		// Threaded down from the use case, never chosen here: this publisher
 		// serves both the carrier webhook and TestMode progression, and a
@@ -89,21 +93,6 @@ func (p *StatusEventPublisher) PublishTrackingStatusChanged(
 		// returns an empty list with no error, so the push would reach nobody.
 		CognitoSub: t.Tracking.CognitoSub,
 	})
-}
-
-// shippingAddressPtr returns nil for a NULL column and a pointer to the raw JSON
-// otherwise.
-//
-// nil means the key is OMITTED from the envelope. It is never sent as null and
-// never as "": a "shipping_address": null would make the pipeline's template
-// branch on two spellings of "no address" instead of one, and the Zod schema
-// rejects the null outright.
-func shippingAddressPtr(raw []byte) *string {
-	if raw == nil {
-		return nil
-	}
-	value := string(raw)
-	return &value
 }
 
 // TrackingCacheInvalidator adapts the Redis invalidation to

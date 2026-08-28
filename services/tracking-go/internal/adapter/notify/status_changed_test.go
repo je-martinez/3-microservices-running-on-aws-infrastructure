@@ -120,32 +120,27 @@ func TestStatusEventPublisher(t *testing.T) {
 
 		if pub.calls[0].ShippingAddress != nil {
 			t.Fatalf("shipping_address = %q, want nil so the key is omitted",
-				*pub.calls[0].ShippingAddress)
+				pub.calls[0].ShippingAddress)
 		}
 	})
 
-	t.Run("a PRESENT address travels verbatim, including an empty string", func(t *testing.T) {
-		// The check is an EXPLICIT nil check, never truthiness: an empty string
-		// is a value the row actually holds.
-		for name, raw := range map[string][]byte{
-			"object": []byte(`{"street":"1 Main St"}`),
-			"empty":  []byte(``),
-		} {
-			t.Run(name, func(t *testing.T) {
-				pub := &recordingSQS{}
-				in := sample(t)
-				in.Tracking.ShippingAddress = raw
-				notify.NewStatusEventPublisher(pub).PublishTrackingStatusChanged(
-					t.Context(), in, "PLACED", audit.CarrierStatusUpdate)
+	t.Run("a PRESENT address travels verbatim as raw JSON", func(t *testing.T) {
+		// The column holds a JSON OBJECT owned by Orders. This adapter must NOT
+		// narrow it — a *string here would re-encode the object as a JSON string,
+		// which the pipeline's `z.record(z.string(), z.unknown())` rejects.
+		raw := []byte(`{"city": "Austin", "line1": "1 Test St", "postal_code": "78701"}`)
+		pub := &recordingSQS{}
+		in := sample(t)
+		in.Tracking.ShippingAddress = raw
+		notify.NewStatusEventPublisher(pub).PublishTrackingStatusChanged(
+			t.Context(), in, "PLACED", audit.CarrierStatusUpdate)
 
-				got := pub.calls[0].ShippingAddress
-				if got == nil {
-					t.Fatal("a present address was dropped; only a NULL column is omitted")
-				}
-				if *got != string(raw) {
-					t.Errorf("shipping_address = %q, want the bytes verbatim %q", *got, raw)
-				}
-			})
+		got := pub.calls[0].ShippingAddress
+		if got == nil {
+			t.Fatal("a present address was dropped; only a NULL column is omitted")
+		}
+		if string(got) != string(raw) {
+			t.Errorf("shipping_address = %q, want the bytes verbatim %q", got, raw)
 		}
 	})
 
@@ -160,12 +155,12 @@ func TestStatusEventPublisher(t *testing.T) {
 		notify.NewStatusEventPublisher(pub).PublishTrackingStatusChanged(
 			t.Context(), in, "PLACED", audit.CarrierStatusUpdate)
 
-		if *pub.calls[0].ShippingAddress != string(raw) {
+		if string(pub.calls[0].ShippingAddress) != string(raw) {
 			t.Errorf("shipping_address = %q, want %q byte-for-byte",
-				*pub.calls[0].ShippingAddress, raw)
+				pub.calls[0].ShippingAddress, raw)
 		}
 		// And it is still valid JSON, so the envelope stays well-formed.
-		if !json.Valid([]byte(*pub.calls[0].ShippingAddress)) {
+		if !json.Valid(pub.calls[0].ShippingAddress) {
 			t.Error("the forwarded address is not valid JSON")
 		}
 	})
