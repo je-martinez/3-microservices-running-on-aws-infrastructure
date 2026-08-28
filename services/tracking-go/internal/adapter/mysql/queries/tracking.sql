@@ -154,6 +154,16 @@ SET status      = ?,
 WHERE order_id = ?
   AND deleted_at IS NULL;
 
+-- DO NOT USE. Superseded by internal/adapter/mysql/soft_delete.go, which is the
+-- only correct erasure path. This statement is kept because deleting it would
+-- change the generated Querier interface, and it is wrong in two ways that a
+-- future adopter would not notice:
+--   1. It matches cognito_sub ALONE. The account-deletion cascade must match
+--      cognito_sub OR user_id: a row whose sub is NULL (they predate migration
+--      b17f4c2e9a30) would survive erasure while the endpoint answered 200.
+--   2. It carries no COLLATE utf8mb4_bin pin. The column is case-INSENSITIVE and
+--      the ids are mixed-case, so this predicate was measured on this very server
+--      sweeping a DIFFERENT user's row.
 -- name: SoftDeleteTrackingsByCognitoSub :execrows
 -- Account-deletion cascade. Soft delete only: stamps deleted_at/deleted_by and
 -- never issues DELETE.
@@ -163,6 +173,9 @@ SET deleted_at = ?,
 WHERE cognito_sub = ?
   AND deleted_at IS NULL;
 
+-- DO NOT USE. Superseded by internal/adapter/mysql/soft_delete.go, which uses
+-- JSON_CONTAINS(tags, JSON_QUOTE(?)) -- the membership test verified against
+-- MySQL 8.0.46. CAST(? AS JSON) is not the same predicate.
 -- name: ListE2ETrackingIDs :many
 -- The e2e-cleanup selector. JSON_CONTAINS is how a MySQL JSON array is queried
 -- for membership (verified against MySQL 8.0.46).
@@ -223,6 +236,11 @@ ORDER BY
   `datetime` ASC,
   FIELD(status, 'PLACED', 'PROCESSING', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED') ASC;
 
+-- DO NOT USE. Superseded by internal/adapter/mysql/soft_delete.go. Besides the
+-- two defects above, this one filters history by its OWN cognito_sub column
+-- rather than by the parent's id through the FK, so history hanging off a row
+-- with a NULL sub is never swept -- leaving live children under a deleted
+-- parent, which is exactly what the children-first ordering exists to prevent.
 -- name: SoftDeleteTrackingHistoryByCognitoSub :execrows
 -- History side of the account-deletion cascade.
 UPDATE tracking_history
