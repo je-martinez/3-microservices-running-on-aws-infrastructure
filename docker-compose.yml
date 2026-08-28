@@ -421,6 +421,86 @@ services:
           path: ./services/tracking/src
           target: /app/src
 
+  # ── Tracking, the GO PORT — runs BESIDE the Python service ──────────────────
+  # TEMPORARY, for the duration of the tracking-go migration. Both containers are
+  # up at once so the same request can be sent to either, the SAME untouched E2E
+  # specs can be pointed at either, and the gateway can be moved between them by
+  # changing ONE WORD in infra/modules/compute/nginx/nginx.conf (see the block
+  # marked "THE SWITCH" there — it is `set $backend tracking;` today).
+  #
+  # Coexistence is what makes the migration reversible: reverting is not a
+  # rebuild or a redeploy, it is flipping that word back and reloading nginx,
+  # because the Python container never stopped running.
+  #
+  # THE SAME DATABASE, deliberately. Both services read and write the one
+  # `tracking` schema Alembic created; the Go baseline migration is STAMPED, not
+  # replayed (services/tracking-go/migrations/README.md), so there is no second
+  # DDL history and no divergence to reconcile. Two runtimes over one schema is
+  # the only arrangement in which "does Go behave the same?" is answerable.
+  #
+  # Build context is ./services/tracking-go — NOT the repo root, the same choice
+  # its Python peer makes: the Users gRPC stubs are committed inside the tree, so
+  # nothing outside it is needed at build or run time.
+  tracking-go:
+    build: ./services/tracking-go
+    networks: [3mrai-network]
+    ports:
+      # Host 3012 → container 8000. The CONTAINER port is 8000, the same as the
+      # Python service's — they are separate network namespaces, so there is no
+      # collision, and keeping it identical is what lets nginx's proxy_pass carry
+      # one port for both backends and switch only the hostname.
+      # Host 3012 because 3000/3001/3002 are Users/Orders/Tracking-Python.
+      - "3012:8000"
+    depends_on:
+      floci:
+        condition: service_healthy
+      # NOT depends_on: users — the identical reasoning as the Python service
+      # above, and it still holds for this runtime: Tracking's only gRPC is an
+      # OUTBOUND client to Users, and main.go dials it LAZILY (grpc.NewClient
+      # returns without connecting). A dial failure there is logged and
+      # swallowed, so nothing at boot touches Users at all.
+    # Its OWN generated env file, whose AUTO block is byte-identical to
+    # .env.local.tracking's apart from the Go-only ENVIRONMENT key — see the
+    # entry in infra/environments/local/scripts/generate_env_files.py for why the
+    # two are generated from the same values rather than copied.
+    # Nothing is declared inline: an `environment:` block would silently WIN over
+    # env_file and the service would never see its generated DB URLs.
+    env_file:
+      - .env.local.tracking-go
+    # NO healthcheck, and NO in-image HEALTHCHECK either. The runtime stage is
+    # gcr.io/distroless/static-debian12, which ships no shell, no curl and no
+    # wget, so there is no command inside the container that can probe it — and
+    # the Python peer's trick (`python -c ...`) has no analogue, because the only
+    # executable in this image is the server binary itself.
+    #
+    # Nothing depends_on this service, so no `condition: service_healthy` is left
+    # unsatisfiable by the omission. Probe it from the host instead:
+    #   curl -fsS http://localhost:3012/v1/health
+    # Adding a probe would mean either giving the binary a `-healthcheck` mode or
+    # dropping to a distro base — both real options, neither worth taking to make
+    # `docker ps` print "healthy" for a container in a temporary migration.
+    # stdout → the observability collector's fluent_forward receiver, exactly as
+    # the Python service does. localhost:24224 because the Docker daemon resolves
+    # fluentd-address from the HOST, not this network; fluentd-async so the
+    # service still starts when the observability profile is not running.
+    #
+    # tag: "tracking-go" — DISTINCT from the Python service's "tracking", on
+    # purpose and in contrast to OTEL_SERVICE_NAME, which is deliberately
+    # "tracking" for BOTH (see the Dockerfile). The two want opposite things: a
+    # trace query must span the cutover as one service, while a LOG query must be
+    # able to say which runtime emitted a line — that is the whole comparison.
+    logging:
+      driver: fluentd
+      options:
+        fluentd-address: "localhost:24224"
+        fluentd-async: "true"
+        tag: "tracking-go"
+    # NO `develop.watch` block, unlike the Python service. Go is COMPILED: a
+    # synced .go file would change nothing in a running container, and the sync
+    # would be a mechanism that looks like hot-reload while doing nothing. Pick
+    # up a code change with:
+    #   docker compose up -d --build tracking-go
+
   # NOTE: there is deliberately NO `events-pipeline` compose service.
   # The pipeline is a REAL Lambda on Floci, deployed by Terraform together with
   # its SQS event source mapping (see functions/events-pipeline/CLAUDE.md §1).
