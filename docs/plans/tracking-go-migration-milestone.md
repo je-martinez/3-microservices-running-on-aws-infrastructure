@@ -4,7 +4,7 @@ type: plan
 area: tracking
 status: active
 created: 2026-08-27
-updated: 2026-08-27
+updated: 2026-08-29
 tags:
   - type/plan
   - area/tracking
@@ -46,12 +46,16 @@ milestone's task sequence and blocking dependencies. The detailed step-by-step p
 > 3. **Performance — PARTIALLY met, and left that way.** See
 >    [[2026-08-27-go-vs-python-performance]]: resource/startup metrics (image size, cold start,
 >    memory at rest and under load) are measured and trustworthy, and Go wins all four.
->    Latency/throughput under sustained load are **not measurable on this stack** — Floci (the
->    local AWS emulator), not either service, was the bottleneck; both arms collapsed to a
->    near-identical ~94% KO rate under the same simulation, which is itself the proof the
->    environment was measured rather than the service. This was **not** re-run before cutover;
->    the note's own "How to obtain trustworthy latency numbers" section remains open follow-up
->    work, out of scope for this milestone's completion.
+>    Latency/throughput under sustained load are **not measurable on this stack**: both arms
+>    collapsed to a near-identical ~94% KO rate under the same simulation, which is itself the
+>    proof the environment was measured rather than the service — but the cause of that
+>    collapse is **unknown**, not Floci CPU saturation as this note originally (and incorrectly)
+>    said. *Correction (2026-08-29): the "Floci pinned at 100-205% CPU" claim came from a single
+>    `docker stats --no-stream` sample, which cannot distinguish a spike from a steady state;
+>    re-measured properly, Floci was idle (cumulative CPU time did not move over 20s). See the
+>    correction in [[2026-08-27-go-vs-python-performance]].* This was **not** re-run before
+>    cutover; the note's own "How to obtain trustworthy latency numbers" section remains open
+>    follow-up work, out of scope for this milestone's completion.
 > 4. **Observability parity — PASS, after a blocking bug it found.** See
 >    [[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]] for
 >    the five wiring-hazard instances the parity check caught (unregistered routes, an inert
@@ -375,19 +379,29 @@ Per [[phase-c-review-flow]]:
    > [!warning] Criterion 3 (Performance) is only PARTIALLY met as of Task 26
    > [[2026-08-27-go-vs-python-performance]] measured both arms honestly and found: resource and
    > startup metrics (image size, cold start, memory) are trustworthy and Go wins all four;
-   > latency and throughput under sustained load are **not measurable on this stack** — the
-   > local AWS emulator (Floci), not either service, is the bottleneck, and both arms collapse
-   > to a near-identical ~94% KO rate under the same load-test simulation. The note records this
+   > latency and throughput under sustained load are **not measurable on this stack** — both arms
+   > collapse to a near-identical ~94% KO rate under the same load-test simulation, which is
+   > itself the proof the environment was measured rather than the service. The note records this
    > as unmeasured rather than estimating it, and lists what a trustworthy latency run would
    > require (fresh `make bootstrap`, measure before the E2E suite runs, and neutralize the
    > `METRICS_ENABLED` gate Python ignored on the cache path). Task 28 must not read
    > criterion 3 as a clean pass — it is green on resource/startup and open on latency/throughput.
    >
+   > **Correction (2026-08-29): the original text here attributed the collapse to "Floci (the
+   > local AWS emulator), not either service" being the bottleneck, at 100-205% CPU. That
+   > attribution is retracted** — it came from a single `docker stats --no-stream` sample, which
+   > takes one instantaneous reading and cannot distinguish a burst from a steady state.
+   > Re-measured with the container otherwise idle, CPU sat under 1% across six samples bar one
+   > spike, and cumulative CPU time (`docker top`) did not move over a 20-second window — Floci
+   > was not saturated. **The cause of the ~94% KO collapse is unknown**, not resolved. See the
+   > correction in [[2026-08-27-go-vs-python-performance]] for the full measurement.
+   >
    > **Resolution (2026-08-27): Task 28 was executed anyway, on the closing gate's three-of-four
    > status, by explicit user decision.** The latency/throughput follow-up run described above
    > was **not** performed before cutover and remains open follow-up work — it is not blocking,
    > and it is not forgotten; it is simply outside this milestone's completed scope. Do not read
-   > the milestone's completion as a retroactive claim that criterion 3 became fully met.
+   > the milestone's completion as a retroactive claim that criterion 3 became fully met, and do
+   > not read the Floci-CPU explanation as established — it is now, once again, an open question.
 
 ## Related
 
