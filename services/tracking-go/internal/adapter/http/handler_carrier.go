@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"errors"
+	tracing "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/otel"
 	"log/slog"
 	nethttp "net/http"
 
@@ -81,6 +82,15 @@ type CarrierHandler struct {
 func NewCarrierHandler(uc StatusTransitioner, log *slog.Logger, tracer trace.Tracer) *CarrierHandler {
 	if log == nil {
 		log = slog.Default()
+	}
+	if tracer == nil {
+		// A nil tracer silently disables this handler's workflow span, and the
+		// span is how a trace says WHICH business operation ran -- the server
+		// span from otelgin only says a request arrived. That is exactly how the
+		// four workflow spans went missing in production while their unit tests,
+		// which inject a tracer, stayed green. Defaulting here means forgetting
+		// the argument costs nothing, matching how log and hook already behave.
+		tracer = tracing.Tracer(tracing.TracerWorkflow)
 	}
 	return &CarrierHandler{uc: uc, log: log, tracer: tracer}
 }

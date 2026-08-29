@@ -190,7 +190,7 @@ func NewAppRouter(opts AppRouterOptions) *gin.Engine {
 		),
 		opts.Hook,
 		log,
-		nil,
+		tracing.Tracer(tracing.TracerWorkflow),
 	))
 
 	// The two user-scoped reads. READER pool — the only routes that use it.
@@ -242,7 +242,7 @@ func NewAppRouter(opts AppRouterOptions) *gin.Engine {
 			nil,
 		),
 		log,
-		nil,
+		tracing.Tracer(tracing.TracerWorkflow),
 	), opts.CarrierAPIKey)
 
 	// The account-deletion cascade's leg. Internal key, applied by the seam.
@@ -250,7 +250,7 @@ func NewAppRouter(opts AppRouterOptions) *gin.Engine {
 	RegisterInternalDelete(router, NewInternalDeleteHandler(
 		app.NewDeleteByUser(softDeletes, cache.NewUserInvalidator(gateway, log), nil),
 		log,
-		nil,
+		tracing.Tracer(tracing.TracerWorkflow),
 	), opts.InternalAPIKey)
 
 	// The E2E teardown, registered ONLY when the flag is on. See
@@ -264,7 +264,8 @@ func NewAppRouter(opts AppRouterOptions) *gin.Engine {
 			slog.String("reason", "E2E_TESTING_ENABLED"))
 
 		RegisterE2ECleanup(router, NewE2ECleanupHandler(
-			app.NewE2ECleanup(softDeletes, nil), log, nil))
+			app.NewE2ECleanup(softDeletes, nil), log,
+			tracing.Tracer(tracing.TracerWorkflow)))
 	}
 
 	return router
