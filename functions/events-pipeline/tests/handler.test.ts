@@ -1063,3 +1063,106 @@ describe("handler — tracing", () => {
     expect(flushTraces).toHaveBeenCalledOnce();
   });
 });
+
+// The batch's records run CONCURRENTLY. Nothing above would notice if that
+// regressed to a serial loop — every existing assertion is about the RESULT of a
+// batch, and a serial loop produces identical results, just slower. These tests
+// assert the property itself.
+//
+// Why it matters, measured on the local stack rather than assumed: a record
+// spends p50 256ms almost entirely awaiting DocumentDB and SES, the pipeline
+// drained ~50 events/min, and an E2E suite publishing faster than that grew a
+// backlog until an event waited ~86s — past the 45s budget every email-asserting
+// spec allows. Serial I/O was the ceiling.
+describe("handler — records within a batch run concurrently", () => {
+  it("overlaps record handlers instead of awaiting them one after another", async () => {
+    // Each handler call announces its entry, then waits to be released. If the
+    // loop were serial, only the FIRST would have entered while all three are
+    // still pending — the second could not start until the first resolved.
+    let entered = 0;
+    let releaseAll: () => void;
+    const allReleased = new Promise<void>((resolve) => {
+      releaseAll = resolve;
+    });
+
+    const { handlers } = await import("#handlers/index");
+    (handlers.USER_CREATED as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      entered += 1;
+      await allReleased;
+    });
+
+    const batch = handler({
+      Records: [
+        sqsRecord("msg-a", envelope({ event_id: "evt_a" })),
+        sqsRecord("msg-b", envelope({ event_id: "evt_b" })),
+        sqsRecord("msg-c", envelope({ event_id: "evt_c" })),
+      ],
+    });
+
+    // Yield enough for every record to reach its handler. A serial loop parks on
+    // the first `await allReleased` and never reaches the other two, so `entered`
+    // stays 1 no matter how long this waits — which is precisely the regression
+    // being guarded against.
+    await vi.waitFor(() => expect(entered).toBe(3));
+
+    releaseAll!();
+    await batch;
+  });
+
+  it("keeps each record's identity on its own log lines while they overlap", async () => {
+    // The property that would silently corrupt the logs if concurrency were
+    // unsafe. runWithLogContext uses AsyncLocalStorage, which isolates per async
+    // CHAIN rather than per tick — so interleaved records must not inherit each
+    // other's event_id. Asserted with the handlers deliberately resolving out of
+    // order, so the interleaving is real and not incidental.
+    const order = ["evt_slow", "evt_fast"];
+    const { handlers } = await import("#handlers/index");
+    (handlers.USER_CREATED as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      // The first record scheduled finishes LAST.
+      const isSlow = order.shift() === "evt_slow";
+      await new Promise((resolve) => setTimeout(resolve, isSlow ? 20 : 0));
+    });
+
+    await handler({
+      Records: [
+        sqsRecord("msg-slow", envelope({ event_id: "evt_slow" })),
+        sqsRecord("msg-fast", envelope({ event_id: "evt_fast" })),
+      ],
+    });
+
+    // Every started/succeeded line must carry the event_id of the record that
+    // emitted it — never a sibling's.
+    const flows = emitted().filter(({ line }) =>
+      String(line.app_event ?? "").startsWith("event_processing_"),
+    );
+    expect(flows.length).toBeGreaterThanOrEqual(4);
+    for (const { line } of flows) {
+      expect(["evt_slow", "evt_fast"]).toContain(line.event_id);
+    }
+    // Both records got their own pair, so neither was starved or double-counted.
+    for (const id of ["evt_slow", "evt_fast"]) {
+      const mine = flows.filter(({ line }) => line.event_id === id);
+      expect(mine.length).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it("reports a failing record without abandoning its in-flight siblings", async () => {
+    // Promise.allSettled, not Promise.all. `all` rejects on the first failure and
+    // abandons the siblings still in flight — their batchItemFailures entries
+    // would be lost and SQS would silently consume records that needed
+    // redelivery. FLAKY throws TransientError; USER_CREATED must still complete.
+    const result = await handler({
+      Records: [
+        sqsRecord("msg-flaky", envelope({ event_id: "evt_flaky", type: "FLAKY" })),
+        sqsRecord("msg-ok", envelope({ event_id: "evt_ok" })),
+      ],
+    });
+
+    // Only the transient one is redelivered, and it is reported by ITS OWN id —
+    // an off-by-one in the index-to-messageId mapping would surface here.
+    expect(result.batchItemFailures).toEqual([{ itemIdentifier: "msg-flaky" }]);
+
+    const { handlers } = await import("#handlers/index");
+    expect(handlers.USER_CREATED).toHaveBeenCalledTimes(1);
+  });
+});
