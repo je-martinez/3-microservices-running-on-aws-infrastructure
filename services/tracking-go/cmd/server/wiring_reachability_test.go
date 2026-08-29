@@ -161,6 +161,11 @@ var requiredSeams = []wiringSeam{
 	// ROOTS and one request appears in OpenObserve as several unrelated traces.
 	{pkgOTel, "GinFilter", "otelgin is not in the middleware chain: no inbound HTTP span exists, the caller's traceparent is dropped, and one flow renders as several disconnected traces"},
 	{pkgMain, "poolTracingOptions", "the database pools are opened untraced, so no SQL span appears under any request — and both span-shaping guards go with it: the PII one that disables query capture, and the one that stops driver.ErrSkip being recorded as an error"},
+	// The driver's package-level logger is THIRD-PARTY global state, so nothing
+	// about installing an slog handler reaches it — the classic "correct code,
+	// absent wiring" shape: the adapter would be fully unit-tested and the driver
+	// would go on writing plain text to stderr with no test failing.
+	{pkgMain, "installDriverLogging", "go-sql-driver/mysql keeps logging plain text to stderr ('[mysql] ... closing bad idle connection'), a line carrying no service_name, no severity and no trace_id — the collector cannot classify it and files it under `unclassified`, which unclassified-logs.spec.ts fails on"},
 
 	// ── Metrics ─────────────────────────────────────────────────────────────
 	{pkgCloudWatch, "NewPublisher", "no custom metric is ever published; every 3MRAI dashboard panel for this service reads 'no data'"},

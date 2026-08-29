@@ -111,6 +111,21 @@ func run() error {
 	// correctly emitted with the trace fields OMITTED rather than zeroed.
 	logger := installProcessLogger(os.Stdout, deploymentEnvironment)
 
+	// The DATABASE DRIVER's own package-level logger, redirected onto the one
+	// above. go-sql-driver/mysql writes plain text to stderr by default and never
+	// calls slog, so slog.SetDefault does not reach it: one measured line in 493
+	// escaped as
+	//
+	//	[mysql] ... closing bad idle connection: unexpected read from socket
+	//
+	// which the collector cannot classify and files under `unclassified`.
+	//
+	// BEFORE the pools open, and that order is load-bearing: ParseDSN copies the
+	// package-level logger into each connection's Config, so a pool opened first
+	// would keep the stderr logger for its whole life while this call appeared to
+	// have fixed it. See driver_logging.go.
+	installDriverLogging(logger)
+
 	// Config, and a LOUD failure on a missing required variable. Exactly four are
 	// required; every optional one has already fallen back to its default by the
 	// time Load returns, because refusing to boot over a mistyped feature flag is
