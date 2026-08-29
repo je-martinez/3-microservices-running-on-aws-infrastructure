@@ -4,7 +4,7 @@ type: spec
 area: tracking
 status: accepted
 created: 2026-06-26
-updated: 2026-08-27
+updated: 2026-08-28
 tags: [type/spec, area/tracking, status/accepted]
 related:
   - "[[2026-08-25-response-caching-layer-design]]"
@@ -57,8 +57,9 @@ related:
 > metrics measured and Go wins all four, load-test latency/throughput not measurable on this stack,
 > see [[2026-08-27-go-vs-python-performance]]) — the cutover was executed on that basis, by user
 > decision. **`services/tracking-go/` is now THE Tracking service.** `services/tracking/` (Python)
-> is being removed; where this note still describes Python-only artifacts (Alembic revisions,
-> historical FastAPI behaviour) they are marked explicitly as historical. Everything else below —
+> was removed in commit `b889580` (138 files, 27,577 lines) and no longer exists on disk; where
+> this note still describes Python-only artifacts (Alembic revisions, historical FastAPI
+> behaviour) they are marked explicitly as historical. Everything else below —
 > the domain rules, the two-identity ownership rule, the state machine, the auth schemes, the
 > events contract, TestMode's accepted limitation — is unchanged behaviour, now running on the Go
 > service. See `services/tracking-go/CLAUDE.md` for implementation-level detail (architecture,

@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-17
-updated: 2026-08-27
+updated: 2026-08-28
 tags: [type/convention, area/shared, status/active]
 related:
   - "[[ADR-0010-cognito-auth]]"
@@ -336,6 +336,37 @@ alone is never sufficient. The same two-part rule protects `test_mode`/`x-test-m
 mechanism exists: nothing gets tagged, and (in Orders and Tracking) the cleanup route itself is
 never mounted, so a caller sees `405` on that path rather than a `404` or a silently-empty `200`.
 Every service implements the underlying delete as a soft-delete, per [[soft-delete]].
+
+## E2E setup restocks the catalogue, not only teardown
+
+Both harnesses (Playwright E2E and the Gatling load tests) now restock the product catalogue at
+**setup**, not only at teardown (commit `ad4b153`). The call is `DELETE /v1/orders/e2e-cleanup` —
+the same endpoint documented above — which restores stock to the seeded quantities and
+invalidates the catalogue cache.
+
+- **Teardown already restocked**, and its code comment records the incident that motivated it:
+  all three products once reached zero stock and the suite began failing with *"no product with
+  stock in the catalogue"* — including tests about ownership and carrier auth whose fixtures
+  merely need to place an order first, with no direct interest in stock levels at all.
+- **The hole teardown-only left:** teardown only runs when a suite finishes cleanly. A Ctrl-C, a
+  timeout, or an early hard failure never reaches it, and the next run starts drained.
+- **Load tests need it more, and this was measured, not assumed.** They deliberately send neither
+  `x-e2e-source` nor `x-test-mode`, so their orders are untagged and `e2e-cleanup`'s tag-based
+  delete can never touch them — seven probe orders
+  returned `deleted: 0` every time. Their drain on the catalogue is therefore permanent and
+  cumulative, run after run, until order creation fails for want of stock **instead of** under
+  the contention the simulation exists to measure. That run still produces a number, and the
+  number is wrong — the same failure shape as "verify both arms do equivalent work" from the
+  performance-comparison lesson ([[2026-08-27-go-vs-python-performance]]), in a different
+  costume: a result that looks like a measurement while actually measuring an artifact of the
+  harness.
+- **Both callers fail loudly.** An unreachable service, an unmounted route, or any non-200
+  response from the restock call aborts the run before a single spec or virtual user executes
+  (verified: exit 1). A setup step that cannot fail is not a step.
+- **For Gatling it is a pnpm pre-step, not a scenario action.** The simulation runs on GraalVM
+  with no process access, so the restock call cannot happen from inside a Gatling scenario body —
+  and even if it could, anything inside a scenario runs **per virtual user**, which would reload
+  stock mid-measurement and show up as its own row in the percentile tables rather than as setup.
 
 ## Related
 
