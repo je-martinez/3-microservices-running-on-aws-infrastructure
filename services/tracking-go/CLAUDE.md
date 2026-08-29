@@ -92,10 +92,35 @@ produced by `go run ./cmd/genopenapi` from `internal/openapi`. Never hand-edit i
 
 **Any change to a route, its schemas, its status codes or its tags requires
 regenerating and committing `openapi.yaml` in the SAME change.**
-`internal/openapi/spec_test.go` regenerates and compares against the Python
-contract, so a stale spec fails the suite rather than reaching a consumer. It
-needs no database and no environment — `openapi.BuildSpec()` reads nothing and
-dials nothing.
+`internal/openapi/spec_test.go` regenerates and compares, so a stale spec fails
+the suite rather than reaching a consumer. It needs no database and no
+environment — `openapi.BuildSpec()` reads nothing and dials nothing.
+
+**The comparison reference is FROZEN, and used to be live.** The gate once read
+`../../../tracking/openapi.yaml` — the Python service's own generated document.
+`services/tracking/` was deleted in `b889580`, so that path now reads a file that
+does not exist, and the two tests depending on it failed. The reference is
+therefore committed as a snapshot at
+`internal/openapi/testdata/python-contract-at-cutover.yaml` (recoverable with
+`git show b889580^:services/tracking/openapi.yaml`), and the question it answers
+changed with it: not *"does the Go service serve the same contract as the RUNNING
+Python service?"* — that was answered once, at cutover, and passed — but *"has the
+Go service drifted from the contract it was accepted as equivalent to, in any way
+not enumerated in the allowlist?"* A weaker claim, deliberately: the reference
+cannot move any more, so the only party that can is this one.
+
+**Reading it from git at test time was considered and rejected.** It avoids the
+682 committed lines, but makes the gate need git, a working tree and a reachable
+commit — false in a shallow clone or an exported tarball. A test that can fail for
+environmental reasons is a test people learn to ignore, and this one is closing-gate
+criterion 2.
+
+**Never edit the fixture.** Its value is entirely that it is unedited evidence, and
+the cheapest way to silence a failing equivalence gate is to edit the thing it is
+compared against — an edit that looks like a small YAML fix in review.
+`TestTheFrozenReferenceHasNotBeenEdited` checksums the payload below the header to
+make that impossible; the header's prose stays editable. The old arrangement got
+this property for free, because the reference lived in another service's tree.
 
 `cmd/genopenapi` deliberately takes **no `--output` flag**: being able to write
 the document somewhere the test does not look is the one way a committed artifact
@@ -495,7 +520,24 @@ The allowlist is **closed and enumerated**. Every entry is a spec-generation
 artifact or a place where the *Python spec* disagrees with the *Python code* —
 **never** a behavioural divergence between the two services. The acceptance
 criterion is "an empty diff **except** this list", so an entry added to make a test
-pass has moved the goalposts. There are five entries: the two nested responses, the
+pass has moved the goalposts.
+
+> **This is why the frozen reference is still kept rather than retired.** The
+> tempting move after the Python tree was deleted was to drop the diff and keep only
+> the tests asserting the CURRENT contract (the seven routes, the declared codes,
+> `datetime`-as-string, no PII, the nested 404/409). But `TestEveryAllowlistEntryIsActuallyUsed`
+> is not asking about Python at all — it asks whether these five exceptions still
+> **correspond to anything**. With no reference to diff against, the allowlist becomes
+> **unfalsifiable**: five standing permissions to differ, capped at twelve, with
+> nothing able to prove one has gone stale. The cap without the used-check is exactly
+> the rot the cap exists to prevent. Verified by mutation: a planted entry naming a
+> nonexistent schema fails that test, and reverting the Python reference is what makes
+> it able to.
+>
+> The frozen diff also covers what the hand-written lists structurally cannot. Those
+> assert facts somebody remembered to write down; the diff asserts **everything else**
+> in a 682-line document. Measured, not assumed: rewording one response `description`
+> is caught **only** by the diff — every enumerated test stays green. There are five entries: the two nested responses, the
 two schemas they name, and route 6's `500` — a failure the Python **serves** but
 never declared (its generator cannot see a status nothing declares — the same blind
 spot that shipped both reads without their `401`).
