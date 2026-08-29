@@ -417,6 +417,22 @@ services:
     # API this project's tests query.
     image: axllent/mailpit:v1.20
     networks: [3mrai-network]
+    environment:
+      # Mailpit's default cap is 500 messages, and on reaching it it evicts the
+      # OLDEST to make room. The inbox HAD hit that cap after accumulating runs
+      # (`/api/v1/info`: SMTPAccepted 511 / Messages 500 / MessagesDeleted 11).
+      #
+      # That eviction was NOT, however, why the 11 email specs were failing —
+      # raising this cap and purging in global-setup left the inbox healthy and
+      # the same specs still failed. The real cause is events-pipeline
+      # throughput (~50 events/min against a suite that publishes far faster),
+      # so mail arrives after the specs' 45s budget rather than being lost. See
+      # e2e/support/purge-mailpit.ts for the measurements.
+      #
+      # 5000 is still right: ~25x a full suite's volume, so capacity eviction
+      # cannot become a SECOND cause layered on the first, and a suite's own
+      # mail can never push out mail from earlier in the same run.
+      MP_MAX_MESSAGES: "5000"
     ports:
       - "8025:8025" # web UI + HTTP API (/api/v1/…)
       - "1025:1025" # SMTP — what Floci's SES relay connects to

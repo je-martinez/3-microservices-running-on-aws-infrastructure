@@ -1,5 +1,6 @@
 import { readEventsQueueDepth, EVENTS_QUEUE_WARN_DEPTH } from "./events-queue-depth.js";
 import { restockCatalogue } from "./restock-catalogue.js";
+import { purgeMailpit } from "./purge-mailpit.js";
 
 // The local stack (Floci + terraform apply + generated .env + docker compose)
 // is provisioned by `make bootstrap` from the repo root — a multi-minute
@@ -74,6 +75,11 @@ export default async function globalSetup() {
   // Unlike the teardown's copy of this call, a failure here is FATAL — see
   // restock-catalogue.ts for why setup and teardown differ on that point.
   await restockCatalogue();
+
+  // Empty the inbox before any worker starts. This is the ONLY safe point for a
+  // destructive Mailpit call — see purge-mailpit.ts for why a mid-run purge
+  // would delete a concurrent worker's email and cause the failure it prevents.
+  await purgeMailpit();
 
   await warnOnEventsQueueBacklog();
 }
