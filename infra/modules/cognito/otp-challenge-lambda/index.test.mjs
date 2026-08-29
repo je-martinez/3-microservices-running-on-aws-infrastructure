@@ -206,6 +206,45 @@ describe("CreateAuthChallenge", () => {
     expect(attributes).not.toHaveProperty("traceparent");
   });
 
+  // The E2E run id rides the SAME ClientMetadata seam as the traceparent above,
+  // for the same reason: Cognito invokes this trigger, so the Playwright run's
+  // id can reach it no other way. It lands on the ENVELOPE (not a message
+  // attribute) because the pipeline reads it off the parsed envelope to scope
+  // its e2e_emails fixture rows per run.
+  it("forwards a well-formed run id from ClientMetadata onto the envelope", async () => {
+    await handler(createEvent([], undefined, { runId: "run_2026-08-29T12-00-00_abc123" }));
+
+    const envelope = JSON.parse(JSON.parse(sentBodies[0]).MessageBody);
+    expect(envelope.run_id).toBe("run_2026-08-29T12-00-00_abc123");
+  });
+
+  it("omits run_id entirely when the caller sent none", async () => {
+    await handler(createEvent([]));
+
+    const envelope = JSON.parse(JSON.parse(sentBodies[0]).MessageBody);
+    // ABSENT, never null: the pipeline's schema declares run_id optional with
+    // .min(1), so a null or "" would fail EnvelopeSchema as a PermanentError —
+    // the record dropped and the user's login code never sent.
+    expect(envelope).not.toHaveProperty("run_id");
+  });
+
+  it("ignores a run id that does not match the expected shape", async () => {
+    // Shape-checked, not trusted: this value arrives from a caller-controlled
+    // field and lands in a database document. An arbitrary string would let a
+    // caller write whatever it liked into the fixture collection's key.
+    await handler(createEvent([], undefined, { runId: "not-a-run-id" }));
+
+    const envelope = JSON.parse(JSON.parse(sentBodies[0]).MessageBody);
+    expect(envelope).not.toHaveProperty("run_id");
+  });
+
+  it("ignores an over-long run id rather than truncating it", async () => {
+    await handler(createEvent([], undefined, { runId: `run_${"a".repeat(65)}` }));
+
+    const envelope = JSON.parse(JSON.parse(sentBodies[0]).MessageBody);
+    expect(envelope).not.toHaveProperty("run_id");
+  });
+
   it("carries the user's full name so the email can greet them", async () => {
     await handler(createEvent([]));
 

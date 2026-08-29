@@ -67,6 +67,19 @@ export const EnvelopeSchema = z.object({
   // accepting it would put a blank correlation id on a whole record's worth of
   // log lines rather than honestly omitting the field.
   request_id: z.string().min(1).optional(),
+  // E2E ONLY. Identifies the Playwright run that ultimately caused this event,
+  // so the e2e_emails fixture collection can be scoped per run — one run must
+  // never read another's mail, and workers and reruns share that collection.
+  //
+  // OPTIONAL, and for the same two reasons request_id above is: production
+  // traffic never carries one, and a required field would fail EnvelopeSchema
+  // for messages already sitting on the queue at deploy time — a PermanentError,
+  // so the record is not retried and its email is LOST.
+  //
+  // `.min(1)` like its siblings: an explicit "" is a producer bug, and storing
+  // it would attribute a fixture row to a run that does not exist rather than
+  // honestly omitting the field.
+  run_id: z.string().min(1).optional(),
   payload: z.record(z.string(), z.unknown()),
 });
 
