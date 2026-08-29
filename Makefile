@@ -164,15 +164,25 @@ load-test: ## Gatling load simulation (fullJourney). REQUIRES `make bootstrap` u
 	@# prefixed name) drives the carrier webhook that advances deliveries. Load
 	@# tests deliberately send NEITHER x-e2e-source NOR x-test-mode, so their data
 	@# persists like real traffic and tracking advances only through that webhook.
+	@#
+	@# GRPC_API_KEY is passed for the pre-run restock step (`pnpm run restock`,
+	@# wired into every simulation script): it calls Orders' e2e-cleanup route to
+	@# put catalogue stock back to the seed quantities BEFORE traffic starts.
+	@# Because load runs are never cleaned up, every order they place drains stock
+	@# permanently — without this the catalogue empties over successive runs and
+	@# order creation starts failing for want of stock rather than under genuine
+	@# contention. The step FAILS the target if it cannot reach the route.
 	cd e2e/load-tests && \
 	  API_GATEWAY_URL="$$(grep '^API_GATEWAY_URL=' ../../.env.local.infra | cut -d= -f2-)" \
 	  TRACKING_CARRIER_API_KEY="$$(grep '^TRACKING_CARRIER_API_KEY=' ../../.env.local.tracking | cut -d= -f2-)" \
+	  GRPC_API_KEY="$$(grep '^GRPC_API_KEY=' ../../.env.local.orders | cut -d= -f2-)" \
 	  pnpm run load
 
 load-test-smoke: ## Short Gatling run (~20s) to check the simulation still works.
 	cd e2e/load-tests && \
 	  API_GATEWAY_URL="$$(grep '^API_GATEWAY_URL=' ../../.env.local.infra | cut -d= -f2-)" \
 	  TRACKING_CARRIER_API_KEY="$$(grep '^TRACKING_CARRIER_API_KEY=' ../../.env.local.tracking | cut -d= -f2-)" \
+	  GRPC_API_KEY="$$(grep '^GRPC_API_KEY=' ../../.env.local.orders | cut -d= -f2-)" \
 	  pnpm run smoke
 
 cache-toggle: ## Flip CACHE_ENABLED in all three env files + restart. Usage: make cache-toggle V=false
@@ -205,6 +215,7 @@ load-test-cache-ab-on: ## A/B leg A — the cache simulation with CACHE_ENABLED=
 	cd e2e/load-tests && \
 	  API_GATEWAY_URL="$$(grep '^API_GATEWAY_URL=' ../../.env.local.infra | cut -d= -f2-)" \
 	  TRACKING_CARRIER_API_KEY="$$(grep '^TRACKING_CARRIER_API_KEY=' ../../.env.local.tracking | cut -d= -f2-)" \
+	  GRPC_API_KEY="$$(grep '^GRPC_API_KEY=' ../../.env.local.orders | cut -d= -f2-)" \
 	  pnpm run cache-ab leg=cache-on
 
 load-test-cache-ab-off: ## A/B leg B — the SAME simulation with CACHE_ENABLED=false.
@@ -215,6 +226,7 @@ load-test-cache-ab-off: ## A/B leg B — the SAME simulation with CACHE_ENABLED=
 	cd e2e/load-tests && \
 	  API_GATEWAY_URL="$$(grep '^API_GATEWAY_URL=' ../../.env.local.infra | cut -d= -f2-)" \
 	  TRACKING_CARRIER_API_KEY="$$(grep '^TRACKING_CARRIER_API_KEY=' ../../.env.local.tracking | cut -d= -f2-)" \
+	  GRPC_API_KEY="$$(grep '^GRPC_API_KEY=' ../../.env.local.orders | cut -d= -f2-)" \
 	  pnpm run cache-ab leg=cache-off
 
 test-all: ## All three layers for both services (unit + internal E2E + gateway E2E). E2E needs the stack up.

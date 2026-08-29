@@ -1,4 +1,5 @@
 import { readEventsQueueDepth, EVENTS_QUEUE_WARN_DEPTH } from "./events-queue-depth.js";
+import { restockCatalogue } from "./restock-catalogue.js";
 
 // The local stack (Floci + terraform apply + generated .env + docker compose)
 // is provisioned by `make bootstrap` from the repo root — a multi-minute
@@ -64,6 +65,15 @@ export default async function globalSetup() {
       `API Gateway is not healthy at ${gatewayBase}/v1/orders/health.`,
     );
   }
+
+  // Restore catalogue stock before anything runs. Placed AFTER the health checks
+  // (it calls Orders, so an unhealthy stack should fail with the health message
+  // that names `make bootstrap`, not with a cleanup error) and BEFORE the queue
+  // warning, so the loud diagnostic stays the last thing on screen.
+  //
+  // Unlike the teardown's copy of this call, a failure here is FATAL — see
+  // restock-catalogue.ts for why setup and teardown differ on that point.
+  await restockCatalogue();
 
   await warnOnEventsQueueBacklog();
 }
