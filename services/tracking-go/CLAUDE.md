@@ -57,7 +57,7 @@ Run everything **from `services/tracking-go/`** so goenv picks up `.go-version`.
 | Verify toolchain | `make verify-toolchain` |
 | Build | `make build` → `bin/tracking-server` |
 | Test (unit only — **see §6**) | `make test` (`go test -race ./...`) |
-| Test **with the real database** | see §6 — `make test` alone is not enough |
+| Test **with the real database** | `make test-db` — **§6, and `make test` alone is not enough** |
 | Coverage | `make test-cover` → `coverage.out` |
 | Format | `make fmt` (`gofmt -s -w .`) / `make fmt-check` |
 | Lint | `make lint` (`golangci-lint run`) |
@@ -365,7 +365,7 @@ Other rules that live in that file:
 
 ## 6. THE TESTING TRAP — read this before you trust a green run
 
-> ### `make test` alone SILENTLY SKIPS the eleven tests that guard the most expensive bugs in this service — and still prints `ok`.
+> ### `make test` alone SKIPS the FOURTEEN tests that guard the most expensive bugs in this service. It used to still print `ok`; a gate now makes it fail instead.
 
 Without `TRACKING_DATABASE_URL` set, `internal/adapter/mysql`'s real-MySQL tests
 call `t.Skip` and the package reports **`ok`**. Verified, not assumed — this is the
@@ -391,19 +391,33 @@ every rightful owner), **soft delete by user and by tag** (routes 6 and 7),
 translation, and the **scoped-vs-unscoped** distinction. Skipping them leaves the
 whole of §7 unguarded while the suite is green.
 
-**The command that actually runs them:**
+**The count is FOURTEEN, not eleven, and there are TWO variables.** The list above
+is the eleven guarded by `TRACKING_DATABASE_URL`. Three more —
+`TestCountByStatus`, and the two soft-delete suites — read
+`TRACKING_TEST_MYSQL_DSN` instead. Setting only one variable leaves the other
+group skipping in silence, which is the same trap one level in.
+
+**Use the make target, which sets both:**
 
 ```
 cd services/tracking-go
-TRACKING_DATABASE_URL='mysql://test:test@127.0.0.1:7002/tracking' go test -race ./...
+make test-db
 ```
 
-Take the real host/port/credentials from the generated `.env.local.tracking`
-(Floci reassigns RDS proxy ports on every apply — **7002 is an example, not a
-constant**; discover it per-engine via `describe-db-clusters`).
+It derives the DSN from the generated `.env.local.tracking` rather than hardcoding
+a port, because Floci reassigns RDS proxy ports on every apply — any port in this
+file is an example, never a constant.
 
-**Confirm the skips are gone.** Add `-v` and grep for `SKIP`; a run you believe
-covered the repository layer but shows eleven skips has proven nothing about it.
+**The bare `go test ./...` now FAILS rather than skipping**, and that is
+deliberate: `internal/adapter/mysql`'s `TestMain` refuses to report success on a
+run that verified nothing. To skip on purpose, set `TRACKING_SKIP_DB_TESTS=1` —
+a deliberate act that leaves a trace on the command line, rather than the default
+a tired reader mistakes for a pass.
+
+The gate cannot print that warning on a PASSING run: `go test` discards a passing
+package's stdout unless `-v` is given, and the one channel Go leaves open without
+it is a failure. That is why the always-visible banner comes from `make`, whose
+output is never buffered, and the detailed inventory from the test under `-v`.
 
 ### Real MySQL, never mocks
 
@@ -544,7 +558,7 @@ spot that shipped both reads without their `401`).
 
 ## 9. The wiring hazard — "correct code, absent wiring, no failing test"
 
-This migration hit **four** instances of the same shape. In each, a component was
+This migration hit **seven** instances of the same shape. In each, a component was
 written, unit-tested, reviewed, merged — and **never called from the running
 process**:
 
@@ -557,8 +571,30 @@ process**:
 4. The cache gateway's metrics port was bound to the noop **unconditionally**, so
    `cache_requests_total` was computed on every request and discarded even with
    `METRICS_ENABLED=true`.
+5. `otelgin` was **not in `go.mod` at all**, so there was no server span and the
+   gateway's inbound `traceparent` was discarded — every workflow span started its
+   own trace. Two valid traces instead of one broken one, which looks green unless
+   somebody **counts**.
+6. `go-sql-driver/mysql` carries its own package-level logger that `slog.SetDefault`
+   does not reach, so one line in 493 escaped as non-JSON with no `service_name`
+   and no `trace_id` — a record the collector cannot classify.
+7. **`wire_app.go` passed `nil` as the `trace.Tracer`** to all four handler
+   constructors, each guarded by `if h.tracer != nil` — so **none of the four
+   workflow spans existed in production**: `init_tracking`,
+   `carrier_status_update`, `internal_delete_by_user`, `e2e_cleanup`.
 
-**Every unit test passed in all four cases, and that is not bad luck.** Hexagonal
+**Number 7 is a different shape from the first six, and it matters.** The seam was
+CALLED — `NewInitTrackingHandler` runs on every boot. What arrived empty was an
+**ARGUMENT**. The reachability gate below cannot see that, and neither could the
+observability verification: `otelgin`'s server spans arrive, so there was a trace
+and exactly one trace id, which is what that check counted. What was missing was
+the inner span naming *which operation ran*. Only an E2E spec found it.
+
+Its fix is the generalisable part: the constructors now **default** a nil tracer,
+matching how they already defaulted `log` and `hook`. **A constructor that defaults
+some collaborators makes an un-defaulted one an outlier waiting to be forgotten.**
+
+**Every unit test passed in all seven cases, and that is not bad luck.** Hexagonal
 architecture buys isolation by making every component constructible in isolation —
 which is exactly what lets a component be fully exercised by tests and reached by
 nothing. **An ordinary test cannot catch this even in principle**, because the test
@@ -590,8 +626,13 @@ with a no-op closure that still *mentions* `tracing.GinFilter` leaves the gate
 `internal/adapter/http/tracing_middleware_test.go` fail loudly on the same
 mutation. The two layers divide the work:
 
-- **The gate** catches **total absence** — the shape all four historical bugs
-  actually took. One line per seam, scales to everything.
+- **The gate** catches **total absence** — the shape six of the seven historical
+  bugs took. One line per seam, scales to everything.
+- **It does NOT catch an empty ARGUMENT to a seam that is called.** That was bug 7,
+  and no amount of walking the call graph reaches it: `NewInitTrackingHandler(…,
+  nil)` is a call. The defence there is the constructor defaulting its own
+  collaborators, plus a behavioural test that asserts the SPAN is exported rather
+  than that a field is non-nil.
 - **A behavioural test** catches partial or subtly-wrong installation. Expensive,
   so reserve it for seams where "wired but wrong" is realistic — the middleware
   chain above all.
