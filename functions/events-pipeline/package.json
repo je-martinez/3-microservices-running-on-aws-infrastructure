@@ -31,6 +31,11 @@
       "types": "./src/handlers/*.ts",
       "development": "./src/handlers/*.ts",
       "default": "./dist/handlers/*.js"
+    },
+    "#e2e/*": {
+      "types": "./src/e2e/*.ts",
+      "development": "./src/e2e/*.ts",
+      "default": "./dist/e2e/*.js"
     }
   },
   "scripts": {

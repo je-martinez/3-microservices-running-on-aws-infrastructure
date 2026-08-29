@@ -15,6 +15,7 @@ export default defineConfig({
       "#domain/": fileURLToPath(new URL("./src/domain/", import.meta.url)),
       "#email/": fileURLToPath(new URL("./src/email/", import.meta.url)),
       "#handlers/": fileURLToPath(new URL("./src/handlers/", import.meta.url)),
+      "#e2e/": fileURLToPath(new URL("./src/e2e/", import.meta.url)),
     },
   },
   test: {
