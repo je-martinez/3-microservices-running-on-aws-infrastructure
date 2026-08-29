@@ -83,3 +83,12 @@ variable "log_retention_in_days" {
   type        = number
   default     = 14
 }
+
+# ─── Optional Function URL (E2E query route) ───────────────────────────────────
+# Default FALSE, and the default is the point: no environment gets a publicly
+# reachable HTTPS endpoint on a Lambda unless it asks for one by name.
+variable "enable_function_url" {
+  description = "Create a public Function URL for this Lambda. Local/E2E only — the events function uses it to serve the E2E email-query route."
+  type        = bool
+  default     = false
+}

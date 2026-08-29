@@ -85,6 +85,24 @@ output "events_lambda_function_name" {
   value       = module.lambda_events_pipeline.function_name
 }
 
+# ─── E2E email-query route (LOCAL ONLY) ─────────────────────────────────────────
+# Consumed by `make env-file`, which writes it into .env.local.infra as
+# EVENTS_QUERY_URL for the Playwright suite. It is an output because Floci mints
+# a fresh <hash>.lambda-url host every time the URL is created, so nothing
+# downstream can hardcode it.
+#
+# Its companion secret has deliberately NO output here. The suite needs it too,
+# but a `-target`ed apply never persists an output that does not depend on the
+# targeted resources, and a full untargeted apply is unavailable against a live
+# Floci stack (the UpdateTags second-apply limit) — so an output for it would
+# make `make env-file` fail on every already-running stack. Nothing discovers
+# that value anyway; it is a static fixture secret, kept in step between
+# var.e2e_query_token and the generator's E2E_QUERY_TOKEN constant.
+output "events_query_url" {
+  description = "Function URL serving the events Lambda's E2E email-query route, host-reachable (http://<hash>.lambda-url.us-east-1.localhost:4566/)."
+  value       = module.lambda_events_pipeline.function_url
+}
+
 # ─── Redis / ElastiCache (Users password-reset codes) ───────────────────────────
 # Consumed by `make env-file` to write REDIS_HOST / REDIS_PORT into
 # .env.local.users.

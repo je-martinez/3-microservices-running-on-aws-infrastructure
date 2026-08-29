@@ -22,3 +22,8 @@ output "log_group_name" {
   description = "CloudWatch log group backing the function."
   value       = aws_cloudwatch_log_group.this.name
 }
+
+output "function_url" {
+  description = "The Function URL, or an empty string when enable_function_url is false."
+  value       = var.enable_function_url ? aws_lambda_function_url.this[0].function_url : ""
+}

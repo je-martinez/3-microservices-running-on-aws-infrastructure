@@ -124,6 +124,26 @@ MAILPIT_API_URL = "http://localhost:8025/api/v1"
 GRPC_API_KEY = "local-dev-grpc-key"
 TRACKING_CARRIER_API_KEY = "local-dev-carrier-key"
 
+# Third key of the same family: the shared secret the E2E suite presents as
+# `x-e2e-token` to the events Lambda's email-query Function URL, which is
+# AuthType NONE and answers 404 to anything without it.
+#
+# A CONSTANT here rather than a `terraform_output`, even though Terraform also
+# needs it (var.e2e_query_token feeds the Lambda's environment) — and the
+# duplication is deliberate, so read this before "fixing" it. A `-target`ed
+# apply never persists an output that does not depend on the targeted
+# resources, and against Floci a full untargeted apply is not available: the
+# second apply fails on UpdateTags for API GW v2 / RDS (infra/CLAUDE.md, and
+# reproduced on 2026-08-29 while wiring this route). Reading the token through
+# an output would therefore make `make env-file` fail on exactly the stacks
+# that need it most — every already-running one.
+#
+# Nothing DISCOVERS this value, which is what makes duplicating it safe: unlike
+# a Cognito id or an RDS proxy port, Floci does not mint it, so the two literals
+# cannot drift apart on their own. They can only drift if a human edits one, so
+# keep them in step: infra/environments/local/variables.tf → e2e_query_token.
+E2E_QUERY_TOKEN = "local-e2e-query-token"
+
 # Public base URL of the assets bucket, with NO trailing slash. The email
 # templates append a known object key to it ("<base>/email/logo.png") to build
 # the REMOTE <img> src of every icon.
@@ -202,6 +222,12 @@ def build(repo_root: Path) -> dict[Path, dict]:
     docdb_cluster_identifier = terraform_output(tf_dir, "docdb_cluster_identifier")
     docdb_port = terraform_output(tf_dir, "docdb_port")
     docdb_username = terraform_output(tf_dir, "docdb_master_username")
+
+    # The E2E email-query route (LOCAL ONLY). Read, never derived: Floci mints a
+    # fresh <hash>.lambda-url host every time the URL is created. Its companion
+    # E2E_QUERY_TOKEN is a module-level constant instead of an output — see the
+    # constant for why an output cannot work against a running Floci stack.
+    events_query_url = terraform_output(tf_dir, "events_query_url")
 
     # Read from PHASE 2 (the assets bucket root), with a derived fallback — the
     # only value in this file that is not a hard-required phase-1 output. See
@@ -292,6 +318,17 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # Mailpit, so it needs the inbox's API. A compose-published
                 # constant rather than a Terraform output — see the definition.
                 "MAILPIT_API_URL": MAILPIT_API_URL,
+                # The events Lambda's E2E email-query route, host-facing. It
+                # exists because the suite cannot read DocumentDB directly:
+                # 27017 is not published to the host under our containerized
+                # Floci, so the function that already holds a Mongo connection
+                # serves the collection over HTTP instead. Mailpit answers "did
+                # the mail send?"; this answers "what did we render, for which
+                # run?" — the two are complements, not substitutes.
+                "EVENTS_QUERY_URL": events_query_url,
+                # Presented as `x-e2e-token` on every request to the URL above,
+                # which is AuthType NONE and 404s without it.
+                "E2E_QUERY_TOKEN": E2E_QUERY_TOKEN,
             },
         ),
         # --- users service ---------------------------------------------------

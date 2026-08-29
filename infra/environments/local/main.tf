@@ -491,6 +491,17 @@ module "lambda_events_pipeline" {
   # one 30s timeout and one DocumentDB connection.
   batch_size = 10
 
+  # The E2E email-query route. The suite cannot reach DocumentDB directly —
+  # Floci does not publish 27017 to the host in our containerized setup — so the
+  # only way for a Playwright process to read the e2e_emails collection is
+  # through the function that already holds a connection to it.
+  #
+  # LOCAL ONLY. The module defaults this to false, so production's events
+  # function gets no public URL by omission rather than by remembering to say
+  # no. See the module for why authorization_type is NONE and why the token,
+  # not the URL, is the boundary.
+  enable_function_url = true
+
   environment_variables = {
     AWS_ENDPOINT_URL = "http://floci:4566"
     # Set explicitly: real Lambda injects AWS_REGION into every execution
@@ -566,6 +577,25 @@ module "lambda_events_pipeline" {
     # /v1/traces only.
     OTEL_METRICS_EXPORTER = "none"
     OTEL_LOGS_EXPORTER    = "none"
+
+    # ─── E2E email store ────────────────────────────────────────────────────
+    # Three switches for one feature, all LOCAL ONLY — a deployed environment
+    # sets none of them, so the e2e_emails collection is never written and the
+    # Function URL route above answers 404 for every request.
+    #
+    # E2E_TESTING_ENABLED gates BOTH the write (one document per rendered
+    # email) and the read route. Same flag name the three services already use
+    # for their own E2E-only routes, deliberately: one concept, one spelling.
+    E2E_TESTING_ENABLED = "true"
+    # TTL on each stored email. An hour is far longer than any suite run and
+    # short enough that a developer's machine never accumulates them; the
+    # expiry is enforced by a Mongo TTL index, not by a sweeper.
+    E2E_EMAIL_TTL_SECONDS = "3600"
+    # The actual security boundary for the Function URL (which is AuthType
+    # NONE). The handler compares this in constant time against the request's
+    # `x-e2e-token` and answers 404 — not 401 — when it is absent or wrong, so
+    # an unauthenticated caller cannot even tell the route exists.
+    E2E_QUERY_TOKEN = var.e2e_query_token
   }
 }
 

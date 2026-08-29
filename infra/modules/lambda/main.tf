@@ -160,3 +160,23 @@ resource "aws_lambda_event_source_mapping" "sqs_trigger" {
   batch_size              = var.batch_size
   function_response_types = ["ReportBatchItemFailures"]
 }
+
+# ─── Function URL (optional) ──────────────────────────────────────────────────
+# Count-gated so no environment gets a public URL unless it asks for one.
+#
+# `authorization_type = "NONE"` is acceptable HERE, and only here, because the
+# handler authenticates every request itself: it answers 404 unless
+# E2E_TESTING_ENABLED is true AND E2E_QUERY_TOKEN is set AND the request presents
+# that token in `x-e2e-token`, compared in constant time (see
+# functions/events-pipeline/src/e2e/http-query.ts). The URL is not the security
+# boundary; the token is.
+#
+# Do NOT "harden" this to AWS_IAM. Floci's Function URLs are reached by a plain
+# fetch from the Playwright suite, which holds no SigV4 signer, so switching the
+# auth type does not tighten the route — it breaks the only consumer while
+# leaving the token check that actually guards it untouched.
+resource "aws_lambda_function_url" "this" {
+  count              = var.enable_function_url ? 1 : 0
+  function_name      = aws_lambda_function.this.function_name
+  authorization_type = "NONE"
+}
