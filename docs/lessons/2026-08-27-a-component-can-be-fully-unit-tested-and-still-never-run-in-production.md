@@ -4,7 +4,7 @@ type: lesson
 area: tracking
 status: active
 created: 2026-08-27
-updated: 2026-08-27
+updated: 2026-08-28
 tags:
   - type/lesson
   - area/tracking
@@ -26,8 +26,9 @@ related:
 ## Finding
 
 The Tracking Go migration ([[2026-08-27-tracking-go-migration-design]]) hit the same defect
-shape **five separate times**. In each case a component was written, unit-tested, code-reviewed,
-and merged — and never once called from the actually-running process:
+shape **seven separate times**. In each case a component was written, unit-tested, code-reviewed,
+and merged — and never once called, or never once *effectively* called, from the actually-running
+process:
 
 1. **Route handlers existed; `main.go` registered none of them.** The handlers had their own
    unit tests exercising them directly and passing. The route table simply never mounted them.
@@ -48,8 +49,23 @@ and merged — and never once called from the actually-running process:
    middleware bug (below) made this worse: even once `otelgin` was wired, the wrong ordering in
    the middleware chain re-created failure #3 in a new place — see "The middleware order is
    load-bearing" below.
+6. **`go-sql-driver/mysql` carries its own package-level logger, and `slog.SetDefault` does not
+   reach it.** One line in 493 escaped the JSON pipeline entirely — `closing bad idle connection`,
+   plain text to stderr, no `service_name`, no `severity_text`, no `trace_id` — found only by
+   running the E2E suite against the live stack, because nothing in a unit test looks at stderr
+   for a line the driver, not this service's code, decided to write. The fix installs a slog
+   adapter **before the pools open**, because `ParseDSN` copies the package-level logger into each
+   connection's `Config` at open time — a pool opened first keeps the stderr logger for its entire
+   life, so the fix would look applied while the connections that actually log kept bypassing it.
+7. **`wire_app.go` passed `nil` as the `trace.Tracer` argument to all four handler
+   constructors.** Each handler guards with `if h.tracer != nil`, so the span block was skipped
+   entirely and **none of the four workflow spans existed in production** —
+   `init_tracking`, `carrier_status_update`, `internal_delete_by_user`, `e2e_cleanup`. This one is
+   a **different shape** from the first six, and is covered on its own below, because it is the
+   instance that shows where the reachability gate's coverage ends.
 
-**Every one of the five had a green unit test suite.** This is not incidental — it is the shape
+**Every one of these seven had a green unit test suite** (instances 1–6; #7's unit tests also
+passed, for a related but distinct reason covered below). This is not incidental — it is the shape
 of the bug. A unit test constructs its own subject and calls it directly, so it exercises the
 component in complete isolation from the question "is anything in the real process reaching
 this?" A component can be perfectly correct and 100% unit-tested while being **structurally
@@ -101,11 +117,63 @@ that still *mentions* the tracing filter leaves the reachability gate green — 
 behavioural tests in `internal/adapter/http/tracing_middleware_test.go` fail loudly on the exact
 same mutation. The two layers divide the work on purpose:
 
-- **The reachability gate catches total absence** — the shape all five historical bugs actually
-  took. Cheap, one line per seam, scales to the whole composition root.
+- **The reachability gate catches total absence** — the shape instances 1–6 actually took,
+  including #6 (the MySQL driver's stderr logger), which the gate now pins as one more seam.
+  Cheap, one line per seam, scales to the whole composition root.
 - **A behavioural test catches partial or subtly-wrong installation** — expensive to write, so
   reserved for seams where "wired but wrong" is a realistic failure mode (the middleware chain
   above all).
+
+Instance #7 sits in neither bucket cleanly, and that boundary is worth its own section.
+
+## Instance #7 is a different shape: the seam was called, the argument was empty
+
+`wire_app.go` called `NewInitTrackingHandler` (and the other three constructors) exactly as the
+reachability gate expects — the gate asks "is this symbol **mentioned** anywhere reachable from
+`main`", and it was. What was wrong did not live at the call site at all: it lived in **one of the
+arguments**, `nil` where a `trace.Tracer` belonged. That is a materially different defect shape
+from instances 1–6, where a seam was never invoked in the first place, and it marks — precisely —
+where the reachability gate's guarantee ends: **it verifies a seam is reached, not that every
+argument reaching it is non-empty.** A gate built to catch "never called" cannot, by its own
+design, catch "called with a hole in it."
+
+**Three separate guards existed for this surface, and all three passed anyway, each for its own
+reason:**
+
+1. **The unit tests passed.** They construct each handler by injecting a real tracer, so the
+   handlers' own suites never exercise the `nil` path — the same isolation-hides-the-gap property
+   as every earlier instance, but here it hides an argument rather than a missing call.
+2. **The reachability gate passed**, for the reason above: `NewInitTrackingHandler` *is* called.
+   The gate has no notion of "and every argument to it is meaningful."
+3. **The observability verification passed** (closing-gate criterion 4, JE-230) — `otelgin`'s
+   SERVER spans do arrive, so the check that counted "is there a trace, and exactly one trace id"
+   found what it was looking for. What was missing sat one level deeper: the **inner span naming
+   which business operation ran**. A trace that exists is not a trace that says anything. This is
+   the same trap as instance #3 (the log context bug) recurring one layer up the stack: the
+   scaffolding around the signal was present and correct, and the signal itself was still empty.
+
+Only an E2E spec caught it: `e2e/tests/observability/create-order-trace.spec.ts`, failing with
+*"Trace 7ca38f79… has tracking spans but no 'init_tracking' workflow span"* — because that spec
+asserts on the **named inner span**, not merely on trace existence.
+
+**The fix is doubled, deliberately.** The constructors now default a `nil` tracer to the workflow
+tracer, matching a pattern that already existed three lines away in the same constructors: `log`
+already defaulted to `slog.Default()` and `hook` already defaulted to `NoopProgression{}`. That
+existing pattern would have prevented this bug outright had the tracer parameter followed it from
+the start. And `wire_app.go` now also passes the tracer explicitly — the explicit wiring is
+correct and should stay, but the default is what makes forgetting it again free. **The
+generalisable point:** when a constructor already defaults some of its collaborators, an
+un-defaulted one is not a neutral omission — it is an outlier, and outliers are what get forgotten.
+
+**Writing the regression test produced a false negative worth recording on its own.** Setting only
+`otel.SetTracerProvider` in the test left `tracing.Tracer()` reading a package-level variable
+initialised once from the global at package-init time, which does not track a provider set later
+in the test. The result was a test where server spans arrived and workflow spans did not —
+**symptomatically identical to the production bug it was written to catch**, but for an unrelated
+cause (test setup, not the constructors under test). Both the tracer provider and the propagator
+must be set for the test to exercise what it claims to. **A test that fails for the same visible
+reason as the bug, but from a different cause, is worse than no test: a run of it looks like
+confirmation of the fix while actually confirming nothing.**
 
 ## The middleware order is load-bearing, in both directions
 
