@@ -10,6 +10,7 @@ related:
   - "[[2026-08-27-tracking-go-migration-design]]"
   - "[[2026-08-27-tracking-go-migration]]"
   - "[[tracking-go-migration-milestone]]"
+  - "[[2026-08-29-e2e-email-support-store]]"
   - "[[ADR-0021-tracking-go-gin-sqlc-stack]]"
   - "[[2026-08-18-distributed-tracing-spans-design]]"
   - "[[2026-08-18-distributed-tracing-spans]]"
@@ -122,6 +123,7 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-08-27-tracking-go-migration-design]] — design spec for migrating Tracking from Python/FastAPI to Go/Gin: a faithful layer-by-layer port (Gin + sqlc + golang-migrate, see [[ADR-0021-tracking-go-gin-sqlc-stack]]) built alongside the untouched Python service against the same database, a new `tracking-go-impl` agent fanned out across foundation/platform/endpoint/TestMode/verification waves, and a four-part closing gate (three test layers, empty `openapi.yaml` diff, measured Gatling comparison, observability parity) before the Python folder is deleted.
 - [[2026-08-27-tracking-go-migration]] — implementation plan for the Go migration: 28 tasks across Wave 0 Foundations (sequential), Wave 1 Platform (4 parallel agents), Wave 2 Endpoints (5 parallel agents), Wave 2.5 TestMode (gated on both creation and the carrier webhook), Wave 3 Verification (3 parallel agents), and Wave 4's single irreversible cutover task.
 - [[tracking-go-migration-milestone]] — logical execution plan for the Tracking Go Migration milestone: task sequence, wave phases, and the blocking dependency graph across all 28 tasks.
+- [[2026-08-29-e2e-email-support-store]] — implementation plan for a TTL-bounded `e2e_emails` collection the events-pipeline writes on every rendered email (run id, recipient, template, full HTML, plaintext code, trace id), served to Playwright over the events Lambda's Function URL behind a closed-by-default token. Deliberately ADDITIVE: specs keep asserting the real message, and this does not make the email-timing failures pass — see [[2026-08-29-the-emulator-was-the-ceiling-not-the-code]].
 
 > [!note] No plan note for the AuditActor enum
 > [[2026-07-12-audit-actor-enum-design]] was implemented directly from the spec — there is no separate `writing-plans` plan for it.
