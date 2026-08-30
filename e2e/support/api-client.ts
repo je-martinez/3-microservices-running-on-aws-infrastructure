@@ -9,7 +9,7 @@ import { request, type APIRequestContext } from "@playwright/test";
 // fix); it was not dropping paths in general.
 export async function apiClient(): Promise<APIRequestContext> {
   const baseURL = process.env.USERS_BASE_URL ?? "http://localhost:3000";
-  return request.newContext({ baseURL, extraHTTPHeaders: { "X-E2E-Source": "true" } });
+  return request.newContext({ baseURL, extraHTTPHeaders: { "X-E2E-Source": "true", "x-e2e-run-id": process.env.E2E_RUN_ID ?? "" } });
 }
 
 // Same idea, pointed at the Orders service directly (port 3001). Orders trusts
@@ -22,7 +22,7 @@ export async function apiClient(): Promise<APIRequestContext> {
 // `x-user-id` here too — verified live against the running stack.
 export async function ordersClient(): Promise<APIRequestContext> {
   const baseURL = process.env.ORDERS_BASE_URL ?? "http://localhost:3001";
-  return request.newContext({ baseURL, extraHTTPHeaders: { "X-E2E-Source": "true" } });
+  return request.newContext({ baseURL, extraHTTPHeaders: { "X-E2E-Source": "true", "x-e2e-run-id": process.env.E2E_RUN_ID ?? "" } });
 }
 
 // Same idea, pointed at the Tracking service directly (host port 3002 → container
@@ -50,5 +50,5 @@ export async function ordersClient(): Promise<APIRequestContext> {
 // override exists for a non-default local setup, not because a file supplies it.
 export async function trackingClient(): Promise<APIRequestContext> {
   const baseURL = process.env.TRACKING_BASE_URL ?? "http://localhost:3002";
-  return request.newContext({ baseURL, extraHTTPHeaders: { "X-E2E-Source": "true" } });
+  return request.newContext({ baseURL, extraHTTPHeaders: { "X-E2E-Source": "true", "x-e2e-run-id": process.env.E2E_RUN_ID ?? "" } });
 }

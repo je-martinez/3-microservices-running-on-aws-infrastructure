@@ -1,6 +1,7 @@
 import { readEventsQueueDepth, EVENTS_QUEUE_WARN_DEPTH } from "./events-queue-depth.js";
 import { restockCatalogue } from "./restock-catalogue.js";
 import { purgeMailpit } from "./purge-mailpit.js";
+import { randomUUID } from "node:crypto";
 
 // The local stack (Floci + terraform apply + generated .env + docker compose)
 // is provisioned by `make bootstrap` from the repo root — a multi-minute
@@ -28,6 +29,19 @@ async function waitForHealthy(url: string, notHealthyMessage: string) {
 }
 
 export default async function globalSetup() {
+  // ONE id per `playwright test` invocation, minted before any worker starts and
+  // handed to them through the environment — globalSetup and the workers are
+  // separate processes, so a module-level constant would give each worker its
+  // own id and defeat the correlation this exists for.
+  //
+  // Timestamp first so ids sort chronologically when read straight out of the
+  // fixture collection. The shape must satisfy /^run_[A-Za-z0-9_:.-]{1,64}$/,
+  // which BOTH Users and the Cognito trigger re-validate independently — a value
+  // accepted by one and rejected by the other would be silently dropped on
+  // exactly one of the OTP paths.
+  process.env.E2E_RUN_ID = `run_${new Date().toISOString().replace(/[:.]/g, "-")}_${randomUUID().slice(0, 8)}`;
+  console.log(`[global-setup] run id: ${process.env.E2E_RUN_ID}`);
+
   const base = process.env.USERS_BASE_URL ?? "http://localhost:3000";
   await waitForHealthy(`${base}/v1/health`, `Users service is not healthy at ${base}/v1/health.`);
 
