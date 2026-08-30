@@ -69,17 +69,23 @@ METRICS_INTERVAL_SECONDS = "15"
 # app.DefaultProgressionInterval), and that is what the service falls back to
 # when this is unset — a deployed environment behaves exactly as before.
 #
-# 2 LOCALLY, and the reason is arithmetic rather than taste: a tracking walks
+# 5 LOCALLY, and the number was measured rather than picked. A tracking walks
 # PLACED -> PROCESSING -> SHIPPED -> OUT_FOR_DELIVERY -> DELIVERED, so a delivery
-# spec cannot finish sooner than FOUR intervals however fast the rest is. At 10s
-# the three delivery specs cost 48.7s, 43.5s and 42.1s — 134s, over half the
-# gateway project's wall-clock, spent waiting on a timer. At 2s that becomes ~8s
-# each.
+# spec cannot finish sooner than FOUR intervals however fast the rest is. At the
+# design's 10s the three delivery specs cost 48.7s, 43.5s and 42.1s — 134s, over
+# half the gateway project's wall-clock, spent waiting on a timer.
+#
+# 2 was tried first and was TOO FAST: it publishes four TRACKING_STATUS_CHANGED
+# events in 8 seconds, and the emulator dropped some of them before they reached
+# the queue. Tracking logged 21 published against 16 processed, with an empty
+# DLQ and no consumer error — the events never arrived, and gateway/
+# tracking-flow.spec.ts failed on a `delivered` email whose transition had
+# demonstrably happened. At 5s the same spec passes.
 #
 # It changes no assertion: the specs poll for the same transitions in the same
 # order and still fail if one is missing. It only stops the E2E suite paying for
 # a cadence that exists to look realistic in a demo.
-PROGRESSION_INTERVAL_SECONDS = "2"
+PROGRESSION_INTERVAL_SECONDS = "5"
 FLOCI_HOST = "floci"
 
 # Mailpit's HTTP API, HOST-facing, including the `/api/v1` prefix its endpoints

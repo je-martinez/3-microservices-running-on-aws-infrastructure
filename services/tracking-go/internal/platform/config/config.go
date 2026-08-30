@@ -64,6 +64,12 @@ type Config struct {
 	// wall-clock, spent almost entirely waiting on a timer. Lowering it locally
 	// buys back most of that without touching a single assertion.
 	//
+	// There is a FLOOR, found the hard way: at 2s the four transitions publish
+	// inside 8 seconds and the local emulator drops some before they reach the
+	// queue (21 published, 16 processed, empty DLQ, no consumer error). Local
+	// uses 5s. This is an emulator limit, not a service one — nothing here
+	// rate-limits the publish.
+	//
 	// The DEFAULT stays the design's 10s, so a deployed environment that sets
 	// nothing behaves exactly as before.
 	ProgressionIntervalSeconds float64
