@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-17
-updated: 2026-08-28
+updated: 2026-08-29
 tags: [type/convention, area/shared, status/active]
 related:
   - "[[ADR-0010-cognito-auth]]"
@@ -13,6 +13,8 @@ related:
   - "[[2026-07-17-testing-layers-and-e2e-gateway-design]]"
   - "[[2026-07-17-testing-layers-and-e2e-gateway]]"
   - "[[events-pipeline-design]]"
+  - "[[2026-08-29-e2e-email-support-store]]"
+  - "[[2026-08-29-the-emulator-was-the-ceiling-not-the-code]]"
   - "[[2026-08-03-events-pipeline-milestone-design]]"
   - "[[2026-08-05-passwordless-otp-auth-design]]"
   - "[[2026-08-05-passwordless-otp-auth]]"
@@ -159,6 +161,24 @@ See [[events-pipeline-design]] and [[2026-08-03-events-pipeline-milestone-design
 detail, including the dedicated `batchItemFailures` test (inject one good message and one that
 triggers a transient failure; assert the good one is consumed exactly once and only the bad one
 retries).
+
+### The E2E email-support store is a diagnostic channel, never an assertion channel
+
+Shipped 2026-08-29 (see [[events-pipeline-design#E2E email-support store]] and
+[[2026-08-29-e2e-email-support-store]]): the events-pipeline now persists a per-run, queryable
+copy of every rendered email — full HTML and plaintext code — and serves it over a Lambda
+Function URL. It is an **additional diagnostic channel, never an assertion channel**. Specs still
+call `waitForEmailTo(...)` and still extract the OTP or reset code from the real Mailpit message;
+the store only explains a failure after the fact. State the rule explicitly, because it is easy
+to erode under pressure to turn a red spec green: **a spec that reads its OTP from the store
+instead of the email stops proving delivery and is not a passing spec.**
+
+**It distinguishes two failures that look identical from Mailpit's side.** Nothing recorded for a
+run means the event was **lost** — the pipeline never rendered or sent it. Recorded, but absent
+from Mailpit, means the mail is **late** — rendered and handed to SES, but not yet delivered to
+the local inbox. Different causes, different fixes; conflating them wastes debugging time chasing
+the wrong one. See [[2026-08-29-the-emulator-was-the-ceiling-not-the-code]] for why "late" is the
+common case on this stack — Floci's own delivery cadence, not a pipeline defect.
 
 ## Adapting the three layers to a WebSocket surface (realtime-events)
 
@@ -379,6 +399,10 @@ invalidates the catalogue cache.
   SQS-triggered component is implemented.
 - [[2026-08-03-events-pipeline-milestone-design]] — full detail on the adapted layers and the
   `batchItemFailures` test.
+- [[2026-08-29-e2e-email-support-store]] — the implementation plan for the E2E email-support
+  store described above.
+- [[2026-08-29-the-emulator-was-the-ceiling-not-the-code]] — the investigation that motivated the
+  store and the "lost vs. late" distinction it exists to make.
 - [[orders/testing/index|Orders Testing]]
 - [[users/testing/index|Users Testing]]
 - [[tracking/testing/index|Tracking Testing]]

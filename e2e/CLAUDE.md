@@ -64,6 +64,15 @@ turns on them:
   someone else's teardown to delete.
 - **`x-test-mode: true`** (on order creation) makes a tracking advance itself
   every 10s to DELIVERED, so a delivery flow can be asserted in 40 seconds.
+- **`x-e2e-run-id`** attributes every email a request causes to THIS invocation,
+  so the pipeline's fixture collection can be read per run instead of blindly
+  across workers and reruns. Minted once in `support/global-setup.ts` and passed
+  to the workers through the environment (they are separate processes, so a
+  module constant would give each worker its own id). Same conjunction rule as
+  the two above: honored only when the receiving service has
+  `E2E_TESTING_ENABLED`. On the OTP path it rides Cognito's `ClientMetadata` —
+  the only caller-controlled field Cognito forwards to a trigger verbatim, and
+  the same seam `traceparent` already uses.
 
 **Load simulations send neither**, deliberately:
 - Load data is meant to persist like real data, so it is **not** cleaned up —
@@ -108,6 +117,31 @@ email-asserting run from the majority of specs that never touch the pipeline)
 when the queue is deeper than `EVENTS_QUEUE_WARN_DEPTH`; the threshold's
 arithmetic lives in `support/events-queue-depth.ts`. If you see that warning,
 wait for the queue to drain or reset with `make clean && make bootstrap`.
+
+### The email record store — a diagnostic channel, never an assertion channel
+
+`support/email-store-client.ts` reads back what the events-pipeline recorded for
+the current run (see `functions/events-pipeline/CLAUDE.md` §3c), over the events
+Lambda's Function URL.
+
+**The rule, and it is not negotiable: specs still wait for and assert the REAL
+email.** A spec that reads its OTP out of this store instead of the message stops
+proving delivery end to end, and a green suite bought that way is worse than a
+red one. Deleting every use of this client must leave the suite still proving
+email delivery.
+
+What it adds is the one fact a bare "nothing arrived in 45s" cannot supply:
+
+| store says | meaning | where to look |
+|---|---|---|
+| nothing recorded | the event never reached the consumer — **lost** | queue depth, the Lambda's logs |
+| recorded, not in the inbox | rendered and sent — the mail is **late** | Floci's ~1 ev/s ceiling, [[2026-08-29-the-emulator-was-the-ceiling-not-the-code]] |
+
+`describeRecordedEmails(address)` returns that verdict as a block to append to a
+failure message; `otp.spec.ts` and `gateway/otp-flow.spec.ts` wrap their email
+wait with it. The client **cannot fail a test** — missing config disables it, any
+error returns empty, and it catches its own failures, because a diagnostic that
+throws would replace a clear timing failure with a confusing connection error.
 
 ## 5. Auth surfaces
 
