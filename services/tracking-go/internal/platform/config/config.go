@@ -53,6 +53,20 @@ type Config struct {
 	AWSRegion      string
 
 	MetricsIntervalSeconds float64
+	// ProgressionIntervalSeconds is TestMode's cadence: one status transition
+	// per interval, PLACED -> PROCESSING -> SHIPPED -> OUT_FOR_DELIVERY ->
+	// DELIVERED. Four transitions, so a delivery spec cannot finish sooner than
+	// four intervals no matter how fast everything else is.
+	//
+	// Configurable rather than the constant it used to be, because the E2E suite
+	// pays it three times over: at the design's 10s, the three delivery specs
+	// cost 48.7s, 43.5s and 42.1s — 134s, over half the gateway project's total
+	// wall-clock, spent almost entirely waiting on a timer. Lowering it locally
+	// buys back most of that without touching a single assertion.
+	//
+	// The DEFAULT stays the design's 10s, so a deployed environment that sets
+	// nothing behaves exactly as before.
+	ProgressionIntervalSeconds float64
 	// MetricsEnabled defaults TRUE: forgetting the variable in a deployed
 	// environment must leave the dashboards populated, not silently empty.
 	MetricsEnabled bool
@@ -85,6 +99,8 @@ const (
 	defaultUsersGRPCURL           = "users:50051"
 	defaultAWSRegion              = "us-east-1"
 	defaultMetricsIntervalSeconds = 15.0
+	// The design cadence. See ProgressionIntervalSeconds.
+	defaultProgressionIntervalSeconds = 10.0
 	defaultRedisHost              = "localhost"
 	defaultRedisPort              = 6379
 	defaultCacheTimeoutMS         = 50
@@ -111,6 +127,7 @@ func Load() (Config, error) {
 		AWSEndpointURL:         optionalString("AWS_ENDPOINT_URL"),
 		AWSRegion:              stringOr("AWS_REGION", defaultAWSRegion),
 		MetricsIntervalSeconds: floatOr("METRICS_INTERVAL_SECONDS", defaultMetricsIntervalSeconds),
+		ProgressionIntervalSeconds: floatOr("PROGRESSION_INTERVAL_SECONDS", defaultProgressionIntervalSeconds),
 		MetricsEnabled:         Bool("METRICS_ENABLED", true),
 		E2ETestingEnabled:      Bool("E2E_TESTING_ENABLED", false),
 		RedisHost:              stringOr("REDIS_HOST", defaultRedisHost),

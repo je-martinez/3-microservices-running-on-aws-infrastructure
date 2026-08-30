@@ -64,6 +64,22 @@ OTLP_ENDPOINT = "http://otel-collector:4318"
 # and .NET services take milliseconds, Tracking's Pydantic float takes seconds.
 METRICS_INTERVAL_MS = "15000"
 METRICS_INTERVAL_SECONDS = "15"
+
+# TestMode's status cadence, in seconds. The design's value is 10 (see
+# app.DefaultProgressionInterval), and that is what the service falls back to
+# when this is unset — a deployed environment behaves exactly as before.
+#
+# 2 LOCALLY, and the reason is arithmetic rather than taste: a tracking walks
+# PLACED -> PROCESSING -> SHIPPED -> OUT_FOR_DELIVERY -> DELIVERED, so a delivery
+# spec cannot finish sooner than FOUR intervals however fast the rest is. At 10s
+# the three delivery specs cost 48.7s, 43.5s and 42.1s — 134s, over half the
+# gateway project's wall-clock, spent waiting on a timer. At 2s that becomes ~8s
+# each.
+#
+# It changes no assertion: the specs poll for the same transitions in the same
+# order and still fail if one is missing. It only stops the E2E suite paying for
+# a cadence that exists to look realistic in a demo.
+PROGRESSION_INTERVAL_SECONDS = "2"
 FLOCI_HOST = "floci"
 
 # Mailpit's HTTP API, HOST-facing, including the `/api/v1` prefix its endpoints
@@ -513,6 +529,10 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # here, milliseconds in the Node/.NET services — each matches its
                 # own settings type rather than forcing one unit across stacks.
                 "METRICS_INTERVAL_SECONDS": METRICS_INTERVAL_SECONDS,
+                # TestMode's status cadence. Four transitions per delivery, so
+                # this is multiplied by four in every delivery spec — see the
+                # constant's comment for the measured cost at the default 10s.
+                "PROGRESSION_INTERVAL_SECONDS": PROGRESSION_INTERVAL_SECONDS,
                 # Gates the gauge loop. The test suite sets it false so a run
                 # does not open a database session per test.
                 "METRICS_ENABLED": "true",

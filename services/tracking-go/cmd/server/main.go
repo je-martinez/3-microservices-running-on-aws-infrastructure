@@ -389,7 +389,10 @@ func run() error {
 			notify.NewTrackingCacheInvalidator(gateway, logger),
 			nil, // the production clock: UTC, truncated to the second
 		),
-		app.DefaultProgressionInterval,
+		// From config, not the constant: the E2E suite pays this interval four
+		// times per delivery spec and three specs deep. NewProgression falls back
+		// to DefaultProgressionInterval on a non-positive value.
+		time.Duration(cfg.ProgressionIntervalSeconds * float64(time.Second)),
 		logger,
 		// The WORKFLOW tracer: the Python opens this span through workflow_span,
 		// and one query in OpenObserve must mean the same thing in both runtimes.
