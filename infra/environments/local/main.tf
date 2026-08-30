@@ -491,6 +491,20 @@ module "lambda_events_pipeline" {
   # one 30s timeout and one DocumentDB connection.
   batch_size = 10
 
+  # FOUR pollers, and only because this is the emulator. Real Lambda scales one
+  # mapping out by itself, so every deployed environment leaves this at the
+  # module default of 1 — see the resource comment in modules/lambda/main.tf.
+  #
+  # Floci keeps one invocation in flight per mapping, so mapping count IS the
+  # concurrency knob here. Measured, same 80 events, nothing else changed:
+  # 1 mapping -> 79s (1.02 ev/s); 4 mappings -> 24s (3.37 ev/s), with zero
+  # failures, zero duplicates and an empty DLQ.
+  #
+  # 4 rather than more: the gain is linear in mapping count but each poller is a
+  # Lambda container on a machine already hosting the whole stack, and 4 was
+  # enough to move a full E2E suite's backlog out of the specs' 45s budget.
+  mapping_count = 4
+
   # The E2E email-query route. The suite cannot reach DocumentDB directly —
   # Floci does not publish 27017 to the host in our containerized setup — so the
   # only way for a Playwright process to read the e2e_emails collection is

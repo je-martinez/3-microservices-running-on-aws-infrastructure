@@ -66,6 +66,17 @@ variable "batch_size" {
   default     = 10
 }
 
+variable "mapping_count" {
+  description = "Number of SQS event source mappings for this function. 1 everywhere except the local emulator — see the resource comment in main.tf for why more than one helps there and is pointless in AWS."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.mapping_count >= 1
+    error_message = "mapping_count must be at least 1; zero would leave the queue with no consumer."
+  }
+}
+
 variable "timeout" {
   description = "Lambda function timeout in seconds."
   type        = number

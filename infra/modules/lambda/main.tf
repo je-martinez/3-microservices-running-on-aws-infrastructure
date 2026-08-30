@@ -154,7 +154,31 @@ resource "aws_lambda_function" "this" {
 # failed record retries the entire batch. Verify with:
 #   aws lambda get-event-source-mapping --uuid <uuid> --query FunctionResponseTypes
 # and expect ["ReportBatchItemFailures"].
+# `count`, and it is a LOCAL-EMULATOR concession that costs production nothing.
+#
+# Real Lambda scales one mapping out to many concurrent invocations on its own,
+# so `mapping_count = 1` (the default, and what every deployed environment uses)
+# is correct there and a second mapping would only duplicate polling.
+#
+# Floci does not scale that way. Measured on this stack: it keeps ONE invocation
+# in flight PER MAPPING, and the next poll starts about a second after the
+# previous batch ENDS — so throughput is batch_size / (handler_duration + ~1s),
+# which is also why a larger batch_size measured WORSE (one slow batch delays
+# the next poll). `ScalingConfig.MaximumConcurrency` is stored by the API and
+# then ignored.
+#
+# Each mapping does get its own independent poller, and they overlap. Same
+# stack, same 80 events, only this variable changed:
+#
+#   mapping_count = 1  ->  79s, 1.02 ev/s
+#   mapping_count = 4  ->  24s, 3.37 ev/s
+#
+# Verified safe rather than assumed: the four pollers split the work (20/20/20/80
+# records across four containers), with zero failures, zero duplicate-event
+# errors against the unique index on event_id, and an empty DLQ. SQS hands each
+# message to exactly one receiver, so extra pollers add readers, not copies.
 resource "aws_lambda_event_source_mapping" "sqs_trigger" {
+  count                   = var.mapping_count
   event_source_arn        = var.queue_arn
   function_name           = aws_lambda_function.this.arn
   batch_size              = var.batch_size
