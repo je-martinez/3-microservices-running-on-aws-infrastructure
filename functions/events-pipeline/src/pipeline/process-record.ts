@@ -1,6 +1,7 @@
 import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 import { pipelineTracer } from "#shared/observability/tracing";
 import type { Envelope } from "#domain/envelope";
+import type { RecordEmailFn } from "#email/sender";
 import type { EventDocument, EventStatus } from "#domain/event";
 import { redactPayload } from "#domain/redact-payload";
 import { isTransient } from "#pipeline/errors";
@@ -23,7 +24,16 @@ export interface EventsRepositoryPort {
 
 // The CQRS dispatch table: event `type` → handler (e.g. ORDER_CREATED →
 // OrderCreatedHandler). Populated by Task 10's src/handlers/index.ts.
-export type HandlerMap = Record<string, (envelope: Envelope) => Promise<void>>;
+/**
+ * Extra collaborators a handler may use. Empty in production.
+ *
+ * Threaded as a parameter rather than imported by each handler so the E2E store
+ * stays out of the production import graph, and so a handler remains callable in
+ * a unit test with no fixture wiring at all.
+ */
+export type HandlerDeps = { recordEmail?: RecordEmailFn };
+
+export type HandlerMap = Record<string, (envelope: Envelope, deps: HandlerDeps) => Promise<void>>;
 
 export type ProcessRecordResult = { ok: true } | { ok: false; transient: boolean };
 
@@ -146,7 +156,7 @@ async function withPhaseSpan<T>(
 // overwriting.
 export async function processRecord(
   envelope: Envelope,
-  deps: { repository: EventsRepositoryPort; handlers: HandlerMap },
+  deps: { repository: EventsRepositoryPort; handlers: HandlerMap; handlerDeps?: HandlerDeps },
 ): Promise<ProcessRecordResult> {
   const now = new Date();
   const doc: EventDocument = {
@@ -254,7 +264,7 @@ export async function processRecord(
     await withPhaseSpan(
       "phase dispatch",
       async () => {
-        await handler(envelope);
+        await handler(envelope, deps.handlerDeps ?? {});
       },
       // The handlers already reduce driver/Zod errors to PII-free strings before
       // throwing (see #handlers/user-created), which is the same string persisted
