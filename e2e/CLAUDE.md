@@ -132,10 +132,17 @@ email delivery.
 
 What it adds is the one fact a bare "nothing arrived in 45s" cannot supply:
 
-| store says | meaning | where to look |
+| store says | what it proves | where to look |
 |---|---|---|
-| nothing recorded | the event never reached the consumer — **lost** | queue depth, the Lambda's logs |
-| recorded, not in the inbox | rendered and sent — the mail is **late** | Floci's ~1 ev/s ceiling, [[2026-08-29-the-emulator-was-the-ceiling-not-the-code]] |
+| recorded | the pipeline **did** render and send it — the failure is delivery timing. **Conclusive.** | Floci's ~1 ev/s ceiling, [[2026-08-29-the-emulator-was-the-ceiling-not-the-code]] |
+| nothing recorded | **"not yet", not "never"** — inconclusive alone | the events queue depth: non-zero = late, zero = genuinely lost |
+
+The asymmetry is the point, and it was learned the hard way. The store is written
+**after** the send, so a backlog delays the RECORD exactly as it delays the mail:
+on a cold run a spec timed out at 45s and its OTP was recorded at **2m25s** —
+real, and simply later than anyone was looking. An earlier version of this
+message concluded "the pipeline never rendered one", which is the opposite of the
+truth and sends the reader hunting a defect that does not exist.
 
 `describeRecordedEmails(address)` returns that verdict as a block to append to a
 failure message; `otp.spec.ts` and `gateway/otp-flow.spec.ts` wrap their email

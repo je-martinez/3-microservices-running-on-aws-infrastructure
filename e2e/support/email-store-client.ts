@@ -90,12 +90,15 @@ export async function fetchRecordedEmails(
 /**
  * A block to append to a failing email assertion's message.
  *
- * Separates the two failures that look identical from Mailpit's side:
+ * What it can and cannot conclude, stated precisely because an overconfident
+ * diagnostic is worse than none:
  *
- *   - nothing recorded → the event never reached the consumer. A LOST event.
- *   - recorded, but not in the inbox in time → the pipeline did its job and the
- *     mail is late. A TIMING failure, and on this stack usually the emulator's
- *     ~1 event/s delivery ceiling rather than a defect.
+ *   - RECORDED → the pipeline definitely rendered and sent it. The mail exists,
+ *     so the failure is delivery timing. This branch is conclusive.
+ *   - NOTHING RECORDED → inconclusive on its own. The store is written after the
+ *     send, so a backlog hides the record on the same far side of the budget as
+ *     the mail itself. It means "not yet", and only the queue depth separates
+ *     "late" from "genuinely lost".
  *
  * Never throws: a failed diagnostic returns a note saying so, because the
  * assertion it is decorating is the thing that matters.
@@ -111,10 +114,23 @@ export async function describeRecordedEmails(to: string): Promise<string> {
   }
 
   if (emails.length === 0) {
+    // "NOT YET", never "never". The store is read at the instant the assertion
+    // gives up, and the pipeline records an email only AFTER it sends it — so a
+    // backlog puts the record on the far side of the spec's budget too.
+    //
+    // Measured on a cold stack: a spec timed out at 45s and its OTP was recorded
+    // at 2m25s, comfortably real and comfortably late. An earlier version of
+    // this message said the pipeline "never rendered one", which is the opposite
+    // conclusion and sends the reader hunting a defect that is not there.
+    //
+    // Distinguishing the two needs the queue depth, which this client cannot
+    // read — so it names the check instead of guessing.
     return (
-      `\n[email-store] No email was RECORDED for ${to} in this run either, so the ` +
-      `pipeline never rendered one — the event did not reach the consumer, rather ` +
-      `than the mail being slow. Check the events queue depth and the Lambda's logs.`
+      `\n[email-store] Nothing recorded for ${to} AT THE MOMENT THIS WAS CHECKED. ` +
+      `The store is written after the send, so this means the pipeline had not ` +
+      `sent it YET — not that the event was lost. A backlog delays the record ` +
+      `exactly as it delays the mail. Check the events queue depth: a non-zero ` +
+      `depth means late, a zero depth with nothing recorded means genuinely lost.`
     );
   }
 
