@@ -19,10 +19,14 @@ import type { EventDocument, EventStatus } from "#domain/event";
 import { getMongoClient } from "#shared/db/client";
 import { MongoEventsRepository, ensureIndexes, DuplicateEventError } from "#shared/db/events-repository";
 import { handlers } from "#handlers/index";
-import { env } from "#shared/config/env";
+import { env, e2eTestingEnabled } from "#shared/config/env";
 import { appLogger } from "#shared/logging/app-logger";
 import { runWithLogContext, type LogContextStore } from "#shared/logging/log-context";
 import { publishMetric, SERVICE_DIMENSION } from "#shared/metrics/cloudwatch-metrics";
+import { E2eEmailStore, ensureE2eIndexes } from "#e2e/email-store";
+import type { RecordEmailFn } from "#email/sender";
+import type { Db } from "mongodb";
+import { handleEmailQuery, isFunctionUrlEvent, type FunctionUrlEvent } from "#e2e/http-query";
 
 // Minimal structural shape of the slice of the SQS event this function reads.
 // Deliberately not `SQSEvent` from @types/aws-lambda: only `messageId`, `body`
@@ -59,7 +63,7 @@ interface MetricsTickEvent {
   "detail-type": string;
 }
 
-type HandlerEvent = SqsEvent | MetricsTickEvent;
+type HandlerEvent = SqsEvent | MetricsTickEvent | FunctionUrlEvent;
 
 function isMetricsTick(event: HandlerEvent): event is MetricsTickEvent {
   return (event as MetricsTickEvent)["detail-type"] === METRICS_TICK_DETAIL_TYPE;
@@ -338,6 +342,21 @@ async function seedEmailCounters(): Promise<void> {
 }
 
 export async function handler(event: HandlerEvent): Promise<BatchResponse> {
+  // FIRST in the dispatch chain, and the order is load-bearing rather than
+  // stylistic: processBatch reads `event.Records.length`, so an HTTP event that
+  // reaches it dies with "Cannot read properties of undefined (reading
+  // 'length')" — observed live against a Floci Function URL before this branch
+  // existed, and reproduced by the test that guards it.
+  //
+  // No tracing span here on purpose. This route is test-support scaffolding,
+  // not a business flow; giving it a CONSUMER span would put fixture reads in
+  // the same waterfall as real order and email work.
+  if (isFunctionUrlEvent(event)) {
+    const client = await getMongoClient();
+    const db = client.db(env.DOCDB_DATABASE);
+    return (await handleEmailQuery(event, new E2eEmailStore(db))) as never;
+  }
+
   // The scheduled tick seeds and returns. It must exit BEFORE the DocumentDB
   // connection below: a tick carries no records, so continuing would open a
   // connection for nothing every minute — and, worse, any future work added to
@@ -416,11 +435,17 @@ async function processBatch(event: SqsEvent): Promise<BatchResponse> {
   const batchItemFailures: { itemIdentifier: string }[] = [];
 
   let repository: MongoEventsRepository;
+  // Declared alongside `repository` rather than inside the try, for the same
+  // reason: the record loop below needs it, and the try only owns the bootstrap.
+  let db: Db;
   try {
     const client = await getMongoClient();
-    const db = client.db(env.DOCDB_DATABASE);
+    db = client.db(env.DOCDB_DATABASE);
     if (!indexesEnsured) {
       await ensureIndexes(db);
+      // Only under the flag: a deployed environment that never enables E2E
+      // creates neither the TTL index nor the fixture collection at all.
+      if (e2eTestingEnabled) await ensureE2eIndexes(db);
       // Set only AFTER success: latching on a failed bootstrap would leave the
       // container permanently believing the indexes exist — including the unique
       // index on event_id that makes redelivery detectable.
@@ -598,7 +623,7 @@ async function processBatch(event: SqsEvent): Promise<BatchResponse> {
       (recordSpan) =>
         runWithLogContext(envelopeContext(envelope, record.messageId), async () => {
           try {
-            const failed = await processOneRecord(envelope, repository);
+            const failed = await processOneRecord(envelope, repository, recordEmailFor(db, envelope));
             // A record that must be redelivered is an ERROR on its OWN span
             // only — the sibling records and the batch span stay OK, which is
             // the trace-side counterpart of batchItemFailures.
@@ -626,9 +651,41 @@ async function processBatch(event: SqsEvent): Promise<BatchResponse> {
 // One record, inside its log context. Returns whether it must be redelivered
 // (i.e. whether it belongs in batchItemFailures) — the caller assembles the
 // batch response, this function owns the record's flow logs.
+// The E2E recorder for one envelope, or undefined when the store is off.
+//
+// Returns UNDEFINED rather than a no-op function when the flag is clear: the
+// sender skips the whole block on undefined, so production pays nothing and the
+// fixture collection stays out of its code path entirely.
+//
+// `run_id` falls back to "unattributed" rather than skipping the write. A
+// production event legitimately carries none, and dropping those records would
+// make the collection silently incomplete — worse for debugging than a row
+// nobody queries, since the schema requires the field to be non-empty.
+function recordEmailFor(db: Db, envelope: Envelope): RecordEmailFn | undefined {
+  if (!e2eTestingEnabled) return undefined;
+
+  return async (params) => {
+    await new E2eEmailStore(db).record({
+      to: params.to,
+      subject: params.subject,
+      html: params.html,
+      template_key: params.templateKey,
+      ...(params.code === undefined ? {} : { code: params.code }),
+      run_id: envelope.run_id ?? "unattributed",
+      event_id: envelope.event_id,
+      // Read from the ACTIVE span, and omitted when there is none — the same
+      // rule logger.ts follows rather than writing an all-zero id.
+      ...(trace.getActiveSpan()?.spanContext().traceId
+        ? { trace_id: trace.getActiveSpan()!.spanContext().traceId }
+        : {}),
+    });
+  };
+}
+
 async function processOneRecord(
   envelope: Envelope,
   repository: EventsRepositoryPort,
+  recordEmail?: RecordEmailFn,
 ): Promise<boolean> {
   const startedAt = Date.now();
   appLogger.info({ app_event: "event_processing_started" }, "processing event");
@@ -637,7 +694,7 @@ async function processOneRecord(
 
   let result;
   try {
-    result = await processRecord(envelope, { repository: port, handlers });
+    result = await processRecord(envelope, { repository: port, handlers, handlerDeps: { recordEmail } });
   } catch (err) {
     // processRecord converts handler failures and a failed insert into
     // results, so reaching here means a `transition` threw mid-flight — the

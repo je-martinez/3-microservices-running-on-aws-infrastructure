@@ -1166,3 +1166,36 @@ describe("handler — records within a batch run concurrently", () => {
     expect(handlers.USER_CREATED).toHaveBeenCalledTimes(1);
   });
 });
+
+// The Function URL branch. This is a THIRD event shape on one function, and the
+// dispatch order is load-bearing: processBatch reads event.Records.length, so an
+// HTTP event that falls through to it throws "Cannot read properties of
+// undefined (reading 'length')" — observed live against Floci before this
+// branch existed.
+describe("handler — Function URL requests", () => {
+  it("routes an HTTP event to the query route instead of the batch path", async () => {
+    const res = (await handler({
+      requestContext: { http: { method: "GET" } },
+      headers: {},
+      queryStringParameters: { runId: "run_abc" },
+    } as never)) as unknown as { statusCode: number };
+    // 404 because no E2E token is configured in this test env — the point is
+    // that it answered as HTTP rather than throwing on Records.length.
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("still processes an SQS batch normally", async () => {
+    const result = await handler({ Records: [sqsRecord("msg-1", envelope())] });
+    expect(result).toEqual({ batchItemFailures: [] });
+  });
+
+  it("still processes the metrics tick normally", async () => {
+    // An EMPTY batch response, not undefined: the tick path has no records, so
+    // there is nothing to report as failed. Asserted here only to prove the new
+    // HTTP branch did not swallow the tick — the span assertions for this path
+    // live in the tracing describe, which owns the harness.
+    await expect(handler({ "detail-type": "3mrai.metrics.tick" } as never)).resolves.toEqual({
+      batchItemFailures: [],
+    });
+  });
+});
