@@ -656,7 +656,34 @@ clean: ## Tear down infra + compose, including the emulator state volume
 	@# clean; `|| true` throughout because "nothing to remove" is the healthy case.
 	@echo "Removing Floci-launched containers (not compose services, so down misses them)…"
 	@docker ps -aq --filter "name=^floci-" | xargs -r docker rm -f 2>/dev/null || true
+	@# The FOURTH thing that survived a "from-scratch" teardown, same shape as the
+	@# three above. Floci creates its own volumes for the databases it launches
+	@# (floci-rds-cluster-*, DocumentDB, ElastiCache) and labels them `floci=true`
+	@# — NOT `com.docker.compose.project=3mrai`, so the compose-labelled sweep two
+	@# lines up walks straight past them. Removing the container without its
+	@# volume is precisely the split-brain this target exists to prevent.
+	@#
+	@# Measured on 2026-08-30: six of these had accumulated across bootstraps,
+	@# holding 870MB, of which only two belonged to the live stack.
+	@echo "Removing Floci-created volumes (labelled floci=true, not compose)…"
+	@docker volume ls -q --filter label=floci=true \
+		| xargs -r docker volume rm -f 2>/dev/null || true
 	@docker network rm 3mrai_3mrai-network 2>/dev/null || true
+	@# Build cache and dangling images. Neither is state, so neither breaks
+	@# anything by going — but both grow without bound across the rebuild loop
+	@# this project runs on (`compose up --build` per service change), and nothing
+	@# else ever reclaims them. Measured the same day: 6.4GB of build cache and
+	@# 2.2GB of dangling images, i.e. more than the containers and volumes put
+	@# together.
+	@#
+	@# BOTH are machine-wide, not project-scoped, and that is worth knowing before
+	@# running this on a machine hosting other work: `image prune` removes every
+	@# DANGLING image (untagged, unreferenced — no project loses a tagged image),
+	@# and the builder cache has no project filter at all. Both are caches: the
+	@# cost of dropping them is one slower rebuild, never lost state.
+	@echo "Reclaiming dangling images and build cache…"
+	@docker image prune -f 2>/dev/null || true
+	@docker builder prune -af 2>/dev/null || true
 
 redeploy-lambdas: scripts-setup ## Rebuild and redeploy every local Lambda from the current source
 	@# A Lambda does NOT rebuild with `docker compose`. The services do, so the
