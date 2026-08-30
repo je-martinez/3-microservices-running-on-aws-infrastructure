@@ -117,6 +117,39 @@ UPDATE tracking
  WHERE JSON_CONTAINS(tags, JSON_QUOTE(?))
    AND deleted_at IS NULL`
 
+// The run-scoped pair. Same shape with ONE more JSON_CONTAINS, so a teardown
+// deletes only the rows ITS OWN run created.
+//
+// Why this exists: the unscoped sweep above deletes every E2E-tagged row on the
+// machine. With playwright's workers:10 — and especially with overlapping runs —
+// one run's teardown lands inside another's live TestMode progression, whose next
+// tick then reads tracking_not_found and ABORTS. Every remaining status goes
+// unpublished, so the events never exist, which is why the loss looked like a
+// broken queue for as long as it did. Proven with a single-variable harness: 4
+// concurrent trackings and no cleanup published 16/16; the same 4 with one
+// cleanup at t=+17s published 12/16 with only DELIVERED missing.
+//
+// Both tags are BOUND PARAMETERS wrapped by JSON_QUOTE for the same reason the
+// single-tag form is — the run id reaches here from a caller-controlled header.
+const softDeleteHistoryByTagAndRun = `
+UPDATE tracking_history
+   SET deleted_at = ?, deleted_by = ?
+ WHERE tracking_id IN (
+         SELECT id FROM (
+           SELECT id FROM tracking
+            WHERE JSON_CONTAINS(tags, JSON_QUOTE(?))
+              AND JSON_CONTAINS(tags, JSON_QUOTE(?))
+         ) AS parents
+       )
+   AND deleted_at IS NULL`
+
+const softDeleteTrackingByTagAndRun = `
+UPDATE tracking
+   SET deleted_at = ?, deleted_by = ?
+ WHERE JSON_CONTAINS(tags, JSON_QUOTE(?))
+   AND JSON_CONTAINS(tags, JSON_QUOTE(?))
+   AND deleted_at IS NULL`
+
 // SoftDeleteRepository owns the two mass soft-delete paths: the account-deletion
 // cascade and the E2E teardown.
 //
@@ -172,6 +205,24 @@ func (r *SoftDeleteRepository) SoftDeleteByTag(
 	return r.softDelete(ctx,
 		statement{sql: softDeleteHistoryByTag, args: []any{now, string(actor), tag}},
 		statement{sql: softDeleteTrackingByTag, args: []any{now, string(actor), tag}},
+	)
+}
+
+// SoftDeleteByTags soft-deletes rows carrying BOTH tags.
+//
+// An empty second tag falls back to the single-tag sweep rather than matching
+// nothing: the caller that omits a run id (a load test, a manual teardown, an
+// internal-only suite run) means "everything", and silently deleting zero rows
+// while reporting success is the worse failure of the two.
+func (r *SoftDeleteRepository) SoftDeleteByTags(
+	ctx context.Context, tag, secondTag string, actor audit.Actor, now time.Time,
+) (int64, error) {
+	if secondTag == "" {
+		return r.SoftDeleteByTag(ctx, tag, actor, now)
+	}
+	return r.softDelete(ctx,
+		statement{sql: softDeleteHistoryByTagAndRun, args: []any{now, string(actor), tag, secondTag}},
+		statement{sql: softDeleteTrackingByTagAndRun, args: []any{now, string(actor), tag, secondTag}},
 	)
 }
 

@@ -169,6 +169,9 @@ func NewAppRouter(opts AppRouterOptions) *gin.Engine {
 		otelgin.Middleware(logging.ServiceName, otelgin.WithFilter(tracing.GinFilter)),
 		LogContextMiddleware(log, opts.Metrics),
 		E2ESourceMiddleware(opts.E2ETestingEnabled),
+		// Same flag, same reason: the run id becomes half of a mass-delete
+		// predicate, so it is resolved here rather than by any handler.
+		RunIDMiddleware(opts.E2ETestingEnabled),
 		TestModeMiddleware(),
 	)
 

@@ -49,10 +49,18 @@ func (f *delFakeInvalidator) InvalidateUser(_ context.Context, cognitoSub, userI
 }
 
 type delFakeTagDeleter struct {
-	count  int64
-	err    error
-	called bool
-	tag    string
+	count     int64
+	err       error
+	called    bool
+	tag       string
+	secondTag string
+}
+
+func (f *delFakeTagDeleter) SoftDeleteByTags(
+	ctx context.Context, tag, secondTag string, actor audit.Actor, now time.Time,
+) (int64, error) {
+	f.secondTag = secondTag
+	return f.SoftDeleteByTag(ctx, tag, actor, now)
 }
 
 func (f *delFakeTagDeleter) SoftDeleteByTag(

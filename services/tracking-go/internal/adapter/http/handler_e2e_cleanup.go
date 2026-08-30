@@ -98,7 +98,16 @@ func (h *E2ECleanupHandler) Handle(c *gin.Context) {
 		span.SetAttributes(attribute.String("app_event", "e2e_cleanup_started"))
 	}
 
-	deleted, err := h.uc.Execute(ctx)
+	// `run_id` as a QUERY PARAM, not a header: the teardown is a bare DELETE with
+	// no session, and a query param is visible in the access log, which is what
+	// you want when reconstructing which run deleted what.
+	//
+	// Shape-checked with the same pattern the create path uses, then discarded if
+	// malformed — falling back to the unscoped sweep rather than erroring, because
+	// a teardown that 400s leaves the fixtures behind for the NEXT run to trip on.
+	runTag := E2ERunTag(ValidRunID(c.Query("run_id")))
+
+	deleted, err := h.uc.ExecuteScoped(ctx, runTag)
 	if err != nil {
 		setSpanReason(span, reasonDBError)
 		h.log.ErrorContext(ctx, "e2e_cleanup_failed",

@@ -152,6 +152,7 @@ func (h *InitTrackingHandler) Handle(c *gin.Context) {
 		// Already the AND of the header and E2E_TESTING_ENABLED — the middleware
 		// evaluates both, so this handler cannot tag a row on the header alone.
 		E2ESource: IsE2ESource(c),
+		E2ERunTag: E2ERunTag(E2ERunID(c)),
 	})
 	switch {
 	case errors.Is(err, app.ErrUnknownUser):

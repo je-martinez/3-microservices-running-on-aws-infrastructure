@@ -1,6 +1,7 @@
 package http
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -12,7 +13,11 @@ import (
 const (
 	E2ESourceHeader = "x-e2e-source"
 	TestModeHeader  = "x-test-mode"
-	activeValue     = "true"
+	// RunIDHeader identifies the Playwright invocation that created a row, so a
+	// teardown can delete ITS OWN fixtures instead of everyone's. Minted once per
+	// run in e2e/support/global-setup.ts and sent by both E2E HTTP clients.
+	RunIDHeader = "x-e2e-run-id"
+	activeValue = "true"
 )
 
 // E2ESourceTag is the tag persisted on a row the E2E harness created, and the
@@ -26,7 +31,39 @@ const E2ESourceTag = "E2E Source"
 const (
 	e2eSourceKey = "e2e_source"
 	testModeKey  = "test_mode"
+	runIDKey     = "e2e_run_id"
 )
+
+// E2ERunTagPrefix builds the SECOND tag a run-scoped row carries, alongside
+// E2ESourceTag. A tag rather than a column because `tags` is already a JSON array
+// the delete predicate selects on with JSON_CONTAINS — requiring both tags needs
+// one more predicate and no migration.
+const E2ERunTagPrefix = "E2E Run "
+
+// The same shape Users and the Cognito OTP trigger each validate independently.
+// A value one end accepts and another rejects would be dropped on exactly one
+// path, which is the kind of asymmetry that reads as data loss.
+var runIDPattern = regexp.MustCompile(`^run_[A-Za-z0-9_:.-]{1,64}$`)
+
+// E2ERunTag returns the run tag for a run id, or "" when there is none.
+func E2ERunTag(runID string) string {
+	if runID == "" {
+		return ""
+	}
+	return E2ERunTagPrefix + runID
+}
+
+// ValidRunID returns the run id when it is well-formed, otherwise "".
+//
+// Shape-checked rather than trusted: it arrives from a caller-controlled header
+// and becomes part of a stored tag AND a delete predicate. An arbitrary string
+// would let a caller write whatever it liked into that key.
+func ValidRunID(candidate string) string {
+	if runIDPattern.MatchString(candidate) {
+		return candidate
+	}
+	return ""
+}
 
 // E2ESourceMiddleware decides whether this request's row should be tagged as an
 // E2E fixture.
@@ -53,6 +90,30 @@ func E2ESourceMiddleware(e2eEnabled bool) gin.HandlerFunc {
 		c.Set(e2eSourceKey, headerIsTrue(c.GetHeader(E2ESourceHeader)) && e2eEnabled)
 		c.Next()
 	}
+}
+
+// RunIDMiddleware resolves this request's E2E run id.
+//
+// Gated on E2E_TESTING_ENABLED for the same reason E2ESourceMiddleware is: the id
+// becomes half of a mass-delete predicate, so a client must not be able to supply
+// one where the harness is not in charge.
+func RunIDMiddleware(e2eEnabled bool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		runID := ""
+		if e2eEnabled {
+			runID = ValidRunID(c.GetHeader(RunIDHeader))
+		}
+		c.Set(runIDKey, runID)
+		c.Next()
+	}
+}
+
+// E2ERunID reports this request's run id, or "" when absent, malformed, or the
+// flag is off. Absent is a normal shape: production traffic carries none.
+func E2ERunID(c *gin.Context) string {
+	value, _ := c.Get(runIDKey)
+	runID, _ := value.(string)
+	return runID
 }
 
 // IsE2ESource reports whether the row this request creates carries E2ESourceTag.

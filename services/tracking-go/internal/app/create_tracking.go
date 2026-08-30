@@ -64,6 +64,13 @@ type CreateTrackingInput struct {
 	// E2E_TESTING_ENABLED. The middleware evaluates both, so this use case cannot
 	// tag a row on the header alone.
 	E2ESource bool
+	// E2ERunTag is the "E2E Run <id>" tag, or "" when the request carried no
+	// valid run id. Already validated and gated by the middleware, exactly like
+	// E2ESource — this use case never sees a raw header value.
+	//
+	// It rides ALONGSIDE E2ESourceTag rather than replacing it so the unscoped
+	// teardown keeps working unchanged; the scoped one requires both.
+	E2ERunTag string
 }
 
 // CreateTracking is the only path that brings a tracking into existence.
@@ -115,9 +122,15 @@ func (uc *CreateTracking) Execute(ctx context.Context, in CreateTrackingInput) (
 			domain.ErrTrackingAlreadyExists, in.OrderID)
 	}
 
+	// The run tag is only ever added NEXT TO the source tag, never on its own: a
+	// row carrying a run tag but not E2ESourceTag would be invisible to the
+	// unscoped teardown and outlive every run.
 	var tags []string
 	if in.E2ESource {
 		tags = []string{domain.E2ESourceTag}
+		if in.E2ERunTag != "" {
+			tags = append(tags, in.E2ERunTag)
+		}
 	}
 
 	// ONE now for both rows. Two time.Now() calls can straddle a second boundary,

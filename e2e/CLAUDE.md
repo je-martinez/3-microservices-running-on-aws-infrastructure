@@ -73,6 +73,17 @@ turns on them:
   `E2E_TESTING_ENABLED`. On the OTP path it rides Cognito's `ClientMetadata` —
   the only caller-controlled field Cognito forwards to a trigger verbatim, and
   the same seam `traceparent` already uses.
+- **Run-id scoping on teardown (Tracking only).** Rows the harness creates can
+  carry a second tag, `"E2E Run <run_id>"`, so `DELETE /v1/trackings/e2e-cleanup`
+  can require BOTH `"E2E Source"` and that run tag instead of sweeping every
+  E2E-tagged row globally. `support/global-teardown.ts` passes
+  `?run_id=<E2E_RUN_ID>` when the id is present and valid; without one (an
+  internal-only run, or manual teardown) the call stays unscoped and deletes
+  everything tagged `"E2E Source"`, exactly as before. That fallback matters for
+  load tests and ad-hoc cleanup. Orders and Users teardown stay unscoped — they
+  have no in-process progression that dies when another run's sweep deletes a
+  row mid-flight (Tracking's TestMode goroutine does, which is why only Tracking
+  needed this).
 
 **Load simulations send neither**, deliberately:
 - Load data is meant to persist like real data, so it is **not** cleaned up —

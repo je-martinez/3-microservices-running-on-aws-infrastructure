@@ -18,6 +18,9 @@ import (
 // real user created is untagged and therefore untouchable here.
 type TagSoftDeleter interface {
 	SoftDeleteByTag(ctx context.Context, tag string, actor audit.Actor, now time.Time) (int64, error)
+	// SoftDeleteByTags requires BOTH tags. An empty secondTag means "no scope"
+	// and must behave exactly like SoftDeleteByTag.
+	SoftDeleteByTags(ctx context.Context, tag, secondTag string, actor audit.Actor, now time.Time) (int64, error)
 }
 
 // E2ECleanup is the E2E suite's teardown.
@@ -45,5 +48,21 @@ func NewE2ECleanup(deleter TagSoftDeleter, clock func() time.Time) *E2ECleanup {
 // count travels to the client so a teardown that quietly matched nothing is
 // visible in the harness's own output rather than only in this service's logs.
 func (uc *E2ECleanup) Execute(ctx context.Context) (int64, error) {
-	return uc.deleter.SoftDeleteByTag(ctx, domain.E2ESourceTag, audit.E2ECleanup, uc.clock())
+	return uc.ExecuteScoped(ctx, "")
+}
+
+// ExecuteScoped soft-deletes the E2E rows belonging to ONE run.
+//
+// An empty runTag deletes every E2E row, which is Execute's behaviour and the
+// contract the load tests and manual teardown rely on.
+//
+// Scoping exists because the unscoped sweep is destructive to CONCURRENT work,
+// not because the rows are precious: it deletes every E2E-tagged tracking on the
+// machine, so with parallel or overlapping suite runs one teardown lands inside
+// another run's live TestMode progression. That progression's next tick reads
+// tracking_not_found and aborts, and its remaining statuses are never published
+// — the events never exist, which is why the resulting failure looks like a lost
+// message rather than a deleted row.
+func (uc *E2ECleanup) ExecuteScoped(ctx context.Context, runTag string) (int64, error) {
+	return uc.deleter.SoftDeleteByTags(ctx, domain.E2ESourceTag, runTag, audit.E2ECleanup, uc.clock())
 }
