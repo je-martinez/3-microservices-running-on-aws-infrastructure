@@ -246,8 +246,45 @@ infra-plan: ## terraform plan (environments/local)
 	$(TF) plan
 
 infra-up: scripts-setup ## terraform apply -auto-approve (environments/local), then refresh .env
-	$(TF) apply -auto-approve
+	@# RETRIED ONCE THROUGH `infra-reconcile`, because a bare apply is brittle here
+	@# in a way it would not be against real AWS. The state lives in a bucket
+	@# INSIDE Floci, so anything that restarts or half-destroys the emulator
+	@# leaves state and reality disagreeing, in BOTH directions:
+	@#
+	@#   state has it, Floci does not -> "NotFoundException: Invalid API id"
+	@#   Floci has it, state does not -> "EntityAlreadyExists" / "ResourceAlreadyExists"
+	@#
+	@# Both were hit in one session. A plain `apply` reports the error and stops,
+	@# so `make bootstrap` fails with a message that names a resource rather than
+	@# the actual problem, and the reader is left hand-editing state — which is
+	@# how the second failure mode gets created from the first.
+	@#
+	@# The retry is bounded and it is NOT a loop: one apply, and if it fails,
+	@# reconcile the two directions and apply once more. A second failure is a
+	@# real error and is reported as one.
+	@$(TF) apply -auto-approve || $(MAKE) infra-reconcile
 	$(MAKE) env-file
+
+.PHONY: infra-reconcile
+infra-reconcile: ## Re-sync Terraform state with what Floci actually has, then apply again
+	@echo ""
+	@echo "  apply failed — reconciling Terraform state with Floci, then retrying once."
+	@echo "  (state lives in a bucket inside Floci, so an emulator restart desyncs them)"
+	@echo ""
+	@# `-refresh-only` asks Terraform to reread every resource and drop the ones
+	@# that no longer exist. It fixes the "state has it, Floci does not" direction
+	@# without a single manual `state rm`, which is the step that goes wrong when
+	@# done by hand: removing a resource that DOES exist creates the opposite
+	@# failure on the next apply.
+	@$(TF) apply -refresh-only -auto-approve 2>/dev/null || true
+	@# The other direction — Floci holds an IAM role or log group that the state
+	@# has forgotten — cannot be fixed by refreshing, because there is nothing in
+	@# state to refresh. `import` would need one line per resource and a name for
+	@# each. Applying again after the refresh resolves the common case; if it
+	@# still fails, the state is far enough gone that `make clean && make
+	@# bootstrap` is both faster and more certain than surgery, and the message
+	@# says so instead of leaving the reader guessing.
+	@$(TF) apply -auto-approve || { 		echo ""; 		echo "  RECONCILE FAILED. Terraform state and Floci disagree in a way a refresh"; 		echo "  cannot repair — usually Floci holds a resource the state has forgotten"; 		echo "  (EntityAlreadyExists / ResourceAlreadyExists above)."; 		echo ""; 		echo "  Do NOT hand-edit the state: removing an entry for a resource that DOES"; 		echo "  exist produces the opposite error on the next run. Run:"; 		echo ""; 		echo "      make clean && make bootstrap"; 		echo ""; 		exit 1; 	}
 
 infra-down: ## terraform destroy -auto-approve (environments/local)
 	$(TF) destroy -auto-approve
@@ -631,26 +668,39 @@ clean: ## Tear down infra + compose, including the emulator state volume
 	@# Runs AFTER `down -v` so the declared volumes are already gone and this only
 	@# catches the leftovers. `|| true`: an empty list is the healthy case, and a
 	@# volume still held by a container from another project must not fail clean.
-	@# BOUNDED, and the bound is the point. `-` already ignores a FAILED
-	@# destroy, but it does nothing about one that never returns — and this one
-	@# hangs reproducibly: twice in one session it sat on
-	@# `aws_cloudwatch_log_group.this` for the events Lambda, 26 minutes the
-	@# first time and still going at 8 the second. Floci simply stops answering
-	@# that delete.
+	@# NO `terraform destroy` HERE, DELIBERATELY. It was the single largest source
+	@# of trouble in this target, and it was never necessary.
 	@#
-	@# Unbounded, that hang takes the WHOLE target with it: every sweep below
-	@# — compose volumes, Floci volumes, images, build cache — is left
-	@# unexecuted, so `clean` silently does less than `docker compose down`
-	@# would have. Losing Terraform's own bookkeeping is survivable because the
-	@# state volume dies with `down -v` two lines down; losing the sweeps is
-	@# what leaves the disk full.
+	@# Every resource Terraform manages locally IS a Docker container or volume
+	@# inside Floci, and the state describing them lives in a bucket inside Floci
+	@# too. Removing the containers and volumes therefore destroys the resources
+	@# AND the state in the same stroke — there is nothing left on either side to
+	@# disagree, which is exactly what a teardown wants.
 	@#
-	@# Shell watchdog rather than `timeout`, which is GNU coreutils and absent
-	@# on stock macOS.
-	@-@sh -c '$(TF) destroy -auto-approve & P=$$!; \
-		( sleep 240; kill -TERM $$P 2>/dev/null && \
-		  echo "  clean: terraform destroy exceeded 240s — killed; the sweeps below still run" ) & W=$$!; \
-		wait $$P 2>/dev/null; kill $$W 2>/dev/null' || true
+	@# What destroy actually bought was three problems:
+	@#   - it HANGS: 26 minutes on one CloudWatch log group in one session, and
+	@#     still going at 8 in another, because Floci stops answering that delete;
+	@#   - killing the hang leaves state HALF-DESTROYED, which is what produced
+	@#     "NotFoundException: Invalid API id" on the next bootstrap;
+	@#   - hand-repairing that state produced the OPPOSITE failure
+	@#     ("EntityAlreadyExists"), because entries were removed for resources that
+	@#     did still exist.
+	@#
+	@# All three vanish when the teardown is done at the Docker layer, which also
+	@# takes seconds instead of minutes and cannot partially succeed.
+	@#
+	@# The one piece of state that does NOT live inside Floci is the bootstrap
+	@# backend (infra/environments/local/backend/*.tfstate, 4 resources: the bucket
+	@# and lock table that hold everything else). It has to go too, or the next
+	@# bootstrap reads a state describing a bucket that no longer exists.
+	@echo "Removing the bootstrap backend state (it describes a bucket that dies with Floci)…"
+	@rm -f infra/environments/local/backend/terraform.tfstate \
+		infra/environments/local/backend/terraform.tfstate.backup 2>/dev/null || true
+	@# The cached backend CONFIG (0 resources — just which bucket to talk to) has
+	@# to go with it, or `terraform init` reuses a pointer to the dead bucket and
+	@# `bootstrap` fails before it reaches the reconcile path.
+	@rm -rf infra/environments/local/.terraform \
+		infra/environments/local/post/.terraform 2>/dev/null || true
 	$(COMPOSE) --profile observability --profile preview down -v --remove-orphans
 	@echo "Removing compose volumes this project still owns but no longer declares…"
 	@docker volume ls -q --filter label=com.docker.compose.project=3mrai \
