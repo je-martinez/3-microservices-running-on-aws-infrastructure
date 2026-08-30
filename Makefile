@@ -631,7 +631,26 @@ clean: ## Tear down infra + compose, including the emulator state volume
 	@# Runs AFTER `down -v` so the declared volumes are already gone and this only
 	@# catches the leftovers. `|| true`: an empty list is the healthy case, and a
 	@# volume still held by a container from another project must not fail clean.
-	-$(TF) destroy -auto-approve
+	@# BOUNDED, and the bound is the point. `-` already ignores a FAILED
+	@# destroy, but it does nothing about one that never returns — and this one
+	@# hangs reproducibly: twice in one session it sat on
+	@# `aws_cloudwatch_log_group.this` for the events Lambda, 26 minutes the
+	@# first time and still going at 8 the second. Floci simply stops answering
+	@# that delete.
+	@#
+	@# Unbounded, that hang takes the WHOLE target with it: every sweep below
+	@# — compose volumes, Floci volumes, images, build cache — is left
+	@# unexecuted, so `clean` silently does less than `docker compose down`
+	@# would have. Losing Terraform's own bookkeeping is survivable because the
+	@# state volume dies with `down -v` two lines down; losing the sweeps is
+	@# what leaves the disk full.
+	@#
+	@# Shell watchdog rather than `timeout`, which is GNU coreutils and absent
+	@# on stock macOS.
+	@-@sh -c '$(TF) destroy -auto-approve & P=$$!; \
+		( sleep 240; kill -TERM $$P 2>/dev/null && \
+		  echo "  clean: terraform destroy exceeded 240s — killed; the sweeps below still run" ) & W=$$!; \
+		wait $$P 2>/dev/null; kill $$W 2>/dev/null' || true
 	$(COMPOSE) --profile observability --profile preview down -v --remove-orphans
 	@echo "Removing compose volumes this project still owns but no longer declares…"
 	@docker volume ls -q --filter label=com.docker.compose.project=3mrai \
