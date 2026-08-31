@@ -288,10 +288,10 @@ def extract_blocks(lines: list[str], lang: str) -> tuple[list[CommentBlock], int
             else:
                 current_lines.append(line)
         else:
-            if line.strip() == "" and current_start is not None:
-                current_lines.append(line)
-            else:
-                flush(idx - 1)
+            # A blank line ends the block. Two comments separated by one — the
+            # normal shape of consecutive godoc/docstring headers — are two
+            # blocks, not one long one, and are counted separately.
+            flush(idx - 1)
 
     flush(len(lines))
     return blocks, comment_line_count

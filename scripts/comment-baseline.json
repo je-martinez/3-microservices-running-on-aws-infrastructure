@@ -26,13 +26,14 @@
     ],
     "e2e/load-tests/src/scenarios/account-deletion.ts": [
       "L4: length: block 36 lines exceeds hard max 12; move narrative to the vault",
-      "L44: length: block 39 lines exceeds hard max 12; move narrative to the vault",
+      "L44: length: block 24 lines exceeds hard max 12; move narrative to the vault",
+      "L69: length: block 14 lines exceeds hard max 12; move narrative to the vault",
       "L90: length: block 13 lines exceeds hard max 12; move narrative to the vault",
       "L110: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "density: 77% (95/123) exceeds 50% for typescript"
     ],
     "e2e/load-tests/src/scenarios/auth-codes.ts": [
-      "L5: length: block 24 lines exceeds hard max 12; move narrative to the vault",
+      "L5: length: block 22 lines exceeds hard max 12; move narrative to the vault",
       "L50: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L65: length: block 11 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
@@ -59,14 +60,15 @@
       "L49: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "e2e/load-tests/src/scenarios/users.ts": [
-      "L15: length: block 19 lines exceeds hard max 12; move narrative to the vault",
+      "L15: length: block 11 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
+      "L27: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L63: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L94: length: block 32 lines exceeds hard max 12; move narrative to the vault",
       "L132: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L153: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "e2e/load-tests/src/support/config.ts": [
-      "L6: length: block 9 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
+      "L6: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L36: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L58: length: block 19 lines exceeds hard max 12; move narrative to the vault",
       "L84: length: block 15 lines exceeds hard max 12; move narrative to the vault",
@@ -113,7 +115,8 @@
       "L107: length: block 9 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "e2e/support/email-catalog-render.ts": [
-      "L1: length: block 70 lines exceeds hard max 12; move narrative to the vault",
+      "L1: length: block 44 lines exceeds hard max 12; move narrative to the vault",
+      "L46: length: block 25 lines exceeds hard max 12; move narrative to the vault",
       "L90: length: block 10 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L114: length: block 20 lines exceeds hard max 12; move narrative to the vault",
       "L150: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
@@ -129,7 +132,7 @@
       "L117: length: block 11 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "e2e/support/events-queue-depth.ts": [
-      "L1: length: block 35 lines exceeds hard max 12; move narrative to the vault",
+      "L1: length: block 30 lines exceeds hard max 12; move narrative to the vault",
       "L38: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L72: length: block 13 lines exceeds hard max 12; move narrative to the vault",
       "density: 67% (57/85) exceeds 50% for typescript"
@@ -152,7 +155,7 @@
       "L62: length: block 12 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "e2e/support/mailpit-client.ts": [
-      "L1: length: block 23 lines exceeds hard max 12; move narrative to the vault",
+      "L1: length: block 16 lines exceeds hard max 12; move narrative to the vault",
       "L53: length: block 25 lines exceeds hard max 12; move narrative to the vault",
       "L118: length: block 9 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L174: length: block 9 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
@@ -171,7 +174,7 @@
       "density: 73% (59/81) exceeds 50% for typescript"
     ],
     "e2e/support/restock-catalogue.ts": [
-      "L1: length: block 25 lines exceeds hard max 12; move narrative to the vault",
+      "L1: length: block 23 lines exceeds hard max 12; move narrative to the vault",
       "L35: length: block 17 lines exceeds hard max 12; move narrative to the vault"
     ],
     "e2e/support/traces-client.ts": [
@@ -196,7 +199,7 @@
       "L1: length: block 17 lines exceeds hard max 12; move narrative to the vault"
     ],
     "e2e/support/tracking-readiness.ts": [
-      "L3: length: block 54 lines exceeds hard max 12; move narrative to the vault",
+      "L3: length: block 49 lines exceeds hard max 12; move narrative to the vault",
       "L63: length: block 27 lines exceeds hard max 12; move narrative to the vault",
       "L97: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L107: length: block 14 lines exceeds hard max 12; move narrative to the vault",
@@ -213,12 +216,11 @@
       "L270: length: block 13 lines exceeds hard max 12; move narrative to the vault"
     ],
     "e2e/tests/cache.spec.ts": [
-      "L21: length: block 38 lines exceeds hard max 12; move narrative to the vault",
-      "L99: length: block 20 lines exceeds hard max 12; move narrative to the vault",
-      "L364: length: block 14 lines exceeds hard max 12; move narrative to the vault",
+      "L21: length: block 35 lines exceeds hard max 12; move narrative to the vault",
+      "L101: length: block 18 lines exceeds hard max 12; move narrative to the vault",
+      "L366: length: block 12 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L397: length: block 20 lines exceeds hard max 12; move narrative to the vault",
       "L457: length: block 19 lines exceeds hard max 12; move narrative to the vault",
-      "L654: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L684: length: block 23 lines exceeds hard max 12; move narrative to the vault"
     ],
     "e2e/tests/cart.spec.ts": [
@@ -250,7 +252,7 @@
       "L5: length: block 12 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "e2e/tests/gateway/delivered-emails.spec.ts": [
-      "L13: length: block 47 lines exceeds hard max 12; move narrative to the vault",
+      "L13: length: block 44 lines exceeds hard max 12; move narrative to the vault",
       "L81: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L127: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L179: length: block 12 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
@@ -260,13 +262,13 @@
       "L142: length: block 10 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "e2e/tests/gateway/otp-flow.spec.ts": [
-      "L11: length: block 24 lines exceeds hard max 12; move narrative to the vault",
+      "L11: length: block 18 lines exceeds hard max 12; move narrative to the vault",
       "L43: length: block 10 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L146: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L213: length: block 12 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "e2e/tests/gateway/password-reset-flow.spec.ts": [
-      "L7: length: block 18 lines exceeds hard max 12; move narrative to the vault"
+      "L7: length: block 15 lines exceeds hard max 12; move narrative to the vault"
     ],
     "e2e/tests/gateway/realtime-tracking.spec.ts": [
       "L7: length: block 9 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
@@ -275,7 +277,8 @@
       "L107: length: block 10 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "e2e/tests/gateway/tracking-flow.spec.ts": [
-      "L16: length: block 25 lines exceeds hard max 12; move narrative to the vault",
+      "L16: length: block 17 lines exceeds hard max 12; move narrative to the vault",
+      "L34: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L81: length: block 14 lines exceeds hard max 12; move narrative to the vault",
       "L126: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L176: length: block 22 lines exceeds hard max 12; move narrative to the vault",
@@ -287,7 +290,7 @@
       "L453: length: block 18 lines exceeds hard max 12; move narrative to the vault"
     ],
     "e2e/tests/gateway/tracking.spec.ts": [
-      "L6: length: block 16 lines exceeds hard max 12; move narrative to the vault",
+      "L6: length: block 12 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L110: length: block 12 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "e2e/tests/observability/create-order-trace.spec.ts": [
@@ -299,7 +302,8 @@
     "e2e/tests/observability/dashboards.spec.ts": [
       "L1: length: block 90 lines exceeds hard max 12; move narrative to the vault",
       "L109: length: block 12 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
-      "L124: length: block 48 lines exceeds hard max 12; move narrative to the vault",
+      "L124: length: block 39 lines exceeds hard max 12; move narrative to the vault",
+      "L164: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L221: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L230: length: block 12 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L300: length: block 13 lines exceeds hard max 12; move narrative to the vault",
@@ -318,10 +322,10 @@
       "L21: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "e2e/tests/password-reset.spec.ts": [
-      "L6: length: block 15 lines exceeds hard max 12; move narrative to the vault"
+      "L6: length: block 11 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "e2e/tests/tracking.spec.ts": [
-      "L6: length: block 44 lines exceeds hard max 12; move narrative to the vault",
+      "L6: length: block 42 lines exceeds hard max 12; move narrative to the vault",
       "L77: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L90: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
@@ -329,20 +333,20 @@
       "L65: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "functions/events-pipeline/emails/assets.ts": [
-      "L1: length: block 86 lines exceeds hard max 12; move narrative to the vault",
+      "L1: length: block 80 lines exceeds hard max 12; move narrative to the vault",
       "L124: length: block 45 lines exceeds hard max 12; move narrative to the vault",
       "L174: length: block 13 lines exceeds hard max 12; move narrative to the vault",
       "L189: length: block 22 lines exceeds hard max 12; move narrative to the vault",
       "L214: length: block 16 lines exceeds hard max 12; move narrative to the vault",
-      "L232: length: block 20 lines exceeds hard max 12; move narrative to the vault",
+      "L239: length: block 13 lines exceeds hard max 12; move narrative to the vault",
       "density: 84% (216/257) exceeds 50% for typescript"
     ],
     "functions/events-pipeline/emails/auth-otp.tsx": [
-      "L21: length: block 44 lines exceeds hard max 12; move narrative to the vault",
+      "L21: length: block 40 lines exceeds hard max 12; move narrative to the vault",
       "L67: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "functions/events-pipeline/emails/components/brand.tsx": [
-      "L5: length: block 28 lines exceeds hard max 12; move narrative to the vault"
+      "L5: length: block 21 lines exceeds hard max 12; move narrative to the vault"
     ],
     "functions/events-pipeline/emails/components/button.tsx": [
       "L5: length: block 18 lines exceeds hard max 12; move narrative to the vault"
@@ -354,25 +358,25 @@
       "L1: length: block 17 lines exceeds hard max 12; move narrative to the vault"
     ],
     "functions/events-pipeline/emails/components/layout.tsx": [
-      "L6: length: block 19 lines exceeds hard max 12; move narrative to the vault",
+      "L6: length: block 17 lines exceeds hard max 12; move narrative to the vault",
       "L35: length: block 16 lines exceeds hard max 12; move narrative to the vault",
       "L52: length: block 9 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "functions/events-pipeline/emails/forgot-password.tsx": [
-      "L24: length: block 51 lines exceeds hard max 12; move narrative to the vault",
+      "L24: length: block 47 lines exceeds hard max 12; move narrative to the vault",
       "L77: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "functions/events-pipeline/emails/order-created.tsx": [
-      "L8: length: block 14 lines exceeds hard max 12; move narrative to the vault",
+      "L8: length: block 9 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L28: length: block 9 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
-      "L58: length: block 28 lines exceeds hard max 12; move narrative to the vault",
+      "L58: length: block 23 lines exceeds hard max 12; move narrative to the vault",
       "L101: length: block 9 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "functions/events-pipeline/emails/theme.ts": [
       "L1: length: block 12 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "functions/events-pipeline/emails/tracking-status-changed.tsx": [
-      "L9: length: block 49 lines exceeds hard max 12; move narrative to the vault",
+      "L9: length: block 44 lines exceeds hard max 12; move narrative to the vault",
       "L98: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L172: length: block 10 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L215: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
@@ -435,7 +439,8 @@
     ],
     "functions/events-pipeline/src/handler.ts": [
       "L39: length: block 9 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
-      "L76: length: block 25 lines exceeds hard max 12; move narrative to the vault",
+      "L76: length: block 11 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
+      "L88: length: block 13 lines exceeds hard max 12; move narrative to the vault",
       "L130: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L140: length: block 10 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L159: length: block 27 lines exceeds hard max 12; move narrative to the vault",
@@ -790,8 +795,7 @@
       "L30: length: block 10 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "infra/modules/assets-bucket/main.tf": [
-      "L1: length: block 19 lines exceeds hard max 12; move narrative to the vault",
-      "L31: length: block 9 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
+      "L1: length: block 19 lines exceeds hard max 12; move narrative to the vault"
     ],
     "infra/modules/assets-bucket/scripts/sync_assets.py": [
       "L1: length: block 31 lines exceeds hard max 12; move narrative to the vault",
@@ -1302,7 +1306,7 @@
     ],
     "services/orders/tests/Orders.Tests/Api/InternalDeleteByUserTests.cs": [
       "L165: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
-      "L287: length: block 18 lines exceeds hard max 12; move narrative to the vault"
+      "L287: length: block 16 lines exceeds hard max 12; move narrative to the vault"
     ],
     "services/orders/tests/Orders.Tests/Api/OrderCacheTests.cs": [
       "L35: length: block 9 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
@@ -1402,7 +1406,7 @@
       "L99: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "services/tracking-go/cmd/server/db_tracing_test.go": [
-      "L23: length: block 18 lines exceeds hard max 12; move narrative to the vault",
+      "L23: length: block 16 lines exceeds hard max 12; move narrative to the vault",
       "L60: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L147: length: block 21 lines exceeds hard max 12; move narrative to the vault",
       "L202: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
@@ -1411,14 +1415,15 @@
       "L348: length: block 16 lines exceeds hard max 12; move narrative to the vault"
     ],
     "services/tracking-go/cmd/server/driver_logging.go": [
-      "L12: length: block 66 lines exceeds hard max 12; move narrative to the vault",
+      "L12: length: block 58 lines exceeds hard max 12; move narrative to the vault",
+      "L71: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L80: length: block 10 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L92: length: block 14 lines exceeds hard max 12; move narrative to the vault",
       "L119: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "density: 77% (102/133) exceeds 50% for go"
     ],
     "services/tracking-go/cmd/server/driver_logging_test.go": [
-      "L13: length: block 12 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
+      "L13: length: block 10 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L43: length: block 9 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L82: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L170: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
@@ -1459,18 +1464,17 @@
       "density: 53% (331/625) exceeds 50% for go"
     ],
     "services/tracking-go/cmd/server/main_test.go": [
-      "L15: length: block 13 lines exceeds hard max 12; move narrative to the vault",
       "L86: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "services/tracking-go/cmd/server/metrics_wiring.go": [
       "L8: length: block 30 lines exceeds hard max 12; move narrative to the vault"
     ],
     "services/tracking-go/cmd/server/metrics_wiring_test.go": [
-      "L11: length: block 34 lines exceeds hard max 12; move narrative to the vault",
+      "L11: length: block 27 lines exceeds hard max 12; move narrative to the vault",
       "L81: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "services/tracking-go/cmd/server/wiring_reachability_test.go": [
-      "L17: length: block 91 lines exceeds hard max 12; move narrative to the vault",
+      "L17: length: block 85 lines exceeds hard max 12; move narrative to the vault",
       "L131: length: block 17 lines exceeds hard max 12; move narrative to the vault",
       "L294: length: block 19 lines exceeds hard max 12; move narrative to the vault",
       "L316: length: block 11 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
@@ -1518,7 +1522,6 @@
       "density: 55% (80/145) exceeds 50% for go"
     ],
     "services/tracking-go/internal/adapter/http/errors.go": [
-      "L3: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L21: length: block 12 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "services/tracking-go/internal/adapter/http/flags.go": [
@@ -1596,17 +1599,16 @@
     ],
     "services/tracking-go/internal/adapter/http/stamp_user_id_test.go": [
       "L26: length: block 9 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
-      "L288: length: block 11 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
+      "L290: length: block 9 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L332: length: block 10 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
-      "L620: length: block 10 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
+      "L622: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "services/tracking-go/internal/adapter/http/tracing_middleware_test.go": [
-      "L25: length: block 40 lines exceeds hard max 12; move narrative to the vault",
-      "L141: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
+      "L25: length: block 20 lines exceeds hard max 12; move narrative to the vault",
+      "L46: length: block 19 lines exceeds hard max 12; move narrative to the vault",
       "L178: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
-      "L298: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
-      "L346: length: block 13 lines exceeds hard max 12; move narrative to the vault",
-      "L454: length: block 20 lines exceeds hard max 12; move narrative to the vault",
+      "L348: length: block 11 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
+      "L456: length: block 18 lines exceeds hard max 12; move narrative to the vault",
       "L475: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "services/tracking-go/internal/adapter/http/wire_app.go": [
@@ -1617,19 +1619,18 @@
       "density: 59% (162/275) exceeds 50% for go"
     ],
     "services/tracking-go/internal/adapter/http/wire_app_test.go": [
-      "L24: length: block 15 lines exceeds hard max 12; move narrative to the vault",
-      "L87: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
+      "L31: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L115: length: block 9 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L148: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
-      "L188: length: block 26 lines exceeds hard max 12; move narrative to the vault",
+      "L190: length: block 24 lines exceeds hard max 12; move narrative to the vault",
       "L271: length: block 13 lines exceeds hard max 12; move narrative to the vault",
-      "L322: length: block 15 lines exceeds hard max 12; move narrative to the vault"
+      "L324: length: block 13 lines exceeds hard max 12; move narrative to the vault"
     ],
     "services/tracking-go/internal/adapter/http/wire_reads.go": [
       "L14: length: block 14 lines exceeds hard max 12; move narrative to the vault"
     ],
     "services/tracking-go/internal/adapter/http/wire_tracer_test.go": [
-      "L18: length: block 23 lines exceeds hard max 12; move narrative to the vault",
+      "L18: length: block 18 lines exceeds hard max 12; move narrative to the vault",
       "L47: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L83: length: block 9 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L139: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
@@ -1652,7 +1653,8 @@
       "L229: length: block 11 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "services/tracking-go/internal/adapter/mysql/dbgate_test.go": [
-      "L10: length: block 98 lines exceeds hard max 12; move narrative to the vault",
+      "L10: length: block 86 lines exceeds hard max 12; move narrative to the vault",
+      "L97: length: block 11 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L114: length: block 10 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L168: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "density: 54% (123/229) exceeds 50% for go"
@@ -1678,8 +1680,7 @@
     ],
     "services/tracking-go/internal/adapter/mysql/read_scoped_test.go": [
       "L20: length: block 16 lines exceeds hard max 12; move narrative to the vault",
-      "L39: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
-      "L107: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
+      "L39: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "services/tracking-go/internal/adapter/mysql/soft_delete.go": [
       "L13: length: block 9 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
@@ -1711,18 +1712,18 @@
       "L222: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "services/tracking-go/internal/adapter/mysql/update_status_test.go": [
-      "L15: length: block 15 lines exceeds hard max 12; move narrative to the vault"
+      "L15: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "services/tracking-go/internal/adapter/notify/status_changed.go": [
       "L1: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
-      "L21: length: block 14 lines exceeds hard max 12; move narrative to the vault",
+      "L21: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L77: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "services/tracking-go/internal/adapter/otel/loghandler.go": [
       "L10: length: block 21 lines exceeds hard max 12; move narrative to the vault"
     ],
     "services/tracking-go/internal/adapter/otel/propagation_test.go": [
-      "L15: length: block 26 lines exceeds hard max 12; move narrative to the vault"
+      "L15: length: block 19 lines exceeds hard max 12; move narrative to the vault"
     ],
     "services/tracking-go/internal/adapter/otel/provider.go": [
       "L1: length: block 19 lines exceeds hard max 12; move narrative to the vault",
@@ -1852,10 +1853,11 @@
     "services/tracking-go/internal/domain/id.go": [
       "L13: length: block 15 lines exceeds hard max 12; move narrative to the vault",
       "L78: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
-      "L90: length: block 13 lines exceeds hard max 12; move narrative to the vault"
+      "L92: length: block 11 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
     "services/tracking-go/internal/domain/purity_test.go": [
-      "L14: length: block 100 lines exceeds hard max 12; move narrative to the vault",
+      "L14: length: block 92 lines exceeds hard max 12; move narrative to the vault",
+      "L107: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L123: length: block 10 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L153: length: block 9 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L205: length: block 10 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
@@ -1876,7 +1878,6 @@
       "L57: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L79: length: block 9 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L112: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
-      "L135: length: block 10 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L135: tag: 'NOTE:' is not in the closed set (CONTRACT, WORKAROUND(<scope>), WHY, WARNING, TODO(JE-<id>))",
       "L182: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L193: length: block 17 lines exceeds hard max 12; move narrative to the vault",
@@ -1890,7 +1891,7 @@
       "L3: length: block 18 lines exceeds hard max 12; move narrative to the vault"
     ],
     "services/tracking-go/internal/openapi/schemas.go": [
-      "L3: length: block 32 lines exceeds hard max 12; move narrative to the vault"
+      "L3: length: block 30 lines exceeds hard max 12; move narrative to the vault"
     ],
     "services/tracking-go/internal/openapi/spec.go": [
       "L70: length: block 27 lines exceeds hard max 12; move narrative to the vault",
@@ -1930,7 +1931,7 @@
       "L7: length: block 14 lines exceeds hard max 12; move narrative to the vault"
     ],
     "services/tracking-go/internal/platform/logging/production_path_test.go": [
-      "L14: length: block 14 lines exceeds hard max 12; move narrative to the vault",
+      "L14: length: block 12 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L65: length: block 10 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L126: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
     ],
@@ -2254,14 +2255,11 @@
       "L169: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):",
       "L290: length: block 13 lines exceeds hard max 12; move narrative to the vault"
     ],
-    "services/users/tests/shared/db/sql-logging.test.ts": [
-      "L4: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-    ],
     "services/users/tests/shared/di/metrics-registrations.test.ts": [
       "L1: length: block 17 lines exceeds hard max 12; move narrative to the vault"
     ],
     "services/users/tests/shared/grpc/api-key-interceptor.trace-context.test.ts": [
-      "L16: length: block 23 lines exceeds hard max 12; move narrative to the vault",
+      "L16: length: block 18 lines exceeds hard max 12; move narrative to the vault",
       "L23: stale-term: 'jaeger' was decommissioned 2026-08-21; use OpenObserve (:5080) \u2014 See [[logging-context]]"
     ],
     "services/users/tests/shared/logger.test.ts": [
