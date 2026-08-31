@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-08-27
-updated: 2026-08-27
+updated: 2026-08-31
 tags:
   - type/convention
   - area/shared
@@ -41,8 +41,8 @@ Much of that infra prose duplicates vault notes that already exist
 [[floci-elasticache-two-ports-and-provider-panic]]) — the comment restates the whole story
 instead of pointing at it.
 
-Length is not the only axis: beyond block size, 98 comment lines narrate debugging history
-and 38 still name the removed Jaeger. That axis is governed by "State, not history" below.
+Length is not the only axis: beyond block size, 63 comment lines carry narrative markers
+and 30 still name the removed Jaeger. That axis is governed by "State, not history" below.
 
 ## Scope
 
@@ -155,10 +155,9 @@ This axis is narrative accumulation, **not line count**: a 3-line comment can be
 12-line comment can be a clean description. It is independent of the Length rule above.
 
 > Rationale: accumulated history rots without any compiler or linter feedback. Measured in this
-> repo: 98 comment lines carry narrative markers (functions 28, orders 27, users 25, e2e 10,
-> infra 8), and **38 comments still name Jaeger**, which was removed on 2026-08-21 and no
-> longer runs anywhere in the stack. The history did not merely add noise — it went stale and
-> now misinforms every reader, human or agent.
+> repo: 63 comment lines carry narrative markers, and **30 comments still name Jaeger**, which
+> was removed on 2026-08-21 and no longer runs anywhere in the stack. The history did not
+> merely add noise — it went stale and now misinforms every reader, human or agent.
 
 What stays in code versus what moves to a vault note:
 
@@ -325,24 +324,25 @@ TypeScript (`WHY:` needs no reference; `CONTRACT:` requires one):
 ## Enforcement
 
 `scripts/validate-comments.py` (Python, per [[scripting-language]]), with a
-**baseline/ratchet**: existing violations are frozen in `scripts/comment-baseline.json`, CI
-fails only on NEW violations, and the baseline shrinks as files are touched. This is the
-standard pattern for adopting a lint rule on a legacy codebase (Betterer; Meta's automated
-debt management). A repo-wide gate without the ratchet would fail on day one, which is why the
-ratchet is mandatory.
+**baseline/ratchet**: existing violations are frozen in `scripts/comment-baseline.json`, and the
+**local gate** (Make + optional pre-commit hook) fails only on NEW violations. The baseline
+shrinks as files are touched. This is the standard pattern for adopting a lint rule on a legacy
+codebase (Betterer; Meta's automated debt management). A repo-wide gate without the ratchet would
+fail on day one, which is why the ratchet is mandatory.
 
-Calibrated to this convention, the linter reports **1,381 violations across 457 files** —
-`length` 1249, `density` 71, `stale-term` 41, `reference` 10, `tag` 10. The baseline freezes
-them, so CI reports **0 new** and exits 0. A freshly introduced 14-line block is caught as 1 new
-violation.
+Calibrated to this convention, the linter reports **1,235 violations across 421 files** —
+`length` 1069, `density` 51, `narrative-marker` 63, `reference` 12, `stale-term` 30, `tag`
+10. The baseline freezes them, so `make lint-comments` reports **0 new** and exits 0. A freshly
+introduced 14-line block is caught as 1 new violation.
 
 Narrative history is not detectable by length, so the linter carries two further checks. A
 **stale-term check** — comments naming decommissioned components, listed in
 `scripts/comment-stale-terms.json` rather than hardcoded — is an error and freezes its existing
-hits in the baseline like every other rule; it currently flags the 40 comments still naming
-Jaeger. A **narrative-marker check** (95 hits) is a warning rather than an error: it runs at
-roughly 90% precision at line level, and each hit needs a human to judge whether the sentence is
-history or a legitimate present-tense mention. `--strict-narrative` promotes it to an error.
+hits in the baseline like every other rule; it currently flags the 30 comments still naming
+Jaeger. A **narrative-marker check** (63 hits) is an error by default: it runs at roughly 90%
+precision at line level, and each hit needs a human to judge whether the sentence is history or
+a legitimate present-tense mention. `--allow-narrative` demotes it to a warning for exploratory
+runs; the pre-commit hook does not pass that flag.
 
 Judgement stays with the reviewer. The linter cannot tell whether a `CONTRACT:` really states a
 prohibition *and* a concrete failure symptom, whether a `WHY:` explains a reason or narrates the
@@ -359,7 +359,7 @@ when bypassing local verification is intentional; the repository gate remains au
 
 ## Migration
 
-**Phase 0:** land this note, the linter, the baseline, and the CI gate. No code comments
+**Phase 0:** land this note, the linter, the baseline, and the local gate. No code comments
 change; PRs simply stop adding violations.
 
 **Phase 1:** the ~10 worst files, as focused PRs — `infra/environments/local/main.tf`

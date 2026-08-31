@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """3MRAI comment-convention linter — enforces docs/shared/conventions/code-comments.md.
 
-Checks: block length, tag vocabulary, See [[vault-id]] references, stale terms
-(error), narrative markers (warning). A baseline ratchet freezes existing
+Checks: block length, tag vocabulary, See [[vault-id]] references, stale terms,
+and narrative markers. A baseline ratchet freezes existing
 violations so CI fails only on new ones.
 
 Exit: 0 no new violations, 1 new violations, 2 config/IO error.
@@ -11,6 +11,7 @@ Run `--help` for the flags; `--all --update-baseline` regenerates the baseline.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -101,12 +102,22 @@ NARRATIVE_MARKER_RE = re.compile(
 RUNTIME_NARRATIVE_WHITELIST_RE = re.compile(
     r"(?:"
     r"no\s+longer\s+exists?|"
+    r"no\s+longer\s+(?:finds?|matches?|moves?|occurs?|reaches?|resolves?|"
+    r"sees?|verif(?:y|ies)|works?)|"
+    r"(?:can|must)\s+no\s+longer|"
+    r"(?:batch\s+span|inlined\s+dependency)\s+is\s+no\s+longer|"
+    r"there\s+is\s+no\s+longer\s+a\s+single\s+parent|"
+    r"no\s+longer\s+(?:met|ours)|"
     r"account\s+no\s+longer|"
     r"product\s+no\s+longer|"
     r"user\s+no\s+longer|"
     r"caller\s+no\s+longer|"
     r"rows?\s+are\s+no\s+longer|"
     r"cloudfront\s+eventually|"
+    r"(?:would\s+eventually\s+trip|eventually\s+lands|"
+    r"hardcoded\s+address\s+eventually|somebody\s+eventually\s+mounts)|"
+    r"used\s+to\s+(?:build|distinguish|resolve|skip|tell)|"
+    r"(?:be\s+tried|tried\s+block)|"
     r"\b(?:is|be|are)\s+retried\b"
     r")",
     re.IGNORECASE,
@@ -142,6 +153,7 @@ class CommentBlock:
     has_contract_tag: bool
     has_load_bearing_tag: bool
     is_exempt: bool
+    fingerprint: str
 
 
 @dataclass
@@ -154,6 +166,8 @@ class FileReport:
     blocks: list[CommentBlock] = field(default_factory=list)
     violations: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    violation_fingerprints: dict[str, str] = field(default_factory=dict)
+    warning_fingerprints: dict[str, str] = field(default_factory=dict)
 
 
 # ─── Discovery ──────────────────────────────────────────────────────────────
@@ -179,58 +193,148 @@ def classify(path: Path) -> str | None:
 # ─── Comment scanning ───────────────────────────────────────────────────────
 
 
-def is_comment_line(line: str, lang: str, state: dict) -> bool:
-    stripped = line.strip()
-    if not stripped:
-        return state.get("in_block", False)
-
-    if lang == "hcl":
-        return stripped.startswith("#") or stripped.startswith("//")
-
-    if lang == "python":
-        if state.get("in_block"):
-            quote = state.get("quote", '"""')
-            if quote in stripped:
-                state["in_block"] = False
-                state.pop("quote", None)
-            return True
-        if stripped.startswith("#"):
-            return True
-        for quote in ('"""', "'''"):
-            if stripped.startswith(quote) or stripped.startswith(f"r{quote}"):
-                body = stripped[stripped.index(quote) + 3 :]
-                if quote not in body:
-                    state["in_block"] = True
-                    state["quote"] = quote
-                return True
-        return False
-
-    if lang in ("typescript", "csharp", "go"):
-        if state.get("in_block"):
-            if "*/" in stripped:
-                state["in_block"] = False
-            return True
-        if stripped.startswith("//"):
-            return True
-        if stripped.startswith("/*"):
-            if "*/" not in stripped:
-                state["in_block"] = True
-            return True
-        return False
-
-    return False
+PYTHON_DOCSTRING_RE = re.compile(
+    r"^(?P<prefix>r|u|b|f|br|rb|fr|rf)?(?P<quote>\"\"\"|''')",
+    re.IGNORECASE,
+)
 
 
-def strip_comment_prefix(line: str) -> str:
-    """Return the readable body of a single comment line."""
-    s = line.strip()
-    for prefix in ("///", "//", "/**", "/*", "*/", "*", "#", '"""', "'''"):
-        if s.startswith(prefix):
-            s = s[len(prefix) :].strip()
+def _scan_c_like_comment(line: str, lang: str, state: dict) -> str | None:
+    """Extract C-style comments while ignoring delimiters inside strings."""
+    bodies: list[str] = []
+    cursor = 0
+    saw_comment = False
+
+    if state.get("in_block"):
+        saw_comment = True
+        close = line.find("*/")
+        if close == -1:
+            return line.strip().lstrip("*").strip()
+        bodies.append(line[:close].strip().lstrip("*").strip())
+        state["in_block"] = False
+        cursor = close + 2
+
+    quote = state.get("string_quote")
+    escaped = False
+    while cursor < len(line):
+        if quote:
+            char = line[cursor]
+            if escaped:
+                escaped = False
+            elif char == "\\" and quote != "`":
+                escaped = True
+            elif char == quote:
+                quote = None
+            cursor += 1
+            continue
+
+        if line.startswith("//", cursor):
+            saw_comment = True
+            bodies.append(line[cursor + 2 :].strip())
             break
-    if s.endswith("*/"):
-        s = s[:-2].strip()
-    return s
+        if lang == "hcl" and line[cursor] == "#":
+            saw_comment = True
+            bodies.append(line[cursor + 1 :].strip())
+            break
+        if line.startswith("/*", cursor):
+            saw_comment = True
+            close = line.find("*/", cursor + 2)
+            if close == -1:
+                bodies.append(line[cursor + 2 :].strip())
+                state["in_block"] = True
+                break
+            bodies.append(line[cursor + 2 : close].strip())
+            cursor = close + 2
+            continue
+
+        char = line[cursor]
+        if char in ('"', "'") or (char == "`" and lang in ("typescript", "go")):
+            quote = char
+        cursor += 1
+
+    if quote == "`":
+        state["string_quote"] = quote
+    else:
+        state.pop("string_quote", None)
+    return " ".join(body for body in bodies if body) if saw_comment else None
+
+
+def _scan_python_comment(line: str, state: dict) -> str | None:
+    """Extract Python comments and leading docstrings without parsing code."""
+    if state.get("python_docstring"):
+        quote = state["python_docstring"]
+        close = line.find(quote)
+        if close == -1:
+            return line.strip()
+        state.pop("python_docstring", None)
+        return line[:close].strip()
+
+    if state.get("python_string"):
+        quote = state["python_string"]
+        close = line.find(quote)
+        if close == -1:
+            return None
+        state.pop("python_string", None)
+        line = line[close + 3 :]
+
+    stripped = line.lstrip()
+    docstring = PYTHON_DOCSTRING_RE.match(stripped)
+    if docstring:
+        quote = docstring.group("quote")
+        body = stripped[docstring.end() :]
+        close = body.find(quote)
+        if close == -1:
+            state["python_docstring"] = quote
+            return body.strip()
+        return body[:close].strip()
+
+    cursor = 0
+    quote: str | None = None
+    escaped = False
+    while cursor < len(line):
+        if quote:
+            char = line[cursor]
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            cursor += 1
+            continue
+
+        if line.startswith(('"""', "'''"), cursor):
+            triple = line[cursor : cursor + 3]
+            close = line.find(triple, cursor + 3)
+            if close == -1:
+                state["python_string"] = triple
+                return None
+            cursor = close + 3
+            continue
+        if line[cursor] == "#":
+            return line[cursor + 1 :].strip()
+        if line[cursor] in ('"', "'"):
+            quote = line[cursor]
+        cursor += 1
+    return None
+
+
+def is_comment_line(line: str, lang: str, state: dict) -> bool:
+    """Record the extracted comment body in state and report whether it exists."""
+    if lang == "python":
+        body = _scan_python_comment(line, state)
+    elif lang in ("hcl", "typescript", "csharp", "go"):
+        body = _scan_c_like_comment(line, lang, state)
+    else:
+        body = None
+    state["comment_body"] = body
+    return body is not None or state.get("in_block", False)
+
+
+def comment_fingerprint(bodies: list[str]) -> str:
+    """Return a stable short hash of normalized comment text."""
+    normalized = "\n".join(" ".join(body.split()) for body in bodies).strip()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:12]
 
 
 def block_is_exempt(bodies: list[str], raw_lines: list[str]) -> bool:
@@ -251,9 +355,10 @@ def extract_blocks(lines: list[str], lang: str) -> tuple[list[CommentBlock], int
     blocks: list[CommentBlock] = []
     current_start: int | None = None
     current_lines: list[str] = []
+    current_bodies: list[str] = []
 
     def flush(end_idx: int) -> None:
-        nonlocal current_start, current_lines
+        nonlocal current_start, current_lines, current_bodies
         if current_start is None:
             return
         # Trailing blank lines belong to neither the block nor its length.
@@ -261,8 +366,8 @@ def extract_blocks(lines: list[str], lang: str) -> tuple[list[CommentBlock], int
         while raw and raw[-1].strip() == "":
             raw.pop()
         if raw:
-            text = "\n".join(raw)
-            bodies = [strip_comment_prefix(line) for line in raw]
+            bodies = current_bodies[: len(raw)]
+            text = "\n".join(bodies)
             blocks.append(
                 CommentBlock(
                     start_line=current_start,
@@ -274,19 +379,24 @@ def extract_blocks(lines: list[str], lang: str) -> tuple[list[CommentBlock], int
                     has_contract_tag=bool(CONTRACT_TAG_RE.search(text)),
                     has_load_bearing_tag=bool(LOAD_BEARING_TAG_RE.search(text)),
                     is_exempt=block_is_exempt(bodies, raw),
+                    fingerprint=comment_fingerprint(bodies),
                 )
             )
         current_start = None
         current_lines = []
+        current_bodies = []
 
     for idx, line in enumerate(lines, start=1):
         if is_comment_line(line, lang, state):
             comment_line_count += 1
+            body = state.pop("comment_body", None) or ""
             if current_start is None:
                 current_start = idx
                 current_lines = [line]
+                current_bodies = [body]
             else:
                 current_lines.append(line)
+                current_bodies.append(body)
         else:
             # A blank line ends the block. Two comments separated by one — the
             # normal shape of consecutive godoc/docstring headers — are two
@@ -454,11 +564,21 @@ def check_narrative(block: CommentBlock) -> list[str]:
     for offset, body in enumerate(block.bodies):
         if not body:
             continue
-        if RUNTIME_NARRATIVE_WHITELIST_RE.search(body):
+        context = " ".join(block.bodies[offset : offset + 2])
+        whitelist_spans = [
+            match.span() for match in RUNTIME_NARRATIVE_WHITELIST_RE.finditer(context)
+        ]
+        matches = [
+            match
+            for match in NARRATIVE_MARKER_RE.finditer(body)
+            if not any(
+                start <= match.start() and match.end() <= end
+                for start, end in whitelist_spans
+            )
+        ]
+        if not matches:
             continue
-        match = NARRATIVE_MARKER_RE.search(body)
-        if not match:
-            continue
+        match = matches[0]
         line_no = block.start_line + offset
         warnings.append(
             f"L{line_no}: narrative-marker: '{match.group(0)}' narrates history; "
@@ -475,7 +595,7 @@ def analyze_file(
     root: Path,
     *,
     stale_terms: list[StaleTerm],
-    strict_narrative: bool = False,
+    strict_narrative: bool = True,
 ) -> FileReport | None:
     lang = classify(path)
     if lang is None:
@@ -503,24 +623,35 @@ def analyze_file(
         blocks=blocks,
     )
 
+    def record(messages: list[str], fingerprint: str, *, warning: bool = False) -> None:
+        target = report.warnings if warning else report.violations
+        fingerprints = (
+            report.warning_fingerprints if warning else report.violation_fingerprints
+        )
+        target.extend(messages)
+        for message in messages:
+            fingerprints[message] = fingerprint
+
     for block in blocks:
-        report.violations.extend(check_length(block))
-        report.violations.extend(check_tags(block))
-        report.violations.extend(check_references(block))
-        report.violations.extend(check_stale_terms(block, stale_terms))
+        record(check_length(block), block.fingerprint)
+        record(check_tags(block), block.fingerprint)
+        record(check_references(block), block.fingerprint)
+        record(check_stale_terms(block, stale_terms), block.fingerprint)
         narrative = check_narrative(block)
         if strict_narrative:
-            report.violations.extend(narrative)
+            record(narrative, block.fingerprint)
         else:
-            report.warnings.extend(narrative)
+            record(narrative, block.fingerprint, warning=True)
 
     thresholds = THRESHOLDS[lang]
     min_lines = thresholds["density_min_lines"]
     if total >= min_lines and density > thresholds["density_warn"]:
-        report.violations.append(
+        message = (
             f"density: {density:.0%} ({comment_lines}/{total}) exceeds "
             f"{thresholds['density_warn']:.0%} for {lang}"
         )
+        bodies = [body for block in blocks for body in block.bodies]
+        record([message], comment_fingerprint(bodies))
 
     return report
 
@@ -553,7 +684,7 @@ def git_changed_files(root: Path, diff_ref: str) -> list[Path]:
 
 def load_baseline(path: Path) -> dict:
     if not path.exists():
-        return {"version": 1, "violations": {}}
+        return {"version": 2, "violations": {}}
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -565,8 +696,9 @@ def save_baseline(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def violation_key(path: str, violation: str) -> str:
-    return f"{path}::{violation}"
+def violation_key(path: str, violation: str, fingerprint: str) -> str:
+    stable_message = re.sub(r"^L\d+: ", "", violation)
+    return f"{path}::{stable_message}::{fingerprint}"
 
 
 def check_name(message: str) -> str:
@@ -611,9 +743,17 @@ def main() -> int:
     )
     parser.add_argument(
         "--strict-narrative",
+        dest="strict_narrative",
         action="store_true",
-        help="Promote narrative-marker warnings to errors",
+        help="Reject narrative markers (the default)",
     )
+    parser.add_argument(
+        "--allow-narrative",
+        dest="strict_narrative",
+        action="store_false",
+        help="Escape hatch: demote narrative-marker errors to warnings",
+    )
+    parser.set_defaults(strict_narrative=True)
     parser.add_argument(
         "--json", action="store_true", help="Emit machine-readable report"
     )
@@ -676,22 +816,44 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 2
-        save_baseline(args.baseline, {"version": 1, "violations": all_violations})
+        baseline_violations = {
+            report.path: [
+                {
+                    "message": message,
+                    "fingerprint": report.violation_fingerprints[message],
+                }
+                for message in report.violations
+            ]
+            for report in reports
+            if report.violations
+        }
+        save_baseline(
+            args.baseline,
+            {"version": 2, "violations": baseline_violations},
+        )
         total = sum(len(v) for v in all_violations.values())
         print(f"Baseline updated: {len(all_violations)} files, {total} violations")
         return 0
 
     baseline = load_baseline(args.baseline)
     baselined: set[str] = set()
-    for path, viols in baseline.get("violations", {}).items():
-        for v in viols:
-            baselined.add(violation_key(path, v))
+    for path, entries in baseline.get("violations", {}).items():
+        for entry in entries:
+            if isinstance(entry, str):
+                message = entry
+                fingerprint = ""
+            else:
+                message = entry.get("message", "")
+                fingerprint = entry.get("fingerprint", "")
+            baselined.add(violation_key(path, message, fingerprint))
 
     new_violations: list[tuple[str, str]] = []
     current_keys: set[str] = set()
+    reports_by_path = {report.path: report for report in reports}
     for path, viols in all_violations.items():
+        report = reports_by_path[path]
         for v in viols:
-            key = violation_key(path, v)
+            key = violation_key(path, v, report.violation_fingerprints[v])
             current_keys.add(key)
             if key not in baselined:
                 new_violations.append((path, v))

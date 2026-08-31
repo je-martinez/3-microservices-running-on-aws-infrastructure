@@ -50,4 +50,5 @@ fi
   --root "$temp_root" \
   --baseline "$repo_root/scripts/comment-baseline.json" \
   --stale-terms "$repo_root/scripts/comment-stale-terms.json" \
+  --strict-narrative \
   "${temp_paths[@]}"

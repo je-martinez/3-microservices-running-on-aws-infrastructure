@@ -96,12 +96,14 @@ lint-comments: ## Check the whole repo for new code-comment violations
 	@command -v "$(COMMENT_PY)" >/dev/null 2>&1 \
 	  || { echo "ERROR: Python 3 is required to lint code comments"; exit 1; }
 	@$(COMMENT_PY) scripts/validate-comments.py --all --root . \
+	  --strict-narrative \
 	  || { status=$$?; echo "ERROR: code-comment lint failed"; exit $$status; }
 
 lint-comments-diff: ## Check code-comment violations in the diff (COMMENT_DIFF_REF=main)
 	@command -v "$(COMMENT_PY)" >/dev/null 2>&1 \
 	  || { echo "ERROR: Python 3 is required to lint code comments"; exit 1; }
 	@$(COMMENT_PY) scripts/validate-comments.py --diff "$(COMMENT_DIFF_REF)" --root . \
+	  --strict-narrative \
 	  || { status=$$?; echo "ERROR: diff-scoped code-comment lint failed"; exit $$status; }
 
 install-comment-hook: ## Install the staged code-comment pre-commit hook

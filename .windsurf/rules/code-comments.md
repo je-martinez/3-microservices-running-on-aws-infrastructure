@@ -28,7 +28,7 @@ a diary and a 12-line comment can be a clean description; it is independent of
 the length budget below.
 
 Accumulated history rots with no compiler or linter feedback to catch it.
-Measured in this repo: 98 comment lines carry narrative markers, and **38
+Measured in this repo: 63 comment lines carry narrative markers, and **30
 comments still name Jaeger**, removed on 2026-08-21 and no longer running
 anywhere in the stack. Stale history does not merely add noise — it misinforms
 every later reader, human or agent.
@@ -60,7 +60,8 @@ committed — version control already preserves the latter.
 
 ## Length budget
 
-- Untagged comment: **max 3 lines.** Section divider: 1 line.
+- Untagged comment: **up to 6 lines** (p75; keep it to 3 where the point fits). Section
+  divider: 1 line.
 - Tagged entry: target **≤6 lines** (the repo's own healthy p75).
 - 7–12 lines: allowed only when tagged `CONTRACT:`/`WORKAROUND(...)` **and**
   carrying a `See [[...]]` reference.

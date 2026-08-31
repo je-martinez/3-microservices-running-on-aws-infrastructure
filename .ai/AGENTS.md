@@ -215,15 +215,16 @@ the derivation of the queue-depth threshold: `.ai/rules/testing.md`.
 **When you fix or change a block you already commented, rewrite that comment to
 describe the final state.** Never append what failed, what you tried, or why the
 previous attempt was wrong. That is the loop that produces 100-line comment
-essays: the code gets fixed, the comment only grows. Measured here — 98 comment
-lines narrate debugging history and **38 still name Jaeger**, removed on
+essays: the code gets fixed, the comment only grows. Measured here — 63 comment
+lines carry narrative markers and **30 still name Jaeger**, removed on
 2026-08-21 and no longer running anywhere. Stale history does not just add noise,
 it misinforms every later reader.
 
 Comments use a **closed set of five tags** — `CONTRACT:`, `WORKAROUND(<scope>):`,
 `WHY:`, `WARNING:`, `TODO(JE-<id>):` — and reference the vault as
 `See [[vault-id]]` (bare basename; no `docs/` prefix, no `.md`, no `#anchor`).
-Untagged comments stay **≤3 lines**; a block **over 12 lines is an error**.
+Untagged comments stay **up to 6 lines** (keep to 3 where the point fits); a
+block **over 12 lines is an error**.
 
 **Load-bearing history is relocated, not deleted.** "We tried X and it broke Y"
 becomes a present-tense prohibition plus one concrete failure symptom
