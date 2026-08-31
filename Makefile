@@ -24,6 +24,19 @@ PY        := $(VENV)/bin/python
 # never hardcode 7001=Postgres / 7002=MySQL. Also imported by bootstrap.py.
 DISCOVER_DB_PORT := $(TF_LOCAL_DIR)/scripts/discover_db_port.py
 
+# Directories prepended to PATH for any recipe that shells out to Go.
+#
+# Two entries, both required: the goenv SHIM dir (what puts `go` on PATH at the
+# version .go-version pins) and the directory holding `goenv` itself, which the
+# shim re-execs. Resolved rather than hardcoded — goenv is a git checkout under
+# ~/.goenv for some installs and Homebrew for others, and pinning either spelling
+# breaks the other machine. `shell command -v` returns empty when goenv is absent,
+# which is harmless here: the service's own verify-toolchain target is what
+# reports the missing toolchain, with the command to fix it.
+GOENV_ROOT := $(HOME)/.goenv
+GOENV_BIN  := $(dir $(shell command -v goenv 2>/dev/null))
+GOENV_PATH := $(GOENV_ROOT)/shims:$(GOENV_BIN)
+
 # Terraform talks to Floci through the host-published port; the AWS provider in
 # environments/local/providers.tf pins every endpoint to localhost:4566.
 export AWS_ENDPOINT_URL    ?= $(FLOCI_URL)
@@ -90,7 +103,7 @@ ps: ## Show container status
 
 ## --- Tests (the three-layer convention: docs/shared/conventions/testing.md) ---
 
-test-unit: ## Layer 1 — unit/integration for orders (dotnet), users + both Lambdas + the Cognito trigger (vitest), tracking (pytest) + e2e typecheck. No stack needed.
+test-unit: ## Layer 1 — unit/integration for orders (dotnet), users + both Lambdas + the Cognito trigger (vitest), tracking (go test) + e2e typecheck. Tracking needs the local DB.
 	dotnet test services/orders/Orders.sln
 	pnpm --filter @3mrai/users test
 	# Safe in the no-stack layer: the events-pipeline suites that need real
@@ -111,12 +124,27 @@ test-unit: ## Layer 1 — unit/integration for orders (dotnet), users + both Lam
 	# infra/modules/cognito/main.tf).
 	pnpm --filter @3mrai/realtime-events test
 	pnpm --filter @3mrai/cognito-otp-challenge-lambda test
-	# Tracking's suite is pytest, not vitest, and runs from its own venv. It was
-	# absent here for the same reason as the others: nothing had a reason to add
-	# it. It talks to the shared local database (services/tracking/CLAUDE.md
-	# §5c-bis), so it belongs in this layer only because that database is part of
-	# the local stack anyone running tests already has.
-	cd services/tracking && .venv/bin/python -m pytest -q
+	# Tracking's suite is `go test`, not vitest, and it needs the Go toolchain
+	# goenv pins in services/tracking-go/.go-version — `make test-db` verifies
+	# that before running anything.
+	#
+	# test-db, NOT test. `make test` in that service FAILS without a database on
+	# purpose: internal/adapter/mysql's tests need a real MySQL, and without one
+	# they skip while the package still prints `ok`. That hollow green already
+	# cost the migration a debugging session, which is why the gate exists. So
+	# this layer runs the real thing against the shared local database — the same
+	# reason its pytest predecessor lived here: that database is part of the local
+	# stack anyone running tests already has. Without the stack up, use
+	# `make -C services/tracking-go test-no-db`, which skips loudly.
+	#
+	# GOENV_PATH (top of this file) is prepended because goenv is activated by a
+	# shell rc file and make recipes run under a NON-interactive /bin/sh that
+	# never sources one — so a bare `go` here is `go: command not found` even on
+	# a machine whose terminal resolves it fine. It carries the SHIM directory
+	# (so .go-version stays the single source of truth for which Go) and goenv's
+	# OWN directory, because the shim re-execs `goenv` and fails with
+	# "exec: goenv: not found" without it.
+	PATH="$(GOENV_PATH):$$PATH" $(MAKE) -C services/tracking-go test-db
 	pnpm --filter @3mrai/e2e typecheck
 
 test-e2e: ## Layers 2+3 — Playwright internal + gateway for both services. REQUIRES `make bootstrap` up.
@@ -136,15 +164,25 @@ load-test: ## Gatling load simulation (fullJourney). REQUIRES `make bootstrap` u
 	@# prefixed name) drives the carrier webhook that advances deliveries. Load
 	@# tests deliberately send NEITHER x-e2e-source NOR x-test-mode, so their data
 	@# persists like real traffic and tracking advances only through that webhook.
+	@#
+	@# GRPC_API_KEY is passed for the pre-run restock step (`pnpm run restock`,
+	@# wired into every simulation script): it calls Orders' e2e-cleanup route to
+	@# put catalogue stock back to the seed quantities BEFORE traffic starts.
+	@# Because load runs are never cleaned up, every order they place drains stock
+	@# permanently — without this the catalogue empties over successive runs and
+	@# order creation starts failing for want of stock rather than under genuine
+	@# contention. The step FAILS the target if it cannot reach the route.
 	cd e2e/load-tests && \
 	  API_GATEWAY_URL="$$(grep '^API_GATEWAY_URL=' ../../.env.local.infra | cut -d= -f2-)" \
 	  TRACKING_CARRIER_API_KEY="$$(grep '^TRACKING_CARRIER_API_KEY=' ../../.env.local.tracking | cut -d= -f2-)" \
+	  GRPC_API_KEY="$$(grep '^GRPC_API_KEY=' ../../.env.local.orders | cut -d= -f2-)" \
 	  pnpm run load
 
 load-test-smoke: ## Short Gatling run (~20s) to check the simulation still works.
 	cd e2e/load-tests && \
 	  API_GATEWAY_URL="$$(grep '^API_GATEWAY_URL=' ../../.env.local.infra | cut -d= -f2-)" \
 	  TRACKING_CARRIER_API_KEY="$$(grep '^TRACKING_CARRIER_API_KEY=' ../../.env.local.tracking | cut -d= -f2-)" \
+	  GRPC_API_KEY="$$(grep '^GRPC_API_KEY=' ../../.env.local.orders | cut -d= -f2-)" \
 	  pnpm run smoke
 
 cache-toggle: ## Flip CACHE_ENABLED in all three env files + restart. Usage: make cache-toggle V=false
@@ -177,6 +215,7 @@ load-test-cache-ab-on: ## A/B leg A — the cache simulation with CACHE_ENABLED=
 	cd e2e/load-tests && \
 	  API_GATEWAY_URL="$$(grep '^API_GATEWAY_URL=' ../../.env.local.infra | cut -d= -f2-)" \
 	  TRACKING_CARRIER_API_KEY="$$(grep '^TRACKING_CARRIER_API_KEY=' ../../.env.local.tracking | cut -d= -f2-)" \
+	  GRPC_API_KEY="$$(grep '^GRPC_API_KEY=' ../../.env.local.orders | cut -d= -f2-)" \
 	  pnpm run cache-ab leg=cache-on
 
 load-test-cache-ab-off: ## A/B leg B — the SAME simulation with CACHE_ENABLED=false.
@@ -187,6 +226,7 @@ load-test-cache-ab-off: ## A/B leg B — the SAME simulation with CACHE_ENABLED=
 	cd e2e/load-tests && \
 	  API_GATEWAY_URL="$$(grep '^API_GATEWAY_URL=' ../../.env.local.infra | cut -d= -f2-)" \
 	  TRACKING_CARRIER_API_KEY="$$(grep '^TRACKING_CARRIER_API_KEY=' ../../.env.local.tracking | cut -d= -f2-)" \
+	  GRPC_API_KEY="$$(grep '^GRPC_API_KEY=' ../../.env.local.orders | cut -d= -f2-)" \
 	  pnpm run cache-ab leg=cache-off
 
 test-all: ## All three layers for both services (unit + internal E2E + gateway E2E). E2E needs the stack up.
@@ -206,8 +246,45 @@ infra-plan: ## terraform plan (environments/local)
 	$(TF) plan
 
 infra-up: scripts-setup ## terraform apply -auto-approve (environments/local), then refresh .env
-	$(TF) apply -auto-approve
+	@# RETRIED ONCE THROUGH `infra-reconcile`, because a bare apply is brittle here
+	@# in a way it would not be against real AWS. The state lives in a bucket
+	@# INSIDE Floci, so anything that restarts or half-destroys the emulator
+	@# leaves state and reality disagreeing, in BOTH directions:
+	@#
+	@#   state has it, Floci does not -> "NotFoundException: Invalid API id"
+	@#   Floci has it, state does not -> "EntityAlreadyExists" / "ResourceAlreadyExists"
+	@#
+	@# Both were hit in one session. A plain `apply` reports the error and stops,
+	@# so `make bootstrap` fails with a message that names a resource rather than
+	@# the actual problem, and the reader is left hand-editing state — which is
+	@# how the second failure mode gets created from the first.
+	@#
+	@# The retry is bounded and it is NOT a loop: one apply, and if it fails,
+	@# reconcile the two directions and apply once more. A second failure is a
+	@# real error and is reported as one.
+	@$(TF) apply -auto-approve || $(MAKE) infra-reconcile
 	$(MAKE) env-file
+
+.PHONY: infra-reconcile
+infra-reconcile: ## Re-sync Terraform state with what Floci actually has, then apply again
+	@echo ""
+	@echo "  apply failed — reconciling Terraform state with Floci, then retrying once."
+	@echo "  (state lives in a bucket inside Floci, so an emulator restart desyncs them)"
+	@echo ""
+	@# `-refresh-only` asks Terraform to reread every resource and drop the ones
+	@# that no longer exist. It fixes the "state has it, Floci does not" direction
+	@# without a single manual `state rm`, which is the step that goes wrong when
+	@# done by hand: removing a resource that DOES exist creates the opposite
+	@# failure on the next apply.
+	@$(TF) apply -refresh-only -auto-approve 2>/dev/null || true
+	@# The other direction — Floci holds an IAM role or log group that the state
+	@# has forgotten — cannot be fixed by refreshing, because there is nothing in
+	@# state to refresh. `import` would need one line per resource and a name for
+	@# each. Applying again after the refresh resolves the common case; if it
+	@# still fails, the state is far enough gone that `make clean && make
+	@# bootstrap` is both faster and more certain than surgery, and the message
+	@# says so instead of leaving the reader guessing.
+	@$(TF) apply -auto-approve || { 		echo ""; 		echo "  RECONCILE FAILED. Terraform state and Floci disagree in a way a refresh"; 		echo "  cannot repair — usually Floci holds a resource the state has forgotten"; 		echo "  (EntityAlreadyExists / ResourceAlreadyExists above)."; 		echo ""; 		echo "  Do NOT hand-edit the state: removing an entry for a resource that DOES"; 		echo "  exist produces the opposite error on the next run. Run:"; 		echo ""; 		echo "      make clean && make bootstrap"; 		echo ""; 		exit 1; 	}
 
 infra-down: ## terraform destroy -auto-approve (environments/local)
 	$(TF) destroy -auto-approve
@@ -266,48 +343,85 @@ migrate: ## Apply Prisma migrations (users) against Floci's Postgres (idempotent
 		node node_modules/prisma/build/index.js migrate deploy --schema=./prisma/schema.prisma
 	@echo "Prisma migrations applied."
 
-migrate-tracking: ## Apply Alembic migrations (tracking) against Floci's MySQL (idempotent)
-	@# `alembic upgrade head` (services/tracking/CLAUDE.md §2). Idempotent: on an
-	@# up-to-date database it is a no-op, so bootstrap and a manual re-run are both safe.
+migrate-tracking: ## Apply golang-migrate migrations (tracking) against Floci's MySQL (idempotent)
+	@# golang-migrate, NOT Alembic — Tracking is Go now (services/tracking-go).
+	@# Idempotent: `up` is a no-op once schema_migrations is at head, so bootstrap
+	@# and a manual re-run are both safe.
 	@#
-	@# CAVEAT — "up-to-date" is decided by the STAMP, not by the tables. Alembic
-	@# compares `alembic_version` against head and does nothing if they match, so a
-	@# database whose stamp is current but whose TABLES are missing gets a no-op
-	@# that prints "Alembic migrations applied" and applies nothing. The recovery
-	@# command reports success while leaving the environment broken.
-	@# Symptom: the service 500s with `Table 'tracking.tracking' doesn't exist`.
-	@# Recovery: `DROP TABLE tracking.alembic_version` first, then re-run this.
-	@# The one local path that used to produce that state (the pytest suite's
-	@# teardown dropping the shared database) is fixed — see
-	@# services/tracking/CLAUDE.md §5c-bis — but a manual DROP or a restored
-	@# backup can still get there.
+	@# STAMPED, NOT REPLAYED, on a database Alembic already built. The baseline
+	@# migration is a squash of the four Alembic revisions the Python service
+	@# arrived at (services/tracking-go/migrations/README.md), so running `up`
+	@# against an existing local database fails on CREATE TABLE. The recipe below
+	@# handles both cases: a database whose tables already exist gets
+	@# `force 1` (writes version=1 WITHOUT running any SQL), and a fresh one gets
+	@# a real `up`. That is why it probes for the `tracking` table first rather
+	@# than just running `up`.
 	@#
-	@# Runs INSIDE a one-off tracking container, not on the host. Three reasons:
-	@#   1. Dependencies. alembic/SQLAlchemy/pymysql live in the per-service venv
-	@#      services/tracking/.venv, which a fresh clone does NOT have — the repo-root
-	@#      .venv is for the INFRA scripts only and deliberately carries none of them.
-	@#      The image already ships alembic/ + alembic.ini + the runtime venv (see
-	@#      services/tracking/Dockerfile), so the container needs no second toolchain.
-	@#   2. The DB URL. `.env.local.tracking` holds the IN-NETWORK writer URL
-	@#      (mysql+pymysql://test:test@floci:<discovered-port>/tracking) and alembic/env.py
-	@#      reads DATABASE_WRITER_URL straight from the environment. `compose run` mounts
-	@#      that same generated file via the service's `env_file:`, so the recipe needs no
-	@#      port discovery and no URL rewriting at all. A host-side run would have to
-	@#      rebuild the URL against `localhost` plus the discovered port — Floci reassigns
-	@#      those (7000-7099, by cluster creation order) on every apply, so that would be a
-	@#      second, drift-prone copy of a value the env file already resolved correctly.
-	@#   3. Credentials. Like `make migrate` (Users/Prisma), migrations run as the cluster
-	@#      SUPERUSER (test/test) because they execute DDL, and the least-privilege app user
-	@#      has no DDL grant by design (ADR-0004). The generated URL is already the
-	@#      superuser one, so this comes for free rather than being re-derived.
-	@# Trade-off: this REQUIRES the tracking image to exist, so the build must precede it
-	@# (bootstrap builds it in the same step chain). `--no-deps` keeps the one-off from
-	@# starting anything else, and `--rm` leaves no stopped container behind. The
-	@# `--entrypoint` override replaces the image CMD (uvicorn) for this run only; the
-	@# long-running service container is untouched.
-	$(COMPOSE) build tracking
-	$(COMPOSE) run --rm --no-deps --entrypoint alembic tracking upgrade head
-	@echo "Alembic migrations applied (tracking)."
+	@# CAVEAT, inherited from Alembic and unchanged in shape: "up to date" is
+	@# decided by the VERSION TABLE, not by the tables. A database whose
+	@# schema_migrations says 1 but whose tables are gone gets a silent no-op
+	@# here. Symptom: the service 500s with `Table 'tracking.tracking' doesn't
+	@# exist`. Recovery: `DROP TABLE tracking.schema_migrations` first, then
+	@# re-run this. `make doctor` cross-checks tables against the databases that
+	@# should hold them precisely so this surfaces before a request does.
+	@#
+	@# Runs in a ONE-OFF migrate/migrate container on the compose network, not on
+	@# the host and not in the service image. Three reasons:
+	@#   1. The service image is gcr.io/distroless/static-debian12 — it holds the
+	@#      server binary and nothing else. There is no `migrate` in it and no
+	@#      shell to invoke one, so the Python service's `compose run --entrypoint`
+	@#      trick has no analogue.
+	@#   2. The DB URL. `.env.local.tracking` holds the IN-NETWORK writer URL and
+	@#      `--network 3mrai_3mrai-network` is what makes the `floci` hostname in
+	@#      it resolve. A host-side run would have to rebuild the URL against
+	@#      localhost plus the discovered port — Floci reassigns those (7000-7099,
+	@#      by cluster creation order) on every apply, so that would be a second,
+	@#      drift-prone copy of a value the env file already resolved correctly.
+	@#   3. Credentials. Like `make migrate` (Users/Prisma), migrations run as the
+	@#      cluster SUPERUSER (test/test) because they execute DDL, and the
+	@#      least-privilege app user has no DDL grant by design (ADR-0004). The
+	@#      generated URL is already the superuser one.
+	@#
+	@# The DSN rewrite mirrors services/tracking-go/Makefile: the generated value
+	@# keeps the SQLAlchemy-flavoured `mysql+pymysql://` spelling (the Go service
+	@# parses it itself), and golang-migrate wants `mysql://user:pass@tcp(host:port)/db`.
+	@# The image is PINNED, like every other image in this repo — a `latest`
+	@# migrate could change its DSN parsing under a green bootstrap.
+	@# --ssl-mode=DISABLED on the probe is LOAD-BEARING, not tidiness. The mysql
+	@# 8.0 client defaults to TLS and Floci does not terminate it, so without the
+	@# flag the probe dies with `SSL connection error: unexpected eof`. That is
+	@# the same limitation infra/CLAUDE.md records for the mysql Terraform
+	@# provider (which is why the app users use mysql_native_password).
+	@#
+	@# The probe's exit status is CHECKED SEPARATELY from its output, because the
+	@# obvious `if docker run ... | grep -q 1` conflates "the table is absent"
+	@# with "the probe could not connect" — and those want opposite actions. Under
+	@# the conflated form a TLS failure silently selected the `up` branch, which
+	@# then died on `Error 1050: Table 'tracking' already exists` AFTER golang-
+	@# migrate had written (version=1, dirty=1). Measured here, first run. A dirty
+	@# flag makes every later invocation refuse outright, so the cost of guessing
+	@# wrong is a wedged database, not a retry.
+	@dsn="$$(sed -n 's|^DATABASE_WRITER_URL=mysql+pymysql://||p' .env.local.tracking | sed 's|?.*||')"; \
+	test -n "$$dsn" || { echo "ERROR: no DATABASE_WRITER_URL in .env.local.tracking — run 'make env-file'"; exit 1; }; \
+	creds="$${dsn%%@*}"; rest="$${dsn#*@}"; hostport="$${rest%%/*}"; dbname="$${rest#*/}"; \
+	migrate_dsn="mysql://$$creds@tcp($$hostport)/$$dbname"; \
+	existing="$$(docker run --rm --network 3mrai_3mrai-network mysql:8.0 \
+	     mysql --ssl-mode=DISABLED -h "$${hostport%%:*}" -P "$${hostport##*:}" \
+	           -u "$${creds%%:*}" -p"$${creds#*:}" -N -B \
+	           -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$$dbname' AND table_name='tracking'" \
+	     2>/dev/null)" \
+	  || { echo "ERROR: could not reach MySQL at $$hostport to check whether tracking.tracking exists."; \
+	       echo "       Refusing to guess: running 'up' against an existing schema leaves schema_migrations DIRTY."; exit 1; }; \
+	if [ "$$existing" = "1" ]; then \
+	  echo "tracking.tracking already exists — stamping baseline instead of replaying it."; \
+	  docker run --rm --network 3mrai_3mrai-network -v "$$PWD/services/tracking-go/migrations:/migrations" \
+	    migrate/migrate:v4.17.1 -path=/migrations -database "$$migrate_dsn" force 1; \
+	else \
+	  echo "Fresh database — applying migrations."; \
+	  docker run --rm --network 3mrai_3mrai-network -v "$$PWD/services/tracking-go/migrations:/migrations" \
+	    migrate/migrate:v4.17.1 -path=/migrations -database "$$migrate_dsn" up; \
+	fi
+	@echo "golang-migrate migrations applied (tracking)."
 
 post-infra: scripts-setup ## Harden a bootstrapped environment: MySQL provider grants + least-privilege DB app-users (phase 2)
 	@# REQUIRES a successful `make bootstrap` first — phase 2 reads phase-1's
@@ -390,6 +504,34 @@ bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in depe
 	done
 	$(MAKE) backend-up
 	$(MAKE) infra-init
+	@# Observability BEFORE the terraform apply, and it is no longer opt-in.
+	@#
+	@# Every OTLP producer here — the three services AND the Lambdas — is
+	@# configured with OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 and
+	@# builds its exporter in code (Node's `new OTLPTraceExporter()`, .NET's
+	@# `AddOtlpExporter()`, Go's `otlptracehttp.New`). With the collector absent
+	@# that hostname does not resolve and every export writes a full `getaddrinfo
+	@# ENOTFOUND otel-collector` stack trace — measured at 8 in 2 minutes in Users
+	@# alone on an IDLE stack, one per metrics tick, 24/7. Lambda stderr is
+	@# CloudWatch's, and CloudWatch tags it ERROR, so those also arrive
+	@# unclassified and fail e2e/tests/observability/unclassified-logs.spec.ts.
+	@#
+	@# Silencing the exporters by env var does NOT work and was measured: an
+	@# explicitly-constructed SDK exporter beats OTEL_TRACES_EXPORTER, and paired
+	@# control/treatment runs reproduced the identical ENOTFOUND. Fixing it in code
+	@# would contradict the env-vars-not-code rule this repo paid for three times.
+	@# Making the hostname RESOLVE removes the error at its source.
+	@#
+	@# BEFORE `infra-up`, not after: the apply INVOKES Lambdas (Cognito triggers,
+	@# the events function), and a Lambda that runs while the collector is still
+	@# missing logs exactly that error. Placing this in bootstrap-converge alone
+	@# left a 46-SECOND window — measured: the error at 04:19:58, the collector up
+	@# at 04:20:44 — which is one unclassified record and one red spec.
+	@#
+	@# Measured cost: 616MB RAM (collector 378 + OpenObserve 238) and 0 bytes
+	@# written in 30s while idle. It buys back a tracing path that was silently
+	@# dead on every default bootstrap.
+	$(MAKE) observability-up
 	@# infra-up ends by calling env-file, so every generated env file exists
 	@# BEFORE any service starts. That ordering is load-bearing now that the
 	@# services read .env.local.<service> via compose `env_file:` — starting
@@ -441,7 +583,7 @@ bootstrap-provision: scripts-setup ## Phase 1 of bootstrap: Floci + terraform + 
 
 bootstrap-converge: scripts-setup ## Phase 2 of bootstrap: migrations + services + nginx alias. SAFE to re-run.
 	@# The resume path for a `bootstrap` that died partway. Every step here is
-	@# idempotent — Prisma and Alembic are no-ops on an up-to-date database,
+	@# idempotent — Prisma and golang-migrate are no-ops on an up-to-date database,
 	@# `compose up -d` reconciles rather than duplicates, and bootstrap.py
 	@# returns early when the alias already resolves — so re-running costs time
 	@# and nothing else.
@@ -459,6 +601,12 @@ bootstrap-converge: scripts-setup ## Phase 2 of bootstrap: migrations + services
 	@# working as a standalone resume path.
 	$(MAKE) env-file
 	$(MAKE) migrate
+	@# Idempotent, and here so this target works as a STANDALONE resume path: a
+	@# full `make bootstrap` already started the collector before its terraform
+	@# apply (see there for why that ordering matters), so on that path this is a
+	@# no-op. Entered directly, it is what guarantees the collector exists before
+	@# the services open their exporters at boot.
+	$(MAKE) observability-up
 	$(COMPOSE) up -d --build users
 	@# Phase 2 is deliberately NOT called here — but it IS called at the end of
 	@# `bootstrap`. The distinction is the point of this target: this is the
@@ -476,10 +624,10 @@ bootstrap-converge: scripts-setup ## Phase 2 of bootstrap: migrations + services
 	@# locally. Bring it up after users so the Users gRPC gate (users:50051) is
 	@# reachable for POST /v1/orders.
 	$(COMPOSE) up -d --build orders
-	@# Tracking, LAST in the chain, and unlike Orders it does NOT self-migrate: it has
-	@# real Alembic migrations that nothing invoked until `migrate-tracking` existed, so
-	@# the migration is an explicit step here (the Orders comment above explains why that
-	@# service owns its schema instead).
+	@# Tracking, LAST in the chain, and unlike Orders it does NOT self-migrate: it
+	@# has real golang-migrate migrations that nothing invokes on boot, so the
+	@# migration is an explicit step here (the Orders comment above explains why
+	@# that service owns its schema instead).
 	@#
 	@# Placement. Only two things actually gate it:
 	@#   - Its MySQL cluster and the `tracking` database must exist — both are created by
@@ -491,8 +639,12 @@ bootstrap-converge: scripts-setup ## Phase 2 of bootstrap: migrations + services
 	@# boot. That is the same reasoning that keeps its compose `depends_on` at `floci`
 	@# alone, and this ordering must not contradict it: Tracking is placed here for
 	@# readability (services grouped at the end), NOT because it depends on users/orders.
-	@# migrate-tracking builds the image itself, which is also what the container-based
-	@# migrate needs, so the build below is a cache hit.
+	@#
+	@# migrate-tracking does NOT build the Tracking image any more, and no longer
+	@# needs to: it runs golang-migrate in its own pinned container rather than
+	@# `compose run` inside the service image (which is distroless and holds no
+	@# migration tool). So the order below is migrate-then-build rather than
+	@# build-then-migrate-then-build, and the `--build` here is the only build.
 	$(MAKE) migrate-tracking
 	$(COMPOSE) up -d --build tracking
 	@# LAST, deliberately — see the ordering note at the top of this target.
@@ -550,7 +702,39 @@ clean: ## Tear down infra + compose, including the emulator state volume
 	@# Runs AFTER `down -v` so the declared volumes are already gone and this only
 	@# catches the leftovers. `|| true`: an empty list is the healthy case, and a
 	@# volume still held by a container from another project must not fail clean.
-	-$(TF) destroy -auto-approve
+	@# NO `terraform destroy` HERE, DELIBERATELY. It was the single largest source
+	@# of trouble in this target, and it was never necessary.
+	@#
+	@# Every resource Terraform manages locally IS a Docker container or volume
+	@# inside Floci, and the state describing them lives in a bucket inside Floci
+	@# too. Removing the containers and volumes therefore destroys the resources
+	@# AND the state in the same stroke — there is nothing left on either side to
+	@# disagree, which is exactly what a teardown wants.
+	@#
+	@# What destroy actually bought was three problems:
+	@#   - it HANGS: 26 minutes on one CloudWatch log group in one session, and
+	@#     still going at 8 in another, because Floci stops answering that delete;
+	@#   - killing the hang leaves state HALF-DESTROYED, which is what produced
+	@#     "NotFoundException: Invalid API id" on the next bootstrap;
+	@#   - hand-repairing that state produced the OPPOSITE failure
+	@#     ("EntityAlreadyExists"), because entries were removed for resources that
+	@#     did still exist.
+	@#
+	@# All three vanish when the teardown is done at the Docker layer, which also
+	@# takes seconds instead of minutes and cannot partially succeed.
+	@#
+	@# The one piece of state that does NOT live inside Floci is the bootstrap
+	@# backend (infra/environments/local/backend/*.tfstate, 4 resources: the bucket
+	@# and lock table that hold everything else). It has to go too, or the next
+	@# bootstrap reads a state describing a bucket that no longer exists.
+	@echo "Removing the bootstrap backend state (it describes a bucket that dies with Floci)…"
+	@rm -f infra/environments/local/backend/terraform.tfstate \
+		infra/environments/local/backend/terraform.tfstate.backup 2>/dev/null || true
+	@# The cached backend CONFIG (0 resources — just which bucket to talk to) has
+	@# to go with it, or `terraform init` reuses a pointer to the dead bucket and
+	@# `bootstrap` fails before it reaches the reconcile path.
+	@rm -rf infra/environments/local/.terraform \
+		infra/environments/local/post/.terraform 2>/dev/null || true
 	$(COMPOSE) --profile observability --profile preview down -v --remove-orphans
 	@echo "Removing compose volumes this project still owns but no longer declares…"
 	@docker volume ls -q --filter label=com.docker.compose.project=3mrai \
@@ -575,7 +759,34 @@ clean: ## Tear down infra + compose, including the emulator state volume
 	@# clean; `|| true` throughout because "nothing to remove" is the healthy case.
 	@echo "Removing Floci-launched containers (not compose services, so down misses them)…"
 	@docker ps -aq --filter "name=^floci-" | xargs -r docker rm -f 2>/dev/null || true
+	@# The FOURTH thing that survived a "from-scratch" teardown, same shape as the
+	@# three above. Floci creates its own volumes for the databases it launches
+	@# (floci-rds-cluster-*, DocumentDB, ElastiCache) and labels them `floci=true`
+	@# — NOT `com.docker.compose.project=3mrai`, so the compose-labelled sweep two
+	@# lines up walks straight past them. Removing the container without its
+	@# volume is precisely the split-brain this target exists to prevent.
+	@#
+	@# Measured on 2026-08-30: six of these had accumulated across bootstraps,
+	@# holding 870MB, of which only two belonged to the live stack.
+	@echo "Removing Floci-created volumes (labelled floci=true, not compose)…"
+	@docker volume ls -q --filter label=floci=true \
+		| xargs -r docker volume rm -f 2>/dev/null || true
 	@docker network rm 3mrai_3mrai-network 2>/dev/null || true
+	@# Build cache and dangling images. Neither is state, so neither breaks
+	@# anything by going — but both grow without bound across the rebuild loop
+	@# this project runs on (`compose up --build` per service change), and nothing
+	@# else ever reclaims them. Measured the same day: 6.4GB of build cache and
+	@# 2.2GB of dangling images, i.e. more than the containers and volumes put
+	@# together.
+	@#
+	@# BOTH are machine-wide, not project-scoped, and that is worth knowing before
+	@# running this on a machine hosting other work: `image prune` removes every
+	@# DANGLING image (untagged, unreferenced — no project loses a tagged image),
+	@# and the builder cache has no project filter at all. Both are caches: the
+	@# cost of dropping them is one slower rebuild, never lost state.
+	@echo "Reclaiming dangling images and build cache…"
+	@docker image prune -f 2>/dev/null || true
+	@docker builder prune -af 2>/dev/null || true
 
 redeploy-lambdas: scripts-setup ## Rebuild and redeploy every local Lambda from the current source
 	@# A Lambda does NOT rebuild with `docker compose`. The services do, so the
@@ -657,6 +868,11 @@ observability-up: ## Start OpenObserve + the OTel collector (opt-in; ~512MB-1.5G
 	@$(MAKE) --no-print-directory observability-dashboards
 	@echo "OpenObserve UI on http://localhost:5080 once it's healthy (~5s)."
 	@echo "Login: admin@3mrai.local / Complexpass#123"
+	@# This target is now also called BY `bootstrap-converge`, before the services
+	@# start — it is no longer opt-in. Running it by hand stays valid and is a
+	@# no-op when the containers are already up; what it is NOT is the only thing
+	@# standing between the services and a resolvable `otel-collector` hostname.
+	@# See the note in bootstrap-converge for why that became mandatory.
 
 observability-down: ## Stop the observability stack (leaves the rest running)
 	@# Every service in the profile, for the same reason observability-up names
@@ -694,6 +910,17 @@ ai-sync: ## Propagate agent config from .claude/ to the other AI providers
 	@# rules from Claude-specific ones needs judgment, so it runs through the
 	@# ai-config-sync subagent — this target is the deterministic half only.
 	@# The checksum bracket is the guard: a sync must never alter the source.
+	@#
+	@# ENTRIES UNDER .agents/skills/ THAT MIRROR .ai/skills/ MUST BE SYMLINKS.
+	@# Four of them (golang-concurrency, -context, -database, -error-handling)
+	@# were committed as REAL DIRECTORIES holding a byte-identical copy. lnai
+	@# rewrites those on every run, so each sync deleted 21 tracked files and
+	@# re-created them untracked — `ai-sync-check` then failed for a reason that
+	@# reads as corruption and was really a format mismatch. Converted to symlinks
+	@# on 2026-08-31 (verified identical first); two consecutive syncs are now a
+	@# no-op. Note the five WITHOUT a .ai/skills/ counterpart (golang-code-style,
+	@# -naming, -observability, -project-layout, -testing) are legitimately real
+	@# directories — they own their content. Add a mirrored skill as a symlink.
 	@before=$$(shasum CLAUDE.md | cut -d' ' -f1); \
 	npx -y lnai@$(LNAI_VERSION) sync; \
 	after=$$(shasum CLAUDE.md | cut -d' ' -f1); \

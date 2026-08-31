@@ -12,6 +12,19 @@ These rules take precedence over default agent/skill behavior.
   - **B.** Commit + push.  **C.** Commit only.  **D.** Continue without committing (leave the work in the working tree and carry on).  **E.** Write manually.
 - Choosing an option IS the confirmation for that write, and authorizes **only** that action (never auto-merge, never standing approval).
 - Leave finished work in the working tree until the user picks an option.
+- **A DISPATCHED AGENT NEVER RUNS GIT WRITES — any vendor, no exceptions.** Claude,
+  Codex, Cursor, Antigravity, Gemini; via Orca orchestration, a subagent tool, or a
+  pasted prompt — none of them run `git commit/push/merge/rebase/tag` or `gh pr
+  create/merge`. The confirmation menu is a conversation with the USER, and a worker
+  is not in it, so it cannot satisfy it. A brief that omits "do not commit" is NOT
+  permission: this is the always-on default. Neither is a small, correct,
+  well-tested change — correctness was never the question, authorization was.
+  Finishing a task means leaving every file edited and UNCOMMITTED and reporting
+  what changed; that is the handover. Read-only git (`status`, `diff`, `log`,
+  `show`) is fine. Happened on 2026-08-31: a dispatched worker committed AND pushed
+  its spec fix to the shared feature branch — good change, bypassed review,
+  unundoable without rewriting a pushed branch. Full rule: [[git-workflow]] and
+  `.ai/rules/git-and-commits.md`.
 - This overrides any skill (brainstorming, writing-plans, etc.) that commits automatically.
 
 ### Node.js

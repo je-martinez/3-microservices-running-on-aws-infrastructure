@@ -260,8 +260,12 @@ skills:
   # already made. A provider editing Orders without it will regress them.
   efcore-patterns: share
 
-  # Both Orders AND Tracking run Aurora MySQL (Tracking via SQLAlchemy 2 +
-  # PyMySQL + Alembic), so this is two services, not one. InnoDB index/locking/
+  # Both Orders AND Tracking run Aurora MySQL (Tracking via sqlc over
+  # database/sql + go-sql-driver/mysql, golang-migrate for migrations; it was
+  # SQLAlchemy 2 + PyMySQL + Alembic before the 2026-08-27 Go migration, and the
+  # engine-level content below is what survived that change unaltered — which is
+  # precisely why it was worth sharing). So this is two services, not one.
+  # InnoDB index/locking/
   # EXPLAIN knowledge is engine-level and not something a general model reliably
   # has at the level of detail here (deadlock diagnosis, online DDL, covering
   # indexes). Caveat kept in mind and accepted: its opening paragraph pushes
@@ -289,13 +293,25 @@ skills:
   prisma-cli: share
   prisma-upgrade-v7: share
 
-  # Tracking is FastAPI + Pydantic v2. This is the OFFICIAL FastAPI skill and
-  # the only one of the four FastAPI skills that travels (see the exclusions
-  # below): it is version-current vendor guidance rather than a project
-  # scaffold, and its content — Annotated[..., Depends()], response models,
-  # router-level prefixes/tags — is what a provider actually needs while editing
-  # an existing service.
-  fastapi: share
+  # REVERSED 2026-08-27 (Go migration): share -> exclude.
+  #
+  # This was shared for exactly one reason — "Tracking is FastAPI + Pydantic v2"
+  # — and that service no longer exists. Tracking is Go/Gin as of the
+  # 2026-08-27 migration and `services/tracking/` is deleted. No service in this
+  # repo runs FastAPI, so the skill now describes a framework that is absent:
+  # a provider carrying it would pattern-match Python web idioms onto a Go
+  # codebase, which is worse than having no framework skill at all.
+  #
+  # Note the seam this decision does NOT cross: Python has not left the repo.
+  # It remains the DEFAULT SCRIPTING LANGUAGE by explicit convention
+  # (docs/shared/conventions/scripting-language.md) — infra/scripts/lib3mrai/,
+  # doctor.py, bootstrap.py and ~29 other files stay Python, and the
+  # `python-first-scripting` rule above is still universal and still travels.
+  # What ended is Python as a SERVICE runtime. The four service runtimes are now
+  # Node/Fastify (Users), .NET (Orders), Go/Gin (Tracking), and Node/TypeScript
+  # (the two Lambdas). Excluding a web-framework skill is not a statement about
+  # the scripting convention, and must not be read as one.
+  fastapi: exclude
 
   # TypeScript is the language of Users, events-pipeline, realtime-events, and
   # the e2e suite. This is the deeper of the two TypeScript skills (type guards,
@@ -319,21 +335,18 @@ skills:
   prisma-postgres: exclude
   prisma-postgres-setup: exclude
 
-  # Three redundant FastAPI skills. All four overlap heavily; `fastapi` (the
-  # official one) is shared and covers the same ground more currently.
+  # The other three FastAPI skills. Excluded since 2026-08-25 as redundant with
+  # the official `fastapi`; as of the 2026-08-27 Go migration ALL FOUR are
+  # excluded and the reasoning collapses to one line: no service in this repo
+  # runs FastAPI any more, so every one of them describes an absent framework.
   #
-  # fastapi-templates is scaffolding for NEW projects ("starting new FastAPI
-  # projects from scratch", a proposed app/ layout with routers/models/schemas/
-  # services/repositories). Tracking already exists with a different, deliberate
-  # layout (src/features/<x>/{api,commands,queries}); projecting a competing
-  # skeleton invites a provider to restructure a working service.
-  #
-  # fastapi-expert and fastapi-patterns both teach async SQLAlchemy as the
-  # data-access default. Tracking uses SQLAlchemy 2 SYNCHRONOUSLY with PyMySQL
-  # and Alembic — an agent following them would introduce async sessions and an
-  # async driver the service does not install. fastapi-expert also carries a
-  # Django-migration reference and `related-skills` pointing at skills that do
-  # not exist here.
+  # Their original, service-specific objections are kept as the record of why
+  # they were never projected even while a FastAPI service DID exist:
+  # fastapi-templates is scaffolding for NEW projects and invited restructuring
+  # a working service; fastapi-expert and fastapi-patterns both taught async
+  # SQLAlchemy while that service used SQLAlchemy 2 synchronously with PyMySQL.
+  # Those objections are now moot rather than wrong — the exclusion no longer
+  # depends on them.
   fastapi-templates: exclude
   fastapi-expert: exclude
   fastapi-patterns: exclude
@@ -356,12 +369,18 @@ skills:
   database-performance: exclude
 
   # Generic "be a modern Python expert" persona: Python 3.12+, async, uv, ruff,
-  # pydantic. 8K with no reference files and no procedure. Tracking's actual
-  # Python conventions are already specified where they bind — pinned
-  # requirements.txt (NOT uv), ruff config in pyproject.toml, the feature-folder
-  # layout — in services/tracking/CLAUDE.md, and the repo's python-first
-  # scripting rule already travels as a projected rule. Its uv recommendation
-  # would contradict this repo's pinned-requirements contract.
+  # pydantic. 8K with no reference files and no procedure.
+  #
+  # Still exclude after the 2026-08-27 Go migration, but the REASON changed and
+  # the old one no longer parses: it used to point at services/tracking/CLAUDE.md
+  # (deleted with the Python service) for the binding conventions. Today Python
+  # in this repo is scripting, not a service — infra/scripts/lib3mrai/,
+  # doctor.py, bootstrap.py and ~29 other files — and that domain is governed by
+  # the `python-first-scripting` rule, which IS projected and carries the parts
+  # that bind (repo venv, .venv/bin/python by absolute path, Python-by-default
+  # for infra scripting). A generic web/async persona adds nothing to script
+  # authoring, and its uv recommendation still contradicts this repo's pinned
+  # dependency contract.
   python-pro: exclude
 
   # Subsumed by typescript-pro, which is shared: same topics (generics,
@@ -369,6 +388,104 @@ skills:
   # and better reference material. Projecting both would put two overlapping
   # type-system tutorials in front of every provider.
   typescript-advanced-types: exclude
+
+  # ---------------------------------------------------------------------------
+  # Added 2026-08-27 (Go migration). These nine samber/cc-skills-golang skills
+  # had NO entry — installed in .claude/skills/ but classified nowhere, so they
+  # reached no provider and nothing failed. Same silent-skip failure mode JE-194
+  # closed for the previous 17; it reopened because a migration installs skills
+  # without touching this file.
+  #
+  # Judged the way gatling-js and efcore-patterns were: vendor knowledge for a
+  # stack that RUNS here travels; generic advice or tooling we do not use does
+  # not. Tracking is now a real Go service (Gin, sqlc, golang-migrate, go-redis,
+  # aws-sdk-go-v2, grpc-go, OTel), so unlike the FastAPI skills these describe a
+  # framework that is present.
+  #
+  # All nine parse cleanly under lnai's stricter YAML: their `description`
+  # values are already double-quoted at the source with no embedded quotes, so
+  # NONE needs the floci re-quoting fix. Re-verify if a description is edited.
+  #
+  # Caveat accepted for all nine: each SKILL.md cross-references sibling samber
+  # skills (golang-lint, golang-documentation, golang-samber-oops, ...) that are
+  # NOT installed here. Those pointers dangle in every provider. They degrade to
+  # an unfollowable "see also" rather than bad advice, which is the same trade
+  # already accepted for mysql's PlanetScale paragraph.
+
+  # SHARE — the four that match how this service is actually written, each
+  # mapping onto a rule services/tracking-go/CLAUDE.md states independently.
+
+  # context.Context is where this service's most expensive Go bug lives: a
+  # goroutine outliving a request must NOT inherit the request context, which is
+  # cancelled when the response is sent. This skill covers exactly that
+  # (context.WithoutCancel, propagation across layers, background work) and
+  # tracking-impl carries the same rule as a non-negotiable. Highest-value of
+  # the nine.
+  golang-context: share
+
+  # Tracking reaches Aurora MySQL through sqlc over database/sql. This is
+  # database/sql-level knowledge — parameterized queries, NULLable columns,
+  # struct scanning, transactions and isolation, SELECT FOR UPDATE, pool
+  # configuration, context propagation — which is the layer sqlc generates ONTO
+  # and which a provider still has to get right by hand. Pairs with `mysql`
+  # (engine-level) rather than duplicating it.
+  golang-database: share
+
+  # The service's error convention is unusual and easy to "fix" wrongly: errors
+  # are values declared BESIDE the type that produces them, with no shared
+  # errors package. This skill teaches the wrapping/%w/errors.Is/As machinery
+  # that convention is built on, plus slog — which is this service's logger.
+  golang-error-handling: share
+
+  # Go concurrency is not something a model reliably gets right unprompted, and
+  # this service runs goroutines that outlive requests (the ticker, background
+  # dispatch). Goroutine leaks, channel ownership and race conditions are the
+  # named triggers; `go test -race` is already in the service's make test.
+  golang-concurrency: share
+
+  # EXCLUDE — real quality, but redundant here, or about tooling this repo does
+  # not run. The context budget is the constraint: nine Go skills at ~50-120K
+  # each would crowd out the higher-signal ones above on every single run.
+
+  # 120K, the largest of the nine, and most of it is infrastructure this repo
+  # does not use: Prometheus metrics, Pyroscope continuous profiling, Grafana
+  # dashboards, server-side RUM, CDP/GDPR tracking. 3MRAI sends OTLP traces and
+  # logs to OpenObserve, with CloudWatch for custom metrics — no Prometheus, no
+  # Grafana, no Pyroscope. The parts that DO apply (OTel tracing, slog,
+  # log/trace correlation) are already specified where they bind: the projected
+  # logging-and-pii rule, ADR-0019, and the service's own CLAUDE.md. Projecting
+  # it would put a Prometheus/Grafana stack in front of every provider for a
+  # repo that runs neither.
+  golang-observability: exclude
+
+  # Layout advice for STARTING or restructuring a project (cmd/internal/pkg,
+  # monorepo setup, package splits). Tracking already has a deliberate,
+  # documented layout with a hard architectural rule — internal/domain is PURE
+  # and may import only the standard library — that this skill does not know
+  # about. Same objection that excluded fastapi-templates: a competing skeleton
+  # invites a provider to restructure a working service.
+  golang-project-layout: exclude
+
+  # Both are general Go craft that a capable model applies unprompted (MixedCaps
+  # vs snake_case, Get-prefix on getters, line breaking, when a comment helps).
+  # ~108K combined for advice that is table stakes, and the repo enforces the
+  # mechanical part with tooling rather than prose: gofmt -s -w . and
+  # golangci-lint run are required before any Tracking task reports done. A
+  # linter that fails the build beats a style essay in a context window.
+  golang-naming: exclude
+  golang-code-style: exclude
+
+  # Excluded DESPITE testing being load-bearing here, because on the points that
+  # matter this repo's rules are stricter and more specific than the skill's,
+  # and the two would conflict in front of a provider. 3MRAI requires REAL MySQL
+  # for repository tests and forbids mocks outright (a documented lesson:
+  # mocked unit tests pass while the real schema rejects); it mandates TDD with
+  # an observed red step; and it requires ownership tests to use two DIFFERENT
+  # values for user_id and cognito_sub or the test structurally cannot fail.
+  # None of that is in a general testing skill, all of it is in
+  # services/tracking-go/CLAUDE.md and the projected testing rule, and a generic
+  # table-test/mock-interface tutorial would dilute it.
+  golang-testing: exclude
 
 subagents:
   # Implementers and the planner: safe to describe as roles.

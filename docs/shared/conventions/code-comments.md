@@ -24,9 +24,10 @@ related:
 ## The problem (measured)
 
 Comment blocks in this repo grew into essays explaining why a workaround exists or what the
-local AWS emulator (Floci) cannot do. Measured across the repo, excluding `services/tracking/`
-(pending Go migration) and `spike/`: **3,492 comment blocks**. p50=3 lines, p75=6, p90=12,
-p95=17, p99=32, max=89.
+local AWS emulator (Floci) cannot do. Measured on 2026-08-27 across the repo, excluding the
+then-Python Tracking service and `spike/`: **3,492 comment blocks**. p50=3 lines, p75=6,
+p90=12, p95=17, p99=32, max=89. Tracking was rewritten in Go on 2026-08-30 and is now in
+scope; the percentiles below predate it, but the shape they describe is unchanged.
 
 The median block is already healthy; the problem is exclusively the tail. Blocks >12 lines:
 321 (9.2%, 196 files). Blocks >20 lines: 114 (3.3%, 90 files).
@@ -45,10 +46,9 @@ and 38 still name the removed Jaeger. That axis is governed by "State, not histo
 
 ## Scope
 
-This convention applies to comments in `.tf`, `.py`, `.ts`, `.js`, `.mjs`, and `.cs` source
-files. It does not apply to `docs/` vault notes, generated files, or vendored code.
-`services/tracking/` is excluded until the Go migration lands, and `spike/` is excluded as
-throwaway.
+This convention applies to comments in `.tf`, `.py`, `.ts`, `.js`, `.mjs`, `.cs`, and `.go`
+source files. It does not apply to `docs/` vault notes, generated files, or vendored code.
+`spike/` is excluded as throwaway, and `.claude/skills/` as vendored content.
 
 ## Rule
 
@@ -331,9 +331,9 @@ standard pattern for adopting a lint rule on a legacy codebase (Betterer; Meta's
 debt management). A repo-wide gate without the ratchet would fail on day one, which is why the
 ratchet is mandatory.
 
-Calibrated to this convention, the linter reports **987 violations across 341 files** —
-`length` 874, `density` 56, `stale-term` 40, `reference` 9, `tag` 8. The baseline freezes them,
-so CI reports **0 new** and exits 0. A freshly introduced 14-line block is caught as 1 new
+Calibrated to this convention, the linter reports **1,381 violations across 457 files** —
+`length` 1249, `density` 71, `stale-term` 41, `reference` 10, `tag` 10. The baseline freezes
+them, so CI reports **0 new** and exits 0. A freshly introduced 14-line block is caught as 1 new
 violation.
 
 Narrative history is not detectable by length, so the linter carries two further checks. A

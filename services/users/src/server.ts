@@ -20,8 +20,8 @@ await app.listen({ port: env.PORT, host: "0.0.0.0" }).catch((err) => {
 // It is a SCOPED registration whose only dependency (`db`) is a root SINGLETON,
 // so resolving it from the root container is safe and yields the shared reader.
 // Started here, not in buildApp(): buildApp is also called by the test suite, and a
-// live 15s timer in every test run would hit the database from outside any test's
-// control. server.ts runs only for the real process.
+// live metrics timer in every test run would hit the database from outside any
+// test's control. server.ts runs only for the real process.
 const businessMetricsPoller = app.diContainer.resolve("businessMetricsPoller");
 businessMetricsPoller.start();
 process.on("SIGTERM", () => {

@@ -182,6 +182,16 @@ resource "aws_lambda_function" "pre_token" {
   filename         = data.archive_file.pre_token.output_path
   source_code_hash = data.archive_file.pre_token.output_base64sha256
   tags             = var.context.tags
+
+  # Silences the AWS SDK v3 maintenance notice, which the runtime writes to
+  # stderr and CloudWatch tags ERROR — arriving unclassified in OpenObserve once
+  # per cold start. Same fix, same reasoning, as modules/api-gateway-ws and
+  # modules/lambda; see the latter's environment block for the full argument.
+  environment {
+    variables = {
+      AWS_SDK_JS_NODE_VERSION_SUPPORT_WARNING_DISABLED = "true"
+    }
+  }
 }
 
 resource "aws_lambda_permission" "pre_token_cognito" {
@@ -312,6 +322,11 @@ resource "aws_lambda_function" "otp_challenge" {
         EVENTS_QUEUE_URL     = var.events_queue_url
         OTP_CODE_TTL_SECONDS = tostring(var.otp_code_ttl_seconds)
         OTP_CODE_LENGTH      = tostring(var.otp_code_length)
+        # Silences the AWS SDK v3 maintenance notice, which the runtime writes to
+        # stderr and CloudWatch tags ERROR — arriving unclassified in OpenObserve
+        # once per cold start. See modules/lambda's environment block for the
+        # full argument, including why the nodejs22.x bump cannot be used here.
+        AWS_SDK_JS_NODE_VERSION_SUPPORT_WARNING_DISABLED = "true"
       },
       # Locally the IN-NETWORK name (http://floci:4566): the function runs as a
       # Docker container on 3mrai-network, where localhost is the container.

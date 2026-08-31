@@ -165,9 +165,15 @@ services:
       # OTLP trace ingest. The services reach it in-network at
       # http://otel-collector:4318, so publishing is only for host-side probing.
       # NOTE: this service sits behind `profiles: [observability]`, so a plain
-      # `docker compose up` does NOT start it and the SDKs' exports fail with
-      # connection refused — harmless by design, but it means traces only flow
-      # when the stack is brought up with the observability profile enabled.
+      # `docker compose up` does NOT start it and the SDKs' exports fail DNS.
+      # That is NOT harmless, which this comment used to claim: each failure
+      # writes a full `getaddrinfo ENOTFOUND otel-collector` stack trace to the
+      # service log — measured at 8 in 2 minutes in Users alone on an IDLE stack,
+      # one per metrics tick, 24/7.
+      #
+      # `make bootstrap` therefore starts this (via `observability-up` inside
+      # bootstrap-converge, before the services boot). The profile is what keeps
+      # a bare `docker compose up` from pulling it in, not an opt-out.
       - "4317:4317"     # OTLP/gRPC
       - "4318:4318"     # OTLP/HTTP
       # health_check extension — published because `make doctor` probes it from
@@ -314,112 +320,86 @@ services:
         - action: rebuild
           path: ./services/orders/src
 
-  # Tracking service (FastAPI + uvicorn on Python 3.12, SQLAlchemy/pymysql → MySQL).
-  # Build context is ./services/tracking — NOT the repo root like Users and Orders.
-  # It needs nothing from outside its own tree: the Users gRPC stubs generated from
-  # proto/users.proto are COMMITTED under src/shared/grpc/generated/, so the shared
-  # .proto is read neither at build nor at run time (verified — contrast Users,
-  # whose gRPC SERVER loads /app/proto/users.proto at boot).
+  # Tracking service (Go 1.26 + Gin, sqlc/database-sql → MySQL).
+  #
+  # THIS IS THE GO SERVICE. It was `tracking-go`, running beside a Python
+  # FastAPI service of the same name, for the duration of the migration; at
+  # cutover it took the `tracking` key, the host port and the env file the
+  # Python service used, so nothing downstream had to learn a new name. The
+  # nginx `set $backend tracking;` lines, TRACKING_BASE_URL, `make doctor`'s
+  # port map and every doc that says "Tracking runs on 3002" all keep meaning
+  # what they meant — they now resolve to this container.
+  #
+  # Build context is ./services/tracking-go — NOT the repo root like Users and
+  # Orders. It needs nothing from outside its own tree: the Users gRPC stubs
+  # generated from proto/users.proto are COMMITTED under
+  # internal/adapter/grpcusers/gen/, so the shared .proto is read neither at
+  # build nor at run time (contrast Users, whose gRPC SERVER loads
+  # /app/proto/users.proto at boot).
+  #
   # Reachable as `tracking` on 3mrai-network so the Nginx ECS task can
-  # proxy_pass to http://tracking:8000. REST-only: Tracking serves no gRPC (JE-108),
-  # so there is no second port to publish.
+  # proxy_pass to http://tracking:8000. REST-only: Tracking serves no gRPC
+  # (JE-108), so there is no second port to publish.
   tracking:
-    build: ./services/tracking
+    build: ./services/tracking-go
     networks: [3mrai-network]
     ports:
-      # Host 3002 → container 8000 (uvicorn --port). 3000/3001 are taken by Users
-      # and Orders. Health: GET /v1/health (unprefixed — the gateway publishes
-      # /v1/tracking/health and nginx rewrites; see health_router.py).
+      # Host 3002 → container 8000. 3000/3001 are taken by Users and Orders.
+      # Health: GET /v1/health (unprefixed — the gateway publishes
+      # /v1/tracking/health and nginx rewrites).
       - "3002:8000"
     depends_on:
       floci:
         condition: service_healthy
-      # NOT depends_on: users. Tracking's only gRPC is an OUTBOUND client to Users,
-      # dialed lazily per request on POST /v1/trackings/init-tracking — nothing at
-      # boot, and neither the reads, the carrier PUT, nor the healthcheck touch it.
-      # Orders declares `users: service_started` for the same lazy client; the
-      # difference is only that Orders' compose block predates this reasoning being
-      # written down. `service_started` buys no ordering guarantee that matters here
-      # (a started container is not a listening gRPC server), so adding it would be
-      # coupling that looks like a guarantee without being one.
+      # NOT depends_on: users. Tracking's only gRPC is an OUTBOUND client to
+      # Users, and main.go dials it LAZILY (grpc.NewClient returns without
+      # connecting); a dial failure there is logged and swallowed, so nothing at
+      # boot touches Users at all. Orders declares `users: service_started` for
+      # the same lazy client; the difference is only that Orders' compose block
+      # predates this reasoning being written down. `service_started` buys no
+      # ordering guarantee that matters here (a started container is not a
+      # listening gRPC server), so adding it would be coupling that looks like a
+      # guarantee without being one.
     # Environment comes from the GENERATED .env.local.tracking — see the note on
     # the users service above for why nothing is declared inline. An
     # `environment:` block here would silently WIN over env_file, so the service
-    # would never see its generated DB URLs, gRPC port, or API keys.
+    # would never see its generated DB URLs, gRPC target, or API keys.
     env_file:
       - .env.local.tracking
-    healthcheck:
-      # python -m urllib, NOT curl: python:3.12-slim ships neither curl nor wget
-      # (verified), and installing curl just for a probe would add an apt layer to
-      # buy nothing — the interpreter is already in the image.
-      # Hits the service's own UNPREFIXED /v1/health. The handler deliberately does
-      # NOT touch the database (it is a liveness probe), so this reports healthy
-      # even while Floci's MySQL is down — which is correct: a transient DB blip
-      # must not cycle an otherwise-serving task.
-      test:
-        - CMD
-        - python
-        - -c
-        - import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/v1/health', timeout=2).status == 200 else 1)
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      # uvicorn imports the app graph (FastAPI + SQLAlchemy + grpc) before it
-      # listens; failures inside this window do not count against `retries`.
-      start_period: 10s
+    # NO healthcheck, and NO in-image HEALTHCHECK either. The runtime stage is
+    # gcr.io/distroless/static-debian12, which ships no shell, no curl and no
+    # wget, so there is no command inside the container that can probe it — and
+    # the Python predecessor's trick (`python -c ...`) has no analogue, because
+    # the only executable in this image is the server binary itself.
+    #
+    # Nothing depends_on this service, so no `condition: service_healthy` is left
+    # unsatisfiable by the omission. Probe it from the host instead:
+    #   curl -fsS http://localhost:3002/v1/health
+    # Adding a probe would mean either giving the binary a `-healthcheck` mode or
+    # dropping to a distro base — both real options, neither taken yet.
+    #
     # stdout → the observability collector's fluent_forward receiver.
     # localhost:24224 because the Docker daemon resolves fluentd-address from the
     # HOST, not this network. fluentd-async so the service still starts when the
     # observability profile (and thus the collector) is not running.
+    #
+    # tag: "tracking" — the same value the Python service used, so every saved
+    # OpenObserve query, dashboard panel and collector pipeline that filters on
+    # it keeps working across the cutover. During the migration this was
+    # "tracking-go" precisely so a log query could tell the two runtimes apart;
+    # with one runtime left there is nothing to tell apart.
     logging:
       driver: fluentd
       options:
         fluentd-address: "localhost:24224"
         fluentd-async: "true"
         tag: "tracking"
-    # Adds --reload to the image's CMD. Tracking is INTERPRETED Python, so the
-    # `sync` below is genuinely enough to get new code into the container — unlike
-    # Users (compiled to dist/) and Orders (compiled to a DLL), which both need
-    # `rebuild`. But a sync only helps if the process re-imports the file, so the
-    # reload watcher is required for the pair to work.
-    # It lives HERE and not in the Dockerfile CMD on purpose: --reload is a
-    # local-dev tool (extra watcher process, reload-on-touch) that must not follow
-    # the image into a deployment.
-    #
-    # `opentelemetry-instrument` MUST be kept as the prefix: this override REPLACES
-    # the image CMD, which is where the wrapper lives. Dropping it here silently
-    # disables tracing for local dev only — the container starts, serves, and logs
-    # normally, but produces no spans and no trace_id on any log line, while the
-    # deployed image (running the unoverridden CMD) is fine. That divergence is
-    # exactly the kind of thing that gets debugged as "the tracing backend is broken".
-    # This REPLACES the image CMD, so every flag the image sets has to be
-    # repeated here — the same trap `opentelemetry-instrument` fell into. Drop
-    # `--log-config` and uvicorn's three startup lines go back to plain text
-    # LOCALLY while the deployed image stays correct, which is the hardest kind
-    # of divergence to notice.
-    #
-    # `--reload` is the reason this override exists at all: it is a local-dev
-    # tool (an extra watcher process) that must not follow the image into a
-    # deployment. It also makes two of those three lines appear — the reloader
-    # ones — but "Uvicorn running" is printed in every environment.
-    command:
-      [
-        "opentelemetry-instrument",
-        "uvicorn",
-        "src.main:app",
-        "--host",
-        "0.0.0.0",
-        "--port",
-        "8000",
-        "--reload",
-        "--log-config",
-        "uvicorn-log-config.yaml",
-      ]
-    develop:
-      watch:
-        - action: sync
-          path: ./services/tracking/src
-          target: /app/src
+    # NO `develop.watch` block, unlike Users and the Python service this
+    # replaced. Go is COMPILED: a synced .go file would change nothing in a
+    # running container, and the sync would be a mechanism that looks like
+    # hot-reload while doing nothing. Orders (also compiled) uses `rebuild` for
+    # this reason; that is a real option here too. Pick up a code change with:
+    #   docker compose up -d --build tracking
 
   # NOTE: there is deliberately NO `events-pipeline` compose service.
   # The pipeline is a REAL Lambda on Floci, deployed by Terraform together with
@@ -443,6 +423,22 @@ services:
     # API this project's tests query.
     image: axllent/mailpit:v1.20
     networks: [3mrai-network]
+    environment:
+      # Mailpit's default cap is 500 messages, and on reaching it it evicts the
+      # OLDEST to make room. The inbox HAD hit that cap after accumulating runs
+      # (`/api/v1/info`: SMTPAccepted 511 / Messages 500 / MessagesDeleted 11).
+      #
+      # That eviction was NOT, however, why the 11 email specs were failing —
+      # raising this cap and purging in global-setup left the inbox healthy and
+      # the same specs still failed. The real cause is events-pipeline
+      # throughput (~50 events/min against a suite that publishes far faster),
+      # so mail arrives after the specs' 45s budget rather than being lost. See
+      # e2e/support/purge-mailpit.ts for the measurements.
+      #
+      # 5000 is still right: ~25x a full suite's volume, so capacity eviction
+      # cannot become a SECOND cause layered on the first, and a suite's own
+      # mail can never push out mail from earlier in the same run.
+      MP_MAX_MESSAGES: "5000"
     ports:
       - "8025:8025" # web UI + HTTP API (/api/v1/…)
       - "1025:1025" # SMTP — what Floci's SES relay connects to

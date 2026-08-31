@@ -85,6 +85,8 @@ related:
   - "[[2026-08-25-response-caching-layer-design]]"
   - "[[x-cache-response-header]]"
   - "[[2026-08-25-account-deletion-design]]"
+  - "[[2026-08-27-tracking-go-migration-design]]"
+  - "[[ADR-0021-tracking-go-gin-sqlc-stack]]"
 ---
 
 # 3MRAI — Index
@@ -178,6 +180,12 @@ All ADRs use continuous global numbering and live in `docs/shared/decisions/`.
 
 - [[ADR-0015-drawio-diagrams]] — draw.io (`.drawio.svg`) as the vault diagram format, replacing Mermaid.
 
+### Runtimes & Languages
+
+- [[ADR-0021-tracking-go-gin-sqlc-stack]] — Tracking's Go port uses Gin (HTTP), sqlc +
+  `database/sql` (data access), golang-migrate (schema migrations), and goenv (`.go-version`
+  pinning), extracted from [[2026-08-27-tracking-go-migration-design]].
+
 ---
 
 ## Conventions
@@ -270,6 +278,7 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-08-18-distributed-tracing-spans-design]] — Design for manual OpenTelemetry spans on top of the existing SDKs: a workflow-span pattern (`withWorkflowSpan`/`IWorkflowTracer`/decorator) covering the 12 flows with a full `app_event` triad, span links (not parent-child) across the SQS hop via `traceparent` in `MessageAttributes`, per-record instrumentation inside events-pipeline closing JE-138, extending the SDK into the three realtime-events Lambdas, and new Prisma/AWS-SDK auto-instrumentation; rejects a custom `x-trace-id` header and a Tracking HTTP-client instrumentation (Tracking makes no outbound HTTP calls); per [[ADR-0019-distributed-tracing-opentelemetry]], [[logging-context]], [[ADR-0003-grpc-inter-service]], [[events-pipeline-design]].
 - [[2026-08-25-response-caching-layer-design]] — Design for a shared-Redis, HTTP-layer response cache across Users/Orders/Tracking reporting `X-Cache: HIT|MISS|BYPASS` via a per-service interceptor (no handler-level cache-aside, no edge/nginx caching), fail-open with a 50ms timeout, explicit post-write invalidation, and a `CACHE_ENABLED` kill switch; reuses the existing `infra/modules/redis` deployment. New shared convention: [[x-cache-response-header]]. Per [[current-caller-context]], [[logging-context]], [[env-files]], [[testing]], [[ADR-0019-distributed-tracing-opentelemetry]].
 - [[2026-08-25-account-deletion-design]] — Design for self-service account deletion (`DELETE /v1/users/me`): synchronous internal-HTTP cascade to Orders and Tracking keyed on `cognito_sub` (with a `user_id` fallback in Tracking for pre-migration rows), a partial unique index freeing the email for re-registration, `AdminDeleteUser` as the point-of-no-return that frees the email in Cognito, and a deliberate decision **not** to publish a `USER_DELETED` event; per [[ADR-0004-soft-delete-only]], [[soft-delete]], [[users-service-design]], [[orders-service-design]], [[tracking-service-design]].
+- [[2026-08-27-tracking-go-migration-design]] — Design for migrating Tracking from Python/FastAPI to Go/Gin: a faithful layer-by-layer port (Gin + sqlc + golang-migrate, see [[ADR-0021-tracking-go-gin-sqlc-stack]]) run alongside the untouched Python service against the same database, a `tracking-go-impl` agent fanned out across 4 waves (foundations, platform, endpoints, a standalone TestMode wave fixing a request-context-cancellation bug invisible to line-by-line translation), OTel instrumentation moving from Python's zero-code auto-instrumentation into explicit Go code, and a four-part closing gate (three test layers, empty `openapi.yaml` diff, measured Gatling comparison, observability parity) before the Python folder is deleted; per [[tracking-service-design]], [[testmode-in-process-no-durable-scheduler]], [[user-id-vs-cognito-sub-ownership-key]], [[two-api-keys-two-trust-domains]], [[ADR-0019-distributed-tracing-opentelemetry]].
 
 ---
 
@@ -371,3 +380,6 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[2026-08-10-product-catalogue-image-categories-design]]
 - [[2026-08-25-response-caching-layer-design]]
 - [[x-cache-response-header]]
+- [[2026-08-25-account-deletion-design]]
+- [[2026-08-27-tracking-go-migration-design]]
+- [[ADR-0021-tracking-go-gin-sqlc-stack]]

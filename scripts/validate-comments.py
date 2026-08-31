@@ -40,9 +40,10 @@ EXCLUDE_DIR_NAMES = frozenset(
     }
 )
 
-# services/tracking/ is pending the Go migration; spike/ is throwaway;
-# .claude/skills/ is vendored skill content, not our source.
-EXCLUDE_PATH_PREFIXES = ("services/tracking/", "spike/", ".claude/skills/")
+# spike/ is throwaway; .claude/skills/ is vendored skill content, not our source.
+# The Python Tracking service was replaced by services/tracking-go/ (#74), so the
+# migration exclusion it used to carry is gone and Go is linted like every language.
+EXCLUDE_PATH_PREFIXES = ("spike/", ".claude/skills/")
 
 LANG_BY_SUFFIX = {
     ".tf": "hcl",
@@ -54,6 +55,7 @@ LANG_BY_SUFFIX = {
     ".mjs": "typescript",
     ".jsx": "typescript",
     ".py": "python",
+    ".go": "go",
 }
 
 # One p90 gate for every language: >12 lines is a hard error (see the Length
@@ -65,6 +67,7 @@ THRESHOLDS = {
     "csharp": {"density_warn": 0.55, "density_min_lines": 60},
     "typescript": {"density_warn": 0.50, "density_min_lines": 60},
     "python": {"density_warn": 0.45, "density_min_lines": 80},
+    "go": {"density_warn": 0.50, "density_min_lines": 60},
 }
 
 # Blocks in 7..12 lines are allowed only when load-bearing AND referenced.
@@ -202,7 +205,7 @@ def is_comment_line(line: str, lang: str, state: dict) -> bool:
                 return True
         return False
 
-    if lang in ("typescript", "csharp"):
+    if lang in ("typescript", "csharp", "go"):
         if state.get("in_block"):
             if "*/" in stripped:
                 state["in_block"] = False

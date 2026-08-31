@@ -13,6 +13,12 @@ Produces seven files, each for one consumer:
   .env.local.events-pipeline  the events-pipeline environment  (compose env_file:)
   .env.local.debug            HOST-reachable connection strings for a SQL client
 
+There was an eighth, `.env.local.tracking-go`, while the Go rewrite ran beside
+the Python service. It is gone: the Go service IS Tracking now and reads
+`.env.local.tracking`. A stale copy may still sit in the working tree of a
+checkout that predates the cutover — nothing reads it, and `make env-file` no
+longer rewrites it, so delete it by hand if it bothers you.
+
 WHY PER-SERVICE FILES, and not the single `.services` file originally sketched:
 DATABASE_WRITER_URL and DATABASE_READER_URL exist in EVERY service with
 different values AND different formats — a postgres:// URL for Users, an ADO
@@ -51,13 +57,36 @@ AWS_REGION = "us-east-1"
 OTLP_ENDPOINT = "http://otel-collector:4318"
 
 # Custom-metrics publication cadence (see the metrics design spec's "Polling
-# intervals"). 15s LOCALLY so a developer sees a metric land in seconds rather
-# than minutes; real AWS uses 60s, which is CloudWatch's standard resolution and
-# what its per-call billing is priced against. Two names for one setting because
-# each service expresses it in its own settings type's natural unit — the Node
-# and .NET services take milliseconds, Tracking's Pydantic float takes seconds.
-METRICS_INTERVAL_MS = "15000"
-METRICS_INTERVAL_SECONDS = "15"
+# intervals"). CloudWatch standard resolution is 60s; anything finer is a
+# separately billed high-resolution metric. Local EventBridge already ticks
+# once per minute, and the narrowest dashboard range is five minutes, which
+# still yields five data points at this cadence, so no read observability is
+# lost. Two names express the same setting in each stack's natural unit: the
+# Node and .NET services take milliseconds, while Tracking takes seconds.
+METRICS_INTERVAL_MS = "60000"
+METRICS_INTERVAL_SECONDS = "60"
+
+# TestMode's status cadence, in seconds. The design's value is 10 (see
+# app.DefaultProgressionInterval), and that is what the service falls back to
+# when this is unset — a deployed environment behaves exactly as before.
+#
+# 5 LOCALLY, and the number was measured rather than picked. A tracking walks
+# PLACED -> PROCESSING -> SHIPPED -> OUT_FOR_DELIVERY -> DELIVERED, so a delivery
+# spec cannot finish sooner than FOUR intervals however fast the rest is. At the
+# design's 10s the three delivery specs cost 48.7s, 43.5s and 42.1s — 134s, over
+# half the gateway project's wall-clock, spent waiting on a timer.
+#
+# 2 was tried first and was TOO FAST: it publishes four TRACKING_STATUS_CHANGED
+# events in 8 seconds, and the emulator dropped some of them before they reached
+# the queue. Tracking logged 21 published against 16 processed, with an empty
+# DLQ and no consumer error — the events never arrived, and gateway/
+# tracking-flow.spec.ts failed on a `delivered` email whose transition had
+# demonstrably happened. At 5s the same spec passes.
+#
+# It changes no assertion: the specs poll for the same transitions in the same
+# order and still fail if one is missing. It only stops the E2E suite paying for
+# a cadence that exists to look realistic in a demo.
+PROGRESSION_INTERVAL_SECONDS = "5"
 FLOCI_HOST = "floci"
 
 # Mailpit's HTTP API, HOST-facing, including the `/api/v1` prefix its endpoints
@@ -117,6 +146,26 @@ MAILPIT_API_URL = "http://localhost:8025/api/v1"
 # deferred exactly like every other secret in ADR-0007.
 GRPC_API_KEY = "local-dev-grpc-key"
 TRACKING_CARRIER_API_KEY = "local-dev-carrier-key"
+
+# Third key of the same family: the shared secret the E2E suite presents as
+# `x-e2e-token` to the events Lambda's email-query Function URL, which is
+# AuthType NONE and answers 404 to anything without it.
+#
+# A CONSTANT here rather than a `terraform_output`, even though Terraform also
+# needs it (var.e2e_query_token feeds the Lambda's environment) — and the
+# duplication is deliberate, so read this before "fixing" it. A `-target`ed
+# apply never persists an output that does not depend on the targeted
+# resources, and against Floci a full untargeted apply is not available: the
+# second apply fails on UpdateTags for API GW v2 / RDS (infra/CLAUDE.md, and
+# reproduced on 2026-08-29 while wiring this route). Reading the token through
+# an output would therefore make `make env-file` fail on exactly the stacks
+# that need it most — every already-running one.
+#
+# Nothing DISCOVERS this value, which is what makes duplicating it safe: unlike
+# a Cognito id or an RDS proxy port, Floci does not mint it, so the two literals
+# cannot drift apart on their own. They can only drift if a human edits one, so
+# keep them in step: infra/environments/local/variables.tf → e2e_query_token.
+E2E_QUERY_TOKEN = "local-e2e-query-token"
 
 # Public base URL of the assets bucket, with NO trailing slash. The email
 # templates append a known object key to it ("<base>/email/logo.png") to build
@@ -196,6 +245,12 @@ def build(repo_root: Path) -> dict[Path, dict]:
     docdb_cluster_identifier = terraform_output(tf_dir, "docdb_cluster_identifier")
     docdb_port = terraform_output(tf_dir, "docdb_port")
     docdb_username = terraform_output(tf_dir, "docdb_master_username")
+
+    # The E2E email-query route (LOCAL ONLY). Read, never derived: Floci mints a
+    # fresh <hash>.lambda-url host every time the URL is created. Its companion
+    # E2E_QUERY_TOKEN is a module-level constant instead of an output — see the
+    # constant for why an output cannot work against a running Floci stack.
+    events_query_url = terraform_output(tf_dir, "events_query_url")
 
     # Read from PHASE 2 (the assets bucket root), with a derived fallback — the
     # only value in this file that is not a hard-required phase-1 output. See
@@ -286,6 +341,17 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # Mailpit, so it needs the inbox's API. A compose-published
                 # constant rather than a Terraform output — see the definition.
                 "MAILPIT_API_URL": MAILPIT_API_URL,
+                # The events Lambda's E2E email-query route, host-facing. It
+                # exists because the suite cannot read DocumentDB directly:
+                # 27017 is not published to the host under our containerized
+                # Floci, so the function that already holds a Mongo connection
+                # serves the collection over HTTP instead. Mailpit answers "did
+                # the mail send?"; this answers "what did we render, for which
+                # run?" — the two are complements, not substitutes.
+                "EVENTS_QUERY_URL": events_query_url,
+                # Presented as `x-e2e-token` on every request to the URL above,
+                # which is AuthType NONE and 404s without it.
+                "E2E_QUERY_TOKEN": E2E_QUERY_TOKEN,
             },
         ),
         # --- users service ---------------------------------------------------
@@ -410,9 +476,17 @@ def build(repo_root: Path) -> dict[Path, dict]:
             },
         ),
         # --- tracking service ------------------------------------------------
-        # Python/FastAPI/SQLAlchemy. Same MySQL cluster as Orders, different
-        # database — hence the same discovered port with `/tracking` as the
-        # database segment.
+        # Go/Gin/sqlc. Same MySQL cluster as Orders, different database — hence
+        # the same discovered port with `/tracking` as the database segment.
+        #
+        # The DSN keeps the SQLAlchemy-flavoured `mysql+pymysql://` spelling it
+        # had under the Python service, and that is deliberate rather than
+        # leftover: the Go service PARSES that prefix itself
+        # (internal/platform/config/dsn.go), the same string is what
+        # services/tracking-go/Makefile's `test-db` reads to discover the port,
+        # and .env.local.debug derives the host-side URL from the same value.
+        # Changing the spelling here would silently break all three at once for
+        # no gain.
         repo_root / ".env.local.tracking": dict(
             header="Tracking service environment. Loaded via env_file: in docker-compose.yml.",
             generated={
@@ -462,16 +536,26 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # here, milliseconds in the Node/.NET services — each matches its
                 # own settings type rather than forcing one unit across stacks.
                 "METRICS_INTERVAL_SECONDS": METRICS_INTERVAL_SECONDS,
-                # The lifespan starts the gauge loop only when this is true. The
-                # test suite sets it false: conftest builds the real app and
-                # TestClient enters the lifespan, so an ungated loop would open a
-                # database session on every test run.
+                # TestMode's status cadence. Four transitions per delivery, so
+                # this is multiplied by four in every delivery spec — see the
+                # constant's comment for the measured cost at the default 10s.
+                "PROGRESSION_INTERVAL_SECONDS": PROGRESSION_INTERVAL_SECONDS,
+                # Gates the gauge loop. The test suite sets it false so a run
+                # does not open a database session per test.
                 "METRICS_ENABLED": "true",
+                # REQUIRED by the Go service and with no Python counterpart:
+                # config.Load REJECTS any value outside development/test/
+                # production, so an absent key is a boot failure, not a default.
+                # It also drives EchoSQL. The Python predecessor inferred the
+                # same thing from its own settings type, which is why this key
+                # arrived with the Go cutover rather than existing all along.
+                "ENVIRONMENT": "development",
             },
             custom_defaults={
-                # uvicorn's default port; 3000/8080 are taken by Users/Orders.
-                # Tracking serves HTTP only — it has no gRPC port because it has
-                # no gRPC server.
+                # The CONTAINER-side port; 3000/8080 are taken by Users/Orders
+                # inside their own containers, and the HOST mapping (3002) lives
+                # in docker-compose.yml, not here. Tracking serves HTTP only — it
+                # has no gRPC port because it has no gRPC server.
                 "PORT": "8000",
                 # Gates the flag-guarded E2E cleanup endpoint, the same way it
                 # does for Users and Orders. Without it the route is not mounted

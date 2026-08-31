@@ -66,6 +66,17 @@ variable "batch_size" {
   default     = 10
 }
 
+variable "mapping_count" {
+  description = "Number of SQS event source mappings for this function. 1 everywhere except the local emulator — see the resource comment in main.tf for why more than one helps there and is pointless in AWS."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.mapping_count >= 1
+    error_message = "mapping_count must be at least 1; zero would leave the queue with no consumer."
+  }
+}
+
 variable "timeout" {
   description = "Lambda function timeout in seconds."
   type        = number
@@ -82,4 +93,13 @@ variable "log_retention_in_days" {
   description = "CloudWatch log retention for the function's log group."
   type        = number
   default     = 14
+}
+
+# ─── Optional Function URL (E2E query route) ───────────────────────────────────
+# Default FALSE, and the default is the point: no environment gets a publicly
+# reachable HTTPS endpoint on a Lambda unless it asks for one by name.
+variable "enable_function_url" {
+  description = "Create a public Function URL for this Lambda. Local/E2E only — the events function uses it to serve the E2E email-query route."
+  type        = bool
+  default     = false
 }

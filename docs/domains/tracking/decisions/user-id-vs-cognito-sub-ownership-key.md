@@ -8,7 +8,7 @@ deciders: ["Jose E. Martinez"]
 supersedes: null
 superseded-by: null
 created: 2026-07-31
-updated: 2026-07-31
+updated: 2026-08-27
 tags: [type/adr, area/tracking, status/accepted, issue/JE-90, issue/JE-91]
 related:
   - "[[tracking-service-design]]"
@@ -17,6 +17,7 @@ related:
   - "[[nginx-njs-x-user-id-injection]]"
   - "[[testing]]"
   - "[[logging-context]]"
+  - "[[2026-08-27-tracking-go-migration-design]]"
 ---
 
 # Tracking scopes reads by cognito_sub, not user_id — the two identities are not interchangeable
@@ -54,10 +55,11 @@ failure mode).
   `GET /v1/trackings?order_ids=...`) filters by `order_id` **and** the caller's
   `cognito_sub` — never `user_id` — using the value carried on the gateway-injected
   `x-user-id` header, per [[tracking-service-design#Ownership & scoping]].
-- The HTTP dependency that resolves the caller is named `CallerSub` /
-  `require_caller_sub` (`shared/http/identity.py`) — deliberately **not** named anything
+- The HTTP accessor that resolves the caller is named `CallerSub` / `RequireCallerSub`
+  (`services/tracking-go/internal/adapter/http/auth.go`) — deliberately **not** named anything
   that reads as "the user id," so a handler reaching for identity cannot reach for the wrong
-  column by a plausible-sounding name.
+  column by a plausible-sounding name. `UserIDHeader` is the misleading name the header itself
+  carries; the doc comment on the accessor says so explicitly.
 - `cognito_sub` is optional on the wire and nullable in the schema, so a caller that predates
   the field still creates successfully; an empty string is normalized to `NULL` rather than
   stored as `""`, so an unset value is unreachable by any subsequent read rather than
@@ -66,6 +68,27 @@ failure mode).
   single shared value cannot exercise this bug regardless of how many assertions surround it.
   This is now a required shape for ownership tests, not just this one test suite; see
   [[testing]].
+
+## Go-specific reinforcement — scoped and unscoped reads are SEPARATE METHODS
+
+The Go port ([[2026-08-27-tracking-go-migration-design]]) surfaced a second, mechanism-specific
+way this exact class of bug can reappear, worth recording here because it is a reinforcement of
+this ADR's decision, not a new one:
+
+> **Never one method with an optional identity parameter.** Go's zero value for `string` is
+> `""`, **not `nil`**. An unset optional-scope parameter therefore silently means *"scoped to
+> the empty string"* rather than *"unscoped"* — and the caller reads nothing, every time, while
+> looking correctly implemented. The inverse mistake — accidentally scoping an unscoped call —
+> is just as easy to introduce the same way.
+
+A dynamically-typed language can pass `None`/`null` as "no scope" and a statically-typed one
+with nullable references can pass `nil`; Go's `string` has no such state to fall back on. The
+port's fix was **two separate methods**: `GetByOrderIDScoped(ctx, orderID, cognitoSub)` for the
+user-facing reads, and `GetByOrderID(ctx, orderID)` — taking **no identity parameter at all** —
+for the carrier webhook and the TestMode progression, both of which are legitimately unscoped.
+The mistake then has nowhere to happen: there is no parameter to leave unset, because the
+unscoped method does not declare one. `internal/app/progression.go`'s `UnscopedTrackingReader`
+port documents this rule at the boundary where it matters most.
 
 ## Consequences
 
@@ -96,3 +119,6 @@ failure mode).
 - [[logging-context]] — both `cognito_sub` and `user_id` are shared log-context fields;
   logging the wrong one as if it were the ownership key would carry the same confusion into
   observability.
+- [[2026-08-27-tracking-go-migration-design]] — the Go port that surfaced the Go-specific
+  reinforcement above: scoped and unscoped reads as separate methods, never one method with an
+  optional identity parameter.

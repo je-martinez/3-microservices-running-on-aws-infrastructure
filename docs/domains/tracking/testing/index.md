@@ -4,13 +4,15 @@ type: runbook
 area: tracking
 status: active
 created: 2026-07-31
-updated: 2026-08-06
+updated: 2026-08-27
 tags: [type/runbook, area/tracking, status/active]
 related:
   - "[[testing]]"
   - "[[tracking-service-design]]"
   - "[[user-id-vs-cognito-sub-ownership-key]]"
   - "[[orders-service-design]]"
+  - "[[2026-08-27-go-vs-python-performance]]"
+  - "[[testmode-in-process-no-durable-scheduler]]"
 ---
 
 # Tracking Testing
@@ -21,40 +23,50 @@ to follow when adding a new endpoint.
 ## Layer 1 — unit / integration
 
 ```bash
-cd services/tracking && pytest
+cd services/tracking-go && make test-db
 ```
 
+`make test` alone runs `go test -race ./...` but **silently skips** the database-backed tests
+in `internal/adapter/mysql` for want of a live connection, and still prints `ok` — a hollow
+green that already cost the Go migration a debugging session (see
+[[testmode-in-process-no-durable-scheduler]]'s sibling wiring-hazard lessons for the same
+shape of failure). `make test-db` discovers the real host/port/credentials from the generated
+`.env.local.tracking` (Floci reassigns RDS proxy ports on every apply, so the port is never a
+constant) and exports **both** `TRACKING_DATABASE_URL` (the creation/reads/transition suites)
+and `TRACKING_TEST_MYSQL_DSN` (the count/soft-delete suites) — setting only one of the two
+still leaves part of the suite skipping silently. Without the local stack up, use
+`make -C services/tracking-go test-no-db`, which skips loudly instead.
+
 Run against a **live** MySQL instance rather than mocks — the repository, migration,
-state-machine, and TestMode-progression tests all exercise the real Alembic schema. The count
-grows with the service; check `pytest --collect-only -q | tail -1` for the current total rather
-than trusting a number pinned here (it drifted from 294 to 373 without this note being touched).
-Files live under `services/tracking/tests/`, split by concern — non-exhaustive, but every layer
-of the service has a file: `test_repository.py`, `test_status_state_machine.py`,
-`test_test_mode_progression.py`, `test_rest_init_tracking.py`, `test_rest_reads.py`,
-`test_rest_carrier_status.py`, `test_rest_e2e_cleanup.py`, `test_rest_health.py`,
-`test_users_client.py`, `test_current_caller.py`, `test_app_factory.py`, `test_engine.py`,
-`test_grpc_stubs.py`, `test_migration.py`, `test_log_identity.py`, `test_settings.py`, plus
-fixtures in `conftest.py`.
+state-machine, and TestMode-progression tests all exercise the real golang-migrate schema. The
+suite lives under `services/tracking-go/internal/`, colocated with the code it tests per Go
+convention (`*_test.go` beside the file it covers), not gathered into a separate `tests/`
+directory the way the retired Python service organized it.
 
 > [!warning] Ownership tests need two distinct identity values
 > Any test asserting the `cognito_sub`-scoped ownership filter must use **different** values
 > for `user_id` and `cognito_sub`. A test that creates and reads with the same value for both
 > cannot fail on the bug described in [[user-id-vs-cognito-sub-ownership-key]] — this is how
-> the original regression passed 253 tests before this ADR's fix.
+> the original regression passed 253 tests before this ADR's fix, and the ADR's Go addendum
+> records a second, Go-specific way the same mistake reappears: an optional-scope parameter
+> whose zero value is `""` rather than `nil`, silently meaning "scoped to the empty string"
+> instead of "unscoped."
 
 > [!warning] The suite runs against the SHARED local database — leave the schema as you found it
 > "Live MySQL" above means the same local `tracking` database the running service and the
 > gateway E2E suite use, not a throwaway one — Floci's MySQL grants the `test` user no
 > `CREATE DATABASE` privilege, so a per-run database is not an option, and running against the
 > real one (then restoring it) is the only way to exercise the schema for real. Any fixture that
-> manipulates schema must leave it exactly as it found it: a teardown `drop_all` once left the
-> local stack with no tracking tables, surfacing as `init-tracking` returning 500 and the
-> gateway E2E going red — a failure that looked like broken application code, not a test side
-> effect. Dropping the model tables does **not** drop `alembic_version` (no model declares it),
-> and with the stamp intact `alembic upgrade head` becomes a no-op that reports success — so
-> `make migrate-tracking` prints "applied" while applying nothing. Tables and migration stamp
-> must always be restored together. Full mechanics: `services/tracking/CLAUDE.md` §5c-bis.
-> Fixed 2026-08-06.
+> manipulates schema must leave it exactly as it found it: a teardown that drops the tracking
+> tables once left the local stack with no schema, surfacing as `init-tracking` returning 500
+> and the gateway E2E going red — a failure that looked like broken application code, not a
+> test side effect. Dropping the tables does **not** drop `schema_migrations`, and with the
+> stamp intact `migrate up` becomes a no-op that reports success — so `make migrate-tracking`
+> prints "applied" while applying nothing. Tables and migration stamp must always be restored
+> together. `make doctor` cross-checks tables against the databases that should hold them
+> precisely so this surfaces before a request does. Full mechanics:
+> `services/tracking-go/CLAUDE.md` §6, and `services/tracking-go/migrations/README.md` for the
+> stamp-vs-replay recipe.
 
 ## Layer 2 — internal E2E
 
@@ -83,11 +95,23 @@ This requires the local stack up via `make bootstrap` (see [[local-dev]]). The g
 auto-loads the repo-root `.env` and registers→logs in a dedicated E2E user
 (`e2e/support/auth.ts`) to obtain the real JWT used as the `Authorization: Bearer` header.
 
+## Layer 4 — performance (Go migration closing gate)
+
+[[2026-08-27-go-vs-python-performance]] records the measured Go-vs-Python comparison run as
+closing-gate criterion 3 of the [[2026-08-27-tracking-go-migration-design|Go migration]]
+(Task 26). Resource and startup metrics (image size, cold start, memory) were measured reliably
+and Go wins all four; latency and throughput under sustained load were **not** measurable on
+this stack — the local AWS emulator (Floci), not either runtime, was the bottleneck. See that
+note for the full methodology, the two measurement defects it caught, and what a trustworthy
+latency run would require.
+
 ## Checklist for a new Tracking endpoint
 
-1. Add a pytest unit/integration test under `services/tracking/tests/`, run against the live
-   MySQL database — not a mocked session. A mocked session can pass while the real
-   schema/driver rejects the same write, the same class of gap
+1. Add a `go test` unit/integration test beside the code it covers under
+   `services/tracking-go/internal/`, run against the live MySQL database — not a mocked
+   `*sql.DB`. A mocked repository test can pass while the real schema/driver rejects the same
+   write (the 1062 duplicate-key translation, a `NULL` scan, `JSON_CONTAINS`, fsp-0 rounding —
+   see `services/tracking-go/CLAUDE.md` §6), the same class of gap
    [[2026-07-12-prisma-lazy-promise-als]] describes for a mocked Prisma client.
 2. Add **both** Playwright E2E specs — one is not a substitute for the other:
    - an internal spec in `e2e/tests/tracking.spec.ts`, hitting the service directly with
@@ -113,3 +137,7 @@ auto-loads the repo-root `.env` and registers→logs in a dedicated E2E user
 - [[two-api-keys-two-trust-domains]]
 - [[orders-service-design]] — Orders' equivalent testing runbook and identical ownership
   pattern.
+- [[2026-08-27-go-vs-python-performance]] — the measured Go-vs-Python performance comparison,
+  the fourth verification axis alongside the three test layers above.
+- [[testmode-in-process-no-durable-scheduler]] — the wiring-hazard shape referenced above: a
+  component that is correct, unit-tested, and never reached by the running process.

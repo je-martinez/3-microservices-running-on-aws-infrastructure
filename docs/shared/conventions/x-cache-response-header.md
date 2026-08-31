@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: draft
 created: 2026-08-25
-updated: 2026-08-26
+updated: 2026-08-27
 tags:
   - type/convention
   - area/shared
@@ -45,7 +45,7 @@ hit-rate in the metrics — it is excluded from the hit-rate denominator
 > When a caller's `user_id` cannot be resolved, no response-cache key can be built, and the
 > three services disagree on what to report — none of them fit the four rows above cleanly:
 > Tracking stamps `X-Cache: MISS`
-> (`services/tracking/src/features/tracking/api/trackings_router.py:184-185`); Orders emits
+> (`services/tracking-go/internal/adapter/http/handler_reads.go`, `serveCached`); Orders emits
 > **no header**, colliding on the wire with the "cache disabled" row above
 > (`services/orders/src/Orders.Api/Caching/CachedReadFilter.cs:73-77`); Users likewise emits
 > **no header** (`services/users/src/features/users/http/cache-hooks.ts:81-86`). Record this as
@@ -79,7 +79,7 @@ may never break or degrade a read.
 > This rule reads as uniform ("respond `BYPASS`" on any failure), but a corrupt/unparseable
 > cache entry is treated three different ways as shipped: Tracking answers `MISS` (not
 > `BYPASS`) and logs `app_event=cache_entry_unreadable`
-> (`services/tracking/src/shared/cache/gateway.py:127-143`); Users answers `BYPASS`
+> (`services/tracking-go/internal/adapter/redis/gateway.go`); Users answers `BYPASS`
 > (`services/users/src/shared/cache/cache-gateway.ts:87-93`); Orders answers `MISS` for a
 > deserialized `null` but `BYPASS` for a thrown deserialization error
 > (`services/orders/src/Orders.Infrastructure/Caching/CacheGateway.cs:73-97`). All three are
@@ -117,8 +117,8 @@ under its own key prefix, consulted before the response key is built:
 > When this convention was written, no account-deletion flow existed anywhere in the repo, so
 > TTL was the only bound (reasoning preserved below). It shipped from the account-deletion
 > milestone and now invalidates this key explicitly:
-> `services/tracking/src/shared/cache/invalidation.py:213-214` (`invalidate_user`, called from
-> `internal_router.py:165-171`) and
+> `services/tracking-go/internal/adapter/redis/user_invalidator.go` (`UserInvalidator.InvalidateUser`,
+> called from `internal/app/delete_by_user.go`) and
 > `services/orders/src/Orders.Infrastructure/Caching/CacheInvalidator.cs:92-93`
 > (`InvalidateDeletedUserAsync`, called from `InternalEndpoints.cs:296`) both delete
 > `CacheKeys.identity(...)` for the deleted account, for **both** the caller's raw-header

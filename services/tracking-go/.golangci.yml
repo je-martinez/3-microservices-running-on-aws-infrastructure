@@ -1,0 +1,34 @@
+# golangci-lint configuration for the Tracking Go service.
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - errcheck      # an unchecked error is the most common Go defect
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose     # an unclosed HTTP response body leaks a connection
+    - errorlint     # forces errors.Is/As over == comparisons on wrapped errors
+    - gosec         # flags math/rand where crypto/rand is required (Task 5)
+    - noctx         # a request without a context cannot be cancelled or traced
+    - sqlclosecheck # an unclosed sql.Rows holds a pooled connection open
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    gofmt:
+      simplify: true
+    goimports:
+      local-prefixes:
+        - github.com/jemartinez/3mrai/services/tracking-go
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

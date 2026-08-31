@@ -209,6 +209,47 @@ describe("SqsEventPublisher", () => {
     });
   });
 
+  // E2E ONLY, and it rides the log context for the same reason request_id does:
+  // the id is seeded once at ingress and every publish in that request picks it
+  // up without a single call site passing it. It exists so the pipeline can
+  // attribute the email it renders to the Playwright run that caused it.
+  describe("run_id propagation", () => {
+    it("puts the active run's id on a USER_CREATED envelope", async () => {
+      const client = fakeClient();
+
+      await logContext.run({ run_id: "run_abc" }, () =>
+        new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD),
+      );
+
+      const body = JSON.parse(sentCommand(client).input.MessageBody!);
+      expect(body.run_id).toBe("run_abc");
+    });
+
+    it("puts it on a PASSWORD_RESET_REQUESTED envelope too", async () => {
+      const client = fakeClient();
+
+      await logContext.run({ run_id: "run_abc" }, () =>
+        new SqsEventPublisher(client, QUEUE_URL).publishPasswordResetRequested(RESET_PAYLOAD),
+      );
+
+      const body = JSON.parse(sentCommand(client).input.MessageBody!);
+      expect(body.run_id).toBe("run_abc");
+    });
+
+    it("OMITS the key entirely when there is no run id", async () => {
+      // Which is every production request: the header that seeds this is only
+      // honoured under E2E_TESTING_ENABLED. Never null — the pipeline declares
+      // the field `.optional().min(1)`, so an explicit null is a PermanentError
+      // there and the message's email is lost.
+      const client = fakeClient();
+
+      await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+
+      const body = JSON.parse(sentCommand(client).input.MessageBody!);
+      expect("run_id" in body).toBe(false);
+    });
+  });
+
   it("sends exactly one SendMessageCommand to the configured queue URL", async () => {
     const client = fakeClient();
     await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);

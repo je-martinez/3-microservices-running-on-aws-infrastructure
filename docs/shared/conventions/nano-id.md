@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-08-25
+updated: 2026-08-27
 tags: [type/convention, area/shared, status/active, issue/JE-39]
 related: ["[[db-naming]]", "[[audit-fields]]", "[[soft-delete]]", "[[users-service-design]]", "[[events-pipeline-design]]", "[[logging-context]]", "[[orders-service-design]]", "[[tracking-service-design]]"]
 ---
@@ -80,19 +80,19 @@ values, and **one factory method per prefix**.
 |---|---|---|
 | users | `services/users/src/shared/id/nano-id.ts` | `NanoIdConfig` (a `const` object typed via a mapped type + `satisfies`) |
 | orders | `services/orders/src/Orders.Infrastructure/Id/NanoId.cs` | `NanoIdConfig` |
-| tracking | `services/tracking/src/shared/db/nano_id.py` | `NanoIdConfig` |
+| tracking | `services/tracking-go/internal/domain/id.go` | package-level constants + one `New*ID` factory function per prefix |
 
 Two rules worth stating as rules:
 
 1. **Call sites never write a raw prefix string.** They call the factory —
-   `NanoIdConfig.newUserId()`, `NanoIdConfig.new_tracking_id()` — so a typo is a compile error
-   (or an import-time failure) rather than a row with an unrecognisable id.
+   `NanoIdConfig.newUserId()`, `domain.NewTrackingID()` — so a typo is a compile error (or an
+   import-time failure) rather than a row with an unrecognisable id.
 2. **A prefix without a factory must FAIL, not slip through.** TypeScript enforces this with a
    mapped type (`{ [K in PrefixKey as \`new${K}Id\`]: () => string }` composed with `satisfies`),
-   so adding a prefix without its factory does not compile. Python has no equivalent exhaustive
-   mapping over module-level constants, so tracking runs an equivalent check at **import time**
-   that raises, naming the missing factory — verified by temporarily adding a prefix and
-   confirming the import fails.
+   so adding a prefix without its factory does not compile. Go has no equivalent exhaustive
+   mapping over package-level constants either, but there is no runtime gap to cover: `mint`
+   (the single generation path) is unexported, so a prefix minted without going through its own
+   `New*ID` function is a compile error, not a check that has to run and possibly get skipped.
 
 **Every validation regex is derived from the config, never hand-written.** A hand-written pattern
 is how a service starts rejecting its own ids after a format change. This bites orders

@@ -279,4 +279,40 @@ describe("EnvelopeSchema — author", () => {
     const result = EnvelopeSchema.safeParse(envelope("users_api:register"));
     expect(result.success).toBe(false);
   });
+
+  it("accepts an envelope carrying a run id", () => {
+    // Optional because production traffic never carries one; the field exists
+    // solely to attribute a fixture record to the suite run that caused it.
+    const result = EnvelopeSchema.safeParse({
+      event_id: "evt_abc123",
+      type: "AUTH_OTP_REQUESTED",
+      source: "users",
+      user_id: "usr_abc123",
+      author: { actor: "users_api:otp_challenge", user_id: "usr_abc123", cognito_sub: "sub-1" },
+      order_id: null,
+      run_id: "run_abc",
+      payload: {},
+    });
+    expect(result.success).toBe(true);
+    expect(result.data?.run_id).toBe("run_abc");
+  });
+
+  it("accepts an envelope with no run id", () => {
+    // The same reason request_id must stay optional: messages published before
+    // this field existed can still be sitting on the queue at deploy time, and
+    // a required field would turn each of them into a PermanentError — the
+    // record dropped and its email lost.
+    const result = EnvelopeSchema.safeParse({
+      event_id: "evt_abc123",
+      type: "USER_CREATED",
+      source: "users",
+      user_id: "usr_abc123",
+      author: { actor: "users_api:register", user_id: "usr_abc123", cognito_sub: "sub-1" },
+      order_id: null,
+      payload: {},
+    });
+    expect(result.success).toBe(true);
+    expect(result.data).not.toHaveProperty("run_id");
+  });
+
 });

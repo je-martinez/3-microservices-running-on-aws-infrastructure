@@ -1,5 +1,5 @@
 ---
-applyTo: "**/*.ts,**/*.js,**/*.py,**/*.cs"
+applyTo: "**/*.ts,**/*.js,**/*.py,**/*.cs,**/*.go"
 description: "Logging, tracing, and PII"
 ---
 

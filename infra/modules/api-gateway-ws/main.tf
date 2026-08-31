@@ -111,15 +111,32 @@ resource "aws_lambda_function" "fn" {
       # notice arrived in OpenObserve at the same severity as a real failure,
       # once per cold start, on all four functions.
       #
-      # This is the one env var that suppresses it (--no-deprecation does NOT:
-      # the notice is not a DeprecationWarning). Filtering it in the collector
-      # was the alternative and is strictly worse — the line would still be
-      # written, still be ERROR in CloudWatch, and the rule would have to
-      # survive every future SDK reword.
+      # THE NAME MATTERS AND IS EASY TO GET WRONG. This variable used to be
+      # AWS_SDK_JS_SUPPRESS_MAINTENANCE_MODE_MESSAGE, which is a REAL AWS
+      # variable — it suppresses the SDK **v2 maintenance-mode** notice, a
+      # different message — so it was accepted silently, reached the deployed
+      # function, and suppressed nothing. The warning kept flowing while this
+      # block claimed to have fixed it.
       #
-      # This does not hide the underlying migration: the node 22 bump is real
-      # and tracked by the `runtime` field above, not by this line.
-      AWS_SDK_JS_SUPPRESS_MAINTENANCE_MODE_MESSAGE = "1"
+      # The emitter is the authority, not the docs:
+      # @aws-sdk/core/dist-es/submodules/client/emitWarningIfUnsupportedVersion.js
+      # returns early only on
+      # `AWS_SDK_JS_NODE_VERSION_SUPPORT_WARNING_DISABLED === "true"` — note the
+      # STRING "true", not "1". `--no-deprecation` does not work either: the
+      # notice is not a DeprecationWarning.
+      #
+      # Filtering it in the collector was the alternative and is strictly worse —
+      # the line would still be written, still be ERROR in CloudWatch, and the
+      # rule would have to survive every future SDK reword.
+      #
+      # This does not hide the underlying migration: the node 22 bump is real.
+      # It is also BLOCKED, which the `runtime` field above cannot express on its
+      # own — the AWS provider is pinned to = 5.31.0 (infra/CLAUDE.md) and its
+      # runtime validation tops out at nodejs20.x, rejecting nodejs22.x at plan
+      # time. Verified by trying it. Unpinning the provider for a log-severity
+      # cosmetic is the wrong trade, so this variable is the fix until the pin
+      # moves for a reason of its own.
+      AWS_SDK_JS_NODE_VERSION_SUPPORT_WARNING_DISABLED = "true"
     })
   }
 

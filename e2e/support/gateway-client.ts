@@ -34,6 +34,15 @@ export async function gatewayClient(token?: string): Promise<APIRequestContext> 
       // when its own E2E_TESTING_ENABLED is set, so the header alone cannot tag
       // anything.
       "X-E2E-Source": "true",
+      // Attributes every email this request causes to THIS run, so the fixture
+      // collection can be queried per invocation instead of blindly across
+      // workers and reruns. Minted once in global-setup and passed through the
+      // environment.
+      //
+      // Same "harmless in production" property as the header above: each service
+      // only honors it under its own E2E_TESTING_ENABLED, and the Cognito
+      // trigger re-validates the shape independently.
+      "x-e2e-run-id": process.env.E2E_RUN_ID ?? "",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   });

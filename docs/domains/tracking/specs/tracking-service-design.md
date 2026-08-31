@@ -4,7 +4,7 @@ type: spec
 area: tracking
 status: accepted
 created: 2026-06-26
-updated: 2026-08-26
+updated: 2026-08-28
 tags: [type/spec, area/tracking, status/accepted]
 related:
   - "[[2026-08-25-response-caching-layer-design]]"
@@ -28,7 +28,7 @@ related:
   - "[[grpc-api-key-authorization]]"
   - "[[user-id-vs-cognito-sub-ownership-key]]"
   - "[[two-api-keys-two-trust-domains]]"
-  - "[[testmode-in-process-asyncio-task]]"
+  - "[[testmode-in-process-no-durable-scheduler]]"
   - "[[events-pipeline-design]]"
   - "[[env-files]]"
   - "[[2026-08-03-events-pipeline-milestone-design]]"
@@ -38,25 +38,40 @@ related:
   - "[[2026-08-18-distributed-tracing-spans-design]]"
   - "[[2026-08-18-distributed-tracing-spans]]"
   - "[[ADR-0019-distributed-tracing-opentelemetry]]"
+  - "[[2026-08-27-go-vs-python-performance]]"
   - "[[2026-07-31-contextvars-lost-across-task-boundaries]]"
+  - "[[2026-08-27-tracking-go-migration-design]]"
+  - "[[ADR-0021-tracking-go-gin-sqlc-stack]]"
+  - "[[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]]"
+  - "[[2026-08-27-a-producer-side-test-proves-nothing-about-what-the-consumer-accepts]]"
+  - "[[2026-08-27-a-librarys-defaults-encode-assumptions-about-a-generic-service]]"
 ---
 
 # Tracking Service Design
 
-> [!info] As built — fully wired and verified end to end (2026-07-31, endpoint table updated 2026-08-03)
-> Every part of the chain this note once listed as missing now exists: a multi-stage
-> `services/tracking/Dockerfile` that installs and starts the app, a `tracking` service in
-> `docker-compose.yml` publishing `3002:8000` with a healthcheck, an nginx upstream
-> (`location /v1/trackings` plus the rewritten `/v1/tracking/health`), and
-> `enable_tracking_routes = true` in `infra/environments/local/main.tf` — so the gateway routes
-> below are live, not inert (the flag-guarded `e2e-cleanup` route is service-local, not a gateway
-> route — see [E2E cleanup](#e2e-cleanup-delete-v1trackingse2e-cleanup)).
+> [!info] Go cutover complete (2026-08-27) — this note now describes the Go/Gin implementation
+> Tracking was ported from Python/FastAPI to Go/Gin per [[2026-08-27-tracking-go-migration-design]]
+> (stack decisions: [[ADR-0021-tracking-go-gin-sqlc-stack]]). The migration's four-part closing
+> gate is **three-of-four met** (all three test layers PASS, `openapi.yaml` diff PASS, observability
+> parity PASS after a fix it found; measured performance is **PARTIALLY met** — resource/startup
+> metrics measured and Go wins all four, load-test latency/throughput not measurable on this stack,
+> see [[2026-08-27-go-vs-python-performance]]) — the cutover was executed on that basis, by user
+> decision. **`services/tracking-go/` is now THE Tracking service.** `services/tracking/` (Python)
+> was removed in commit `b889580` (138 files, 27,577 lines) and no longer exists on disk; where
+> this note still describes Python-only artifacts (Alembic revisions, historical FastAPI
+> behaviour) they are marked explicitly as historical. Everything else below —
+> the domain rules, the two-identity ownership rule, the state machine, the auth schemes, the
+> events contract, TestMode's accepted limitation — is unchanged behaviour, now running on the Go
+> service. See `services/tracking-go/CLAUDE.md` for implementation-level detail (architecture,
+> commands, the wiring-hazard and wire-contract lessons) this note does not duplicate.
 >
 > Verified from a destroyed environment, not incrementally: `make clean` (with `./data`
-> deleted) → `make bootstrap` completed in **one pass** → **70/70 E2E tests pass**, including
-> the full journey through the gateway (user → order → tracking → DELIVERED). See
-> [[tracking/testing/index|Tracking Testing]] for current unit/integration coverage — run against
-> a live MySQL rather than mocks.
+> deleted) → `make bootstrap` completed in **one pass** → **70/70 E2E tests pass** against the
+> Python service before the cutover; the Go service separately passed 22/22 internal E2E and
+> 17/17 gateway E2E with the **same, unedited** gateway specs (`git diff -- e2e/tests/` empty) —
+> see [[2026-08-27-tracking-go-migration-design#Closing gate — what must be true before the Python folder is deleted]].
+> See [[tracking/testing/index|Tracking Testing]] for current unit/integration coverage — run
+> against a live MySQL rather than mocks, same as the Python service was.
 >
 > `infra/modules/messaging/` and `infra/modules/docdb/` (renamed from `database/` on 2026-08-04 —
 > the old name suggested a generic database module when it only ever created DocumentDB) are no
@@ -78,6 +93,11 @@ notifying the system of a delivery status change, plus the standard health check
 events-pipeline milestone, Tracking is **also a producer**: every successful status transition
 emits `TRACKING_STATUS_CHANGED` — see [Events](#events).
 
+The service exposes **seven** routes (not five — see [API / Endpoints](#api--endpoints) and
+[[2026-08-27-tracking-go-migration-design#Surface inventory — SEVEN routes, four auth schemes]]
+for the finding that the service's own project memory previously under-documented this by two)
+across **four** inbound auth schemes plus one outbound.
+
 > [!note] This design was not the original one
 > Creation and both reads originally shipped over gRPC (JE-90, JE-91). See
 > [Deltas from the original design (superseded)](#deltas-from-the-original-design-superseded) at
@@ -85,17 +105,31 @@ emits `TRACKING_STATUS_CHANGED` — see [Events](#events).
 
 ## Stack & Data Store
 
-| Layer      | Technology                               |
-|------------|------------------------------------------|
-| Runtime    | Python 3.12 — FastAPI                    |
-| Database   | Aurora MySQL (write replica + read replica) |
-| Container  | AWS Fargate (ECS)                        |
-| Auth       | Amazon Cognito (request validation)      |
+| Layer       | Technology                                             |
+|-------------|---------------------------------------------------------|
+| Runtime     | Go 1.26.7 (via goenv) — Gin                            |
+| Data access | sqlc + `database/sql`, `go-sql-driver/mysql` — no ORM  |
+| Migrations  | golang-migrate (baseline translated from the Python service's Alembic revisions) |
+| Database    | Aurora MySQL (write replica + read replica)            |
+| Container   | AWS Fargate (ECS)                                      |
+| Auth        | Amazon Cognito (request validation)                    |
 
 Read replicas are used for all reads — `GET /v1/trackings/{orderId}` and
 `GET /v1/trackings?order_ids=...`; the write replica receives all mutations
 (`POST /v1/trackings/init-tracking` and the REST status-update endpoint). See
 [[ADR-0006-read-write-replicas]].
+
+**Architecture: hexagonal / ports and adapters**, chosen over a plain domain-package layout so
+the pure domain (`internal/domain`) cannot import Gin, sqlc, or Redis — the compiler, not a
+convention someone has to remember, keeps infrastructure out of business rules. This is enforced
+by a test, not review alone: `internal/domain/purity_test.go` walks the full transitive import
+closure. Ports are declared by their **consumers** (each use case in `internal/app` declares its
+own narrow interface, usually one or two methods) — there is no central `ports.go` and no shared
+repository interface. Dependency injection is **manual constructor injection** in
+`cmd/server/main.go`, a deliberate divergence from this repo's Awilix/DI-container convention
+([[ADR-0008-screaming-arch-di]]) for this one service. Full layout and rationale:
+[[2026-08-27-tracking-go-migration-design#Folder structure]] and
+`services/tracking-go/CLAUDE.md` §3.
 
 ## API / Endpoints
 
@@ -186,17 +220,22 @@ bulk `UPDATE`s below).
 > harness's teardown runs once, globally, at the end of a suite; there is no user session to run it
 > as, so a route requiring a caller would `401` its only real caller (an earlier version did
 > exactly that). What protects it instead is that the route **does not exist** unless
-> `E2E_TESTING_ENABLED` is on (`src/main.py` only mounts the e2e router under that flag).
+> `E2E_TESTING_ENABLED` is on. In the Go service the route is conditionally registered in
+> `internal/adapter/http.NewAppRouter`; the Python service (retired) mounted the e2e router
+> the same way from `src/main.py`.
 
 - **What it deletes:** every live `Tracking` row tagged `"E2E Source"`, **and its `Tracking_History`
   in cascade** — children first, then the parent, following the FK direction (mirrors
-  `soft_delete_by_tag` in `src/features/tracking/domain/repository.py`). Never a physical `DELETE` —
+  the tag-scoped soft-delete query (Go: `internal/adapter/mysql`; the retired Python service
+  called it `soft_delete_by_tag` in `src/features/tracking/domain/repository.py`). Never a
+  physical `DELETE` —
   the audit columns (`deleted_at`, `deleted_by`) are stamped, same as every other soft-delete in this
   service; `deleted_by` is set to `AuditActor.E2E_CLEANUP` so a row removed by the harness stays
   distinguishable from one removed by a real flow.
 - **The tag is applied at creation, not here.** A row is tagged `"E2E Source"` only when the
   `init-tracking` request sent `x-e2e-source: true` **and** `E2E_TESTING_ENABLED` was on at that
-  moment — **both conditions are mandatory** (`src/shared/http/e2e_source.py`). The conjunction is
+  moment — **both conditions are mandatory** (Go: `internal/adapter/http/flags.go`; the retired
+  Python service enforced it in `src/shared/http/e2e_source.py`). The conjunction is
   what stops an untrusted client tagging its own rows for someone else's teardown to delete; the
   header alone must never be sufficient.
 - **Response:** `200 {"deleted": N}` — the count of `Tracking` rows stamped (not history rows).
@@ -204,9 +243,13 @@ bulk `UPDATE`s below).
   for, so a re-run is not a failure.
 - **Flag off → `405`, not `404`.** With `E2E_TESTING_ENABLED` off the route is never registered, and
   `/v1/trackings/e2e-cleanup` still matches `GET /v1/trackings/{order_id}`'s path — only the method
-  is unsupported, so Starlette answers `405 Method Not Allowed`. A harness (or a future test) that
-  treats "flag off" as a `404` will misdiagnose this endpoint; treat `405` as "flag off; nothing to
-  clean up here."
+  is unsupported, so the service answers `405 Method Not Allowed`, matching the retired Python
+  service's Starlette behaviour. In Go this is **not** the framework default — Gin answers `404`
+  for a path that exists under another method unless told otherwise, so
+  `router.HandleMethodNotAllowed = true` is set explicitly in
+  `internal/adapter/http.NewAppRouter` for exactly this reason (see
+  `services/tracking-go/CLAUDE.md` §4). A harness (or a future test) that treats "flag off" as a
+  `404` will misdiagnose this endpoint; treat `405` as "flag off; nothing to clean up here."
 - **Caller:** the E2E harness's global teardown (`e2e/support/global-teardown.ts`), which calls the
   equivalent route on all three services.
 
@@ -441,6 +484,17 @@ event — a network dependency.
 > [[x-cache-response-header]]. Tracking runs the full four-component shape — response cache,
 > identity-mapping cache, invalidation, and the kill switch — and is the one service with a
 > service-local `cache_timeout_ms` setting.
+>
+> **Behaviour below is unchanged by the Go cutover; file paths below are the retired Python
+> implementation.** The Go equivalents live in `internal/adapter/redis/` (`gateway.go`,
+> `keys.go`, `identity.go`, `invalidation.go`) — the response-key shapes, TTLs, the
+> normalized-then-hashed list key, the identity cache, and the fail-open kill switch are the
+> same contract, reimplemented. The identity-cache-hit-must-stamp-the-resolved-id trap below
+> has a direct Go analogue: `StampResolvedUserID` on the reads' route group, documented in
+> `services/tracking-go/CLAUDE.md` §9 ("The identity stamp is on a GROUP, not global") as one
+> of the four wiring-hazard bugs this migration's closing gate caught — see
+> [[2026-08-27-tracking-go-migration-design]] and
+> [[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]].
 
 ### Cached reads and their TTL
 
@@ -575,29 +629,38 @@ a timing hope):
 > [[users-service-design#Account deletion]] for the caller side and
 > [[orders-service-design#Account-deletion cascade (internal)]] for the sibling route.
 
-`internal_router.py` maps `DELETE /v1/trackings/by-user`, guarded by `InternalAuth`
+The route is guarded by `InternalAuth`/`RequireInternalKey`
 (the same `GRPC_API_KEY` comparison Tracking's outbound gRPC client already presents, now
 validated the other direction too — see [Auth schemes](#auth-schemes) above). Not on the API
 Gateway; the only caller is Users' `CascadeClient`.
 
-### Route-ordering trap — `internal_router` must be registered BEFORE `trackings_router`
+### Route-ordering trap — a Python-specific failure mode the Go port does not inherit
 
-`/v1/trackings/by-user` is a **literal path segment** sitting exactly where `trackings_router`'s
-`GET /v1/trackings/{order_id}` **path parameter** also matches. Starlette matches routes in
-**declaration order**, not by specificity, so if `trackings_router` were registered first, a
-request to `/v1/trackings/by-user` would be captured by `{order_id}` — with `order_id` literally
-bound to the string `"by-user"` — instead of reaching the internal route at all. `main.py`
-registers `internal_router` **before** `trackings_router` for exactly this reason, the same
-pattern already used for `/init-tracking` and `/e2e-cleanup`. A **regression test** pins this
-ordering so a future reordering of `main.py`'s `include_router` calls fails loudly rather than
-routing `by-user` requests into the wrong handler silently.
+> [!note] Historical (Python implementation, retired) — the Go service has a related but different trap
+> The Python service (`services/tracking/`, retired) matched routes via Starlette, which resolves
+> by **declaration order**, not specificity: `/v1/trackings/by-user` is a literal path segment
+> sitting exactly where `GET /v1/trackings/{order_id}`'s path parameter also matches, so
+> `main.py` had to register `internal_router` **before** `trackings_router` or a request to
+> `/v1/trackings/by-user` would be captured by `{order_id}` — with `order_id` literally bound to
+> the string `"by-user"`. A regression test pinned that ordering.
+>
+> **Gin (the Go service) does not have this failure mode, but has a related one that is arguably
+> worse: it panics at startup instead of misrouting silently.** Gin builds one radix route tree
+> **per HTTP method**, so `POST /init-tracking`, `DELETE /by-user`, and `DELETE /e2e-cleanup`
+> coexist with `GET /v1/trackings/:order_id` today only because their **methods differ** —
+> registration order is irrelevant. Adding any **GET literal** under `/v1/trackings/` (e.g.
+> `GET /v1/trackings/summary`) would land in the wildcard's tree and **panic the process at
+> boot**, rather than silently misrouting a request the way Starlette could have. Whoever adds
+> such a route must restructure the prefix. Full detail:
+> `services/tracking-go/CLAUDE.md` §4 ("Gin panics at startup on a route conflict").
 
 ### `soft_delete_by_user` — children before parents, and one deliberate non-guard
 
-The route delegates to `TrackingRepository.soft_delete_by_user` (see
-`services/tracking/src/features/tracking/domain/repository.py`), the per-user sibling of
-`soft_delete_by_tag` (see [E2E cleanup](#e2e-cleanup-delete-v1trackingse2e-cleanup) above for
-that method) — same never-a-SQL-DELETE shape, same FK-following order, different selector:
+The route delegates to the per-user soft-delete query (Go: `internal/adapter/mysql`; the retired
+Python service called it `TrackingRepository.soft_delete_by_user`,
+`src/features/tracking/domain/repository.py`), the per-user sibling of the tag-scoped
+soft-delete (see [E2E cleanup](#e2e-cleanup-delete-v1trackingse2e-cleanup) above for that
+method) — same never-a-SQL-DELETE shape, same FK-following order, different selector:
 
 - **Children (`Tracking_History`) before parents (`Tracking`)**, mirroring the FK direction, so
   an interrupted run can never leave a live history row under an already-deleted tracking.
@@ -613,17 +676,21 @@ that method) — same never-a-SQL-DELETE shape, same FK-following order, differe
   idempotent, not a filter on which parents are considered.
 - Matches `cognito_sub OR user_id`, same predicate and same rationale as the reads' erasure-only
   exception above and [[soft-delete#The per-user cascade]] — an empty identity on either side is
-  refused with `ValueError`, a second gate behind the schema's `min_length=1` (see
+  refused (the retired Python service raised `ValueError`; Go returns a validation error), a
+  second gate behind the request schema's minimum-length check (see
   [[2026-08-25-account-deletion-design#Empty-identity guards (four layers)]] for the full
   four-layer table).
 
 ### Audit actor and observability
 
-Every row this route stamps carries `deleted_by = AuditActor.DELETE_BY_USER` =
-`"tracking_api:delete_by_user"` (`services/tracking/src/shared/audit/audit_actor.py`), the
-Tracking peer of Orders' `"orders_api:delete_by_user"`.
+Every row this route stamps carries `deleted_by = "tracking_api:delete_by_user"`
+(`internal/domain/audit`; the retired Python service defined the same value as
+`AuditActor.DELETE_BY_USER` in `src/shared/audit/audit_actor.py`), the Tracking peer of Orders'
+`"orders_api:delete_by_user"`.
 
-The route is wrapped in one `workflow_span("internal_delete_by_user", …)`, emitting:
+The route is wrapped in one workflow span (`internal_delete_by_user`, via `otelgin`/the Go OTel
+wiring — the retired Python service used `workflow_span("internal_delete_by_user", …)`),
+emitting:
 
 | `app_event` | When | `reason` |
 |---|---|---|
@@ -761,7 +828,13 @@ history entries in total. When `TestMode` is false or absent, no automatic progr
 status only advances through the `PUT /v1/trackings/{orderId}/status` endpoint below.
 
 Scheduling mechanism, and the accepted limitation if the process restarts mid-progression:
-[[testmode-in-process-asyncio-task]].
+[[testmode-in-process-no-durable-scheduler]] (the ADR's decision — in-process, no durable scheduler —
+was carried into the Go port unchanged; the retired Python service scheduled it as an
+`asyncio` task, the Go service as a goroutine holding the **process-lifetime** context, never
+the request's — see `services/tracking-go/CLAUDE.md` §10 for the Go-specific trap of a
+goroutine accidentally inheriting a request context that `net/http` cancels the instant the
+response is written, which is invisible-looking because it produces the *exact same symptom*
+as the accepted restart limitation).
 
 #### End-to-end origin: a client header on Orders, not an Orders-side decision
 
@@ -909,10 +982,13 @@ way instead of drifting apart.
   `.env.local.tracking` by `make env-file`, the same generated-env-file pattern Users and Orders
   use. See [[env-files]].
 
-Tracking's publisher is a Python/boto3 SQS client (`send_message`), setting `type` and `source`
-(`"tracking"`) as message attributes, matching the shape of the Users and Orders publishers. A
-Noop-equivalent publisher is retained for tests that must not emit, mirroring
-`NoopEventPublisher` in Users and Orders.
+Tracking's publisher is a Go `aws-sdk-go-v2` SQS client (`internal/adapter/sqs`, `SendMessage`),
+setting `type` and `source` (`"tracking"`) as message attributes, matching the shape of the
+Users and Orders publishers. The retired Python service published the same envelope shape via
+`boto3`'s `send_message`. A nil/noop publisher is retained for tests that must not emit,
+mirroring `NoopEventPublisher` in Users and Orders — in Go this is the composition root binding
+a nil `EventPublisher` when `EVENTS_QUEUE_URL` is absent (see `services/tracking-go/CLAUDE.md`
+§3, "Flags are decided in the composition root and nowhere else").
 
 See [[events-pipeline-design]] for the consuming side: the shared queue, the dispatch map, the
 error taxonomy that decides whether a publish-side failure downstream gets retried, and the
@@ -950,11 +1026,14 @@ of the Orders→Tracking integration health indicator: `orders_total − (DELIVE
 should be 0 in normal operation. See [[orders-service-design#Metrics]] for the full reasoning and
 the deliberately-accepted failure mode it surfaces.
 
-**`src/main.py` now has a `lifespan` — it previously had none.** The module's own docstring used
-to say "there is nothing to start or stop"; that is no longer true. The lifespan starts the
-periodic gauge-publishing task for the life of the process, gated on `METRICS_ENABLED`: `main.py`'s
-`create_app()` is also called by `tests/conftest.py` for every REST test, and an ungated task would
-open a real database session and reach for CloudWatch on every test run.
+> [!note] Historical (Python implementation, retired)
+> The retired Python service started this periodic gauge-publishing task from a FastAPI
+> `lifespan` added to `src/main.py`, gated on `METRICS_ENABLED` so the test app factory
+> (`tests/conftest.py`, called for every REST test) never opened a real database session or
+> reached for CloudWatch on a test run. The Go service composes the equivalent ticker in
+> `cmd/server/main.go`, gated the same way — flags are decided once, in the composition root,
+> and turned into a dependency (a real ticker or none), never branched on inside a handler; see
+> `services/tracking-go/CLAUDE.md` §3.
 
 ## Change impact — renaming a delivery status
 
@@ -965,10 +1044,19 @@ change, even though Tracking owns the enum. The same shape of surprise applies t
 in both cases the owning service can change its contract without anything forcing the downstream
 consumer to notice.
 
-- **Tracking (owner):** `src/features/tracking/domain/status.py`,
-  `src/features/tracking/domain/models.py`, `src/features/tracking/commands/update_status.py`,
-  `src/features/tracking/commands/test_mode_progression.py`,
-  `src/features/tracking/api/schemas.py`, `src/shared/audit/audit_actor.py`
+> [!note] File list below reflects the Go service — historical Python paths retired
+> This list was originally written against the Python implementation; the file set below is the
+> Go equivalent (`services/tracking-go/`). The Python originals (`src/features/tracking/domain/status.py`,
+> `src/features/tracking/commands/update_status.py`, `src/features/tracking/commands/test_mode_progression.py`,
+> `src/features/tracking/api/schemas.py`, `src/shared/audit/audit_actor.py`, and the
+> `test_*.py` suite) are retired along with `services/tracking/`. The cross-service shape of the
+> risk — an owning service can change an enum crossing SQS with nothing forcing the downstream
+> consumer to notice — is unchanged by the language the owner is written in.
+
+- **Tracking (owner):** `internal/domain/status.go`, `internal/domain/tracking.go`,
+  `internal/app/update_status.go` (the carrier PUT and TestMode's shared transition function —
+  see [[testmode-in-process-no-durable-scheduler]]), `internal/adapter/http` request/response DTOs for
+  the status field, `internal/domain/audit/actor.go`
 - **events-pipeline (consumer):** `src/handlers/tracking-status-changed.ts`,
   `src/handlers/index.ts`, `src/email/catalog.ts`, `emails/tracking-status-changed.tsx`
 - **Orders (consumer):** `services/orders/tests/Orders.Tests/Infrastructure/TrackingContractTests.cs`
@@ -977,7 +1065,8 @@ consumer to notice.
   enum, so Orders has no compile-time protection — a rename breaks this test at test time, in a
   different service and language from the one that owns the enum.
 - **E2E:** `e2e/support/mailpit-client.ts`
-- Plus the Tracking test files that assert on status values (`test_test_mode_progression.py`,
+- Plus the Go test files that assert on status values under `internal/domain` and `internal/app`
+  (the retired Python suite covered the same surface as `test_test_mode_progression.py`,
   `test_rest_carrier_status.py`, `test_repository.py`, `test_status_state_machine.py`,
   `test_rest_init_tracking.py`, `test_sqs_event_publisher.py`, `test_status_changed_emission.py`,
   `test_rest_reads.py`, `test_log_identity.py`, `test_rest_e2e_cleanup.py`)
@@ -985,18 +1074,20 @@ consumer to notice.
 > [!note] How the Orders gap was found
 > A repo-wide grep during a benchmark run, after this checklist was first written, turned up the
 > Orders coupling. `TrackingDto.cs`'s own docstring already documented "Mirrors `TrackingResponse`
-> in `services/tracking/src/features/tracking/api/schemas.py`. Change them together." — the
-> coupling was recorded at the source, just not aggregated here.
+> in `services/tracking/src/features/tracking/api/schemas.py` [retired]. Change them together." —
+> the coupling was recorded at the source, just not aggregated here. The Go equivalent is the
+> response DTO in `internal/adapter/http`.
 
 > [!danger] The silent failure — `catalog.ts` maps status to email template, with no compiler and no test to catch a miss
 > `functions/events-pipeline/src/email/catalog.ts` maps each status value to the email template
 > rendered for it. Rename a status in Tracking without updating this map and the mapping simply
-> stops matching — there is no compile error (TypeScript sees a string, not the Python enum) and no
-> failing Tracking test (Tracking's own suite has no visibility into events-pipeline). Users stop
-> receiving the right delivery notification, and the break surfaces only as production behavior —
-> an email that never arrives, or arrives with the wrong content — not as a red build. This is the
-> same class of gap [[events-pipeline-design]] documents for the envelope contract generally: a
-> string crossing a service boundary over SQS carries none of the guarantees a shared type would.
+> stops matching — there is no compile error (TypeScript sees a string, not the Tracking enum) and
+> no failing Tracking test (Tracking's own suite has no visibility into events-pipeline). Users
+> stop receiving the right delivery notification, and the break surfaces only as production
+> behavior — an email that never arrives, or arrives with the wrong content — not as a red build.
+> This is the same class of gap [[events-pipeline-design]] documents for the envelope contract
+> generally: a string crossing a service boundary over SQS carries none of the guarantees a
+> shared type would.
 
 The status values also **persist in the database as strings** (`Tracking.status`,
 `Tracking_History.status` — see [Data Model](#tracking)). A rename is therefore not just a code
@@ -1025,29 +1116,58 @@ every already-persisted tracking, not only for code going forward.
 
 ## Observability — workflow spans
 
-**Four** Tracking flows now carry a full `app_event` triad — `init_tracking`,
+> [!info] Go cutover — instrumentation moved into code; behaviour and flow names unchanged
+> The Go service instruments the same four flows — `init_tracking`, `carrier_status_update`,
+> `test_mode_progression`, `internal_delete_by_user` — but the mechanism differs, and the
+> difference is deliberate, not a gap: the retired Python service auto-instrumented via
+> `opentelemetry-instrument` wrapping uvicorn (no code, all `OTEL_*` env vars); Go has no
+> equivalent auto-instrumentation agent, so wiring necessarily moves into code (`otelgin` for
+> inbound HTTP, `otelsql` for the database, `otelgrpc` for the outbound Users client, the SQS
+> producer instrumented by hand). What still comes from the environment, in both languages, is
+> the endpoint/protocol/exporter selection — see
+> [[2026-08-27-tracking-go-migration-design#Observability and event parity]] for the full
+> scoping argument, and [[ADR-0019-distributed-tracing-opentelemetry]] for the backend decision
+> this does not violate.
+>
+> The paragraphs below describe the **retired Python implementation** (`workflow_span`, the
+> ASGI double-span bug, `mark_phase`) as historical record — the bugs and fixes are real and
+> worth keeping, but the file paths and library names are Python-specific and gone from the
+> running service. The equivalent Go wiring lives in `internal/adapter/otel/` (`provider.go`,
+> `workflow.go`, `loghandler.go`).
+>
+> **The Go database instrumentation (`otelsql`) needed two of its own defaults overridden** —
+> unrelated to the ASGI bug above, and specific to the Go driver stack: it records the literal
+> SQL text on spans by default (a PII leak, since write paths carry `shipping_address`), and it
+> records the `database/sql` sentinel `driver.ErrSkip` as an ERROR on spans and metrics by
+> default, even though `go-sql-driver/mysql` returns it on essentially every ordinary
+> parameterized query. Both are disabled in `cmd/server/main.go`'s `poolTracingOptions`. See
+> [services/tracking-go/CLAUDE.md §11](../../../../services/tracking-go/CLAUDE.md) and
+> [[2026-08-27-a-librarys-defaults-encode-assumptions-about-a-generic-service]] for the full
+> write-up and the generalised lesson.
+
+**Four** Tracking flows carried a full `app_event` triad — `init_tracking`,
 `carrier_status_update`, `test_mode_progression`, and (added 2026-08-26)
 `internal_delete_by_user` (see [Account-deletion cascade
 (internal)](#account-deletion-cascade-internal) above) — wrapped in a manual `INTERNAL` span via
 `workflow_span`, a
 synchronous `@contextmanager` in `src/shared/observability/workflow_tracing.py` (Tracking's flows
-run inside sync command handlers or `asyncio.to_thread`-wrapped sync functions, so a sync context
-manager matches every call site — no `@asynccontextmanager` needed). Same shape as Users'
+ran inside sync command handlers or `asyncio.to_thread`-wrapped sync functions, so a sync context
+manager matched every call site — no `@asynccontextmanager` needed). Same shape as Users'
 `withWorkflowSpan` and Orders' `IWorkflowTracer`: `OK` on success, `ERROR` + the same `reason` the
 log line carries on failure, closed on Python's own `with`-block `finally`. `test_mode_progression`
-spans the **whole** ~40-second, four-transition run as one span — the workflow's natural unit, the
+spanned the **whole** ~40-second, four-transition run as one span — the workflow's natural unit, the
 same granularity its log already uses (one `_started`, one `_succeeded`/`_failed` for the whole
-run), not one span per tick.
+run), not one span per tick. The Go port keeps this granularity.
 
 Tracking also gained `opentelemetry-instrumentation-boto3sqs`, scoped deliberately to the one
-boto3 client it covers — `sqs_event_publisher.py`'s SQS client, which now produces a CLIENT span
-on publish and injects a `traceparent` `MessageAttribute` for events-pipeline's consumer to link
-back to. It does **not** cover Tracking's separate CloudWatch client
-(`shared/metrics/cloudwatch_metrics.py`) — `PutMetricData` calls stay unspanned, a deliberate
-scope limit, not a gap. Full design and implementation:
-[[2026-08-18-distributed-tracing-spans-design]] / [[2026-08-18-distributed-tracing-spans]].
+boto3 client it covered — `sqs_event_publisher.py`'s SQS client, which produced a CLIENT span
+on publish and injected a `traceparent` `MessageAttribute` for events-pipeline's consumer to link
+back to. It did **not** cover Tracking's separate CloudWatch client
+(`shared/metrics/cloudwatch_metrics.py`) — `PutMetricData` calls stayed unspanned, a deliberate
+scope limit, not a gap; the Go service preserves the same scope limit by hand. Full design and
+implementation: [[2026-08-18-distributed-tracing-spans-design]] / [[2026-08-18-distributed-tracing-spans]].
 
-> [!important] Amendment (2026-08-21) — the ASGI transport was double-spanning every request, and `init_tracking` gained lifecycle milestones
+> [!important] Amendment (2026-08-21) — historical (Python implementation, retired). This ASGI-specific bug has no Go equivalent; `otelgin` does not double-span.
 > **ASGI double-span, dropped in the collector.** `opentelemetry-instrumentation-asgi` opens a
 > span per ASGI transport message, and a normal HTTP response is two messages
 > (`http.response.start`, `http.response.body`) — so every Tracking endpoint drew a `<route>
@@ -1121,6 +1241,28 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
 
 ## Related
 
+- [[2026-08-27-tracking-go-migration-design]] — design for the completed port of this service
+  from Python/FastAPI to Go/Gin (faithful layer-by-layer port, coexisting `services/tracking-go/`
+  during the migration, wave-based agent team, and the four-part closing gate — three of four
+  criteria met — that this cutover was executed against). See
+  [[ADR-0021-tracking-go-gin-sqlc-stack]] for the Go stack decisions (Gin, sqlc, golang-migrate,
+  goenv).
+- [[2026-08-27-go-vs-python-performance]] — the measured performance comparison satisfying the
+  migration's closing-gate criterion 3 (partially): Go wins all four measurable resource/startup
+  dimensions, latency/throughput under load unmeasurable on this stack (Floci-bound, not
+  code-bound).
+- [[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]] — the
+  wiring-hazard lesson: five instances of correct, unit-tested Go code never reached from
+  `main()`, why hexagonal architecture and `golangci-lint`'s `unused` both structurally miss it,
+  and the call-graph reachability gate that now guards it.
+- [[2026-08-27-a-producer-side-test-proves-nothing-about-what-the-consumer-accepts]] — the
+  wire-contract lesson: a `shipping_address` emitted as a JSON string against a consumer schema
+  requiring an object, silently dropped with no retry, and why the fix has to parse the
+  consumer's actual Zod schema rather than a redescription of it.
+- [[2026-08-27-a-librarys-defaults-encode-assumptions-about-a-generic-service]] — `otelsql`'s
+  `db.query.text` (PII leak) and `driver.ErrSkip` (false error on every ordinary query) defaults,
+  both wrong for this service and both overridden in `poolTracingOptions`; see the Observability
+  section above and `services/tracking-go/CLAUDE.md` §11.
 - [[2026-08-25-account-deletion-design]] — full design for the internal
   `DELETE /v1/trackings/by-user` cascade: the route-ordering trap, `soft_delete_by_user`, the
   `cognito_sub OR user_id` predicate, and the four-layer empty-identity guards.
@@ -1169,8 +1311,9 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
   by `cognito_sub`, never `user_id`, and the incident that motivated it.
 - [[two-api-keys-two-trust-domains]] — the ADR formalizing why `GRPC_API_KEY` and
   `TRACKING_CARRIER_API_KEY` must never collapse into one secret.
-- [[testmode-in-process-asyncio-task]] — the ADR formalizing the in-process `asyncio`
-  scheduling choice for TestMode and its accepted restart-loses-progress limitation.
+- [[testmode-in-process-no-durable-scheduler]] — the ADR formalizing the in-process scheduling
+  choice for TestMode (a goroutine, not a durable scheduler) and its accepted
+  restart-loses-progress limitation.
 - [[events-pipeline-design]] — the consuming side of `TRACKING_STATUS_CHANGED`: the shared SQS
   queue, the dispatch map, the error taxonomy, and the `tracking-status-changed` email template
   family (one event type, five rendered variants).
