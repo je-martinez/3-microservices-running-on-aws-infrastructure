@@ -218,6 +218,7 @@ async function publishOtpRequested(event, code, challengeId) {
   const queueUrl = process.env.EVENTS_QUEUE_URL;
   const email = event.request.userAttributes.email;
   const sub = event.request.userAttributes.sub;
+  const safeRunId = safeRunIdFrom(event);
 
   // Cognito's standard `name` attribute is the only one that could carry a full
   // name here: the Users service's AdminCreateUser sets email, email_verified
@@ -253,6 +254,16 @@ async function publishOtpRequested(event, code, challengeId) {
     // `full_name` lets the OTP login email greet the user by name; it is always
     // PRESENT (possibly empty) — see the fallback above.
     payload: { email, full_name: fullName, code, ttlSeconds: CODE_TTL_SECONDS },
+    // E2E ONLY, and ABSENT in production traffic. Rides the same ClientMetadata
+    // seam as `traceparent` above, for the same reason: Cognito invokes this
+    // trigger, so the originating request's context reaches it by no other path.
+    //
+    // Spread-or-nothing, never null or "": the pipeline's EnvelopeSchema
+    // declares `run_id` optional with `.min(1)`, so either would fail validation
+    // as a PermanentError — the record dropped and the user's login code never
+    // sent. An unattributed email is a lost fixture; a rejected envelope is a
+    // lost login.
+    ...(safeRunId ? { run_id: safeRunId } : {}),
   };
 
   await sendMessage({
@@ -290,6 +301,25 @@ async function publishOtpRequested(event, code, challengeId) {
 // version "00", a 32-hex trace id, a 16-hex span id, 2-hex flags — and rejects
 // the all-zero ids the spec declares invalid.
 const TRACEPARENT_RE = /^00-(?![0]{32}$)[0-9a-f]{32}-(?![0]{16}$)[0-9a-f]{16}-[0-9a-f]{2}$/;
+
+// The E2E run id, shape-checked for the same reason traceparent is: it arrives
+// in a caller-controlled field and, unlike traceparent, it LANDS IN A DATABASE
+// DOCUMENT as the key the fixture collection is queried by. An arbitrary string
+// would let a caller write whatever it liked into that key.
+//
+// Bounded at 64 characters and rejected — never truncated — when longer. A
+// truncated id would still be a VALID-LOOKING id that silently matches nothing,
+// which is worse than an absent one: the emails would be recorded under a key no
+// spec ever queries, and the failure would read as "the pipeline never sent it".
+//
+// The suite's own ids (`run_<ISO timestamp>_<8 hex>`, minted in
+// e2e/support/global-setup.ts) fit this pattern comfortably.
+const RUN_ID_RE = /^run_[A-Za-z0-9_:.-]{1,64}$/;
+
+function safeRunIdFrom(event) {
+  const runId = event?.request?.clientMetadata?.runId;
+  return typeof runId === "string" && RUN_ID_RE.test(runId) ? runId : undefined;
+}
 
 function traceparentAttribute(event) {
   const traceparent = event?.request?.clientMetadata?.traceparent;

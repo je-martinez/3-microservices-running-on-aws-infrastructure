@@ -317,6 +317,73 @@ describe("routes", () => {
       expect(observed.request_id).toMatch(/^req_[A-Za-z0-9]{24}$/);
     });
 
+    // The E2E run id, seeded at ingress exactly like request_id so every
+    // publish in the request picks it up without a call site passing it.
+    // Gated on E2E_TESTING_ENABLED for the same reason `x-e2e-source` is: the
+    // header is caller-controlled, and an environment without the flag must
+    // behave as if it were never sent.
+    it("seeds x-e2e-run-id into the log context when E2E_TESTING_ENABLED is on", async () => {
+      let observed: Record<string, unknown> | undefined;
+      const getMe = vi.fn(async (currentUser: { identity: string }) => {
+        observed = { ...getLogContext() };
+        return fakeUser({ id: currentUser.identity });
+      });
+      const container = testContainer(true);
+      container.register({ userQueryService: asValue({ getMe, getUserById: vi.fn() } as any) });
+      const app = buildApp(container);
+
+      const res = await app.inject({
+        method: "GET",
+        url: "/v1/users/me",
+        headers: { "x-user-id": "usr_ctx_3", "x-e2e-run-id": "run_abc" },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(observed).toMatchObject({ run_id: "run_abc" });
+    });
+
+    it("IGNORES x-e2e-run-id when E2E_TESTING_ENABLED is off", async () => {
+      let observed: Record<string, unknown> | undefined;
+      const getMe = vi.fn(async (currentUser: { identity: string }) => {
+        observed = { ...getLogContext() };
+        return fakeUser({ id: currentUser.identity });
+      });
+      const container = testContainer(false);
+      container.register({ userQueryService: asValue({ getMe, getUserById: vi.fn() } as any) });
+      const app = buildApp(container);
+
+      const res = await app.inject({
+        method: "GET",
+        url: "/v1/users/me",
+        headers: { "x-user-id": "usr_ctx_4", "x-e2e-run-id": "run_abc" },
+      });
+
+      expect(res.statusCode).toBe(200);
+      // ABSENT, not empty: the key would otherwise reach every published
+      // envelope from a production request.
+      expect(observed).not.toHaveProperty("run_id");
+    });
+
+    it("omits run_id when the header is absent even with the flag on", async () => {
+      let observed: Record<string, unknown> | undefined;
+      const getMe = vi.fn(async (currentUser: { identity: string }) => {
+        observed = { ...getLogContext() };
+        return fakeUser({ id: currentUser.identity });
+      });
+      const container = testContainer(true);
+      container.register({ userQueryService: asValue({ getMe, getUserById: vi.fn() } as any) });
+      const app = buildApp(container);
+
+      const res = await app.inject({
+        method: "GET",
+        url: "/v1/users/me",
+        headers: { "x-user-id": "usr_ctx_5" },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(observed).not.toHaveProperty("run_id");
+    });
+
     it("leaves the log context empty on a public route with no x-user-id", async () => {
       let observed: Record<string, unknown> | undefined;
       const container = testContainer(false);

@@ -1,5 +1,5 @@
 ---
-applyTo: "**/*.test.*,**/*.spec.*,**/test_*.py,**/*.gatling.ts,**/playwright.config.ts"
+applyTo: "**/*.test.*,**/*.spec.*,**/test_*.py,**/*_test.go,**/*.gatling.ts,**/playwright.config.ts"
 description: "Testing — three layers per endpoint"
 ---
 

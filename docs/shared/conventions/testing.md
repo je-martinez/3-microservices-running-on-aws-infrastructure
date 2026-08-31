@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-17
-updated: 2026-08-26
+updated: 2026-08-29
 tags: [type/convention, area/shared, status/active]
 related:
   - "[[ADR-0010-cognito-auth]]"
@@ -13,6 +13,8 @@ related:
   - "[[2026-07-17-testing-layers-and-e2e-gateway-design]]"
   - "[[2026-07-17-testing-layers-and-e2e-gateway]]"
   - "[[events-pipeline-design]]"
+  - "[[2026-08-29-e2e-email-support-store]]"
+  - "[[2026-08-29-the-emulator-was-the-ceiling-not-the-code]]"
   - "[[2026-08-03-events-pipeline-milestone-design]]"
   - "[[2026-08-05-passwordless-otp-auth-design]]"
   - "[[2026-08-05-passwordless-otp-auth]]"
@@ -30,12 +32,14 @@ Every HTTP endpoint MUST have all three test layers before it is considered done
 
 1. **Unit / integration** — the endpoint's logic tested in isolation. Orders uses xUnit with
    Testcontainers-MySQL through the in-process `WebApplicationFactory`; Users uses vitest with a
-   mocked container; Tracking uses pytest against a **live** MySQL rather than mocks — specifically
-   the **shared local `tracking` database** (Floci grants the `test` user no `CREATE DATABASE`
-   privilege, so a throwaway per-run database is not an option), which means any fixture touching
-   the schema must restore it exactly as found. See
+   mocked container; Tracking uses `go test` against a **live** MySQL rather than mocks —
+   specifically the **shared local `tracking` database** (Floci grants the `test` user no
+   `CREATE DATABASE` privilege, so a throwaway per-run database is not an option), which means
+   any fixture touching the schema must restore it exactly as found. `make test` alone silently
+   **skips** the database-backed tests and still prints `ok`; `make test-db` (or
+   `TRACKING_DATABASE_URL`/`TRACKING_TEST_MYSQL_DSN` set by hand) is what actually runs them. See
    [[tracking/testing/index#Layer 1 — unit / integration]] and
-   `services/tracking/CLAUDE.md` §5c-bis for the full mechanics.
+   `services/tracking-go/CLAUDE.md` §6 for the full mechanics.
 2. **Internal E2E** — the service's own URL hit directly, bypassing the gateway, with `x-user-id`
    faked. Each service has its own internal Playwright spec running against its own port: orders
    against `http://localhost:3001`, users against `http://localhost:3000`, tracking against
@@ -157,6 +161,24 @@ See [[events-pipeline-design]] and [[2026-08-03-events-pipeline-milestone-design
 detail, including the dedicated `batchItemFailures` test (inject one good message and one that
 triggers a transient failure; assert the good one is consumed exactly once and only the bad one
 retries).
+
+### The E2E email-support store is a diagnostic channel, never an assertion channel
+
+Shipped 2026-08-29 (see [[events-pipeline-design#E2E email-support store]] and
+[[2026-08-29-e2e-email-support-store]]): the events-pipeline now persists a per-run, queryable
+copy of every rendered email — full HTML and plaintext code — and serves it over a Lambda
+Function URL. It is an **additional diagnostic channel, never an assertion channel**. Specs still
+call `waitForEmailTo(...)` and still extract the OTP or reset code from the real Mailpit message;
+the store only explains a failure after the fact. State the rule explicitly, because it is easy
+to erode under pressure to turn a red spec green: **a spec that reads its OTP from the store
+instead of the email stops proving delivery and is not a passing spec.**
+
+**It distinguishes two failures that look identical from Mailpit's side.** Nothing recorded for a
+run means the event was **lost** — the pipeline never rendered or sent it. Recorded, but absent
+from Mailpit, means the mail is **late** — rendered and handed to SES, but not yet delivered to
+the local inbox. Different causes, different fixes; conflating them wastes debugging time chasing
+the wrong one. See [[2026-08-29-the-emulator-was-the-ceiling-not-the-code]] for why "late" is the
+common case on this stack — Floci's own delivery cadence, not a pipeline defect.
 
 ## Adapting the three layers to a WebSocket surface (realtime-events)
 
@@ -335,6 +357,37 @@ mechanism exists: nothing gets tagged, and (in Orders and Tracking) the cleanup 
 never mounted, so a caller sees `405` on that path rather than a `404` or a silently-empty `200`.
 Every service implements the underlying delete as a soft-delete, per [[soft-delete]].
 
+## E2E setup restocks the catalogue, not only teardown
+
+Both harnesses (Playwright E2E and the Gatling load tests) now restock the product catalogue at
+**setup**, not only at teardown (commit `ad4b153`). The call is `DELETE /v1/orders/e2e-cleanup` —
+the same endpoint documented above — which restores stock to the seeded quantities and
+invalidates the catalogue cache.
+
+- **Teardown already restocked**, and its code comment records the incident that motivated it:
+  all three products once reached zero stock and the suite began failing with *"no product with
+  stock in the catalogue"* — including tests about ownership and carrier auth whose fixtures
+  merely need to place an order first, with no direct interest in stock levels at all.
+- **The hole teardown-only left:** teardown only runs when a suite finishes cleanly. A Ctrl-C, a
+  timeout, or an early hard failure never reaches it, and the next run starts drained.
+- **Load tests need it more, and this was measured, not assumed.** They deliberately send neither
+  `x-e2e-source` nor `x-test-mode`, so their orders are untagged and `e2e-cleanup`'s tag-based
+  delete can never touch them — seven probe orders
+  returned `deleted: 0` every time. Their drain on the catalogue is therefore permanent and
+  cumulative, run after run, until order creation fails for want of stock **instead of** under
+  the contention the simulation exists to measure. That run still produces a number, and the
+  number is wrong — the same failure shape as "verify both arms do equivalent work" from the
+  performance-comparison lesson ([[2026-08-27-go-vs-python-performance]]), in a different
+  costume: a result that looks like a measurement while actually measuring an artifact of the
+  harness.
+- **Both callers fail loudly.** An unreachable service, an unmounted route, or any non-200
+  response from the restock call aborts the run before a single spec or virtual user executes
+  (verified: exit 1). A setup step that cannot fail is not a step.
+- **For Gatling it is a pnpm pre-step, not a scenario action.** The simulation runs on GraalVM
+  with no process access, so the restock call cannot happen from inside a Gatling scenario body —
+  and even if it could, anything inside a scenario runs **per virtual user**, which would reload
+  stock mid-measurement and show up as its own row in the percentile tables rather than as setup.
+
 ## Related
 
 - [[ADR-0010-cognito-auth]]
@@ -346,6 +399,10 @@ Every service implements the underlying delete as a soft-delete, per [[soft-dele
   SQS-triggered component is implemented.
 - [[2026-08-03-events-pipeline-milestone-design]] — full detail on the adapted layers and the
   `batchItemFailures` test.
+- [[2026-08-29-e2e-email-support-store]] — the implementation plan for the E2E email-support
+  store described above.
+- [[2026-08-29-the-emulator-was-the-ceiling-not-the-code]] — the investigation that motivated the
+  store and the "lost vs. late" distinction it exists to make.
 - [[orders/testing/index|Orders Testing]]
 - [[users/testing/index|Users Testing]]
 - [[tracking/testing/index|Tracking Testing]]

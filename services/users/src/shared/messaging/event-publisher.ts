@@ -146,6 +146,10 @@ export class SqsEventPublisher implements EventPublisher {
   ) {}
 
   async publishUserCreated(payload: UserCreatedPayload): Promise<void> {
+    // Read ONCE: both correlation fields come from the same store, and reading
+    // it per field would invite the two to disagree if a continuation ever
+    // enriched the context between them.
+    const logCtx = getLogContext();
     // snake_case throughout — this is the wire contract validated by the
     // pipeline's EnvelopeSchema. `order_id` is NULLABLE, not optional, in that
     // schema: the key must be present with a null value or the envelope is
@@ -159,7 +163,16 @@ export class SqsEventPublisher implements EventPublisher {
       // so an explicit null or "" is a PermanentError there — the message is not
       // retried and its email is lost. `undefined` is the right absence marker
       // because JSON.stringify drops it, exactly as `author.cognito_sub` below.
-      request_id: getLogContext().request_id,
+      request_id: logCtx.request_id,
+      // E2E ONLY, and OMITTED on every production request: the log context only
+      // carries a run id when `x-e2e-run-id` arrived under E2E_TESTING_ENABLED
+      // (see shared/logging/run-id.ts). It rides the context for the same
+      // reason request_id does — one seed at ingress reaches every publish —
+      // and lets the pipeline attribute the email it renders to the suite run
+      // that caused it. Spread-or-nothing because the pipeline's schema is
+      // `.optional().min(1)`: a null or "" there is a PermanentError, so the
+      // record is dropped without retry and its email is lost.
+      ...(logCtx.run_id ? { run_id: logCtx.run_id } : {}),
       type: EVENT_TYPE,
       source: EVENT_SOURCE,
       user_id: payload.id,
@@ -302,6 +315,8 @@ export class SqsEventPublisher implements EventPublisher {
   // pipeline's redaction is keyed to the fields it knows about. Anything smuggled
   // in alongside would be persisted verbatim.
   async publishPasswordResetRequested(payload: PasswordResetRequestedPayload): Promise<void> {
+    // One read, for the reason given in publishUserCreated above.
+    const logCtx = getLogContext();
     const envelope = {
       event_id: NanoIdConfig.newEventId(),
       // The correlation id of the request that produced this event, so the
@@ -311,7 +326,16 @@ export class SqsEventPublisher implements EventPublisher {
       // so an explicit null or "" is a PermanentError there — the message is not
       // retried and its email is lost. `undefined` is the right absence marker
       // because JSON.stringify drops it, exactly as `author.cognito_sub` below.
-      request_id: getLogContext().request_id,
+      request_id: logCtx.request_id,
+      // E2E ONLY, and OMITTED on every production request: the log context only
+      // carries a run id when `x-e2e-run-id` arrived under E2E_TESTING_ENABLED
+      // (see shared/logging/run-id.ts). It rides the context for the same
+      // reason request_id does — one seed at ingress reaches every publish —
+      // and lets the pipeline attribute the email it renders to the suite run
+      // that caused it. Spread-or-nothing because the pipeline's schema is
+      // `.optional().min(1)`: a null or "" there is a PermanentError, so the
+      // record is dropped without retry and its email is lost.
+      ...(logCtx.run_id ? { run_id: logCtx.run_id } : {}),
       type: PASSWORD_RESET_EVENT_TYPE,
       source: EVENT_SOURCE,
       // The SUBJECT of the event: whose password is being reset.

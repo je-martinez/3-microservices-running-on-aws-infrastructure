@@ -1,4 +1,5 @@
 import { test, expect, request, type APIRequestContext } from "@playwright/test";
+import { pickProductWithStock } from "../../support/catalogue.js";
 import { gatewayClient } from "../../support/gateway-client.js";
 import { makeUser } from "../../support/chance-factory.js";
 
@@ -62,10 +63,7 @@ async function registerAndLogin(user: Credentials): Promise<Session> {
 async function placeOrder(api: APIRequestContext): Promise<string> {
   const products = await api.get("v1/products");
   expect(products.status()).toBe(200);
-  const product = (await products.json()).find(
-    (p: { unitsInStock: number }) => p.unitsInStock > 0,
-  );
-  expect(product, "the seed catalog has no in-stock product").toBeTruthy();
+  const product = pickProductWithStock(await products.json());
 
   const created = await api.post("v1/orders", {
     data: { lines: [{ productId: product.id, quantity: 1 }] },

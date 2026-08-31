@@ -491,6 +491,31 @@ module "lambda_events_pipeline" {
   # one 30s timeout and one DocumentDB connection.
   batch_size = 10
 
+  # FOUR pollers, and only because this is the emulator. Real Lambda scales one
+  # mapping out by itself, so every deployed environment leaves this at the
+  # module default of 1 — see the resource comment in modules/lambda/main.tf.
+  #
+  # Floci keeps one invocation in flight per mapping, so mapping count IS the
+  # concurrency knob here. Measured, same 80 events, nothing else changed:
+  # 1 mapping -> 79s (1.02 ev/s); 4 mappings -> 24s (3.37 ev/s), with zero
+  # failures, zero duplicates and an empty DLQ.
+  #
+  # 4 rather than more: the gain is linear in mapping count but each poller is a
+  # Lambda container on a machine already hosting the whole stack, and 4 was
+  # enough to move a full E2E suite's backlog out of the specs' 45s budget.
+  mapping_count = 4
+
+  # The E2E email-query route. The suite cannot reach DocumentDB directly —
+  # Floci does not publish 27017 to the host in our containerized setup — so the
+  # only way for a Playwright process to read the e2e_emails collection is
+  # through the function that already holds a connection to it.
+  #
+  # LOCAL ONLY. The module defaults this to false, so production's events
+  # function gets no public URL by omission rather than by remembering to say
+  # no. See the module for why authorization_type is NONE and why the token,
+  # not the URL, is the boundary.
+  enable_function_url = true
+
   environment_variables = {
     AWS_ENDPOINT_URL = "http://floci:4566"
     # Set explicitly: real Lambda injects AWS_REGION into every execution
@@ -566,6 +591,25 @@ module "lambda_events_pipeline" {
     # /v1/traces only.
     OTEL_METRICS_EXPORTER = "none"
     OTEL_LOGS_EXPORTER    = "none"
+
+    # ─── E2E email store ────────────────────────────────────────────────────
+    # Three switches for one feature, all LOCAL ONLY — a deployed environment
+    # sets none of them, so the e2e_emails collection is never written and the
+    # Function URL route above answers 404 for every request.
+    #
+    # E2E_TESTING_ENABLED gates BOTH the write (one document per rendered
+    # email) and the read route. Same flag name the three services already use
+    # for their own E2E-only routes, deliberately: one concept, one spelling.
+    E2E_TESTING_ENABLED = "true"
+    # TTL on each stored email. An hour is far longer than any suite run and
+    # short enough that a developer's machine never accumulates them; the
+    # expiry is enforced by a Mongo TTL index, not by a sweeper.
+    E2E_EMAIL_TTL_SECONDS = "3600"
+    # The actual security boundary for the Function URL (which is AuthType
+    # NONE). The handler compares this in constant time against the request's
+    # `x-e2e-token` and answers 404 — not 401 — when it is absent or wrong, so
+    # an unauthenticated caller cannot even tell the route exists.
+    E2E_QUERY_TOKEN = var.e2e_query_token
   }
 }
 
@@ -587,9 +631,10 @@ module "lambda_events_pipeline" {
 # emits no START lines, so counting them reads 0 — check the invocations
 # themselves, not that filter.
 #
-# rate(1 minute) is EventBridge's floor, coarser than the services' 15s
-# interval. That is sufficient here: the narrowest dashboard range is 5 minutes,
-# which gets five points.
+# rate(1 minute) is EventBridge's floor. It now MATCHES the services' local
+# interval (60s) rather than being coarser than it, so the Lambda's counters and
+# the services' gauges share one cadence. That is sufficient here: the narrowest
+# dashboard range is 5 minutes, which gets five points.
 resource "aws_cloudwatch_event_rule" "events_pipeline_metrics_tick" {
   name                = "${module.label_events.id}-metrics-tick"
   description         = "Periodic tick so the events-pipeline seeds its email counters even with no mail traffic."

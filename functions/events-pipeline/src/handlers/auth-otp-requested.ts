@@ -3,6 +3,7 @@ import type { Envelope } from "#domain/envelope";
 import { renderTemplate } from "#email/renderer";
 import { sendEmail } from "#email/sender";
 import { PermanentError } from "#pipeline/errors";
+import type { HandlerDeps } from "#pipeline/process-record";
 
 // Payload contract — camelCase (`ttlSeconds`), like USER_CREATED and unlike the
 // two snake_case payloads. `full_name` joins it in the producer's own snake_case
@@ -34,7 +35,7 @@ const AuthOtpRequestedPayloadSchema = z.object({
 // never carries it (see #domain/redact-payload, applied in
 // #pipeline/process-record) — not this in-memory one, which has to hold the
 // real code in order to email it.
-export async function authOtpRequestedHandler(envelope: Envelope): Promise<void> {
+export async function authOtpRequestedHandler(envelope: Envelope, deps: HandlerDeps = {}): Promise<void> {
   const result = AuthOtpRequestedPayloadSchema.safeParse(envelope.payload);
 
   if (!result.success) {
@@ -68,5 +69,15 @@ export async function authOtpRequestedHandler(envelope: Envelope): Promise<void>
     subject: "Your one-time code",
     html,
     templateKey: "auth-otp",
+
+    // The store is the ONLY consumer of this field. The persisted event
+
+    // document keeps its redaction (#domain/redact-payload) — this does not
+
+    // relax it.
+
+    code: result.data.code,
+
+    recordEmail: deps.recordEmail,
   });
 }

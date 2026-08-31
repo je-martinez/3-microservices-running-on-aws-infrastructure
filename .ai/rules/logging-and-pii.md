@@ -6,6 +6,7 @@ paths:
   - "**/*.js"
   - "**/*.py"
   - "**/*.cs"
+  - "**/*.go"
 ---
 
 # Logging, tracing, and PII

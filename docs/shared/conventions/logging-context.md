@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-19
-updated: 2026-08-21
+updated: 2026-08-27
 tags:
   - type/convention
   - area/shared
@@ -28,6 +28,7 @@ related:
   - "[[health-check-logging]]"
   - "[[2026-08-18-distributed-tracing-spans-design]]"
   - "[[2026-08-18-distributed-tracing-spans]]"
+  - "[[2026-08-27-a-librarys-defaults-encode-assumptions-about-a-generic-service]]"
 ---
 
 # Logging Context
@@ -190,6 +191,14 @@ shared context table already follows.
 > line, so a producer that keeps the log clean keeps the span clean too — but it is stated here
 > explicitly because "the log rule" and "the span rule" are easy to treat as two separate things
 > to remember, and they are one rule applied to two exporters.
+>
+> This includes **library-level instrumentation, not just spans this repo writes by hand**:
+> Tracking's `otelsql` wrapper records `db.query.text` — the literal SQL, including bound
+> values — by default, and had to be explicitly disabled once a real instrumented `UPDATE` was
+> observed emitting `shipping_address` in plaintext on the span. A database-instrumentation
+> library's defaults assume a generic service; verify them against what your service's queries
+> actually carry. See
+> [[2026-08-27-a-librarys-defaults-encode-assumptions-about-a-generic-service]].
 
 > [!warning] Pitfall — mask at the call site, not in the ambient context
 > The masked email goes on the **log call site**, not in the AsyncLocalStorage context. Putting
@@ -387,28 +396,27 @@ reach the shared schema.
 > full per-stream routing table and the `resource.attributes[...]` pitfalls that make these
 > filters easy to write wrong.
 
-> [!warning] SQLAlchemy's SQL echo goes to its own OpenObserve stream, never the main `logs` one
-> Tracking runs with SQL echo on outside production (`Settings.echo_sql`), and a single tracking
-> read can emit several `SELECT`s — enough that, mixed into the shared stream, application events
-> were buried among the queries that served them and roughly a third of all records carried no
-> `service_name` at all and could not be filtered by service. The collector now splits SQL
-> statements into a **separate stream**, via two OTel pipelines over the same receivers with
-> complementary filters (each record leaves through exactly one, so the filters must stay exact
-> complements) and two exporters differing only in the destination stream-name header.
+> [!warning] Historical (Python/SQLAlchemy) — SQL echo went to its own OpenObserve stream, never the main `logs` one
+> The Python Tracking service ran with SQL echo on outside production (`Settings.echo_sql`), and
+> a single tracking read could emit several `SELECT`s — enough that, mixed into the shared stream,
+> application events were buried among the queries that served them and roughly a third of all
+> records carried no `service_name` at all and could not be filtered by service. The collector's
+> `sql` pipeline (still present, see [[openobserve-runbook]]) splits statements matching
+> `^(SELECT|INSERT|UPDATE|DELETE|BEGIN|COMMIT|ROLLBACK)` or carrying `commandText` into a
+> **separate stream**, via two OTel pipelines over the same receivers with complementary filters
+> and two exporters differing only in the destination stream-name header — and Users' Prisma
+> statements and Orders' EF Core commands still route through it (see the warning above).
 >
-> The activation mechanism is the part worth getting right on a new service: echo must be turned
-> on by **raising the `sqlalchemy.engine` logger's level**
-> (`logging.getLogger("sqlalchemy.engine").setLevel(logging.INFO)`), **never**
-> `create_engine(echo=True)`. `echo=True` makes SQLAlchemy attach its own plain-text
-> `StreamHandler` at engine-construction time — and because engines are `lru_cached` and built on
-> the **first request**, that happens long after `configure_logging()` has already stripped
-> library handlers at startup, so SQLAlchemy silently reinstalls one behind the app's back. The
-> result was every statement logged **twice**: once as JSON with the full shared context, and once
-> as raw text with no `service_name`, with multi-line statements arriving as several unrelated
-> records. Setting the logger's level instead routes the same records through the normal logging
-> tree — the root JSON handler formats them, the context filter enriches them — and is
-> order-independent, since there is no handler left for SQLAlchemy to reinstall. See
-> `services/tracking/src/shared/db/engine.py`.
+> **This does not apply to the Go Tracking service.** `services/tracking-go/` instruments queries
+> with `otelsql`, which attaches `db.query.text` as a **span attribute**, not a log record — so it
+> was never going to match the `sql` pipeline's log-based filter, and the question the SQLAlchemy
+> activation mechanism answered (raise the `sqlalchemy.engine` logger's level, never
+> `create_engine(echo=True)`, to avoid a duplicate plain-text handler) does not have a Go
+> equivalent to get right. Go's version of "don't leak this into observability" is a different
+> risk in a different place: `otelsql` records `db.query.text` **by default**, which is a PII
+> concern (a captured `shipping_address`) rather than a log-duplication one, and the fix is
+> `otelsql.DisableQuery`, not a logger level — see `services/tracking-go/CLAUDE.md` §11 and
+> [PII rules](#pii-rules) below.
 
 > [!warning] Do not filter or alert on `cloudwatch_log_stream`
 > Under the local emulator, the `aws_cloudwatch` receiver substitutes the placeholder
@@ -524,6 +532,10 @@ had none.
   (events-pipeline) and JE-159 (realtime-events), and established that workflow spans carry the
   same `app_event`/`reason` attributes as the flow log line.
 - [[2026-08-18-distributed-tracing-spans]] — the implementation plan; verified end to end
+- [[2026-08-27-a-librarys-defaults-encode-assumptions-about-a-generic-service]] — `otelsql`'s
+  `db.query.text` default (a PII leak onto spans) and `driver.ErrSkip` default (a false error on
+  every ordinary query), and the generalised lesson that a library's instrumentation defaults
+  assume a generic service.
   against a real Jaeger trace.
 - [[2026-08-05-passwordless-otp-auth-design]] — the entropy reasoning behind the never-log-an-OTP
   rule and the full logging design for `otp_challenge_created`.

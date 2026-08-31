@@ -5,6 +5,7 @@ paths:
   - "**/*.test.*"
   - "**/*.spec.*"
   - "**/test_*.py"
+  - "**/*_test.go"
   - "**/*.gatling.ts"
   - "**/playwright.config.ts"
 ---

@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { apiClient } from "../support/api-client.js";
 import { makeUser } from "../support/chance-factory.js";
 import { assertMailpitReachable, waitForEmailTo, getMessage } from "../support/mailpit-client.js";
+import { describeRecordedEmails } from "../support/email-store-client.js";
 
 // The OTP endpoints against the service URL directly (the "internal" project).
 // This layer sits below the gateway spec (tests/gateway/otp-flow.spec.ts) and
@@ -16,6 +17,25 @@ import { assertMailpitReachable, waitForEmailTo, getMessage } from "../support/m
 
 const EMAIL_TIMEOUT_MS = 45_000;
 const OTP_SUBJECT = "Your one-time code";
+
+// The email wait, with the record store's verdict appended on failure.
+//
+// The ASSERTION IS UNCHANGED — this still fails when no email arrives, and it
+// still reads the code out of the real message. All the wrapper adds is the one
+// fact the bare timeout cannot supply: whether the pipeline rendered and sent
+// the mail at all. "Late" and "lost" look identical from Mailpit's side and have
+// completely different fixes.
+async function waitForOtpEmail(email: string) {
+  try {
+    return await waitForEmailTo(email, {
+      timeoutMs: EMAIL_TIMEOUT_MS,
+      matching: (m) => m.Subject === OTP_SUBJECT,
+      description: `the "${OTP_SUBJECT}" email`,
+    });
+  } catch (err) {
+    throw new Error(`${(err as Error).message}${await describeRecordedEmails(email)}`);
+  }
+}
 
 // Same extraction the gateway spec uses, and for the same reason: the search
 // summary carries only a truncated `Snippet`, so the full message is fetched
@@ -73,11 +93,7 @@ test("the emailed code exchanges for tokens at POST /v1/users/otp/verify", async
   expect(start.status()).toBe(200);
   const { session } = await start.json();
 
-  const [message] = await waitForEmailTo(user.email, {
-    timeoutMs: EMAIL_TIMEOUT_MS,
-    matching: (m) => m.Subject === OTP_SUBJECT,
-    description: `the "${OTP_SUBJECT}" email`,
-  });
+  const [message] = await waitForOtpEmail(user.email);
 
   const res = await api.post("/v1/users/otp/verify", {
     data: { email: user.email, session, code: await codeFrom(message.ID) },
@@ -103,11 +119,7 @@ test("a wrong code is rejected with 401 invalid_otp", async () => {
   const start = await api.post("/v1/users/otp/start", { data: { email: user.email } });
   const { session } = await start.json();
 
-  const [message] = await waitForEmailTo(user.email, {
-    timeoutMs: EMAIL_TIMEOUT_MS,
-    matching: (m) => m.Subject === OTP_SUBJECT,
-    description: `the "${OTP_SUBJECT}" email`,
-  });
+  const [message] = await waitForOtpEmail(user.email);
   const real = await codeFrom(message.ID);
 
   // Well-formed but wrong, so the rejection can only come from the comparison

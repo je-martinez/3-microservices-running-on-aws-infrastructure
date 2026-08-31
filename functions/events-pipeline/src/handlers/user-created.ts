@@ -3,6 +3,7 @@ import type { Envelope } from "#domain/envelope";
 import { renderTemplate } from "#email/renderer";
 import { sendEmail } from "#email/sender";
 import { PermanentError } from "#pipeline/errors";
+import type { HandlerDeps } from "#pipeline/process-record";
 
 // Payload contract — camelCase, unlike ORDER_CREATED and
 // TRACKING_STATUS_CHANGED. That is the producer's shape and it is deliberate:
@@ -31,7 +32,7 @@ const UserCreatedPayloadSchema = z.object({
 // validate payload (Zod) → render the react-email template to HTML →
 // SES SendEmail → COMPLETED (the state machine records the status; this
 // handler only has to return or throw).
-export async function userCreatedHandler(envelope: Envelope): Promise<void> {
+export async function userCreatedHandler(envelope: Envelope, deps: HandlerDeps = {}): Promise<void> {
   const result = UserCreatedPayloadSchema.safeParse(envelope.payload);
 
   if (!result.success) {
@@ -55,5 +56,7 @@ export async function userCreatedHandler(envelope: Envelope): Promise<void> {
     subject: "Welcome to 3MRAI",
     html,
     templateKey: "user-created",
+    // No `code`: this template carries none.
+    recordEmail: deps.recordEmail,
   });
 }

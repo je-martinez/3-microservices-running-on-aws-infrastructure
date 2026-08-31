@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-08-14
-updated: 2026-08-14
+updated: 2026-08-27
 tags: [type/convention, area/shared, status/active]
 related:
   - "[[versioning]]"
@@ -32,13 +32,15 @@ recorded in full in [[openapi-autogen]] (Users' ADR) — reference it, don't res
 |---|---|---|---|
 | Users | Fastify + Zod | `pnpm generate:openapi` | `@fastify/swagger` + `fastify-type-provider-zod`; entrypoint `src/features/users/http/generate-openapi.ts` |
 | Orders | .NET Minimal APIs | `dotnet build` (no separate step) | `Microsoft.Extensions.ApiDescription.Server` emits JSON at build time, then the `ConvertOpenApiToYaml` MSBuild target runs `tools/openapi-json-to-yaml.cs` to re-serialize as YAML 3.1 |
-| Tracking | FastAPI | `docker compose run --rm --no-deps -e E2E_TESTING_ENABLED=true --entrypoint python tracking scripts/generate_openapi.py` | FastAPI's native `app.openapi()`, serialized with PyYAML |
+| Tracking | Go + Gin | `go run ./cmd/genopenapi` | Hand-written spec builder (`internal/openapi`) walking the Go route table, serialized with `yaml.v3` |
 
-Tracking runs its generator **inside the container** because `services/tracking` has no
-`.venv` and the repo-root make targets never create one (`make migrate-tracking` runs
-Alembic in a one-off container for the same reason; see [[local-dev]]). PyYAML is declared
-in `requirements.txt` (dev/generation only), deliberately NOT in `requirements-runtime.txt`
-— the runtime image needs no YAML writer since the committed file is what consumers read.
+Tracking runs its generator with the goenv-pinned Go toolchain from `services/tracking-go/`
+(see `services/tracking-go/CLAUDE.md` §1-2), not inside a container — Go's toolchain is
+available on the host the way Node's is for Users, unlike the Python service's containerized
+approach this replaced. `cmd/genopenapi` deliberately takes **no `--output` flag**: writing
+the document anywhere the comparison test does not look is the one way a committed artifact
+silently goes stale, and `internal/openapi/spec_test.go` regenerates and diffs it on every
+run.
 
 ## Document-level metadata
 
@@ -75,7 +77,7 @@ a security problem, not a style one:
 - Tracking's external carrier `x-api-key`.
 - Unauthenticated surfaces (health, e2e-cleanup), which declare neither.
 
-`services/tracking/CLAUDE.md` §5a is the detailed reference for its three schemes.
+`services/tracking-go/CLAUDE.md` §5 is the detailed reference for its four schemes.
 
 **The E2E flag is ON during generation** so the spec documents the full contract, including
 the flag-guarded cleanup route. Generating it does not enable that route anywhere a request

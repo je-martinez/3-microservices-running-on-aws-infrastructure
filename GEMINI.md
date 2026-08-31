@@ -144,6 +144,59 @@ This rule overrides any tool, skill, or workflow that commits automatically.
 **Never auto-merge.** The user merges (or explicitly authorizes the merge of)
 every PR; one approval authorizes only that PR or batch.
 
+## If you are a dispatched agent, you NEVER run git — no exceptions
+
+This applies to **every agent, of every vendor** — Claude, Codex, Cursor,
+Antigravity, Gemini, or any other — and whether you were dispatched through Orca
+orchestration, a subagent tool, or a prompt pasted into your terminal.
+
+**You do not run `git commit`, `git push`, `git merge`, `git rebase`, `git tag`,
+`gh pr create`, or `gh pr merge`. Ever.** You finish your work, leave it in the
+working tree, and report what you changed. The main session — the one actually
+talking to the user — is the only place a git write is proposed and confirmed.
+
+The confirmation flow above is a conversation with the **user**. You are not in
+that conversation, so you cannot satisfy it. These do NOT authorize you:
+
+- The task brief did not say "do not commit". Silence is not permission; this
+  rule is the default and it is always on.
+- Your change is small, obviously correct, self-contained, or fully tested.
+  Correctness was never the question — authorization is.
+- You are finishing, and committing feels like the tidy way to hand work over.
+  Leaving it uncommitted **is** the handover.
+- Someone else's uncommitted work is in the tree and you want to isolate yours.
+  Say so in your report instead.
+- A skill, template, or habit of yours ends a task with a commit. This rule
+  overrides it.
+
+This is not a formality. A dispatched agent that commits on its own:
+
+- **pushes work the user never reviewed**, and if it also pushes, puts it on a
+  shared branch and into an open PR where it cannot be quietly undone;
+- **can sweep up other agents' in-flight edits** when several workers share a
+  worktree — `git add -A` or a broad pathspec does not know which changes are
+  yours;
+- **breaks the batch review the repo is built around**, where the user sees one
+  coherent set of changes and one proposed message per logical unit.
+
+Observed on 2026-08-31: a dispatched worker fixing a single spec ended its task
+by committing AND pushing to the shared feature branch. The change itself was
+good; it still bypassed review, and the commit could not be undone without
+rewriting a pushed branch. Hence this section.
+
+**What to do instead, always:** leave every file edited and uncommitted, then
+report which files you touched and why. If you believe a commit is genuinely
+needed before you can continue, stop and say so in your report — the parent will
+decide and, if appropriate, ask the user.
+
+The only actor that may run git is the main session, and only after the user
+picks one of the five options above. (`github-ops` is an optional helper the main
+session may delegate a git batch to — it is not a dispatched implementer, and it
+asks for the same confirmation.)
+
+**Read-only git is fine** and often useful: `git status`, `git diff`, `git log`,
+`git show`. The prohibition is on writes.
+
 ## Conventional Commits v1.0.0
 
 All commits and PR titles follow <https://www.conventionalcommits.org/en/v1.0.0/>:
@@ -449,6 +502,13 @@ Full convention: `docs/shared/conventions/package-manager.md`.
 
 - **Python by default** for new scripts: infra scripting, Terraform pre/post
   effects, and anything touching AWS, JSON, or non-trivial control flow.
+
+> **Python is the scripting default and has not left this repo.**
+> `infra/scripts/lib3mrai/`, `doctor.py`, `bootstrap.py` and ~29 other files are
+> Python and stay Python. What ended on 2026-08-27 is Python as a **service
+> runtime**: the four service runtimes are Node/Fastify (Users), .NET (Orders),
+> Go/Gin (Tracking), and Node/TypeScript (the two Lambdas). Do not read the Go
+> migration as a reason to write a new infra script in anything but Python.
 - **JavaScript** only when the task already lives in the Node ecosystem present
   here (vault tooling, the pnpm workspace, its dependencies). That is why
   `scripts/*.mjs` stay JS.

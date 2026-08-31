@@ -4,6 +4,7 @@ import { renderTemplate } from "#email/renderer";
 import { sendEmail } from "#email/sender";
 import { PermanentError } from "#pipeline/errors";
 import { publishToUser } from "#shared/realtime/websocket-publisher";
+import type { HandlerDeps } from "#pipeline/process-record";
 
 // Payload contract — snake_case, matching the envelope and the persisted
 // event document (see the events-pipeline design spec's Data Model section
@@ -91,7 +92,7 @@ const TEMPLATE_BY_STATUS: Record<string, string> = {
 // variant from payload.status -> render the react-email template to HTML ->
 // SES SendEmail -> COMPLETED (the state machine records the status; this
 // handler only has to return or throw).
-export async function trackingStatusChangedHandler(envelope: Envelope): Promise<void> {
+export async function trackingStatusChangedHandler(envelope: Envelope, deps: HandlerDeps = {}): Promise<void> {
   const result = TrackingStatusChangedPayloadSchema.safeParse(envelope.payload);
 
   if (!result.success) {
@@ -145,6 +146,8 @@ export async function trackingStatusChangedHandler(envelope: Envelope): Promise<
     // variants, not the event type. The EmailType dimension names the template
     // that was actually sent, so the five variants stay distinguishable.
     templateKey,
+    // No `code`: this template carries none.
+    recordEmail: deps.recordEmail,
   });
 
   // Realtime fan-out, AFTER the email. Secondary to it in every sense: the

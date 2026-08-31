@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-07-12
+updated: 2026-08-27
 tags:
   - type/spec
   - area/shared
@@ -21,6 +21,10 @@ related:
   - "[[ADR-0017-floci-local]]"
   - "[[local-dev-floci]]"
   - "[[ADR-0015-drawio-diagrams]]"
+  - "[[tracking-service-design]]"
+  - "[[2026-08-27-tracking-go-migration-design]]"
+  - "[[ADR-0021-tracking-go-gin-sqlc-stack]]"
+  - "[[scripting-language]]"
 ---
 
 # System Architecture
@@ -54,7 +58,26 @@ Each microservice runs as an independent ECS Fargate task definition. Stacks dif
 |---|---|---|
 | Users | Node.js | Fastify |
 | Orders | .NET Core 10 | Minimal APIs + Entity Framework Core |
-| Tracking | Python 3.12 | FastAPI |
+| Tracking | Go 1.26.7 | Gin |
+
+> [!info] Tracking migrated from Python/FastAPI to Go/Gin (2026-08-27)
+> `services/tracking-go/` is now THE Tracking service; `services/tracking/` (Python) is retired.
+> See [[tracking-service-design]] and [[2026-08-27-tracking-go-migration-design]] for the full
+> migration (hexagonal architecture, sqlc + golang-migrate, a four-part closing gate met on
+> three of four criteria) and [[ADR-0021-tracking-go-gin-sqlc-stack]] for the stack decision.
+> **This makes Go the repo's fourth *service* runtime**, alongside Node.js, .NET, and — in the
+> events pipeline only — also Node.js. Both Lambda functions under `functions/`
+> (`events-pipeline` and `realtime-events`) are Node.js/TypeScript, not Python; verify this
+> directly against `functions/*/package.json` rather than assuming it, since an earlier draft
+> of this note's propagating brief asserted the events pipeline ran Python and it does not.
+>
+> **No *service* is Python any more — but Python has not left the repo.** It remains the
+> repo's default scripting language by explicit convention ([[scripting-language]]): infra
+> scripting, Terraform pre/post effects, and anything touching AWS, JSON, or non-trivial
+> control flow default to Python, run from the repo venv (`make scripts-setup`) and invoked
+> by Terraform/Makefile via `.venv/bin/python`'s absolute path. `infra/scripts/lib3mrai/`,
+> `infra/scripts/doctor.py`, `infra/scripts/redeploy_lambdas.py`, and
+> `infra/environments/local/bootstrap.py` are all Python, and stay that way.
 
 Services are stateless at the HTTP layer; all domain state lives in the service's own Aurora cluster (see [Persistence](#persistence--aurora-per-service--documentdb-event-store) below).
 
@@ -165,5 +188,9 @@ Compose and Terraform. See [[ADR-0017-floci-local]] (which supersedes the earlie
 - [[nano-id]]
 - [[soft-delete]]
 - [[openobserve-cloudwatch]]
+- [[scripting-language]] — Python remains the repo's default scripting language; only service runtimes went all-Node/.NET/Go.
 - [[local-dev-floci]]
 - [[ADR-0015-drawio-diagrams]]
+- [[tracking-service-design]] — Tracking's runtime is now Go/Gin; see the Compute Layer table above.
+- [[2026-08-27-tracking-go-migration-design]] — the Python-to-Go migration design.
+- [[ADR-0021-tracking-go-gin-sqlc-stack]] — the Go stack decision (Gin, sqlc, golang-migrate, goenv).

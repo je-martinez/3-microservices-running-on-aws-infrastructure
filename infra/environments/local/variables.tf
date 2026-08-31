@@ -110,3 +110,30 @@ variable "execution_log_table" {
   type        = string
   default     = "3mrai-local-tfstate-execution-log"
 }
+
+variable "e2e_query_token" {
+  description = <<-DESC
+    Shared secret the E2E suite presents (as `x-e2e-token`) to the events
+    Lambda's email-query Function URL. LOCAL-ONLY FIXTURE SECRET, not a
+    production credential: it guards a route that exists only when
+    E2E_TESTING_ENABLED is true, and that route serves a TTL-bounded collection
+    of test emails.
+
+    It has a plain default on purpose, exactly like db_password/docdb_password
+    above: `make bootstrap` must work on a fresh clone with no out-of-band
+    inputs. Production never sets E2E_TESTING_ENABLED, so the route it protects
+    does not exist there — and if that ever changed, the token would have to
+    come from Secrets Manager per ADR-0007, never from this default.
+
+    KEEP THIS DEFAULT IN STEP with E2E_QUERY_TOKEN in
+    scripts/generate_env_files.py, which writes the suite's half of the pair.
+    The generator holds its own constant rather than reading an output from
+    here — see that constant for the argument (a -targeted apply does not
+    persist such an output, and a full apply is unavailable against a running
+    Floci stack). Nothing mints this value, so the two literals only drift if a
+    human edits one.
+  DESC
+  type        = string
+  default     = "local-e2e-query-token"
+  sensitive   = true
+}

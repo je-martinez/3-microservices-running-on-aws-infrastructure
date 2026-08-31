@@ -9,6 +9,7 @@ import { CascadeError } from "#shared/http/cascade-client";
 import { buildLoggerOptions } from "#shared/logging/logger";
 import { logContext } from "#shared/logging/log-context";
 import { REQUEST_ID_HEADER, resolveRequestId } from "#shared/logging/request-id";
+import { RUN_ID_HEADER, resolveRunId } from "#shared/logging/run-id";
 import { withHttpServerSpan } from "#shared/observability/request-span";
 import { env } from "#shared/config/env";
 import { isPublicRoute } from "#shared/http/public-routes";
@@ -313,7 +314,19 @@ export function buildApp(
     // and `enterWith` is what puts the id on the reply's own log line, since
     // that branch never reaches the `logContext.run` wrapper further down.
     const request_id = resolveRequestId(req.headers[REQUEST_ID_HEADER]);
-    logContext.enterWith({ request_id });
+    // E2E ONLY, and gated exactly like `x-e2e-source` on /v1/users/register:
+    // the header is caller-controlled, so an environment without
+    // E2E_TESTING_ENABLED must behave as if it were never sent. Seeded here
+    // rather than threaded through call sites so every event this request
+    // publishes carries it, the same way `request_id` does — the
+    // events-pipeline reads it off the envelope to scope its per-run email
+    // fixtures.
+    //
+    // OMITTED, never blank: the store is spread into every log line and every
+    // envelope, and an empty `run_id` would attribute a fixture row to a run
+    // that does not exist instead of honestly having none.
+    const run_id = resolveRunId(req.headers[RUN_ID_HEADER], container.cradle.env.E2E_TESTING_ENABLED);
+    logContext.enterWith({ request_id, ...(run_id ? { run_id } : {}) });
 
     if (actor === undefined && !isPublicRoute(req.method, routePath)) {
       reply.code(401).send({ error: "unauthenticated" });
@@ -338,7 +351,11 @@ export function buildApp(
     // continuation and both are live for the whole request.
     actorContext.run({ actor }, () => {
       logContext.run(
-        actor === undefined ? { request_id } : { request_id, cognito_sub: actor },
+        {
+          request_id,
+          ...(actor === undefined ? {} : { cognito_sub: actor }),
+          ...(run_id ? { run_id } : {}),
+        },
         done,
       );
     });

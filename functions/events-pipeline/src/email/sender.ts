@@ -7,12 +7,39 @@ import { hashEmail } from "#shared/logging/email-hash";
 import { publishEmailMetric } from "#shared/metrics/cloudwatch-metrics";
 import { withClientSpan } from "#shared/observability/client-span";
 
+/**
+ * Hook the E2E email store hangs off. Absent in production, where nothing
+ * wires it.
+ *
+ * A CALLBACK rather than an import of the store, deliberately: this module is a
+ * pure transport with a lazy SES client and no database concept, and giving it
+ * a Mongo dependency would make it untestable without a Db and would put the
+ * fixture collection in the import graph of every deployed environment.
+ */
+export type RecordEmailFn = (params: {
+  to: string;
+  subject: string;
+  html: string;
+  templateKey: string;
+  code?: string;
+}) => Promise<void>;
+
 export interface SendEmailParams {
   to: string;
   subject: string;
   html: string;
   /** The catalog key that produced `html` — the EmailType metric dimension. */
   templateKey: string;
+  /**
+   * The plaintext OTP or reset code, when this template carries one.
+   *
+   * Passed through to `recordEmail` ONLY — never logged, never attached to SES
+   * metadata, and never reaching the persisted event document, which redacts it
+   * on purpose (see #domain/redact-payload).
+   */
+  code?: string;
+  /** Optional E2E recorder. Undefined in production. */
+  recordEmail?: RecordEmailFn;
 }
 
 // Module-scope singleton, created LAZILY — same shape and same reasons as
@@ -167,6 +194,42 @@ export async function sendEmail(params: SendEmailParams): Promise<void> {
   );
 
   await publishEmailMetric("emails_sent_total", params.templateKey);
+
+  // AFTER the send, and swallowing its own failures — both parts deliberate.
+  //
+  // After, because this store answers "what was DELIVERED". Recording before
+  // the send would make it answer "what was attempted", and a spec reading it
+  // during a SES outage would see mail that never left.
+  //
+  // Swallowing, because a failure here is a broken TEST FIXTURE, and a broken
+  // fixture must never turn into a failed email: the record has already been
+  // sent by this point, so throwing would report a transient failure for an
+  // email that actually went out and get the whole thing redelivered.
+  //
+  // WARN not ERROR: nothing user-facing degraded, but a silently missing
+  // fixture would later read as "the pipeline never sent it", which is exactly
+  // the wrong conclusion.
+  if (params.recordEmail) {
+    try {
+      await params.recordEmail({
+        to: params.to,
+        subject: params.subject,
+        html: params.html,
+        templateKey: params.templateKey,
+        code: params.code,
+      });
+    } catch (err) {
+      appLogger.warn(
+        {
+          app_event: "e2e_email_record_failed",
+          template_key: params.templateKey,
+          email_hash,
+          reason: err instanceof Error ? err.message : String(err),
+        },
+        "could not record the e2e email copy",
+      );
+    }
+  }
 }
 
 // Test seam: the module-scope client would otherwise leak configuration across

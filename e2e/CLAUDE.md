@@ -64,6 +64,26 @@ turns on them:
   someone else's teardown to delete.
 - **`x-test-mode: true`** (on order creation) makes a tracking advance itself
   every 10s to DELIVERED, so a delivery flow can be asserted in 40 seconds.
+- **`x-e2e-run-id`** attributes every email a request causes to THIS invocation,
+  so the pipeline's fixture collection can be read per run instead of blindly
+  across workers and reruns. Minted once in `support/global-setup.ts` and passed
+  to the workers through the environment (they are separate processes, so a
+  module constant would give each worker its own id). Same conjunction rule as
+  the two above: honored only when the receiving service has
+  `E2E_TESTING_ENABLED`. On the OTP path it rides Cognito's `ClientMetadata` —
+  the only caller-controlled field Cognito forwards to a trigger verbatim, and
+  the same seam `traceparent` already uses.
+- **Run-id scoping on teardown (Tracking only).** Rows the harness creates can
+  carry a second tag, `"E2E Run <run_id>"`, so `DELETE /v1/trackings/e2e-cleanup`
+  can require BOTH `"E2E Source"` and that run tag instead of sweeping every
+  E2E-tagged row globally. `support/global-teardown.ts` passes
+  `?run_id=<E2E_RUN_ID>` when the id is present and valid; without one (an
+  internal-only run, or manual teardown) the call stays unscoped and deletes
+  everything tagged `"E2E Source"`, exactly as before. That fallback matters for
+  load tests and ad-hoc cleanup. Orders and Users teardown stay unscoped — they
+  have no in-process progression that dies when another run's sweep deletes a
+  row mid-flight (Tracking's TestMode goroutine does, which is why only Tracking
+  needed this).
 
 **Load simulations send neither**, deliberately:
 - Load data is meant to persist like real data, so it is **not** cleaned up —
@@ -108,6 +128,38 @@ email-asserting run from the majority of specs that never touch the pipeline)
 when the queue is deeper than `EVENTS_QUEUE_WARN_DEPTH`; the threshold's
 arithmetic lives in `support/events-queue-depth.ts`. If you see that warning,
 wait for the queue to drain or reset with `make clean && make bootstrap`.
+
+### The email record store — a diagnostic channel, never an assertion channel
+
+`support/email-store-client.ts` reads back what the events-pipeline recorded for
+the current run (see `functions/events-pipeline/CLAUDE.md` §3c), over the events
+Lambda's Function URL.
+
+**The rule, and it is not negotiable: specs still wait for and assert the REAL
+email.** A spec that reads its OTP out of this store instead of the message stops
+proving delivery end to end, and a green suite bought that way is worse than a
+red one. Deleting every use of this client must leave the suite still proving
+email delivery.
+
+What it adds is the one fact a bare "nothing arrived in 45s" cannot supply:
+
+| store says | what it proves | where to look |
+|---|---|---|
+| recorded | the pipeline **did** render and send it — the failure is delivery timing. **Conclusive.** | Floci's ~1 ev/s ceiling, [[2026-08-29-the-emulator-was-the-ceiling-not-the-code]] |
+| nothing recorded | **"not yet", not "never"** — inconclusive alone | the events queue depth: non-zero = late, zero = genuinely lost |
+
+The asymmetry is the point, and it was learned the hard way. The store is written
+**after** the send, so a backlog delays the RECORD exactly as it delays the mail:
+on a cold run a spec timed out at 45s and its OTP was recorded at **2m25s** —
+real, and simply later than anyone was looking. An earlier version of this
+message concluded "the pipeline never rendered one", which is the opposite of the
+truth and sends the reader hunting a defect that does not exist.
+
+`describeRecordedEmails(address)` returns that verdict as a block to append to a
+failure message; `otp.spec.ts` and `gateway/otp-flow.spec.ts` wrap their email
+wait with it. The client **cannot fail a test** — missing config disables it, any
+error returns empty, and it catches its own failures, because a diagnostic that
+throws would replace a clear timing failure with a confusing connection error.
 
 ## 5. Auth surfaces
 
