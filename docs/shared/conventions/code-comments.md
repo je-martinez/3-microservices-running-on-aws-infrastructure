@@ -348,6 +348,15 @@ Judgement stays with the reviewer. The linter cannot tell whether a `CONTRACT:` 
 prohibition *and* a concrete failure symptom, whether a `WHY:` explains a reason or narrates the
 code, or whether a `See [[...]]` points at the right note.
 
+Run `make lint-comments` to scan the whole repository and reject new violations against the
+baseline. Run `make lint-comments-diff` for the current diff against `main`, or set the comparison
+explicitly, for example `make lint-comments-diff COMMENT_DIFF_REF=origin/main...HEAD`.
+
+Install the committed pre-commit hook once per clone with `make install-comment-hook`. The hook
+lints the staged versions of changed source files, blocks a regular commit when it finds a new
+violation, and skips merge commits. Use Git's explicit `git commit --no-verify` escape hatch only
+when bypassing local verification is intentional; the repository gate remains authoritative.
+
 ## Migration
 
 **Phase 0:** land this note, the linter, the baseline, and the CI gate. No code comments

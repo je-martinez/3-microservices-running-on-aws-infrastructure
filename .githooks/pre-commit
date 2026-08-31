@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# WHY: Git invokes extensionless hooks directly before repo tooling is bootstrapped;
+# Bash supplies staged-index and cleanup primitives without adding a hook framework.
+
+repo_root=$(git rev-parse --show-toplevel)
+merge_head=$(git rev-parse --git-path MERGE_HEAD)
+
+# Merge commits deliberately skip this gate; regular commits remain bypassable through
+# Git's native `git commit --no-verify` option.
+if [[ -f "$merge_head" ]]; then
+  exit 0
+fi
+
+staged_paths=()
+while IFS= read -r -d '' path; do
+  case "$path" in
+    *.tf | *.tfvars | *.py | *.ts | *.tsx | *.js | *.mjs | *.jsx | *.cs | *.go)
+      staged_paths+=("$path")
+      ;;
+  esac
+done < <(git diff --cached --name-only --diff-filter=ACMR -z --)
+
+if (( ${#staged_paths[@]} == 0 )); then
+  exit 0
+fi
+
+temp_root=$(mktemp -d "${TMPDIR:-/tmp}/3mrai-comment-lint.XXXXXX")
+trap 'rm -rf "$temp_root"' EXIT
+
+temp_paths=()
+for path in "${staged_paths[@]}"; do
+  temp_path="$temp_root/$path"
+  mkdir -p "$(dirname "$temp_path")"
+  git show ":$path" >"$temp_path"
+  temp_paths+=("$temp_path")
+done
+
+python_bin="$repo_root/.venv/bin/python"
+if [[ ! -x "$python_bin" ]]; then
+  python_bin=$(command -v python3 || true)
+fi
+if [[ -z "$python_bin" ]]; then
+  echo "ERROR: Python 3 is required to lint staged code comments" >&2
+  exit 1
+fi
+
+"$python_bin" "$repo_root/scripts/validate-comments.py" \
+  --root "$temp_root" \
+  --baseline "$repo_root/scripts/comment-baseline.json" \
+  --stale-terms "$repo_root/scripts/comment-stale-terms.json" \
+  "${temp_paths[@]}"

@@ -221,6 +221,7 @@ Conventions referenced, never duplicated:
 - DB naming: [../../docs/shared/conventions/db-naming.md](../../docs/shared/conventions/db-naming.md)
 - Logging context & tracing: [../../docs/shared/conventions/logging-context.md](../../docs/shared/conventions/logging-context.md)
 - Testing layers: [../../docs/shared/conventions/testing.md](../../docs/shared/conventions/testing.md)
+- Code comments (Go doc comments still start with the identifier name; tags go in the body): [../../docs/shared/conventions/code-comments.md](../../docs/shared/conventions/code-comments.md) → [[code-comments]]
 
 ## 4. The SEVEN routes
 

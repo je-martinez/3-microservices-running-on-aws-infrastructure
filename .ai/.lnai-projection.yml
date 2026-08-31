@@ -167,7 +167,7 @@ rules:
   # (CLAUDE.md, "Code comments — describe the final state").
   #
   # Universal on the strongest available test: it governs the content of
-  # comments in .tf/.py/.ts/.js/.mjs/.cs source files and names no tool, skill,
+  # comments in .tf/.py/.ts/.js/.mjs/.cs/.go source files and names no tool, skill,
   # plugin, or Claude Code affordance. The failure it prevents — a comment that
   # only ever grows, until 38 blocks still name a Jaeger that was removed on
   # 2026-08-21 and no longer runs anywhere — is a property of how agents edit
@@ -178,7 +178,7 @@ rules:
   # Gets its own rule file rather than joining scripting-language: that rule is
   # about which LANGUAGE a new script is written in, while this is about the
   # content of comments in files that already exist. Its path globs are also
-  # wider (adds **/*.cs and **/*.tsx) and the two would fight over scope.
+  # wider (adds **/*.cs, **/*.go, and **/*.tsx) and the two would fight over scope.
   #
   # It ALSO gets an AGENTS.md paragraph, for the same reason shared-queue-backlog
   # and review-against-the-brief did — but the reason is stronger here. A rule

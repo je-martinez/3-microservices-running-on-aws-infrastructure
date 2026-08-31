@@ -8,6 +8,7 @@ paths:
   - "**/*.mjs"
   - "**/*.py"
   - "**/*.cs"
+  - "**/*.go"
   - "**/*.tf"
 ---
 
@@ -17,10 +18,9 @@ Code keeps the **invariant**, the **failure consequence**, and a **pointer**. Th
 vault keeps the history, the rejected alternatives, the measurements, the error
 transcripts, and the verification dates.
 
-Applies to comments in `.tf`, `.py`, `.ts`, `.js`, `.mjs`, and `.cs` source
-files. It does **not** apply to vault notes, generated files, or vendored code.
-`services/tracking/` is excluded until the Go migration lands; `spike/` is
-excluded as throwaway.
+Applies to comments in `.tf`, `.py`, `.ts`, `.js`, `.mjs`, `.cs`, and `.go`
+source files. It does **not** apply to vault notes, generated files, or vendored
+code. `spike/` is excluded as throwaway.
 
 ## Rewrite on edit, never append
 
