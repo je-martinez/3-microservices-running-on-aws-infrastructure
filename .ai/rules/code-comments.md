@@ -189,16 +189,22 @@ After:
 
 ## Enforcement
 
-Checked by `scripts/validate-comments.py`, run from the repo venv:
+Checked by `scripts/validate-comments.py`, wrapped by Make targets:
 
 ```
-.venv/bin/python scripts/validate-comments.py --diff main
+make lint-comments        # whole repo
+make lint-comments-diff   # the current diff (COMMENT_DIFF_REF=main)
+make install-comment-hook # once per clone — installs the pre-commit gate
 ```
 
 It operates as a **baseline/ratchet** against `scripts/comment-baseline.json`:
 pre-existing violations are frozen and it fails only on **new** ones. Do not run
 `--update-baseline` to make your own violation disappear — that flag is for
-dedicated cleanup work. No Make target wraps it yet; invoke it directly.
+dedicated cleanup work.
+
+`.git/hooks` is not version-controlled, so the hook lives in `.githooks/` and
+stays inert until `make install-comment-hook` runs. It lints the staged content,
+skips merge commits, and `git commit --no-verify` bypasses it.
 
 Full convention, including per-language examples and the migration plan:
 `docs/shared/conventions/code-comments.md`.

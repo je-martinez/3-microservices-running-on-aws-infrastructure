@@ -468,4 +468,5 @@ plain Python linter with no Claude Code dependency. Run it with the repo venv:
 `.venv/bin/python scripts/validate-comments.py --diff main`. It runs as a
 **baseline/ratchet** against `scripts/comment-baseline.json`, so it fails only on
 **new** violations; pre-existing ones are frozen and are not yours to fix as a
-side effect. No Make target wraps it yet — invoke it directly.
+side effect. `make lint-comments` and `make lint-comments-diff` wrap it, and
+`make install-comment-hook` installs the pre-commit gate once per clone.
