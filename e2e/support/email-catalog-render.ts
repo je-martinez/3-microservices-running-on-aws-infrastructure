@@ -43,16 +43,36 @@
 // @react-email/render) and already runs its own suite that way. Shelling out to
 // it borrows that toolchain instead of rebuilding it here.
 
-// `spawn`, not `promisify(execFile)`. execFile's `input` option does not exist —
-// that is execFileSync/spawnSync only — so an `input`-carrying options object is
-// silently ignored and `tsx -` then blocks forever on an stdin that is never
-// written or closed, surfacing as a hook timeout. Writing to the child's stdin
-// explicitly is the async equivalent, and it also lets stderr be captured and
-// reported, which execFile's error message drops.
+// `spawn`, not `promisify(execFile)`. execFile's error message drops stderr,
+// and stderr is the only place the child reports why a render failed — the
+// difference between "the templates are broken" and "the environment is
+// missing" lives there.
+//
+// ## The script is written to a FILE, not piped to `tsx -`
+//
+// It used to arrive on stdin. That fails on Node 20 with
+// `SyntaxError: Cannot use import statement outside a module`, because a script
+// read from stdin has no path: Node cannot associate it with any package.json,
+// so the `"type": "module"` declared in functions/events-pipeline/package.json
+// never applies and the ESM `import` is parsed as CommonJS. Node 24 (the
+// version .nvmrc pins) detects ESM syntax on its own and papers over this, which
+// is why the failure only appears when the suite runs under an older Node —
+// a version-dependent red that reads as a template defect and is not one.
+//
+// Giving the script a real path inside the package removes the ambiguity in
+// every Node version: both `"type": "module"` and the `#email/*` imports map
+// resolve from the nearest package.json above the script, which is the
+// events-pipeline one. It goes in a `mkdtemp` directory there — NOT in
+// os.tmpdir(), which has no package.json above it and fails the `#email/*`
+// resolution — and is removed in a `finally` regardless of how the render ends.
+//
+// `--input-type=module` is NOT the fix: Node rejects it whenever an entry point
+// is passed (`ERR_INPUT_TYPE_NOT_ALLOWED`), which `tsx -` is.
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import path from "node:path";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -67,10 +87,12 @@ export interface RenderedTemplate {
   html: string;
 }
 
-// The script handed to `tsx` on stdin. Kept as a string rather than a committed
-// file because it is an implementation detail of this helper and has no meaning
-// outside it — and because a real file inside functions/events-pipeline would
-// violate this task's "add only a spec" boundary.
+// The script `tsx` executes, written to a temp file at render time (see the
+// header note on why it is not piped through stdin). Kept as a string rather
+// than a committed file because it is an implementation detail of this helper
+// and has no meaning outside it — and because a real file inside
+// functions/events-pipeline would violate this task's "add only a spec"
+// boundary.
 //
 // It prints ONE JSON object on stdout. Anything the render path logs to stderr
 // (pino writes to stdout, but nothing in the render path logs) stays out of the
@@ -153,44 +175,65 @@ export async function renderCatalog(): Promise<RenderedTemplate[]> {
   //
   // Passed via NODE_OPTIONS rather than as a `tsx` flag: tsx forwards its own
   // argv to esbuild, and node-level conditions have to reach the node process.
-  //
-  // The script arrives on stdin (`tsx -` reads stdin) so no temporary file is
-  // written into the events-pipeline package.
   const pipelineEnv = readPipelineEnv();
 
-  const child = spawn(tsxBin, ["-"], {
-    cwd: pipelineDir,
-    env: {
-      ...pipelineEnv,
-      ...process.env,
-      NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --conditions=development`.trim(),
-    },
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+  // The script lives INSIDE functions/events-pipeline, not in os.tmpdir().
+  // Both of its resolution inputs are directory-relative and neither survives
+  // the move: `"type": "module"` and the `#email/*` imports map are read from
+  // the nearest package.json walking UP from the script's own path, and the OS
+  // temp directory has no package.json above it at all — a script there fails
+  // with `ERR_PACKAGE_IMPORT_NOT_DEFINED` for `#email/catalog`.
+  //
+  // `.mts` so the extension declares ESM as well, and `mkdtemp` so concurrent
+  // renders never share a path. The directory is removed in the `finally`
+  // below, so nothing is left behind inside the service package.
+  const scriptDir = await fsp.mkdtemp(path.join(pipelineDir, ".email-catalog-render-"));
+  const scriptPath = path.join(scriptDir, "render-catalog.mts");
 
-  const stdoutChunks: Buffer[] = [];
-  const stderrChunks: Buffer[] = [];
-  child.stdout.on("data", (c: Buffer) => stdoutChunks.push(c));
-  child.stderr.on("data", (c: Buffer) => stderrChunks.push(c));
+  let stdout: string;
+  let stderr: string;
+  let exitCode: number | null;
+  try {
+    await fsp.writeFile(scriptPath, RENDER_SCRIPT, "utf8");
 
-  child.stdin.end(RENDER_SCRIPT);
+    const child = spawn(tsxBin, [scriptPath], {
+      cwd: pipelineDir,
+      env: {
+        ...pipelineEnv,
+        ...process.env,
+        NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --conditions=development`.trim(),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
 
-  const exitCode = await new Promise<number | null>((resolve, reject) => {
-    child.once("error", reject);
-    child.once("close", resolve);
-  });
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    child.stdout.on("data", (c: Buffer) => stdoutChunks.push(c));
+    child.stderr.on("data", (c: Buffer) => stderrChunks.push(c));
 
-  const stdout = Buffer.concat(stdoutChunks).toString("utf8");
-  const stderr = Buffer.concat(stderrChunks).toString("utf8");
+    exitCode = await new Promise<number | null>((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", resolve);
+    });
+
+    stdout = Buffer.concat(stdoutChunks).toString("utf8");
+    stderr = Buffer.concat(stderrChunks).toString("utf8");
+  } finally {
+    // The temp dir must not outlive the render, however it ended.
+    await fsp.rm(scriptDir, { recursive: true, force: true });
+  }
 
   if (exitCode !== 0) {
     // NOT an EmailCatalogUnavailableError: tsx exists and the render still
     // failed, which means the templates or the catalog are broken. That is a
     // real defect and must fail the spec rather than skip it.
     throw new Error(
-      `Rendering the email catalog failed inside ${pipelineDir} (tsx exited ${exitCode}). ` +
-        "This is a template or catalog defect, not a missing dependency — the renderer ran " +
-        `and threw.\n${stderr.trim() || "(no stderr)"}`,
+      `Rendering the email catalog failed inside ${pipelineDir} (tsx exited ${exitCode}), ` +
+        `running on Node ${process.version}. The renderer ran and threw, so this is not a ` +
+        "missing dependency — read the stderr below before assuming the templates are at " +
+        "fault: a module-resolution error usually means the toolchain, while a render or " +
+        "validation error means the catalog.\n" +
+        `${stderr.trim() || "(no stderr)"}`,
     );
   }
 

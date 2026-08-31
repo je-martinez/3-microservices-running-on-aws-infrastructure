@@ -107,6 +107,12 @@ __pycache__/
 # `make ai-sync-check` fails if any of it drifts from the source.
 .ai/.lnai-manifest.json
 
+# Scratch directory the E2E email-catalog renderer writes its script into
+# (e2e/support/email-catalog-render.ts). It must live inside the package for
+# `#email/*` to resolve, and it is removed in a `finally` — this only covers a
+# run killed mid-render, so a stale directory never reaches a commit.
+functions/events-pipeline/.email-catalog-render-*/
+
 # lnai-generated
 .ai/.lnai-manifest.json
 # end lnai-generated
