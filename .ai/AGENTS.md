@@ -59,6 +59,30 @@ standing approval. **Never auto-merge.**
 
 This overrides any tool or workflow that commits automatically.
 
+**If you are a DISPATCHED AGENT, you never run git writes — any vendor, no
+exceptions.** Claude, Codex, Cursor, Antigravity, Gemini; dispatched through Orca
+orchestration, a subagent tool, or a pasted prompt — none of them run `git
+commit`, `git push`, `git merge`, `git rebase`, `git tag`, `gh pr create`, or
+`gh pr merge`.
+
+The confirmation above is a conversation with the **user**. A dispatched worker is
+not in that conversation, so it cannot satisfy it. None of these authorize you:
+the brief did not say "do not commit" (silence is not permission — this default is
+always on); the change is small, correct, or well tested (correctness was never
+the question, authorization was); committing feels like the tidy way to hand work
+over (leaving it uncommitted **is** the handover); another agent's uncommitted
+work is in the tree and you want yours separated (say so in your report instead —
+a broad `git add` can also sweep up their in-flight edits).
+
+Finishing a task means leaving every file edited and **uncommitted**, then
+reporting what you touched and why. Read-only git — `status`, `diff`, `log`,
+`show` — is fine; the prohibition is on writes. If you truly believe a commit is
+required before you can continue, stop and say so in your report.
+
+Observed 2026-08-31: a dispatched worker fixing one spec ended by committing AND
+pushing to the shared feature branch. The change was good; it still bypassed
+review and could not be undone without rewriting a pushed branch.
+
 Full rule, including the five options and the branch flow:
 `.ai/rules/git-and-commits.md`.
 
