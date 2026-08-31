@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	tracing "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/otel"
 	"io"
 	"log/slog"
 	nethttp "net/http"
@@ -15,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	tracing "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/otel"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/app"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/domain"
 )
@@ -43,14 +43,14 @@ const maxOrderIDLength = domain.IDLength
 // the wiring can recognise as "deliberately does nothing" instead of an empty
 // closure that looks like an oversight.
 type ProgressionHook interface {
-	Start(orderID string)
+	Start(tracking domain.TrackingWithHistory)
 }
 
 // NoopProgression is the Wave 2 wiring: creation works, nothing advances.
 type NoopProgression struct{}
 
 // Start does nothing. See ProgressionHook.
-func (NoopProgression) Start(string) {}
+func (NoopProgression) Start(domain.TrackingWithHistory) {}
 
 // initTrackingRequest is the body — two fields, and deliberately NO identity.
 //
@@ -206,14 +206,18 @@ func (h *InitTrackingHandler) Handle(c *gin.Context) {
 		slog.Bool("test_mode", IsTestMode(c)))
 
 	// The response is written — and the transaction was committed by the adapter
-	// before Execute returned — BEFORE the hook is invoked. Starting the
-	// progression any earlier races the commit: the progression opens its OWN
-	// session, would see no tracking, and the run would end immediately at PLACED.
-	// That is verified behaviour in the Python service, not a theoretical concern.
+	// before Execute returned — BEFORE the hook is invoked. The returned value is
+	// therefore an authoritative committed snapshot, not request input assembled
+	// before persistence, and the client observes creation before any background
+	// status notification.
 	c.JSON(nethttp.StatusCreated, InitTrackingResponse{Tracking: NewTrackingResponse(created)})
 
 	if IsTestMode(c) {
-		h.hook.Start(payload.OrderID)
+		// Pass the committed creation snapshot into the background run. A global
+		// E2E cleanup can soft-delete the row immediately after this response;
+		// retaining the snapshot lets progression finish publishing without a
+		// race to re-read data that teardown has already hidden.
+		h.hook.Start(created)
 	}
 }
 

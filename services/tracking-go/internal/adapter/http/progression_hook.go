@@ -2,6 +2,7 @@ package http
 
 import (
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/app"
+	"github.com/jemartinez/3mrai/services/tracking-go/internal/domain"
 )
 
 // ProgressionStarter is the one method this adapter needs from the progression.
@@ -16,7 +17,7 @@ import (
 // instant the response is written; a signature that accepted one would invite
 // exactly the bug this whole file exists to make unrepresentable.
 type ProgressionStarter interface {
-	Start(orderID string)
+	Start(tracking domain.TrackingWithHistory)
 }
 
 // TestModeProgressionHook adapts the progression to the init-tracking handler's
@@ -50,12 +51,13 @@ func NewProgressionHook(progression ProgressionStarter) TestModeProgressionHook 
 	return TestModeProgressionHook{progression: progression}
 }
 
-// Start schedules a TestMode run for orderID and returns immediately.
+// Start schedules a TestMode run from the committed creation snapshot and
+// returns immediately.
 //
 // The handler calls this only AFTER the response has been written, and therefore
-// after the creating transaction has committed. Starting it earlier races the
-// commit: the progression's own fresh read would see no tracking and the run
-// would end immediately at PLACED.
-func (h TestModeProgressionHook) Start(orderID string) {
-	h.progression.Start(orderID)
+// after the creating transaction has committed. That returned snapshot is what
+// lets the progression outlive a cleanup that tombstones the row before its
+// first tick.
+func (h TestModeProgressionHook) Start(tracking domain.TrackingWithHistory) {
+	h.progression.Start(tracking)
 }

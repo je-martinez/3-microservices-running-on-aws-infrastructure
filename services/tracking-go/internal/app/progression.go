@@ -37,16 +37,25 @@ type UnscopedTrackingReader interface {
 	GetByOrderID(ctx context.Context, orderID string) (domain.Tracking, error)
 }
 
-// Transitioner is UpdateStatus, consumed as an interface so the progression
-// physically cannot grow a second transition path.
+// Transitioner is UpdateStatus, consumed as an interface so every live-row
+// transition still uses the carrier's one persistence path.
 //
 // The state machine's guards, the history row, the datetime bump, the history
-// re-read, the event and the invalidation all live in UpdateStatus. A second
-// copy is how the carrier webhook and the automatic progression would start
-// disagreeing about what a transition means — and the disagreement would only
-// ever be visible in production data.
+// re-read, the event and the invalidation all live in UpdateStatus. The second
+// method is deliberately narrower: once E2E cleanup has already tombstoned the
+// fixture, only its remaining notifications continue; it cannot write a second
+// history path or resurrect the row.
 type Transitioner interface {
 	Execute(ctx context.Context, orderID string, requested domain.Status, actor audit.Actor) (domain.TrackingWithHistory, error)
+
+	// ContinueDeletedTestMode publishes the next TestMode status from the last
+	// committed snapshot after E2E cleanup has soft-deleted the row. It must not
+	// persist or resurrect the tombstone.
+	ContinueDeletedTestMode(
+		ctx context.Context,
+		current domain.TrackingWithHistory,
+		requested domain.Status,
+	) (domain.TrackingWithHistory, error)
 }
 
 // Progression drives TestMode runs: one status every interval, from PLACED to
@@ -111,7 +120,7 @@ func NewProgression(
 	}
 }
 
-// Start launches a run for orderID and returns immediately.
+// Start launches a run for tracking and returns immediately.
 //
 // # THE CONTEXT IS THE WHOLE POINT OF THIS METHOD, AND OF ITS SIGNATURE
 //
@@ -126,15 +135,15 @@ func NewProgression(
 // as a known limitation, and nobody would investigate it.
 //
 // The caller invokes this only AFTER the creating transaction has committed and
-// the response has been written. Starting it any earlier races the commit and
-// the progression always loses: its first read opens a fresh session, sees no
-// tracking, and the run ends immediately at PLACED. (Verified in the Python
-// service, not theoretical.)
-func (p *Progression) Start(orderID string) {
+// the response has been written. The committed snapshot is the fallback when a
+// concurrent E2E cleanup hides the row before the first tick; a request payload
+// or an entity assembled before commit would not be authoritative enough to
+// publish from.
+func (p *Progression) Start(tracking domain.TrackingWithHistory) {
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
-		p.Run(p.base, orderID)
+		p.run(p.base, tracking)
 	}()
 }
 
@@ -179,6 +188,43 @@ func (p *Progression) Wait(ctx context.Context) {
 // nothing at all, detached from the request that caused it — and a panic would
 // take the whole process down over a 40-second test fixture.
 func (p *Progression) Run(ctx context.Context, orderID string) {
+	tracking, err := p.reader.GetByOrderID(ctx, orderID)
+	if err != nil {
+		p.runWithoutSnapshot(ctx, orderID, err)
+		return
+	}
+	p.run(ctx, domain.TrackingWithHistory{
+		Tracking: tracking,
+		History:  tracking.History,
+	})
+}
+
+// runWithoutSnapshot records the rare case where the row vanished before a
+// synchronous test could take its initial snapshot. Production Start receives
+// the committed creation result directly, so a concurrent cleanup cannot open
+// this gap there.
+func (p *Progression) runWithoutSnapshot(ctx context.Context, orderID string, err error) {
+	ctx, span := p.startSpan(ctx)
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("app_event", "test_mode_progression_started"),
+		attribute.String("order_id", orderID),
+		attribute.Float64("interval_seconds", p.interval.Seconds()))
+
+	p.log.InfoContext(ctx, "test_mode_progression_started",
+		slog.String("app_event", "test_mode_progression_started"),
+		slog.String("order_id", orderID),
+		slog.Float64("interval_seconds", p.interval.Seconds()))
+
+	reason := "unexpected_error"
+	if errors.Is(err, domain.ErrTrackingNotFound) {
+		reason = "tracking_not_found"
+	}
+	p.finish(ctx, span, orderID, reason)
+}
+
+func (p *Progression) run(ctx context.Context, current domain.TrackingWithHistory) {
+	orderID := current.Tracking.OrderID
 	// ONE span for the whole run, not one per tick, and opened INSIDE the
 	// goroutine. A span opened around the spawn would end the moment Start
 	// returned — long before the first tick — recording a 40-second workflow as
@@ -224,7 +270,7 @@ func (p *Progression) Run(ctx context.Context, orderID string) {
 		case <-ticker.C:
 		}
 
-		status, done, reason := p.advanceOnce(ctx, orderID)
+		updated, done, reason := p.advanceOnce(ctx, current)
 		if done {
 			if reason != "" {
 				p.finish(ctx, span, orderID, reason)
@@ -236,6 +282,8 @@ func (p *Progression) Run(ctx context.Context, orderID string) {
 				slog.String("order_id", orderID))
 			return
 		}
+		current = updated
+		status := current.Tracking.Status
 
 		// A span EVENT per tick, not a child span: it marks when each transition
 		// landed inside the one workflow span, which is exactly what the
@@ -266,8 +314,10 @@ func (p *Progression) startSpan(ctx context.Context) (context.Context, trace.Spa
 // reason means the ending is a *_failed one; an empty reason with done=true is
 // the clean arrival at DELIVERED.
 func (p *Progression) advanceOnce(
-	ctx context.Context, orderID string,
-) (status domain.Status, done bool, reason string) {
+	ctx context.Context,
+	current domain.TrackingWithHistory,
+) (updated domain.TrackingWithHistory, done bool, reason string) {
+	orderID := current.Tracking.OrderID
 	// Each step reads through the adapter, which opens its OWN session: the
 	// creating request's was committed and closed long before the first tick,
 	// and holding one open across 40 seconds of ticking would pin a pooled
@@ -277,24 +327,24 @@ func (p *Progression) advanceOnce(
 	tracking, err := p.reader.GetByOrderID(ctx, orderID)
 	switch {
 	case errors.Is(err, domain.ErrTrackingNotFound):
-		// Soft-deleted (or never there) between two ticks. Not an error: the
-		// progression is a fixture and the row it animated is gone.
-		return "", true, "tracking_not_found"
+		return p.advanceDeleted(ctx, current)
 	case err != nil:
-		return "", true, "unexpected_error"
+		return domain.TrackingWithHistory{}, true, "unexpected_error"
 	}
+	current.Tracking = tracking
 
 	next, ok := domain.NextStatus(tracking.Status)
 	if !ok {
 		// Already terminal — this run finished, or a carrier PUT delivered it
 		// first. Either way there is nothing left to do: the CLEAN ending.
-		return "", true, ""
+		return current, true, ""
 	}
 
 	// The SAME function the carrier PUT calls. Only the actor differs, which is
 	// what keeps an automatic run identifiable from tracking_history.created_by
 	// after the fact.
-	if _, err := p.transitioner.Execute(ctx, orderID, next, audit.TestModeProgression); err != nil {
+	updated, err = p.transitioner.Execute(ctx, orderID, next, audit.TestModeProgression)
+	if err != nil {
 		var invalid *domain.InvalidTransitionError
 		switch {
 		case errors.As(err, &invalid):
@@ -303,14 +353,42 @@ func (p *Progression) advanceOnce(
 			// does NOT retry: retrying a rejected forward-only transition can
 			// only be rejected again, forever. The guard's own reason is what
 			// gets logged.
-			return "", true, string(invalid.Reason)
+			return domain.TrackingWithHistory{}, true, string(invalid.Reason)
 		case errors.Is(err, domain.ErrTrackingNotFound):
-			return "", true, "tracking_not_found"
+			// Cleanup can land after the read above but before UpdateStatus's own
+			// lookup or guarded UPDATE. Continue from the same last committed
+			// snapshot instead of letting that narrower race truncate the chain.
+			return p.advanceDeleted(ctx, current)
 		default:
-			return "", true, "unexpected_error"
+			return domain.TrackingWithHistory{}, true, "unexpected_error"
 		}
 	}
-	return next, false, ""
+	return updated, false, ""
+}
+
+// advanceDeleted keeps an already-deleted E2E fixture's notification chain
+// complete without writing through the tombstone. The last committed snapshot
+// came either from init-tracking or from the preceding successful transition,
+// so it still carries every subject field the event publisher needs.
+func (p *Progression) advanceDeleted(
+	ctx context.Context,
+	current domain.TrackingWithHistory,
+) (updated domain.TrackingWithHistory, done bool, reason string) {
+	next, ok := domain.NextStatus(current.Tracking.Status)
+	if !ok {
+		return current, true, ""
+	}
+
+	updated, err := p.transitioner.ContinueDeletedTestMode(ctx, current, next)
+	if err == nil {
+		return updated, false, ""
+	}
+
+	var invalid *domain.InvalidTransitionError
+	if errors.As(err, &invalid) {
+		return domain.TrackingWithHistory{}, true, string(invalid.Reason)
+	}
+	return domain.TrackingWithHistory{}, true, "unexpected_error"
 }
 
 // finish records a non-success ending. Swallowed rather than propagated: the run

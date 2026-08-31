@@ -305,6 +305,54 @@ func TestUpdateStatus(t *testing.T) {
 		}
 	})
 
+	t.Run("a deleted TestMode fixture publishes from its last committed snapshot", func(t *testing.T) {
+		w := &stubStatusWriter{}
+		pub := &recordingPublisher{}
+		uc := app.NewUpdateStatus(w, pub, &stubInvalidator{}, fixedClock(now))
+		current := domain.TrackingWithHistory{
+			Tracking: domain.Tracking{
+				ID:             "trk_1",
+				OrderID:        "ord_1",
+				UserID:         "usr_1",
+				CognitoSub:     "sub-1",
+				TrackingNumber: "3MRAI-0000-0000-0001",
+				Status:         domain.StatusShipped,
+			},
+			History: []domain.TrackingHistory{{
+				TrackingID: "trk_1",
+				OrderID:    "ord_1",
+				Status:     domain.StatusShipped,
+			}},
+		}
+
+		got, err := uc.ContinueDeletedTestMode(
+			context.Background(),
+			current,
+			domain.StatusOutForDelivery,
+		)
+		if err != nil {
+			t.Fatalf("ContinueDeletedTestMode: %v", err)
+		}
+		if w.getCall != 0 || w.applied {
+			t.Error("continuing a deleted fixture must not read, write, or resurrect its tombstone")
+		}
+		if got.Tracking.Status != domain.StatusOutForDelivery {
+			t.Errorf("status = %q, want OUT_FOR_DELIVERY", got.Tracking.Status)
+		}
+		if len(got.History) != 2 || got.History[1].Status != domain.StatusOutForDelivery {
+			t.Fatalf("history = %+v, want the synthetic transition appended", got.History)
+		}
+		if len(pub.calls) != 1 {
+			t.Fatalf("published = %d, want exactly 1", len(pub.calls))
+		}
+		if pub.calls[0].previous != string(domain.StatusShipped) {
+			t.Errorf("previous_status = %q, want SHIPPED", pub.calls[0].previous)
+		}
+		if pub.calls[0].actor != audit.TestModeProgression {
+			t.Errorf("actor = %q, want TestMode progression", pub.calls[0].actor)
+		}
+	})
+
 	t.Run("a persistence failure propagates and publishes nothing", func(t *testing.T) {
 		boom := errors.New("mysql: deadlock found")
 		w := &stubStatusWriter{

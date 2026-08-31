@@ -158,6 +158,56 @@ func (uc *UpdateStatus) Execute(
 	return updated, nil
 }
 
+// ContinueDeletedTestMode publishes one remaining TestMode transition after E2E
+// cleanup has soft-deleted the tracking mid-run.
+//
+// This is deliberately NOT a persistence path: the tombstone stays untouched,
+// no live history row is recreated after cleanup, and the carrier endpoint can
+// reach this method only by ceasing to use its own Execute seam. The input is the
+// last committed snapshot captured by the progression before cleanup. Advancing
+// that snapshot keeps the status-changed event chain complete for the E2E
+// fixture while preserving soft-delete semantics in MySQL.
+func (uc *UpdateStatus) ContinueDeletedTestMode(
+	ctx context.Context,
+	current domain.TrackingWithHistory,
+	requested domain.Status,
+) (domain.TrackingWithHistory, error) {
+	previous := current.Tracking.Status
+	if err := domain.AssertCanTransition(previous, requested); err != nil {
+		return domain.TrackingWithHistory{}, err
+	}
+
+	now := uc.clock()
+	updatedTracking := current.Tracking
+	updatedTracking.Status = requested
+	updatedTracking.Datetime = now
+	updatedTracking.UpdatedBy = string(audit.TestModeProgression)
+	updatedTracking.UpdatedAt = now
+
+	history := make([]domain.TrackingHistory, 0, len(current.History)+1)
+	history = append(history, current.History...)
+	history = append(history, domain.TrackingHistory{
+		TrackingID: current.Tracking.ID,
+		Status:     requested,
+		UserID:     current.Tracking.UserID,
+		OrderID:    current.Tracking.OrderID,
+		CognitoSub: current.Tracking.CognitoSub,
+		Datetime:   now,
+		CreatedBy:  string(audit.TestModeProgression),
+		CreatedAt:  now,
+		UpdatedBy:  string(audit.TestModeProgression),
+		UpdatedAt:  now,
+	})
+	updatedTracking.History = history
+	updated := domain.TrackingWithHistory{
+		Tracking: updatedTracking,
+		History:  history,
+	}
+
+	uc.publish(ctx, updated, string(previous), audit.TestModeProgression)
+	return updated, nil
+}
+
 // publish is best-effort and swallows everything, panics included. A notification
 // must not break the write that caused it: the transition is already committed,
 // and a 500 would make the carrier retry a status change we actually recorded —

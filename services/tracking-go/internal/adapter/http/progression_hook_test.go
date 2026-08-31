@@ -4,12 +4,15 @@ import (
 	"testing"
 
 	adapterhttp "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/http"
+	"github.com/jemartinez/3mrai/services/tracking-go/internal/domain"
 )
 
-// hookRecordingStarter records the order ids handed to it.
-type hookRecordingStarter struct{ started []string }
+// hookRecordingStarter records the committed snapshots handed to it.
+type hookRecordingStarter struct{ started []domain.TrackingWithHistory }
 
-func (s *hookRecordingStarter) Start(orderID string) { s.started = append(s.started, orderID) }
+func (s *hookRecordingStarter) Start(tracking domain.TrackingWithHistory) {
+	s.started = append(s.started, tracking)
+}
 
 // The adapter is a one-method forwarder, so what there is to get wrong is the
 // id: a swapped or truncated one would schedule a run against a tracking that
@@ -19,10 +22,14 @@ func TestTestModeProgressionHookForwardsTheOrderIDUnchanged(t *testing.T) {
 	starter := &hookRecordingStarter{}
 	hook := adapterhttp.NewProgressionHook(starter)
 
-	hook.Start("ord_forwarded")
+	tracking := domain.TrackingWithHistory{Tracking: domain.Tracking{
+		OrderID: "ord_forwarded",
+		Status:  domain.StatusPlaced,
+	}}
+	hook.Start(tracking)
 
-	if len(starter.started) != 1 || starter.started[0] != "ord_forwarded" {
-		t.Fatalf("started = %v, want [ord_forwarded]", starter.started)
+	if len(starter.started) != 1 || starter.started[0].Tracking.OrderID != "ord_forwarded" {
+		t.Fatalf("started = %v, want the ord_forwarded snapshot", starter.started)
 	}
 }
 
@@ -34,7 +41,7 @@ func TestNewTestModeProgressionHookNilProgressionIsTheNoop(t *testing.T) {
 	if _, ok := hook.(adapterhttp.NoopProgression); !ok {
 		t.Fatalf("hook = %T, want NoopProgression for a nil progression", hook)
 	}
-	hook.Start("ord_1") // must not panic
+	hook.Start(domain.TrackingWithHistory{}) // must not panic
 }
 
 // The hook must satisfy the handler's seam: this is what a wiring change would

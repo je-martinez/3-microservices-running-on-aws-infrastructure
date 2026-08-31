@@ -33,11 +33,12 @@ type progFakeTransitioner struct {
 	status   domain.Status
 	actors   []audit.Actor
 	calls    int
+	deleted  int
 	failWith error
 }
 
 func (f *progFakeTransitioner) Execute(
-	_ context.Context, _ string, requested domain.Status, actor audit.Actor,
+	_ context.Context, orderID string, requested domain.Status, actor audit.Actor,
 ) (domain.TrackingWithHistory, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -47,7 +48,28 @@ func (f *progFakeTransitioner) Execute(
 		return domain.TrackingWithHistory{}, f.failWith
 	}
 	f.status = requested
-	return domain.TrackingWithHistory{Tracking: domain.Tracking{Status: requested}}, nil
+	return domain.TrackingWithHistory{Tracking: domain.Tracking{
+		OrderID: orderID,
+		Status:  requested,
+	}}, nil
+}
+
+func (f *progFakeTransitioner) ContinueDeletedTestMode(
+	_ context.Context,
+	current domain.TrackingWithHistory,
+	requested domain.Status,
+) (domain.TrackingWithHistory, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	f.deleted++
+	f.actors = append(f.actors, audit.TestModeProgression)
+	if f.failWith != nil {
+		return domain.TrackingWithHistory{}, f.failWith
+	}
+	f.status = requested
+	current.Tracking.Status = requested
+	return current, nil
 }
 
 func (f *progFakeTransitioner) Status() domain.Status {
@@ -62,6 +84,12 @@ func (f *progFakeTransitioner) Calls() int {
 	return f.calls
 }
 
+func (f *progFakeTransitioner) DeletedCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.deleted
+}
+
 func (f *progFakeTransitioner) Actors() []audit.Actor {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -73,13 +101,14 @@ func (f *progFakeTransitioner) Actors() []audit.Actor {
 // parameter a caller could accidentally pass "" into and turn an unscoped read
 // into one scoped to the empty string.
 type progFakeReader struct {
-	t    *progFakeTransitioner
-	err  error
-	gone bool
+	t         *progFakeTransitioner
+	err       error
+	gone      bool
+	goneAfter int
 }
 
 func (r *progFakeReader) GetByOrderID(_ context.Context, orderID string) (domain.Tracking, error) {
-	if r.gone {
+	if r.gone || (r.goneAfter > 0 && r.t.Calls() >= r.goneAfter) {
 		return domain.Tracking{}, domain.ErrTrackingNotFound
 	}
 	if r.err != nil {
@@ -140,12 +169,25 @@ func progRecorder(t *testing.T) (oteltrace.Tracer, *tracetest.InMemoryExporter) 
 
 func progNoopTracer() oteltrace.Tracer { return noop.NewTracerProvider().Tracer("noop") }
 
+func progSnapshot(orderID string, status domain.Status) domain.TrackingWithHistory {
+	tracking := domain.Tracking{OrderID: orderID, Status: status}
+	return domain.TrackingWithHistory{Tracking: tracking}
+}
+
 // progPanickingTransitioner is the layer beneath a returned error: the call
 // itself blowing up.
 type progPanickingTransitioner struct{}
 
 func (progPanickingTransitioner) Execute(
 	context.Context, string, domain.Status, audit.Actor,
+) (domain.TrackingWithHistory, error) {
+	panic("transition exploded")
+}
+
+func (progPanickingTransitioner) ContinueDeletedTestMode(
+	context.Context,
+	domain.TrackingWithHistory,
+	domain.Status,
 ) (domain.TrackingWithHistory, error) {
 	panic("transition exploded")
 }
@@ -224,7 +266,7 @@ func TestProgression(t *testing.T) {
 		// anyway, from the caller's side, to prove that nothing the progression
 		// reached for is tied to it.
 		requestCtx, cancelRequest := context.WithCancel(context.Background())
-		p.Start("ord_1")
+		p.Start(progSnapshot("ord_1", domain.StatusPlaced))
 		cancelRequest()
 		<-requestCtx.Done()
 
@@ -246,7 +288,7 @@ func TestProgression(t *testing.T) {
 		}
 	})
 
-	t.Run("a deleted tracking ends the run cleanly", func(t *testing.T) {
+	t.Run("a missing initial row is reported explicitly", func(t *testing.T) {
 		tr := &progFakeTransitioner{status: domain.StatusPlaced}
 		logs, log := progLogger(t)
 		p := app.NewProgression(context.Background(), &progFakeReader{t: tr, gone: true}, tr,
@@ -258,7 +300,58 @@ func TestProgression(t *testing.T) {
 			t.Errorf("transitions = %d, want 0", tr.Calls())
 		}
 		if !logs.Has("reason", "tracking_not_found") {
-			t.Error("a deleted tracking must end the run with reason=tracking_not_found")
+			t.Error("a run with no committed snapshot must report reason=tracking_not_found")
+		}
+	})
+
+	t.Run("a delete mid-run does not truncate the published status chain", func(t *testing.T) {
+		tr := &progFakeTransitioner{status: domain.StatusPlaced}
+		logs, log := progLogger(t)
+		p := app.NewProgression(context.Background(),
+			&progFakeReader{t: tr, goneAfter: 2}, tr,
+			fast, log, progNoopTracer())
+
+		p.Run(context.Background(), "ord_deleted_mid_run")
+
+		if got := tr.Status(); got != domain.StatusDelivered {
+			t.Errorf("final status = %q, want DELIVERED", got)
+		}
+		if tr.Calls() != 4 {
+			t.Errorf("published transitions = %d, want 4 — deleting the row after two "+
+				"ticks must not strand SHIPPED as the last published status", tr.Calls())
+		}
+		if tr.DeletedCalls() != 2 {
+			t.Errorf("post-delete transitions = %d, want 2", tr.DeletedCalls())
+		}
+		if logs.Has("reason", "tracking_not_found") {
+			t.Error("a teardown delete is an expected race, not a failed progression")
+		}
+		if !logs.Has("app_event", "test_mode_progression_succeeded") {
+			t.Error("a progression that publishes the full chain must end with *_succeeded")
+		}
+	})
+
+	t.Run("the creation snapshot survives deletion before the first tick", func(t *testing.T) {
+		tr := &progFakeTransitioner{status: domain.StatusPlaced}
+		logs, log := progLogger(t)
+		p := app.NewProgression(context.Background(), &progFakeReader{t: tr, gone: true}, tr,
+			fast, log, progNoopTracer())
+
+		p.Start(progSnapshot("ord_deleted_before_tick", domain.StatusPlaced))
+		p.Wait(context.Background())
+
+		if got := tr.Status(); got != domain.StatusDelivered {
+			t.Errorf("final status = %q, want DELIVERED", got)
+		}
+		if tr.Calls() != 4 || tr.DeletedCalls() != 4 {
+			t.Errorf("transitions = %d (%d post-delete), want 4 (4 post-delete)",
+				tr.Calls(), tr.DeletedCalls())
+		}
+		if logs.Has("reason", "tracking_not_found") {
+			t.Error("the committed creation snapshot must close the read-before-cleanup race")
+		}
+		if !logs.Has("app_event", "test_mode_progression_succeeded") {
+			t.Error("the snapshot-backed chain must end with *_succeeded")
 		}
 	})
 
@@ -328,7 +421,7 @@ func TestProgression(t *testing.T) {
 		p := app.NewProgression(base, &progFakeReader{t: tr}, tr,
 			500*time.Millisecond, log, progNoopTracer())
 
-		p.Start("ord_1")
+		p.Start(progSnapshot("ord_1", domain.StatusPlaced))
 		shutdown()
 
 		done := make(chan struct{})
@@ -353,7 +446,7 @@ func TestProgression(t *testing.T) {
 		// that is NEVER cancelled.
 		p := app.NewProgression(context.Background(), &progFakeReader{t: tr}, tr,
 			10*time.Second, log, progNoopTracer())
-		p.Start("ord_1")
+		p.Start(progSnapshot("ord_1", domain.StatusPlaced))
 
 		waitCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		defer cancel()
@@ -417,7 +510,7 @@ func TestProgression(t *testing.T) {
 		p := app.NewProgression(context.Background(), &progFakeReader{t: tr}, tr,
 			fast, log, tracer)
 
-		p.Start("ord_1")
+		p.Start(progSnapshot("ord_1", domain.StatusPlaced))
 
 		done := make(chan struct{})
 		go func() { p.Wait(context.Background()); close(done) }()

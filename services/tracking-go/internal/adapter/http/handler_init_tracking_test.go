@@ -93,6 +93,7 @@ type initRecordingHook struct {
 	mu             sync.Mutex
 	writer         *initFakeWriter
 	started        map[string]bool
+	snapshot       domain.TrackingWithHistory
 	beforeCommit   bool
 	invocationSeen bool
 }
@@ -101,14 +102,21 @@ func newInitRecordingHook(w *initFakeWriter) *initRecordingHook {
 	return &initRecordingHook{writer: w, started: map[string]bool{}}
 }
 
-func (h *initRecordingHook) Start(orderID string) {
+func (h *initRecordingHook) Start(tracking domain.TrackingWithHistory) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.invocationSeen = true
-	h.started[orderID] = true
+	h.started[tracking.Tracking.OrderID] = true
+	h.snapshot = tracking
 	if h.writer != nil && !h.writer.Committed() {
 		h.beforeCommit = true
 	}
+}
+
+func (h *initRecordingHook) Snapshot() domain.TrackingWithHistory {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.snapshot
 }
 
 func (h *initRecordingHook) Started(orderID string) bool {
@@ -439,8 +447,12 @@ func TestInitTrackingHandler(t *testing.T) {
 			t.Fatal("x-test-mode did not invoke the progression hook")
 		}
 		if deps.hook.StartedBeforeCommit() {
-			t.Fatal("the hook ran before the transaction committed — the progression " +
-				"would open a fresh session, see no tracking, and end at PLACED")
+			t.Fatal("the hook ran before the transaction committed — its snapshot " +
+				"would not be authoritative")
+		}
+		snapshot := deps.hook.Snapshot()
+		if snapshot.Tracking.Status != domain.StatusPlaced || len(snapshot.History) != 1 {
+			t.Fatalf("hook snapshot = %+v, want the committed PLACED row and history", snapshot)
 		}
 	})
 
