@@ -186,12 +186,42 @@ the derivation of the queue-depth threshold: `.ai/rules/testing.md`.
 **Converse with the user in Spanish.** **Write documentation content in English**
 (note bodies, technical terms, filenames, frontmatter).
 
+### Code comments — describe the final state, never append debugging history
+
+**When you fix or change a block you already commented, rewrite that comment to
+describe the final state.** Never append what failed, what you tried, or why the
+previous attempt was wrong. That is the loop that produces 100-line comment
+essays: the code gets fixed, the comment only grows. Measured here — 98 comment
+lines narrate debugging history and **38 still name Jaeger**, removed on
+2026-08-21 and no longer running anywhere. Stale history does not just add noise,
+it misinforms every later reader.
+
+Comments use a **closed set of five tags** — `CONTRACT:`, `WORKAROUND(<scope>):`,
+`WHY:`, `WARNING:`, `TODO(JE-<id>):` — and reference the vault as
+`See [[vault-id]]` (bare basename; no `docs/` prefix, no `.md`, no `#anchor`).
+Untagged comments stay **≤3 lines**; a block **over 12 lines is an error**.
+
+**Load-bearing history is relocated, not deleted.** "We tried X and it broke Y"
+becomes a present-tense prohibition plus one concrete failure symptom
+(`CONTRACT: Do NOT …` / `WORKAROUND(local): Do NOT rely on …`); the narrative,
+transcripts, and dates go to a lesson note. A bare `See [[note]]` with no
+prohibition is **not enough** — an agent treats the vault as optional and reverts
+the workaround.
+
+**A debugging loop that cost real time is a lesson candidate, not a source
+comment.** Surface it in your handoff summary (title, symptom, root cause) rather
+than narrating it in the code — and do not write it into the vault yourself, see
+**Prohibitions** below.
+
+Full rule: `.ai/rules/code-comments.md`. Full convention:
+`docs/shared/conventions/code-comments.md`.
+
 ### Scope
 
 Stay within what was asked. **No unrequested features, files, or refactors**
 (YAGNI).
 
-Full rule for both: `.ai/rules/language-and-scope.md`.
+Full rule for language and scope: `.ai/rules/language-and-scope.md`.
 
 ### Local AWS emulator (Floci)
 
@@ -256,6 +286,21 @@ respect**, not as a boundary that will stop you.
 Roles are **passive context**, not behavior to adopt on your own. Act as one only
 when the user asks for that work — do not "become" a role because a description
 matches.
+
+**Two rules bind every implementer role below**, so they are stated once here
+rather than repeated in each entry:
+
+- **No cumulative comment history.** When you fix or change a block you already
+  commented, rewrite that comment to describe the final state — never append what
+  failed or what you tried. Keep the prohibition and one concrete failure symptom
+  inline (`CONTRACT:` / `WORKAROUND(<scope>):` plus `See [[vault-id]]`); a block
+  over 12 lines is an error. See **Code comments** above.
+- **Report lesson candidates in the handoff.** Along with the paths changed, the
+  actual command output, anything you could not verify, and a proposed
+  Conventional-Commits message, list any **lesson candidates** the work uncovered
+  — title, symptom, root cause — so they can be routed into the vault. A costly
+  debugging discovery belongs there, not narrated in a source comment. Do not
+  write to `docs/` yourself; see **Prohibitions**.
 
 ### users-impl
 
@@ -383,3 +428,9 @@ Do not assume parity with Claude Code:
 - **Five skills depending on Obsidian tooling** — `obsidian-bases`,
   `obsidian-cli`, `obsidian-markdown`, `json-canvas`, `defuddle` — excluded by
   decision.
+Note that **`scripts/validate-comments.py` IS portable and does travel** — it is a
+plain Python linter with no Claude Code dependency. Run it with the repo venv:
+`.venv/bin/python scripts/validate-comments.py --diff main`. It runs as a
+**baseline/ratchet** against `scripts/comment-baseline.json`, so it fails only on
+**new** violations; pre-existing ones are frozen and are not yours to fix as a
+side effect. No Make target wraps it yet — invoke it directly.

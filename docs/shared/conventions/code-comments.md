@@ -99,8 +99,8 @@ vault note exists. `WHY:` may omit it.
 
 ### Length
 
-- Untagged comment: max 3 lines. Section divider: 1 line.
-- Tagged entry: target ≤6 lines (this is p75, the repo's own healthy norm).
+- Untagged comment: up to 6 lines (p75, the repo's own healthy norm). Keep it to 3 where the
+  point fits in 3. Section divider: 1 line.
 - 7–12 lines: allowed only when tagged `CONTRACT:`/`WORKAROUND(...)` **and** carrying a
   `See [[...]]`.
 - **>12 lines MUST NOT be committed — hard error.**
@@ -331,16 +331,22 @@ standard pattern for adopting a lint rule on a legacy codebase (Betterer; Meta's
 debt management). A repo-wide gate without the ratchet would fail on day one, which is why the
 ratchet is mandatory.
 
-Calibrated to this convention, the linter reports **968 violations across 413 files**. The
-baseline freezes them, so CI reports **0 new**. A freshly introduced 20-line block is correctly
-caught as 1 new violation.
+Calibrated to this convention, the linter reports **987 violations across 341 files** —
+`length` 874, `density` 56, `stale-term` 40, `reference` 9, `tag` 8. The baseline freezes them,
+so CI reports **0 new** and exits 0. A freshly introduced 14-line block is caught as 1 new
+violation.
 
-Narrative history is not detectable by length, so `scripts/validate-comments.py` gains two more
-checks. A **stale-term check** — comments naming decommissioned components such as Jaeger — is
-an error and freezes its existing hits in the baseline like every other rule. A
-**narrative-marker check** is a warning rather than an error: it runs at roughly 90% precision
-at line level, and each hit still needs a human to judge whether the sentence is history or a
-legitimate present-tense mention.
+Narrative history is not detectable by length, so the linter carries two further checks. A
+**stale-term check** — comments naming decommissioned components, listed in
+`scripts/comment-stale-terms.json` rather than hardcoded — is an error and freezes its existing
+hits in the baseline like every other rule; it currently flags the 40 comments still naming
+Jaeger. A **narrative-marker check** (95 hits) is a warning rather than an error: it runs at
+roughly 90% precision at line level, and each hit needs a human to judge whether the sentence is
+history or a legitimate present-tense mention. `--strict-narrative` promotes it to an error.
+
+Judgement stays with the reviewer. The linter cannot tell whether a `CONTRACT:` really states a
+prohibition *and* a concrete failure symptom, whether a `WHY:` explains a reason or narrates the
+code, or whether a `See [[...]]` points at the right note.
 
 ## Migration
 

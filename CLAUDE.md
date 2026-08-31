@@ -58,6 +58,13 @@ These rules take precedence over default agent/skill behavior.
 - **Converse with the user in Spanish.**
 - **Vault / documentation content is written in English** (technical terms, filenames, frontmatter).
 
+### Code comments — describe the final state, never append debugging history
+- **Rewrite on edit, never append.** When you fix or change a block you already commented, **rewrite that comment to describe the final state**. Do NOT append what failed, what you tried, or why the previous attempt was wrong. This is the loop that produces 100-line comment essays: the code gets fixed, the comment only grows.
+- **Comments use a closed set of five tags** — `CONTRACT:`, `WORKAROUND(<scope>):`, `WHY:`, `WARNING:`, `TODO(JE-<id>):` — and reference the vault as `See [[vault-id]]` (bare basename; no `docs/` prefix, no `.md`, no `#anchor`). Untagged comments stay ≤3 lines; **a block over 12 lines is an error**.
+- **Load-bearing history is relocated, not deleted.** "We tried X and it broke Y" becomes a present-tense prohibition plus one concrete failure symptom (`CONTRACT: Do NOT …` / `WORKAROUND(local): Do NOT rely on …`); the narrative, transcripts, and dates go to a `docs/lessons/YYYY-MM-DD-<title>.md` note. A bare `See [[note]]` with no prohibition is NOT enough — an agent treats the vault as optional and reverts the workaround.
+- **A debugging loop that cost real time is a lesson candidate**, not a source comment. Surface it in your handoff summary so the parent routes it to `obsidian-vault`.
+- Full convention (tags, budgets, placement, the three-second test): `docs/shared/conventions/code-comments.md` → [[code-comments]]. Enforced by `scripts/validate-comments.py` (baseline/ratchet: fails only on NEW violations).
+
 ### Scope
 - Stay within what was asked. No unrequested features, files, or refactors (YAGNI).
 
