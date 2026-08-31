@@ -36,38 +36,20 @@ func countDSN() string {
 func requireCountMySQL(t *testing.T) *sql.DB {
 	t.Helper()
 
-	admin, err := sql.Open("mysql", countDSN()+"?parseTime=true&multiStatements=true")
+	serverDSN := countDSN()
+	probe, err := sql.Open("mysql", serverDSN+"?parseTime=true")
 	if err != nil {
 		t.Skipf("cannot open MySQL (%s): %v", countDSNEnv, err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	if err := admin.PingContext(ctx); err != nil {
-		_ = admin.Close()
+	if err := probe.PingContext(ctx); err != nil {
+		_ = probe.Close()
 		t.Skipf("MySQL is unreachable; set %s to run the repository tests: %v", countDSNEnv, err)
 	}
+	_ = probe.Close()
 
-	if _, err := admin.ExecContext(t.Context(), "DROP DATABASE IF EXISTS "+countSchema); err != nil {
-		t.Fatalf("dropping a stale test schema: %v", err)
-	}
-	if _, err := admin.ExecContext(t.Context(),
-		"CREATE DATABASE "+countSchema+" DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"); err != nil {
-		t.Fatalf("creating the test schema: %v", err)
-	}
-	t.Cleanup(func() {
-		// A FRESH context, never t.Context(): that one is already cancelled by the
-		// time cleanups run, so the drop would be abandoned and leak the schema.
-		dropCtx, dropCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer dropCancel()
-		_, _ = admin.ExecContext(dropCtx, "DROP DATABASE IF EXISTS "+countSchema)
-		_ = admin.Close()
-	})
-
-	db, err := sql.Open("mysql", countDSN()+countSchema+"?parseTime=true&multiStatements=true")
-	if err != nil {
-		t.Fatalf("opening the test schema: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := requireThrowawaySchema(t, serverDSN, countSchema)
 
 	path := filepath.Join("..", "..", "..", "migrations", "000001_baseline.up.sql")
 	source, err := os.ReadFile(path) //nolint:gosec // a fixed path inside the repo

@@ -77,6 +77,9 @@ TRACKING_DB_URL = $(shell sed -n 's|^DATABASE_WRITER_URL=mysql+pymysql://|mysql:
 # each CREATE THEIR OWN throwaway schema rather than touching the shared
 # `tracking` database, which the running service and the E2E suite both use.
 TRACKING_DB_SERVER = $(shell echo '$(TRACKING_DB_URL)' | sed -E 's|^mysql://([^@]+)@([^/]+)/.*|\1@tcp(\2)/|')
+# Root superuser for throwaway-schema DDL in repository tests. The `test` user
+# holds only database-scoped grants — see create_mysql_database.py.
+TRACKING_DB_ADMIN_SERVER = $(shell echo '$(TRACKING_DB_SERVER)' | sed 's|^[^@]*@|root:test@|')
 
 .PHONY: test-db-env
 test-db-env: ## Print the discovered database DSNs without running anything
@@ -86,6 +89,7 @@ test-db-env: ## Print the discovered database DSNs without running anything
 		echo "ERROR: no DATABASE_WRITER_URL in $(ENV_FILE). Run 'make env-file' from the repo root."; exit 1; fi
 	@echo "TRACKING_DATABASE_URL   = $(TRACKING_DB_URL)"
 	@echo "TRACKING_TEST_MYSQL_DSN = $(TRACKING_DB_SERVER)"
+	@echo "TRACKING_TEST_MYSQL_ADMIN_DSN = $(TRACKING_DB_ADMIN_SERVER)"
 
 .PHONY: test-db
 test-db: verify-toolchain test-db-env ## Run the FULL suite including the real-MySQL tests
@@ -97,6 +101,7 @@ test-db: verify-toolchain test-db-env ## Run the FULL suite including the real-M
 	@# skips fourteen.
 	TRACKING_DATABASE_URL='$(TRACKING_DB_URL)' \
 	TRACKING_TEST_MYSQL_DSN='$(TRACKING_DB_SERVER)' \
+	TRACKING_TEST_MYSQL_ADMIN_DSN='$(TRACKING_DB_ADMIN_SERVER)' \
 	$(GO) test -race $(PKG)
 
 .PHONY: test-no-db

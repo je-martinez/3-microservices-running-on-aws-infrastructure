@@ -15,8 +15,17 @@ func setRequired(t *testing.T) {
 	t.Setenv("TRACKING_CARRIER_API_KEY", "carrier-key")
 }
 
+// isolateDefaultEnv clears variables the local stack exports so default-value
+// tests do not inherit them from the parent shell or IDE.
+func isolateDefaultEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("AWS_ENDPOINT_URL", "")
+	t.Setenv("EVENTS_QUEUE_URL", "")
+}
+
 func TestLoadDefaults(t *testing.T) {
 	setRequired(t)
+	isolateDefaultEnv(t)
 
 	cfg, err := config.Load()
 	if err != nil {

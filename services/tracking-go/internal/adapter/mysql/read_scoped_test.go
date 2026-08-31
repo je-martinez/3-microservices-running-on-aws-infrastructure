@@ -72,41 +72,19 @@ func requireReadsSchema(t *testing.T) *sql.DB {
 			"(e.g. mysql://test:test@127.0.0.1:7002/tracking) to run the repository tests")
 	}
 
-	admin, err := sql.Open("mysql", server+"?parseTime=true&multiStatements=true")
+	probe, err := sql.Open("mysql", server+"?parseTime=true")
 	if err != nil {
 		t.Fatalf("open mysql: %v", err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	if err := admin.PingContext(ctx); err != nil {
-		_ = admin.Close()
+	if err := probe.PingContext(ctx); err != nil {
+		_ = probe.Close()
 		t.Fatalf("ping mysql: %v", err)
 	}
+	_ = probe.Close()
 
-	schema := readsTestSchema
-	if _, err := admin.ExecContext(t.Context(), "DROP DATABASE IF EXISTS "+schema); err != nil {
-		t.Fatalf("dropping a stale test schema: %v", err)
-	}
-	if _, err := admin.ExecContext(t.Context(),
-		"CREATE DATABASE "+schema+" DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"); err != nil {
-		t.Fatalf("creating the test schema: %v", err)
-	}
-	t.Cleanup(func() {
-		// A FRESH context, never t.Context(): that one is already cancelled by
-		// the time a Cleanup runs, so the DROP would fail with "context
-		// canceled" and leave the schema behind for the next run to trip over.
-		dropCtx, dropCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer dropCancel()
-		// Best-effort teardown; a leaked schema is dropped by the next run.
-		_, _ = admin.ExecContext(dropCtx, "DROP DATABASE IF EXISTS "+schema)
-		_ = admin.Close()
-	})
-
-	db, err := sql.Open("mysql", server+schema+"?parseTime=true&multiStatements=true")
-	if err != nil {
-		t.Fatalf("opening the test schema: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := requireThrowawaySchema(t, server, readsTestSchema)
 
 	applyReadsBaseline(t, db)
 	return db

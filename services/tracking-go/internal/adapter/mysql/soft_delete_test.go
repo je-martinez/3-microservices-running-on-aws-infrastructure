@@ -63,39 +63,20 @@ func softDeleteApplyBaseline(t *testing.T, db *sql.DB) {
 func requireSoftDeleteMySQL(t *testing.T) *sql.DB {
 	t.Helper()
 
-	admin, err := sql.Open("mysql", softDeleteDSN()+"?parseTime=true&multiStatements=true")
+	serverDSN := softDeleteDSN()
+	probe, err := sql.Open("mysql", serverDSN+"?parseTime=true")
 	if err != nil {
 		t.Skipf("cannot open MySQL (%s): %v", softDeleteDSNEnv, err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	if err := admin.PingContext(ctx); err != nil {
-		_ = admin.Close()
+	if err := probe.PingContext(ctx); err != nil {
+		_ = probe.Close()
 		t.Skipf("MySQL is unreachable; set %s to run the repository tests: %v", softDeleteDSNEnv, err)
 	}
+	_ = probe.Close()
 
-	if _, err := admin.ExecContext(t.Context(), "DROP DATABASE IF EXISTS "+softDeleteSchema); err != nil {
-		t.Fatalf("dropping a stale test schema: %v", err)
-	}
-	if _, err := admin.ExecContext(t.Context(),
-		"CREATE DATABASE "+softDeleteSchema+" DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"); err != nil {
-		t.Fatalf("creating the test schema: %v", err)
-	}
-	t.Cleanup(func() {
-		// A FRESH context, never t.Context(): that one is already cancelled by the
-		// time cleanups run, so the drop would be abandoned and leak the schema.
-		dropCtx, dropCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer dropCancel()
-		// Best-effort teardown; a leaked schema is dropped by the next run.
-		_, _ = admin.ExecContext(dropCtx, "DROP DATABASE IF EXISTS "+softDeleteSchema)
-		_ = admin.Close()
-	})
-
-	db, err := sql.Open("mysql", softDeleteDSN()+softDeleteSchema+"?parseTime=true&multiStatements=true")
-	if err != nil {
-		t.Fatalf("opening the test schema: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := requireThrowawaySchema(t, serverDSN, softDeleteSchema)
 
 	// The SAME baseline migration the service ships, so the collations these
 	// tests depend on cannot drift from production DDL. utf8mb4_unicode_ci on
