@@ -14,97 +14,16 @@ import (
 	"testing"
 )
 
-// THE WIRING GATE.
-//
-// # The bug this file exists to fail on
-//
-// Four times in this migration a component was written, unit-tested, reviewed,
-// merged — and never called from the running process:
-//
-//  1. The route handlers existed; main.go registered none of them.
-//  2. SetResolvedUserID existed; nothing called it, so the response cache never
-//     engaged. Not for a TTL — always.
-//  3. NewContextHandler and NewTraceHandler existed and were used only by their
-//     own tests, so no log line in the running process carried request_id,
-//     trace_id or any context field.
-//  4. The cache gateway's metrics port was bound to the noop unconditionally, so
-//     cache_requests_total and cache_operation_duration_ms were computed on every
-//     request and discarded even with METRICS_ENABLED=true.
-//
-// Every unit test passed in all four cases, and that is not bad luck. Hexagonal
-// architecture buys isolation by making every component constructible in
-// isolation — which is exactly what lets a component be fully exercised by tests
-// and reached by nothing.
-//
-// # Why an ORDINARY test cannot catch it, no matter how well written
-//
-// Because a test constructs its own subject. NewTraceHandler had a thorough,
-// correct suite; it wrapped a handler by hand and asserted the output. That
-// proves the component WORKS. It cannot, even in principle, prove that the
-// PROCESS uses it — the test is itself a second caller, and its own call
-// satisfies the assertion.
-//
-// The three earlier fixes each added a behavioural test ONE LEVEL BELOW the gap
-// (logging_wiring_test.go tests newProcessLogger, not that run() calls it), so
-// the same bug at the next seam up would still have shipped silently.
-//
-// # Why golangci-lint's `unused` cannot catch it either — verified, not assumed
-//
-// `unused` is ENABLED in .golangci.yml and reported zero issues against all four
-// bugs. Probed directly against this module: a dead EXPORTED function is NOT
-// flagged (only the unexported one beside it was), and an exported function
-// referenced solely from a _test.go file is NOT flagged either, even with
-// `run.tests: true`. That is deliberate on staticcheck's part — an exported
-// symbol may have consumers outside the module. But in a hexagonal design EVERY
-// seam crosses a package boundary and is therefore exported, which makes
-// `unused` structurally blind to precisely this bug class.
-//
-// # What this test does instead
-//
-// It walks the static call graph from main() over the PRODUCTION package set and
-// asserts that every seam in the inventory below is reached. "Is it wired?" is a
-// different question from "does it work", and it is the one nothing else in this
-// repo asks.
-//
-// # WHAT THIS GATE DOES NOT CATCH — measured by mutation, not assumed
-//
-// The walk asks "is this function MENTIONED anywhere reachable from main", not
-// "is its return value actually installed". Those differ, and the difference was
-// demonstrated rather than reasoned about: replacing
-//
-//	otelgin.Middleware(logging.ServiceName, otelgin.WithFilter(tracing.GinFilter))
-//
-// in the middleware chain with a no-op closure that still MENTIONS
-// tracing.GinFilter leaves this gate GREEN, because the identifier is still
-// there. The four behavioural tests in
-// internal/adapter/http/tracing_middleware_test.go fail loudly on that same
-// mutation.
-//
-// So the two layers divide the work, and neither replaces the other:
-//
-//   - THIS gate catches TOTAL absence — the symbol is reached from nowhere. That
-//     is the shape all four historical bugs actually took, it costs one line per
-//     seam, and it scales to every seam in the service.
-//   - A BEHAVIOURAL test catches partial or subtly-wrong installation. It is far
-//     more expensive to write, so it is worth it for the seams where "wired but
-//     wrong" is a realistic failure — the middleware chain above all.
-//
-// The rule of thumb: every seam belongs in the inventory; a seam whose ORDER or
-// OPTIONS matter also deserves a behavioural test beside it.
-//
-// # Dependencies: deliberately none
-//
-// The obvious implementation uses golang.org/x/tools/go/packages, but adding it
-// to this module forces a downgrade of google.golang.org/grpc and golang.org/x/net.
-// Paying that in the production dependency graph for a test helper is the wrong
-// trade, so the package set comes from `go list -deps` (which is exactly the set
-// linked into the binary) and the walk uses only go/ast and go/parser.
+// CONTRACT: Do NOT remove an install-once seam from requiredSeams. Unit tests and
+// `unused` stay green while exported components are unreachable and inert. This
+// production call graph catches total absence; behavioural tests must still
+// verify that reached return values and options are installed correctly.
+// See [[2026-08-27-tracking-go-migration-design]]
 
 // wiringSeam is one component that MUST be reachable from main().
-//
-// `reason` is not documentation for its own sake: when this test fails, the
-// reason is what tells the next person WHAT BREAKS IN PRODUCTION — the part a
-// bare "X is not reachable" leaves them to rediscover.
+// CONTRACT: Keep a concrete production failure in reason. A bare reachability
+// error does not identify the silently disabled behaviour.
+// See [[testing]]
 type wiringSeam struct {
 	pkg    string // full import path
 	fn     string // function name
@@ -131,20 +50,10 @@ const (
 // requiredSeams is the INVENTORY: every component whose whole purpose is to be
 // installed by the composition root.
 //
-// # What belongs here
-//
-// A seam is a component that is INERT UNLESS WIRED and whose failure to be wired
-// is SILENT — the service still boots, still serves, still passes its tests, and
-// simply stops doing one thing. That is the bug this gate catches. A pure
-// function whose absence makes a handler fail to compile does NOT belong here;
-// the compiler already guards it, and listing it only adds noise.
-//
-// # Adding to it
-//
-// When you add a middleware, an exporter, a background loop, or any other
-// install-once component, add it here in the same commit. The cost is one line;
-// the alternative is the fifth instance of a bug that has already cost this
-// migration four debugging sessions.
+// CONTRACT: Add every silently inert install-once component here with its
+// concrete failure symptom. Do NOT add pure functions whose absence already
+// breaks compilation.
+// See [[2026-08-27-tracking-go-migration-design]]
 var requiredSeams = []wiringSeam{
 	// ── Observability: the whole category fails silently ────────────────────
 	{pkgOTel, "SetupTracing", "no OTLP exporter is installed, so the service emits NO TRACES AT ALL while every span-opening call site still looks correct"},
@@ -153,18 +62,14 @@ var requiredSeams = []wiringSeam{
 	{pkgMain, "installProcessLogger", "the enriched handler is built but never made the default, so any package logging through slog.Default emits bare records"},
 	{pkgLogging, "ResolveRequestID", "requests carry no request_id, breaking cross-service correlation — and an attacker-supplied header would reach every log line unvalidated"},
 	{pkgHTTP, "LogContextMiddleware", "bug #3: no request-scoped log context, so no line carries request_id, cognito_sub, user_id or duration_ms"},
-	// GinFilter's ONLY purpose is to be handed to otelgin.WithFilter. It sat
-	// defined, documented and referenced by nothing while otelgin was absent from
-	// the middleware chain entirely — found by this audit's sweep as a
-	// test-only symbol. Its presence here now pins the inbound instrumentation:
-	// without otelgin there is no SERVER span, so workflow spans start as fresh
-	// ROOTS and one request appears in OpenObserve as several unrelated traces.
+	// CONTRACT: Do NOT remove GinFilter from the inbound middleware seam. Without
+	// otelgin, workflow spans become unrelated root traces in OpenObserve.
+	// See [[logging-context]]
 	{pkgOTel, "GinFilter", "otelgin is not in the middleware chain: no inbound HTTP span exists, the caller's traceparent is dropped, and one flow renders as several disconnected traces"},
 	{pkgMain, "poolTracingOptions", "the database pools are opened untraced, so no SQL span appears under any request — and both span-shaping guards go with it: the PII one that disables query capture, and the one that stops driver.ErrSkip being recorded as an error"},
-	// The driver's package-level logger is THIRD-PARTY global state, so nothing
-	// about installing an slog handler reaches it — the classic "correct code,
-	// absent wiring" shape: the adapter would be fully unit-tested and the driver
-	// would go on writing plain text to stderr with no test failing.
+	// CONTRACT: Do NOT rely on slog.SetDefault for the MySQL driver. Its own global
+	// logger keeps emitting unclassified plain text to stderr.
+	// See [[logging-context]]
 	{pkgMain, "installDriverLogging", "go-sql-driver/mysql keeps logging plain text to stderr ('[mysql] ... closing bad idle connection'), a line carrying no service_name, no severity and no trace_id — the collector cannot classify it and files it under `unclassified`, which unclassified-logs.spec.ts fails on"},
 
 	// ── Metrics ─────────────────────────────────────────────────────────────
@@ -240,9 +145,9 @@ func TestEverySeamIsReachableFromMain(t *testing.T) {
 
 // TestEverySeamInTheInventoryExists keeps the inventory honest.
 //
-// Without this, a seam deleted from the codebase would keep an entry here
-// forever, and the inventory would slowly become a list of things that no longer
-// exist — which is how a gate stops being trusted and then stops being read.
+// CONTRACT: Do NOT retain deleted or renamed seams. A stale inventory makes the
+// reachability gate fail for components absent from the codebase.
+// See [[testing]]
 func TestEverySeamInTheInventoryExists(t *testing.T) {
 	graph := loadProductionGraph(t)
 
@@ -294,32 +199,16 @@ type goListPackage struct {
 // loadProductionGraph builds the call graph over exactly the packages linked
 // into the server binary.
 //
-// # `go list -deps ./cmd/server`, and why that specific set
-//
-// It is the transitive import closure of the MAIN PACKAGE — precisely what the
-// linker puts in the binary, with no test variants. Using it means a call from a
-// _test.go file cannot satisfy a seam, which is the whole point: the three
-// earlier bugs were all "referenced only from tests", and a package set that
-// included tests would have reported every one of them as correctly wired.
-//
-// # The walk is intentionally an OVER-APPROXIMATION
-//
-// Any identifier in a function body that matches a known function name counts as
-// a call, without resolving types. That can only over-report reachability, never
-// under-report it, so this gate cannot produce a FALSE ALARM that blocks a commit
-// for no reason. The trade is that it could miss a subtle partial unwiring —
-// but all four real bugs were TOTAL absences, where the symbol appeared nowhere
-// in the reachable set, and those it catches exactly.
+// CONTRACT: Build from `go list -deps ./cmd/server`, excluding test variants.
+// Including tests lets a test-only caller make an unwired production seam pass.
+// The AST walk deliberately over-approximates calls, so behavioural tests remain
+// responsible for partial or incorrect installation.
+// See [[testing]]
 func loadProductionGraph(t *testing.T) *callGraph {
 	t.Helper()
 
-	// -deps from the MAIN package: no test variants, and internal/openapi is
-	// excluded automatically because nothing in the binary imports it. (That
-	// package is half-written by a parallel agent; the gate must not depend on
-	// it building.)
-	// CommandContext, not Command: t.Context() is cancelled when the test ends,
-	// so a `go list` that wedges (a stale module cache lock, a network fetch)
-	// is killed with the test instead of outliving it.
+	// WHY: Main's dependency closure excludes test-only and unlinked packages.
+	// CommandContext also stops a wedged `go list` when the test ends.
 	//
 	// #nosec G204 -- the only non-literal argument is the go binary's own path,
 	// derived from $GOROOT, which `go test` sets for this very process. There is
@@ -434,16 +323,8 @@ func loadProductionGraph(t *testing.T) *callGraph {
 // importAliases maps the qualifier used in this file to the imported path.
 // goToolPath returns a usable path to the go binary.
 //
-// Not a bare "go": `go test` does not guarantee the toolchain is on PATH, and
-// under goenv (which this repo pins with) it frequently is not — the shim
-// directory is on the developer's PATH but not necessarily on the test
-// process's.
-//
-// GOROOT is the reliable anchor and `go test` exports it into the test
-// process's environment, so read it from there. runtime.GOROOT() would be the
-// obvious call and is DEPRECATED as of Go 1.24 (it reports the root used at
-// BUILD time, which is meaningless if the binary moved); the environment
-// variable is what the deprecation notice points to.
+// WHY: `go test` exports GOROOT but does not guarantee `go` is on PATH; the
+// environment points at the runtime toolchain rather than the build-time root.
 func goToolPath() string {
 	if goroot := os.Getenv("GOROOT"); goroot != "" {
 		candidate := filepath.Join(goroot, "bin", "go")

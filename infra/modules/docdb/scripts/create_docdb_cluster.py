@@ -1,75 +1,9 @@
 #!/usr/bin/env python3
-"""Idempotently create the DocumentDB cluster + instance via boto3.
-
-Used ONLY by modules/docdb/main.tf's terraform_data.cluster_via_cli, which is
-gated by var.manage_cluster_via_provider = false (Floci local only).
-
-WHY THIS SCRIPT EXISTS AT ALL
------------------------------
-The native `aws_docdb_cluster` resource ABORTS the apply against Floci:
-
-    creating DocumentDB Cluster (db-3mrai-local-events-docdb):
-    InvalidClientTokenId: The security token included in the request is invalid.
-    status code: 403
-
-...while the EXACT SAME CreateDBCluster call succeeds through the AWS CLI/boto3
-(verified 2026-08-03: `aws docdb create-db-cluster --db-cluster-identifier
-probe-again ...` returned Status: available, and boto3's create_db_cluster
-returns the cluster with Status "available" and Port 27017). So Floci implements
-DocumentDB fine; the AWS provider pinned at `= 5.31.0` — pinned because newer
-versions break aws_cognito_user_pool_client against Floci, non-negotiable — signs
-this particular request in a way Floci's docdb handler rejects with a 403. A
-previous fix already moved the failure past the subnet group
-(create_subnet_group = false → Floci's pre-existing "default" group); this is the
-same class of problem one resource further in.
-
-That is exactly the criterion in docs/shared/patterns/awscli-fallback-for-floci.md:
-the native resource demonstrably cannot apply (proven by a real `terraform apply`
-failure, not speculation), the SDK call demonstrably can. Production keeps the
-native resources — this path is local-only.
-
-IDEMPOTENCY, AND THE TWO FLOCI QUIRKS IT HAS TO WORK AROUND
------------------------------------------------------------
-Re-running this must be a no-op, not an error, because `make bootstrap` tears the
-stack down and rebuilds it routinely and terraform_data re-runs the provisioner
-whenever its `input` changes.
-
-1. `describe_db_clusters(DBClusterIdentifier=<missing>)` returns an EMPTY list
-   instead of raising DBClusterNotFoundFault (real AWS raises). Both shapes are
-   handled — an empty list and the fault both mean "absent".
-2. `describe_db_instances()` WITHOUT a filter returns [] even when the instance
-   exists; only `describe_db_instances(DBInstanceIdentifier=...)` finds it
-   (verified empirically). So instance existence is checked by identifier, and
-   DBInstanceAlreadyExistsFault is additionally treated as success — a lookup
-   that lies must not turn a re-run into a failed apply.
-
-THE CONTAINER-NAME CONTRACT
----------------------------
-Floci backs each docdb cluster with a `mongo:7.0` container named
-`floci-docdb-<DBClusterIdentifier>` (verified: identifier `probe-shape` →
-container `floci-docdb-probe-shape`). The Lambda reaches Mongo by that name over
-3mrai-network — port 27017 is NOT published to the host and the reported IP
-changes on every recreation. So CLUSTER_IDENTIFIER passed in here must be exactly
-the identifier the rest of the stack expects (db-3mrai-local-events-docdb); the
-module derives both from the same expression, so they cannot drift.
-
-Required env vars (set by the calling local-exec provisioner):
-  CLUSTER_IDENTIFIER   - DocumentDB cluster identifier (drives the container name)
-  INSTANCE_IDENTIFIER  - DocumentDB instance identifier
-  MASTER_USERNAME      - cluster master username
-  MASTER_PASSWORD      - cluster master password
-  STATE_FILE           - path to write the resulting descriptor JSON
-
-Optional:
-  ENGINE_VERSION       - docdb engine version (Floci reports 5.0.0 regardless)
-  INSTANCE_CLASS       - instance class (default db.t3.medium)
-  SUBNET_GROUP_NAME    - pre-existing DB subnet group (Floci: "default")
-  SECURITY_GROUP_IDS   - comma-separated VPC security group ids
-  ENDPOINT_URL         - endpoint override (empty = real-AWS resolution)
-  AWS_REGION           - AWS region
-  EXECUTION_LOG_TABLE  - DynamoDB traceability table (never skips a run)
-
-Exit codes: 0 created-or-already-present, 1 failure.
+"""WORKAROUND(local): Do NOT manage this cluster with the native resource;
+provider 5.31.0 returns 403 while boto3 succeeds. Prod uses native resources.
+CONTRACT: Do NOT change CLUSTER_IDENTIFIER; it names the only reachable
+floci-docdb-<id> container, and consumers otherwise get ECONNREFUSED.
+See [[awscli-fallback-for-floci]], [[floci-sqs-lambda-docdb-support]]
 """
 
 import json

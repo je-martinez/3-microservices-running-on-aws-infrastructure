@@ -55,104 +55,29 @@ builder.Services.AddOpenTelemetry()
         .AddEntityFrameworkCoreInstrumentation()
         // What makes SqsEventPublisher's SendMessageAsync produce a CLIENT span.
         .AddAWSInstrumentation()
-        // REQUIRED, not decorative: .NET's tracing pipeline drops every
-        // ActivitySource it was not explicitly told about, so without this line
-        // the manually-created "create_order" Activity is still built and still
-        // costs work, but never leaves the process — no error, no span in
-        // Jaeger. Same silent failure class as unregistered instrumentation.
+        // CONTRACT: Do NOT create an ActivitySource without registering it here — .NET drops
+        // unregistered sources silently; the Activity is built but never exported to OpenObserve.
         // Register the source in the SAME change that creates one.
         .AddSource(WorkflowTracer.ActivitySourceName)
-        // The SQS publish span. Same rule as the line above — unregistered means
-        // created-but-never-exported, silently. It is also the span whose context
-        // travels as the message's `traceparent`, so without this line the queue hop
-        // still works but its parent never appears in Jaeger.
+        // SQS publish span; its context travels as the message traceparent.
         .AddSource(SqsEventPublisher.ActivitySourceName)
-        // The CloudWatch publish span, which names the metric it sends
-        // (`cloudwatch PutMetricData orders_created_total`). Same rule again:
-        // unregistered means created-but-never-exported, with no error anywhere.
+        // CloudWatch PutMetricData span.
         .AddSource(CloudWatchMetricsPublisher.ActivitySourceName)
-        // The Redis cache spans (cache.get / cache.set). Same rule a third time,
-        // and it is the rule this repo has broken most often: an ActivitySource
-        // missing from here still creates its Activities and still pays for them,
-        // but they never leave the process — no error, no span, nothing to notice.
+        // Redis cache.get / cache.set spans.
         .AddSource(CacheGateway.ActivitySourceName)
-        // No Endpoint set here ON PURPOSE. The exporter reads the standard
-        // OTEL_EXPORTER_OTLP_ENDPOINT (set in docker-compose.yml) as a BASE url
-        // and appends the signal path itself, per the OTLP spec.
-        //
-        // Building the URL by hand is what broke this service: it passed the
-        // base with no path, so every batch was POSTed to the collector's root
-        // and answered 404 — silently, since the exporter does not surface it.
-        // Leaving it to the SDK means a new service needs no endpoint code at
-        // all, only the env var. See [[logging-context]].
+        // CONTRACT: Do NOT set OtlpExporter Endpoint in code — hand-built URLs POST to the collector
+        // root and return 404 silently; the SDK reads OTEL_EXPORTER_OTLP_ENDPOINT instead.
+        // See [[logging-context]]
         .AddOtlpExporter());
 
-// Structured JSON logging (snake_case OTel-aligned schema). Replaces the
-// default plain-text console logger for all `orders` logs.
-//
-// The THREE-argument UseSerilog overload is required: the two-argument one has
-// no `services` parameter, so the enricher could not resolve
-// IHttpContextAccessor and the shared log context would never be attached.
-// The Override below is NOISE SUPPRESSION, not a convenience — do not remove it
-// without re-reading this. It is set to WARNING, not None, ON PURPOSE: a failed
-// trace export still surfaces. Only the per-operation INFO chatter is silenced.
-//
-// Note it MUST live here, in code. This service has no
-// `ReadFrom.Configuration`, so Serilog never reads `Logging:LogLevel` from
-// appsettings.json — adding the category there would silence nothing.
-//
-//  1. System.Net.Http.HttpClient.OtlpTraceExporter — SELF-REFERENTIAL telemetry.
-//     The OTLP exporter POSTs batches over HttpClient, and HttpClient logs each
-//     POST at INFO ("Start processing HTTP request", "Received HTTP response
-//     headers ... 200"). Those log lines are themselves exported, so exporting
-//     traces generates logs that generate more exporting. The volume scales with
-//     traffic and drowns the real orders logs. Scoped to the named
-//     OtlpTraceExporter client rather than the whole `System.Net.Http.HttpClient`
-//     prefix so genuine outbound-HTTP problems (the Users gRPC call, Tracking)
-//     still log normally. It covers both handler suffixes the category expands
-//     to — `.LogicalHandler` and `.ClientHandler` — because Serilog Overrides
-//     match on the source-context PREFIX.
-//
-//  2. Microsoft.AspNetCore.Hosting.Diagnostics — "Request starting" / "Request
-//     finished", one PAIR per request, both describing what
-//     `request completed` already reports with more detail (method, route,
-//     status, duration_ms, and the shared log context).
-//
-//  3. Microsoft.AspNetCore.Routing.EndpointMiddleware — "Executing endpoint" /
-//     "Executed endpoint", another pair per request. It names the handler the
-//     route resolved to, which is a framework-internal detail: the route itself
-//     is already on the request log.
-//
-//  4. Microsoft.AspNetCore.Http.Result — "Setting HTTP status code 400",
-//     "Writing value of type '<>f__AnonymousType0`2' as Json". The status is on
-//     the request log and the CLR type name of an anonymous DTO says nothing
-//     about the response. The override is on the `Http.Result` PREFIX so it
-//     covers every result type (BadRequestObjectResult, OkObjectResult,
-//     CreatedResult, …) rather than needing one entry per status.
-//
-// WHY THIS MATTERS, measured rather than assumed: of 101 orders lines in a
-// two-hour window, only THREE carried an app_event — the actual business events
-// (create_order_started, create_order_succeeded, init_tracking_succeeded). The
-// other 98 were the framework describing its own plumbing. The events-pipeline,
-// which has no such framework, sits at 93/93. A service whose business signal is
-// 3% of its own log volume is one where the interesting line is found by luck.
-//
-// All four are WARNING, not None, for the same reason as the exporter above: a
-// routing failure or a result that cannot be serialized still surfaces. Only the
-// per-request INFO chatter goes quiet.
-//
-// Serilog.AspNetCore.RequestLoggingMiddleware is deliberately NOT here. Its
-// single "request completed" line per request IS the signal these three
-// duplicate — it carries method, route, status, duration and the enriched
-// context. Silencing it would remove the one framework line worth keeping.
-//
-// EF Core's Database.Command is deliberately NOT overridden here, even though it
-// is just as noisy. Its DbCommand lines are ROUTED, not suppressed: the
-// collector's filter/only_sql sends them to the dedicated `sql` stream, which is
-// where SQLAlchemy's equivalent from Tracking already goes. Silencing them in
-// this service instead would leave the two services answering "what SQL did you
-// run?" differently — orders' statements would exist nowhere at all, while
-// tracking's stay queryable. See observability/otel-collector-config.yaml.
+// Structured JSON logging (snake_case OTel-aligned schema).
+// CONTRACT: Use the THREE-argument UseSerilog overload — the two-arg one has no `services`
+// parameter, so LogContextEnricher cannot resolve IHttpContextAccessor.
+// WHY: No ReadFrom.Configuration here; appsettings Logging:LogLevel silences nothing.
+// WARNING: Overrides are WARNING, not None — a failed trace export still surfaces.
+// Four categories at WARNING (OtlpTraceExporter self-chatter, Hosting.Diagnostics,
+// EndpointMiddleware, Http.Result); RequestLoggingMiddleware and EF Database.Command are NOT.
+// See [[logging-context]]
 builder.Host.UseSerilog((_, services, cfg) => cfg
     .MinimumLevel.Information()
     .MinimumLevel.Override("System.Net.Http.HttpClient.OtlpTraceExporter", Serilog.Events.LogEventLevel.Warning)
@@ -167,23 +92,10 @@ var readerCs = builder.Configuration["DATABASE_READER_URL"]!;
 builder.Services.AddDbContext<OrdersReadDbContext>(o =>
     o.UseMySql(readerCs, ServerVersion.AutoDetect(readerCs)));
 builder.Services.AddScoped<OrderReadService>();
-// Assets base URL for product artwork. Rows store bucket-relative keys and the read
-// service composes the absolute URL, so the bucket name is never persisted (Floci
-// re-mints it on every apply). Locally this comes from .env.local.orders, which
-// generate_env_files.py fills from phase 2's assets_base_url output, falling back to
-// the derived value when `make post-infra` has not run.
-// Deliberately NOT `["ASSETS_BASE_URL"]!` and deliberately NOT a throw.
-//
-// The `!` was worse: a missing value reached the first request, TrimEnd threw, and
-// GET /v1/products answered a bare 500 naming nothing (how this surfaced in the API
-// tests). But throwing here is wrong too — the build-time OpenAPI generator boots
-// this very host to read its endpoint metadata (Microsoft.Extensions.ApiDescription
-// .Server, see the service's CLAUDE.md 2a), with no env file in scope, so a throw
-// breaks `dotnet build` itself.
-//
-// So: fall back to the derived local bucket URL, which is the same value
-// generate_env_files.py writes when phase 2 has not been applied. A wrong-but-shaped
-// URL degrades to an image that 404s; an empty one crashes the request.
+// WORKAROUND(local): Do NOT throw or use `!` on ASSETS_BASE_URL — GetDocument.Insider boots with no
+// env file and breaks `dotnet build`; a missing value on first request returns 500 on GET /v1/products.
+// Fall back to the derived local bucket URL.
+// See [[env-files]]
 var assetsBaseUrl = builder.Configuration["ASSETS_BASE_URL"]
     ?? "http://localhost:4566/post-3mrai-local-post-assets";
 builder.Services.AddScoped(sp => new ProductReadService(
@@ -231,17 +143,8 @@ if (cacheEnabled)
                 + "`make env-file`; see docs/shared/conventions/env-files.md."));
     var redisPort = builder.Configuration.GetValue("REDIS_PORT", 6379);
 
-    // 50ms. Long enough for a same-network Redis round trip, short enough that a hung
-    // cache costs a read almost nothing before it falls through to MySQL.
-    //
-    // This is the MULTIPLEXER's own budget, and that is the whole point. No method on
-    // IDatabaseAsync takes a CancellationToken, so the gateway previously enforced the
-    // 50ms with `.WaitAsync(cts.Token)`, which abandons the AWAIT and leaves the command
-    // in flight until StackExchange.Redis's own timeout — left at its 5000ms default.
-    // Under concurrency the abandoned commands accumulated and every new one queued
-    // behind them. Configured here, the library aborts the operation itself and raises
-    // RedisTimeoutException, which the gateway catches into a BYPASS: same fail-open
-    // contract, but the operation actually stops.
+    // WHY: AsyncTimeout on the multiplexer — IDatabaseAsync has no CancellationToken; WaitAsync
+    // abandons the await but leaves commands in flight until Redis's 5000ms default.
     const int redisTimeoutMs = 50;
 
     builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
@@ -297,23 +200,10 @@ builder.Services.AddScoped<IUserDirectory>(sp =>
     return cache is null ? grpc : new CachedUserDirectory(grpc, cache);
 });
 
-// ORDER_CREATED emission — real SQS publisher. The queue URL comes from this
-// service's own generated env file (never hardcoded), like every other setting
-// above; see [[env-files]].
-//
-// NoopEventPublisher is deliberately NOT deleted: tests that must not emit
-// register it in place of this.
-// Fail fast rather than `!`. A null-forgiving assertion would let the service
-// boot with a null queue URL and fail at the first publish — which the
-// publisher swallows by design, so the only symptom would be that no order
-// ever produces a confirmation email, silently. Users does the same with Zod.
-//
-// Exempt during OpenAPI generation: `dotnet build` runs this very Program
-// through GetDocument.Insider to emit openapi.yaml (§2a), with no env file
-// loaded, so throwing there would break the build for every developer rather
-// than catching a misconfigured runtime. Same entry-assembly test the
-// e2e-cleanup route uses below. (isDocumentGeneration is declared further up,
-// ahead of the Redis block, which needs the same escape hatch.)
+// CONTRACT: Fail fast on missing EVENTS_QUEUE_URL — a null URL boots silently and the publisher
+// swallows publish failures, so no confirmation email is ever sent.
+// WORKAROUND(local): Exempt during GetDocument.Insider — no env file at `dotnet build` time.
+// See [[env-files]]
 var eventsQueueUrl = builder.Configuration["EVENTS_QUEUE_URL"]
     ?? (isDocumentGeneration
         ? string.Empty
@@ -377,18 +267,7 @@ if (!isDocumentGeneration)
     builder.Services.AddHostedService<OrdersMetricsPublisher>();
 }
 
-// Tracking HTTP client (POST /v1/trackings/init-tracking). Typed client so the
-// base address and timeout are configured once, in the composition root, and
-// HttpClientFactory owns handler lifetime/pooling. AddHttpClientInstrumentation
-// above already makes each call a child span of the incoming request.
-//
-// TIMEOUT: 5 seconds. This call sits on the order-creation path, so an unbounded
-// wait would let a hung Tracking service pin an Orders request (and its DB
-// connection) indefinitely — the classic way one slow dependency exhausts the
-// pool of a healthy service. 5s is comfortably above a normal same-network round
-// trip yet short enough that a stalled downstream degrades order creation by
-// seconds rather than stalling it; on expiry the client returns Unreachable and
-// the order still succeeds.
+// WHY: 5s timeout on order-creation path — an unbounded Tracking wait pins DB connections.
 var trackingBaseUrl = builder.Configuration["TRACKING_BASE_URL"]!;   // e.g. http://tracking:8000
 builder.Services.AddHttpClient<ITrackingInitiator, TrackingHttpClient>(client =>
 {
@@ -460,17 +339,8 @@ builder.Services.AddScoped(sp => new CreateOrderService(
 
 var app = builder.Build();
 
-// Opens the correlation scope FIRST, ahead of the request logger below. The id
-// itself is resolved later, by CallerContextMiddleware (which needs routing to
-// have run); this only installs the cell that middleware writes into.
-//
-// The two steps are split for a reason found by a failing test: an AsyncLocal set
-// in a middleware is invisible OUTSIDE it, because the value is restored as each
-// frame unwinds. UseSerilogRequestLogging writes "request completed" on the way
-// back OUT — after CallerContextMiddleware's frame is gone — so with a single
-// write deeper down, the most useful log line this service emits would have been
-// the one line missing request_id. Opening the scope here, outside everything,
-// is what lets the outer frame read the value the inner one resolved.
+// WHY: Open AmbientRequestId here — UseSerilogRequestLogging runs on unwind after inner
+// middleware, so a scope opened deeper would drop request_id from "request completed".
 app.Use(async (_, next) =>
 {
     AmbientRequestId.Begin();
@@ -484,21 +354,8 @@ app.Use(async (_, next) =>
 app.UseSerilogRequestLogging(options =>
 {
     options.MessageTemplate = "request completed";
-    // The liveness probe is exempt WHILE IT SUCCEEDS — see the
-    // health-check-logging convention. A succeeding probe is the one request
-    // whose log line carries nothing: the container being up already says it,
-    // and its duration is a constant. A FAILING one carries the status and the
-    // latency that explain why, so it keeps the normal level and is logged.
-    //
-    // Verbose rather than a hard suppression: this service's minimum level is
-    // Information, so the line is filtered out before it reaches the sink, but
-    // the record still exists for anyone who lowers the level to debug a probe.
-    // Serilog's own error paths are preserved — `ex != null` and 5xx fall
-    // through to the default, so a probe that throws still logs at Error.
-    // The `: 500 -> Error` arm reproduces Serilog's own default, which assigning
-    // GetLevel replaces wholesale. Returning a flat Information would have
-    // quietly DOWNGRADED every server error on the request log — a regression
-    // introduced by a change meant to remove noise.
+    // WHY: Verbose for succeeding health probes — see [[health-check-logging]].
+    // CONTRACT: Do NOT return flat Information on 5xx — GetLevel replaces Serilog's default entirely.
     options.GetLevel = (http, _, ex) =>
         ex == null
         && http.Response.StatusCode is >= 200 and < 300

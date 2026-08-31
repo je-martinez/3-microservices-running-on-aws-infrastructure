@@ -8,17 +8,10 @@ import (
 // InvalidateTracking evicts everything a status change on orderID could have made
 // stale.
 //
-// Never fails the caller: the gateway swallows its own failures, and a missed
-// eviction costs at most the 60s TTL of the entries it failed to clear — which is
-// precisely why the TTL is short.
-//
-// # The webhook has no caller identity
-//
-// PUT /v1/trackings/{order_id}/status authenticates with x-api-key and receives
-// no x-user-id at all, so it cannot build a key from the request. The owner comes
-// off the PERSISTED ROW instead — the same value the reads' ownership filter
-// compares against. That is the only identity in play here, and it is the right
-// one.
+// CONTRACT: Do NOT derive ownership from the carrier request; it has no caller
+// identity. Use the persisted cognito_sub and user_id or invalidation targets no
+// live key. Gateway failures remain non-fatal and expire at the short TTL.
+// See [[tracking-service-design]]
 func InvalidateTracking(ctx context.Context, gw Gateway, log *slog.Logger, orderID, cognitoSub, userID string) {
 	if log == nil {
 		log = slog.Default()
@@ -70,46 +63,12 @@ func InvalidateTracking(ctx context.Context, gw Gateway, log *slog.Logger, order
 // InvalidateUser evicts everything the account-deletion cascade leaves behind:
 // every response entry through the per-user index, and the identity mapping.
 //
-// # Why BOTH identifiers are swept, not just the canonical pair
-//
-// This is the bug that made a deleted account's data readable for its full TTL,
-// and it comes from the two paths disagreeing about what "the caller's identity"
-// is.
-//
-// A response key is built from the RAW x-user-id header — whatever the client
-// happened to send — plus the usr_ id resolved from it. Users' GetUserById accepts
-// BOTH identifiers, so a client authenticating with the usr_ id resolves exactly
-// as well as one sending the Cognito sub, and the E2E suite does precisely that
-// on the direct path. The usr_ id therefore lands in the SUB POSITION of a live
-// key:
-//
-//	tracking:index:v1:usr_abc:usr_abc          (header = usr_ id)
-//	tracking:index:v1:<uuid-sub>:usr_abc       (header = cognito sub)
-//	identity:sub-to-user:v1:usr_abc            (header = usr_ id)
-//	identity:sub-to-user:v1:<uuid-sub>         (header = cognito sub)
-//
-// The cascade, by contrast, receives the CANONICAL pair. Sweeping only
-// UserIndexKey(sub, userID) and IdentityKey(sub) therefore deletes keys that were
-// never written whenever the client authenticated with the usr_ id, and leaves
-// the live ones to expire on their own. Verified live in Orders, which has the
-// identical design: the cascade logged success, the deletion returned 204, the
-// key count did not move, and a re-read answered X-Cache: HIT with the deleted
-// user's data.
-//
-// user_id is always the canonical usr_ id in the SECOND position, so the first
-// position is the only one that varies.
-//
-// # KNOWN LIMITATION — keys are not normalized to a canonical identity
-//
-// Sweeping both identifiers fixes the leak but not its cause: the same person
-// still gets a SEPARATE set of entries depending on which identifier they
-// authenticated with. That is wasted memory and a lower hit rate than the design
-// assumes. Normalizing every key onto the canonical sub would fix both, and was
-// considered and deliberately not chosen. An accepted trade-off, not an oversight.
-//
-// Never fails the caller: the deletion has already COMMITTED by the time this
-// runs, so failing would tell Users the cascade failed when it did not, and would
-// fail the whole account deletion for the person.
+// CONTRACT: Do NOT sweep only the canonical cognito_sub. x-user-id may contain
+// either the sub or usr_ id, so both can occupy the first segment; missing either
+// leaves deleted account data readable as X-Cache: HIT until TTL expiry.
+// Keys remain unnormalized by design, so sweep both identifiers. Invalidation is
+// non-fatal because the deletion is already committed.
+// See [[tracking-service-design]]
 func InvalidateUser(ctx context.Context, gw Gateway, log *slog.Logger, cognitoSub, userID string) {
 	if log == nil {
 		log = slog.Default()

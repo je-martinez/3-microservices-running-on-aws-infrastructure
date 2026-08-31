@@ -1,59 +1,6 @@
-// Distributed-tracing contract — one create_order through the gateway must
-// produce ONE trace spanning all three synchronous services.
-//
-// ## The failure this layer exists to catch
-//
-// Trace propagation fails silently by construction. Every service still
-// answers 200, every log line still gets written, and every service still
-// exports spans — they just export them into SEPARATE traces. Nothing is red;
-// the cascade is simply not there when someone opens the trace viewer to debug an
-// incident, which is the one moment it was supposed to exist. Unit tests
-// cannot see this: each service's own tests pass with a perfectly formed local
-// span, and the break lives entirely in the seam between them.
-//
-// So the assertion is deliberately end-to-end and gateway-first: a real
-// Cognito JWT, the real `POST /v1/orders` route a person hits, and then a read
-// of OpenObserve's `_search` API to check that users + orders + tracking landed under a
-// single traceID.
-//
-// ## Why gateway, not the direct service URL
-//
-// The direct-service path fakes the authorizer and skips nginx/njs entirely
-// ([[testing]] layer 2 vs layer 3). Header propagation is exactly the kind of
-// thing a proxy hop drops, so a trace assertion made against the internal URL
-// would pass while the URL users actually hit produced three orphan traces.
-//
-// ## JE-77 anti-regression — the gRPC server span MUST have a parent
-//
-// The original bug: grpc-js dispatches the handler on a later tick than the
-// metadata callback, so activating the OTel context in `onReceiveMetadata`
-// unwound before the handler ever ran. Users' gRPC server span was created,
-// exported, and looked perfectly healthy in isolation — as a trace ROOT, with
-// no parent, sitting in its own trace next to the caller's. The fix moved
-// activation to `onReceiveHalfClose`.
-//
-// A PRESENT `reference_parent_span_id` is the precise signal, and it is the assertion a
-// unit test structurally cannot make: only a real cross-process call can show
-// whether the remote parent survived the hop. A regression here silently
-// re-splits the trace into two.
-//
-// ## Scope: the three SYNCHRONOUS services only
-//
-// events-pipeline is out of scope for the mandatory assertions. It consumes
-// SQS asynchronously and joins via span LINKS, not parent-child (spec Decision
-// 4), so its spans legitimately belong to a different trace — asserting them
-// here would be asserting the wrong relationship. It is also gated on
-// DocumentDB, an availability dependency this contract should not inherit.
-//
-// ## Waiting: several export cycles, never one tight window
-//
-// Spans reach OpenObserve through each service's BatchSpanProcessor (5s default)
-// and then the collector's own `batch` processor. This repo has recorded two
-// false PASSes from windows pinned to the real export period, so the helper
-// POLLS across many multiples of it and, crucially, keeps polling after the
-// first match until every expected service is present — `orders` reliably
-// arrives a batch ahead of `tracking`, and stopping at the first match would
-// report a late service as a missing one.
+// CONTRACT: One gateway create_order → one trace (users, orders, tracking).
+// Assert JE-77 parent on Users gRPC SERVER span. Poll until all services export.
+// See [[ADR-0019-distributed-tracing-opentelemetry]]
 
 import { expect, test } from "@playwright/test";
 
@@ -79,35 +26,12 @@ const EXPECTED_SERVICES = ["users", "orders", "tracking"] as const;
  */
 const TRACE_POLL_TIMEOUT_MS = 90_000;
 
-/**
- * The test's own budget MUST exceed the poll window with room for the order
- * flow, or the poll can never expire first.
- *
- * Verified by mutation, not assumed: with `test.slow()` (3 × the 30s default =
- * exactly 90s) a deliberately-unsatisfiable service expectation died on a bare
- * "Test timeout of 90000ms exceeded" and NONE of the diagnostics below ever
- * printed — the one message this spec exists to produce, lost to a timeout
- * race. An explicit budget is what lets the assertion, rather than the clock,
- * report the failure.
- */
+// CONTRACT: Must exceed TRACE_POLL_TIMEOUT_MS or test.slow() aborts before poll diagnostics.
 const TEST_TIMEOUT_MS = TRACE_POLL_TIMEOUT_MS + 60_000;
 
 const gatewayURL = process.env.API_GATEWAY_URL ?? "";
 
-/**
- * Matches the Users gRPC SERVER span loosely — by `rpc_system` + `span_kind`,
- * not by an exact operation name.
- *
- * grpc-js instrumentation has named this span `users.v1.Users/GetUserById`,
- * `/users.v1.Users/GetUserById` and `grpc.users.v1.Users/GetUserById` across
- * versions, and the Users call Orders makes could reasonably change method.
- * Pinning the string would make an instrumentation upgrade look like a JE-77
- * regression, which is precisely the confusion this spec exists to prevent.
- *
- * Note `span_kind` is OpenObserve's NUMERIC OTLP enum ("2" = SERVER), not
- * Jaeger's `"server"` string — comparing against the old value silently matches
- * nothing, which reads exactly like the regression below.
- */
+/** Match Users gRPC SERVER by rpc_system + span_kind — not operation name (JE-77). */
 function isUsersGrpcServerSpan(span: AttributedSpan): boolean {
   return (
     span.serviceName === "users" &&
