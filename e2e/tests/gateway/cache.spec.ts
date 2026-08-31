@@ -74,7 +74,9 @@ const TTL = {
   me: 300,
 } as const;
 
-async function newAuthedClient(): Promise<Awaited<ReturnType<typeof gatewayClient>>> {
+async function newAuthedClient(): Promise<
+  Awaited<ReturnType<typeof gatewayClient>>
+> {
   const { token } = await getGatewayToken();
   return gatewayClient(token);
 }
@@ -83,19 +85,77 @@ async function firstProductWithStock(
   api: Awaited<ReturnType<typeof gatewayClient>>,
 ): Promise<{ id: string; unitsInStock: number }> {
   const products = await api.get("v1/products");
-  expect(products.status(), `GET v1/products failed: ${await products.text()}`).toBe(200);
-  const product = (await products.json()).find(
-    (p: { unitsInStock: number }) => p.unitsInStock > 0,
-  );
+  expect(
+    products.status(),
+    `GET v1/products failed: ${await products.text()}`,
+  ).toBe(200);
+  const product = (
+    (await products.json()) as Array<{ id: string; unitsInStock: number }>
+  )
+    .filter((p) => p.unitsInStock > 0)
+    .sort((a, b) => b.unitsInStock - a.unitsInStock)[0];
   expect(product, "no product with stock in the catalogue").toBeTruthy();
   return product;
+}
+
+async function createOrderWithAvailableProduct(
+  api: Awaited<ReturnType<typeof gatewayClient>>,
+): Promise<{ orderId: string; product: { id: string; unitsInStock: number } }> {
+  const products = await api.get("v1/products");
+  expect(
+    products.status(),
+    `GET v1/products failed: ${await products.text()}`,
+  ).toBe(200);
+  const candidates = (
+    (await products.json()) as Array<{ id: string; unitsInStock: number }>
+  )
+    .filter((p) => p.unitsInStock > 0)
+    .sort((a, b) => b.unitsInStock - a.unitsInStock);
+  expect(candidates, "no product with stock in the catalogue").not.toHaveLength(
+    0,
+  );
+
+  const depleted: string[] = [];
+  for (const product of candidates) {
+    const created = await api.post("v1/orders", {
+      data: { lines: [{ productId: product.id, quantity: 1 }] },
+    });
+    const body = await created.text();
+    if (created.status() === 201) {
+      return { orderId: (JSON.parse(body) as { id: string }).id, product };
+    }
+
+    // Product stock is shared across all Playwright workers, while the
+    // catalogue response itself may have been cached just before another order
+    // consumed the final unit. Only that expected setup race moves to the next
+    // candidate; every other response still fails immediately.
+    let error: string | undefined;
+    try {
+      error = (JSON.parse(body) as { error?: string }).error;
+    } catch {
+      // The status assertion below reports the original body.
+    }
+    if (created.status() === 409 && error === "insufficient_stock") {
+      depleted.push(product.id);
+      continue;
+    }
+
+    expect(created.status(), `POST v1/orders failed: ${body}`).toBe(201);
+  }
+
+  throw new Error(
+    `Every product reported with stock was depleted by another worker before POST v1/orders ` +
+      `could lock it (tried: ${depleted.join(", ")}).`,
+  );
 }
 
 test("X-Cache survives the gateway on GET v1/users/me (nginx default `/` location)", async () => {
   const api = await newAuthedClient();
 
   const first = await api.get("v1/users/me");
-  expect(first.status(), `GET v1/users/me failed: ${await first.text()}`).toBe(200);
+  expect(first.status(), `GET v1/users/me failed: ${await first.text()}`).toBe(
+    200,
+  );
   expectMiss(first, "first GET v1/users/me through the gateway");
 
   const second = await api.get("v1/users/me");
@@ -135,14 +195,21 @@ test("X-Cache survives the gateway on GET v1/products (nginx `location /v1/produ
     // The catalogue key is shared and ownerless, so it may legitimately be warm
     // from an earlier test — the pair relationship is the assertion, not the
     // first read's value. It must still carry the header, and must not be BYPASS.
-    expectMissOrHit(first, `first GET v1/products through the gateway (attempt ${attempt})`);
+    expectMissOrHit(
+      first,
+      `first GET v1/products through the gateway (attempt ${attempt})`,
+    );
 
     const second = await api.get("v1/products");
     expect(second.status()).toBe(200);
     lastSecond = cacheHeaderOf(second);
     if (lastSecond === "HIT") {
       // The real assertion, including the TTL bound.
-      expectHit(second, "second GET v1/products through the gateway", TTL.products);
+      expectHit(
+        second,
+        "second GET v1/products through the gateway",
+        TTL.products,
+      );
       return;
     }
   }
@@ -190,12 +257,7 @@ test("X-Cache survives the gateway on both my-orders variants and on GET v1/orde
   test.setTimeout(120_000);
 
   const api = await newAuthedClient();
-  const product = await firstProductWithStock(api);
-  const created = await api.post("v1/orders", {
-    data: { lines: [{ productId: product.id, quantity: 1 }] },
-  });
-  expect(created.status(), `POST v1/orders failed: ${await created.text()}`).toBe(201);
-  const orderId = (await created.json()).id as string;
+  const { orderId, product } = await createOrderWithAvailableProduct(api);
 
   // ## The tracking window, and why the setup ends with a WRITE
   //
@@ -214,19 +276,31 @@ test("X-Cache survives the gateway on both my-orders variants and on GET v1/orde
   //
   // Polling BEFORE the pairs rather than between their reads is what keeps the
   // 2-minute TTL from biting, exactly as the tracking test below does.
-  await waitForOrderTrackingReadable(api, `v1/orders/${orderId}?includeTracking=true`);
-  await waitForMyOrdersTrackingReadable(api, "v1/orders/my-orders?includeTracking=true");
+  await waitForOrderTrackingReadable(
+    api,
+    `v1/orders/${orderId}?includeTracking=true`,
+  );
+  await waitForMyOrdersTrackingReadable(
+    api,
+    "v1/orders/my-orders?includeTracking=true",
+  );
   const sweep = await api.put("v1/cart", {
     data: { items: [{ productId: product.id, quantity: 1 }] },
   });
-  expect(sweep.status(), `PUT v1/cart (cold-start sweep) failed: ${await sweep.text()}`).toBe(200);
+  expect(
+    sweep.status(),
+    `PUT v1/cart (cold-start sweep) failed: ${await sweep.text()}`,
+  ).toBe(200);
   // Let Tracking's single dev-mode worker drain before the reads below burst at it,
   // or Orders' 2s read budget expires and the t1 MISS stores nothing — see
   // support/tracking-readiness.ts for the measurements behind this.
   await settleAfterTrackingBurst();
 
   // t0 — no wait of its own: it carries no tracking and caches unconditionally.
-  expectMiss(await api.get("v1/orders/my-orders"), "first GET v1/orders/my-orders (t0)");
+  expectMiss(
+    await api.get("v1/orders/my-orders"),
+    "first GET v1/orders/my-orders (t0)",
+  );
   expectHit(
     await api.get("v1/orders/my-orders"),
     "second GET v1/orders/my-orders (t0)",
@@ -271,7 +345,11 @@ test("X-Cache survives the gateway on both my-orders variants and on GET v1/orde
     const second = await api.get("v1/orders/my-orders?includeTracking=true");
     t1Second = cacheHeaderOf(second);
     if (t1Second === "HIT") {
-      expectHit(second, "second GET v1/orders/my-orders?includeTracking=true", TTL.myOrders);
+      expectHit(
+        second,
+        "second GET v1/orders/my-orders?includeTracking=true",
+        TTL.myOrders,
+      );
       break;
     }
 
@@ -299,8 +377,15 @@ test("X-Cache survives the gateway on both my-orders variants and on GET v1/orde
 
   // The param route — the one that historically dropped its path segment at
   // the gateway, so a header assertion on it is worth its own pair.
-  expectMiss(await api.get(`v1/orders/${orderId}`), `first GET v1/orders/${orderId}`);
-  expectHit(await api.get(`v1/orders/${orderId}`), `second GET v1/orders/${orderId}`, TTL.order);
+  expectMiss(
+    await api.get(`v1/orders/${orderId}`),
+    `first GET v1/orders/${orderId}`,
+  );
+  expectHit(
+    await api.get(`v1/orders/${orderId}`),
+    `second GET v1/orders/${orderId}`,
+    TTL.order,
+  );
 });
 
 // ## Tracking through the gateway
@@ -315,14 +400,9 @@ test("X-Cache survives the gateway on both my-orders variants and on GET v1/orde
 // Users cannot resolve would sit at MISS forever by design.
 test("X-Cache survives the gateway on both Tracking read routes, and both serve a HIT", async () => {
   const api = await newAuthedClient();
-  const product = await firstProductWithStock(api);
   // No `x-test-mode`, so the tracking parks at PLACED and cannot advance —
   // and therefore cannot invalidate its own key — mid-test.
-  const created = await api.post("v1/orders", {
-    data: { lines: [{ productId: product.id, quantity: 1 }] },
-  });
-  expect(created.status(), `POST v1/orders failed: ${await created.text()}`).toBe(201);
-  const orderId = (await created.json()).id as string;
+  const { orderId } = await createOrderWithAvailableProduct(api);
 
   // Tracking rows are created by ORDERS, asynchronously, after its transaction
   // commits — there is no gateway route to init-tracking for an end user. Poll
@@ -367,7 +447,11 @@ test("X-Cache survives the gateway on both Tracking read routes, and both serve 
   );
   const batchWarm = await api.get(`v1/trackings?order_ids=${orderId}`);
   expect(batchWarm.status()).toBe(200);
-  expectHit(batchWarm, "second batch read through the gateway", TTL.trackingList);
+  expectHit(
+    batchWarm,
+    "second batch read through the gateway",
+    TTL.trackingList,
+  );
   // Envelope, not a bare array — verified live against the running service.
   expect(Array.isArray((await batchWarm.json()).trackings)).toBe(true);
 
@@ -379,7 +463,10 @@ test("X-Cache survives the gateway on both Tracking read routes, and both serve 
     headers: carrierHeaders(),
     data: { status: "PROCESSING" },
   });
-  expect(advanced.status(), `carrier PUT failed: ${await advanced.text()}`).toBe(200);
+  expect(
+    advanced.status(),
+    `carrier PUT failed: ${await advanced.text()}`,
+  ).toBe(200);
   expectNoCacheHeaderOnWrite(advanced, "carrier PUT through the gateway");
 
   const after = await api.get(`v1/trackings/${orderId}`);

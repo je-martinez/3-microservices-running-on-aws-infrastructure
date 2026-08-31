@@ -1,5 +1,9 @@
 import { test, expect } from "@playwright/test";
-import { apiClient, ordersClient, trackingClient } from "../support/api-client.js";
+import {
+  apiClient,
+  ordersClient,
+  trackingClient,
+} from "../support/api-client.js";
 import { makeUser } from "../support/chance-factory.js";
 import { carrierHeaders } from "../support/tracking-carrier-key.js";
 import {
@@ -79,11 +83,15 @@ async function firstProductWithStock(
   api: Awaited<ReturnType<typeof ordersClient>>,
   userId: string,
 ): Promise<{ id: string; unitsInStock: number }> {
-  const products = await api.get("/v1/products", { headers: { "x-user-id": userId } });
+  const products = await api.get("/v1/products", {
+    headers: { "x-user-id": userId },
+  });
   expect(products.status()).toBe(200);
-  const product = (await products.json()).find(
-    (p: { unitsInStock: number }) => p.unitsInStock > 0,
-  );
+  const product = (
+    (await products.json()) as Array<{ id: string; unitsInStock: number }>
+  )
+    .filter((p) => p.unitsInStock > 0)
+    .sort((a, b) => b.unitsInStock - a.unitsInStock)[0];
   expect(product, "no product with stock in the catalogue").toBeTruthy();
   return product;
 }
@@ -115,11 +123,15 @@ test("GET /v1/products: the catalogue is cached — a second read is a HIT", asy
   let lastSecond: string | undefined;
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
-    const first = await api.get("/v1/products", { headers: { "x-user-id": userId } });
+    const first = await api.get("/v1/products", {
+      headers: { "x-user-id": userId },
+    });
     expect(first.status()).toBe(200);
     expectMissOrHit(first, `first GET /v1/products (attempt ${attempt})`);
 
-    const second = await api.get("/v1/products", { headers: { "x-user-id": userId } });
+    const second = await api.get("/v1/products", {
+      headers: { "x-user-id": userId },
+    });
     expect(second.status()).toBe(200);
     lastSecond = cacheHeaderOf(second);
     if (lastSecond === "HIT") {
@@ -149,22 +161,85 @@ test("GET /v1/products: the catalogue is cached — a second read is a HIT", asy
 test("POST /v1/orders invalidates the catalogue: the next GET /v1/products is a MISS", async () => {
   const api = await ordersClient();
   const userId = await registerCaller();
-  const product = await firstProductWithStock(api, userId);
+  const attempts = 4;
+  let lastAfterHeader: string | undefined;
 
-  // Warm it deliberately, so the assertion below is about invalidation and not
-  // about the key merely being cold.
-  const warm = await api.get("/v1/products", { headers: { "x-user-id": userId } });
-  expect(warm.status()).toBe(200);
+  // The catalogue key is shared by every worker. Orders deletes it before the
+  // POST response returns, but a foreign GET can legitimately repopulate it
+  // with the NEW stock before this test's GET lands. Retry that observation in
+  // a bounded loop, while checking every intervening HIT is fresh. A stale HIT
+  // fails immediately; four fresh repopulations in a row still fail rather than
+  // relaxing the required MISS into a vacuous MISS-or-HIT assertion.
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    // This read deliberately warms the key and is also the stock snapshot from
+    // immediately before our write. Prefer the highest-stock product: all
+    // workers share the catalogue rows, and selecting the first positive row
+    // made the 25-unit seed the suite-wide hotspot.
+    const warm = await api.get("/v1/products", {
+      headers: { "x-user-id": userId },
+    });
+    expect(warm.status()).toBe(200);
+    expectMissOrHit(warm, `warm GET /v1/products (attempt ${attempt})`);
+    const beforeCatalogue = (await warm.json()) as Array<{
+      id: string;
+      unitsInStock: number;
+    }>;
+    const product = beforeCatalogue
+      .filter((p) => p.unitsInStock > 0)
+      .sort((a, b) => b.unitsInStock - a.unitsInStock)[0];
+    expect(product, "no product with stock in the catalogue").toBeTruthy();
 
-  const created = await api.post("/v1/orders", {
-    headers: { "x-user-id": userId },
-    data: { lines: [{ productId: product.id, quantity: 1 }] },
-  });
-  expect(created.status(), `order creation failed: ${await created.text()}`).toBe(201);
+    const created = await api.post("/v1/orders", {
+      headers: { "x-user-id": userId },
+      data: { lines: [{ productId: product.id, quantity: 1 }] },
+    });
+    expect(
+      created.status(),
+      `order creation failed: ${await created.text()}`,
+    ).toBe(201);
 
-  const after = await api.get("/v1/products", { headers: { "x-user-id": userId } });
-  expect(after.status()).toBe(200);
-  expectMiss(after, "GET /v1/products after POST /v1/orders");
+    const after = await api.get("/v1/products", {
+      headers: { "x-user-id": userId },
+    });
+    expect(after.status()).toBe(200);
+    const afterCatalogue = (await after.json()) as Array<{
+      id: string;
+      unitsInStock: number;
+    }>;
+    const afterProduct = afterCatalogue.find((p) => p.id === product.id);
+    expect(
+      afterProduct,
+      `ordered product ${product.id} disappeared from the catalogue`,
+    ).toBeTruthy();
+    expect(
+      afterProduct!.unitsInStock,
+      `GET /v1/products after POST /v1/orders returned stale stock for ${product.id}`,
+    ).toBeLessThan(product.unitsInStock);
+
+    lastAfterHeader = cacheHeaderOf(after);
+    if (lastAfterHeader === "MISS") {
+      expectMiss(
+        after,
+        `GET /v1/products after POST /v1/orders (attempt ${attempt})`,
+      );
+      return;
+    }
+
+    // A fresh HIT proves the invalidated key was repopulated after the write;
+    // it does not satisfy this test's requirement to observe the cold read.
+    expectHit(
+      after,
+      `GET /v1/products repopulated by another worker after POST /v1/orders (attempt ${attempt})`,
+      TTL.products,
+    );
+  }
+
+  throw new Error(
+    `GET /v1/products after POST /v1/orders was repopulated by another worker in all ` +
+      `${attempts} attempts (last X-Cache: ${lastAfterHeader ?? "absent"}). Every HIT carried ` +
+      "the decremented stock, so no stale catalogue was served, but this test never won the " +
+      "race to observe the required MISS.",
+  );
 });
 
 // -------------------------------------------------------------------- cart
@@ -187,7 +262,9 @@ test("GET /v1/cart: MISS then HIT for the same caller", async () => {
   expect(first.status()).toBe(200);
   expectMiss(first, "first GET /v1/cart");
 
-  const second = await api.get("/v1/cart", { headers: { "x-user-id": userId } });
+  const second = await api.get("/v1/cart", {
+    headers: { "x-user-id": userId },
+  });
   expect(second.status()).toBe(200);
   expectHit(second, "second GET /v1/cart", TTL.cart);
   expect(await second.json()).toEqual(await first.json());
@@ -243,7 +320,9 @@ test("DELETE /v1/cart invalidates the cart key", async () => {
     TTL.cart,
   );
 
-  const deleted = await api.delete("/v1/cart", { headers: { "x-user-id": userId } });
+  const deleted = await api.delete("/v1/cart", {
+    headers: { "x-user-id": userId },
+  });
   expect(deleted.status()).toBe(204);
 
   const after = await api.get("/v1/cart", { headers: { "x-user-id": userId } });
@@ -310,7 +389,10 @@ test("GET /v1/orders/my-orders: MISS then HIT, per includeTracking variant", asy
     headers: { "x-user-id": userId },
     data: { lines: [{ productId: product.id, quantity: 1 }] },
   });
-  expect(created.status(), `order creation failed: ${await created.text()}`).toBe(201);
+  expect(
+    created.status(),
+    `order creation failed: ${await created.text()}`,
+  ).toBe(201);
 
   // ## The tracking window, and why the setup ends with a WRITE
   //
@@ -332,14 +414,21 @@ test("GET /v1/orders/my-orders: MISS then HIT, per includeTracking variant", asy
   // genuinely cold while the order and its now-readable tracking are untouched.
   // The alternative, relaxing `expectMiss`, would pass against a cache that stores
   // nothing at all.
-  await waitForMyOrdersTrackingReadable(api, "/v1/orders/my-orders?includeTracking=true", {
-    "x-user-id": userId,
-  });
+  await waitForMyOrdersTrackingReadable(
+    api,
+    "/v1/orders/my-orders?includeTracking=true",
+    {
+      "x-user-id": userId,
+    },
+  );
   const sweep = await api.put("/v1/cart", {
     headers: { "x-user-id": userId },
     data: { items: [{ productId: product.id, quantity: 1 }] },
   });
-  expect(sweep.status(), `PUT /v1/cart (cold-start sweep) failed: ${await sweep.text()}`).toBe(200);
+  expect(
+    sweep.status(),
+    `PUT /v1/cart (cold-start sweep) failed: ${await sweep.text()}`,
+  ).toBe(200);
   // Let Tracking's single dev-mode worker drain before the reads below burst at it,
   // or Orders' 2s read budget expires and the t1 MISS stores nothing — see
   // support/tracking-readiness.ts for the measurements behind this.
@@ -348,11 +437,22 @@ test("GET /v1/orders/my-orders: MISS then HIT, per includeTracking variant", asy
   // Variant t0 — the default. NO wait of its own: a t0 list carries no tracking at
   // all and caches unconditionally, so a wait here would hide a regression rather
   // than prevent a flake.
-  const t0First = await api.get("/v1/orders/my-orders", { headers: { "x-user-id": userId } });
+  const t0First = await api.get("/v1/orders/my-orders", {
+    headers: { "x-user-id": userId },
+  });
   expect(t0First.status()).toBe(200);
-  expectMiss(t0First, "first GET /v1/orders/my-orders (includeTracking omitted)");
-  const t0Second = await api.get("/v1/orders/my-orders", { headers: { "x-user-id": userId } });
-  expectHit(t0Second, "second GET /v1/orders/my-orders (includeTracking omitted)", TTL.myOrders);
+  expectMiss(
+    t0First,
+    "first GET /v1/orders/my-orders (includeTracking omitted)",
+  );
+  const t0Second = await api.get("/v1/orders/my-orders", {
+    headers: { "x-user-id": userId },
+  });
+  expectHit(
+    t0Second,
+    "second GET /v1/orders/my-orders (includeTracking omitted)",
+    TTL.myOrders,
+  );
 
   // Variant t1 — a DIFFERENT key. Its first read must be a MISS even though t0
   // is now warm; a HIT here would mean the parameter is not part of the key.
@@ -391,7 +491,11 @@ test("GET /v1/orders/my-orders: MISS then HIT, per includeTracking variant", asy
     });
     t1SecondHeader = cacheHeaderOf(t1Second);
     if (t1SecondHeader === "HIT") {
-      expectHit(t1Second, "second GET /v1/orders/my-orders?includeTracking=true", TTL.myOrders);
+      expectHit(
+        t1Second,
+        "second GET /v1/orders/my-orders?includeTracking=true",
+        TTL.myOrders,
+      );
       break;
     }
 
@@ -443,15 +547,22 @@ test("POST /v1/orders invalidates BOTH my-orders variants", async () => {
     headers: { "x-user-id": userId },
     data: { lines: [{ productId: product.id, quantity: 1 }] },
   });
-  expect(created.status(), `order creation failed: ${await created.text()}`).toBe(201);
+  expect(
+    created.status(),
+    `order creation failed: ${await created.text()}`,
+  ).toBe(201);
   const orderId = (await created.json()).id as string;
 
   // Both variants must be gone — the per-user key index is what makes deleting
   // a variable `t{0|1}` suffix possible without SCAN, and this is the assertion
   // that fails if only one of them was registered in that index.
-  const t0 = await api.get("/v1/orders/my-orders", { headers: { "x-user-id": userId } });
+  const t0 = await api.get("/v1/orders/my-orders", {
+    headers: { "x-user-id": userId },
+  });
   expectMiss(t0, "GET my-orders (t0) after POST /v1/orders");
-  expect((await t0.json()).some((o: { id: string }) => o.id === orderId)).toBe(true);
+  expect((await t0.json()).some((o: { id: string }) => o.id === orderId)).toBe(
+    true,
+  );
 
   const t1 = await api.get("/v1/orders/my-orders?includeTracking=true", {
     headers: { "x-user-id": userId },
@@ -469,21 +580,31 @@ test("GET /v1/orders/{orderId}: MISS then HIT, and the t0/t1 variants are separa
     headers: { "x-user-id": userId },
     data: { lines: [{ productId: product.id, quantity: 1 }] },
   });
-  expect(created.status(), `order creation failed: ${await created.text()}`).toBe(201);
+  expect(
+    created.status(),
+    `order creation failed: ${await created.text()}`,
+  ).toBe(201);
   const orderId = (await created.json()).id as string;
 
-  const first = await api.get(`/v1/orders/${orderId}`, { headers: { "x-user-id": userId } });
+  const first = await api.get(`/v1/orders/${orderId}`, {
+    headers: { "x-user-id": userId },
+  });
   expect(first.status()).toBe(200);
   expectMiss(first, `first GET /v1/orders/${orderId}`);
-  const second = await api.get(`/v1/orders/${orderId}`, { headers: { "x-user-id": userId } });
+  const second = await api.get(`/v1/orders/${orderId}`, {
+    headers: { "x-user-id": userId },
+  });
   expectHit(second, `second GET /v1/orders/${orderId}`, TTL.order);
   expect(await second.json()).toEqual(await first.json());
 
   // Same trap as my-orders: `?includeTracking=true` is key `...:t1`, a
   // different entry with a different body. Warm t0 must not satisfy it.
-  const withTracking = await api.get(`/v1/orders/${orderId}?includeTracking=true`, {
-    headers: { "x-user-id": userId },
-  });
+  const withTracking = await api.get(
+    `/v1/orders/${orderId}?includeTracking=true`,
+    {
+      headers: { "x-user-id": userId },
+    },
+  );
   expect(withTracking.status()).toBe(200);
   expectMiss(
     withTracking,
@@ -515,14 +636,19 @@ test("GET /v1/orders/{orderId}: user B never gets a HIT on user A's warm order",
 
   // The other caller must get the ownership 404, NOT a cached 200. Only 200s
   // are cached, so this also proves the non-200 exclusion holds.
-  const asOther = await api.get(`/v1/orders/${orderId}`, { headers: { "x-user-id": other } });
+  const asOther = await api.get(`/v1/orders/${orderId}`, {
+    headers: { "x-user-id": other },
+  });
   expect(
     asOther.status(),
     "another caller must never be served the owner's cached order",
   ).toBe(404);
   // And the 404 itself is never a HIT — a cached 404 would be served back to the
   // owner once their own entry expired.
-  expect(cacheHeaderOf(asOther), "a 404 must never be served as a cache HIT").not.toBe("HIT");
+  expect(
+    cacheHeaderOf(asOther),
+    "a 404 must never be served as a cache HIT",
+  ).not.toBe("HIT");
 });
 
 // ---------------------------------------------------------------- tracking
@@ -546,7 +672,10 @@ async function createTracking(
     headers: { "x-user-id": userId },
     // No `x-test-mode`: a tracking that advanced on its own would invalidate
     // its own cache mid-test and turn every HIT assertion racy.
-    data: { order_id: orderId, shipping_address: { line1: "1 Test St", city: "Austin" } },
+    data: {
+      order_id: orderId,
+      shipping_address: { line1: "1 Test St", city: "Austin" },
+    },
   });
   expect(res.status(), `init-tracking failed: ${await res.text()}`).toBe(201);
   return orderId;
@@ -598,11 +727,15 @@ test("the carrier PUT invalidates the tracking key: the next read is a MISS with
   const orderId = await createTracking(api, userId);
 
   expectMiss(
-    await api.get(`/v1/trackings/${orderId}`, { headers: { "x-user-id": userId } }),
+    await api.get(`/v1/trackings/${orderId}`, {
+      headers: { "x-user-id": userId },
+    }),
     "first read",
   );
   expectHit(
-    await api.get(`/v1/trackings/${orderId}`, { headers: { "x-user-id": userId } }),
+    await api.get(`/v1/trackings/${orderId}`, {
+      headers: { "x-user-id": userId },
+    }),
     "second read",
     TTL.tracking,
   );
@@ -615,7 +748,10 @@ test("the carrier PUT invalidates the tracking key: the next read is a MISS with
     headers: carrierHeaders(),
     data: { status: "PROCESSING" },
   });
-  expect(advanced.status(), `carrier PUT failed: ${await advanced.text()}`).toBe(200);
+  expect(
+    advanced.status(),
+    `carrier PUT failed: ${await advanced.text()}`,
+  ).toBe(200);
 
   const after = await api.get(`/v1/trackings/${orderId}`, {
     headers: { "x-user-id": userId },
@@ -715,20 +851,32 @@ test("GET /v1/trackings/{order_id}: user B never gets a HIT on user A's warm tra
   const orderId = await createTracking(api, userA);
 
   expectMiss(
-    await api.get(`/v1/trackings/${orderId}`, { headers: { "x-user-id": userA } }),
+    await api.get(`/v1/trackings/${orderId}`, {
+      headers: { "x-user-id": userA },
+    }),
     "user A first read",
   );
   expectHit(
-    await api.get(`/v1/trackings/${orderId}`, { headers: { "x-user-id": userA } }),
+    await api.get(`/v1/trackings/${orderId}`, {
+      headers: { "x-user-id": userA },
+    }),
     "user A second read",
     TTL.tracking,
   );
 
   // B does not own it, so the ownership 404 — never A's cached 200. Only 200s
   // are cached, so this also proves the non-200 exclusion holds on this route.
-  const asB = await api.get(`/v1/trackings/${orderId}`, { headers: { "x-user-id": userB } });
-  expect(asB.status(), "another caller must never be served the owner's cached tracking").toBe(404);
-  expect(cacheHeaderOf(asB), "a 404 must never be served as a cache HIT").not.toBe("HIT");
+  const asB = await api.get(`/v1/trackings/${orderId}`, {
+    headers: { "x-user-id": userB },
+  });
+  expect(
+    asB.status(),
+    "another caller must never be served the owner's cached tracking",
+  ).toBe(404);
+  expect(
+    cacheHeaderOf(asB),
+    "a 404 must never be served as a cache HIT",
+  ).not.toBe("HIT");
 });
 
 // ------------------------------------------------------------------- users
@@ -737,10 +885,14 @@ test("GET /v1/users/me: MISS then HIT", async () => {
   const api = await apiClient();
   const userId = await registerCaller();
 
-  const first = await api.get("/v1/users/me", { headers: { "x-user-id": userId } });
+  const first = await api.get("/v1/users/me", {
+    headers: { "x-user-id": userId },
+  });
   expect(first.status()).toBe(200);
   expectMiss(first, "first GET /v1/users/me");
-  const second = await api.get("/v1/users/me", { headers: { "x-user-id": userId } });
+  const second = await api.get("/v1/users/me", {
+    headers: { "x-user-id": userId },
+  });
   expectHit(second, "second GET /v1/users/me", TTL.me);
   expect(await second.json()).toEqual(await first.json());
 });
@@ -749,7 +901,10 @@ test("PATCH /v1/users/me invalidates the profile key: the next GET is a MISS wit
   const api = await apiClient();
   const userId = await registerCaller();
 
-  expectMiss(await api.get("/v1/users/me", { headers: { "x-user-id": userId } }), "first read");
+  expectMiss(
+    await api.get("/v1/users/me", { headers: { "x-user-id": userId } }),
+    "first read",
+  );
   expectHit(
     await api.get("/v1/users/me", { headers: { "x-user-id": userId } }),
     "second read",
@@ -764,7 +919,9 @@ test("PATCH /v1/users/me invalidates the profile key: the next GET is a MISS wit
   expect(patch.status()).toBe(200);
   expectNoCacheHeaderOnWrite(patch, "PATCH /v1/users/me");
 
-  const after = await api.get("/v1/users/me", { headers: { "x-user-id": userId } });
+  const after = await api.get("/v1/users/me", {
+    headers: { "x-user-id": userId },
+  });
   expect(after.status()).toBe(200);
   expectMiss(after, "GET /v1/users/me after PATCH");
   expect((await after.json()).fullName).toBe(newFullName);
@@ -778,7 +935,10 @@ test("PATCH /v1/users/me/password invalidates the profile key (mustChangePasswor
   expect(registered.status()).toBe(201);
   const userId = (await registered.json()).id as string;
 
-  expectMiss(await api.get("/v1/users/me", { headers: { "x-user-id": userId } }), "first read");
+  expectMiss(
+    await api.get("/v1/users/me", { headers: { "x-user-id": userId } }),
+    "first read",
+  );
   expectHit(
     await api.get("/v1/users/me", { headers: { "x-user-id": userId } }),
     "second read",
@@ -792,9 +952,14 @@ test("PATCH /v1/users/me/password invalidates the profile key (mustChangePasswor
     headers: { "x-user-id": userId },
     data: { newPassword: `Zz9!${user.password.slice(4)}` },
   });
-  expect(changed.status(), `password change failed: ${await changed.text()}`).toBe(200);
+  expect(
+    changed.status(),
+    `password change failed: ${await changed.text()}`,
+  ).toBe(200);
 
-  const after = await api.get("/v1/users/me", { headers: { "x-user-id": userId } });
+  const after = await api.get("/v1/users/me", {
+    headers: { "x-user-id": userId },
+  });
   expect(after.status()).toBe(200);
   expectMiss(after, "GET /v1/users/me after PATCH /v1/users/me/password");
 });
@@ -814,7 +979,9 @@ test("GET /v1/users/me: user B never gets a HIT on user A's warm profile", async
     TTL.me,
   );
 
-  const asB = await api.get("/v1/users/me", { headers: { "x-user-id": userB } });
+  const asB = await api.get("/v1/users/me", {
+    headers: { "x-user-id": userB },
+  });
   expect(asB.status()).toBe(200);
   expectMiss(asB, "user B's first read must not hit user A's entry");
   expect((await asB.json()).id).toBe(userB);
@@ -828,8 +995,14 @@ test("a 401 is never cached: two unauthenticated reads both carry no HIT", async
   const api = await apiClient();
   const first = await api.get("/v1/users/me");
   expect(first.status()).toBe(401);
-  expect(cacheHeaderOf(first), "a 401 must never be served as a cache HIT").not.toBe("HIT");
+  expect(
+    cacheHeaderOf(first),
+    "a 401 must never be served as a cache HIT",
+  ).not.toBe("HIT");
   const second = await api.get("/v1/users/me");
   expect(second.status()).toBe(401);
-  expect(cacheHeaderOf(second), "a 401 must never be served as a cache HIT").not.toBe("HIT");
+  expect(
+    cacheHeaderOf(second),
+    "a 401 must never be served as a cache HIT",
+  ).not.toBe("HIT");
 });

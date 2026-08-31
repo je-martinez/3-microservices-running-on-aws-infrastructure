@@ -1,5 +1,7 @@
 import { test, expect, type APIRequestContext } from "@playwright/test";
 import { apiClient, ordersClient, trackingClient } from "../support/api-client.js";
+import { deleteMeExpect204 } from "../support/account-deletion.js";
+import { pickProductWithStock } from "../support/catalogue.js";
 import { makeUser } from "../support/chance-factory.js";
 
 // Account deletion, driven against the SERVICE PORTS directly (Users 3000,
@@ -62,10 +64,7 @@ async function makeActorWithData(
 
   const products = await orders.get("/v1/products", { headers: { "x-user-id": id } });
   expect(products.status()).toBe(200);
-  const product = (await products.json()).find(
-    (p: { unitsInStock: number }) => p.unitsInStock > 0,
-  );
-  expect(product, "the seed catalog has no in-stock product").toBeTruthy();
+  const product = pickProductWithStock(await products.json());
 
   const created = await orders.post("/v1/orders", {
     headers: { "x-user-id": id },
@@ -105,8 +104,7 @@ test("DELETE /v1/users/me removes the account and cascades to orders and trackin
   expect(await orderIdsFor(orders, actor)).toContain(actor.orderId);
   expect(await trackingsFor(tracking, actor)).toHaveLength(1);
 
-  const deleted = await users.delete("/v1/users/me", { headers: { "x-user-id": actor.id } });
-  expect(deleted.status()).toBe(204);
+  await deleteMeExpect204(users, actor.id);
 
   // The account itself.
   const me = await users.get("/v1/users/me", { headers: { "x-user-id": actor.id } });
@@ -137,8 +135,7 @@ test("DELETE /v1/users/me twice returns 204 then 404", async () => {
   expect(reg.status()).toBe(201);
   const { id } = await reg.json();
 
-  const first = await users.delete("/v1/users/me", { headers: { "x-user-id": id } });
-  expect(first.status()).toBe(204);
+  await deleteMeExpect204(users, id);
 
   // 404, not 204: the second call resolves no live user, so there is nothing to
   // delete and saying "done" would be a lie about what happened.
@@ -155,8 +152,7 @@ test("deleting one user leaves another user's orders and trackings untouched", a
   const victim = await makeActorWithData(users, orders);
   const bystander = await makeActorWithData(users, orders);
 
-  const deleted = await users.delete("/v1/users/me", { headers: { "x-user-id": victim.id } });
-  expect(deleted.status()).toBe(204);
+  await deleteMeExpect204(users, victim.id);
 
   // The blast-radius assertion. The cascade predicates are an OR over two
   // identity columns, so a bug that widened either side — an empty string, a
