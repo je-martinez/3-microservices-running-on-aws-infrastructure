@@ -57,13 +57,14 @@ AWS_REGION = "us-east-1"
 OTLP_ENDPOINT = "http://otel-collector:4318"
 
 # Custom-metrics publication cadence (see the metrics design spec's "Polling
-# intervals"). 15s LOCALLY so a developer sees a metric land in seconds rather
-# than minutes; real AWS uses 60s, which is CloudWatch's standard resolution and
-# what its per-call billing is priced against. Two names for one setting because
-# each service expresses it in its own settings type's natural unit — the Node
-# and .NET services take milliseconds, Tracking's Pydantic float takes seconds.
-METRICS_INTERVAL_MS = "15000"
-METRICS_INTERVAL_SECONDS = "15"
+# intervals"). CloudWatch standard resolution is 60s; anything finer is a
+# separately billed high-resolution metric. Local EventBridge already ticks
+# once per minute, and the narrowest dashboard range is five minutes, which
+# still yields five data points at this cadence, so no read observability is
+# lost. Two names express the same setting in each stack's natural unit: the
+# Node and .NET services take milliseconds, while Tracking takes seconds.
+METRICS_INTERVAL_MS = "60000"
+METRICS_INTERVAL_SECONDS = "60"
 
 # TestMode's status cadence, in seconds. The design's value is 10 (see
 # app.DefaultProgressionInterval), and that is what the service falls back to

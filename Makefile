@@ -504,6 +504,34 @@ bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in depe
 	done
 	$(MAKE) backend-up
 	$(MAKE) infra-init
+	@# Observability BEFORE the terraform apply, and it is no longer opt-in.
+	@#
+	@# Every OTLP producer here — the three services AND the Lambdas — is
+	@# configured with OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 and
+	@# builds its exporter in code (Node's `new OTLPTraceExporter()`, .NET's
+	@# `AddOtlpExporter()`, Go's `otlptracehttp.New`). With the collector absent
+	@# that hostname does not resolve and every export writes a full `getaddrinfo
+	@# ENOTFOUND otel-collector` stack trace — measured at 8 in 2 minutes in Users
+	@# alone on an IDLE stack, one per metrics tick, 24/7. Lambda stderr is
+	@# CloudWatch's, and CloudWatch tags it ERROR, so those also arrive
+	@# unclassified and fail e2e/tests/observability/unclassified-logs.spec.ts.
+	@#
+	@# Silencing the exporters by env var does NOT work and was measured: an
+	@# explicitly-constructed SDK exporter beats OTEL_TRACES_EXPORTER, and paired
+	@# control/treatment runs reproduced the identical ENOTFOUND. Fixing it in code
+	@# would contradict the env-vars-not-code rule this repo paid for three times.
+	@# Making the hostname RESOLVE removes the error at its source.
+	@#
+	@# BEFORE `infra-up`, not after: the apply INVOKES Lambdas (Cognito triggers,
+	@# the events function), and a Lambda that runs while the collector is still
+	@# missing logs exactly that error. Placing this in bootstrap-converge alone
+	@# left a 46-SECOND window — measured: the error at 04:19:58, the collector up
+	@# at 04:20:44 — which is one unclassified record and one red spec.
+	@#
+	@# Measured cost: 616MB RAM (collector 378 + OpenObserve 238) and 0 bytes
+	@# written in 30s while idle. It buys back a tracing path that was silently
+	@# dead on every default bootstrap.
+	$(MAKE) observability-up
 	@# infra-up ends by calling env-file, so every generated env file exists
 	@# BEFORE any service starts. That ordering is load-bearing now that the
 	@# services read .env.local.<service> via compose `env_file:` — starting
@@ -573,6 +601,12 @@ bootstrap-converge: scripts-setup ## Phase 2 of bootstrap: migrations + services
 	@# working as a standalone resume path.
 	$(MAKE) env-file
 	$(MAKE) migrate
+	@# Idempotent, and here so this target works as a STANDALONE resume path: a
+	@# full `make bootstrap` already started the collector before its terraform
+	@# apply (see there for why that ordering matters), so on that path this is a
+	@# no-op. Entered directly, it is what guarantees the collector exists before
+	@# the services open their exporters at boot.
+	$(MAKE) observability-up
 	$(COMPOSE) up -d --build users
 	@# Phase 2 is deliberately NOT called here — but it IS called at the end of
 	@# `bootstrap`. The distinction is the point of this target: this is the
@@ -834,6 +868,11 @@ observability-up: ## Start OpenObserve + the OTel collector (opt-in; ~512MB-1.5G
 	@$(MAKE) --no-print-directory observability-dashboards
 	@echo "OpenObserve UI on http://localhost:5080 once it's healthy (~5s)."
 	@echo "Login: admin@3mrai.local / Complexpass#123"
+	@# This target is now also called BY `bootstrap-converge`, before the services
+	@# start — it is no longer opt-in. Running it by hand stays valid and is a
+	@# no-op when the containers are already up; what it is NOT is the only thing
+	@# standing between the services and a resolvable `otel-collector` hostname.
+	@# See the note in bootstrap-converge for why that became mandatory.
 
 observability-down: ## Stop the observability stack (leaves the rest running)
 	@# Every service in the profile, for the same reason observability-up names
@@ -871,6 +910,17 @@ ai-sync: ## Propagate agent config from .claude/ to the other AI providers
 	@# rules from Claude-specific ones needs judgment, so it runs through the
 	@# ai-config-sync subagent — this target is the deterministic half only.
 	@# The checksum bracket is the guard: a sync must never alter the source.
+	@#
+	@# ENTRIES UNDER .agents/skills/ THAT MIRROR .ai/skills/ MUST BE SYMLINKS.
+	@# Four of them (golang-concurrency, -context, -database, -error-handling)
+	@# were committed as REAL DIRECTORIES holding a byte-identical copy. lnai
+	@# rewrites those on every run, so each sync deleted 21 tracked files and
+	@# re-created them untracked — `ai-sync-check` then failed for a reason that
+	@# reads as corruption and was really a format mismatch. Converted to symlinks
+	@# on 2026-08-31 (verified identical first); two consecutive syncs are now a
+	@# no-op. Note the five WITHOUT a .ai/skills/ counterpart (golang-code-style,
+	@# -naming, -observability, -project-layout, -testing) are legitimately real
+	@# directories — they own their content. Add a mirrored skill as a symlink.
 	@before=$$(shasum CLAUDE.md | cut -d' ' -f1); \
 	npx -y lnai@$(LNAI_VERSION) sync; \
 	after=$$(shasum CLAUDE.md | cut -d' ' -f1); \

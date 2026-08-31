@@ -44,14 +44,21 @@ receivers:
     # with PutMetricData; see the design spec for why CloudWatch is the source of
     # truth rather than a bypassed intermediary.
     metrics:
-      # LOCAL values. Real AWS uses 60s/60s (CloudWatch's standard resolution) and
-      # keeps the default delay.
+      # 60s/60s, matching CloudWatch's standard resolution — the same values real
+      # AWS uses, which is why this no longer needs to be a local-only override.
+      #
+      # These MUST track the publishers. The services emit every 60s
+      # (METRICS_INTERVAL_MS / METRICS_INTERVAL_SECONDS in the generated env
+      # files); a 15s `period` against a 60s publisher leaves three of every four
+      # aggregation windows empty, and a gauge read with Maximum then renders as
+      # gaps instead of a flat level. Changing one side without the other is what
+      # produces a dashboard that looks broken while every service is healthy.
       #
       # collection_interval MUST be >= period — the receiver validates this at
       # startup and refuses to boot otherwise. That is a loud failure, which is
       # what we want.
-      collection_interval: 15s
-      period: 15s
+      collection_interval: 60s
+      period: 60s
       # LOCAL ONLY, and load-bearing. The default is 10 MINUTES: it shifts the
       # query window back to compensate for real CloudWatch's publication latency.
       # Floci has no such latency, so leaving the default means NOTHING appears

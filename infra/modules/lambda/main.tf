@@ -131,7 +131,41 @@ resource "aws_lambda_function" "this" {
   memory_size      = var.memory_size
 
   environment {
-    variables = var.environment_variables
+    # Silence the AWS SDK v3 maintenance notice at the SOURCE, merged UNDER the
+    # caller's variables so a consumer can still override it explicitly.
+    #
+    # The SDK warns that releases after early 2027 will require node >= 22, and
+    # emits it through process.emitWarning — which the Lambda runtime writes to
+    # stderr, and CloudWatch tags every stderr line ERROR. So a purely
+    # informational notice reaches OpenObserve at the same severity as a real
+    # failure, once per cold start, carrying no service_name and severity 0. It
+    # therefore lands in the `unclassified` stream and fails
+    # e2e/tests/observability/unclassified-logs.spec.ts, which is right to
+    # demand the PRODUCER be fixed.
+    #
+    # THE NAME AND THE VALUE BOTH MATTER. The emitter is the authority:
+    # @aws-sdk/core/dist-es/submodules/client/emitWarningIfUnsupportedVersion.js
+    # returns early only on
+    # `AWS_SDK_JS_NODE_VERSION_SUPPORT_WARNING_DISABLED === "true"` — the STRING
+    # "true", not "1". The similarly-named
+    # AWS_SDK_JS_SUPPRESS_MAINTENANCE_MODE_MESSAGE is a real AWS variable for a
+    # DIFFERENT message (the SDK v2 maintenance notice), so setting it is
+    # accepted silently and suppresses nothing — measured: it reached the
+    # deployed functions and the warning kept flowing. `--no-deprecation` does
+    # not work either; the notice is not a DeprecationWarning.
+    #
+    # The same fix sits on the WebSocket functions in
+    # modules/api-gateway-ws/main.tf; this extends it to every consumer of this
+    # module, which is where the loudest producer (the events pipeline) lives.
+    #
+    # Bumping the runtime to nodejs22.x would ALSO fix it and is the real
+    # migration, but it is blocked here: the AWS provider is pinned to = 5.31.0
+    # (see infra/CLAUDE.md), whose runtime validation tops out at nodejs20.x and
+    # rejects nodejs22.x at plan time. Verified by trying it.
+    variables = merge(
+      { AWS_SDK_JS_NODE_VERSION_SUPPORT_WARNING_DISABLED = "true" },
+      var.environment_variables,
+    )
   }
 
   tags = merge(var.context.tags, { Name = var.context.id })

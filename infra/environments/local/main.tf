@@ -631,9 +631,10 @@ module "lambda_events_pipeline" {
 # emits no START lines, so counting them reads 0 — check the invocations
 # themselves, not that filter.
 #
-# rate(1 minute) is EventBridge's floor, coarser than the services' 15s
-# interval. That is sufficient here: the narrowest dashboard range is 5 minutes,
-# which gets five points.
+# rate(1 minute) is EventBridge's floor. It now MATCHES the services' local
+# interval (60s) rather than being coarser than it, so the Lambda's counters and
+# the services' gauges share one cadence. That is sufficient here: the narrowest
+# dashboard range is 5 minutes, which gets five points.
 resource "aws_cloudwatch_event_rule" "events_pipeline_metrics_tick" {
   name                = "${module.label_events.id}-metrics-tick"
   description         = "Periodic tick so the events-pipeline seeds its email counters even with no mail traffic."

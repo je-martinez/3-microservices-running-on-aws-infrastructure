@@ -165,9 +165,15 @@ services:
       # OTLP trace ingest. The services reach it in-network at
       # http://otel-collector:4318, so publishing is only for host-side probing.
       # NOTE: this service sits behind `profiles: [observability]`, so a plain
-      # `docker compose up` does NOT start it and the SDKs' exports fail with
-      # connection refused — harmless by design, but it means traces only flow
-      # when the stack is brought up with the observability profile enabled.
+      # `docker compose up` does NOT start it and the SDKs' exports fail DNS.
+      # That is NOT harmless, which this comment used to claim: each failure
+      # writes a full `getaddrinfo ENOTFOUND otel-collector` stack trace to the
+      # service log — measured at 8 in 2 minutes in Users alone on an IDLE stack,
+      # one per metrics tick, 24/7.
+      #
+      # `make bootstrap` therefore starts this (via `observability-up` inside
+      # bootstrap-converge, before the services boot). The profile is what keeps
+      # a bare `docker compose up` from pulling it in, not an opt-out.
       - "4317:4317"     # OTLP/gRPC
       - "4318:4318"     # OTLP/HTTP
       # health_check extension — published because `make doctor` probes it from
