@@ -72,8 +72,77 @@
   --font-body: Inter, ui-sans-serif, system-ui, sans-serif;
 
   /* Metrics (.pen numbers are px) */
-  --radius-md: 10px;
-  --spacing-field: 56px;
+  --radius-md: 0.625rem;
+  --spacing-field: 3.5rem;
+}
+
+/* WHY: The design is not built on Tailwind's 0.25rem scale — most of its sizes are odd
+ * numbers (13, 19, 17, 15), so only ~65 of 418 measured values land on a scale step.
+ * These tokens carry the rest by role, keeping markup readable (text-body, not
+ * text-[0.8125rem]) while preserving the exact rendered size.
+ * Unlike the block above, these are a CODE-SIDE scale — not generated from the .pen. */
+@theme {
+  /* Type — roles, smallest to largest */
+  --text-eyebrow: 0.65625rem; /* 10.5px — uppercase tracked label */
+  --text-overline: 0.6875rem; /* 11px   — tracked brand/category overline */
+  --text-micro: 0.71875rem; /* 11.5px — count badges, footnotes */
+  --text-caption: 0.78125rem; /* 12.5px — status badges, metadata */
+  --text-body-sm: 0.8125rem; /* 13px   — dense secondary copy */
+  --text-body: 0.84375rem; /* 13.5px — default body copy, chips */
+  --text-body-lg: 0.90625rem; /* 14.5px — form input text, list titles */
+  --text-label: 0.9375rem; /* 15px   — form labels, emphasis copy */
+  --text-label-lg: 0.96875rem; /* 15.5px — product/card titles */
+  --text-subtitle: 1.0625rem; /* 17px   — section subtitles, header icons */
+  --text-title: 1.1875rem; /* 19px   — page/panel titles, wordmark */
+  --text-display-sm: 1.625rem; /* 26px   — mobile hero, OTP digit */
+  --text-display: 1.75rem; /* 28px   — catalogue hero */
+  --text-display-lg: 2.0625rem; /* 33px   — desktop auth hero */
+  --text-display-xl: 2.5rem; /* 40px   — brand panel hero */
+
+  /* Leading — paired with the type role of the same size */
+  --leading-body-sm: 1.1875rem; /* 19px on 13px */
+  --leading-body-lg: 1.25rem; /* 20px on 14.5px */
+  --leading-label-lg: 1.3125rem; /* 21px on 15.5px */
+  --leading-body: 1.375rem; /* 22px on 13.5px */
+
+  /* Radius — code-side, beyond the .pen's --radius-md */
+  --radius-sheet: 1.375rem; /* 22px — mobile bottom-sheet top corners */
+
+  /* Tracking — uppercase label spacing */
+  --tracking-label: 0.025rem; /* 0.4px  — semibold caption */
+  --tracking-eyebrow: 0.0875rem; /* 1.4px  — eyebrow */
+  --tracking-overline: 0.09375rem; /* 1.5px  — overline */
+  --tracking-overline-lg: 0.1rem; /* 1.6px  — wide overline */
+  --tracking-brand: 0.21875rem; /* 3.5px  — brand wordmark */
+
+  /* Spacing — gaps, padding, icons and control heights off the scale */
+  --spacing-hairline: 0.125rem; /* 2px  — progress bar */
+  --spacing-rule: 0.1875rem; /* 3px  — thick rule, tightest gap */
+  --spacing-2xs: 0.3125rem; /* 5px  — icon-to-label */
+  --spacing-xs: 0.375rem; /* 6px  — tight inline gap */
+  --spacing-sm: 0.4375rem; /* 7px  — badge padding, dot offset */
+  --spacing-base: 0.5625rem; /* 9px  — default inline gap */
+  --spacing-md: 0.625rem; /* 10px — default stack gap */
+  --spacing-lg: 0.6875rem; /* 11px — row gap */
+  --spacing-xl: 0.8125rem; /* 13px — section gap */
+  --spacing-2xl: 0.875rem; /* 14px — wide gap, chip padding */
+  --spacing-3xl: 1.125rem; /* 18px — panel padding, loose gap */
+  --spacing-4xl: 1.375rem; /* 22px — block padding, sheet radius */
+  --spacing-5xl: 1.625rem; /* 26px — sheet bottom padding */
+  --spacing-icon-2xs: 0.6875rem; /* 11px — smallest glyph */
+  --spacing-icon-xs: 0.8125rem; /* 13px — small glyph */
+  --spacing-icon-sm: 0.9375rem; /* 15px — dense-row icon */
+  --spacing-icon: 1.0625rem; /* 17px — inline icon */
+  --spacing-icon-md: 1.1875rem; /* 19px — default UI icon */
+  --spacing-icon-lg: 1.375rem; /* 22px — step marker */
+  --spacing-control-sm: 2.125rem; /* 34px — quantity stepper height */
+  --spacing-stepper: 1.875rem; /* 30px — quantity stepper button width */
+  --spacing-control: 2.375rem; /* 38px — filter chip */
+  --spacing-control-md: 2.625rem; /* 42px — desktop menu row */
+  --spacing-control-lg: 2.875rem; /* 46px — payment field */
+  --spacing-control-xl: 3.125rem; /* 50px — mobile menu row */
+  --spacing-control-2xl: 3.625rem; /* 58px — primary CTA / payment row (NOT --spacing-field, 56px) */
+  --spacing-header-offset: 5.375rem; /* 86px — sticky offset below header */
 }
 
 body {

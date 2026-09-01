@@ -1,10 +1,10 @@
 <label class="flex h-fit w-full flex-col gap-2">
   <span class="text-ink-primary text-sm font-semibold">{{ label() }}</span>
   <span
-    class="h-field border-line bg-surface-white flex w-full items-center gap-[13px] rounded-md border px-[18px]"
+    class="h-field border-line bg-surface-white flex w-full items-center gap-xl rounded-md border px-3xl"
   >
     @if (icon(); as iconName) {
-      <svg [lucideIcon]="iconName" class="text-ink-muted shrink-0 text-[19px]"></svg>
+      <svg [lucideIcon]="iconName" class="text-ink-muted shrink-0 text-title"></svg>
     }
     <input
       class="text-ink-primary placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-base outline-none"
@@ -16,7 +16,7 @@
     @if (trailingIcon(); as trailingIconName) {
       <button
         type="button"
-        class="text-ink-muted shrink-0 text-[19px]"
+        class="text-ink-muted shrink-0 text-title"
         (click)="trailingIconClick.emit()"
       >
         <svg [lucideIcon]="trailingIconName"></svg>
@@ -24,6 +24,6 @@
     }
   </span>
   @if (help(); as helpText) {
-    <span class="text-ink-secondary text-[13px]">{{ helpText }}</span>
+    <span class="text-ink-secondary text-body-sm">{{ helpText }}</span>
   }
 </label>

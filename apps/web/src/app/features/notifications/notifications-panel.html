@@ -1,9 +1,9 @@
 <div
-  class="border-line bg-surface-white fixed top-[86px] right-6 z-50 flex h-fit w-[400px] max-w-[calc(100vw-2rem)] flex-col items-start justify-start gap-0 overflow-hidden rounded-xl border shadow-[0px_12px_32px_0px_#1A1A2E29]"
+  class="border-line bg-surface-white fixed top-header-offset right-6 z-50 flex h-fit w-100 max-w-[calc(100vw-2rem)] flex-col items-start justify-start gap-0 overflow-hidden rounded-xl border shadow-[0px_12px_32px_0px_#1A1A2E29]"
 >
   <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between p-4 pb-3">
-    <h2 class="text-ink-primary text-[17px] font-bold tracking-[-0.3px]">Notifications</h2>
-    <button type="button" class="text-brand-navy text-[13px] font-semibold" (click)="markAllRead()">
+    <h2 class="text-ink-primary text-subtitle font-bold tracking-[-0.3px]">Notifications</h2>
+    <button type="button" class="text-brand-navy text-body-sm font-semibold" (click)="markAllRead()">
       Mark all as read
     </button>
   </div>
@@ -11,60 +11,60 @@
   <div class="border-line flex h-fit w-full shrink-0 flex-row items-end justify-start gap-6 border-b px-4">
     <button
       type="button"
-      class="flex h-fit w-fit shrink-0 flex-col items-start justify-start gap-[9px] pb-[9px]"
+      class="flex h-fit w-fit shrink-0 flex-col items-start justify-start gap-base pb-base"
       (click)="activeTab.set('unread')"
     >
-      <span class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-[7px]">
+      <span class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-sm">
         <span
-          class="text-[14px] whitespace-nowrap"
+          class="text-sm whitespace-nowrap"
           [class]="activeTab() === 'unread' ? 'text-ink-primary font-semibold' : 'text-ink-secondary'"
         >
           Unread
         </span>
         @if (unread().length > 0) {
           <span
-            class="bg-brand-orange text-surface-white flex h-5 w-fit shrink-0 flex-row items-center justify-center rounded-full px-[7px] text-[11.5px] font-bold"
+            class="bg-brand-orange text-surface-white flex h-5 w-fit shrink-0 flex-row items-center justify-center rounded-full px-sm text-micro font-bold"
           >
             {{ unread().length }}
           </span>
         }
       </span>
       <span
-        class="h-[2px] w-full shrink-0 rounded-[1px]"
+        class="h-hairline w-full shrink-0 rounded-[1px]"
         [class]="activeTab() === 'unread' ? 'bg-brand-navy' : 'bg-transparent'"
       ></span>
     </button>
 
     <button
       type="button"
-      class="flex h-fit w-fit shrink-0 flex-col items-start justify-start gap-[9px] pb-[9px]"
+      class="flex h-fit w-fit shrink-0 flex-col items-start justify-start gap-base pb-base"
       (click)="activeTab.set('read')"
     >
       <span
-        class="text-[14px] whitespace-nowrap"
+        class="text-sm whitespace-nowrap"
         [class]="activeTab() === 'read' ? 'text-ink-primary font-semibold' : 'text-ink-secondary'"
       >
         Read
       </span>
       <span
-        class="h-[2px] w-full shrink-0 rounded-[1px]"
+        class="h-hairline w-full shrink-0 rounded-[1px]"
         [class]="activeTab() === 'read' ? 'bg-brand-navy' : 'bg-transparent'"
       ></span>
     </button>
   </div>
 
-  <div class="flex h-fit max-h-[420px] w-full shrink-0 flex-col items-start justify-start gap-1 overflow-y-auto p-[10px]">
+  <div class="flex h-fit max-h-105 w-full shrink-0 flex-col items-start justify-start gap-1 overflow-y-auto p-md">
     @for (notification of visibleNotifications(); track notification.id) {
       <app-notification-item [notification]="notification" />
     } @empty {
-      <p class="text-ink-secondary w-full px-1 py-6 text-center text-[13.5px]">
+      <p class="text-ink-secondary w-full px-1 py-6 text-center text-body">
         {{ activeTab() === 'unread' ? "You're all caught up." : 'No read notifications yet.' }}
       </p>
     }
   </div>
 
-  <div class="border-line flex h-fit w-full shrink-0 flex-row items-center justify-center border-t p-[13px]">
-    <button type="button" class="text-brand-navy text-[13px] font-semibold" (click)="overlay.close()">
+  <div class="border-line flex h-fit w-full shrink-0 flex-row items-center justify-center border-t p-xl">
+    <button type="button" class="text-brand-navy text-body-sm font-semibold" (click)="overlay.close()">
       View all notifications
     </button>
   </div>

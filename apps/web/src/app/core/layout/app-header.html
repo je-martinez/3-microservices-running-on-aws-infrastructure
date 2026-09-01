@@ -1,55 +1,55 @@
 <header
-  class="border-line bg-surface-white flex h-[60px] w-full items-center justify-between border-b px-5 md:h-[76px] md:px-12"
+  class="border-line bg-surface-white flex h-15 w-full items-center justify-between border-b px-5 md:h-19 md:px-12"
 >
   <div class="flex items-center gap-10">
     <app-logo-lockup />
   </div>
 
-  <div class="flex items-center gap-[10px] md:gap-[14px]">
+  <div class="flex items-center gap-md md:gap-2xl">
     <!-- Desktop: full search field. -->
     <div
-      class="border-line bg-surface-subtle hidden h-[44px] w-[260px] items-center gap-[10px] rounded-md border px-[14px] md:flex"
+      class="border-line bg-surface-subtle hidden h-11 w-65 items-center gap-md rounded-md border px-2xl md:flex"
     >
-      <svg lucideSearch class="text-ink-muted text-[17px]"></svg>
+      <svg lucideSearch class="text-ink-muted text-subtitle"></svg>
       <span class="text-ink-muted text-sm">Search products</span>
     </div>
 
     <!-- Mobile: icon-only search button. -->
     <button
       type="button"
-      class="border-line text-brand-navy flex h-[40px] w-[40px] items-center justify-center rounded-md border md:hidden"
+      class="border-line text-brand-navy flex h-10 w-10 items-center justify-center rounded-md border md:hidden"
       (click)="searchClicked.emit()"
     >
-      <svg lucideSearch class="text-[18px]"></svg>
+      <svg lucideSearch class="text-lg"></svg>
     </button>
 
     <button
       type="button"
-      class="border-line text-brand-navy relative flex h-[40px] w-[40px] items-center justify-center rounded-md border md:h-[44px] md:w-[44px]"
+      class="border-line text-brand-navy relative flex h-10 w-10 items-center justify-center rounded-md border md:h-11 md:w-11"
       (click)="notificationsClicked.emit()"
     >
-      <svg lucideBell class="text-[18px] md:text-[19px]"></svg>
+      <svg lucideBell class="text-lg md:text-title"></svg>
       @if (hasUnreadNotifications()) {
         <span
-          class="bg-brand-orange border-surface-white absolute top-[7px] right-[7px] h-[9px] w-[9px] rounded-full border-[1.5px] md:top-[9px] md:right-[9px]"
+          class="bg-brand-orange border-surface-white absolute top-sm right-sm h-base w-base rounded-full border-[1.5px] md:top-base md:right-base"
         ></span>
       }
     </button>
 
     <button
       type="button"
-      class="border-line text-brand-navy flex h-[40px] w-[40px] items-center justify-center rounded-md border md:h-[44px] md:w-[44px]"
+      class="border-line text-brand-navy flex h-10 w-10 items-center justify-center rounded-md border md:h-11 md:w-11"
       (click)="profileClicked.emit()"
     >
-      <svg lucideUser class="text-[18px] md:text-[19px]"></svg>
+      <svg lucideUser class="text-lg md:text-title"></svg>
     </button>
 
     <button
       type="button"
-      class="bg-brand-navy text-surface-white flex h-[40px] items-center gap-2 rounded-md px-[14px] text-sm font-semibold md:h-[44px] md:gap-[9px] md:px-4"
+      class="bg-brand-navy text-surface-white flex h-10 items-center gap-2 rounded-md px-2xl text-sm font-semibold md:h-11 md:gap-base md:px-4"
       (click)="cartClicked.emit()"
     >
-      <svg lucideShoppingBag class="text-[17px] md:text-[18px]"></svg>
+      <svg lucideShoppingBag class="text-subtitle md:text-lg"></svg>
       {{ cartCount() }}
     </button>
   </div>
