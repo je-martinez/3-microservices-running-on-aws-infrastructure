@@ -100,6 +100,7 @@ services/users/
 - DB naming (snake_case ↔ PascalCase aliases): [../../docs/shared/conventions/db-naming.md](../../docs/shared/conventions/db-naming.md)
 - Env validation (Zod): [../../docs/shared/decisions/ADR-0014-env-validation-zod.md](../../docs/shared/decisions/ADR-0014-env-validation-zod.md)
 - Logging context & tracing: [../../docs/shared/conventions/logging-context.md](../../docs/shared/conventions/logging-context.md)
+- Code comments: [../../docs/shared/conventions/code-comments.md](../../docs/shared/conventions/code-comments.md) → [[code-comments]]
 
 ### Logging & tracing in this service
 - Per-request context lives in an **AsyncLocalStorage** store (`shared/logging/log-context.ts`),

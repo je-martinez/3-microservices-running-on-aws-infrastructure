@@ -4,11 +4,18 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-08-18
+updated: 2026-08-27
 tags: [type/spec, area/shared, status/active]
 related:
+  - "[[2026-08-27-tracking-go-migration-design]]"
+  - "[[2026-08-27-tracking-go-migration]]"
+  - "[[tracking-go-migration-milestone]]"
+  - "[[2026-08-29-e2e-email-support-store]]"
+  - "[[ADR-0021-tracking-go-gin-sqlc-stack]]"
   - "[[2026-08-18-distributed-tracing-spans-design]]"
   - "[[2026-08-18-distributed-tracing-spans]]"
+  - "[[2026-08-25-cart-endpoints-design]]"
+  - "[[2026-08-25-cart-endpoints]]"
   - "[[2026-06-26-implementation-workflow]]"
   - "[[developer-experience-milestone]]"
   - "[[2026-07-19-scripts-to-python-migration-design]]"
@@ -49,6 +56,12 @@ related:
   - "[[2026-08-10-product-catalogue-image-categories-design]]"
   - "[[2026-08-10-product-catalogue-image-categories]]"
   - "[[observability-telemetry-milestone]]"
+  - "[[2026-08-25-response-caching-layer-design]]"
+  - "[[2026-08-25-response-caching-layer]]"
+  - "[[response-caching-layer-milestone]]"
+  - "[[2026-08-25-account-deletion-design]]"
+  - "[[2026-08-25-account-deletion]]"
+  - "[[account-deletion-milestone]]"
   - "[[2026-08-17-web-app-foundation-design]]"
   - "[[2026-08-18-web-app-foundation]]"
   - "[[web-app-foundation-milestone]]"
@@ -102,6 +115,18 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-08-18-distributed-tracing-spans-design]] — design spec for manual OpenTelemetry spans: the 11 flow-log-carrying workflows across Users/Orders/Tracking, the SQS `traceparent`-in-`MessageAttributes` hop with span links (not parent-child) into events-pipeline, per-record spans there, realtime-events' 4 entry points, and the new Prisma/AWS-SDK auto-instrumentation.
 - [[2026-08-18-distributed-tracing-spans]] — implementation plan for the tracing design: per-service workflow-span helpers (`withWorkflowSpan` in Users, `IWorkflowTracer` in Orders, `workflow_span` in Tracking), the 3 SQS publishers' traceparent injection (a 4th producer, the Cognito OTP trigger, was found and fixed later — see [[ADR-0019-distributed-tracing-opentelemetry]]), events-pipeline's manual DocumentDB/SES/WS spans (auto-instrumentation cannot cross its esbuild CJS bundle), realtime-events' 4 independently-bundled Lambdas, the collector's `memory_limiter`, and a full-trace E2E with the JE-77 anti-regression assertion.
 - [[observability-telemetry-milestone]] — logical execution plan for the Observability & Telemetry milestone: task sequence and dependency graph for the distributed-tracing-spans work (5 parallel workstreams, the SQS traceparent dependency gate, events-pipeline/JE-138, and the closing full-trace E2E).
+- [[2026-08-25-cart-endpoints-design]] — design spec for moving cart state and money calculation out of the frontend into the Orders service: three `/v1/cart` endpoints backed by a new Cart aggregate, and a `Money` DTO reporting every amount in both cents and dollars.
+- [[2026-08-25-cart-endpoints]] — implementation plan for the cart endpoints: the `Money` object and its rollout across every Orders DTO, the Cart/CartItem entities with `crt_`/`cti_` id prefixes and the DB-enforced one-active-cart invariant, `CartReadService`/`CartWriteService`, the three `/v1/cart` HTTP endpoints, the order-creation cart-deletion hook, E2E coverage, and vault propagation.
+- [[2026-08-25-response-caching-layer-design]] — design spec for a shared-Redis, HTTP-layer response cache across Users/Orders/Tracking reporting `X-Cache: HIT|MISS|BYPASS` via a per-service interceptor, fail-open with a 50ms timeout, explicit post-write invalidation, and a `CACHE_ENABLED` kill switch; reuses the existing `infra/modules/redis` deployment. New shared convention: [[x-cache-response-header]].
+- [[2026-08-25-response-caching-layer]] — implementation plan for the response caching layer: the `CacheGateway`/`CachedRead`/`CacheInvalidator` trio per service (`ioredis` Users, `StackExchange.Redis` Orders, `redis-py` Tracking), the `cognito_sub -> user_id` identity cache in Orders/Tracking, CloudWatch cache metrics, and three-layer test coverage (unit/integration, internal E2E, gateway E2E) across all seven cached endpoints.
+- [[response-caching-layer-milestone]] — logical execution plan for the Response Caching Layer milestone: task sequence and dependency graph for the infra gate (JE-195), the parallel Orders/Tracking/Users branches, and the closing E2E + load-test issue (JE-200).
+- [[2026-08-25-account-deletion-design]] — design spec for letting a user delete their own account: `DELETE /v1/users/me` cascading synchronously to Orders and Tracking, a partial unique index on `users.email` (live rows only) so the address can be reused, and Cognito `AdminDeleteUser` as the deliberate exception to [[ADR-0004-soft-delete-only]].
+- [[2026-08-25-account-deletion]] — implementation plan for account deletion: the partial unique index and its migration, `AuthProvider.deleteUser` via `AdminDeleteUserCommand`, the two new internal cascade routes (`DELETE /v1/orders/by-user`, `DELETE /v1/trackings/by-user`) guarded by `GRPC_API_KEY`, the `CascadeClient` in Users, `DeleteAccountCommand`, the gateway route, three-layer E2E, and vault propagation.
+- [[account-deletion-milestone]] — logical execution plan for the Account Deletion milestone: task sequence and dependency graph over T1–T10, with T5–T9 chained on the independent T1–T4 foundation.
+- [[2026-08-27-tracking-go-migration-design]] — design spec for migrating Tracking from Python/FastAPI to Go/Gin: a faithful layer-by-layer port (Gin + sqlc + golang-migrate, see [[ADR-0021-tracking-go-gin-sqlc-stack]]) built alongside the untouched Python service against the same database, a new `tracking-go-impl` agent fanned out across foundation/platform/endpoint/TestMode/verification waves, and a four-part closing gate (three test layers, empty `openapi.yaml` diff, measured Gatling comparison, observability parity) before the Python folder is deleted.
+- [[2026-08-27-tracking-go-migration]] — implementation plan for the Go migration: 28 tasks across Wave 0 Foundations (sequential), Wave 1 Platform (4 parallel agents), Wave 2 Endpoints (5 parallel agents), Wave 2.5 TestMode (gated on both creation and the carrier webhook), Wave 3 Verification (3 parallel agents), and Wave 4's single irreversible cutover task.
+- [[tracking-go-migration-milestone]] — logical execution plan for the Tracking Go Migration milestone: task sequence, wave phases, and the blocking dependency graph across all 28 tasks.
+- [[2026-08-29-e2e-email-support-store]] — implementation plan for a TTL-bounded `e2e_emails` collection the events-pipeline writes on every rendered email (run id, recipient, template, full HTML, plaintext code, trace id), served to Playwright over the events Lambda's Function URL behind a closed-by-default token. Deliberately ADDITIVE: specs keep asserting the real message, and this does not make the email-timing failures pass — see [[2026-08-29-the-emulator-was-the-ceiling-not-the-code]].
 - [[2026-08-17-web-app-foundation-design]] — design spec for `apps/web/` (Angular + NgRx + Tailwind) and the `pencil-design-extraction` skill: the `.pen`-as-source-of-truth pipeline, why the HTML export is a reference and never a source, and the phase-1 screens-not-behaviour scope boundary.
 - [[2026-08-18-web-app-foundation]] — implementation plan for the Web App Foundation milestone: scaffold, design tokens, fixtures, HTML snapshots, app shell, the 18 designed screens, and the extraction skill/agent/convention.
 - [[web-app-foundation-milestone]] — logical execution plan for the Web App Foundation milestone: task sequence, phases, and blocking dependency graph for JE-162 through JE-172.
@@ -153,6 +178,18 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-08-18-distributed-tracing-spans-design]]
 - [[2026-08-18-distributed-tracing-spans]]
 - [[observability-telemetry-milestone]]
+- [[2026-08-25-cart-endpoints-design]]
+- [[2026-08-25-cart-endpoints]]
+- [[2026-08-25-response-caching-layer-design]]
+- [[2026-08-25-response-caching-layer]]
+- [[response-caching-layer-milestone]]
+- [[2026-08-25-account-deletion-design]]
+- [[2026-08-25-account-deletion]]
+- [[account-deletion-milestone]]
+- [[2026-08-27-tracking-go-migration-design]]
+- [[2026-08-27-tracking-go-migration]]
+- [[tracking-go-migration-milestone]]
+- [[ADR-0021-tracking-go-gin-sqlc-stack]]
 - [[2026-08-17-web-app-foundation-design]]
 - [[2026-08-18-web-app-foundation]]
 - [[web-app-foundation-milestone]]

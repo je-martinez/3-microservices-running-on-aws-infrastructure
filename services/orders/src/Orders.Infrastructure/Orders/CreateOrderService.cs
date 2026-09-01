@@ -6,6 +6,9 @@ using Orders.Application.Orders;
 using Orders.Application.Tracking;
 using Orders.Domain.Entities;
 using Orders.Domain.Pricing;
+using Orders.Domain;
+using Orders.Infrastructure.Caching;
+using Orders.Infrastructure.Carts;
 using Orders.Infrastructure.Id;
 using Orders.Infrastructure.Observability;
 using Orders.Infrastructure.Persistence;
@@ -31,6 +34,7 @@ public class CreateOrderService
     private readonly IConfigurationReader _config;
     private readonly ITrackingInitiator _tracking;
     private readonly IWorkflowTracer _tracer;
+    private readonly ICacheInvalidator _cache;
     private readonly ILogger<CreateOrderService> _logger;
 
     public CreateOrderService(
@@ -40,6 +44,7 @@ public class CreateOrderService
         IConfigurationReader config,
         ITrackingInitiator tracking,
         IWorkflowTracer tracer,
+        ICacheInvalidator cache,
         ILogger<CreateOrderService> logger)
     {
         _db = db;
@@ -48,6 +53,7 @@ public class CreateOrderService
         _config = config;
         _tracking = tracking;
         _tracer = tracer;
+        _cache = cache;
         _logger = logger;
     }
 
@@ -241,6 +247,17 @@ public class CreateOrderService
             order.TotalCents = total;
 
             _db.Orders.Add(order);
+
+            // The cart the buyer just converted has served its purpose. Inside THIS
+            // transaction on purpose: if the order rolls back (insufficient stock, a
+            // failed write), the cart must survive — losing the selection AND the
+            // order is the worst outcome for the user.
+            //
+            // Routed through CartWriteService's shared deletion path rather than
+            // reimplemented here, so the three ways a cart dies cannot drift apart.
+            // No-ops when the caller had no cart, which is the common API-only case.
+            await CartWriteService.DeleteForUserAsync(_db, cognitoSub, ct);
+
             await _db.SaveChangesAsync(ct);
             // caller.Email and caller.FullName both come from the GetUserById round
             // trip this method already makes: the pipeline's ORDER_CREATED handler
@@ -271,6 +288,27 @@ public class CreateOrderService
                 subtotal, tax, shippingCents, total,
                 shippingAddressJson, eventItems, now, cognitoSub, ct);
             await tx.CommitAsync(ct);
+
+            // AFTER the commit, alongside the success log and the tracking init that
+            // already live here for the same reason: at this point the order genuinely
+            // exists.
+            //
+            // ONE commit, THREE stale things. The cart was deleted INSIDE the transaction
+            // above (via CartWriteService.DeleteForUserAsync), so its cached entry is
+            // wrong the moment this commit lands; my-orders is missing the order that was
+            // just created; and the catalogue entry is holding stock counts this order
+            // just decremented. InvalidateOrderCreationAsync removes all three — the cart
+            // and every my-orders variant through the caller's key index, the catalogue by
+            // name.
+            //
+            // Invalidating BEFORE the commit would be wrong in a way tests do not usually
+            // catch: a concurrent read landing in the window between the delete and the
+            // commit would repopulate the entry with the pre-order state, and it would
+            // then sit there, stale, for its full TTL.
+            //
+            // ICacheInvalidator swallows its own failures, so this cannot fail an order
+            // that was already paid for — the same rule the tracking init below follows.
+            await _cache.InvalidateOrderCreationAsync(cognitoSub, ct);
 
             // AFTER the commit: the order genuinely exists at this point, so the
             // success line never claims something a rollback later undid.
@@ -317,8 +355,13 @@ public class CreateOrderService
             // Map the in-memory order (order.Details already populated) instead of
             // re-querying — mirrors OrderReadService.Map exactly; keep both in sync.
             return new OrderDto(
-                order.Id, order.UserId, order.CognitoSub, order.SubtotalCents, order.TaxCents, order.ShippingCents, order.TotalCents, order.CreatedAt,
-                order.Details.Select(d => new OrderLineDto(d.ProductId, d.Quantity, d.SubtotalCents, d.TaxCents, d.TotalCents)).ToList());
+                order.Id, order.UserId, order.CognitoSub,
+                Money.FromCents(order.SubtotalCents), Money.FromCents(order.TaxCents), Money.FromCents(order.ShippingCents), Money.FromCents(order.TotalCents),
+                order.CreatedAt,
+                order.Details.Select(d => new OrderLineDto(
+                    d.ProductId, d.Quantity,
+                    Money.FromCents(d.SubtotalCents), Money.FromCents(d.TaxCents), Money.FromCents(d.TotalCents)))
+                    .ToList());
         });
     }
 

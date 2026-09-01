@@ -5,9 +5,11 @@ import { diContainer, registerSingletons, registerServices } from "#shared/di/aw
 import { actorContext } from "#shared/audit/actor-context";
 import { AuthError } from "#shared/auth/auth-errors";
 import { RecordNotFoundError } from "#shared/db/db-errors";
+import { CascadeError } from "#shared/http/cascade-client";
 import { buildLoggerOptions } from "#shared/logging/logger";
 import { logContext } from "#shared/logging/log-context";
 import { REQUEST_ID_HEADER, resolveRequestId } from "#shared/logging/request-id";
+import { RUN_ID_HEADER, resolveRunId } from "#shared/logging/run-id";
 import { withHttpServerSpan } from "#shared/observability/request-span";
 import { env } from "#shared/config/env";
 import { isPublicRoute } from "#shared/http/public-routes";
@@ -16,6 +18,7 @@ import type { Db } from "#shared/db/prisma";
 import { cognitoWebhookPayloadSchema } from "../webhooks/cognito-payload.ts";
 import { verifyWebhookSecret } from "../webhooks/verify-secret.ts";
 import { NoMatchingUserError } from "../webhooks/capture-cognito-identity.ts";
+import { registerMeCacheHooks, invalidateMeCache } from "./cache-hooks.ts";
 import type { User } from "../domain/user.ts";
 import fastifySwagger from "@fastify/swagger";
 import {
@@ -78,7 +81,7 @@ import {
 // fields; `UserSchema` documents the wire shape as ISO strings (see
 // schemas.ts). Convert at the HTTP boundary — Zod's serializer strictly
 // rejects a `Date` against `z.string()`, it does not coerce.
-function serializeUser(user: User) {
+export function serializeUser(user: User) {
   return {
     ...user,
     createdAt: user.createdAt.toISOString(),
@@ -218,6 +221,13 @@ export function buildApp(
     done();
   });
 
+  // The response cache for GET /v1/users/me: a preHandler/onSend pair, the
+  // FIRST hooks of either kind in this service (until now it had exactly two
+  // global hooks, onRequest and onResponse). See cache-hooks.ts for the two
+  // traps that live in them — the key needing CurrentUser.resolve(), and
+  // @fastify/otel nulling the span inside onSend.
+  registerMeCacheHooks(app);
+
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
@@ -236,6 +246,13 @@ export function buildApp(
     // /users/me routes already return.
     if (error instanceof RecordNotFoundError) {
       return reply.code(error.statusCode).send({ error: error.code });
+    }
+    // A cascade leg did not confirm, so the account was deliberately NOT deleted.
+    // 502 rather than 500: the failure is DOWNSTREAM, and the correct client
+    // action is to retry — both internal routes are idempotent, so retrying is
+    // safe and completes whichever leg is still outstanding.
+    if (error instanceof CascadeError) {
+      return reply.code(502).send({ error: "cascade_failed" });
     }
     throw error;
   });
@@ -297,7 +314,19 @@ export function buildApp(
     // and `enterWith` is what puts the id on the reply's own log line, since
     // that branch never reaches the `logContext.run` wrapper further down.
     const request_id = resolveRequestId(req.headers[REQUEST_ID_HEADER]);
-    logContext.enterWith({ request_id });
+    // E2E ONLY, and gated exactly like `x-e2e-source` on /v1/users/register:
+    // the header is caller-controlled, so an environment without
+    // E2E_TESTING_ENABLED must behave as if it were never sent. Seeded here
+    // rather than threaded through call sites so every event this request
+    // publishes carries it, the same way `request_id` does — the
+    // events-pipeline reads it off the envelope to scope its per-run email
+    // fixtures.
+    //
+    // OMITTED, never blank: the store is spread into every log line and every
+    // envelope, and an empty `run_id` would attribute a fixture row to a run
+    // that does not exist instead of honestly having none.
+    const run_id = resolveRunId(req.headers[RUN_ID_HEADER], container.cradle.env.E2E_TESTING_ENABLED);
+    logContext.enterWith({ request_id, ...(run_id ? { run_id } : {}) });
 
     if (actor === undefined && !isPublicRoute(req.method, routePath)) {
       reply.code(401).send({ error: "unauthenticated" });
@@ -322,7 +351,11 @@ export function buildApp(
     // continuation and both are live for the whole request.
     actorContext.run({ actor }, () => {
       logContext.run(
-        actor === undefined ? { request_id } : { request_id, cognito_sub: actor },
+        {
+          request_id,
+          ...(actor === undefined ? {} : { cognito_sub: actor }),
+          ...(run_id ? { run_id } : {}),
+        },
         done,
       );
     });
@@ -501,10 +534,41 @@ export function buildApp(
         response: { 200: UserSchema, 404: ErrorSchema },
       },
     }, async (req, reply) => {
-      const { updateProfileCommand, currentUser } = req.diScope.cradle;
+      const { updateProfileCommand, currentUser, currentActor } = req.diScope.cradle;
       const updated = await updateProfileCommand.execute(currentUser, req.body);
-      return updated
-        ? reply.send(serializeUser(updated))
+      if (!updated) return reply.code(404).send({ error: "not_found" });
+
+      // AFTER the write has persisted, never before. Invalidating first opens a
+      // window in which a concurrent read repopulates the OLD value between the
+      // delete and the write landing — the entry would then be stale for the
+      // full 5 minutes with nothing left to clear it.
+      //
+      // `currentActor` is the raw x-user-id, which is what the key was built
+      // from on the read path; `updated.id` is the resolved user_id. Both halves
+      // must match the read-side key exactly or this deletes nothing.
+      await invalidateMeCache(req, currentActor, updated.id);
+
+      return reply.send(serializeUser(updated));
+    });
+
+    // Account deletion. Deliberately ABSENT from `shared/http/public-routes.ts`:
+    // that absence is what makes the onRequest hook answer 401 without an
+    // x-user-id. Listing it there would leave account deletion unauthenticated.
+    //
+    // 204 rather than 200-with-a-body: there is nothing left to describe, and the
+    // deleted row must not be echoed back. The 502 comes from the error handler
+    // when a cascade leg fails — see CascadeFailedError above.
+    r.delete("/v1/users/me", {
+      schema: {
+        tags: ["users"], operationId: "deleteMe", summary: "Delete the current user's account",
+        headers: UserIdHeader,
+        response: { 204: z.null(), 404: ErrorSchema, 502: ErrorSchema },
+      },
+    }, async (req, reply) => {
+      const { deleteAccountCommand, currentUser } = req.diScope.cradle;
+      const result = await deleteAccountCommand.execute(currentUser);
+      return result === "deleted"
+        ? reply.code(204).send(null)
         : reply.code(404).send({ error: "not_found" });
     });
 
@@ -531,11 +595,20 @@ export function buildApp(
         response: { 200: UserSchema, 404: ErrorSchema },
       },
     }, async (req, reply) => {
-      const { changePasswordCommand, currentUser } = req.diScope.cradle;
+      const { changePasswordCommand, currentUser, currentActor } = req.diScope.cradle;
       const updated = await changePasswordCommand.execute(currentUser, req.body);
-      return updated
-        ? reply.send(serializeUser(updated))
-        : reply.code(404).send({ error: "not_found" });
+      if (!updated) return reply.code(404).send({ error: "not_found" });
+
+      // ==== WHY A PASSWORD CHANGE INVALIDATES THE PROFILE CACHE ====
+      // Nothing password-related is ever cached. But this command CLEARS
+      // `mustChangePassword` (change-password.ts), and that flag is a field of
+      // UserSchema (schemas.ts) and therefore part of the cached
+      // GET /v1/users/me body. Without this line the frontend keeps reading
+      // `mustChangePassword: true` for up to five minutes after the user has
+      // already changed it, and sends them round the forced-change flow again.
+      await invalidateMeCache(req, currentActor, updated.id);
+
+      return reply.send(serializeUser(updated));
     });
 
     // Thin layer (spec D2): verify the shared secret, validate, delegate. The

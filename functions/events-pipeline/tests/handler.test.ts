@@ -1063,3 +1063,139 @@ describe("handler — tracing", () => {
     expect(flushTraces).toHaveBeenCalledOnce();
   });
 });
+
+// The batch's records run CONCURRENTLY. Nothing above would notice if that
+// regressed to a serial loop — every existing assertion is about the RESULT of a
+// batch, and a serial loop produces identical results, just slower. These tests
+// assert the property itself.
+//
+// Why it matters, measured on the local stack rather than assumed: a record
+// spends p50 256ms almost entirely awaiting DocumentDB and SES, the pipeline
+// drained ~50 events/min, and an E2E suite publishing faster than that grew a
+// backlog until an event waited ~86s — past the 45s budget every email-asserting
+// spec allows. Serial I/O was the ceiling.
+describe("handler — records within a batch run concurrently", () => {
+  it("overlaps record handlers instead of awaiting them one after another", async () => {
+    // Each handler call announces its entry, then waits to be released. If the
+    // loop were serial, only the FIRST would have entered while all three are
+    // still pending — the second could not start until the first resolved.
+    let entered = 0;
+    let releaseAll: () => void;
+    const allReleased = new Promise<void>((resolve) => {
+      releaseAll = resolve;
+    });
+
+    const { handlers } = await import("#handlers/index");
+    (handlers.USER_CREATED as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      entered += 1;
+      await allReleased;
+    });
+
+    const batch = handler({
+      Records: [
+        sqsRecord("msg-a", envelope({ event_id: "evt_a" })),
+        sqsRecord("msg-b", envelope({ event_id: "evt_b" })),
+        sqsRecord("msg-c", envelope({ event_id: "evt_c" })),
+      ],
+    });
+
+    // Yield enough for every record to reach its handler. A serial loop parks on
+    // the first `await allReleased` and never reaches the other two, so `entered`
+    // stays 1 no matter how long this waits — which is precisely the regression
+    // being guarded against.
+    await vi.waitFor(() => expect(entered).toBe(3));
+
+    releaseAll!();
+    await batch;
+  });
+
+  it("keeps each record's identity on its own log lines while they overlap", async () => {
+    // The property that would silently corrupt the logs if concurrency were
+    // unsafe. runWithLogContext uses AsyncLocalStorage, which isolates per async
+    // CHAIN rather than per tick — so interleaved records must not inherit each
+    // other's event_id. Asserted with the handlers deliberately resolving out of
+    // order, so the interleaving is real and not incidental.
+    const order = ["evt_slow", "evt_fast"];
+    const { handlers } = await import("#handlers/index");
+    (handlers.USER_CREATED as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      // The first record scheduled finishes LAST.
+      const isSlow = order.shift() === "evt_slow";
+      await new Promise((resolve) => setTimeout(resolve, isSlow ? 20 : 0));
+    });
+
+    await handler({
+      Records: [
+        sqsRecord("msg-slow", envelope({ event_id: "evt_slow" })),
+        sqsRecord("msg-fast", envelope({ event_id: "evt_fast" })),
+      ],
+    });
+
+    // Every started/succeeded line must carry the event_id of the record that
+    // emitted it — never a sibling's.
+    const flows = emitted().filter(({ line }) =>
+      String(line.app_event ?? "").startsWith("event_processing_"),
+    );
+    expect(flows.length).toBeGreaterThanOrEqual(4);
+    for (const { line } of flows) {
+      expect(["evt_slow", "evt_fast"]).toContain(line.event_id);
+    }
+    // Both records got their own pair, so neither was starved or double-counted.
+    for (const id of ["evt_slow", "evt_fast"]) {
+      const mine = flows.filter(({ line }) => line.event_id === id);
+      expect(mine.length).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it("reports a failing record without abandoning its in-flight siblings", async () => {
+    // Promise.allSettled, not Promise.all. `all` rejects on the first failure and
+    // abandons the siblings still in flight — their batchItemFailures entries
+    // would be lost and SQS would silently consume records that needed
+    // redelivery. FLAKY throws TransientError; USER_CREATED must still complete.
+    const result = await handler({
+      Records: [
+        sqsRecord("msg-flaky", envelope({ event_id: "evt_flaky", type: "FLAKY" })),
+        sqsRecord("msg-ok", envelope({ event_id: "evt_ok" })),
+      ],
+    });
+
+    // Only the transient one is redelivered, and it is reported by ITS OWN id —
+    // an off-by-one in the index-to-messageId mapping would surface here.
+    expect(result.batchItemFailures).toEqual([{ itemIdentifier: "msg-flaky" }]);
+
+    const { handlers } = await import("#handlers/index");
+    expect(handlers.USER_CREATED).toHaveBeenCalledTimes(1);
+  });
+});
+
+// The Function URL branch. This is a THIRD event shape on one function, and the
+// dispatch order is load-bearing: processBatch reads event.Records.length, so an
+// HTTP event that falls through to it throws "Cannot read properties of
+// undefined (reading 'length')" — observed live against Floci before this
+// branch existed.
+describe("handler — Function URL requests", () => {
+  it("routes an HTTP event to the query route instead of the batch path", async () => {
+    const res = (await handler({
+      requestContext: { http: { method: "GET" } },
+      headers: {},
+      queryStringParameters: { runId: "run_abc" },
+    } as never)) as unknown as { statusCode: number };
+    // 404 because no E2E token is configured in this test env — the point is
+    // that it answered as HTTP rather than throwing on Records.length.
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("still processes an SQS batch normally", async () => {
+    const result = await handler({ Records: [sqsRecord("msg-1", envelope())] });
+    expect(result).toEqual({ batchItemFailures: [] });
+  });
+
+  it("still processes the metrics tick normally", async () => {
+    // An EMPTY batch response, not undefined: the tick path has no records, so
+    // there is nothing to report as failed. Asserted here only to prove the new
+    // HTTP branch did not swallow the tick — the span assertions for this path
+    // live in the tracing describe, which owns the harness.
+    await expect(handler({ "detail-type": "3mrai.metrics.tick" } as never)).resolves.toEqual({
+      batchItemFailures: [],
+    });
+  });
+});

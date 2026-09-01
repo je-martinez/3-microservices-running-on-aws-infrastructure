@@ -13,6 +13,7 @@ import { context, trace } from "@opentelemetry/api";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";
 import { CognitoAuthProvider } from "#shared/auth/cognito-auth-provider.ts";
+import { logContext } from "#shared/logging/log-context.ts";
 
 const provider = new NodeTracerProvider();
 
@@ -60,6 +61,48 @@ describe("CognitoAuthProvider.startOtpChallenge — trace propagation", () => {
     // Not an empty object and not a blank traceparent: the trigger shape-checks
     // the value, and sending a key with nothing usable in it only invites a
     // consumer to parent onto a trace that does not exist.
+    expect(send.mock.calls[0][0].input.ClientMetadata).toBeUndefined();
+  });
+});
+
+// The E2E run id rides the SAME seam, for the SAME reason — Cognito invokes the
+// trigger, so nothing else about this request reaches it. Separate describe
+// because the two fields are independent: a run with no active span must still
+// carry its run id, and a production request with a span must carry no run id.
+describe("CognitoAuthProvider.startOtpChallenge — run id propagation", () => {
+  it("passes the active run id to the trigger via ClientMetadata", async () => {
+    const send = vi.fn(async () => ({ Session: "sess_1" }));
+
+    await logContext.run({ run_id: "run_abc" }, () =>
+      providerWith(send).startOtpChallenge("ada@example.com"),
+    );
+
+    expect(send.mock.calls[0][0].input.ClientMetadata.runId).toBe("run_abc");
+  });
+
+  it("sends the run id even when no span is active", async () => {
+    // The two fields are independent: an E2E stack with tracing off would
+    // otherwise lose the run id because traceContextMetadata() returned
+    // undefined, and every OTP email would land unattributed.
+    const send = vi.fn(async () => ({ Session: "sess_1" }));
+
+    await logContext.run({ run_id: "run_abc" }, () =>
+      providerWith(send).startOtpChallenge("ada@example.com"),
+    );
+
+    const { ClientMetadata } = send.mock.calls[0][0].input;
+    expect(ClientMetadata.runId).toBe("run_abc");
+    expect(ClientMetadata.traceparent).toBeUndefined();
+  });
+
+  it("omits runId when there is no run id, rather than sending a blank one", async () => {
+    const send = vi.fn(async () => ({ Session: "sess_1" }));
+
+    await providerWith(send).startOtpChallenge("ada@example.com");
+
+    // ClientMetadata itself stays undefined here: with no span and no run id
+    // there is nothing to send, and an empty object would be a field with
+    // nothing usable in it.
     expect(send.mock.calls[0][0].input.ClientMetadata).toBeUndefined();
   });
 });

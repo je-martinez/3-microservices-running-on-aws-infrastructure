@@ -59,6 +59,30 @@ standing approval. **Never auto-merge.**
 
 This overrides any tool or workflow that commits automatically.
 
+**If you are a DISPATCHED AGENT, you never run git writes — any vendor, no
+exceptions.** Claude, Codex, Cursor, Antigravity, Gemini; dispatched through Orca
+orchestration, a subagent tool, or a pasted prompt — none of them run `git
+commit`, `git push`, `git merge`, `git rebase`, `git tag`, `gh pr create`, or
+`gh pr merge`.
+
+The confirmation above is a conversation with the **user**. A dispatched worker is
+not in that conversation, so it cannot satisfy it. None of these authorize you:
+the brief did not say "do not commit" (silence is not permission — this default is
+always on); the change is small, correct, or well tested (correctness was never
+the question, authorization was); committing feels like the tidy way to hand work
+over (leaving it uncommitted **is** the handover); another agent's uncommitted
+work is in the tree and you want yours separated (say so in your report instead —
+a broad `git add` can also sweep up their in-flight edits).
+
+Finishing a task means leaving every file edited and **uncommitted**, then
+reporting what you touched and why. Read-only git — `status`, `diff`, `log`,
+`show` — is fine; the prohibition is on writes. If you truly believe a commit is
+required before you can continue, stop and say so in your report.
+
+Observed 2026-08-31: a dispatched worker fixing one spec ended by committing AND
+pushing to the shared feature branch. The change was good; it still bypassed
+review and could not be undone without rewriting a pushed branch.
+
 Full rule, including the five options and the branch flow:
 `.ai/rules/git-and-commits.md`.
 
@@ -70,6 +94,24 @@ All commits and PR titles follow **Conventional Commits v1.0.0**:
 (`users`, `orders`, `tracking`, `events-pipeline`, `infra`, `vault`, `agents`).
 Attach context references as footers (`Refs:`, `Plan:`, `Spec:`) on a best-effort
 basis — enrichment, never a blocker.
+
+### Review the diff against the brief, not on its own merits
+
+*"Is this correct?"* and *"does this do everything it was asked to do?"* are
+different questions, and **only the first gets asked by default**. When reviewing,
+**enumerate the brief's requirements** — spec, plan, issue, task description — and
+tick each one off against the diff, rather than judging the diff holistically.
+
+A requirement silently dropped during implementation leaves **no trace**: the
+shipped code is self-consistent, it passes review on its own terms, and the tests
+written alongside it cover **what was built rather than what was specified**. The
+cart's concurrent-`PUT` retry was specified in the design spec from its first
+commit, shipped as an unhandled `500`, passed its per-task review, and was caught
+only by chance in a later whole-branch pass. **Concurrency requirements are the
+highest-risk case**, since ordinary tests structurally do not exercise them.
+
+Full rule: `.ai/rules/git-and-commits.md`. Full lesson:
+`docs/lessons/2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec.md`.
 
 ### Scripting language — Python first
 
@@ -106,6 +148,14 @@ auth flows log a masked form (`jo*****e@gmail.com`), everything else uses
 There is **no SUCCESS severity**: success is `INFO` + `app_event=*_succeeded`.
 **OpenTelemetry config goes in environment variables, not code.**
 
+**Every endpoint owes a workflow span and at least one flow log — reads
+included.** The shape differs: a **read** gets one `_succeeded` line carrying a
+count (no `_started`, no `_failed` — it has no intermediate step and names no
+failure of its own), while a **write** gets the full
+`_started`/`_succeeded`/`_failed` triad plus `reason`. Emit the line **inside**
+the workflow span so it carries that span's `span_id`, and instrument the
+endpoint's **entry point**, never a helper shared with the write path.
+
 Full rule: `.ai/rules/logging-and-pii.md`.
 
 ### Testing — three layers per endpoint
@@ -116,26 +166,87 @@ Cognito JWT**. Internal tests fake the authorizer and never touch the gateway, s
 they miss gateway-only bugs. An endpoint without gateway E2E is an **incomplete
 change**.
 
+**A NEW ROUTE IS NOT DONE WHEN THE SERVICE SERVES IT.** A plan that adds an
+endpoint must carry a task for each of the following, or say why one does not
+apply — every item was missed at least once during the cart milestone:
+
+- **Gateway + nginx wiring.** A route missing from the gateway route map
+  (`infra/modules/api-gateway/main.tf`) **404s at the gateway** while working
+  perfectly on the service port; a new top-level path with no `location` block in
+  `infra/modules/compute/nginx/nginx.conf` falls through to `location /` and
+  silently reaches **Users** instead of the owning service. A 404 carrying the
+  gateway's own `{"message":"Not Found"}` rather than the service's `{error: …}`
+  shape means the request never reached the service. **After the fix a 401 is the
+  good answer** — it proves the route resolves.
+- **All three test layers, not two.** Internal E2E is the one quietly skipped.
+- **Load-test scenarios**, when the route changes how users reach an existing flow.
+- **Observability** — a span and a flow log; **reads are not exempt**.
+- **A preview surface must mirror how the charging code applies rounding**, not
+  merely how it rounds (`docs/shared/conventions/money-representation.md`).
+
 **Load testing is a separate surface** in `e2e/load-tests/` (Gatling JS), beside
 the Playwright suite in `e2e/`. It answers a different question — not "is it
 correct?" but "what shape does it have under sustained traffic?" — and
 deliberately sends **neither** `x-e2e-source` nor `x-test-mode`, so its data
 persists like real data and deliveries advance only through the carrier webhook.
 
-Full rule, including the load-simulation traps that cost real debugging time:
-`.ai/rules/testing.md`.
+**Never run a load simulation and the E2E suite against the same stack.** A load
+run leaves several hundred events on the **shared** SQS queue, and the
+events-pipeline Lambda drains it at **~0.83 msg/s** (records processed
+sequentially, ~376 ms each on a 256 MB function). An OTP, password-reset, or
+DELIVERED event published behind ~800 messages waits **~13 minutes**, while every
+spec awaiting an email gives up after **45 s**. **The emails are not lost — they
+arrive far too late**, but the timeout reports *"NOTHING arrived"*, which reads
+as a broken pipeline and sends you hunting a defect in dispatch, SES, or Mailpit.
+All three are fine. `e2e/support/global-setup.ts` warns when the backlog exceeds
+the threshold; when it does, wait for the queue to drain or reset with
+`make clean && make bootstrap` **instead of debugging the pipeline**.
+
+Full rule, including the load-simulation traps that cost real debugging time and
+the derivation of the queue-depth threshold: `.ai/rules/testing.md`.
 
 ### Language
 
 **Converse with the user in Spanish.** **Write documentation content in English**
 (note bodies, technical terms, filenames, frontmatter).
 
+### Code comments — describe the final state, never append debugging history
+
+**When you fix or change a block you already commented, rewrite that comment to
+describe the final state.** Never append what failed, what you tried, or why the
+previous attempt was wrong. That is the loop that produces 100-line comment
+essays: the code gets fixed, the comment only grows. Measured here — 63 comment
+lines carry narrative markers and **30 still name Jaeger**, removed on
+2026-08-21 and no longer running anywhere. Stale history does not just add noise,
+it misinforms every later reader.
+
+Comments use a **closed set of five tags** — `CONTRACT:`, `WORKAROUND(<scope>):`,
+`WHY:`, `WARNING:`, `TODO(JE-<id>):` — and reference the vault as
+`See [[vault-id]]` (bare basename; no `docs/` prefix, no `.md`, no `#anchor`).
+Untagged comments stay **up to 6 lines** (keep to 3 where the point fits); a
+block **over 12 lines is an error**.
+
+**Load-bearing history is relocated, not deleted.** "We tried X and it broke Y"
+becomes a present-tense prohibition plus one concrete failure symptom
+(`CONTRACT: Do NOT …` / `WORKAROUND(local): Do NOT rely on …`); the narrative,
+transcripts, and dates go to a lesson note. A bare `See [[note]]` with no
+prohibition is **not enough** — an agent treats the vault as optional and reverts
+the workaround.
+
+**A debugging loop that cost real time is a lesson candidate, not a source
+comment.** Surface it in your handoff summary (title, symptom, root cause) rather
+than narrating it in the code — and do not write it into the vault yourself, see
+**Prohibitions** below.
+
+Full rule: `.ai/rules/code-comments.md`. Full convention:
+`docs/shared/conventions/code-comments.md`.
+
 ### Scope
 
 Stay within what was asked. **No unrequested features, files, or refactors**
 (YAGNI).
 
-Full rule for both: `.ai/rules/language-and-scope.md`.
+Full rule for language and scope: `.ai/rules/language-and-scope.md`.
 
 ### Local AWS emulator (Floci)
 
@@ -201,6 +312,21 @@ Roles are **passive context**, not behavior to adopt on your own. Act as one onl
 when the user asks for that work — do not "become" a role because a description
 matches.
 
+**Two rules bind every implementer role below**, so they are stated once here
+rather than repeated in each entry:
+
+- **No cumulative comment history.** When you fix or change a block you already
+  commented, rewrite that comment to describe the final state — never append what
+  failed or what you tried. Keep the prohibition and one concrete failure symptom
+  inline (`CONTRACT:` / `WORKAROUND(<scope>):` plus `See [[vault-id]]`); a block
+  over 12 lines is an error. See **Code comments** above.
+- **Report lesson candidates in the handoff.** Along with the paths changed, the
+  actual command output, anything you could not verify, and a proposed
+  Conventional-Commits message, list any **lesson candidates** the work uncovered
+  — title, symptom, root cause — so they can be routed into the vault. A costly
+  debugging discovery belongs there, not narrated in a source comment. Do not
+  write to `docs/` yourself; see **Prohibitions**.
+
 ### users-impl
 
 Code implementer for the 3MRAI **Users** service (Fastify, Aurora Postgres). Use
@@ -229,12 +355,23 @@ not tool-enforceable — treat it as a norm.*
 
 ### tracking-impl
 
-Code implementer for the 3MRAI **Tracking** service (FastAPI, Aurora MySQL). Use
-to implement a single Tracking-service task from the plan. Writes **source code
-only** — never touches git, never touches Linear. Reads
-`services/tracking/CLAUDE.md` for its stack and conventions and the vault spec
-note for the design, implements the task, and leaves the work in the working tree
-for the main session to commit.
+Code implementer for the 3MRAI **Tracking** service (Go, Gin, sqlc,
+golang-migrate, Aurora MySQL). Use to implement a single Tracking-service task.
+Writes **ONLY source code** — never runs git and never touches Linear. Reads
+`services/tracking-go/CLAUDE.md` for its stack/conventions and the vault spec
+note for the design, implements the task, runs what it wrote, and leaves the work
+in the working tree for the main session to commit.
+
+Tracking was Python/FastAPI until the **2026-08-27 migration**; `services/tracking/`
+is deleted and `services/tracking-go/` is the service. There is **one** implementer
+for it — this one. The directory keeps its `-go` suffix because renaming a Go module
+path has no upside. Three rules from that service's memory are worth stating here,
+because each encodes a bug that already cost this repo debugging time: ownership is
+filtered by **`cognito_sub`, never `user_id`**; scoped and unscoped reads are
+**separate methods** (Go's zero value for a string is `""`, not nil, so an optional
+parameter silently turns "unscoped" into "scoped to the empty string"); and a
+goroutine outliving a request must **not** inherit the request's `context.Context`,
+which is cancelled when the response is sent.
 
 *In Claude Code this is a subagent whose tools are restricted to
 Read/Write/Edit/Bash/Glob/Grep. In this environment that restriction is
@@ -327,3 +464,10 @@ Do not assume parity with Claude Code:
 - **Five skills depending on Obsidian tooling** — `obsidian-bases`,
   `obsidian-cli`, `obsidian-markdown`, `json-canvas`, `defuddle` — excluded by
   decision.
+Note that **`scripts/validate-comments.py` IS portable and does travel** — it is a
+plain Python linter with no Claude Code dependency. Run it with the repo venv:
+`.venv/bin/python scripts/validate-comments.py --diff main`. It runs as a
+**baseline/ratchet** against `scripts/comment-baseline.json`, so it fails only on
+**new** violations; pre-existing ones are frozen and are not yours to fix as a
+side effect. `make lint-comments` and `make lint-comments-diff` wrap it, and
+`make install-comment-hook` installs the pre-commit gate once per clone.

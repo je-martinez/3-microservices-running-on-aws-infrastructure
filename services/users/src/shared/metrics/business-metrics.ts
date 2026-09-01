@@ -4,6 +4,7 @@ import { trace } from "@opentelemetry/api";
 import { appLogger } from "../logging/app-logger.ts";
 import { withWorkflowSpan } from "../observability/workflow-tracing.ts";
 import type { MetricsPublisher } from "./cloudwatch-metrics.ts";
+import { ME_KEY_PREFIX } from "../cache/cache-keys.ts";
 
 /**
  * Periodically publishes gauge metrics describing the CURRENT state of the users
@@ -192,7 +193,40 @@ export class BusinessMetricsPoller {
     await Promise.all([
       this.metrics.publish("users_registered_total", 0, { Service: "users" }),
       this.metrics.publish("password_resets_total", 0, { Service: "users" }),
+      // Deletions are rarer than registrations, so this series is the one most
+      // often empty over a narrow range — the exact case the seeding above
+      // exists for.
+      this.metrics.publish("users_deleted_total", 0, { Service: "users" }),
     ]);
+
+    // The cache counters get the same seeding as the error and business
+    // counters above, for the reason spelled out there: a panel over a series
+    // that has no datapoint in the selected window does not render "0" — it
+    // throws and shows "Error Loading Data". So the hit-rate card breaks
+    // exactly when the answer is "nobody read a profile in the last five
+    // minutes", which is the least alarming answer there is.
+    //
+    // `bypass` is seeded alongside hit/miss even though it should stay at zero
+    // in a healthy system — a card that reads "Error Loading Data" until the
+    // first Redis outage is a card nobody trusts when the outage arrives.
+    //
+    // NOT seeded: cache_operation_duration_ms. That is a duration, and a
+    // synthetic 0ms every tick would pull every average and percentile toward
+    // zero, reporting a fast cache precisely when nothing is being cached.
+    // Seeding a COUNTER is arithmetically free (CloudWatch sums within a
+    // period); seeding a duration is a lie.
+    await Promise.all(
+      (["hit", "miss", "bypass"] as const).map((result) =>
+        this.metrics.publish("cache_requests_total", 0, {
+          Service: "users",
+          // The PREFIX, never a key — the same rule the gateway follows. Users
+          // has exactly one cached endpoint, so this list is exactly one entry
+          // long; a second cached route would add its prefix here.
+          KeyPrefix: ME_KEY_PREFIX,
+          Result: result,
+        }),
+      ),
+    );
 
     return { withPassword, withoutPassword };
   }

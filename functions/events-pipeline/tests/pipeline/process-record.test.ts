@@ -100,7 +100,10 @@ describe("processRecord", () => {
     await processRecord(envelope, { repository, handlers });
 
     expect(handler).toHaveBeenCalledOnce();
-    expect(handler).toHaveBeenCalledWith(envelope);
+    // Second argument is HandlerDeps, and it is `{}` here because this caller
+    // passed no handlerDeps — the production shape. A handler must never need
+    // fixture wiring to run.
+    expect(handler).toHaveBeenCalledWith(envelope, {});
   });
 
   it("unknown type -> FAILED with 'Unknown event type', handler never invoked", async () => {

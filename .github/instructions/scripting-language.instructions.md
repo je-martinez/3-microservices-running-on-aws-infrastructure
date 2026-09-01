@@ -7,6 +7,13 @@ description: "Scripting language — Python first"
 
 - **Python by default** for new scripts: infra scripting, Terraform pre/post
   effects, and anything touching AWS, JSON, or non-trivial control flow.
+
+> **Python is the scripting default and has not left this repo.**
+> `infra/scripts/lib3mrai/`, `doctor.py`, `bootstrap.py` and ~29 other files are
+> Python and stay Python. What ended on 2026-08-27 is Python as a **service
+> runtime**: the four service runtimes are Node/Fastify (Users), .NET (Orders),
+> Go/Gin (Tracking), and Node/TypeScript (the two Lambdas). Do not read the Go
+> migration as a reason to write a new infra script in anything but Python.
 - **JavaScript** only when the task already lives in the Node ecosystem present
   here (vault tooling, the pnpm workspace, its dependencies). That is why
   `scripts/*.mjs` stay JS.

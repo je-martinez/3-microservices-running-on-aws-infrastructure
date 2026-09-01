@@ -1,97 +1,9 @@
 #!/usr/bin/env python3
-"""Idempotently create the ElastiCache Redis replication group via boto3.
-
-Used ONLY by modules/redis/main.tf's terraform_data.group_via_cli, which is
-gated by var.manage_via_provider = false (Floci local only).
-
-WHY THIS SCRIPT EXISTS AT ALL
------------------------------
-The native `aws_elasticache_replication_group` resource does not merely fail
-against Floci — it CRASHES the provider (verified 2026-08-09, provider pinned
-`= 5.31.0`):
-
-    panic: runtime error: index out of range [0] with length 0
-    .../internal/service/elasticache/replication_group.go:632
-    .../internal/service/elasticache/replication_group.go:575
-    Error: The terraform-provider-aws_v5.31.0_x5 plugin crashed!
-
-Root cause: after CreateReplicationGroup the provider reads `NodeGroups[0]` off
-the response to populate primary_endpoint_address / reader_endpoint_address.
-Floci's response has NO `NodeGroups` key at all — it reports only
-`ConfigurationEndpoint` (confirmed against both create_replication_group and
-describe_replication_groups) — so the provider indexes an empty slice.
-
-That is worse than an ordinary error: the group IS created in Floci before the
-panic, but the crash means nothing lands in Terraform state, so a retry fails
-with ReplicationGroupAlreadyExistsFault and the root is wedged. The identical
-CreateReplicationGroup call through boto3 succeeds and returns Status
-"available".
-
-That meets the criterion in docs/shared/patterns/awscli-fallback-for-floci.md:
-the native resource demonstrably cannot apply (proven by a real crash, not
-speculation), the SDK call demonstrably can. Production keeps the native
-resource — this path is local-only.
-
-WHY A REPLICATION GROUP AND NOT A CACHE CLUSTER
-----------------------------------------------
-`create_cache_cluster(Engine="redis")` is REJECTED by Floci with
-"Engine must be 'memcached'. For Redis/Valkey use CreateReplicationGroup."
-Real AWS points the same way. So Redis is a replication group, full stop.
-
-IDEMPOTENCY, AND THE FLOCI QUIRK IT HAS TO WORK AROUND
-------------------------------------------------------
-Re-running this must be a no-op, not an error, because `make bootstrap` tears the
-stack down and rebuilds it routinely and terraform_data re-runs the provisioner
-whenever its `input` changes.
-
-The quirk: on a duplicate create Floci returns the CORRECT error code
-(`ReplicationGroupAlreadyExistsFault`) but botocore does NOT map it to the
-modeled exception class — `except ec.exceptions.ReplicationGroupAlreadyExistsFault`
-does not catch it, only a bare ClientError does (verified empirically). So this
-script matches on `Error.Code` rather than on the modeled class. Catching the
-modeled class alone would look correct and fail every re-run.
-
-Describe-on-a-miss behaves like real AWS here (raises
-ReplicationGroupNotFoundFault) rather than returning an empty list the way
-Floci's docdb describe does, but both shapes are handled anyway — a lookup that
-lies must not turn a re-run into a failed apply.
-
-THE CONTAINER-NAME CONTRACT
----------------------------
-Floci backs each replication group with a `valkey/valkey:8` container named
-`floci-valkey-<ReplicationGroupId>`, attached to 3mrai_3mrai-network with NO
-host port published. That container name is the ONLY way a service reaches
-Redis: the API reports ConfigurationEndpoint.Address = "localhost", which from
-inside the network resolves to the caller's own container.
-
-So REPLICATION_GROUP_ID passed in here must be exactly the id the rest of the
-stack expects; the module derives both from the same expression, so they cannot
-drift. Same shape as the DocumentDB contract in modules/docdb.
-
-Required env vars (set by the calling local-exec provisioner):
-  REPLICATION_GROUP_ID - replication group id (drives the container name)
-  STATE_FILE           - path to write the resulting descriptor JSON
-
-Optional:
-  DESCRIPTION          - group description (required by the API; defaulted here)
-  ENGINE               - "redis" or "valkey" (default redis)
-  ENGINE_VERSION       - engine version (Floci runs valkey:8 regardless)
-  NODE_TYPE            - cache node type (Floci ignores it)
-  NUM_CACHE_CLUSTERS   - number of nodes (default 1)
-  PORT                 - listening port (default 6379)
-  SUBNET_GROUP_NAME    - cache subnet group; EMPTY locally, see below
-  SECURITY_GROUP_IDS   - comma-separated VPC security group ids
-  ENDPOINT_URL         - endpoint override (empty = real-AWS resolution)
-  AWS_REGION           - AWS region
-  EXECUTION_LOG_TABLE  - DynamoDB traceability table (never skips a run)
-
-SUBNET_GROUP_NAME is empty against Floci on purpose: it implements no
-subnet-group API at all (both CreateCacheSubnetGroup and
-DescribeCacheSubnetGroups answer UnsupportedOperation), and unlike RDS/DocumentDB
-there is no pre-existing "default" group to point at either. Sending the
-parameter anyway would reference a group that cannot exist.
-
-Exit codes: 0 created-or-already-present, 1 failure.
+"""WORKAROUND(local): Do NOT use the native resource against Floci; provider
+5.31.0 panics after creating the group and wedges Terraform state. Prod uses it.
+CONTRACT: Do NOT change REPLICATION_GROUP_ID; it names the only reachable
+floci-valkey-<id> container, and consumers otherwise get ECONNREFUSED.
+See [[floci-elasticache-two-ports-and-provider-panic]]
 """
 
 import json
@@ -205,17 +117,11 @@ def ensure_group(elasticache, group_id: str) -> tuple[dict, bool]:
 
 
 def write_state(state_file: pathlib.Path, group: dict, group_id: str) -> None:
-    """Write the descriptor data.local_file.group_via_cli reads back.
-
-    The KEY NAMES ARE A CONTRACT: the module's outputs jsondecode this file and
-    read ReplicationGroupId / Address / Port out of it.
-
-    Address comes from ConfigurationEndpoint, which is the ONLY endpoint Floci
-    reports — there is no NodeGroups array (that absence is precisely what
-    crashes the native provider). Its value is the literal string "localhost",
-    which is NOT usable from inside the Docker network; the module's redis_host
-    output deliberately ignores it and returns the backing container name
-    instead. It is carried here for parity and debugging only.
+    """CONTRACT: Keep ReplicationGroupId/Address/Port; outputs decode these keys.
+    WORKAROUND(local): Do NOT route consumers to Floci's reported `localhost`;
+    inside Docker it reaches the caller and returns ECONNREFUSED. The module's
+    redis_host output supplies the backing container name instead.
+    See [[floci-elasticache-two-ports-and-provider-panic]]
     """
     endpoint = group.get("ConfigurationEndpoint") or {}
     state_file.write_text(

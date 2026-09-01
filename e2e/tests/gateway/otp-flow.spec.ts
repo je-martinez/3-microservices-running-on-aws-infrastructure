@@ -6,6 +6,7 @@ import {
   waitForEmailTo,
   getMessage,
 } from "../../support/mailpit-client.js";
+import { describeRecordedEmails } from "../../support/email-store-client.js";
 
 // The passwordless email-OTP journey, through the gateway only, in the order a
 // real client walks it:
@@ -83,11 +84,21 @@ async function requestCode(
   const { session } = await start.json();
   expect(session).toBeTruthy();
 
-  const [message] = await waitForEmailTo(email, {
-    timeoutMs: EMAIL_TIMEOUT_MS,
-    matching: (m) => m.Subject === OTP_SUBJECT,
-    description: `the "${OTP_SUBJECT}" email`,
-  });
+  // The ASSERTION IS UNCHANGED — this still fails when no email arrives, and the
+  // code still comes out of the real message. The wrapper only appends the
+  // record store's verdict, which separates "the pipeline never sent it" from
+  // "it sent it and the mail was late" — indistinguishable from Mailpit alone,
+  // and fixed in completely different places.
+  let message;
+  try {
+    [message] = await waitForEmailTo(email, {
+      timeoutMs: EMAIL_TIMEOUT_MS,
+      matching: (m) => m.Subject === OTP_SUBJECT,
+      description: `the "${OTP_SUBJECT}" email`,
+    });
+  } catch (err) {
+    throw new Error(`${(err as Error).message}${await describeRecordedEmails(email)}`);
+  }
 
   return { session, code: await extractOtpCode(message.ID) };
 }

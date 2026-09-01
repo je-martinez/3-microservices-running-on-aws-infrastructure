@@ -4,7 +4,7 @@ type: convention
 area: infra
 status: active
 created: 2026-07-20
-updated: 2026-08-05
+updated: 2026-08-26
 tags:
   - type/convention
   - area/infra
@@ -16,6 +16,8 @@ related:
   - "[[testing]]"
   - "[[events-pipeline-design]]"
   - "[[2026-08-03-events-pipeline-milestone-design]]"
+  - "[[2026-08-25-response-caching-layer-design]]"
+  - "[[x-cache-response-header]]"
 ---
 
 # Env Files
@@ -44,6 +46,14 @@ files as of the events-pipeline milestone: `.env.local.events-pipeline` itself, 
 `.env.local.users`, `.env.local.orders`, and `.env.local.tracking` — each service's own producer
 reads the same generated queue URL from its own file, never a shared or hardcoded one. See
 [[events-pipeline-design]].
+
+**`CACHE_ENABLED`** (added 2026-08-26, response-caching-layer milestone; previously missing
+from this note) is generated into `.env.local.users`, `.env.local.orders`, and
+`.env.local.tracking` as a **CUSTOM**, not AUTO, default (`true`) — deliberately, so a
+per-machine choice survives `make env-file` regeneration and the cache A/B load test can flip
+it without a run undoing the flip. `REDIS_HOST`/`REDIS_PORT` are generated into the same three
+files as AUTO values, alongside it — see
+[[2026-08-25-response-caching-layer-design]] and [[x-cache-response-header]].
 
 > [!note] `MAILPIT_API_URL` in `.env.local.infra` is NOT a Terraform output
 > Unlike its neighbours in that file, `MAILPIT_API_URL` is a fixed local constant
@@ -78,13 +88,19 @@ colliding. This already applies to `tracking` (`.env.local.tracking` exists, gen
 way) and now also to `events-pipeline` (`.env.local.events-pipeline`), which landed with the
 events-pipeline milestone (2026-08-04).
 
-> [!warning] A new `custom_default` does not reach an existing file
-> `generate_env_files.py`'s CUSTOM box is preserved **verbatim** on regeneration — by design, so a
-> developer's local overrides survive a re-run. That means adding a **new** `custom_defaults` key
-> to the generator does not retroactively appear in a file that already exists on disk; only a
-> freshly-generated file gets it. To pick up a new default, either add the line to the existing
-> CUSTOM box by hand, or delete the file so `make env-file` regenerates it from scratch. Seen live
-> when `E2E_TESTING_ENABLED` was added to `.env.local.tracking`'s defaults.
+> [!note] Fixed 2026-08-26 — a new `custom_defaults` key now DOES reach an existing file
+> This convention used to warn that a new `custom_defaults` key added to the generator would
+> not retroactively appear in a file that already existed on disk, and told the reader to
+> hand-edit the CUSTOM box or delete the file to work around it. **That gap is closed.**
+> `infra/scripts/lib3mrai/envfile.py:100-126` (`write_env_file`) now seeds `custom_defaults`
+> **per key**, not all-or-nothing: each default is appended to the existing CUSTOM box only
+> when that exact key is absent from it (a commented-out line still counts as present, so a
+> deliberately-disabled default is not silently re-enabled). A first run gets working defaults
+> and later runs never overwrite what a developer changed, but a **new** key added to the
+> generator after a file already exists on disk is now seeded into it on the next `make
+> env-file`, with no hand-editing or file deletion required. This was fixed as part of JE-195
+> (Redis access for Orders/Tracking, `CACHE_ENABLED` kill switch) — see the header comment on
+> `write_env_file` for the reasoning.
 
 ## Four traps, all silent
 
@@ -126,3 +142,6 @@ When changing env plumbing, verify against a real bring-up, not by inspection:
 - [[testing]]
 - [[events-pipeline-design]] — `.env.local.events-pipeline` and `EVENTS_QUEUE_URL`'s propagation into three other services' env files.
 - [[2026-08-03-events-pipeline-milestone-design]]
+- [[2026-08-25-response-caching-layer-design]] — `CACHE_ENABLED`/`REDIS_HOST`/`REDIS_PORT`'s
+  propagation into Orders' and Tracking's env files.
+- [[x-cache-response-header]] — the `CACHE_ENABLED` kill switch's consumer contract.

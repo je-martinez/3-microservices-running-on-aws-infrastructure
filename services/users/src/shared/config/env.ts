@@ -28,6 +28,18 @@ const schema = z.object({
   // be deployed unguarded by omission.
   GRPC_PORT: z.coerce.number().int().positive().default(50051),
   GRPC_API_KEY: z.string().min(1),
+  // The account-deletion cascade's two downstream services. Users had no plain
+  // HTTP dependency before this — every other outbound call is gRPC, an AWS SDK
+  // client, or Redis — so these are the first of their kind here. Named to match
+  // Orders' existing TRACKING_BASE_URL, so one convention covers every
+  // service-to-service HTTP base in the repo.
+  //
+  // REQUIRED, with no default: a missing value must fail at boot with a named Zod
+  // error rather than let DELETE /v1/users/me reach a half-configured cascade and
+  // report success for orders it never deleted ([[ADR-0014-env-validation-zod]]).
+  // Both routes they point at are internal and absent from the API Gateway.
+  ORDERS_BASE_URL: z.string().url(),
+  TRACKING_BASE_URL: z.string().url(),
   // Shared events queue consumed by the events-pipeline Lambda. Required in
   // every environment and never hardcoded: `make env-file` writes it into
   // .env.local.users from the Terraform output, because Floci remints the queue
@@ -48,13 +60,22 @@ const schema = z.object({
   // localhost. Same shape as the DOCDB_HOST quirk in the events-pipeline.
   REDIS_HOST: z.string().min(1),
   REDIS_PORT: z.coerce.number().int().positive(),
+  // Kill switch for the response cache. Defaults to true so a service that never
+  // sets it still caches; the load-test A/B flips it to false. Same string->bool
+  // shape as E2E_TESTING_ENABLED above: env values are always strings, and
+  // z.coerce.boolean() would read "false" as true (a non-empty string).
+  CACHE_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
   // Feeds the schema logger's `deployment_environment` base field (see
   // shared/logging/logger.ts). Defaults to "local" for dev/test; prod deploys
   // set it explicitly.
   DEPLOYMENT_ENVIRONMENT: z.string().default("local"),
-  // How often BusinessMetricsPoller publishes its gauges: 15s locally; real AWS
-  // uses 60s. Defaulted so no existing env file, test, or deployment breaks by
-  // omitting it.
+  // How often BusinessMetricsPoller publishes its gauges. This 15s default is
+  // the PRODUCTION-safe fallback; both real AWS and the local stack run at 60s,
+  // set explicitly via METRICS_INTERVAL_MS in the generated .env.local.users.
+  // Defaulted so no existing env file, test, or deployment breaks by omitting it.
   METRICS_INTERVAL_MS: z.coerce.number().int().positive().default(15_000),
 });
 

@@ -31,6 +31,26 @@ export interface LogContextStore {
    */
   email?: string;
   order_id?: string;
+  /**
+   * Cache outcome for this request: "hit" | "miss" | "bypass". Set by the
+   * response-cache hooks (see features/users/http/cache-hooks.ts) on cacheable
+   * routes only. OMITTED — never null — on every other route: an absent key
+   * reads as "this route is not cached", whereas a null reads as "it is cached
+   * and somehow produced no outcome".
+   */
+  cache_result?: "hit" | "miss" | "bypass";
+  /**
+   * E2E ONLY. The Playwright run that caused this request, seeded at ingress
+   * from the `x-e2e-run-id` header and ONLY when `E2E_TESTING_ENABLED` — the
+   * same gate `x-e2e-source` rides, so an unflagged environment ignores the
+   * header entirely.
+   *
+   * It lives here rather than on a parameter because it has to reach every
+   * event this request publishes without a single call site threading it,
+   * exactly like `request_id`. The events-pipeline reads it off the envelope to
+   * scope its per-run email fixtures — see [[e2e-email-support-store]].
+   */
+  run_id?: string;
 }
 
 export const logContext = new AsyncLocalStorage<LogContextStore>();

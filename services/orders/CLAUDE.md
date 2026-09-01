@@ -147,8 +147,31 @@ services/orders/
 - gRPC inter-service: [../../docs/shared/decisions/ADR-0003-grpc-inter-service.md](../../docs/shared/decisions/ADR-0003-grpc-inter-service.md)
 - Read/write replicas: [../../docs/shared/decisions/ADR-0006-read-write-replicas.md](../../docs/shared/decisions/ADR-0006-read-write-replicas.md)
 - Logging context & tracing: [../../docs/shared/conventions/logging-context.md](../../docs/shared/conventions/logging-context.md)
+- Code comments: [../../docs/shared/conventions/code-comments.md](../../docs/shared/conventions/code-comments.md) → [[code-comments]]
 
 ### Logging & tracing in this service
+- **Every endpoint gets a workflow span and at least one flow log — READS INCLUDED.**
+  This was got wrong once and is worth stating plainly: a read is not exempt. The
+  shape differs, though, and the difference is the point:
+  - **Reads** (`list_my_orders`, `read_cart`) get a span plus ONE `_succeeded` line
+    carrying a count, and no `_started` twin and no `_failed` branch. There is no
+    intermediate step at which `_started` could be the last line seen, and the method
+    names no failure of its own — a DB fault throws out of `TraceWorkflowAsync`, which
+    already records it on the span. Inventing a `reason` for a branch the code does not
+    have is exactly what the convention forbids.
+  - **Writes** (`create_order`, `update_cart`, `delete_cart`) get the full
+    `_started`/`_succeeded`/`_failed` triad plus `reason` on failures, because they
+    have real intermediate steps at which `_started` can be the last thing seen.
+  - The `_succeeded` line must be emitted INSIDE the activity so it carries that span's
+    `span_id`; the outer `request completed` line is written under the AspNetCore span
+    and cannot serve a span-scoped log lookup.
+  - Never re-pass `cognito_sub` / `user_id` at a call site — `LogContextEnricher` already
+    puts them on every line, and duplicating them is how a PII-adjacent field ends up
+    somewhere nobody audits. Pass only the count or the flow-specific field.
+  - **Instrument the entry point, not a shared helper.** `CartReadService.BuildAsync` is
+    called by the WRITE path to render its response, so instrumenting there would emit a
+    spurious nested read span inside every `update_cart`. The span belongs on
+    `GetMyCartAsync`.
 - The shared log context is attached by a Serilog `ILogEventEnricher`
   (`Orders.Api/Logging/LogContextEnricher.cs`) reading `ICurrentCaller` via
   `IHttpContextAccessor` — no call site passes identity into the logger.
@@ -202,6 +225,63 @@ services/orders/
     decrement stock permanently and a soft-delete does not give it back, so
     without this the catalogue drained ~17 units per run and the suite failed
     around the sixth. Mapped only when `E2E_TESTING_ENABLED`.
+  - `[GET] /v1/cart` → **always 200**. A user with no active cart gets an EMPTY
+    cart (`id: null`, `items: []`), never a 404 — the frontend then has one shape
+    to render and never branches. Prices, names, images and stock are resolved
+    LIVE from the catalogue on every read, in ONE batched query for all the
+    cart's product ids; `cart_item` deliberately stores no price, so the user can
+    never see a frozen figure that disagrees with what checkout charges (an Order
+    is the opposite, and freezes its prices on purpose).
+  - `[PUT] /v1/cart` → 200 · 400 `invalid_request` · 401 · 404 `unknown_user`
+    **(only on a request that carries lines)**. FULL REPLACEMENT of the line
+    set: a product absent from the array is removed, and `quantity: 0` removes a
+    line too (deliberately redundant, so the frontend may send its list
+    pre-filtered or not). 400 on a NEGATIVE quantity, a duplicated `productId`,
+    or a missing/null `items` — zero is a valid instruction, not an error, and an
+    empty array is the documented way to empty the cart. A non-existent product
+    is **not** a 404: the line comes back flagged `available: false` with an
+    `unavailableReason`, because that is a fact about one line, not a failure of
+    the operation.
+  - **Identity is resolved ONLY when there are lines left to persist**
+    (`wanted.Count > 0`, after dropping `quantity: 0` entries), because the
+    internal `usr_` id is needed for exactly one thing: stamping it onto a cart
+    being CREATED. An emptying `PUT` (`items: []`, or every line at
+    `quantity: 0`) never calls Users and never 404s for an unresolvable caller —
+    it reaches the same "no cart" state `DELETE /v1/cart` does, and both must
+    behave alike for the same caller. Resolving identity unconditionally was the
+    original shape and a post-merge review fix; do not reintroduce it.
+  - `[DELETE] /v1/cart` → 204, idempotent (204 whether or not a cart existed — a
+    404 for "already gone" would make a retry after a dropped response look like
+    a failure).
+  - **One invariant behind all three: a cart with no live lines does not exist.**
+    An emptying PUT, `DELETE /v1/cart`, and a completed order all route through
+    `CartWriteService.DeleteForUserAsync`, which is static and does NOT save, so
+    order creation composes it into its own transaction. Do not re-implement it
+    per call site.
+  - **One active cart per user is enforced by a DB unique index**, not a C#
+    check: a stored generated column (`active_user_id` = `user_id` while live,
+    NULL once soft-deleted) plus a unique index — MySQL ignores NULLs there. A
+    "does one already exist?" read would race under two concurrent requests. Note
+    the FK to `cart` is `Restrict`, not `Cascade`: InnoDB rejects a CASCADE FK on
+    a column a STORED generated column depends on (errno 1215) — see
+    [[2026-08-25-cart-innodb-generated-column-fk-restriction]].
+  - **The loser of that race is retried, not surfaced as a 500.** Two concurrent
+    `PUT`s from a caller with no cart both read `null` and both insert; the
+    unique index rejects one as a `DbUpdateException`. `CartWriteService`
+    catches it, rolls back, re-reads the winning cart, and applies the caller's
+    lines to it instead — one retry, then a normal 200. A second failure means
+    something other than this race, so it is not retried again. Detection
+    matches on the **index name**
+    (`CartConfiguration.ActiveUserIdIndexName`, shared by the schema and
+    `IsActiveCartUniqueViolation`), never the bare MySQL error number: matching
+    on the number alone would also fire on `cart_item`'s own unique index (two
+    lines for one product), where a retry is the wrong response. If the two
+    spellings ever drift, the retry silently stops firing and the 500 returns —
+    that is why it is a shared constant, not a literal repeated in each place.
+  - Cart routes are **absent from `PublicRoutes.cs`** — all three require
+    identity — and are wired at the gateway plus an nginx `location /v1/cart`
+    block. Without that block `/v1/cart` falls through to `location /` and
+    silently reaches **Users**, not Orders.
   - The `"E2E Source"` tag is applied at creation only when the request sent
     `x-e2e-source: true` **and** `E2E_TESTING_ENABLED` is on. Both halves are
     required: the conjunction is what stops an untrusted client tagging its own

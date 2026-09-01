@@ -1,50 +1,9 @@
 #!/usr/bin/env python3
-"""Seed the `gen_ai_*` fields into OpenObserve's traces stream schema.
-
-WHY THIS EXISTS
----------------
-OpenObserve's trace-detail view (the waterfall) calls
-`/api/{org}/{stream}/traces/{trace_id}/dag`, and that endpoint SELECTs
-`gen_ai_operation_name` unconditionally — a column belonging to its LLM-tracing
-feature, which nothing in this repo emits. When the field is absent from the
-stream's schema the whole query fails:
-
-    HTTP 400  {"code":20004,"message":"Search field not found: Schema error:
-               No field named gen_ai_operation_name."}
-
-The failure is total, not partial: EVERY trace 400s, so the waterfall is simply
-unavailable and the only place left to read a cascade is Jaeger. Measured on
-2026-08-20 against v0.91.1 with 48,764 spans ingested — the data was all there
-and none of it could be drawn.
-
-Verified NOT to be a version bug: v0.92.2 (the latest release, 2026-08-17) was
-run side by side on port 5081, fed the same 56 real spans, and returned the
-identical 400. Upgrading fixes nothing.
-
-What DOES fix it is the field merely EXISTING. OpenObserve infers a stream's
-schema from ingested data, so one span carrying `gen_ai.*` attributes adds the
-columns; every real span then reports them as null, which the DAG query is
-perfectly happy with. After seeding, the same two traces returned HTTP 200 with
-56 and 167 nodes.
-
-Hence this script: ingest exactly one throwaway span whose only purpose is to
-declare three columns.
-
-WHY IT MUST BE AUTOMATED
-------------------------
-The schema lives in the `openobserve-data` volume, and `make clean` deletes it
-(deliberately — see docker-compose.yml). A hand-run seed therefore survives
-exactly until the next from-scratch rebuild, at which point the waterfall breaks
-again with a message that points at a field nobody in this repo has ever heard
-of. That is the same trap `observability-dashboards` fell into: a target that
-existed, worked, and was invoked by nothing.
-
-Idempotent: re-seeding just re-ingests one span. Run it on every
-`observability-up`.
-
-Node/pnpm are not involved — this is Python per the repo's scripting convention
-(docs/shared/conventions/scripting-language.md). Standard library only, so it
-needs no venv and can run before anything else is provisioned.
+"""WORKAROUND(local): Do NOT remove this seed from observability-up.
+OpenObserve on localhost:5080 returns HTTP 400 for every trace waterfall when
+its inferred schema lacks gen_ai_operation_name; one throwaway span adds it.
+`make clean` deletes the schema volume, so the seed must be idempotent.
+See [[ADR-0018-observability-openobserve]]
 """
 
 from __future__ import annotations
@@ -65,11 +24,8 @@ O2_BASIC_AUTH = os.environ.get(
     "O2_BASIC_AUTH", "YWRtaW5AM21yYWkubG9jYWw6Q29tcGxleHBhc3MjMTIz"
 )
 
-# MUST match the collector's `stream-name` header for traces. Seeding the wrong
-# stream is a silent no-op that looks like success: the ingest returns 200, the
-# columns land on a stream nothing reads, and the DAG keeps 400ing. That exact
-# mistake happened once during this investigation — the first seed went to
-# `default` (0 docs) while the data was in `app_traces`.
+# CONTRACT: Do NOT seed a different stream. Ingest still returns 200, but the
+# trace DAG keeps returning HTTP 400 because its schema remains unchanged.
 TRACES_STREAM = os.environ.get("O2_TRACES_STREAM", "app_traces")
 
 # The three columns the trace-detail view touches. `gen_ai_operation_name` is the
@@ -180,7 +136,7 @@ def main() -> int:
     # brings the stack up. It reports loudly and lets everything else proceed.
     print(
         f"warning: seeded '{TRACES_STREAM}' but gen_ai_* did not appear in the schema; "
-        "OpenObserve's trace waterfall may return HTTP 400 (Jaeger is unaffected)",
+        "OpenObserve's trace waterfall may return HTTP 400",
         file=sys.stderr,
     )
     return 0

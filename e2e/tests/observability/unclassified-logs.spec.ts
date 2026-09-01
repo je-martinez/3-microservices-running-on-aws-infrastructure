@@ -1,55 +1,7 @@
-// Log-convention contract — fails when any producer emits a record the
-// collector cannot classify.
-//
-// ## The failure this layer exists to catch
-//
-// Every log line is supposed to carry `service_name` and a real severity
-// ([[logging-context]]). A producer that emits an unrecognized shape does not
-// break anything loudly: the record still ingests, but with `severity` 0
-// (OTel UNSPECIFIED, which is NOT "below DEBUG") and no service identity. It
-// then appears in no severity-filtered dashboard and no service_name query —
-// present, consuming storage, and invisible.
-//
-// That condition has now shipped four separate times in this repo (nginx
-// startup lines, Valkey chatter, the tracking codegen scripts' `print()`, and
-// the CloudWatch-prefixed Lambda records). Every one was found by a human
-// reading raw data, because nothing surfaced it. This spec is what turns the
-// fifth occurrence into a red test instead of a discovery weeks later.
-//
-// ## Why it asserts on a STREAM, not on a severity query
-//
-// The collector now routes anything it could not fully parse to its own
-// `unclassified` stream (see observability/otel-collector-config.yaml). Two
-// independent faults send a record there, and neither implies the other:
-// a missing `service_name` (the line was not understood at all) and a severity
-// of 0 (OTel UNSPECIFIED — "nobody said", not "below DEBUG"). A producer that
-// logs its identity but forgets the severity fields trips only the second.
-//
-// Asserting on the stream makes the check trivial and, more importantly,
-// honest: the healthy state is "this stream does not exist or has no rows in
-// the window", and any row is a named, readable example of the exact producer
-// that regressed.
-//
-// Querying the main `logs` stream for `severity = 0` would NOT work as a
-// replacement, because those records no longer land there — that is the whole
-// point of the split. Asserting against the stream is asserting against the
-// mechanism actually in use.
-//
-// ## Why it generates traffic first
-//
-// Same reason as dashboards.spec.ts: an idle stack proves nothing. A spec that
-// passes because nothing was logged is a spec that cannot fail, and this one
-// must be able to fail. It drives a real flow through the gateway, waits for
-// the collector to flush, and only then reads.
-//
-// ## Known scope limit — the CloudWatch poll cycle
-//
-// Records from Lambda and the managed engines reach the collector through the
-// `aws_cloudwatch` receiver on a ~1-minute poll, so the window read here is
-// deliberately WIDER than the traffic this spec generates. That means it can
-// also catch a bad record produced by something else moments earlier, which is
-// a feature, not a leak: the assertion is "nothing unclassified is arriving",
-// not "my requests specifically were clean".
+// CONTRACT: No producer may emit records routed to `unclassified` — invisible in dashboards.
+// Assert the unclassified stream (severity 0 records route there, not to main logs).
+// Generate gateway traffic first; read a window wider than the CloudWatch poll cycle.
+// See [[logging-context]]
 
 import { expect, test } from "@playwright/test";
 

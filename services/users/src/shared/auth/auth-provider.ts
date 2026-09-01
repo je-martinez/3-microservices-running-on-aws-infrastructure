@@ -64,4 +64,24 @@ export interface AuthProvider {
   // token. A failure here means the claim is stale until the next token is
   // issued, not that the flag was lost.
   setMustChangePassword(email: string, mustChangePassword: boolean): Promise<void>;
+
+  // Removes the Cognito account outright (AdminDeleteUser). This is what FREES
+  // THE EMAIL ADDRESS, which is the entire point of the delete-account flow: a
+  // user who deletes their account must be able to register again with the same
+  // address later.
+  //
+  // Deliberately NOT AdminDisableUser. A disabled account keeps occupying its
+  // email in the pool, so a returning user would hit UsernameExistsException
+  // forever — the requirement would be unimplementable.
+  //
+  // This departs from the letter of [[ADR-0004-soft-delete-only]] narrowly and on
+  // purpose: that rule governs our DATABASES (whose write users hold no DELETE
+  // grant), and the durable record of the user IS preserved there — a soft-deleted
+  // row keeping its real email. Cognito is an external identity provider, not our
+  // database, and the sub it holds is a credential rather than a record.
+  //
+  // Throws InvalidCredentialsError when the account does not exist, like every
+  // other method here: an unknown account must not be distinguishable from any
+  // other failure by error type alone.
+  deleteUser(email: string): Promise<void>;
 }

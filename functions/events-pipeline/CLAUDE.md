@@ -54,6 +54,7 @@ functions/events-pipeline/
 ├── src/pipeline/      # lifecycle: STARTED → IN_PROGRESS → COMPLETED/FAILED
 ├── src/domain/        # Event schema (event_id, status_history, audit fields)
 ├── src/email/         # react-email templates, catalog, renderer, SES sender
+├── src/e2e/           # E2E-ONLY: the e2e_emails fixture store + its HTTP route
 ├── src/shared/{config,db,logging}/
 │     logging/     # pino: logger options, app-logger, per-record ALS context,
 │                  # email-hash (the cross-service email_hash contract)
@@ -91,12 +92,61 @@ Two constraints when writing code:
   (see [[env-files]]), never hardcoded. Tests running on the host must enter
   the Docker network to reach it.
 
+## 3c. The E2E email store (`src/e2e/`) — test support, gated off by default
+
+One document per rendered email, in a collection **`e2e_emails`** that is
+deliberately NOT the production `events` collection, served back to the
+Playwright suite over a **Lambda Function URL**. Everything here is inert unless
+`E2E_TESTING_ENABLED=true`.
+
+**Why it exists.** Mailpit answers "did the mail arrive?" but not "did the
+pipeline ever render and send it?" — and those two failures look identical from
+a spec's side while being fixed in completely different places. See
+[../../docs/lessons/2026-08-29-the-emulator-was-the-ceiling-not-the-code.md](../../docs/lessons/2026-08-29-the-emulator-was-the-ceiling-not-the-code.md).
+
+**It is ADDITIVE, and that is a rule, not a preference.** The E2E specs still
+wait for and assert the real email. A spec that reads its OTP out of this store
+instead of the message stops proving delivery end to end — a green suite bought
+that way is worse than a red one.
+
+Things worth knowing before touching it:
+
+- **A separate collection, and a TTL index in the per-document form**:
+  `createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 })` expires each row at
+  the date it carries. This is the repo's only TTL index. It is created ONLY
+  under the flag — a TTL on `events` would be scheduled data loss.
+- **A THIRD event shape on this Lambda** (SQS batch, EventBridge tick, and now
+  Function URL). The HTTP check is **first** in the dispatch chain: `processBatch`
+  reads `event.Records.length`, so an HTTP event that reaches it dies with
+  `Cannot read properties of undefined (reading 'length')` — observed live
+  against a real Function URL before the branch existed.
+- **The write happens at the point of send**, through an optional `recordEmail`
+  callback on `sendEmail`, AFTER SES succeeds and swallowing its own failures.
+  Recording earlier would make the store answer "what was attempted"; throwing
+  later would fail a record whose email already went out, and the redelivery
+  would send it twice.
+- **The query route answers 404 to everything that is not fully authorised** —
+  flag off, token unconfigured, token wrong — with a byte-identical body, and an
+  unset token CLOSES the route. It serves plaintext OTP codes, so a 403 would
+  confirm the route exists on a function holding live credentials.
+- **`code` in this collection does not relax the production redaction.**
+  `#domain/redact-payload` still strips it from the persisted event document; the
+  plaintext exists only here, only under the flag, only for a TTL window.
+- **Floci gotcha**: `create-function-url-config` and `get-function-url-config`
+  work; **`list-function-url-configs` is broken** and answers with an S3
+  `NoSuchBucket` XML error.
+
+**Measured cost** (so it is not re-litigated): with the store on the pipeline
+drains 0.71 ev/s, with it off 0.67 ev/s — the extra Mongo write is within noise.
+The ~1 ev/s ceiling is Floci's delivery cadence, not this feature.
+
 ## 4. Conventions (referenced, never duplicated)
 - CQRS dispatch: [../../docs/shared/patterns/cqrs.md](../../docs/shared/patterns/cqrs.md)
 - Dependency injection: [../../docs/shared/patterns/dependency-injection.md](../../docs/shared/patterns/dependency-injection.md)
 - Audit fields: [../../docs/shared/conventions/audit-fields.md](../../docs/shared/conventions/audit-fields.md) — persisted **snake_case** here (no ORM mapping layer), unlike this note's camelCase examples; see the events-pipeline spec's Data Model section.
 - Env validation: [../../docs/shared/decisions/ADR-0014-env-validation-zod.md](../../docs/shared/decisions/ADR-0014-env-validation-zod.md)
 - Logging context & tracing: [../../docs/shared/conventions/logging-context.md](../../docs/shared/conventions/logging-context.md)
+- Code comments: [../../docs/shared/conventions/code-comments.md](../../docs/shared/conventions/code-comments.md) → [[code-comments]]
 - **Email templates: [../../docs/shared/conventions/email-templates.md](../../docs/shared/conventions/email-templates.md) → [[email-templates]] — READ BEFORE TOUCHING ANYTHING UNDER `emails/`.** Email is not a web page and the constraints are not guessable: inline SVG renders in no version of Outlook on Windows, icon fonts are stripped, and `<table>`/`<td>` must come from react-email's `Row`/`Column` rather than be hand-written. The note carries the client-support numbers behind each rule and the checklist for adding a template.
 
 > No prefixed nano-IDs in this service: `event_id` (producer-generated) is the event's only

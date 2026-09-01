@@ -1,56 +1,7 @@
-// Dashboard field contract — stops the OpenObserve dashboards from silently
-// breaking when a service renames or drops a log/metric field.
-//
-// ## The failure this layer exists to catch
-//
-// Every panel queries fields BY NAME (`http_route`, `duration_ms`,
-// `service_name`, …). When a service stops emitting one, OpenObserve answers
-// `Search field not found: Schema error: No field named X` and the panel renders
-// empty. Nothing fails, nothing alerts — the break is only visible to whoever
-// happens to open the dashboard. This spec turns that into a test failure.
-//
-// ## Two failure modes that look identical, and only one is a bug
-//
-// This distinction IS the design of this spec, not a detail of it:
-//
-//   1. REAL BUG — the dashboard queries a field no service emits any more.
-//      Must fail.
-//   2. NOT A BUG — the field is correct, but the stream is EMPTY, so OpenObserve
-//      has not inferred it yet. OpenObserve derives a stream's schema from
-//      ingested data, so a freshly-cleaned stream reports little more than
-//      `_timestamp` and `service_name` and EVERY panel looks broken.
-//
-// A spec that cannot tell them apart fails constantly for reason 2 and gets
-// ignored, which is worse than no spec. So this one GENERATES A REAL FLOW FIRST
-// (register → login → products → order → tracking), waits for those logs to
-// land, and only then asserts. When a stream still looks trivial afterwards, it
-// fails with "this stream looks un-ingested" rather than blaming the dashboards.
-//
-// ## Why fields, not rows
-//
-// This asserts the FIELDS EXIST, never that a query RETURNS ROWS. A panel can be
-// legitimately empty and correct: "recent errors" shows nothing when there were
-// no 5xx in the window, and "orders delivered" is zero before anything ships.
-// Asserting on rows would make a healthy system red, which is exactly the kind
-// of noise that gets a suite muted.
-//
-// ## Streams covered — and the one that is not
-//
-//   COVERED  logs (all 24 SQL panels across users/orders/tracking/
-//            events-pipeline/overview) — driven directly by the traffic below.
-//   COVERED  the metrics streams (amazonaws_com_3mrai_*, 10 SQL cards +
-//            3 PromQL panels on business-metrics/tracking). These are fed by
-//            CloudWatch polling on a ~1-minute cycle and by the business-metrics
-//            publishers, NOT by this spec's traffic — so they are asserted only
-//            when the stream already exists, and skipped with a named reason
-//            when it does not. Generating them here would mean waiting minutes
-//            on a background poller, which is the flakiness the task warned
-//            against; a stale-but-present schema still catches a renamed label.
-//   NOT COVERED  the `sql`, `redis` and `nginx` log streams. Deliberate, and not
-//            an omission: no committed dashboard panel reads them today
-//            (verified across all six files). They will be covered
-//            automatically the moment a panel does, because the assertions are
-//            driven by the dashboards, not by a hardcoded stream list.
+// CONTRACT: Dashboard panels query fields BY NAME — rename/drop yields empty panels.
+// Assert FIELDS not rows; derive waits from loadDashboardQueries().
+// Do NOT DELETE live OpenObserve streams via API — HTTP 400 drops batches permanently.
+// See [[logging-context]]
 
 import { test, expect } from "@playwright/test";
 import { apiClient, ordersClient, trackingClient } from "../../support/api-client.js";
@@ -69,16 +20,50 @@ import {
 // signature of "no traffic arrived", not of "the dashboards are wrong".
 const TRIVIAL_LOG_FIELDS = new Set(["_timestamp", "service_name"]);
 
-// The collector batches, and the CloudWatch-sourced logs poll on ~60s. Poll for
-// the data instead of sleeping a fixed guess — a fixed sleep is either too short
-// (flaky) or too long (slow), and it never says which.
-const INGEST_TIMEOUT_MS = 90_000;
+// WHY: Poll instead of fixed sleep — events-pipeline logs arrive via aws_cloudwatch
+// on poll_interval 1m; 150s clears one full cycle plus batch flush margin.
+const INGEST_TIMEOUT_MS = 150_000;
 const INGEST_POLL_MS = 3_000;
 
-// The fields the log dashboards actually depend on. Waiting for THESE — rather
-// than for "any row" — is what makes the wait meaningful: the traffic below is
-// only useful once the HTTP-shaped attributes have been inferred.
-const REQUIRED_LOG_FIELDS = ["http_route", "duration_ms", "http_response_status_code"];
+// See [[logging-context]]
+
+// WHY: Labels pipeline-only fields for timeout diagnosis (ingestion lag vs removal).
+function eventsPipelineOnlyFields(panelQueries: PanelQuery[]): Set<string> {
+  const producers = new Map<string, Set<string>>();
+  for (const q of panelQueries) {
+    if (q.streamType !== "logs" || q.stream !== "logs") continue;
+    // The service each panel scopes itself to. A panel with no `service_name`
+    // filter spans every producer, so it is recorded as "*" — which can never
+    // equal the single-producer test below and therefore correctly disqualifies
+    // its fields.
+    const scoped = [...q.query.matchAll(/service_name\s*=\s*'([^']+)'/g)].map((m) => m[1]);
+    const owners = scoped.length ? scoped : ["*"];
+    for (const f of q.fields) {
+      if (!producers.has(f)) producers.set(f, new Set());
+      for (const o of owners) producers.get(f)!.add(o);
+    }
+  }
+
+  const only = new Set<string>();
+  for (const [field, owners] of producers) {
+    if (owners.size === 1 && owners.has("events-pipeline")) only.add(field);
+  }
+  return only;
+}
+
+// CONTRACT: requiredLogFields() derives from loadDashboardQueries(); failed login emits `reason`.
+function requiredLogFields(panelQueries: PanelQuery[]): string[] {
+  const fields = new Set<string>();
+  for (const q of panelQueries) {
+    if (q.streamType !== "logs" || q.stream !== "logs") continue;
+    for (const f of q.fields) fields.add(f);
+  }
+  // `_timestamp` and `service_name` exist on an EMPTY stream (OpenObserve
+  // creates them for free), so waiting on them would return instantly and
+  // reinstate the very race this function exists to remove.
+  for (const trivial of TRIVIAL_LOG_FIELDS) fields.delete(trivial);
+  return [...fields].sort();
+}
 
 // Unreachable OpenObserve is a missing PREREQUISITE, not a defect. This project
 // is the only one needing `make observability-up`, so it says so by name instead
@@ -93,27 +78,11 @@ test.beforeAll(async () => {
   );
 });
 
-// Generating traffic + waiting for ingestion is the slow part and runs once.
-//
-// `describe.configure({ timeout })` sets the TEST timeout only — hooks keep the
-// 30s default, which is shorter than the ingestion poll below. Without the
-// explicit `setTimeout` in the hook itself, a stream that never ingests fails
-// with a bare "beforeAll hook timeout of 30000ms exceeded" and the diagnostic
-// message this spec exists to print is never reached. Observed, then fixed.
-test.describe.configure({ mode: "serial", timeout: 180_000 });
+// CONTRACT: describe.configure({ timeout }) does NOT apply to hooks — raise
+// test.setTimeout in beforeAll or ingestion poll dies at 30s with no diagnostic.
+test.describe.configure({ mode: "serial", timeout: 240_000 });
 
-/**
- * Drives one real end-to-end flow so every field the dashboards care about has
- * been emitted at least once by every service they chart.
- *
- * Uses the direct-service clients (the `internal` layer): the point here is to
- * make the three services LOG, and each emits the same HTTP attributes whether
- * the call arrived via the gateway or not. Going direct removes the Cognito
- * round-trip from a spec that is not testing auth.
- *
- * `X-E2E-Source` comes from the shared clients, so everything created here is
- * torn down by the usual global teardown.
- */
+/** Drives register→order flow so every dashboard log field is emitted once. */
 async function generateTraffic(): Promise<void> {
   const users = await apiClient();
   const orders = await ordersClient();
@@ -172,26 +141,31 @@ async function generateTraffic(): Promise<void> {
   });
   expect([400, 404]).toContain(notFound.status());
 
+  // WHY: Failed login emits `reason` over OTLP so the ingestion wait can satisfy
+  // failure-only fields the dashboard panels query.
+  const badLogin = await users.post("/v1/users/login", {
+    data: { email: user.email, password: `${user.password}-wrong` },
+  });
+  expect(
+    [400, 401],
+    `A deliberately wrong password should be REJECTED — a success here means the ` +
+      `spec is no longer generating the failure log that "reason" comes from.`,
+  ).toContain(badLogin.status());
+
   await Promise.all([users.dispose(), orders.dispose(), tracking.dispose()]);
 }
 
-/**
- * Waits until the `logs` stream has inferred the HTTP fields the dashboards
- * query. Bounded, and on timeout it reports WHICH fields never arrived — a count
- * alone could not distinguish a slow collector from a renamed attribute.
- */
-async function waitForLogIngestion(): Promise<StreamSchema> {
+/** Poll until every required log field appears; timeout names missing fields. */
+async function waitForLogIngestion(required: string[]): Promise<StreamSchema> {
   const deadline = Date.now() + INGEST_TIMEOUT_MS;
   let schema: StreamSchema | null = null;
 
-  // A stream that is COMPLETELY empty will not fill up by waiting on it — the
-  // stack is down. Polling the full timeout there only delays the same verdict,
-  // so give it a couple of cycles (a genuinely slow first flush) and then stop.
-  const emptyStreamGiveUpAt = Date.now() + INGEST_POLL_MS * 3;
+  // WHY: Only `_timestamp`/`service_name` after grace period means dead ingestion.
+  const emptyStreamGiveUpAt = Date.now() + INGEST_POLL_MS * 5;
 
   while (Date.now() < deadline) {
     schema = await fetchStreamSchema("logs", "logs");
-    if (schema && REQUIRED_LOG_FIELDS.every((f) => schema!.fields.has(f))) return schema;
+    if (schema && required.every((f) => schema!.fields.has(f))) return schema;
 
     const stillEmpty = !schema || [...schema.fields].every((f) => TRIVIAL_LOG_FIELDS.has(f));
     if (stillEmpty && Date.now() > emptyStreamGiveUpAt) break;
@@ -200,30 +174,35 @@ async function waitForLogIngestion(): Promise<StreamSchema> {
   }
 
   const present = schema ? [...schema.fields].sort().join(", ") : "(stream does not exist)";
-  const missing = schema
-    ? REQUIRED_LOG_FIELDS.filter((f) => !schema!.fields.has(f))
-    : REQUIRED_LOG_FIELDS;
+  const missing = schema ? required.filter((f) => !schema!.fields.has(f)) : required;
 
-  // Distinguish the two shapes of timeout in the message itself, because they
-  // send the reader to completely different places. A stream holding ONLY the
-  // trivial fields means nothing was ingested at all (collector down, stack not
-  // up) — the false alarm this whole spec is built around. A stream rich in
-  // fields but missing these specific ones means ingestion works and the HTTP
-  // attributes themselves went away, which IS a real dashboard break.
+  // Distinguish the shapes of timeout in the message itself, because they send
+  // the reader to completely different places.
   const nonTrivial = schema ? [...schema.fields].filter((f) => !TRIVIAL_LOG_FIELDS.has(f)) : [];
+
+  // WHY: All-missing pipeline fields imply CloudWatch poll lag, not dashboard defect.
+  const onlySlowProducerMissing =
+    missing.length > 0 && missing.every((f) => EVENTS_PIPELINE_ONLY_FIELDS.has(f));
+
   const diagnosis =
     nonTrivial.length === 0
       ? "The stream holds ONLY the fields OpenObserve creates for free, so NOTHING was ingested. " +
         "This is an INGESTION problem, NOT a dashboard problem — do not touch the dashboard JSON. " +
         "Check that `make observability-up` is running and that the OTel collector can reach " +
         "OpenObserve."
-      : "The stream IS ingesting other fields, so the collector works and these specific HTTP " +
-        "attributes stopped being emitted. That means the dashboards querying them are genuinely " +
-        "broken, and the field names above are the evidence.";
+      : onlySlowProducerMissing
+        ? "Every missing field belongs to the EVENTS-PIPELINE, and only to it. That producer is a " +
+          "Lambda whose logs reach OpenObserve through the collector's `aws_cloudwatch` receiver " +
+          "on a 1-minute poll, so this is almost certainly INGESTION LAG or a pipeline that never " +
+          "ran — NOT a dashboard defect. Check that the events Lambda is consuming the SQS queue " +
+          "(a deep queue delays it by minutes; see e2e/CLAUDE.md §4) before touching any JSON."
+        : "The stream IS ingesting other fields, so the collector works and these specific " +
+          "attributes stopped being emitted. That means the dashboards querying them are genuinely " +
+          "broken, and the field names above are the evidence.";
 
   throw new Error(
-    `The "logs" stream did not gain the expected HTTP fields within ${INGEST_TIMEOUT_MS / 1000}s ` +
-      `after this spec generated traffic.\n` +
+    `The "logs" stream did not gain every field the dashboards query within ` +
+      `${INGEST_TIMEOUT_MS / 1000}s after this spec generated traffic.\n` +
       `  Never arrived: ${missing.join(", ")}\n` +
       `  Currently in the schema: ${present}\n` +
       `  doc_num: ${schema?.docCount ?? 0}\n` +
@@ -246,14 +225,20 @@ function assertStreamIsIngested(stream: string, schema: StreamSchema): void {
 
 let logSchema: StreamSchema;
 let queries: PanelQuery[];
+/** Populated in the hook below, read only by waitForLogIngestion's diagnosis. */
+let EVENTS_PIPELINE_ONLY_FIELDS: Set<string> = new Set();
 
 test.beforeAll(async () => {
   // Hooks do NOT inherit the describe-level timeout (see the configure() note
   // above), so this must be raised here or the ingestion poll is cut short.
-  test.setTimeout(180_000);
+  // Comfortably above INGEST_TIMEOUT_MS so the poll reaches its own deadline and
+  // throws the diagnostic below, rather than being cut off by a hook timeout
+  // that says only "30000ms exceeded".
+  test.setTimeout(240_000);
   queries = loadDashboardQueries();
+  EVENTS_PIPELINE_ONLY_FIELDS = eventsPipelineOnlyFields(queries);
   await generateTraffic();
-  logSchema = await waitForLogIngestion();
+  logSchema = await waitForLogIngestion(requiredLogFields(queries));
 });
 
 test("the dashboards parse and reference at least one stream", () => {

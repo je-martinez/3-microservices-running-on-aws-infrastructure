@@ -192,4 +192,43 @@ describe("BusinessMetricsPoller logging", () => {
       tick!.spanContext().spanId,
     );
   });
+
+  // The cache counters are emitted only from a cached read, so on a service
+  // that has just booted — or during a quiet window on a dashboard's time
+  // range — the series does not exist and OpenObserve renders "Error Loading
+  // Data". The reasoning is spelled out in business-metrics.ts for the error
+  // and business counters; the cache counters have exactly the same shape and
+  // need exactly the same seeding.
+  //
+  // hit/miss/bypass are seeded, but NOT cache_operation_duration_ms: that one
+  // is a duration, and a seeded 0ms would drag every average and percentile
+  // toward zero — the panel would read "fast" precisely when nothing ran.
+  it("seeds cache_requests_total at zero for every Result value", async () => {
+    const d = makeDeps({ password: 1, passwordless: 1 });
+    const poller = new BusinessMetricsPoller(d as any);
+
+    await poller.collectAndPublish();
+
+    for (const result of ["hit", "miss", "bypass"]) {
+      expect(d.publish).toHaveBeenCalledWith("cache_requests_total", 0, {
+        Service: "users",
+        KeyPrefix: "users:me:v1",
+        Result: result,
+      });
+    }
+  });
+
+  it("does NOT seed the duration histogram", async () => {
+    const d = makeDeps({ password: 1, passwordless: 1 });
+    const poller = new BusinessMetricsPoller(d as any);
+
+    await poller.collectAndPublish();
+
+    expect(d.publish).not.toHaveBeenCalledWith(
+      "cache_operation_duration_ms",
+      0,
+      expect.anything(),
+      expect.anything(),
+    );
+  });
 });

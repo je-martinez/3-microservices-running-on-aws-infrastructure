@@ -1,46 +1,9 @@
 #!/usr/bin/env python3
-"""Grant the local MySQL `test` user what phase 2's mysql provider needs.
-
-Usage: grant_mysql_provider_privileges.py
-
-WHY PHASE 2 NEEDS THIS BEFORE ITS `mysql` PROVIDER DOES ANYTHING
-----------------------------------------------------------------
-`environments/local/post/providers.tf` configures the petoju/mysql provider as
-`local.master` — the same `test` user the services connect as locally — and then
-asks it to create least-privilege app-users (`orders_app`, `tracking_app`) with
-their grants. Floci's emulated MySQL grants `test` only `USAGE ON *.*` plus
-`ALL PRIVILEGES` on the databases it owns, which is not enough for that: without
-the two grants below, `make post-infra` fails first with 1227 on `CREATE USER`,
-and then — once that is worked around — with 1142 reading `mysql.user` to diff
-the grants it just wrote. `WITH GRANT OPTION` is the third prerequisite; it is
-granted per-database by `environments/local/scripts/create_mysql_database.py`,
-which is genuinely about the database it creates, so it stays there.
-
-This script is a PURE RELOCATION, not new behavior. These exact two GRANTs used
-to live in `create_mysql_database.py`'s `_sql()`, issued by the same `root`
-identity over the same throwaway `mysql:8` container, purely because phase 1
-happened to be the only place already running as root. They belonged to phase 2
-all along; only the script that issues them and the phase it runs in change.
-
-WHY root ISSUES THEM
---------------------
-`test` cannot grant itself `CREATE USER ON *.*` — that is the privilege it is
-missing. Floci's emulated MySQL does expose a working `root`/`test` superuser
-through its RDS proxy (verified: it holds `CREATE USER ... WITH GRANT OPTION ON
-*.*`), so this connects as root purely to issue the grants.
-
-LOCAL-ONLY. In production the app users are provisioned by a privileged operator
-or a managed bootstrap, never by handing the runtime user `CREATE USER ON *.*`.
-
-Idempotent and re-runnable: MySQL treats a re-issued GRANT the user already
-holds as a no-op, so every apply may run this safely.
-
-Execution is recorded to the DynamoDB execution log (lib3mrai.execution_log) for
-traceability — never to skip a re-run. With EXECUTION_LOG_TABLE unset (a hand
-run outside the Makefile/Terraform chain) nothing is recorded and the script
-behaves identically.
-
-Exit codes: 0 granted (or already held), 1 failure.
+"""WORKAROUND(local): Do NOT run phase 2's MySQL provider before these root
+grants; it fails with 1227, 1142, or 1044 while managing app users.
+CONTRACT: Keep this local-only; granting runtime users CREATE USER in prod
+crosses the privilege boundary. Production uses privileged provisioning.
+See [[floci-rds-apigw-limits]], [[execution-log-for-provisioning-scripts]]
 """
 
 import subprocess
@@ -71,13 +34,9 @@ CLUSTER_OWNED_DATABASE = "orders"
 SQL = (
     f"GRANT CREATE USER ON *.* TO '{PROVIDER_USER}'@'%'; "
     f"GRANT SELECT ON mysql.* TO '{PROVIDER_USER}'@'%'; "
-    # Asymmetry this script has to correct, found by running phase 2 end to end:
-    # `tracking` is created BY create_mysql_database.py, which grants it to
-    # `test` WITH GRANT OPTION, but `orders` is created by the cluster resource
-    # itself and Floci grants it WITHOUT that option. Phase 2 then creates
-    # orders_app as `test` and fails 1044 delegating privileges it does not hold
-    # with GRANT OPTION — you cannot hand out what you were not given the right
-    # to hand out. Issued as root here, the one identity that can.
+    # CONTRACT: Do NOT omit GRANT OPTION for the cluster-created `orders` DB.
+    # Phase 2 runs as `test` and otherwise fails with MySQL 1044 while granting
+    # privileges to orders_app.
     f"GRANT ALL PRIVILEGES ON `{CLUSTER_OWNED_DATABASE}`.* "
     f"TO '{PROVIDER_USER}'@'%' WITH GRANT OPTION; "
     "FLUSH PRIVILEGES;"
@@ -113,13 +72,9 @@ def grant_privileges(port: int) -> bool:
 
 
 def main(argv: list[str]) -> int:
-    # Discovered, never hardcoded: Floci assigns RDS proxy ports 7000-7099 by
-    # cluster CREATION ORDER, which is not stable across applies.
-    #
-    # OUTSIDE the execution-log wrapper on purpose: a failure here means the
-    # MySQL cluster was never found, so there is no resource identity to record
-    # the run against — the same reasoning that keeps wait_for_db.py's usage
-    # error (exit 2) outside its wrapper.
+    # WHY: Discover the port because Floci assigns it by unstable creation order.
+    # Keep discovery outside the execution log: a miss has no resource identity
+    # to record.
     try:
         port = discover_port("mysql")
     except LookupError as exc:
@@ -139,14 +94,9 @@ def main(argv: list[str]) -> int:
                 f"granting phase-2 provider privileges to '{PROVIDER_USER}' "
                 f"on {FLOCI_HOST}:{port} …"
             )
-            # BEHAVIORAL SEAM: grant_privileges reports failure by RETURNING
-            # False (having already emitted the operator-facing `no(...)` with
-            # MySQL's own stderr), but record_execution can only detect failure
-            # from an exception. Left untranslated, a genuine failure would be
-            # recorded as "ok" — the worst possible outcome for a traceability
-            # log. So the False is raised here, purely so the wrapper observes
-            # it, and caught immediately below to restore the script's exit-code
-            # contract (0/1, never an uncaught traceback).
+            # CONTRACT: Do NOT return False inside record_execution; it records
+            # the failed run as "ok". Raise here, then restore exit code 1 below.
+            # See [[execution-log-for-provisioning-scripts]]
             if not grant_privileges(port):
                 raise RuntimeError("failed to grant provider privileges")
     except RuntimeError:

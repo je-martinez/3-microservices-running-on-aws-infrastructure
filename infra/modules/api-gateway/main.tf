@@ -48,6 +48,15 @@ locals {
       refresh  = { key = "POST /v1/users/refresh", path = "/v1/users/refresh", auth = false }
       get_me   = { key = "GET /v1/users/me", path = "/v1/users/me", auth = true }
       patch_me = { key = "PATCH /v1/users/me", path = "/v1/users/me", auth = true }
+      # Account deletion. nginx needs no `location` block for it: /v1/users/me
+      # already falls under `location /`, which proxies to Users — only a new
+      # TOP-LEVEL path would need one (see /v1/cart and /v1/products).
+      #
+      # The two INTERNAL cascade routes this endpoint calls
+      # (DELETE /v1/orders/by-user, DELETE /v1/trackings/by-user) are deliberately
+      # absent from this map: they authenticate with the shared internal key and
+      # must not be reachable from outside the network.
+      delete_me = { key = "DELETE /v1/users/me", path = "/v1/users/me", auth = true }
 
       # Passwordless email-OTP auth. `auth = false` on all three for the same
       # reason login and register carry it: these are the routes a caller uses to
@@ -107,6 +116,16 @@ locals {
       # Products catalog (read-only, authenticated). nginx prefix-matches
       # /v1/products and forwards to orders:8080 (see nginx.conf).
       list_products = { key = "GET /v1/products", path = "/v1/products", auth = true }
+
+      # Cart (per-user, single resource — no path param, so none of the
+      # camelCase/{orderId} caveats above apply). All three are auth = true:
+      # the cart is keyed off the caller's identity (x-user-id), so there is
+      # no anonymous cart to expose, unlike login/register which must stay
+      # reachable without a token. Deliberately absent from Orders'
+      # PublicRoutes.cs for the same reason.
+      get_cart    = { key = "GET /v1/cart", path = "/v1/cart", auth = true }
+      put_cart    = { key = "PUT /v1/cart", path = "/v1/cart", auth = true }
+      delete_cart = { key = "DELETE /v1/cart", path = "/v1/cart", auth = true }
     },
     var.enable_e2e_cleanup_route ? {
       e2e_cleanup = { key = "DELETE /v1/users/e2e-cleanup", path = "/v1/users/e2e-cleanup", auth = false }
@@ -114,14 +133,17 @@ locals {
 
     # ─── Tracking routes ──────────────────────────────────────────────────────
     #
-    # Gated behind var.enable_tracking_routes (default FALSE) because the
-    # Tracking service does not exist yet: `services/tracking/src/` is empty and
-    # its Dockerfile is fully commented out. Creating these routes while nginx
-    # has no `tracking` upstream would publish gateway paths that resolve to the
-    # WRONG backend (nginx's default `location /` sends anything unmatched to
-    # users:3000), which is worse than a 404 — a health probe would return
-    # Users' 200 and look green. Flip the flag on in the same change that adds
-    # the nginx upstream and a running service.
+    # Gated behind var.enable_tracking_routes (default FALSE). The gate exists
+    # because creating these routes while nginx has no `tracking` upstream would
+    # publish gateway paths that resolve to the WRONG backend (nginx's default
+    # `location /` sends anything unmatched to users:3000) — worse than a 404,
+    # since a health probe would return Users' 200 and look green. Turn it on in
+    # the same change that adds the nginx upstream and a running service; the
+    # local environment already does (environments/local/main.tf).
+    #
+    # Note this module names no compose service: the routes are paths, and the
+    # backend is chosen downstream by nginx's `set $backend`. That is why the Go
+    # cutover needed no change here at all — `tracking` kept its name.
     #
     # This differs from enable_e2e_cleanup_route (default true) on purpose: that
     # route's backend already exists and the service itself 404s when disabled,

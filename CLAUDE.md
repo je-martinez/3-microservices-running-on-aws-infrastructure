@@ -12,6 +12,19 @@ These rules take precedence over default agent/skill behavior.
   - **B.** Commit + push.  **C.** Commit only.  **D.** Continue without committing (leave the work in the working tree and carry on).  **E.** Write manually.
 - Choosing an option IS the confirmation for that write, and authorizes **only** that action (never auto-merge, never standing approval).
 - Leave finished work in the working tree until the user picks an option.
+- **A DISPATCHED AGENT NEVER RUNS GIT WRITES — any vendor, no exceptions.** Claude,
+  Codex, Cursor, Antigravity, Gemini; via Orca orchestration, a subagent tool, or a
+  pasted prompt — none of them run `git commit/push/merge/rebase/tag` or `gh pr
+  create/merge`. The confirmation menu is a conversation with the USER, and a worker
+  is not in it, so it cannot satisfy it. A brief that omits "do not commit" is NOT
+  permission: this is the always-on default. Neither is a small, correct,
+  well-tested change — correctness was never the question, authorization was.
+  Finishing a task means leaving every file edited and UNCOMMITTED and reporting
+  what changed; that is the handover. Read-only git (`status`, `diff`, `log`,
+  `show`) is fine. Happened on 2026-08-31: a dispatched worker committed AND pushed
+  its spec fix to the shared feature branch — good change, bypassed review,
+  unundoable without rewriting a pushed branch. Full rule: [[git-workflow]] and
+  `.ai/rules/git-and-commits.md`.
 - This overrides any skill (brainstorming, writing-plans, etc.) that commits automatically.
 
 ### Node.js
@@ -58,6 +71,13 @@ These rules take precedence over default agent/skill behavior.
 - **Converse with the user in Spanish.**
 - **Vault / documentation content is written in English** (technical terms, filenames, frontmatter).
 
+### Code comments — describe the final state, never append debugging history
+- **Rewrite on edit, never append.** When you fix or change a block you already commented, **rewrite that comment to describe the final state**. Do NOT append what failed, what you tried, or why the previous attempt was wrong. This is the loop that produces 100-line comment essays: the code gets fixed, the comment only grows.
+- **Comments use a closed set of five tags** — `CONTRACT:`, `WORKAROUND(<scope>):`, `WHY:`, `WARNING:`, `TODO(JE-<id>):` — and reference the vault as `See [[vault-id]]` (bare basename; no `docs/` prefix, no `.md`, no `#anchor`). Untagged comments stay ≤6 lines; **a block over 12 lines is an error**, and narrating debugging history is an error too.
+- **Load-bearing history is relocated, not deleted.** "We tried X and it broke Y" becomes a present-tense prohibition plus one concrete failure symptom (`CONTRACT: Do NOT …` / `WORKAROUND(local): Do NOT rely on …`); the narrative, transcripts, and dates go to a `docs/lessons/YYYY-MM-DD-<title>.md` note. A bare `See [[note]]` with no prohibition is NOT enough — an agent treats the vault as optional and reverts the workaround.
+- **A debugging loop that cost real time is a lesson candidate**, not a source comment. Surface it in your handoff summary so the parent routes it to `obsidian-vault`.
+- Full convention (tags, budgets, placement, the three-second test): `docs/shared/conventions/code-comments.md` → [[code-comments]]. Enforced by `make lint-comments` (baseline/ratchet: fails only on NEW violations) and a pre-commit hook installed once per clone with `make install-comment-hook` — `.git/hooks` is not version-controlled, so without that target the gate is inert.
+
 ### Scope
 - Stay within what was asked. No unrequested features, files, or refactors (YAGNI).
 
@@ -69,6 +89,24 @@ authorizer and never touch the gateway, so they miss gateway-only bugs (missing 
 dropped path param, method mismatch). An endpoint without gateway E2E is an incomplete
 change. Full convention: `docs/shared/conventions/testing.md` → [[testing]]; per-service
 specifics in each `services/<svc>/CLAUDE.md` §2b.
+
+**A NEW ROUTE IS NOT DONE WHEN THE SERVICE SERVES IT.** A plan that adds an endpoint must
+carry a task for each of these, or say why one does not apply. Every item below was missed
+at least once (cart milestone, 2026-08-25) and each was caught late — or nearly not at all:
+- **Gateway + nginx wiring.** A route absent from `infra/modules/api-gateway/main.tf`'s
+  route map 404s at the gateway while working perfectly on the service port. And without a
+  `location` block in `infra/modules/compute/nginx/nginx.conf`, a new top-level path falls
+  through to `location /` and silently reaches **Users**, not the service that owns it.
+  Diagnostic: a 404 carrying the gateway's own `{"message":"Not Found"}` rather than the
+  service's `{error: …}` shape means the request never reached the service. After the fix,
+  a **401 is the good answer** — it proves the route resolves and reached the authorizer.
+- **All three test layers**, not two. Internal E2E is the one quietly skipped, because the
+  gateway spec feels like it covers the same ground. It does not: it is slower and should
+  not carry the exhaustive cases.
+- **Load-test scenarios**, when the route changes how users reach an existing flow.
+- **Observability** — see the per-service logging rules; reads are not exempt.
+- **A preview surface must mirror how the charging code applies rounding**, not merely how
+  it rounds — see [[money-representation]].
 
 **Load testing lives beside E2E** in `e2e/load-tests/` (Gatling JS + Chance.js), and answers a
 different question: not "is it correct?" but "what shape does it have under sustained traffic?".
@@ -122,6 +160,7 @@ How Phase C issues are chained and reviewed (full convention: `docs/shared/conve
 - **Batch PRs for review.** At each stop point, present the user **one list** of open PRs to review/merge — never one-by-one.
 - **Dependency gates are stop points.** If issue B is blocked by A, B must build on A's **merged** work: implement everything independent first, open those PRs, then **stop** at the first blocked issue and hand the user the batch so far. After the user merges that batch, continue with the previously-blocked issues. A milestone may have several stop points.
 - **Never auto-merge.** The user merges (or explicitly authorizes the merge of) every PR; one approval authorizes only that PR/batch, never standing auto-merge.
+- **Review the diff AGAINST the brief, not on its own merits.** "Is this correct?" and "does this do everything it was asked to do?" are different questions, and only the first gets asked by default. Enumerate the brief's requirements and tick each one off against the diff; a requirement silently dropped in implementation leaves **no trace** — the shipped code is self-consistent, it passes review on its own terms, and the tests written alongside it cover what was built rather than what was specified. This is not hypothetical: the cart's concurrent-PUT retry was specified in the design spec from its first commit, shipped as an unhandled 500, passed its per-task review, and was caught only by chance in a later whole-branch pass. **Concurrency requirements are the highest-risk case**, since ordinary tests structurally do not exercise them. See [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]].
 
 ## Project decisions & memory
 

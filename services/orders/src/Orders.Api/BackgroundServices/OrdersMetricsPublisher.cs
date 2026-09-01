@@ -33,7 +33,9 @@ public class OrdersMetricsPublisher : BackgroundService
         _metrics = metrics;
         _tracer = tracer;
         _logger = logger;
-        // 15s locally, 60s in real AWS. Defaulted so no env file breaks by omitting it.
+        // The 15s default is only the fallback: real AWS and the local stack both
+        // run at 60s via METRICS_INTERVAL_MS. Defaulted so no env file breaks by
+        // omitting it.
         _interval = TimeSpan.FromMilliseconds(
             configuration.GetValue<int?>("METRICS_INTERVAL_MS") ?? 15_000);
     }

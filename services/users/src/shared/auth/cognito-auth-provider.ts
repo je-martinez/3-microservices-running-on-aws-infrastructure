@@ -1,5 +1,6 @@
 import {
   AdminCreateUserCommand,
+  AdminDeleteUserCommand,
   AdminSetUserPasswordCommand,
   AdminUpdateUserAttributesCommand,
   AdminInitiateAuthCommand,
@@ -7,6 +8,7 @@ import {
   type CognitoIdentityProviderClient,
 } from "@aws-sdk/client-cognito-identity-provider";
 import { context, propagation } from "@opentelemetry/api";
+import { getLogContext } from "#shared/logging/log-context";
 import type { AuthProvider, AuthTokens, CognitoSignUpResult, RefreshedTokens } from "./auth-provider.ts";
 import { InvalidCredentialsError, EmailAlreadyExistsError, InvalidOtpError } from "./auth-errors.ts";
 
@@ -37,6 +39,21 @@ import { InvalidCredentialsError, EmailAlreadyExistsError, InvalidOtpError } fro
 function traceContextMetadata(): Record<string, string> | undefined {
   const carrier: Record<string, string> = {};
   propagation.inject(context.active(), carrier);
+
+  // The E2E run id rides the SAME seam as traceparent, for the same reason:
+  // Cognito invokes the CUSTOM_AUTH trigger, so this request's context never
+  // reaches it, and ClientMetadata is the only caller-controlled field Cognito
+  // forwards verbatim.
+  //
+  // Added to the carrier AFTER the inject rather than gated behind it, and the
+  // difference is load-bearing: `propagation.inject` writes nothing when no span
+  // is active, so returning early on an empty carrier would drop the run id
+  // whenever tracing is off — and an E2E stack with tracing off is exactly the
+  // configuration where every OTP email would then land unattributed.
+  //
+  // Omitted, never blank, matching how traceparent behaves with no active span.
+  const runId = getLogContext().run_id;
+  if (runId) carrier.runId = runId;
 
   return Object.keys(carrier).length > 0 ? carrier : undefined;
 }
@@ -240,6 +257,25 @@ export class CognitoAuthProvider implements AuthProvider {
     } catch (e: any) {
       // Same mapping as setPassword: an unknown account must not be
       // distinguishable from any other failure by the error type alone.
+      if (e?.name === "UserNotFoundException") throw new InvalidCredentialsError();
+      throw e;
+    }
+  }
+
+  // Removes the account from the pool, which is what frees the email address for
+  // re-registration. See the port's note for why this is AdminDeleteUser and not
+  // AdminDisableUser, and why deleting here does not contradict our
+  // soft-delete-only rule for databases.
+  async deleteUser(email: string): Promise<void> {
+    try {
+      await this.client.send(
+        new AdminDeleteUserCommand({
+          UserPoolId: this.userPoolId,
+          Username: email,
+        }),
+      );
+    } catch (e: any) {
+      // Same mapping as setPassword and setMustChangePassword.
       if (e?.name === "UserNotFoundException") throw new InvalidCredentialsError();
       throw e;
     }

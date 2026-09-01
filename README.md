@@ -40,3 +40,12 @@ nvm use && node scripts/validate-vault.mjs
 ```
 
 The validator checks that every note under `docs/` (excluding `.obsidian/` and `superpowers/`) has the required frontmatter keys and that every `[[wikilink]]` resolves to an existing note. It exits `0` on success, `1` with a list of offenders otherwise.
+
+Source comments have their own gate:
+
+```bash
+make lint-comments        # whole repo
+make install-comment-hook # once per clone — blocks commits that add violations
+```
+
+`.git/hooks` is not version-controlled, so the hook lives in `.githooks/` and the target installs it. Run it after cloning, or the gate stays inert. Full convention: [`docs/shared/conventions/code-comments.md`](docs/shared/conventions/code-comments.md).

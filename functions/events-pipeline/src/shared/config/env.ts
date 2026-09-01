@@ -66,6 +66,27 @@ const EnvSchema = z.object({
   // `DOCDB_ECHO_COMMANDS=false` would silently enable the very thing it was
   // written to disable.
   DOCDB_ECHO_COMMANDS: z.enum(["true", "false"]).optional(),
+
+  // Gates the whole E2E email store: the write, the TTL index and the HTTP
+  // query route. The DEFAULT-OFF is the safety property, not a convenience — a
+  // deployed environment that never sets this stores no plaintext codes and
+  // serves no query route, so forgetting the variable fails closed.
+  //
+  // Same "true"/"false" enum as DOCDB_ECHO_COMMANDS above, for the same reason
+  // spelled out there: z.coerce.boolean() follows JS truthiness, under which the
+  // STRING "false" is true — and here that mistake would silently ENABLE a route
+  // that serves live OTP codes.
+  E2E_TESTING_ENABLED: z.enum(["true", "false"]).optional(),
+
+  // How long an e2e_emails document survives. One hour is far longer than any
+  // suite run (~5 minutes) and short enough that a forgotten local stack is not
+  // holding login codes overnight.
+  E2E_EMAIL_TTL_SECONDS: z.coerce.number().positive().default(3600),
+
+  // Shared secret for the query route. Optional here so a stack without E2E
+  // starts normally, but the route REFUSES to serve when it is unset rather
+  // than serving unauthenticated — see #e2e/http-query.
+  E2E_QUERY_TOKEN: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
@@ -85,3 +106,15 @@ export const docdbEchoCommands: boolean =
   parsed.DOCDB_ECHO_COMMANDS !== undefined
     ? parsed.DOCDB_ECHO_COMMANDS === "true"
     : parsed.DEPLOYMENT_ENVIRONMENT !== "production";
+
+/**
+ * Whether the E2E email store is active.
+ *
+ * A derived boolean rather than a raw string comparison at each call site: this
+ * value gates a collection holding plaintext OTP codes and an HTTP route that
+ * serves them, and `=== "true"` written out five times is five chances to write
+ * one of them as a truthiness check on the string.
+ *
+ * Unset means OFF. That is the whole point — see the schema comment.
+ */
+export const e2eTestingEnabled: boolean = parsed.E2E_TESTING_ENABLED === "true";

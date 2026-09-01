@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Orders.Application.Orders;
+using Orders.Domain;
 using Orders.Infrastructure.Observability;
 using Orders.Infrastructure.Persistence;
 
@@ -93,6 +94,11 @@ public class OrderReadService
             });
 
     private static OrderDto Map(Domain.Entities.Order o) => new(
-        o.Id, o.UserId, o.CognitoSub, o.SubtotalCents, o.TaxCents, o.ShippingCents, o.TotalCents, o.CreatedAt,
-        o.Details.Select(d => new OrderLineDto(d.ProductId, d.Quantity, d.SubtotalCents, d.TaxCents, d.TotalCents)).ToList());
+        o.Id, o.UserId, o.CognitoSub,
+        Money.FromCents(o.SubtotalCents), Money.FromCents(o.TaxCents), Money.FromCents(o.ShippingCents), Money.FromCents(o.TotalCents),
+        o.CreatedAt,
+        o.Details.Select(d => new OrderLineDto(
+            d.ProductId, d.Quantity,
+            Money.FromCents(d.SubtotalCents), Money.FromCents(d.TaxCents), Money.FromCents(d.TotalCents)))
+            .ToList());
 }

@@ -1,53 +1,9 @@
 #!/usr/bin/env python3
-"""Idempotent Cognito CUSTOM_AUTH trigger wiring via boto3.
-
-Used ONLY by modules/cognito/main.tf's terraform_data.auth_challenge_triggers,
-the same Floci-only workaround as terraform_data.pre_token_trigger
-(set_pre_token_trigger.py): the AWS provider pinned at 5.31.0 (ADR-0016) cannot
-express these LambdaConfig keys alongside the V2 pre-token config, so this
-script registers them directly, outside Terraform's resource lifecycle.
-
-Sets DefineAuthChallenge, CreateAuthChallenge, and VerifyAuthChallengeResponse
-in ONE update_user_pool call. Three separate scripts (or three calls) would each
-PUT the whole pool and clobber each other's LambdaConfig, leaving only the last
-one wired.
-
-All three ARNs are normally the SAME function — one Lambda dispatching on
-event.triggerSource (otp-challenge-lambda/index.mjs). They are separate env vars
-anyway so the three keys can be pointed at different functions later without a
-change here.
-
-SETTINGS-PRESERVING, same as set_pre_token_trigger.py ────────────────────────
-UpdateUserPool is a PUT, not a PATCH. A call passing ONLY LambdaConfig would
-reset every OTHER top-level pool setting (password Policies,
-AutoVerifiedAttributes, AdminCreateUserConfig, ...) to service defaults — which
-would silently re-tighten the intentionally relaxed local password policy and
-break E2E signups. So this reads the current pool, keeps the fields
-UpdateUserPool accepts, injects the three trigger keys, and re-applies it whole.
-
-That preservation extends to LambdaConfig itself: the EXISTING
-PreTokenGenerationConfig is carried through unchanged. Verified live that the
-challenge triggers coexist with it — but only because it is copied forward.
-Dropping it silently removes the app_user_id token claim, which fails as a
-downstream authorization bug far from this script.
-
-Schema/custom attributes are NOT re-passable via UpdateUserPool (create-only
-plus add-custom-attributes) and are deliberately NOT touched, so
-custom:app_user_id is safe.
-
-Required env vars (set by the calling local-exec provisioner):
-  USER_POOL_ID                              - Cognito User Pool id
-  DEFINE_AUTH_CHALLENGE_LAMBDA_ARN          - ARN for the DefineAuthChallenge key
-  CREATE_AUTH_CHALLENGE_LAMBDA_ARN          - ARN for the CreateAuthChallenge key
-  VERIFY_AUTH_CHALLENGE_RESPONSE_LAMBDA_ARN - ARN for the VerifyAuthChallengeResponse key
-  ENDPOINT_URL                              - optional endpoint override
-  AWS_REGION                                - AWS region
-
-Optional:
-  EXECUTION_LOG_TABLE - DynamoDB table recording this run for traceability
-                        (lib3mrai.execution_log). Unset = record nothing and
-                        behave exactly as if the log did not exist; the log
-                        never skips a run.
+"""WORKAROUND(local): Do NOT split the three challenge-trigger updates; each
+PUT replaces LambdaConfig and leaves only the last trigger wired.
+CONTRACT: Preserve pool settings and PreTokenGenerationConfig on the PUT;
+dropping them breaks E2E signups or removes app_user_id from issued tokens.
+See [[awscli-fallback-for-floci]], [[cognito-pre-token-lambda]]
 """
 
 import os
@@ -102,12 +58,8 @@ def require(name: str) -> str:
 
 
 class TriggersNotWired(RuntimeError):
-    """The post-update verification found one or more triggers absent/mismatched.
-
-    Exists so the execution log can observe a verification failure: reporting it
-    by RETURNING 1 is invisible to the wrapper (which detects failure only from
-    an exception) and would be recorded as "ok" — a traceability log claiming a
-    run succeeded when it did not. main() catches it and restores exit code 1.
+    """WHY: An exception lets the execution log observe verification failures.
+    Returning 1 inside the wrapper records false success; main restores exit 1.
     """
 
 

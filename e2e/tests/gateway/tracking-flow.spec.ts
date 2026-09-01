@@ -8,6 +8,10 @@ import {
   waitForEmailTo,
   type MailpitMessage,
 } from "../../support/mailpit-client.js";
+import {
+  waitForMyOrdersTrackingReadable,
+  waitForOrderTrackingReadable,
+} from "../../support/tracking-readiness.js";
 
 // The full cross-service journey, through the gateway only, in the order a real
 // client would walk it:
@@ -168,8 +172,40 @@ test("the full journey through the gateway: user → order → tracking → DELI
 
   expect(tracking.order_id).toBe(order.id);
   expect(tracking.id).toMatch(/^trk_/);
-  // Starts at PLACED, per the design's t=0 row.
-  expect(tracking.status).toBe("PLACED");
+
+  // Starts at PLACED, per the design's t=0 row — asserted on the FIRST HISTORY
+  // ROW, which is the durable record of where the tracking began, not on the live
+  // status.
+  //
+  // The live status is deliberately NOT pinned to PLACED here. TestMode
+  // progression starts the moment `init-tracking` returns, and this read happens
+  // after a register → login → catalogue → create-order chain plus
+  // `waitForTracking`'s own retry loop. Whether the first status is still on the
+  // wire by then is a function of `PROGRESSION_INTERVAL_SECONDS` (5s locally,
+  // 10s per the design), not of anything this spec controls — so
+  // `expect(tracking.status).toBe("PLACED")` was asserting that the test is
+  // faster than the service, which is a race, not a contract. Measured: 0/5
+  // passes in the gateway project at the 5s cadence, 3/3 when run alone.
+  //
+  // What IS invariant, and what replaces it: the live status must be a member of
+  // the five-status chain, and it must sit at or after PLACED and at or before
+  // DELIVERED — i.e. the tracking cannot start outside the progression, cannot
+  // start past the terminal state, and cannot report a status the design never
+  // defines. A tracking that came up as SHIPPED_TO_MARS, as DELIVERED at t=0, or
+  // with an empty history still fails here. The forward-only walk and the exact
+  // five-row chain are proven in full at step 6, on the settled history, where
+  // they can be asserted without racing the progression.
+  const liveIndex = PROGRESSION.indexOf(tracking.status as never);
+  expect(
+    liveIndex,
+    `tracking.status "${tracking.status}" is not one of the five progression statuses`,
+  ).toBeGreaterThanOrEqual(0);
+  expect(
+    liveIndex,
+    `a freshly created tracking is already DELIVERED (status "${tracking.status}") — ` +
+      "the progression cannot have legitimately completed before the first read",
+  ).toBeLessThan(PROGRESSION.length - 1);
+
   expect(tracking.history.length).toBeGreaterThanOrEqual(1);
   expect(tracking.history[0].status).toBe("PLACED");
 
@@ -416,7 +452,25 @@ test("includeTracking returns Tracking's payload mapped onto the shape Orders de
 
   // Orders calls init-tracking after its own transaction commits, so give the row a
   // moment to exist before asking for it.
+  //
+  // ## Waiting for Tracking's own 200 is NOT enough here — measured, not assumed
+  //
+  // `waitForTracking` proves the row exists in TRACKING. This spec asserts on what
+  // ORDERS returns, and the two are not the same instant: Orders reads Tracking over
+  // HTTP with a bounded 2s budget (`TrackingHttpClient.ReadTimeout`), and a read that
+  // overruns it degrades to `tracking: null` by design. Observed on this stack —
+  // `tracking_read_failed reason="unreachable" status=0` exactly 2006ms after the
+  // request, for an order whose tracking Tracking was already serving; the next read
+  // succeeded in 1262ms. Across three runs Orders lagged Tracking's 200 by 1.8–4.0s.
+  //
+  // That is what made this test fail once the cache stopped storing null trackings:
+  // the null it read was never a cache artefact, it was this window. So the wait is
+  // on ORDERS' OWN response — the thing actually asserted on — for both the single
+  // read and the list read, which fan out through DIFFERENT routes into Tracking
+  // (single vs. batch) and become ready independently.
   await waitForTracking(api, order.id);
+  await waitForOrderTrackingReadable(api, `v1/orders/${order.id}?includeTracking=true`);
+  await waitForMyOrdersTrackingReadable(api, "v1/orders/my-orders?includeTracking=true");
 
   // --- The default must stay untouched -------------------------------------
   // Every existing caller reads this endpoint without the parameter, and their payload

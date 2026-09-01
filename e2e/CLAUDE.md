@@ -33,7 +33,10 @@ Run `nvm use` first (repo pins Node **24.18.0**), and **pnpm only** — never np
 
 **Gatling** (`e2e/load-tests/`):
 - `pnpm run smoke` (~30s sanity) · `pnpm run load` · `pnpm run users` ·
-  `pnpm run auth-codes`
+  `pnpm run auth-codes` · `pnpm run cache-ab` (the cache A/B; drive it via
+  `make load-test-cache-ab-on` / `-off`, which flip `CACHE_ENABLED` and restart
+  the services for you — then `make cache-toggle V=true` to restore, or every
+  cache spec fails with "no X-Cache header at all")
 - **No JDK.** The CLI downloads its own runtime into `~/.gatling/`.
 - Tune any profile without editing a file:
   `pnpm exec gatling run --typescript --simulation fullJourney usersPerSec=5 duration=600`
@@ -61,6 +64,26 @@ turns on them:
   someone else's teardown to delete.
 - **`x-test-mode: true`** (on order creation) makes a tracking advance itself
   every 10s to DELIVERED, so a delivery flow can be asserted in 40 seconds.
+- **`x-e2e-run-id`** attributes every email a request causes to THIS invocation,
+  so the pipeline's fixture collection can be read per run instead of blindly
+  across workers and reruns. Minted once in `support/global-setup.ts` and passed
+  to the workers through the environment (they are separate processes, so a
+  module constant would give each worker its own id). Same conjunction rule as
+  the two above: honored only when the receiving service has
+  `E2E_TESTING_ENABLED`. On the OTP path it rides Cognito's `ClientMetadata` —
+  the only caller-controlled field Cognito forwards to a trigger verbatim, and
+  the same seam `traceparent` already uses.
+- **Run-id scoping on teardown (Tracking only).** Rows the harness creates can
+  carry a second tag, `"E2E Run <run_id>"`, so `DELETE /v1/trackings/e2e-cleanup`
+  can require BOTH `"E2E Source"` and that run tag instead of sweeping every
+  E2E-tagged row globally. `support/global-teardown.ts` passes
+  `?run_id=<E2E_RUN_ID>` when the id is present and valid; without one (an
+  internal-only run, or manual teardown) the call stays unscoped and deletes
+  everything tagged `"E2E Source"`, exactly as before. That fallback matters for
+  load tests and ad-hoc cleanup. Orders and Users teardown stay unscoped — they
+  have no in-process progression that dies when another run's sweep deletes a
+  row mid-flight (Tracking's TestMode goroutine does, which is why only Tracking
+  needed this).
 
 **Load simulations send neither**, deliberately:
 - Load data is meant to persist like real data, so it is **not** cleaned up —
@@ -68,6 +91,75 @@ turns on them:
 - Without `x-test-mode` a tracking does not advance on its own, which is why the
   simulation drives it through the **carrier webhook** — the way a real carrier
   does.
+
+### Do not run a load simulation and the E2E suite against the same stack
+
+Not a style preference — it makes **every email-asserting spec fail**, and the
+failure looks exactly like a broken pipeline. Diagnosed 2026-08-25, after five
+E2E failures (4× OTP/password-reset, 1× tracking DELIVERED) that were all this.
+
+The mechanism, because the rule alone is not enough to recognise it:
+
+- A load run publishes several hundred `loadtest-*` events onto the **shared**
+  SQS queue — the same one Users, Orders and Tracking use.
+- The events-pipeline Lambda drains it at **~1 msg/s**. Records are processed
+  **sequentially** (`for (const record of event.Records)` in
+  `functions/events-pipeline/src/handler.ts`), ~**376 ms** each (p50 347, p95
+  574, over 920 records), dominated by the react-email render on a **256 MB**
+  function — Lambda CPU scales with memory.
+- So an OTP, reset or DELIVERED event published behind ~800 messages waits
+  **~13 minutes**, while every spec awaiting an email gives up after **45 s**.
+
+**The emails are not lost — they arrive far too late.** This is the part worth
+remembering: `waitForEmailTo` fails with *"NOTHING arrived"*, which reads as a
+broken pipeline and sends you hunting a defect in dispatch, SES or Mailpit. All
+three are fine. Verified by re-running the same specs with no code change:
+
+| Queue depth | Result |
+|---|---|
+| ~800 | 2 failed — "NOTHING arrived within 45s" |
+| 0 | **14/14 passed**, emails in **13 s** |
+
+Measured drain, sampled live: `827 → 727 → 567 → 417 → 237 → 0` over ~18 min,
+a steady ~50 msg/min.
+
+`support/global-setup.ts` **warns** (never fails — it cannot tell an
+email-asserting run from the majority of specs that never touch the pipeline)
+when the queue is deeper than `EVENTS_QUEUE_WARN_DEPTH`; the threshold's
+arithmetic lives in `support/events-queue-depth.ts`. If you see that warning,
+wait for the queue to drain or reset with `make clean && make bootstrap`.
+
+### The email record store — a diagnostic channel, never an assertion channel
+
+`support/email-store-client.ts` reads back what the events-pipeline recorded for
+the current run (see `functions/events-pipeline/CLAUDE.md` §3c), over the events
+Lambda's Function URL.
+
+**The rule, and it is not negotiable: specs still wait for and assert the REAL
+email.** A spec that reads its OTP out of this store instead of the message stops
+proving delivery end to end, and a green suite bought that way is worse than a
+red one. Deleting every use of this client must leave the suite still proving
+email delivery.
+
+What it adds is the one fact a bare "nothing arrived in 45s" cannot supply:
+
+| store says | what it proves | where to look |
+|---|---|---|
+| recorded | the pipeline **did** render and send it — the failure is delivery timing. **Conclusive.** | Floci's ~1 ev/s ceiling, [[2026-08-29-the-emulator-was-the-ceiling-not-the-code]] |
+| nothing recorded | **"not yet", not "never"** — inconclusive alone | the events queue depth: non-zero = late, zero = genuinely lost |
+
+The asymmetry is the point, and it was learned the hard way. The store is written
+**after** the send, so a backlog delays the RECORD exactly as it delays the mail:
+on a cold run a spec timed out at 45s and its OTP was recorded at **2m25s** —
+real, and simply later than anyone was looking. An earlier version of this
+message concluded "the pipeline never rendered one", which is the opposite of the
+truth and sends the reader hunting a defect that does not exist.
+
+`describeRecordedEmails(address)` returns that verdict as a block to append to a
+failure message; `otp.spec.ts` and `gateway/otp-flow.spec.ts` wrap their email
+wait with it. The client **cannot fail a test** — missing config disables it, any
+error returns empty, and it catches its own failures, because a diagnostic that
+throws would replace a clear timing failure with a confusing connection error.
 
 ## 5. Auth surfaces
 
@@ -118,6 +210,7 @@ These were all measured, not guessed:
 ## 8. Design reference
 
 - Testing convention: [../docs/shared/conventions/testing.md](../docs/shared/conventions/testing.md)
+- Code comments: [../docs/shared/conventions/code-comments.md](../docs/shared/conventions/code-comments.md) → [[code-comments]]
 - Load-test README: [load-tests/README.md](load-tests/README.md)
 - Gatling conventions: `.claude/skills/gatling-js/SKILL.md`
 - The metrics these runs are meant to make readable:

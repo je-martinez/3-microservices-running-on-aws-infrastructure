@@ -1,3 +1,205 @@
+## code-comments.md
+
+# Code comments — describe the final state, never append debugging history
+
+Code keeps the **invariant**, the **failure consequence**, and a **pointer**. The
+vault keeps the history, the rejected alternatives, the measurements, the error
+transcripts, and the verification dates.
+
+Applies to comments in `.tf`, `.py`, `.ts`, `.js`, `.mjs`, `.cs`, and `.go`
+source files. It does **not** apply to vault notes, generated files, or vendored
+code. `spike/` is excluded as throwaway.
+
+## Rewrite on edit, never append
+
+When you fix or change a block you already commented, **rewrite that comment to
+describe the final state.** Do not append what failed, what you tried, or why the
+previous attempt was wrong.
+
+This is the loop that produces 100-line comment essays: the code gets fixed, the
+comment only grows. Past-tense narration of earlier attempts — *used to*,
+*previously*, *tried*, *turned out*, *the fix was*, *no longer* — does not belong
+in source.
+
+This axis is **narrative accumulation, not line count**. A 3-line comment can be
+a diary and a 12-line comment can be a clean description; it is independent of
+the length budget below.
+
+Accumulated history rots with no compiler or linter feedback to catch it.
+Measured in this repo: 63 comment lines carry narrative markers, and **30
+comments still name Jaeger**, removed on 2026-08-21 and no longer running
+anywhere in the stack. Stale history does not merely add noise — it misinforms
+every later reader, human or agent.
+
+## Five tags, and only five
+
+Every non-trivial comment block starts with exactly one. Scope values in
+`WORKAROUND(<scope>)` are lowercase: `local`, `provider`, `runtime`.
+
+| Tag | Purpose | Must state |
+|---|---|---|
+| `CONTRACT:` | Load-bearing invariant: identifier stability, serialization format, omission rule, cross-service schema | The invariant AND what breaks if violated |
+| `WORKAROUND(<scope>):` | Deliberate departure from normal code due to an external constraint | What is bypassed, the failure symptom, and why prod differs |
+| `WHY:` | Non-obvious local decision whose rationale fits inline | The reason, not code narration |
+| `WARNING:` | Operational hazard or security boundary | The concrete consequence, not "be careful" |
+| `TODO(JE-<id>):` | Tracked debt | The Linear issue ID and the removal condition |
+
+The set is **closed**. `FIXME:` duplicates `TODO:` without ownership or an exit
+condition; `HACK:` states an opinion rather than whether the code is safe to
+remove; `XXX:` has no stable meaning and is hostile to search; `NOTE:` becomes a
+catch-all that defeats the taxonomy. Do not introduce a sixth tag — including for
+regression guards in tests, which use `CONTRACT:`.
+
+Exempt from tagging: one-line section dividers (`# ─── Name ───`) and tool
+directives (`// eslint-disable`, `# tfsec:ignore`).
+
+Obvious narration (`// Return the result`) and commented-out code must not be
+committed — version control already preserves the latter.
+
+## Length budget
+
+- Untagged comment: **up to 6 lines** (p75; keep it to 3 where the point fits). Section
+  divider: 1 line.
+- Tagged entry: target **≤6 lines** (the repo's own healthy p75).
+- 7–12 lines: allowed only when tagged `CONTRACT:`/`WORKAROUND(...)` **and**
+  carrying a `See [[...]]` reference.
+- **Over 12 lines must not be committed — hard error.**
+
+The threshold is p90, chosen to isolate the ~9% of blocks that are the actual
+problem while leaving the healthy median untouched.
+
+## References — `See [[vault-id]]`
+
+Reference a vault note with the **bare basename**:
+
+```
+See [[awscli-fallback-for-floci]]
+```
+
+A reference must **not** carry a leading `docs/`, a trailing `.md`, or a heading
+anchor. This exact form is load-bearing rather than cosmetic: the vault validator
+indexes bare basenames, so `See [[foo]]` survives a note moving between
+`docs/lessons/` and `docs/shared/patterns/`, while `See docs/shared/patterns/foo.md`
+does not resolve and rots the moment the note moves. Heading anchors are never
+validated, so they rot silently.
+
+Every `CONTRACT:` and `WORKAROUND(...)` block carries a `See [[...]]` where a
+durable vault note exists. `WHY:` may omit it.
+
+## Load-bearing history is relocated, not deleted
+
+The knowledge that stops someone re-trying a failed approach must survive — as a
+**prohibition**, not as a story. "We tried X and it broke Y" becomes a
+present-tense prohibition plus **one concrete failure symptom**:
+
+```
+// CONTRACT: Do NOT <prohibited action>. <Concrete failure symptom>.
+// See [[vault-id]]
+```
+
+```
+// WORKAROUND(<scope>): Do NOT rely on <mechanism>. <Failure symptom if violated>.
+// See [[vault-id]]
+```
+
+Write one by: using present tense or the imperative (never "we tried"), naming
+the prohibited action explicitly, naming the exact failure symptom rather than a
+vague warning, and carrying `See [[vault-id]]` when a durable note exists.
+
+**A bare `See [[note]]` with no prohibition is not enough.** An agent treats the
+vault as optional background, never opens it, and reverts the workaround. Keep
+both the prohibition and one symptom inline.
+
+The narrative, transcripts, and dates go to a lesson note named
+`YYYY-MM-DD-<title>.md` under the vault's `lessons` folder.
+
+| Stays in code (present tense) | Moves to a vault note |
+|---|---|
+| The invariant the code enforces today | The chronological sequence of attempts |
+| The explicit prohibition (`Do NOT …`) | Why an earlier hypothesis failed |
+| One concrete failure symptom | Error transcripts, stack traces, CLI output |
+| Systems that currently exist | Retired systems and removed packages |
+| `See [[vault-id]]` | The full diagnosis and its measurements |
+
+## Placement
+
+1. Put the tagged entry immediately above the **smallest** resource, argument, or
+   statement it governs.
+2. The tag goes on the first line after the comment delimiter.
+3. In C# XML docs, keep tags inside `<remarks>` or a concise `<param>`. Never
+   invent custom XML pseudo-elements — they corrupt IDE tooltips and Roslyn
+   analyzers.
+4. Never paste CLI transcripts, stack traces, or verification dates
+   (`verified 2026-08-09`) into source. Those belong in the vault note.
+5. Repeat a `CONTRACT:` at each independent site that can violate it. Do **not**
+   repeat the history.
+6. Prefer executable enforcement where possible — a validation, a type, a schema,
+   or a Terraform precondition. The comment then explains the non-local reason
+   that enforcement exists.
+
+## A costly debugging loop is a lesson candidate
+
+If you burned real time on a discovery, it does **not** become a source comment.
+Surface it in your **handoff summary** — title, symptom, root cause — so it can be
+routed into the vault as a lesson. Do not write to the vault yourself; see the
+prohibitions in `AGENTS.md`.
+
+## The three-second test
+
+Run this before committing any comment:
+
+1. **Tense** — does a sentence describe earlier code or a past debugging step?
+   Rewrite it in the present, or move it to a lesson note.
+2. **Ghost** — does it name a library, service, or port that is not in the
+   current stack? Delete the ghost.
+3. **Deletion** — if you delete the sentence, is a prohibition lost? If yes,
+   condense it into a negative constraint. If no, delete it.
+
+## Worked rewrite
+
+The point is not the one line saved — it is that the comment stops narrating and
+starts prohibiting, which no length rule would ever catch.
+
+Before:
+
+```typescript
+// A missing `sub` used to fall back to the email. That is a silent
+// corruption: the email would be hashed into the idempotency key as if it
+// were a sub. Fail loudly instead.
+```
+
+After:
+
+```typescript
+// CONTRACT: Do NOT fall back to email when Cognito returns no sub — the email hashes into
+// the idempotency key as if it were a sub (silent corruption). Throw instead.
+// See [[logging-context]]
+```
+
+## Enforcement
+
+Checked by `scripts/validate-comments.py`, wrapped by Make targets:
+
+```
+make lint-comments        # whole repo
+make lint-comments-diff   # the current diff (COMMENT_DIFF_REF=main)
+make install-comment-hook # once per clone — installs the pre-commit gate
+```
+
+It operates as a **baseline/ratchet** against `scripts/comment-baseline.json`:
+pre-existing violations are frozen and it fails only on **new** ones. Do not run
+`--update-baseline` to make your own violation disappear — that flag is for
+dedicated cleanup work.
+
+`.git/hooks` is not version-controlled, so the hook lives in `.githooks/` and
+stays inert until `make install-comment-hook` runs. It lints the staged content,
+skips merge commits, and `git commit --no-verify` bypasses it.
+
+Full convention, including per-language examples and the migration plan:
+`docs/shared/conventions/code-comments.md`.
+
+---
+
 ## documentation-vault.md
 
 # Documentation vault (`docs/`)
@@ -144,6 +346,59 @@ This rule overrides any tool, skill, or workflow that commits automatically.
 **Never auto-merge.** The user merges (or explicitly authorizes the merge of)
 every PR; one approval authorizes only that PR or batch.
 
+## If you are a dispatched agent, you NEVER run git — no exceptions
+
+This applies to **every agent, of every vendor** — Claude, Codex, Cursor,
+Antigravity, Gemini, or any other — and whether you were dispatched through Orca
+orchestration, a subagent tool, or a prompt pasted into your terminal.
+
+**You do not run `git commit`, `git push`, `git merge`, `git rebase`, `git tag`,
+`gh pr create`, or `gh pr merge`. Ever.** You finish your work, leave it in the
+working tree, and report what you changed. The main session — the one actually
+talking to the user — is the only place a git write is proposed and confirmed.
+
+The confirmation flow above is a conversation with the **user**. You are not in
+that conversation, so you cannot satisfy it. These do NOT authorize you:
+
+- The task brief did not say "do not commit". Silence is not permission; this
+  rule is the default and it is always on.
+- Your change is small, obviously correct, self-contained, or fully tested.
+  Correctness was never the question — authorization is.
+- You are finishing, and committing feels like the tidy way to hand work over.
+  Leaving it uncommitted **is** the handover.
+- Someone else's uncommitted work is in the tree and you want to isolate yours.
+  Say so in your report instead.
+- A skill, template, or habit of yours ends a task with a commit. This rule
+  overrides it.
+
+This is not a formality. A dispatched agent that commits on its own:
+
+- **pushes work the user never reviewed**, and if it also pushes, puts it on a
+  shared branch and into an open PR where it cannot be quietly undone;
+- **can sweep up other agents' in-flight edits** when several workers share a
+  worktree — `git add -A` or a broad pathspec does not know which changes are
+  yours;
+- **breaks the batch review the repo is built around**, where the user sees one
+  coherent set of changes and one proposed message per logical unit.
+
+Observed on 2026-08-31: a dispatched worker fixing a single spec ended its task
+by committing AND pushing to the shared feature branch. The change itself was
+good; it still bypassed review, and the commit could not be undone without
+rewriting a pushed branch. Hence this section.
+
+**What to do instead, always:** leave every file edited and uncommitted, then
+report which files you touched and why. If you believe a commit is genuinely
+needed before you can continue, stop and say so in your report — the parent will
+decide and, if appropriate, ask the user.
+
+The only actor that may run git is the main session, and only after the user
+picks one of the five options above. (`github-ops` is an optional helper the main
+session may delegate a git batch to — it is not a dispatched implementer, and it
+asks for the same confirmation.)
+
+**Read-only git is fine** and often useful: `git status`, `git diff`, `git log`,
+`git show`. The prohibition is on writes.
+
 ## Conventional Commits v1.0.0
 
 All commits and PR titles follow <https://www.conventionalcommits.org/en/v1.0.0/>:
@@ -184,6 +439,32 @@ absence of a reference never stops the commit.
   on A's **merged** work. Implement everything independent first, open those
   PRs, then stop and hand over the batch. Continue after the user merges it. A
   milestone may have several stop points.
+
+## Review the diff against the brief, not on its own merits
+
+*"Is this correct?"* and *"does this do everything it was asked to do?"* are
+different questions, and **only the first gets asked by default.**
+
+When reviewing, **enumerate the brief's requirements** — the spec, the plan, the
+issue, the task description — and tick each one off against the diff. Do not judge
+the diff holistically.
+
+A requirement silently dropped during implementation leaves **no trace**. The
+shipped code is self-consistent, it passes review on its own terms, and the tests
+written alongside it cover **what was built rather than what was specified**. There
+is nothing in the diff to notice, which is exactly why a holistic read cannot
+catch it.
+
+This is not hypothetical. The cart's concurrent-`PUT` retry was specified in the
+design spec from its **first commit**, shipped as an unhandled `500`, passed its
+per-task review, and was caught only by chance in a later whole-branch pass.
+
+**Concurrency requirements are the highest-risk case**, since ordinary tests
+structurally do not exercise them: a race needs two callers interleaved at a
+precise point, so a suite can be complete by its own measure and still never
+execute the path the spec was written about.
+
+Full lesson: `docs/lessons/2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec.md`.
 
 ---
 
@@ -317,6 +598,47 @@ Flow logs carry `app_event`, valued `<flow>_started`, `<flow>_succeeded`, or
 There is **no SUCCESS severity** — SUCCESS is not an OpenTelemetry level.
 Success is `INFO` plus `app_event=*_succeeded`.
 
+## Which endpoints owe a flow log — READS INCLUDED
+
+**Every endpoint gets a workflow span and at least one flow log. A read is not
+exempt.** This was got wrong once, on the strength of an unverified claim that
+reads carry no flow logs, so it is worth stating plainly. The *shape* differs
+between reads and writes, and that difference is the whole point:
+
+- **Reads** (e.g. `list_my_orders`, `read_cart`) get a span plus **one
+  `_succeeded` line carrying a count** — no `_started` twin, no `_failed`
+  branch. There is no intermediate step at which `_started` could be the last
+  line seen, and the method names no failure of its own: a DB fault throws out
+  of the workflow wrapper, which already records it on the span. Inventing a
+  `reason` for a branch the code does not have is exactly what this convention
+  forbids.
+- **Writes** (e.g. `create_order`, `update_cart`, `delete_cart`) get the full
+  `_started` / `_succeeded` / `_failed` triad plus `reason` on failures, because
+  they *do* have real intermediate steps at which `_started` can be the last
+  thing seen.
+
+### Emit the line inside the activity
+
+The `_succeeded` line must be written **inside** the workflow span so it carries
+that span's `span_id`. The outer per-request completion line is written under the
+framework's own HTTP span and cannot serve a span-scoped log lookup — a query
+joining logs to a workflow span will simply not find it.
+
+### Never re-pass identity at a call site
+
+Do not pass `cognito_sub` / `user_id` again where an enricher already attaches
+them to every line (in the Orders service, Serilog's `LogContextEnricher`).
+Duplicating them is how a PII-adjacent field ends up somewhere nobody audits.
+Pass only the count or the flow-specific field.
+
+### Instrument the entry point, not a shared helper
+
+Put the span on the **endpoint's entry point**, not on a helper it happens to
+call. A helper reused by the write path — in Orders, `CartReadService.BuildAsync`
+renders the response for the write path too — emits a spurious nested *read* span
+inside every write when instrumented. The span belongs on `GetMyCartAsync`, the
+entry point, not on the shared builder.
+
 ## OpenTelemetry configuration lives in environment variables, not code
 
 Endpoint, protocol, and the disabling of the metrics/logs exporters all go in
@@ -382,6 +704,13 @@ Full convention: `docs/shared/conventions/package-manager.md`.
 
 - **Python by default** for new scripts: infra scripting, Terraform pre/post
   effects, and anything touching AWS, JSON, or non-trivial control flow.
+
+> **Python is the scripting default and has not left this repo.**
+> `infra/scripts/lib3mrai/`, `doctor.py`, `bootstrap.py` and ~29 other files are
+> Python and stay Python. What ended on 2026-08-27 is Python as a **service
+> runtime**: the four service runtimes are Node/Fastify (Users), .NET (Orders),
+> Go/Gin (Tracking), and Node/TypeScript (the two Lambdas). Do not read the Go
+> migration as a reason to write a new infra script in anything but Python.
 - **JavaScript** only when the task already lives in the Node ecosystem present
   here (vault tooling, the pnpm workspace, its dependencies). That is why
   `scripts/*.mjs` stay JS.
@@ -439,6 +768,56 @@ pending a nice-to-have.
 Per-service specifics live in each `services/<svc>/CLAUDE.md` (or the equivalent
 service instruction file), section 2b.
 
+## A NEW ROUTE IS NOT DONE WHEN THE SERVICE SERVES IT
+
+A plan that adds an endpoint must carry a task for **each** item below, or state
+why one does not apply. Every one of them was missed at least once (cart
+milestone, 2026-08-25) and each was caught late — or nearly not at all.
+
+### Gateway + nginx wiring
+
+Two separate places route a request before it reaches your handler, and neither
+fails loudly:
+
+- A route absent from the gateway's route map
+  (`infra/modules/api-gateway/main.tf`) **404s at the gateway** while working
+  perfectly on the service port.
+- Without a `location` block in `infra/modules/compute/nginx/nginx.conf`, a new
+  top-level path falls through to `location /` and silently reaches **Users** —
+  not the service that owns it. It answers; it is simply the wrong service.
+
+**Diagnostic:** a 404 carrying the gateway's own `{"message":"Not Found"}` body,
+rather than the service's `{error: …}` shape, means the request never reached the
+service at all. Read the body, not just the status.
+
+**After the fix, a 401 is the good answer.** It proves the route resolves and got
+as far as the authorizer. Do not read it as a regression.
+
+### All three test layers, not two
+
+**Internal E2E is the one quietly skipped**, because the gateway spec feels like
+it covers the same ground. It does not: the gateway spec is slower and should not
+carry the exhaustive cases, so dropping the internal layer silently drops the
+exhaustive coverage with it.
+
+### Load-test scenarios
+
+Required when the route changes how users reach an **existing** flow — a new
+entry point to a covered journey leaves the old simulation measuring a path real
+users no longer take.
+
+### Observability
+
+Every endpoint owes a workflow span and at least one flow log. **Reads are not
+exempt** — see `.ai/rules/logging-and-pii.md`, "Which endpoints owe a flow log".
+
+### Preview surfaces and rounding
+
+A preview surface must mirror **how the charging code applies rounding**, not
+merely how it rounds. Matching the rounding function while applying it at a
+different point (per line vs. per total) still quotes a price the charge will not
+match. See `docs/shared/conventions/money-representation.md`.
+
 ## Load testing is a fourth, different surface
 
 Load tests live in `e2e/load-tests/` (Gatling JS + Chance.js), beside the
@@ -484,6 +863,57 @@ does.
   measured in seconds never smears a service's real ~26ms latency.
 - **Assert only on our own endpoints** — holding a third party's latency to a
   budget fails the run for something the simulation does not measure.
+
+### Never run a load simulation and the E2E suite against the same stack
+
+Not a style preference — it makes **every email-asserting spec fail**, and the
+failure looks exactly like a broken pipeline. Diagnosed 2026-08-25, after five
+E2E failures (4× OTP/password-reset, 1× tracking DELIVERED) that were all this
+one environmental cause.
+
+The mechanism, because the rule alone is not enough to recognise it:
+
+- A load run publishes several hundred `loadtest-*` events onto the **shared**
+  SQS queue — the same one Users, Orders and Tracking use.
+- The events-pipeline Lambda drains it at **~0.83 msg/s** (~50 msg/min). Records
+  are processed **sequentially** (`for (const record of event.Records)` in
+  `functions/events-pipeline/src/handler.ts`), ~**376 ms** each (p50 347, p95
+  574, over 920 records), dominated by the react-email render on a **256 MB**
+  function — Lambda CPU scales with memory.
+- So an OTP, reset, or DELIVERED event published behind ~800 messages waits
+  **~13 minutes**, while every spec awaiting an email gives up after **45 s**.
+
+**The emails are not lost — they arrive far too late.** This is the part worth
+remembering, and the reason the rule is written out rather than stated: the
+timeout reports *"NOTHING arrived"*, which reads as a broken pipeline and sends
+you hunting a defect in dispatch, SES, or Mailpit. All three are fine. Verified
+by re-running the same specs with **no code change in between**:
+
+| Queue depth | Result |
+|---|---|
+| ~800 | 2 failed — "NOTHING arrived within 45s" |
+| 0 | **14/14 passed**, emails in **13 s** |
+
+Measured drain, sampled live: `827 → 727 → 567 → 417 → 237 → 0` over ~18 min.
+
+`e2e/support/global-setup.ts` **warns** when the backlog exceeds
+`EVENTS_QUEUE_WARN_DEPTH`; the arithmetic lives in
+`e2e/support/events-queue-depth.ts`. **If you see that warning, wait for the
+queue to drain or reset with `make clean && make bootstrap`** — do not start
+debugging the pipeline.
+
+Three properties of that check are deliberate, and worth preserving if you touch
+it:
+
+- **It warns, it never fails.** It cannot tell an email-asserting run from the
+  majority of specs that never touch the pipeline, and blocking those would turn
+  a narrow problem into a total one.
+- **It is silent when the depth cannot be read** (returns `null`, never `0`). A
+  diagnostic that can itself fail a run is worse than the problem it reports.
+- **The threshold is derived, not picked round** — 45 s budget − 13 s healthy
+  delivery = 32 s headroom, × 0.83 msg/s ≈ 26, rounded **down** to 25 so the
+  warning fires slightly early. If the Lambda's per-record cost or concurrency
+  changes, **redo the arithmetic; do not nudge the constant.**
 
 ## Mocks hide schema bugs
 

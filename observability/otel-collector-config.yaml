@@ -44,14 +44,21 @@ receivers:
     # with PutMetricData; see the design spec for why CloudWatch is the source of
     # truth rather than a bypassed intermediary.
     metrics:
-      # LOCAL values. Real AWS uses 60s/60s (CloudWatch's standard resolution) and
-      # keeps the default delay.
+      # 60s/60s, matching CloudWatch's standard resolution — the same values real
+      # AWS uses, which is why this no longer needs to be a local-only override.
+      #
+      # These MUST track the publishers. The services emit every 60s
+      # (METRICS_INTERVAL_MS / METRICS_INTERVAL_SECONDS in the generated env
+      # files); a 15s `period` against a 60s publisher leaves three of every four
+      # aggregation windows empty, and a gauge read with Maximum then renders as
+      # gaps instead of a flat level. Changing one side without the other is what
+      # produces a dashboard that looks broken while every service is healthy.
       #
       # collection_interval MUST be >= period — the receiver validates this at
       # startup and refuses to boot otherwise. That is a loud failure, which is
       # what we want.
-      collection_interval: 15s
-      period: 15s
+      collection_interval: 60s
+      period: 60s
       # LOCAL ONLY, and load-bearing. The default is 10 MINUTES: it shifts the
       # query window back to compensate for real CloudWatch's publication latency.
       # Floci has no such latency, so leaving the default means NOTHING appears
@@ -430,20 +437,21 @@ processors:
 
           # NOTE — deliberately NOT normalizing severity spellings here.
           #
-          # Tracking used to emit Python's WARNING where every other service
-          # emits the OTel name WARN, and the tempting fix was a rewrite rule in
-          # this file. That is the wrong layer: it leaves the service emitting a
-          # value that violates the shared schema and hides it downstream, so the
-          # next reader of this config cannot tell whether any producer is still
-          # wrong, and anything reading the service's stdout directly (docker
-          # logs, a local run) still sees the bad name. Two sources of truth for
-          # one contract.
+          # Tracking (then Python/FastAPI) once emitted WARNING where every
+          # other service emits the OTel name WARN, and the tempting fix was a
+          # rewrite rule in this file. That is the wrong layer: it leaves the
+          # service emitting a value that violates the shared schema and hides it
+          # downstream, so the next reader of this config cannot tell whether any
+          # producer is still wrong, and anything reading the service's stdout
+          # directly (docker logs, a local run) still sees the bad name. Two
+          # sources of truth for one contract.
           #
-          # Fixed at the producer instead — services/tracking/.../json_formatter.py
-          # maps levelno to the OTel name rather than passing record.levelname
-          # through. The mappings ABOVE are a different thing and belong here:
-          # they translate a FOREIGN vocabulary (Pino's numbers, MongoDB's letter)
-          # that those producers are correct to emit in their own terms.
+          # It was fixed at the producer instead, and the Go rewrite inherited
+          # that rule rather than the workaround: slog emits the OTel names
+          # natively (services/tracking-go/internal/platform/logging/). The
+          # mappings ABOVE are a different thing and belong here: they translate
+          # a FOREIGN vocabulary (Pino's numbers, MongoDB's letter) that those
+          # producers are correct to emit in their own terms.
 
           # Promote our severity onto the log record's NATIVE severity fields.
           #
@@ -822,8 +830,12 @@ processors:
   # Two shapes of SQL log reach here, and the pair of conditions below must
   # recognise BOTH or the streams stop being complements:
   #
-  #  - SQLAlchemy (tracking) echoes the bare statement, so `message` itself
-  #    starts with the keyword.
+  #  - A driver that echoes the bare statement, so `message` itself starts with
+  #    the keyword. This was SQLAlchemy under the Python Tracking service; the Go
+  #    rewrite has a config flag for it (config.EchoSQL) but does not currently
+  #    wire an echo logger, so nothing is producing this shape right now. The
+  #    clause stays because the shape is the generic one and the stream split
+  #    below is written against it.
   #  - EF Core (orders) wraps it: message is
   #    "Executed DbCommand (4ms) [Parameters=[…]] SELECT COUNT(*) FROM …",
   #    which does NOT match ^SELECT. It does, however, carry the bare statement
@@ -831,8 +843,7 @@ processors:
   #
   # Without that second clause, raising EF Core back to Information would send
   # every DbCommand into the MAIN stream — the exact noise this repo just
-  # removed — instead of the sql stream where tracking's equivalent already
-  # lives.
+  # removed — instead of the sql stream.
   filter/only_sql:
     error_mode: ignore
     logs:
@@ -932,10 +943,10 @@ exporters:
   # stream-name header differs, which is how OpenObserve separates them.
   #
   # Why separate rather than drop: the statements are genuinely useful locally
-  # (SQLAlchemy's echo is on outside production by design — Settings.echo_sql),
-  # but they are high-volume and drown the application events in the default
-  # stream. A single tracking read emits several SELECTs, so a flow log ends up
-  # buried among the queries that served it.
+  # (echo is on outside production by design), but they are high-volume and
+  # drown the application events in the default stream. A single tracking read
+  # emits several SELECTs, so a flow log ends up buried among the queries that
+  # served it.
   #
   # They keep their shared-context fields (user_id, order_id, trace_id…), so a
   # query can still be traced back to the request that issued it — the split is

@@ -1,106 +1,23 @@
-// Remote URLs for every image the email templates render.
-//
-// ─── WHY REMOTE <img> AND NOT BASE64 — this REVERSES an earlier decision ──────
-//
-// These templates used to embed each icon as a base64 PNG `data:` URI, produced
-// by a `scripts/build-icons.mjs` step into a committed `emails/icons.generated.ts`.
-// That choice rested on a claim that is years out of date, and the numbers run
-// the other way:
-//
-//   - A REMOTE <img> has 100% support across email clients
-//     (caniemail.com/features/html-img). Every client renders one.
-//   - A base64 `data:` URI has 80.95% support
-//     (caniemail.com/features/image-base64). Roughly one recipient in five sees
-//     NOTHING, and there is no mitigation for that gap — it is a hard rendering
-//     limit of those clients.
-//
-// The objection base64 was adopted for was "Gmail blocks remote images by
-// default". Gmail has DISPLAYED remote images by default since 2013: it proxies
-// them through its own image cache (googleusercontent.com) and shows them
-// without asking. It withholds them only when it judges the SENDER suspicious.
-// That makes blocking a sender-reputation problem — the one that SPF, DKIM and
-// DMARC exist to solve — rather than a property of remote images. It is fixable;
-// base64's 19% is not.
-//
-// So the trade is: an addressable ~19% rendering gap, or a deliverability
-// concern that proper authentication resolves and that we must solve anyway for
-// the mail to reach the inbox at all. Remote wins.
-//
-// Two things we GAIN by moving off base64, beyond the support number:
-//   - The messages get smaller. base64 inflates every byte by ~33% and repeats
-//     the whole payload inside each message; Gmail CLIPS a message over ~102 KB,
-//     truncating the tail of the email and hiding the unsubscribe footer.
-//   - An asset can be re-uploaded (`make assets-sync`) without rebuilding,
-//     re-committing or redeploying the function.
-//
-// WHAT DOES NOT CHANGE: the coloured circles behind the header icons, the button
-// labels and the "3M"+"RAI" text lockup all STAY. A recipient may still have
-// images off by choice, and every template must read as deliberate with zero
-// images loaded. Every <Img> keeps a meaningful `alt`, and no icon is ever the
-// only thing conveying required information. See
-// docs/shared/conventions/email-templates.md.
-//
-// ─── WHY THIS FILE READS process.env DIRECTLY ────────────────────────────────
-//
-// It does NOT import `#shared/config/env`, and that is deliberate. That module
-// parses the FULL service schema at import time (ADR-0014), which requires
-// DOCDB_HOST/DOCDB_USERNAME/DOCDB_PASSWORD/SES_FROM_ADDRESS. Importing it here
-// would drag the database and mailer configuration into the render path, and
-// would break the two contexts that legitimately have none of it:
-//   - `tests/email/catalog.test.ts`, which renders every template and stubs no
-//     env at all;
-//   - `pnpm run email` (the react-email preview server), which imports the
-//     templates outside the service entirely.
-//
-// The runtime guarantee lives where it belongs instead: ASSETS_BASE_URL is a
-// REQUIRED key of that Zod schema, so a deployed Lambda missing it dies at boot
-// with a named error rather than mailing broken images. This module only has to
-// keep working in the two contexts above, so it falls back to the local Floci
-// bucket URL — the same value `make env-file` writes.
-//
-// ─── DIMENSIONS: file size vs DISPLAY size ───────────────────────────────────
-//
-// The `width`/`height` exported here are DISPLAY sizes, and they must be emitted
-// as HTML ATTRIBUTES on the <Img>, never only as CSS classes: Outlook renders
-// through Word's HTML engine, which sizes images from the attributes and ignores
-// CSS dimensions. An <Img> without them renders at its intrinsic size and bursts
-// whatever it sits in.
-//
-// Two DIFFERENT relationships between file size and display size live here, and
-// confusing them is what produced the "icons are tiny" defect:
-//
-//   - A GLYPH-ONLY image is uploaded at 2x its display size so it stays sharp on
-//     retina/HiDPI screens (the 40x40 CTA glyphs shown at 20px).
-//   - A COMPONENT image — one with its coloured disc baked in — is shown at its
-//     FULL size, because scaling it down shrinks the glyph inside it just as
-//     much. The four header icons and the three timeline dots are these.
-//
-// The header icons were being treated as the first kind while actually being the
-// second, so the visible glyph came out at ~22% of its disc. See the block above
-// `userCheck` for the measurements.
+// CONTRACT: Serve email template images via remote URLs and set width/height as HTML
+// attributes on <Img>. Do NOT embed base64 data URIs (breaks in ~19% of clients and
+// risks Gmail clipping). Do NOT rely on CSS dimensions for Outlook Windows.
+// See [[email-templates]]
 
-// Trailing slash is REJECTED, not trimmed — see the matching note on
-// ASSETS_BASE_URL in src/shared/config/env.ts. Keys are joined with a literal
-// "/", so "…/assets/" would produce a double slash, which S3 resolves as a
-// different (nonexistent) key and answers 404 — silently, since nothing in the
-// send path ever fetches these URLs.
+// WHY: Read process.env directly so catalog tests and preview servers run without full DB env.
+// CONTRACT: Do NOT allow trailing slashes in ASSETS_BASE_URL; double slashes resolve to
+// non-existent keys in S3 and return 404.
+// See [[email-templates]]
 const FALLBACK_BASE_URL = "http://localhost:4566/post-3mrai-local-post-assets";
 
 const baseUrl = (process.env.ASSETS_BASE_URL ?? FALLBACK_BASE_URL).replace(/\/+$/, "");
 
-// The object keys, exactly as `make assets-sync` uploads them from `assets/`.
-// They are string literals rather than a read of `assets/assets.manifest.json`:
-// that manifest is a BUILD/DEV-TIME artifact, it is gitignored, and esbuild does
-// not bundle it — reading it at runtime would throw ENOENT inside the Lambda.
-// The runtime needs only the base URL plus these known keys.
+// WHY: Literal string keys avoid runtime ENOENT since assets.manifest.json is not bundled.
 function assetUrl(key: string): string {
   return `${baseUrl}/${key}`;
 }
 
 /**
- * One image: its URL plus the DISPLAY dimensions to spread onto an `<Img>` as
- * HTML attributes. Spreading the whole object (`{...emailAssets.logo}`) is what
- * keeps a template from getting the src right and the sizing wrong.
+ * One image URL plus display dimensions to spread onto an `<Img>` as HTML attributes.
  */
 export interface EmailAsset {
   src: string;
@@ -109,146 +26,42 @@ export interface EmailAsset {
 }
 
 function asset(key: string, size: number): EmailAsset {
-  // `width`/`height` are STRINGS because they are HTML attributes, and that is
-  // the type `<Img>` takes for them.
+  // HTML attribute dimensions must be strings for <Img>.
   return { src: assetUrl(key), width: String(size), height: String(size) };
 }
 
 export const emailAssets = Object.freeze({
-  // Header lockup mark — 42x42 file, shown at 42px (1:1, it is already small).
-  // An ENHANCEMENT beside the "3M"+"RAI" text lockup, never a replacement for
-  // it: the text is the only element of the header with genuinely 100% reach,
-  // since a reader with images off still sees it.
+  // WHY: Text lockup accompanies the logo so header remains readable with images blocked.
   logo: asset("email/logo.png", 42),
 
-  // ─── HEADER ICONS: THE DISC IS IN THE PNG, SO THE PNG IS SHOWN AT FULL SIZE ──
-  //
-  // Each of these four 64x64 files is a COMPLETE COMPONENT: a coloured disc
-  // with the glyph already centred inside it. Verified against the pixels, not
-  // assumed — `user-check.png` has fully transparent corners, an edge pixel of
-  // rgb(255,244,229) (the exact `brand-orange-light` tint the template's CSS
-  // circle used), and a glyph bounding box of 26x24 inside the 64px disc, i.e.
-  // 41% of it. `map-pin`/`log-in` carry the info-blue rgb(239,246,255) and
-  // `package-check` the success rgb(236,253,245), each with a glyph at 34-41%.
-  //
-  // THE BUG THIS FIXES — TWO NESTED DISCS. These used to be displayed at 28px
-  // (then 36px) INSIDE a separate 64px CSS circle drawn by the template. Since
-  // the PNG's own disc is the same tint as the CSS circle, it was invisible
-  // against it, and the only thing a reader could actually see was the glyph:
-  // 36px x ~38% = a 14px mark floating in a 64px disc — 22% of it, measured on
-  // a rendered screenshot. That is why the icons read as specks. Scaling the
-  // image up was treating the symptom: at any size below 64px the PNG's disc
-  // stays hidden and its glyph stays proportionally undersized.
-  //
-  // The fix is to render each PNG at the FULL 64px diameter of the circle it
-  // replaces and DELETE the template's CSS circle (its `bg-*`, its
-  // `rounded-[32px]`, and its w/h). The image is now the whole component, and
-  // the glyph lands at the 34-41% the artwork was drawn at.
-  //
-  // This is exactly the technique the timeline dots already use (see
-  // `greenDot` below) and the one [[email-templates]] § "Known gap — rounded
-  // corners in Outlook Windows" records as the recommended option 1 — with the
-  // bonus that Outlook Windows, which supports no `border-radius` at all and
-  // rendered every one of these discs as a SQUARE, now gets a real circle.
-  //
-  // COST, ACCEPTED DELIBERATELY: the disc is no longer drawn by CSS, so a
-  // reader whose client blocks the image loses the whole marker rather than
-  // keeping a tinted circle. The layout does NOT collapse — `<Img>` keeps its
-  // `width`/`height` HTML attributes, so every client that honours them (all of
-  // the ones that matter for alt-box sizing) reserves the 64x64 box and the
-  // heading stays where it is. The `alt` text carries the meaning, and no icon
-  // here was ever the only thing conveying required information: each template
-  // states its subject in the heading directly below.
-  //
-  // The files are 128x128 shown at 64px — 2x, so they stay sharp on retina.
-  // They briefly ran at 1x (64px files shown at 64px) after the disc fix, and
-  // were re-exported from `assets/email/emails.pen` at scale 2 rather than
-  // upscaled: the `.pen` holds these as VECTOR `icon` nodes, so exporting adds
-  // real detail, while resampling a 64px PNG to 128px only interpolates and
-  // softens the edges. Re-export from the design source, never upscale.
+  // CONTRACT: Display header icon PNGs at the full 64px diameter without CSS circle wrappers.
+  // The disc is baked into the artwork; nesting inside a CSS circle shrinks the visible glyph
+  // to ~22% of the disc and renders as a square in Outlook Windows.
+  // See [[email-templates]]
   userCheck: asset("email/user-check.png", 64),
   packageCheck: asset("email/package-check.png", 64),
   mapPin: asset("email/map-pin.png", 64),
   logIn: asset("email/log-in.png", 64),
 
-  // `forgot-password`'s header icon, and a COMPONENT image like the four above —
-  // same 128x128 file shown at 64px, same reason. The `.pen` "Forgot Password
-  // Email" frame draws it as a 28px `key-round` lucide glyph (#EF4444) inside a
-  // 64px #FEE2E2 disc; the export bakes both into one PNG, so the template shows
-  // it at the FULL 64px and draws NO CSS circle behind it. Wrapping it in a
-  // `bg-*`/`rounded-[32px]` span would reproduce the two-nested-discs defect
-  // documented above verbatim — the red disc would sit invisibly on the tinted
-  // CSS disc and only the key glyph would read, at ~22% of the circle.
-  //
-  // Its #FEE2E2 disc is the one tint in this set with no `theme.ts` token: the
-  // red/danger pair is a one-off in the `.pen` (only this frame uses it), so it
-  // ships rasterised in the artwork rather than as a named colour no CSS refers
-  // to.
+  // CONTRACT: Display at 64px without CSS circle wrappers. Disc is baked into the artwork.
+  // See [[email-templates]]
   keyRound: asset("email/key-round.png", 64),
 
-  // CTA glyphs — 80x80 files shown at 40px.
-  //
-  // Same baked-in disc, but here it is a FEATURE rather than a defect: the
-  // disc is rasterised in rgb(59,130,246), the exact `infoBlue` of the button
-  // these sit on, so it blends into the button face and only the pale glyph
-  // reads. There is no CSS circle behind them to remove.
-  //
-  // THE DISPLAY SIZE IS SET FROM THE GLYPH, NOT THE FILE, and that is the whole
-  // subtlety here: the visible mark is only the pale glyph INSIDE the disc, which
-  // measures 26x26 of the 80x80 file — 32%. These were shown at 20px, which drew
-  // that glyph at ~6.5px beside a 15px/600 label and read as a speck (reported
-  // from a delivered email, not theorised). At 40px the glyph lands at ~13px,
-  // just under the label's ~11px cap height — the optical weight a leading CTA
-  // glyph wants. The disc it is centred in is invisible against the button, so
-  // the 40px box costs nothing visually.
-  //
-  // If either PNG is ever re-exported, re-measure the glyph's share of the
-  // canvas before trusting this number: it is a property of the ARTWORK, not of
-  // the file's dimensions. An earlier version of this comment described 40x40
-  // files whose glyph filled 35-38%, and it silently stopped matching the assets.
-  //
-  // The button's LABEL still carries the CTA on its own with images blocked.
+  // CONTRACT: Display CTA glyphs at 40px (not 20px). The glyph occupies ~32% of the canvas;
+  // displaying at 20px shrinks the glyph to ~6.5px and reads as a speck.
+  // See [[email-templates]]
   packageSearch: asset("email/package-search.png", 40),
   externalLink: asset("email/external-link.png", 40),
 
-  // Security-notice glyph — 40x40 file shown at 20px, FILLING its badge rather
-  // than floating inside it (it was 13px in a 20px badge, i.e. a ~6px triangle).
-  //
-  // The CSS badge behind it (white fill, 1px amber ring) is removed like the
-  // header circles, but note what that costs HERE and does not cost there: this
-  // PNG's disc is rgb(255,248,225), the notice panel's OWN fill, so the marker
-  // has no visible edge and reads as a bare triangle rather than a badge. The
-  // four header icons keep reading as circles because their discs contrast with
-  // the white card behind them.
-  //
-  // Neither half of the badge was recoverable, and both were checked rather than
-  // assumed: the white fill is covered because the PNG is opaque across its disc
-  // (1516 of its 1600 pixels are alpha 255 — only the corners are transparent),
-  // and the amber ring was tried and reverted after looking at the render, where
-  // it painted as four detached straight segments because the image fills the
-  // cell exactly and leaves the rounded corners no gap to curve through.
+  // CONTRACT: Display at 20px without CSS badge wrapper. The PNG disc matches the panel fill.
+  // See [[email-templates]]
   triangleAlert: asset("email/triangle-alert.png", 20),
 
-  // NO `timer` ENTRY, DELIBERATELY. `assets/email/timer.png` exists and is
-  // synced to the bucket, but the `forgot-password` expiry panel it was drawn
-  // for was removed from the `.pen` frame in favour of a single muted line under
-  // the digits. Registering an asset nothing renders invites someone to
-  // reinstate the panel the design dropped. Add it back only alongside a
-  // template that actually draws it. Same reasoning as the frame's `lock` glyph.
+  // WHY: timer.png omitted deliberately; the design uses a plain muted text line for expiry.
 
-  // Timeline state dots — shown at 22px, which is the exact diameter the
-  // CSS-drawn dots used, so the indicator column's alignment is unchanged.
-  //
-  // These REPLACE `inline-block` spans with `border-radius: 50%`. That was the
-  // most fragile construct in the whole template set: `border-radius` has 82.92%
-  // support (caniemail.com/features/css-border-radius) and Outlook on Windows
-  // has NONE of it, so every dot rendered as a SQUARE there. A PNG of a circle
-  // is a circle in every client, and it removes the template's dependence on
-  // both `border-radius` and `inline-block` in one move.
-  //
-  // Colour still distinguishes the three states on its own, so a reader with
-  // images off loses the dots but not the timeline: each step keeps its text
-  // label and its date, and the active step keeps its bold weight.
+  // CONTRACT: Use PNG circles for timeline dots instead of CSS border-radius spans.
+  // Outlook on Windows does not support CSS border-radius and renders spans as squares.
+  // See [[email-templates]]
   greenDot: asset("email/green-dot.png", 22),
   orangeDot: asset("email/orange-dot.png", 22),
   blankDot: asset("email/blank-dot.png", 22),

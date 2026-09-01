@@ -32,6 +32,37 @@ for (const file of [".env.local.infra", ".env.local.users", ".env.local.debug"])
   dotenv.config({ path: path.join(repoRoot, file) });
 }
 
+// ## The account-deletion cascade added two CONTAINER-internal names to a file
+// ## this suite loads WHOLESALE — strip them before anything reads them.
+//
+// `.env.local.users` gained `ORDERS_BASE_URL=http://orders:8080` and
+// `TRACKING_BASE_URL=http://tracking:8000` (the cascade's downstream URLs, on the
+// compose network). Both names are ALSO what this suite's host-side clients read
+// to reach the services on their published ports — `support/api-client.ts` and
+// `support/global-setup.ts` both do `process.env.X ?? "http://localhost:300N"`.
+//
+// So loading the file wholesale silently repoints the whole suite at hostnames
+// that do not resolve from the host, and global-setup fails EVERY project with
+// "Tracking service is not healthy at http://tracking:8000/v1/health" — a message
+// that reads as a down stack rather than as an env collision. Observed exactly
+// that on 2026-08-26, before a single account-deletion spec existed.
+//
+// This is the same hazard `.env.local.orders` was excluded for (see the note
+// below and in `support/api-client.ts`); the cascade moved it into a file that
+// cannot be excluded, because GRPC_API_KEY and the Cognito/Users vars come from
+// it. Deleting the two keys is the narrowest fix: the fallbacks in the clients
+// are the correct host values, and a genuine override can still be exported in
+// the shell (this only clears what the FILE injected — `dotenv` never overwrites
+// a variable that was already set, so a pre-set value never reached here).
+for (const containerOnly of ["ORDERS_BASE_URL", "TRACKING_BASE_URL"]) {
+  const value = process.env[containerOnly];
+  // Matches the compose-network form only (`http://orders:8080`), so a real
+  // host-side override like `http://localhost:3001` survives untouched.
+  if (value && /^https?:\/\/(orders|tracking):/.test(value)) {
+    delete process.env[containerOnly];
+  }
+}
+
 // `.env.local.tracking` is NOT loaded wholesale — only the one variable the suite
 // needs is copied out of it. TRACKING_CARRIER_API_KEY is the sole credential that
 // authenticates `PUT /v1/trackings/{orderId}/status`: that gateway route is declared
@@ -87,6 +118,31 @@ export default defineConfig({
   globalSetup: "./support/global-setup.ts",
   globalTeardown: "./support/global-teardown.ts",
   reporter: "list",
+  // Playwright defaults to HALF the machine's cores — 6 on a 12-core box — and
+  // this suite is almost entirely I/O-bound: HTTP round trips, polling an inbox,
+  // waiting on a queue. Those workers sit blocked rather than computing, so the
+  // default leaves the machine idle while specs queue behind each other.
+  //
+  // Measured on one stack, one commit, whole suite each time:
+  //
+  //   idle machine (11 containers):   6 -> 4.5 min/15 failed · 10 -> 2.7 min/10
+  //   loaded machine (22 containers):  6 -> 4.7 min/15 failed · 10 -> 3.4 min/14
+  //
+  // Faster AND greener in both, which is the part worth understanding: most of
+  // those failures are 30s TEST TIMEOUTS on specs that pass in isolation, so
+  // less queueing behind a worker means fewer specs starving rather than
+  // failing.
+  //
+  // READ THE NUMBERS WITH CARE. Run-to-run variance on one config is LARGE —
+  // whole-suite failures ranged 4 to 15 across nine runs of the same commit,
+  // because the machine is also hosting the stack under test. A single run
+  // cannot rank two configs; the pairs above are same-session comparisons, and
+  // the ~1 min gap between 6 and 10 is the one difference that survived both
+  // load conditions. Do not "tune" this on one sample.
+  //
+  // 10 and not 12: Docker is running the entire stack on the same machine and
+  // needs headroom. CI gets 4, where the runner is smaller and shared.
+  workers: process.env.CI ? 4 : 10,
   projects: [
     {
       name: "internal",
@@ -95,12 +151,28 @@ export default defineConfig({
       // project must also be ignored here or its specs run twice — once under
       // their own project and once under `internal`. `gateway` established the
       // pattern; `observability` follows it.
-      testIgnore: ["**/gateway/**", "**/observability/**", "**/web/**"],
+      // The email-asserting specs run under the `email` project instead — see
+      // its comment for the measurement that justifies the split. `**/web/**`
+      // is excluded for a different reason: testDir is recursive, so without it
+      // the web specs would run twice, once here and once under `web`.
+      testIgnore: [
+        "**/gateway/**",
+        "**/observability/**",
+        "**/web/**",
+        "**/otp.spec.ts",
+        "**/password-reset.spec.ts",
+      ],
       use: { baseURL: process.env.USERS_BASE_URL ?? "http://localhost:3000" },
     },
     {
       name: "gateway",
       testDir: "./tests/gateway",
+      // Same split as `internal`: these three assert on delivered email.
+      testIgnore: [
+        "**/otp-flow.spec.ts",
+        "**/password-reset-flow.spec.ts",
+        "**/delivered-emails.spec.ts",
+      ],
       use: { baseURL: process.env.API_GATEWAY_URL },
     },
     {
@@ -117,6 +189,55 @@ export default defineConfig({
       name: "observability",
       testDir: "./tests/observability",
       use: { baseURL: process.env.USERS_BASE_URL ?? "http://localhost:3000" },
+    },
+    {
+      // The specs that assert on a DELIVERED email, run ONE AT A TIME.
+      //
+      // ## Kept for a reason that is NOT the one it was built for
+      //
+      // The original rationale was that these specs are slow and drown in the
+      // queue. That was WRONG, and measuring said so: all 30 of them together
+      // total 22 seconds, with emails arriving in ~2s each. They are among the
+      // fastest specs in the suite.
+      //
+      // What the split actually buys is CONTENTION, not speed. Every email
+      // crosses the shared SQS queue, which the local emulator drains at ~1
+      // event/s (see
+      // docs/lessons/2026-08-29-the-emulator-was-the-ceiling-not-the-code.md).
+      // Letting these race each other multiplies the traffic competing for that
+      // one cadence. Whole-suite numbers, same stack, same commit:
+      //
+      //   with this project      ->  2.7 min, 10 failed
+      //   without it (inlined)   ->  3.1 min, 11 failed
+      //
+      // Slower AND redder without it, which is why it stays.
+      //
+      // ## Not weakening anything
+      //
+      // No assertion changes. The specs still wait for the real message in
+      // Mailpit and still read the code out of it; they are simply not made to
+      // compete with traffic that has nothing to do with what they assert.
+      //
+      // DELIBERATELY NO `dependencies`. Ordering this after the other projects
+      // looked right, but Playwright CANCELS a project whose dependency fails —
+      // and the first run with it did exactly that: two unrelated gateway
+      // failures left all 30 email specs unexecuted, reported as 151 tests
+      // instead of 181. A test that silently does not run is worse than one
+      // that fails.
+      name: "email",
+      testDir: "./tests",
+      testMatch: [
+        "**/otp.spec.ts",
+        "**/password-reset.spec.ts",
+        "**/gateway/otp-flow.spec.ts",
+        "**/gateway/password-reset-flow.spec.ts",
+        "**/gateway/delivered-emails.spec.ts",
+      ],
+      fullyParallel: false,
+      workers: 1,
+      // The gateway specs here resolve relative paths off the gateway; the two
+      // internal ones carry their own base URLs through api-client.ts.
+      use: { baseURL: process.env.API_GATEWAY_URL },
     },
     {
       // Phase-1 web verification: every route mounts and renders clean.

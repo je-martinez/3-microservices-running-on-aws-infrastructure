@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { getGatewayToken } from "../../support/auth.js";
+import { pickProductWithStock } from "../../support/catalogue.js";
 import { gatewayClient } from "../../support/gateway-client.js";
 import { openSocket, tryOpen } from "../../support/ws-client.js";
 
@@ -36,8 +37,7 @@ async function createTestModeOrder(api: Awaited<ReturnType<typeof gatewayClient>
   const products = await api.get("v1/products");
   expect(products.status(), `GET v1/products failed: ${await products.text()}`).toBe(200);
   const catalogue = await products.json();
-  const product = catalogue.find((p: { unitsInStock: number }) => p.unitsInStock > 0);
-  expect(product, "no product with stock in the catalogue").toBeTruthy();
+  const product = pickProductWithStock(catalogue);
 
   const created = await api.post("v1/orders", {
     headers: { "x-test-mode": "true" },

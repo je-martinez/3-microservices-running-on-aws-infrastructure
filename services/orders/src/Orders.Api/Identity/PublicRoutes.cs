@@ -24,5 +24,13 @@ public static class PublicRoutes
         // the flag off it never resolves to an endpoint and this arm cannot match (a
         // request to that path 404s before the middleware has a route to allow).
         || (string.Equals(method, "DELETE", StringComparison.OrdinalIgnoreCase)
-            && routePath == "/v1/orders/e2e-cleanup");
+            && routePath == "/v1/orders/e2e-cleanup")
+        // The internal account-deletion cascade. "Public" here means only "exempt
+        // from the x-user-id guard" — the route is NOT on the API Gateway and is
+        // not reachable from outside the network, and its handler requires the
+        // shared internal key before it touches anything. It carries no end-user
+        // identity by design: the subject arrives in the body, because the caller
+        // is Users acting on a user's behalf, not the user themselves.
+        || (string.Equals(method, "DELETE", StringComparison.OrdinalIgnoreCase)
+            && routePath == "/v1/orders/by-user");
 }

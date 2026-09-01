@@ -8,7 +8,7 @@ deciders: ["Jose E. Martinez"]
 supersedes: null
 superseded-by: null
 created: 2026-07-28
-updated: 2026-07-29
+updated: 2026-08-26
 tags: [type/adr, area/orders, status/accepted]
 related:
   - "[[orders-service-design]]"
@@ -18,6 +18,7 @@ related:
   - "[[2026-07-14-orders-service-milestone-design]]"
   - "[[2026-07-14-orders-service-milestone]]"
   - "[[tracking-service-design]]"
+  - "[[2026-08-25-account-deletion-design]]"
 ---
 
 # Orders → Users gRPC calls authorized by a shared x-api-key
@@ -60,8 +61,21 @@ A shared symmetric key, `GRPC_API_KEY`, identical on both Users and Orders:
   scales as more clients join, or a per-service credential becomes warranted, remains
   undecided — not revisited here.
 
+> [!warning] Correction (2026-08-26) — Orders is no longer only a presenter of this key
+> This ADR previously framed `GRPC_API_KEY` as something **Orders presents outbound** and
+> **Users alone validates inbound**. That is no longer the complete picture: the account-deletion
+> milestone added `DELETE /v1/orders/by-user`, an internal REST route (not gRPC) that Orders
+> **validates inbound**, using the same `GRPC_API_KEY` secret and a constant-time comparison — the
+> same mechanism, a different transport and a different direction. Users remains the only **gRPC**
+> server validating the key; Orders is now additionally an **HTTP** server validating it, on a
+> route reachable only from inside the network and absent from the API Gateway. See
+> [[orders-service-design#Account-deletion cascade (internal)]] and
+> [[2026-08-25-account-deletion-design]] for the full route design.
+
 ## Related
 
+- [[2026-08-25-account-deletion-design]] — the account-deletion cascade that made Orders an
+  inbound HTTP validator of `GRPC_API_KEY`, not merely an outbound presenter.
 - [[orders-service-design]]
 - [[ADR-0003-grpc-inter-service]]
 - [[ADR-0007-secrets-parameter-store]]

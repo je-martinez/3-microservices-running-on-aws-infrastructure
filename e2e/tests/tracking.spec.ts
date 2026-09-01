@@ -3,48 +3,10 @@ import { apiClient, trackingClient } from "../support/api-client.js";
 import { carrierHeaders } from "../support/tracking-carrier-key.js";
 import { makeUser } from "../support/chance-factory.js";
 
-// Drives the Tracking service directly (localhost:3002 → container 8000, bypassing
-// the gateway), with a faked `x-user-id` standing in for the authorizer's output —
-// the internal counterpart to orders.spec.ts. The gateway path (JWT authorizer,
-// njs sub-extraction, real Cognito tokens, the carrier route's `auth = false`
-// declaration) is exercised separately by tests/gateway/tracking*.spec.ts.
-//
-// This layer's job is the state machine. The three transition guards
-// (`already_delivered`, `backward_transition`, `not_strictly_forward`) plus the
-// unknown-value rejection are all 400s that need a tracking driven into specific
-// states — cheap to set up here against a stable, non-progressing tracking, and
-// unaffected by anything the gateway does.
-//
-// ## Why the `usr_` id works as `x-user-id`
-//
-// At the gateway that header carries the JWT's **sub**, and Tracking stores it
-// verbatim as `cognito_sub` — the ownership key its reads filter by. Internally we
-// fake it with the `usr_` id from `POST /v1/users/register`, which works for two
-// independent reasons: `init-tracking` resolves the internal id through Users' gRPC
-// `GetUserById`, which accepts a `usr_` id OR a sub; and create-then-read uses the
-// same value, so the `cognito_sub` filter matches.
-//
-// That second reason is also this layer's blind spot, and it is documented rather
-// than worked around: a single-identity round trip passes whether the read filters
-// by `cognito_sub` or by `user_id`. The ownership test that can actually fail on
-// that lives at the gateway (tests/gateway/tracking.spec.ts), where two real users
-// have two genuinely different subs. Do not "strengthen" the internal ownership
-// check by faking a second header value and calling it covered.
-//
-// ## Cleanup
-//
-// Users are cleaned up by the existing teardown (`DELETE /v1/users/e2e-cleanup`
-// soft-deletes everything tagged "E2E Source", and every caller here is registered
-// through that path). Tracking rows are NOT: the service exposes no e2e-cleanup
-// endpoint, so trackings accumulate in the local database — the same way Orders'
-// rows do today, since the teardown never calls Orders' cleanup route either.
-//
-// That is harmless for correctness and deliberately relied upon rather than papered
-// over: every test here creates its OWN caller and its OWN synthetic order id, so no
-// test can see, collide with, or be perturbed by a row any previous test or run left
-// behind. There is no shared fixture and no assertion over "all trackings". Adding a
-// `DELETE /v1/trackings/e2e-cleanup` to mirror the other two services would be the
-// real fix, and it is a service-side change, not a test-side one.
+// Internal layer-2 Tracking specs — faked x-user-id, state machine guards.
+// WHY: usr_ id works as x-user-id here (init-tracking resolves via gRPC) but
+// ownership by cognito_sub is only testable at gateway (tests/gateway/tracking.spec.ts).
+// Tracking rows accumulate locally — each test uses its own synthetic order id.
 
 //: The forward-only progression from the design.
 const PROGRESSION = [
@@ -74,26 +36,13 @@ async function registerCaller(): Promise<string> {
   return id as string;
 }
 
-// A synthetic order id. Deliberately NOT a real Orders order: this layer tests
-// Tracking in isolation, and `init-tracking` never validates the order's existence
-// (it cannot — Orders is the caller, and by the time it calls, the order is already
-// committed on the other side). Using a synthetic id keeps these tests from
-// depending on Orders being up at all.
-//
-// Fits VARCHAR(21) — `ID_LENGTH` in domain/models.py — because the column would
-// otherwise truncate or reject.
+// Synthetic order id for Tracking-only tests (init-tracking does not validate existence).
 function syntheticOrderId(): string {
   const suffix = Math.random().toString(36).slice(2, 12);
   return `ord_e2e${suffix}`.slice(0, 21);
 }
 
-// Creates a tracking with progression OFF, so it sits at PLACED until a test moves
-// it. Everything below depends on that: a tracking advancing in the background would
-// make every guard assertion racy (a PUT to PROCESSING is legitimately rejected as
-// `not_strictly_forward` once the progression already got there).
-//
-// TestMode is off because `x-test-mode` is simply not sent — only the exact string
-// "true" activates it (shared/http/test_mode.py).
+// TestMode off — x-test-mode not sent; tracking stays at PLACED until carrier PUT.
 async function createTracking(
   api: Awaited<ReturnType<typeof trackingClient>>,
   userId: string,
@@ -422,10 +371,7 @@ test("PUT /v1/trackings/{orderId}/status with a status outside the enum is 400 i
   const userId = await registerCaller();
   const { orderId } = await createTracking(api, userId);
 
-  // 400, not 422: `status` is typed as a plain string on UpdateStatusRequest
-  // precisely so Pydantic does not reject it first — all four rejection reasons
-  // (unknown value + the three guards) answer with the same code and shape.
-  // Note ON_THE_WAY is no longer part of the enum, so it too would land here.
+  // 400 not 422 — status is plain string so all rejection reasons share shape.
   const res = await carrierPut(api, orderId, "LOST_IN_SPACE");
   expect(res.status()).toBe(400);
   const body = await res.json();

@@ -10,6 +10,8 @@ const base = {
   AWS_REGION: "us-east-1",
   WEBHOOK_SECRET: "s3cret",
   GRPC_API_KEY: "local-dev-grpc-key",
+  ORDERS_BASE_URL: "http://orders:8080",
+  TRACKING_BASE_URL: "http://tracking:8000",
   EVENTS_QUEUE_URL: "http://localhost:4566/000000000000/3mrai-local-events",
   REDIS_HOST: "floci-valkey-cache-3mrai-local-cache-redis",
   REDIS_PORT: "6379",
@@ -32,6 +34,22 @@ describe("parseEnv", () => {
       PORT: "3000",
     });
     expect(env.E2E_TESTING_ENABLED).toBe(false);
+  });
+
+  it("defaults CACHE_ENABLED to true when absent", () => {
+    expect(parseEnv(base).CACHE_ENABLED).toBe(true);
+  });
+
+  it("reads CACHE_ENABLED as a boolean, not a truthy string", () => {
+    // The trap this guards: env values are always strings, and z.coerce.boolean()
+    // would read the string "false" as true because it is non-empty. A kill
+    // switch that cannot be switched off is worse than no kill switch.
+    expect(parseEnv({ ...base, CACHE_ENABLED: "false" }).CACHE_ENABLED).toBe(false);
+    expect(parseEnv({ ...base, CACHE_ENABLED: "true" }).CACHE_ENABLED).toBe(true);
+  });
+
+  it("rejects a CACHE_ENABLED that is neither \"true\" nor \"false\"", () => {
+    expect(() => parseEnv({ ...base, CACHE_ENABLED: "1" })).toThrow();
   });
 
   it("defaults NODE_ENV to development", () => {
@@ -72,6 +90,19 @@ describe("parseEnv", () => {
 
   it("requires EVENTS_QUEUE_URL", () => {
     const { EVENTS_QUEUE_URL: _omit, ...without } = base;
+    expect(() => parseEnv(without)).toThrow();
+  });
+
+  // Both cascade targets are required with no default. A missing one must fail at
+  // boot rather than let DELETE /v1/users/me reach a half-configured cascade and
+  // report success for orders it never deleted.
+  it("requires ORDERS_BASE_URL", () => {
+    const { ORDERS_BASE_URL: _omit, ...without } = base;
+    expect(() => parseEnv(without)).toThrow();
+  });
+
+  it("requires TRACKING_BASE_URL", () => {
+    const { TRACKING_BASE_URL: _omit, ...without } = base;
     expect(() => parseEnv(without)).toThrow();
   });
 

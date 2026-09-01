@@ -74,6 +74,148 @@ rules:
   claude-memory-location: claude-only  # "no ~/.claude/ memory file" is internal
   nested-claude-md-files: claude-only  # services/<svc>/CLAUDE.md loading model
 
+  # Added 2026-08-25, after the cart milestone.
+  #
+  # route-completeness-checklist: universal. "A new route is not done when the
+  # service serves it" — gateway + nginx wiring, all three test layers, load
+  # scenarios, observability, and the preview/charging rounding rule. Nothing in
+  # it names an agent tool: the failure it prevents (a route that 404s at the
+  # gateway while working perfectly on the service port) is a property of this
+  # repo's Terraform + nginx topology and reproduces identically whichever CLI
+  # edits the code. Extends the already-universal testing-three-layers topic, so
+  # it lands in .ai/rules/testing.md and is summarized in AGENTS.md. Only the
+  # [[money-representation]] wikilink is dropped, replaced by the vault path —
+  # Obsidian link syntax does not resolve outside Claude Code.
+  route-completeness-checklist: universal
+
+  # observability-reads-included: universal, with a seam worth naming.
+  #
+  # The POLICY — every endpoint gets a workflow span and at least one flow log,
+  # READS INCLUDED, with distinct shapes for reads (one `_succeeded` with a
+  # count, no `_started`, no `_failed`) and writes (the full triad plus
+  # `reason`) — is a repo-wide logging convention. It completes the flow-event
+  # section of logging-and-pii, which previously described the triad without
+  # ever saying which endpoints owe one.
+  #
+  # Its MECHANISM is .NET-specific (`TraceWorkflowAsync`, `LogContextEnricher`,
+  # `CartReadService.BuildAsync`) but NOT Claude-specific, so it travels as
+  # illustration rather than as the rule. That distinction matters: the source
+  # lives in services/orders/CLAUDE.md, a nested file no target provider
+  # auto-loads, so declining to project it would drop the rule entirely for
+  # every provider rather than merely relocating it.
+  #
+  # Two sub-rules generalize cleanly beyond Orders and are stated as such:
+  # never re-pass identity fields an enricher already attaches, and instrument
+  # the ENTRY POINT rather than a shared helper (a helper reused by the write
+  # path emits a spurious nested read span inside every write).
+  observability-reads-included: universal
+
+  # shared-queue-backlog: universal. Added 2026-08-25, same day as the source
+  # section (e2e/CLAUDE.md, commit a4b9b3d).
+  #
+  # Universal on the strongest available test: the failure is a property of the
+  # LOCAL STACK's topology — one SQS queue shared by Users, Orders and Tracking,
+  # drained by a single sequential Lambda — and it reproduces identically no
+  # matter which CLI started the run. Nothing in it names an agent tool.
+  #
+  # It is narrower than most projected rules (one repo's test environment rather
+  # than a coding convention), and that argued for rule-file-only placement. It
+  # gets a short AGENTS.md paragraph anyway, for a specific reason: the rule's
+  # value is in RECOGNITION, and .ai/rules/testing.md only activates on a test
+  # file path. An agent debugging this reads Lambda handlers, dispatch code, or
+  # Mailpit — not a *.spec.ts — so the rule file would stay silent exactly when
+  # it is needed. The ambient line is what makes the misdiagnosis avoidable.
+  #
+  # Lands in .ai/rules/testing.md, which already owns load-testing-surface, so
+  # the "two suites, two jobs" material stays in one place rather than being
+  # split across a new file.
+  #
+  # Nothing is dropped: the source section names no Claude-specific mechanism.
+  # The `e2e-impl` agent that owns this surface already travels as a role.
+  shared-queue-backlog: universal
+
+  # review-against-the-brief: universal. Added 2026-08-26, same day as the source
+  # bullet (CLAUDE.md, "Phase C review flow").
+  #
+  # Universal on the strongest available test: it describes how to READ a diff,
+  # and names no tool, skill, plugin, or Claude Code affordance. The failure it
+  # prevents — a requirement silently dropped in implementation, leaving no trace
+  # because the shipped code is self-consistent and its tests cover what was
+  # built rather than what was specified — is a property of how review works, not
+  # of which CLI performs it. Every provider in this repo reviews diffs.
+  #
+  # Lands in .ai/rules/git-and-commits.md, which already owns the Phase C review
+  # flow (chaining, batching, dependency gates, never-auto-merge), so the review
+  # discipline stays in one place rather than starting a fourth review location.
+  # NOT in testing.md despite the tests angle: the rule's claim is that tests are
+  # the thing that CANNOT catch this, so filing it under testing would put it
+  # behind a path glob that only activates on the files it says are unreliable.
+  #
+  # It also gets an AGENTS.md paragraph, for the same reason shared-queue-backlog
+  # did: its value is in RECOGNITION at review time. A rule file activates on the
+  # paths in the diff, which for a review pass is arbitrary and unrelated to
+  # review; the ambient line is what makes it present when a diff is being judged.
+  #
+  # Dropped: the [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]]
+  # wikilink, replaced by the backticked vault path per the route-completeness
+  # precedent above. The incident itself is retained inline as prose — it is the
+  # evidence for the rule, and a provider that cannot follow the link would
+  # otherwise receive an unsupported assertion.
+  review-against-the-brief: universal
+
+  # code-comments: universal. Added 2026-08-30, same day as the source section
+  # (CLAUDE.md, "Code comments — describe the final state").
+  #
+  # Universal on the strongest available test: it governs the content of
+  # comments in .tf/.py/.ts/.js/.mjs/.cs/.go source files and names no tool, skill,
+  # plugin, or Claude Code affordance. The failure it prevents — a comment that
+  # only ever grows, until 38 blocks still name a Jaeger that was removed on
+  # 2026-08-21 and no longer runs anywhere — is a property of how agents edit
+  # code, not of which CLI does the editing. Every provider in this repo writes
+  # comments, and an agent with no memory of the previous session is exactly the
+  # actor most likely to append rather than rewrite.
+  #
+  # Gets its own rule file rather than joining scripting-language: that rule is
+  # about which LANGUAGE a new script is written in, while this is about the
+  # content of comments in files that already exist. Its path globs are also
+  # wider (adds **/*.cs, **/*.go, and **/*.tsx) and the two would fight over scope.
+  #
+  # It ALSO gets an AGENTS.md paragraph, for the same reason shared-queue-backlog
+  # and review-against-the-brief did — but the reason is stronger here. A rule
+  # file activates on the path glob of the file being edited, which does cover
+  # the moment a comment is written. What it does not cover is the DECISION not
+  # to narrate: an agent that has just spent an hour debugging reaches for the
+  # comment as the place to record it, and the ambient line is what makes the
+  # "that is a lesson candidate, not a source comment" redirect present at that
+  # moment. Cursor and Windsurf make this decisive — both receive every rule
+  # non-ambient (alwaysApply: false / trigger: manual), so on those two
+  # providers AGENTS.md is the only surface that is reliably read.
+  #
+  # NOT dropped: `scripts/validate-comments.py` travels in full. It is a plain
+  # Python linter (argparse, no Claude Code dependency) operating as a
+  # baseline/ratchet against scripts/comment-baseline.json, so it fails only on
+  # NEW violations. Projected with the venv-absolute invocation the repo's
+  # python-first rule already mandates, plus the warning not to run
+  # --update-baseline to silence one's own violation. It is untracked and no
+  # Makefile target wraps it as of this run; if a `make lint-comments` target
+  # lands later, update the rule file to prefer it.
+  #
+  # Dropped, and worth naming:
+  #   · The `[[code-comments]]` wikilink, replaced by the backticked vault path
+  #     per the route-completeness precedent — Obsidian link syntax does not
+  #     resolve outside Claude Code.
+  #   · Routing a lesson candidate THROUGH `obsidian-vault` is the
+  #     Claude-specific mechanism; the policy (surface it in the handoff, never
+  #     write docs/ yourself) is already carried by ## Prohibitions.
+  #
+  # NOTE on the `See [[vault-id]]` reference form: this is the ONE place the
+  # projection deliberately keeps Obsidian wikilink syntax, because here the
+  # syntax IS the rule — validate-vault.mjs resolves bare basenames, so a
+  # comment written as `See docs/shared/patterns/foo.md` rots the moment the
+  # note moves. Projecting a "portable" path form would teach every provider to
+  # write the exact reference this convention forbids.
+  code-comments: universal
+
 skills:
   # Portable knowledge worth having in any tool.
   #
@@ -101,6 +243,249 @@ skills:
   obsidian-markdown: exclude
   json-canvas: exclude
   defuddle: exclude
+
+  # ---------------------------------------------------------------------------
+  # Added 2026-08-25 (JE-194). These 17 had no entry at all, which meant they
+  # reached no provider AND nothing failed — the silent-skip failure mode the
+  # issue exists to close. Judged against what this repo actually runs, the way
+  # gatling-js was admitted: vendor knowledge for a stack in this repo travels;
+  # generic advice or a product we do not use does not.
+  #
+  # SHARE — load-bearing stack knowledge for a service that runs here.
+
+  # Orders is .NET 10 / EF Core 9 / Pomelo MySQL. EF Core is the ONLY data
+  # access path in that service, and this skill's core claims (NoTracking by
+  # default, query splitting, never hand-edit a migration, migrations run as a
+  # dedicated step rather than at startup) are exactly the decisions Orders
+  # already made. A provider editing Orders without it will regress them.
+  efcore-patterns: share
+
+  # Both Orders AND Tracking run Aurora MySQL (Tracking via sqlc over
+  # database/sql + go-sql-driver/mysql, golang-migrate for migrations; it was
+  # SQLAlchemy 2 + PyMySQL + Alembic before the 2026-08-27 Go migration, and the
+  # engine-level content below is what survived that change unaltered — which is
+  # precisely why it was worth sharing). So this is two services, not one.
+  # InnoDB index/locking/
+  # EXPLAIN knowledge is engine-level and not something a general model reliably
+  # has at the level of detail here (deadlock diagnosis, online DDL, covering
+  # indexes). Caveat kept in mind and accepted: its opening paragraph pushes
+  # PlanetScale as a host, which is noise in a repo that runs Aurora on Floci —
+  # but it explicitly defers to an existing provider, and one stray hosting
+  # recommendation does not outweigh 18 reference files of InnoDB detail.
+  mysql: share
+
+  # Users is Fastify 5 + TypeScript. Framework-specific and non-obvious:
+  # encapsulation/plugin scoping, JSON-Schema serialization, decorators, hooks,
+  # and `inject` for testing are the things a model gets wrong by defaulting to
+  # Express idioms. Directly matches the service's structure.
+  fastify-best-practices: share
+
+  # Users runs Prisma 7.8 against Aurora Postgres. These three are the ORM
+  # itself — the client API surface, the CLI/migrate workflow, and the v7 shape.
+  #
+  # prisma-upgrade-v7 is share DESPITE the upgrade being done: Users is already
+  # on the v7 shape (`prisma-client` generator, @prisma/adapter-pg driver
+  # adapter, prisma.config.ts, generated client under src/generated/prisma). A
+  # provider carrying v6 habits will "fix" that shape back to `prisma-client-js`
+  # and break the build. Here the migration guide reads as an explanation of why
+  # the current code looks the way it does, which is the more valuable use.
+  prisma-client-api: share
+  prisma-cli: share
+  prisma-upgrade-v7: share
+
+  # REVERSED 2026-08-27 (Go migration): share -> exclude.
+  #
+  # This was shared for exactly one reason — "Tracking is FastAPI + Pydantic v2"
+  # — and that service no longer exists. Tracking is Go/Gin as of the
+  # 2026-08-27 migration and `services/tracking/` is deleted. No service in this
+  # repo runs FastAPI, so the skill now describes a framework that is absent:
+  # a provider carrying it would pattern-match Python web idioms onto a Go
+  # codebase, which is worse than having no framework skill at all.
+  #
+  # Note the seam this decision does NOT cross: Python has not left the repo.
+  # It remains the DEFAULT SCRIPTING LANGUAGE by explicit convention
+  # (docs/shared/conventions/scripting-language.md) — infra/scripts/lib3mrai/,
+  # doctor.py, bootstrap.py and ~29 other files stay Python, and the
+  # `python-first-scripting` rule above is still universal and still travels.
+  # What ended is Python as a SERVICE runtime. The four service runtimes are now
+  # Node/Fastify (Users), .NET (Orders), Go/Gin (Tracking), and Node/TypeScript
+  # (the two Lambdas). Excluding a web-framework skill is not a statement about
+  # the scripting convention, and must not be read as one.
+  fastapi: exclude
+
+  # TypeScript is the language of Users, events-pipeline, realtime-events, and
+  # the e2e suite. This is the deeper of the two TypeScript skills (type guards,
+  # branded types, discriminated unions, utility types, tsconfig/project
+  # references) and the reference files make it usable rather than aspirational.
+  # Its tRPC section is dead weight here; the rest carries it.
+  typescript-pro: share
+
+  # EXCLUDE — redundant with a shared skill, generic enough to be noise, or
+  # about a product this repo does not use. Excluding is not a judgment on
+  # quality: a projection stuffed with low-signal rules buries the high-signal
+  # ones, and every provider pays the context cost on every run.
+
+  # Prisma's HOSTED Postgres product: Console provisioning, create-db, the
+  # Management API, service tokens, claim URLs, OAuth. This repo runs Prisma the
+  # ORM against Aurora Postgres on Floci and has no Prisma Platform account.
+  # Following either skill here would send an agent to provision an external,
+  # billable database instead of using the local emulator — actively harmful,
+  # not merely irrelevant. The parts of Prisma we DO use travel via
+  # prisma-client-api / prisma-cli / prisma-upgrade-v7.
+  prisma-postgres: exclude
+  prisma-postgres-setup: exclude
+
+  # The other three FastAPI skills. Excluded since 2026-08-25 as redundant with
+  # the official `fastapi`; as of the 2026-08-27 Go migration ALL FOUR are
+  # excluded and the reasoning collapses to one line: no service in this repo
+  # runs FastAPI any more, so every one of them describes an absent framework.
+  #
+  # Their original, service-specific objections are kept as the record of why
+  # they were never projected even while a FastAPI service DID exist:
+  # fastapi-templates is scaffolding for NEW projects and invited restructuring
+  # a working service; fastapi-expert and fastapi-patterns both taught async
+  # SQLAlchemy while that service used SQLAlchemy 2 synchronously with PyMySQL.
+  # Those objections are now moot rather than wrong — the exclusion no longer
+  # depends on them.
+  fastapi-templates: exclude
+  fastapi-expert: exclude
+  fastapi-patterns: exclude
+
+  # Broad, and what it teaches this repo has already decided. It is a schema
+  # DESIGN and database-SELECTION skill (SQL vs NoSQL decision tree,
+  # normalization analysis, a 276K bundle of Python analyzers with sample
+  # schemas) aimed at greenfield modeling. Every engine choice here is settled
+  # and recorded as an ADR — Aurora MySQL for Orders/Tracking, Aurora Postgres
+  # for Users, DocumentDB for events-pipeline. The concrete engine-level advice
+  # a provider would actually use arrives via `mysql`. Its bundled scripts also
+  # would not run under another provider's tooling.
+  database-designer: exclude
+
+  # Reads as .NET/EF Core advice (AsNoTracking, EF Core vs Dapper) and is a
+  # near-subset of efcore-patterns, which is shared. The genuinely general parts
+  # (avoid N+1, no SELECT *, always bound a result set) are table stakes that a
+  # capable model applies unprompted; projecting them costs context on every run
+  # and teaches nothing repo-specific.
+  database-performance: exclude
+
+  # Generic "be a modern Python expert" persona: Python 3.12+, async, uv, ruff,
+  # pydantic. 8K with no reference files and no procedure.
+  #
+  # Still exclude after the 2026-08-27 Go migration, but the REASON changed and
+  # the old one no longer parses: it used to point at services/tracking/CLAUDE.md
+  # (deleted with the Python service) for the binding conventions. Today Python
+  # in this repo is scripting, not a service — infra/scripts/lib3mrai/,
+  # doctor.py, bootstrap.py and ~29 other files — and that domain is governed by
+  # the `python-first-scripting` rule, which IS projected and carries the parts
+  # that bind (repo venv, .venv/bin/python by absolute path, Python-by-default
+  # for infra scripting). A generic web/async persona adds nothing to script
+  # authoring, and its uv recommendation still contradicts this repo's pinned
+  # dependency contract.
+  python-pro: exclude
+
+  # Subsumed by typescript-pro, which is shared: same topics (generics,
+  # conditional/mapped types, template literals, utility types) with more depth
+  # and better reference material. Projecting both would put two overlapping
+  # type-system tutorials in front of every provider.
+  typescript-advanced-types: exclude
+
+  # ---------------------------------------------------------------------------
+  # Added 2026-08-27 (Go migration). These nine samber/cc-skills-golang skills
+  # had NO entry — installed in .claude/skills/ but classified nowhere, so they
+  # reached no provider and nothing failed. Same silent-skip failure mode JE-194
+  # closed for the previous 17; it reopened because a migration installs skills
+  # without touching this file.
+  #
+  # Judged the way gatling-js and efcore-patterns were: vendor knowledge for a
+  # stack that RUNS here travels; generic advice or tooling we do not use does
+  # not. Tracking is now a real Go service (Gin, sqlc, golang-migrate, go-redis,
+  # aws-sdk-go-v2, grpc-go, OTel), so unlike the FastAPI skills these describe a
+  # framework that is present.
+  #
+  # All nine parse cleanly under lnai's stricter YAML: their `description`
+  # values are already double-quoted at the source with no embedded quotes, so
+  # NONE needs the floci re-quoting fix. Re-verify if a description is edited.
+  #
+  # Caveat accepted for all nine: each SKILL.md cross-references sibling samber
+  # skills (golang-lint, golang-documentation, golang-samber-oops, ...) that are
+  # NOT installed here. Those pointers dangle in every provider. They degrade to
+  # an unfollowable "see also" rather than bad advice, which is the same trade
+  # already accepted for mysql's PlanetScale paragraph.
+
+  # SHARE — the four that match how this service is actually written, each
+  # mapping onto a rule services/tracking-go/CLAUDE.md states independently.
+
+  # context.Context is where this service's most expensive Go bug lives: a
+  # goroutine outliving a request must NOT inherit the request context, which is
+  # cancelled when the response is sent. This skill covers exactly that
+  # (context.WithoutCancel, propagation across layers, background work) and
+  # tracking-impl carries the same rule as a non-negotiable. Highest-value of
+  # the nine.
+  golang-context: share
+
+  # Tracking reaches Aurora MySQL through sqlc over database/sql. This is
+  # database/sql-level knowledge — parameterized queries, NULLable columns,
+  # struct scanning, transactions and isolation, SELECT FOR UPDATE, pool
+  # configuration, context propagation — which is the layer sqlc generates ONTO
+  # and which a provider still has to get right by hand. Pairs with `mysql`
+  # (engine-level) rather than duplicating it.
+  golang-database: share
+
+  # The service's error convention is unusual and easy to "fix" wrongly: errors
+  # are values declared BESIDE the type that produces them, with no shared
+  # errors package. This skill teaches the wrapping/%w/errors.Is/As machinery
+  # that convention is built on, plus slog — which is this service's logger.
+  golang-error-handling: share
+
+  # Go concurrency is not something a model reliably gets right unprompted, and
+  # this service runs goroutines that outlive requests (the ticker, background
+  # dispatch). Goroutine leaks, channel ownership and race conditions are the
+  # named triggers; `go test -race` is already in the service's make test.
+  golang-concurrency: share
+
+  # EXCLUDE — real quality, but redundant here, or about tooling this repo does
+  # not run. The context budget is the constraint: nine Go skills at ~50-120K
+  # each would crowd out the higher-signal ones above on every single run.
+
+  # 120K, the largest of the nine, and most of it is infrastructure this repo
+  # does not use: Prometheus metrics, Pyroscope continuous profiling, Grafana
+  # dashboards, server-side RUM, CDP/GDPR tracking. 3MRAI sends OTLP traces and
+  # logs to OpenObserve, with CloudWatch for custom metrics — no Prometheus, no
+  # Grafana, no Pyroscope. The parts that DO apply (OTel tracing, slog,
+  # log/trace correlation) are already specified where they bind: the projected
+  # logging-and-pii rule, ADR-0019, and the service's own CLAUDE.md. Projecting
+  # it would put a Prometheus/Grafana stack in front of every provider for a
+  # repo that runs neither.
+  golang-observability: exclude
+
+  # Layout advice for STARTING or restructuring a project (cmd/internal/pkg,
+  # monorepo setup, package splits). Tracking already has a deliberate,
+  # documented layout with a hard architectural rule — internal/domain is PURE
+  # and may import only the standard library — that this skill does not know
+  # about. Same objection that excluded fastapi-templates: a competing skeleton
+  # invites a provider to restructure a working service.
+  golang-project-layout: exclude
+
+  # Both are general Go craft that a capable model applies unprompted (MixedCaps
+  # vs snake_case, Get-prefix on getters, line breaking, when a comment helps).
+  # ~108K combined for advice that is table stakes, and the repo enforces the
+  # mechanical part with tooling rather than prose: gofmt -s -w . and
+  # golangci-lint run are required before any Tracking task reports done. A
+  # linter that fails the build beats a style essay in a context window.
+  golang-naming: exclude
+  golang-code-style: exclude
+
+  # Excluded DESPITE testing being load-bearing here, because on the points that
+  # matter this repo's rules are stricter and more specific than the skill's,
+  # and the two would conflict in front of a provider. 3MRAI requires REAL MySQL
+  # for repository tests and forbids mocks outright (a documented lesson:
+  # mocked unit tests pass while the real schema rejects); it mandates TDD with
+  # an observed red step; and it requires ownership tests to use two DIFFERENT
+  # values for user_id and cognito_sub or the test structurally cannot fail.
+  # None of that is in a general testing skill, all of it is in
+  # services/tracking-go/CLAUDE.md and the projected testing rule, and a generic
+  # table-test/mock-interface tutorial would dilute it.
+  golang-testing: exclude
 
 subagents:
   # Implementers and the planner: safe to describe as roles.

@@ -29,6 +29,11 @@ export default defineConfig({
       WEBHOOK_SECRET: "test-webhook-secret",
       GRPC_PORT: "50051",
       GRPC_API_KEY: "test-grpc-key",
+      // The account-deletion cascade's downstream services. Present so the env
+      // schema validates; no test reaches these hosts — CascadeClient takes an
+      // injected fetch.
+      ORDERS_BASE_URL: "http://localhost:8080",
+      TRACKING_BASE_URL: "http://localhost:8000",
       // Required by the env schema, so the whole suite fails to import without
       // them. No Redis is contacted here: the reset-code store is exercised
       // against an in-memory fake, and nothing under test constructs the real

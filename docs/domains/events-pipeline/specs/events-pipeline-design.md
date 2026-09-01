@@ -4,9 +4,11 @@ type: spec
 area: events-pipeline
 status: accepted
 created: 2026-06-26
-updated: 2026-08-21
+updated: 2026-08-29
 tags: [type/spec, area/events-pipeline, status/accepted, issue/JE-180, issue/JE-181]
 related:
+  - "[[2026-08-29-e2e-email-support-store]]"
+  - "[[2026-08-29-the-emulator-was-the-ceiling-not-the-code]]"
   - "[[2026-08-15-request-id-correlation-design]]"
   - "[[linear-references]]"
   - "[[observability-telemetry-milestone]]"
@@ -655,6 +657,144 @@ for the full evidence trail.
 > (`.env.local.debug` matches the live API id) — none of them was the cause; the assertion was.
 > See [[2026-08-05-realtime-tracking-events-websocket-design]] for the full diagnostic trail.
 
+## E2E email-support store
+
+> [!info] Shipped 2026-08-29, on `feature/tracking-go-migration`
+> Full design and the design decisions behind it: [[2026-08-29-e2e-email-support-store]]. Grew
+> out of the investigation in [[2026-08-29-the-emulator-was-the-ceiling-not-the-code]]. Testing
+> convention: [[testing#The E2E email-support store is a diagnostic channel, never an assertion
+> channel|Testing]].
+
+The pipeline writes one document per rendered email into a **new** MongoDB collection,
+`e2e_emails`, deliberately separate from the production `events` collection documented in
+[Data Model](#data-model) above, and serves it back to the Playwright suite over a Lambda
+Function URL. This is test-support scaffolding, not a business flow — it exists to give the E2E
+suite a queryable, per-run record of every email the pipeline actually rendered and handed to
+SES, correlated by `run_id` and carrying the full HTML and the plaintext code.
+
+### `e2e_emails` collection — data model
+
+| Field | Type | Notes |
+|---|---|---|
+| `run_id` | string | The Playwright run that caused this email. Required — a record that cannot be attributed to a run is noise in a shared collection. |
+| `to` | string | Recipient. |
+| `subject` | string | Rendered subject line. |
+| `template_key` | string | The catalog key actually rendered (see [`src/email/catalog.ts`](#srcemailcatalogts--the-registry)) — `auth-otp`, `forgot-password`, `user-created`, etc. |
+| `html` | string | The full rendered body, non-empty. |
+| `code` | string \| omitted | The plaintext OTP/reset code, when the template carries one. **Omitted, never null**, for the four templates that carry none. |
+| `event_id` | string | The originating envelope's `event_id`. |
+| `trace_id` | string \| omitted | Omitted when no span is active, same rule as the production envelope's `author` fields. |
+| `created_at` | datetime | Stamped by the store at write time. |
+| `expires_at` | datetime | `created_at + E2E_EMAIL_TTL_SECONDS` — the field the TTL index below expires on. |
+
+Optional fields are **omitted, never null** — the same repo-wide logging/persistence convention
+[[logging-context]] and the envelope's `author` object already follow.
+
+**A separate collection, not a field on the event document, and this is deliberate.** `events`
+is production data with a unique index on `event_id` and a fixed shape; test fixtures do not
+belong in it, and a TTL index on a production collection would eventually delete real records —
+see the TTL note below.
+
+### The repo's first TTL index — and why it stays off `events`
+
+`ensureE2eIndexes` creates `createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 })` — the
+**per-document** form. `expireAfterSeconds: 0` means MongoDB deletes a row at the instant named
+by the indexed **date field itself**, rather than N seconds after a fixed collection-wide policy;
+that is what lets every document carry its own lifetime, computed at write time from
+`E2E_EMAIL_TTL_SECONDS`. This is the first TTL index anywhere in this repo.
+
+It is created **only** under `E2E_TESTING_ENABLED` — a deployed environment that never sets the
+flag has neither the index nor the collection at all. Putting a TTL on the production `events`
+collection would be a **scheduled data-loss bug**; keeping the fixture data in its own collection
+is what makes a TTL safe to use here at all.
+
+### A third event shape on the same Lambda
+
+The dispatch documented in [Dispatch](#dispatch) already handles two shapes on `handler.ts`'s
+event union — an SQS batch and the EventBridge metrics tick (see [Metrics](#metrics)) — and now
+handles a third: a Lambda Function URL request. **The HTTP check is first in the dispatch
+chain**, and the ordering is load-bearing, not stylistic: `processBatch` reads
+`event.Records.length`, so an HTTP event that fell through to it would die with `Cannot read
+properties of undefined (reading 'length')` — observed live against Floci before this branch
+existed. No tracing span wraps this route: it is test-support scaffolding, not a business flow,
+and giving it a `CONSUMER` span would put fixture reads in the same waterfall as real order and
+email work (see [Observability — tracing spans](#observability--tracing-spans)).
+
+### Recording happens at the point of send, not before
+
+`sendEmail` (`src/email/sender.ts`) accepts an optional `recordEmail` callback, invoked **after**
+the SES call succeeds, and it swallows its own failures (logged at `WARN`, never rethrown).
+Both halves of that ordering are deliberate:
+
+- **After, not before.** This store answers "what was delivered", not "what was attempted."
+  Recording before the send would report a transient failure for an email that never left, and a
+  spec reading the store during an SES hiccup would see mail that was never sent.
+- **Swallowed, not rethrown.** A broken test fixture (e.g. Mongo unreachable) must never fail a
+  real email. Recording is best-effort by construction — the store can lose a record without
+  ever affecting whether the user's email sends, and rethrowing would risk a duplicate send on
+  SQS redelivery for a message that had, in fact, already gone out.
+
+### Three new env vars
+
+Generated by `make env-file`, per [[env-files]] — never hand-edited:
+
+| Var | Purpose |
+|---|---|
+| `E2E_TESTING_ENABLED` | An enum (`"true"`/`"false"`), **not** a coerced boolean. A coerced boolean follows JS truthiness, under which the *string* `"false"` is truthy — the enum form is what makes the safety property in the next section actually hold. Gates the write, the TTL index, and the query route together. |
+| `E2E_EMAIL_TTL_SECONDS` | Default `3600`. One hour is far longer than a suite run (~5 minutes) and short enough that a forgotten local stack is not holding plaintext codes overnight. |
+| `E2E_QUERY_TOKEN` | Shared secret the Function URL route requires. Unset **closes** the route rather than opening it — see below. |
+
+### Security posture of the query route
+
+Worth stating plainly: this route serves live plaintext OTP and password-reset codes. Three
+independent conditions must **all** hold, or the route answers **404** — never 401, never 403,
+and never a body that distinguishes *why* it failed:
+
+1. `E2E_TESTING_ENABLED` is `true`.
+2. `E2E_QUERY_TOKEN` is configured. An **unset** token closes the route; it does not open it —
+   the failure mode of a missing secret must be closed, not permissive.
+3. The request presents that token (`x-e2e-token`) and it matches, compared in **constant time**
+   (`timingSafeEqual`, the same primitive `infra/modules/cognito/otp-challenge-lambda/index.mjs`
+   already uses for the same class of comparison).
+
+A 403 would confirm to an attacker that the route exists on a function holding live credentials;
+404 makes "disabled", "misconfigured", and "wrong token" indistinguishable from "route does not
+exist."
+
+### `run_id` on the envelope — optional, E2E-only, and how it reaches the OTP path
+
+`src/domain/envelope.ts` gained an optional `run_id: z.string().min(1).optional()` — omitted,
+never null, in production traffic, the same convention every other optional envelope field
+follows (see [The envelope's `author` object](#the-envelopes-author-object)).
+
+For every producer except the OTP path, the run id is ordinary request context. **The OTP path
+is the hard case**: `AUTH_OTP_REQUESTED` is published by Cognito's `CreateAuthChallenge` trigger
+(see [Dispatch](#dispatch)), which Cognito itself invokes — the originating HTTP request's
+context reaches it by no direct path. The run id rides Cognito's `ClientMetadata`, the same seam
+`traceparent` already uses to cross this exact gap (see
+[Observability — tracing spans](#observability--tracing-spans) and
+[[cognito-custom-auth-triggers]]): `cognito-auth-provider.ts` puts `runId` into `ClientMetadata`
+alongside `traceparent`, and `otp-challenge-lambda/index.mjs` reads it back. Both Users and the
+trigger **re-validate its shape independently** (a `run_` pattern), because `ClientMetadata` is a
+caller-controlled field arriving over the wire and landing in a database document — the trigger
+does not trust it merely because Users sent it.
+
+### Floci note — `list-function-url-configs` is broken
+
+Verified 2026-08-29: `create-function-url-config` and `get-function-url-config` both work, the
+URL resolves from the host, and a GET reached the running function. `list-function-url-configs`
+is **broken** — it returns an S3 `NoSuchBucket` XML error, the same failure shape as the
+already-documented "unrouted `:4566` paths fall through to Floci's S3 handler" quirk noted for
+the WebSocket management API above (see [Floci facts](#floci-facts-websocket-api-gateway--dynamodb)).
+Use `get-function-url-config` in any script or check; do not rely on the list API.
+
+### Measured cost — within noise, not a regression
+
+With the store enabled, the pipeline drains at 0.71 events/s; with it disabled, 0.67 events/s.
+The extra MongoDB write is within measurement noise — the effective ceiling (~1 event/s) is
+Floci's own delivery cadence (see [[2026-08-29-the-emulator-was-the-ceiling-not-the-code]]), not
+a cost this feature adds.
+
 ## Cross-cutting rules
 
 - **Soft delete only:** documents are never hard-deleted. See [[soft-delete]] and [[ADR-0004-soft-delete-only]].
@@ -828,6 +968,11 @@ flushed are lost or arrive late on the next cold invocation, attributed to the w
 
 ## Related
 
+- [[2026-08-29-e2e-email-support-store]] — the implementation plan for the
+  [E2E email-support store](#e2e-email-support-store) section above: the `e2e_emails` collection,
+  the TTL index, the Function URL query route, and the design decisions behind each.
+- [[2026-08-29-the-emulator-was-the-ceiling-not-the-code]] — the investigation the store grew out
+  of, and why "late" (recorded but not yet in Mailpit) is the common failure shape on this stack.
 - [[2026-08-15-request-id-correlation-design]] — the cross-service `request_id` correlation field.
   This was the design's motivating service: before the OTel SDK landed (JE-138, now closed — see
   [Observability — tracing spans](#observability--tracing-spans)), the pipeline had no

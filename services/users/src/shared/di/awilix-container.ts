@@ -14,6 +14,7 @@ import { CognitoAuthProvider } from "../auth/cognito-auth-provider.ts";
 import type { AuthProvider } from "../auth/auth-provider.ts";
 import { createRedisClient, type RedisClient } from "../cache/redis.ts";
 import { ResetCodeStore } from "../cache/reset-code-store.ts";
+import { CacheGateway } from "../cache/cache-gateway.ts";
 import { RegisterUserCommand } from "#features/users/commands/register";
 import { RegisterPasswordlessCommand } from "#features/users/commands/register-passwordless";
 import { LoginUserCommand } from "#features/users/commands/login";
@@ -24,6 +25,8 @@ import { UpdateProfileCommand } from "#features/users/commands/update-profile";
 import { ForgotPasswordCommand } from "#features/users/commands/forgot-password";
 import { ConfirmPasswordResetCommand } from "#features/users/commands/confirm-password-reset";
 import { ChangePasswordCommand } from "#features/users/commands/change-password";
+import { DeleteAccountCommand } from "#features/users/commands/delete-account";
+import { CascadeClient } from "#shared/http/cascade-client";
 import { UserQueryService } from "#features/users/queries/get-me";
 import { E2eCleanupCommand } from "#features/users/http/e2e-cleanup";
 import { E2eIdentityQuery } from "#features/users/http/e2e-identity";
@@ -44,6 +47,7 @@ declare module "@fastify/awilix" {
     businessMetricsPoller: BusinessMetricsPoller;
     redis: RedisClient;
     resetCodeStore: ResetCodeStore;
+    cacheGateway: CacheGateway;
     registerUserCommand: RegisterUserCommand;
     registerPasswordlessCommand: RegisterPasswordlessCommand;
     loginUserCommand: LoginUserCommand;
@@ -54,6 +58,8 @@ declare module "@fastify/awilix" {
     forgotPasswordCommand: ForgotPasswordCommand;
     confirmPasswordResetCommand: ConfirmPasswordResetCommand;
     changePasswordCommand: ChangePasswordCommand;
+    cascade: CascadeClient;
+    deleteAccountCommand: DeleteAccountCommand;
     userQueryService: UserQueryService;
     e2eCleanupCommand: E2eCleanupCommand;
     e2eIdentityQuery: E2eIdentityQuery;
@@ -92,6 +98,18 @@ export function registerSingletons(): void {
     auth: asFunction(
       ({ cognitoClient, env: cradleEnv }: { cognitoClient: CognitoIdentityProviderClient; env: Env }) =>
         new CognitoAuthProvider(cognitoClient, cradleEnv.COGNITO_USER_POOL_ID, cradleEnv.COGNITO_CLIENT_ID),
+      { lifetime: Lifetime.SINGLETON },
+    ),
+    // The account-deletion cascade's HTTP client. SINGLETON like every other
+    // outbound client here: it holds only configuration, and its fetch is
+    // stateless, so there is nothing per-request to rebuild.
+    cascade: asFunction(
+      ({ env: cradleEnv }: { env: Env }) =>
+        new CascadeClient({
+          ordersBaseUrl: cradleEnv.ORDERS_BASE_URL,
+          trackingBaseUrl: cradleEnv.TRACKING_BASE_URL,
+          apiKey: cradleEnv.GRPC_API_KEY,
+        }),
       { lifetime: Lifetime.SINGLETON },
     ),
     sqsClient: asFunction(
@@ -147,6 +165,15 @@ export function registerSingletons(): void {
     // Stateless wrapper over `redis`, so it costs nothing to share and there is
     // no per-request state to keep apart — SINGLETON alongside its client.
     resetCodeStore: asClass(ResetCodeStore, { lifetime: Lifetime.SINGLETON }),
+    // Stateless over the SINGLETON `redis` client — SINGLETON alongside it, the
+    // same reasoning as resetCodeStore. It opens no connection of its own; a
+    // second ioredis client would mean a second TCP socket and a second
+    // reconnect state machine for no gain.
+    //
+    // asClass is correct here (unlike metricsPublisher above): every name this
+    // constructor destructures — redis, metricsPublisher, env — IS a registered
+    // cradle key, so PROXY injection resolves all three. The DI test proves it.
+    cacheGateway: asClass(CacheGateway, { lifetime: Lifetime.SINGLETON }),
   });
 }
 
@@ -165,6 +192,7 @@ export function registerServices(): void {
     forgotPasswordCommand: asClass(ForgotPasswordCommand, { lifetime: Lifetime.SCOPED }),
     confirmPasswordResetCommand: asClass(ConfirmPasswordResetCommand, { lifetime: Lifetime.SCOPED }),
     changePasswordCommand: asClass(ChangePasswordCommand, { lifetime: Lifetime.SCOPED }),
+    deleteAccountCommand: asClass(DeleteAccountCommand, { lifetime: Lifetime.SCOPED }),
     userQueryService: asClass(UserQueryService, { lifetime: Lifetime.SCOPED }),
     e2eCleanupCommand: asClass(E2eCleanupCommand, { lifetime: Lifetime.SCOPED }),
     e2eIdentityQuery: asClass(E2eIdentityQuery, { lifetime: Lifetime.SCOPED }),

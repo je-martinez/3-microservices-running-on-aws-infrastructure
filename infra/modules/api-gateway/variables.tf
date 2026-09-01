@@ -69,10 +69,10 @@ variable "enable_tracking_routes" {
       GET  /v1/trackings/{orderId}           (auth = true  — single read)
       PUT  /v1/trackings/{orderId}/status    (auth = false — carrier webhook)
 
-    Defaults to FALSE: the Tracking service does not exist yet (empty src/,
-    commented-out Dockerfile) and nginx has no `tracking` upstream, so these
-    paths would silently resolve to Users via nginx's default `location /`.
-    Enable this together with the nginx upstream and a running service.
+    Defaults to FALSE so a root that has no `tracking` nginx upstream cannot
+    publish paths that silently resolve to Users via nginx's default
+    `location /`. Enable it together with the nginx upstream and a running
+    service — the local environment does.
 
     The PUT route intentionally has NO Cognito authorizer — its caller is an
     external carrier, and the service validates its own API key. It therefore

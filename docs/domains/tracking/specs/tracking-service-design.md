@@ -4,9 +4,12 @@ type: spec
 area: tracking
 status: accepted
 created: 2026-06-26
-updated: 2026-08-21
+updated: 2026-08-28
 tags: [type/spec, area/tracking, status/accepted]
 related:
+  - "[[2026-08-25-response-caching-layer-design]]"
+  - "[[x-cache-response-header]]"
+  - "[[2026-08-25-account-deletion-design]]"
   - "[[2026-08-15-request-id-correlation-design]]"
   - "[[soft-delete]]"
   - "[[nano-id]]"
@@ -25,7 +28,7 @@ related:
   - "[[grpc-api-key-authorization]]"
   - "[[user-id-vs-cognito-sub-ownership-key]]"
   - "[[two-api-keys-two-trust-domains]]"
-  - "[[testmode-in-process-asyncio-task]]"
+  - "[[testmode-in-process-no-durable-scheduler]]"
   - "[[events-pipeline-design]]"
   - "[[env-files]]"
   - "[[2026-08-03-events-pipeline-milestone-design]]"
@@ -35,25 +38,40 @@ related:
   - "[[2026-08-18-distributed-tracing-spans-design]]"
   - "[[2026-08-18-distributed-tracing-spans]]"
   - "[[ADR-0019-distributed-tracing-opentelemetry]]"
+  - "[[2026-08-27-go-vs-python-performance]]"
   - "[[2026-07-31-contextvars-lost-across-task-boundaries]]"
+  - "[[2026-08-27-tracking-go-migration-design]]"
+  - "[[ADR-0021-tracking-go-gin-sqlc-stack]]"
+  - "[[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]]"
+  - "[[2026-08-27-a-producer-side-test-proves-nothing-about-what-the-consumer-accepts]]"
+  - "[[2026-08-27-a-librarys-defaults-encode-assumptions-about-a-generic-service]]"
 ---
 
 # Tracking Service Design
 
-> [!info] As built — fully wired and verified end to end (2026-07-31, endpoint table updated 2026-08-03)
-> Every part of the chain this note once listed as missing now exists: a multi-stage
-> `services/tracking/Dockerfile` that installs and starts the app, a `tracking` service in
-> `docker-compose.yml` publishing `3002:8000` with a healthcheck, an nginx upstream
-> (`location /v1/trackings` plus the rewritten `/v1/tracking/health`), and
-> `enable_tracking_routes = true` in `infra/environments/local/main.tf` — so the gateway routes
-> below are live, not inert (the flag-guarded `e2e-cleanup` route is service-local, not a gateway
-> route — see [E2E cleanup](#e2e-cleanup-delete-v1trackingse2e-cleanup)).
+> [!info] Go cutover complete (2026-08-27) — this note now describes the Go/Gin implementation
+> Tracking was ported from Python/FastAPI to Go/Gin per [[2026-08-27-tracking-go-migration-design]]
+> (stack decisions: [[ADR-0021-tracking-go-gin-sqlc-stack]]). The migration's four-part closing
+> gate is **three-of-four met** (all three test layers PASS, `openapi.yaml` diff PASS, observability
+> parity PASS after a fix it found; measured performance is **PARTIALLY met** — resource/startup
+> metrics measured and Go wins all four, load-test latency/throughput not measurable on this stack,
+> see [[2026-08-27-go-vs-python-performance]]) — the cutover was executed on that basis, by user
+> decision. **`services/tracking-go/` is now THE Tracking service.** `services/tracking/` (Python)
+> was removed in commit `b889580` (138 files, 27,577 lines) and no longer exists on disk; where
+> this note still describes Python-only artifacts (Alembic revisions, historical FastAPI
+> behaviour) they are marked explicitly as historical. Everything else below —
+> the domain rules, the two-identity ownership rule, the state machine, the auth schemes, the
+> events contract, TestMode's accepted limitation — is unchanged behaviour, now running on the Go
+> service. See `services/tracking-go/CLAUDE.md` for implementation-level detail (architecture,
+> commands, the wiring-hazard and wire-contract lessons) this note does not duplicate.
 >
 > Verified from a destroyed environment, not incrementally: `make clean` (with `./data`
-> deleted) → `make bootstrap` completed in **one pass** → **70/70 E2E tests pass**, including
-> the full journey through the gateway (user → order → tracking → DELIVERED). See
-> [[tracking/testing/index|Tracking Testing]] for current unit/integration coverage — run against
-> a live MySQL rather than mocks.
+> deleted) → `make bootstrap` completed in **one pass** → **70/70 E2E tests pass** against the
+> Python service before the cutover; the Go service separately passed 22/22 internal E2E and
+> 17/17 gateway E2E with the **same, unedited** gateway specs (`git diff -- e2e/tests/` empty) —
+> see [[2026-08-27-tracking-go-migration-design#Closing gate — what must be true before the Python folder is deleted]].
+> See [[tracking/testing/index|Tracking Testing]] for current unit/integration coverage — run
+> against a live MySQL rather than mocks, same as the Python service was.
 >
 > `infra/modules/messaging/` and `infra/modules/docdb/` (renamed from `database/` on 2026-08-04 —
 > the old name suggested a generic database module when it only ever created DocumentDB) are no
@@ -75,6 +93,11 @@ notifying the system of a delivery status change, plus the standard health check
 events-pipeline milestone, Tracking is **also a producer**: every successful status transition
 emits `TRACKING_STATUS_CHANGED` — see [Events](#events).
 
+The service exposes **seven** routes (not five — see [API / Endpoints](#api--endpoints) and
+[[2026-08-27-tracking-go-migration-design#Surface inventory — SEVEN routes, four auth schemes]]
+for the finding that the service's own project memory previously under-documented this by two)
+across **four** inbound auth schemes plus one outbound.
+
 > [!note] This design was not the original one
 > Creation and both reads originally shipped over gRPC (JE-90, JE-91). See
 > [Deltas from the original design (superseded)](#deltas-from-the-original-design-superseded) at
@@ -82,17 +105,31 @@ emits `TRACKING_STATUS_CHANGED` — see [Events](#events).
 
 ## Stack & Data Store
 
-| Layer      | Technology                               |
-|------------|------------------------------------------|
-| Runtime    | Python 3.12 — FastAPI                    |
-| Database   | Aurora MySQL (write replica + read replica) |
-| Container  | AWS Fargate (ECS)                        |
-| Auth       | Amazon Cognito (request validation)      |
+| Layer       | Technology                                             |
+|-------------|---------------------------------------------------------|
+| Runtime     | Go 1.26.7 (via goenv) — Gin                            |
+| Data access | sqlc + `database/sql`, `go-sql-driver/mysql` — no ORM  |
+| Migrations  | golang-migrate (baseline translated from the Python service's Alembic revisions) |
+| Database    | Aurora MySQL (write replica + read replica)            |
+| Container   | AWS Fargate (ECS)                                      |
+| Auth        | Amazon Cognito (request validation)                    |
 
 Read replicas are used for all reads — `GET /v1/trackings/{orderId}` and
 `GET /v1/trackings?order_ids=...`; the write replica receives all mutations
 (`POST /v1/trackings/init-tracking` and the REST status-update endpoint). See
 [[ADR-0006-read-write-replicas]].
+
+**Architecture: hexagonal / ports and adapters**, chosen over a plain domain-package layout so
+the pure domain (`internal/domain`) cannot import Gin, sqlc, or Redis — the compiler, not a
+convention someone has to remember, keeps infrastructure out of business rules. This is enforced
+by a test, not review alone: `internal/domain/purity_test.go` walks the full transitive import
+closure. Ports are declared by their **consumers** (each use case in `internal/app` declares its
+own narrow interface, usually one or two methods) — there is no central `ports.go` and no shared
+repository interface. Dependency injection is **manual constructor injection** in
+`cmd/server/main.go`, a deliberate divergence from this repo's Awilix/DI-container convention
+([[ADR-0008-screaming-arch-di]]) for this one service. Full layout and rationale:
+[[2026-08-27-tracking-go-migration-design#Folder structure]] and
+`services/tracking-go/CLAUDE.md` §3.
 
 ## API / Endpoints
 
@@ -115,14 +152,20 @@ means adding entries to that module's `local.routes` map, per
 | GET    | `/v1/trackings?order_ids=<csv>`     | Cognito JWT (gateway authorizer) | Returns many trackings (+ each one's `Tracking_History`), scoped to the caller. `order_ids` is a comma-separated list of order ids, e.g. `?order_ids=ord_a,ord_b,ord_c` — see [Batch read query shape](#batch-read-query-shape) for why. Filters by `order_id` **and** the caller's `cognito_sub`; ids that exist but belong to another user (or don't exist at all) are silently **omitted** from the results, never reported as an error — see [Ownership & scoping](#ownership--scoping). |
 | PUT    | `/v1/trackings/{orderId}/status`    | Custom API key (service-validated, **not** Cognito) | Simulates a third-party carrier service notifying Tracking of a delivery status change. `status` must be one of the five enum values defined in [Tracking statuses](#tracking-statuses), and is subject to the guards in [State machine & update guards](#state-machine--update-guards). See [Auth schemes](#auth-schemes) — this endpoint has **no `x-user-id`** and is identified by `order_id` alone. Path param is `{orderId}` (camelCase) — see [Gateway path params are camelCase](#gateway-path-params-are-camelcase-not-snake_case). |
 | DELETE | `/v1/trackings/e2e-cleanup`         | None — the route only **exists** under `E2E_TESTING_ENABLED` | The E2E harness's global-teardown route (JE-111). See [E2E cleanup](#e2e-cleanup-delete-v1trackingse2e-cleanup) below. |
+| DELETE | `/v1/trackings/by-user`             | Custom internal API key (`GRPC_API_KEY`, service-validated, **not** Cognito) | **Internal.** Not on the API Gateway; the only caller is Users' `DELETE /v1/users/me`. Soft-deletes every live tracking (and its history) belonging to a user, matching `cognito_sub OR user_id`. See [Account-deletion cascade (internal)](#account-deletion-cascade-internal) below. |
 
-> [!warning] Several auth schemes, in both directions
+> [!warning] Several auth schemes, in both directions — now FOUR inbound, corrected 2026-08-26
 > Unlike Users/Orders, where "all endpoints require a Cognito JWT except health" was previously
-> true, Tracking has **three inbound** schemes (none for health, Cognito JWT for the reads and
-> init-tracking, a custom external key for the carrier PUT) **plus one outbound** scheme (an
-> internal `x-api-key` when Tracking itself calls Users) — see [Auth schemes](#auth-schemes) below
-> for the full breakdown, with the inbound/outbound direction made explicit. Do not assume the PUT
-> endpoint has a Cognito JWT or an `x-user-id` header; it has neither.
+> true, Tracking has **four inbound** schemes (none for health, Cognito JWT for the reads and
+> init-tracking, a custom external key for the carrier PUT, and — as of the account-deletion
+> milestone — the internal `GRPC_API_KEY` for `DELETE /v1/trackings/by-user`) **plus one
+> outbound** scheme (the same internal `x-api-key` when Tracking itself calls Users). This note
+> previously stated the internal key was something Tracking only **sends**, never validates
+> inbound; that is **no longer true** — see [Auth schemes](#auth-schemes) below for the corrected,
+> full breakdown, with the inbound/outbound direction made explicit for each of the five surfaces.
+> Do not assume the PUT endpoint has a Cognito JWT or an `x-user-id` header; it has neither, and
+> do not assume the internal-key route has either — it is identified purely by the identities in
+> its request body.
 
 > [!note] Gateway path vs internal service path
 > The table above documents the **gateway** surface — what a client actually calls through
@@ -177,17 +220,22 @@ bulk `UPDATE`s below).
 > harness's teardown runs once, globally, at the end of a suite; there is no user session to run it
 > as, so a route requiring a caller would `401` its only real caller (an earlier version did
 > exactly that). What protects it instead is that the route **does not exist** unless
-> `E2E_TESTING_ENABLED` is on (`src/main.py` only mounts the e2e router under that flag).
+> `E2E_TESTING_ENABLED` is on. In the Go service the route is conditionally registered in
+> `internal/adapter/http.NewAppRouter`; the Python service (retired) mounted the e2e router
+> the same way from `src/main.py`.
 
 - **What it deletes:** every live `Tracking` row tagged `"E2E Source"`, **and its `Tracking_History`
   in cascade** — children first, then the parent, following the FK direction (mirrors
-  `soft_delete_by_tag` in `src/features/tracking/domain/repository.py`). Never a physical `DELETE` —
+  the tag-scoped soft-delete query (Go: `internal/adapter/mysql`; the retired Python service
+  called it `soft_delete_by_tag` in `src/features/tracking/domain/repository.py`). Never a
+  physical `DELETE` —
   the audit columns (`deleted_at`, `deleted_by`) are stamped, same as every other soft-delete in this
   service; `deleted_by` is set to `AuditActor.E2E_CLEANUP` so a row removed by the harness stays
   distinguishable from one removed by a real flow.
 - **The tag is applied at creation, not here.** A row is tagged `"E2E Source"` only when the
   `init-tracking` request sent `x-e2e-source: true` **and** `E2E_TESTING_ENABLED` was on at that
-  moment — **both conditions are mandatory** (`src/shared/http/e2e_source.py`). The conjunction is
+  moment — **both conditions are mandatory** (Go: `internal/adapter/http/flags.go`; the retired
+  Python service enforced it in `src/shared/http/e2e_source.py`). The conjunction is
   what stops an untrusted client tagging its own rows for someone else's teardown to delete; the
   header alone must never be sufficient.
 - **Response:** `200 {"deleted": N}` — the count of `Tracking` rows stamped (not history rows).
@@ -195,21 +243,33 @@ bulk `UPDATE`s below).
   for, so a re-run is not a failure.
 - **Flag off → `405`, not `404`.** With `E2E_TESTING_ENABLED` off the route is never registered, and
   `/v1/trackings/e2e-cleanup` still matches `GET /v1/trackings/{order_id}`'s path — only the method
-  is unsupported, so Starlette answers `405 Method Not Allowed`. A harness (or a future test) that
-  treats "flag off" as a `404` will misdiagnose this endpoint; treat `405` as "flag off; nothing to
-  clean up here."
+  is unsupported, so the service answers `405 Method Not Allowed`, matching the retired Python
+  service's Starlette behaviour. In Go this is **not** the framework default — Gin answers `404`
+  for a path that exists under another method unless told otherwise, so
+  `router.HandleMethodNotAllowed = true` is set explicitly in
+  `internal/adapter/http.NewAppRouter` for exactly this reason (see
+  `services/tracking-go/CLAUDE.md` §4). A harness (or a future test) that treats "flag off" as a
+  `404` will misdiagnose this endpoint; treat `405` as "flag off; nothing to clean up here."
 - **Caller:** the E2E harness's global teardown (`e2e/support/global-teardown.ts`), which calls the
   equivalent route on all three services.
 
 ### Auth schemes
 
+> [!warning] Corrected 2026-08-26 — the internal key is validated inbound again
+> This section previously stated the gRPC `x-api-key`/`GRPC_API_KEY` scheme was, as of the
+> gRPC-removal rewrite, something Tracking only **sends**, never validates inbound — with the
+> inbound `x-api-key` interceptor removed entirely (see
+> [Deltas from the original design (superseded)](#deltas-from-the-original-design-superseded)).
+> The account-deletion milestone (2026-08-26) made that framing **false again**: Tracking now
+> validates `GRPC_API_KEY` **inbound**, on `DELETE /v1/trackings/by-user`, a plain REST route.
+> [[two-api-keys-two-trust-domains]] carried the same outdated claim and has been corrected there
+> too. The tables below reflect the current, actual direction of every surface.
+
 Tracking is REST-only, but its surfaces still span several trust domains — worth documenting
-explicitly, and worth being explicit about **direction**, because Tracking is both a callee (its
-REST surface, inbound) and a caller (its one remaining gRPC dependency, outbound) using a
-key-based scheme in *each* direction. Confusing the two is the easiest mistake to make here: the
-gRPC `x-api-key` used to be something Tracking **validated** (an inbound interceptor, see
-[Deltas from the original design (superseded)](#deltas-from-the-original-design-superseded)); it
-is now something Tracking **sends**.
+explicitly, and worth being explicit about **direction**, because Tracking is now both a callee
+in **two** different ways (its Cognito-authenticated REST surface, and — since account
+deletion — a second inbound surface authenticated by the shared internal key) and a caller (its
+one remaining gRPC dependency, outbound) using a key-based scheme in more than one direction.
 
 **Inbound** — requests arriving at Tracking:
 
@@ -218,7 +278,8 @@ is now something Tracking **sends**.
 | `GET /v1/tracking/health` (gateway) / `/v1/health` (internal) | None | ALB / Fargate health check |
 | `POST /v1/trackings/init-tracking` | Cognito JWT via the gateway's JWT authorizer, identity from `x-user-id` | End user |
 | `GET /v1/trackings/{orderId}` and the batch read | Cognito JWT via the gateway's JWT authorizer, scoped by `cognito_sub` (from `x-user-id`) | End user |
-| `PUT /v1/trackings/{orderId}/status` | Custom API key, validated by the service itself | Third-party carrier / webhook |
+| `PUT /v1/trackings/{orderId}/status` | Custom API key (`TRACKING_CARRIER_API_KEY`), validated by the service itself | Third-party carrier / webhook |
+| `DELETE /v1/trackings/by-user` | Internal API key (`GRPC_API_KEY`), validated by the service itself. **Not** the same trust domain as the row above — see the callout below. Not on the API Gateway. | Users' `DELETE /v1/users/me`, via `CascadeClient` |
 
 **Outbound** — the one call Tracking itself makes:
 
@@ -226,23 +287,35 @@ is now something Tracking **sends**.
 |---|---|---|
 | gRPC `users.v1.Users/GetUserById` | `x-api-key` metadata entry (see [[ADR-0003-grpc-inter-service]]) | Users |
 
-> [!important] The two key-based schemes are different keys for different trust domains
-> The gRPC `x-api-key` Tracking sends to Users is an **internal** service-to-service secret — the
-> same pattern [[users-service-design]] established for inter-service calls, and the same one
-> Orders already uses for its own `GetUserById` call (see [[grpc-api-key-authorization]]). The PUT
-> endpoint's API key is issued to an **external** party (the carrier/webhook) and flows in the
-> opposite direction — inbound, not outbound. These must **not** be the same value or the same env
-> var/secret: reusing the internal service credential as the externally-distributed carrier key
-> would hand an outside vendor the ability to authenticate as an internal service. Provision them
-> as two separate secrets.
+> [!important] Three key-based schemes now, across three trust domains — not two
+> `TRACKING_CARRIER_API_KEY` (the PUT endpoint) and `GRPC_API_KEY` (both the outbound gRPC call
+> *and*, now, the inbound `by-user` cascade route) are **three distinct surfaces sharing two
+> secrets**, and the two secrets must never collapse into one:
+>
+> - `GRPC_API_KEY` is an **internal** service-to-service secret — the same pattern
+>   [[users-service-design]] established for inter-service calls, the same one Orders uses for
+>   its own `GetUserById` call (see [[grpc-api-key-authorization]]), and now the same one Orders
+>   *also* validates inbound on its own `DELETE /v1/orders/by-user` (see
+>   [[orders-service-design#Account-deletion cascade (internal)]]). Every holder of `GRPC_API_KEY`
+>   is one of **our own services** — Tracking both sends it (to Users) and, as of account
+>   deletion, receives and validates it (from Users) on two different routes with two different
+>   transports (gRPC metadata outbound, an `x-api-key` HTTP header inbound). Sending and
+>   validating the same secret on different surfaces is not a contradiction — it is what an
+>   internal, symmetric, multi-service key looks like once more than two services hold it.
+> - `TRACKING_CARRIER_API_KEY`'s holder is **not** one of our services — it is issued to an
+>   **external** party (the carrier/webhook). These must **not** be the same value or the same
+>   env var/secret: reusing the internal service credential as the externally-distributed carrier
+>   key would hand an outside vendor the ability to authenticate as an internal service, including
+>   against the account-deletion cascade route. Provision them as two separate secrets.
 >
 > Both should be treated as rotatable secrets in Parameter Store, per
-> [[ADR-0007-secrets-parameter-store]], not hardcoded values. Log failed auth attempts against the
-> PUT endpoint (without ever logging the key itself, per [[logging-context]]) — an endpoint that
-> mutates delivery state and is reachable without a user JWT is a broader attack surface than the
-> rest of the service, and failed-attempt visibility is the cheapest mitigation available.
+> [[ADR-0007-secrets-parameter-store]], not hardcoded values. Log failed auth attempts against
+> both the PUT endpoint and the cascade route (without ever logging the key itself, per
+> [[logging-context]]) — a mass soft-delete surface is the widest blast radius in this service,
+> and failed-attempt visibility is the cheapest mitigation available.
 >
-> See [[two-api-keys-two-trust-domains]] for the formal decision record.
+> See [[two-api-keys-two-trust-domains]] for the formal decision record (also corrected
+> 2026-08-26).
 
 ### Gateway routing (existing module, not a new one)
 
@@ -319,6 +392,16 @@ This matches Orders' existing ownership semantics exactly (see
   — never surfaced as a per-id error or partial-failure entry. A caller who passes ten ids and owns
   three gets back exactly three trackings, with no indication of what happened to the other seven.
 
+> [!info] Erasure-only exception (2026-08-26) — reads are unaffected
+> `DELETE /v1/trackings/by-user` (see [Account-deletion cascade
+> (internal)](#account-deletion-cascade-internal) below) matches `cognito_sub OR user_id`, wider
+> than the `cognito_sub`-only predicate above. **This widening is erasure-only.** Both REST reads
+> continue to filter by `cognito_sub` alone, exactly as documented above — nobody should widen
+> them to match the cascade's predicate. The cascade's own rationale for the OR (a user who
+> deletes and re-registers gets a new sub, while `user_id` is stable; some pre-migration rows
+> have a null `cognito_sub` reachable only through `user_id`) is documented in full at
+> [[soft-delete#The per-user cascade]].
+
 ### Batch read query shape
 
 `GET /v1/trackings?order_ids=ord_a,ord_b,ord_c` — a single query parameter holding a
@@ -394,7 +477,242 @@ event — a network dependency.
 > not `break` on the first header match, or a second header (e.g. `x-user-id`) is lost. Full
 > design: [[2026-08-15-request-id-correlation-design]].
 
-## Data Model
+## Response caching
+
+> [!info] Shipped 2026-08-25 — Response Caching Layer milestone
+> Full cross-service design: [[2026-08-25-response-caching-layer-design]]. Header contract:
+> [[x-cache-response-header]]. Tracking runs the full four-component shape — response cache,
+> identity-mapping cache, invalidation, and the kill switch — and is the one service with a
+> service-local `cache_timeout_ms` setting.
+>
+> **Behaviour below is unchanged by the Go cutover; file paths below are the retired Python
+> implementation.** The Go equivalents live in `internal/adapter/redis/` (`gateway.go`,
+> `keys.go`, `identity.go`, `invalidation.go`) — the response-key shapes, TTLs, the
+> normalized-then-hashed list key, the identity cache, and the fail-open kill switch are the
+> same contract, reimplemented. The identity-cache-hit-must-stamp-the-resolved-id trap below
+> has a direct Go analogue: `StampResolvedUserID` on the reads' route group, documented in
+> `services/tracking-go/CLAUDE.md` §9 ("The identity stamp is on a GROUP, not global") as one
+> of the four wiring-hazard bugs this migration's closing gate caught — see
+> [[2026-08-27-tracking-go-migration-design]] and
+> [[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]].
+
+### Cached reads and their TTL
+
+Both REST reads are cached, 60s TTL each, matching the delivery-status update cadence:
+
+| Route | Key | Notes |
+|---|---|---|
+| `GET /v1/trackings/{orderId}` | `tracking:order:v1:{sub}:{user_id}:{order_id}` | `CacheKeys.tracking_order` |
+| `GET /v1/trackings?order_ids=...` | `tracking:list:v1:{sub}:{user_id}:{hash}` | see [Normalized-then-hashed list key](#normalized-then-hashed-list-key) below |
+
+`_serve_cached`/`_store_cached` (`api/trackings_router.py`) are the shared helper pair both routes
+call. A key builder that returns `None` — because `user_id` could not be resolved this request
+(see [The identity cache](#the-identity-cache-and-seed_resolved_internal_user_id) below) — makes
+the route skip caching entirely: a `MISS` with no Redis write, served correctly from MySQL. With
+`CACHE_ENABLED=false` (`CacheEnabledDep`) `_serve_cached` stamps **no** `X-Cache` header at all,
+the same "invisible, not a permanent BYPASS" contract every service in this design follows.
+
+### Normalized-then-hashed list key
+
+`order_ids` on the batch read is an arbitrary, caller-supplied list up to `MAX_BATCH_ORDER_IDS`
+(100). `CacheKeys.tracking_list` sorts and deduplicates the list **before** hashing it
+(`_hash_order_ids`, `shared/cache/keys.py`), so `?order_ids=b,a` and `?order_ids=a,b,a` collapse to
+one key — both a cardinality bound (raw-list keying would make the key space combinatorial) and a
+hit-rate improvement, since two callers asking for the same set in different orders now share an
+entry. sha256, not Python's built-in `hash()` — the latter is salted per process
+(`PYTHONHASHSEED`), so two replicas would compute *different* keys for the same request and the
+cache would never hit across them. Truncated to 16 hex characters (64 bits), negligible collision
+risk for this keyspace, short enough to read in `redis-cli`.
+
+### `tracking:index:v1:{sub}:{user_id}` — the per-user key index
+
+Required because the list key embeds a hash of an arbitrary id set and therefore cannot be
+reconstructed at invalidation time. `CacheKeys.user_index` builds it; the read path adds every list
+key to it as it writes (`gateway.set(..., index_key=...)`); invalidation deletes every member and
+then the index itself (`invalidate_index`). Deliberately **not** `KEYS`/`SCAN` — both are O(N) over
+the whole keyspace, and `KEYS` blocks the server for the duration of the sweep, which is
+unacceptable on a write path a carrier webhook or an account-deletion cascade can trigger.
+
+### The identity cache, and `seed_resolved_internal_user_id`
+
+Tracking's identity-mapping cache (`IdentityCache`, `shared/cache/identity_cache.py`) is the
+Tracking half of
+[[2026-08-25-response-caching-layer-design#Fourth component — the identity-mapping cache (Orders and Tracking only)]]:
+key `identity:sub-to-user:v1:{cognito_sub}`, 1h TTL, consulted before a response key can even be
+built, since every response key carries `user_id` and Tracking only learns it from an outbound
+gRPC call to Users. TTL-only invalidation is correct here, not a gap: a `cognito_sub` never
+resolves to a different `user_id` while the account exists, so a stale entry can only be *late*,
+never *wrong* — see `shared/cache/identity_cache.py`'s module docstring for the full argument, and
+[Account-deletion cascade (internal)](#account-deletion-cascade-internal) below for the one case
+(a deleted account) that is no longer left to the TTL alone.
+
+> [!important] `seed_resolved_internal_user_id` — the single line the whole response cache depends
+> on
+> `caller.py`'s `CurrentCaller` memoizes `user_id` per request, filled one of two ways: a real gRPC
+> call (`resolve_internal_user_id`), or a value already known from elsewhere via
+> `seed_resolved_internal_user_id` (`caller.py:121-133`) — **no I/O**, just populating the memo. The
+> load-bearing call site is `log_identity.py:218-220`: on an identity-cache **hit**,
+> `IdentityCache.resolve` returns the `user_id` *without running its loader* — correctly, that is
+> the entire point of a cache hit — but the loader is the only thing that would otherwise call
+> `caller.seed_resolved_internal_user_id`. Without this line, a hit leaves `_resolved` at `None`,
+> `resolved_internal_user_id` (the property both cached-read handlers consult to build their
+> response key) answers `None`, `CacheKeys` refuses to build a key for a `None` `user_id`, and the
+> response cache **silently does nothing at all from the second request onward**, for the full hour
+> the identity entry lives — this is exactly what happened in production before the line was added.
+> The two caches are connected through this one call.
+
+### `cache_timeout_ms` — a settings field that exists only in this service
+
+`Settings.cache_timeout_ms` (`shared/config/settings.py`, default `50`, `Field(gt=0)`) is a
+**Pydantic settings field**, unlike Orders and Tracking's siblings: Orders hardcodes `50` ms as a
+`TimeSpan.FromMilliseconds(50)` literal in `Program.cs`, and Users hardcodes `TIMEOUT_MS = 50` as a
+module constant in `cache-gateway.ts`. Both the connect and the socket timeout use this one budget
+— a connect slower than the whole operation budget has already blown it. The behavior is identical
+across all three services (fail open on timeout); only Tracking's is externally configurable
+without a code change.
+
+### `NullCacheGateway` — the kill switch
+
+`shared/cache/gateway.py`'s `NullCacheGateway` is the binding used when `CACHE_ENABLED=false`, and
+it is a **null object**, not a gateway with an `if` inside it: every route has exactly one code
+path, and "the cache is off" is expressed by *which object is bound* rather than a branch in every
+handler. `get_cache_gateway` (`shared/http/cache_dependencies.py`) also degrades to it when a real
+gateway cannot even be constructed (an incomplete environment) — the same object a disabled cache
+binds, so an unbuildable cache behaves precisely like a deliberately-disabled one. Its `get` answers
+a plain `MISS`; the routes read `cache_is_enabled` separately to decide whether to emit an
+`X-Cache` header at all, so a disabled cache emits **no** header — never `MISS`, never `BYPASS`.
+
+### `cache_result` is captured by middleware off the response header — not set by the handler
+
+`_serve_cached`/`_store_cached` stamp `X-Cache` on the **response object**, not on the log context,
+and deliberately so: the cached-read handlers in `trackings_router.py` are plain `def` functions
+(pymysql is a blocking driver), which FastAPI runs in its threadpool — and a threadpool worker holds
+only a **copy** of the request's context. A `merge_log_context` call made from inside one of those
+handlers would set the copy and be silently discarded on return, the same `asyncio.to_thread`
+context-loss trap [[2026-07-31-contextvars-lost-across-task-boundaries]] documents for
+`LogContextMiddleware`. `LogContextMiddleware._capture_cache_result` reads the `X-Cache` header back
+off the **response**, on the request's own async context, after the handler has already run —
+sidestepping the trap entirely rather than requiring every cached handler to remember it.
+
+### Invalidation
+
+Two shapes, both in `shared/cache/invalidation.py`, both scheduled as a `BackgroundTask` — never
+called inline — because they must run **strictly after** their triggering transaction commits (see
+the long comment in `carrier_router.py` for why this is a property of the ASGI response cycle, not
+a timing hope):
+
+- **`invalidate_tracking`** — the carrier-webhook leg (`PUT /v1/trackings/{orderId}/status`,
+  `api/carrier_router.py`). The webhook carries no `x-user-id` at all (it is authenticated by
+  `TRACKING_CARRIER_API_KEY`, not a Cognito JWT), so the owner comes off the **persisted row**
+  `update_tracking_status` already returned: `Tracking.cognito_sub` and `Tracking.user_id`, the
+  same identity the reads' ownership filter compares against. Deletes the single-read key by name
+  (reconstructible, since the webhook holds the order it just wrote) and invalidates the caller's
+  index (covering the unreconstructible list-key hashes). A `NULL cognito_sub` is a deliberate
+  no-op: a row with no owner sub is unreachable over the user-scoped reads in the first place, so
+  it was never cached and there is nothing to evict.
+- **`invalidate_user`** — the account-deletion cascade leg (`DELETE /v1/trackings/by-user`,
+  `api/internal_router.py`, guarded by `InternalAuth`/`GRPC_API_KEY`). Sweeps **both** namespaces
+  under **both** of the deleted person's identifiers — the response-entry index and the identity
+  mapping — for the same raw-header reason documented in
+  [[2026-08-26-cache-keys-built-from-a-raw-identity-header]]: a response key is built from
+  whichever identifier the *client* authenticated with, while the cascade's body carries only the
+  canonical `cognito_sub`/`user_id` pair, so sweeping the canonical pair alone leaves a
+  `usr_`-id-keyed entry resolving a deleted account for up to an hour. `BackgroundTask` scheduling
+  applies here too — the deletion has already committed by the time this runs, so a Redis failure
+  must never surface as a failed account deletion.
+
+## Account-deletion cascade (internal)
+
+> [!info] Shipped 2026-08-26 — Account Deletion milestone
+> Full design: [[2026-08-25-account-deletion-design]]. `DELETE /v1/trackings/by-user` is one of
+> two internal cascade legs `DELETE /v1/users/me` calls synchronously; see
+> [[users-service-design#Account deletion]] for the caller side and
+> [[orders-service-design#Account-deletion cascade (internal)]] for the sibling route.
+
+The route is guarded by `InternalAuth`/`RequireInternalKey`
+(the same `GRPC_API_KEY` comparison Tracking's outbound gRPC client already presents, now
+validated the other direction too — see [Auth schemes](#auth-schemes) above). Not on the API
+Gateway; the only caller is Users' `CascadeClient`.
+
+### Route-ordering trap — a Python-specific failure mode the Go port does not inherit
+
+> [!note] Historical (Python implementation, retired) — the Go service has a related but different trap
+> The Python service (`services/tracking/`, retired) matched routes via Starlette, which resolves
+> by **declaration order**, not specificity: `/v1/trackings/by-user` is a literal path segment
+> sitting exactly where `GET /v1/trackings/{order_id}`'s path parameter also matches, so
+> `main.py` had to register `internal_router` **before** `trackings_router` or a request to
+> `/v1/trackings/by-user` would be captured by `{order_id}` — with `order_id` literally bound to
+> the string `"by-user"`. A regression test pinned that ordering.
+>
+> **Gin (the Go service) does not have this failure mode, but has a related one that is arguably
+> worse: it panics at startup instead of misrouting silently.** Gin builds one radix route tree
+> **per HTTP method**, so `POST /init-tracking`, `DELETE /by-user`, and `DELETE /e2e-cleanup`
+> coexist with `GET /v1/trackings/:order_id` today only because their **methods differ** —
+> registration order is irrelevant. Adding any **GET literal** under `/v1/trackings/` (e.g.
+> `GET /v1/trackings/summary`) would land in the wildcard's tree and **panic the process at
+> boot**, rather than silently misrouting a request the way Starlette could have. Whoever adds
+> such a route must restructure the prefix. Full detail:
+> `services/tracking-go/CLAUDE.md` §4 ("Gin panics at startup on a route conflict").
+
+### `soft_delete_by_user` — children before parents, and one deliberate non-guard
+
+The route delegates to the per-user soft-delete query (Go: `internal/adapter/mysql`; the retired
+Python service called it `TrackingRepository.soft_delete_by_user`,
+`src/features/tracking/domain/repository.py`), the per-user sibling of the tag-scoped
+soft-delete (see [E2E cleanup](#e2e-cleanup-delete-v1trackingse2e-cleanup) above for that
+method) — same never-a-SQL-DELETE shape, same FK-following order, different selector:
+
+- **Children (`Tracking_History`) before parents (`Tracking`)**, mirroring the FK direction, so
+  an interrupted run can never leave a live history row under an already-deleted tracking.
+- Both statements are bulk `UPDATE`s guarded per-row by `deleted_at IS NULL`, keeping the whole
+  operation idempotent — a retry after a partial cascade failure re-stamps only what is still
+  live.
+- **The parent-id selection is deliberately NOT filtered on `deleted_at IS NULL`.** An
+  already-soft-deleted tracking may still have **live** history under it from a partial previous
+  run (e.g. the history leg of a prior cascade attempt failed after the parent had already been
+  stamped), and that live history must still be swept on retry. Filtering the parent selection
+  by `deleted_at IS NULL` would make that history permanently unreachable through this method —
+  the per-statement `deleted_at IS NULL` guards on each `UPDATE` are what keep the operation
+  idempotent, not a filter on which parents are considered.
+- Matches `cognito_sub OR user_id`, same predicate and same rationale as the reads' erasure-only
+  exception above and [[soft-delete#The per-user cascade]] — an empty identity on either side is
+  refused (the retired Python service raised `ValueError`; Go returns a validation error), a
+  second gate behind the request schema's minimum-length check (see
+  [[2026-08-25-account-deletion-design#Empty-identity guards (four layers)]] for the full
+  four-layer table).
+
+### Audit actor and observability
+
+Every row this route stamps carries `deleted_by = "tracking_api:delete_by_user"`
+(`internal/domain/audit`; the retired Python service defined the same value as
+`AuditActor.DELETE_BY_USER` in `src/shared/audit/audit_actor.py`), the Tracking peer of Orders'
+`"orders_api:delete_by_user"`.
+
+The route is wrapped in one workflow span (`internal_delete_by_user`, via `otelgin`/the Go OTel
+wiring — the retired Python service used `workflow_span("internal_delete_by_user", …)`),
+emitting:
+
+| `app_event` | When | `reason` |
+|---|---|---|
+| `internal_delete_by_user_started` | Once `InternalAuth` has passed | — |
+| `internal_delete_by_user_succeeded` | With `deleted_count` | — |
+| `internal_delete_by_user_failed` | A database fault mid-cascade | `db_error` |
+
+Unlike Orders' sibling route, an invalid API key here is rejected by the `InternalAuth`
+**dependency** before the route body — and therefore before the workflow span — ever runs, so
+there is no `internal_delete_by_user_failed` line for that case; it never reaches this handler at
+all. Full cross-service event contract:
+[[2026-08-25-account-deletion-design#Observability]].
+
+### The "nothing on the default surface removes a tracking" invariant, narrowed
+
+Tracking's test suite previously asserted — only in a test docstring, not in this spec — that
+**nothing on the default (non-E2E) surface ever deletes a tracking**. `DELETE
+/v1/trackings/by-user` is the **one deliberate exception**: the invariant is now "nothing on the
+default surface removes a tracking, **except the single, internally-authenticated,
+non-gateway-exposed erasure route**" — an allowlist of exactly one route, not a blanket rule any
+more. Recorded here so the exception is documented where a reader of this spec would look for it,
+not only in `services/tracking/tests/test_app_factory.py`'s docstring.
 
 All IDs use prefixed nano-IDs ([[nano-id]]). All tables apply soft-delete ([[soft-delete]]), audit fields ([[audit-fields]]), and follow naming conventions ([[db-naming]]).
 
@@ -510,7 +828,13 @@ history entries in total. When `TestMode` is false or absent, no automatic progr
 status only advances through the `PUT /v1/trackings/{orderId}/status` endpoint below.
 
 Scheduling mechanism, and the accepted limitation if the process restarts mid-progression:
-[[testmode-in-process-asyncio-task]].
+[[testmode-in-process-no-durable-scheduler]] (the ADR's decision — in-process, no durable scheduler —
+was carried into the Go port unchanged; the retired Python service scheduled it as an
+`asyncio` task, the Go service as a goroutine holding the **process-lifetime** context, never
+the request's — see `services/tracking-go/CLAUDE.md` §10 for the Go-specific trap of a
+goroutine accidentally inheriting a request context that `net/http` cancels the instant the
+response is written, which is invisible-looking because it produces the *exact same symptom*
+as the accepted restart limitation).
 
 #### End-to-end origin: a client header on Orders, not an Orders-side decision
 
@@ -658,10 +982,13 @@ way instead of drifting apart.
   `.env.local.tracking` by `make env-file`, the same generated-env-file pattern Users and Orders
   use. See [[env-files]].
 
-Tracking's publisher is a Python/boto3 SQS client (`send_message`), setting `type` and `source`
-(`"tracking"`) as message attributes, matching the shape of the Users and Orders publishers. A
-Noop-equivalent publisher is retained for tests that must not emit, mirroring
-`NoopEventPublisher` in Users and Orders.
+Tracking's publisher is a Go `aws-sdk-go-v2` SQS client (`internal/adapter/sqs`, `SendMessage`),
+setting `type` and `source` (`"tracking"`) as message attributes, matching the shape of the
+Users and Orders publishers. The retired Python service published the same envelope shape via
+`boto3`'s `send_message`. A nil/noop publisher is retained for tests that must not emit,
+mirroring `NoopEventPublisher` in Users and Orders — in Go this is the composition root binding
+a nil `EventPublisher` when `EVENTS_QUEUE_URL` is absent (see `services/tracking-go/CLAUDE.md`
+§3, "Flags are decided in the composition root and nowhere else").
 
 See [[events-pipeline-design]] for the consuming side: the shared queue, the dispatch map, the
 error taxonomy that decides whether a publish-side failure downstream gets retried, and the
@@ -699,11 +1026,14 @@ of the Orders→Tracking integration health indicator: `orders_total − (DELIVE
 should be 0 in normal operation. See [[orders-service-design#Metrics]] for the full reasoning and
 the deliberately-accepted failure mode it surfaces.
 
-**`src/main.py` now has a `lifespan` — it previously had none.** The module's own docstring used
-to say "there is nothing to start or stop"; that is no longer true. The lifespan starts the
-periodic gauge-publishing task for the life of the process, gated on `METRICS_ENABLED`: `main.py`'s
-`create_app()` is also called by `tests/conftest.py` for every REST test, and an ungated task would
-open a real database session and reach for CloudWatch on every test run.
+> [!note] Historical (Python implementation, retired)
+> The retired Python service started this periodic gauge-publishing task from a FastAPI
+> `lifespan` added to `src/main.py`, gated on `METRICS_ENABLED` so the test app factory
+> (`tests/conftest.py`, called for every REST test) never opened a real database session or
+> reached for CloudWatch on a test run. The Go service composes the equivalent ticker in
+> `cmd/server/main.go`, gated the same way — flags are decided once, in the composition root,
+> and turned into a dependency (a real ticker or none), never branched on inside a handler; see
+> `services/tracking-go/CLAUDE.md` §3.
 
 ## Change impact — renaming a delivery status
 
@@ -714,10 +1044,19 @@ change, even though Tracking owns the enum. The same shape of surprise applies t
 in both cases the owning service can change its contract without anything forcing the downstream
 consumer to notice.
 
-- **Tracking (owner):** `src/features/tracking/domain/status.py`,
-  `src/features/tracking/domain/models.py`, `src/features/tracking/commands/update_status.py`,
-  `src/features/tracking/commands/test_mode_progression.py`,
-  `src/features/tracking/api/schemas.py`, `src/shared/audit/audit_actor.py`
+> [!note] File list below reflects the Go service — historical Python paths retired
+> This list was originally written against the Python implementation; the file set below is the
+> Go equivalent (`services/tracking-go/`). The Python originals (`src/features/tracking/domain/status.py`,
+> `src/features/tracking/commands/update_status.py`, `src/features/tracking/commands/test_mode_progression.py`,
+> `src/features/tracking/api/schemas.py`, `src/shared/audit/audit_actor.py`, and the
+> `test_*.py` suite) are retired along with `services/tracking/`. The cross-service shape of the
+> risk — an owning service can change an enum crossing SQS with nothing forcing the downstream
+> consumer to notice — is unchanged by the language the owner is written in.
+
+- **Tracking (owner):** `internal/domain/status.go`, `internal/domain/tracking.go`,
+  `internal/app/update_status.go` (the carrier PUT and TestMode's shared transition function —
+  see [[testmode-in-process-no-durable-scheduler]]), `internal/adapter/http` request/response DTOs for
+  the status field, `internal/domain/audit/actor.go`
 - **events-pipeline (consumer):** `src/handlers/tracking-status-changed.ts`,
   `src/handlers/index.ts`, `src/email/catalog.ts`, `emails/tracking-status-changed.tsx`
 - **Orders (consumer):** `services/orders/tests/Orders.Tests/Infrastructure/TrackingContractTests.cs`
@@ -726,7 +1065,8 @@ consumer to notice.
   enum, so Orders has no compile-time protection — a rename breaks this test at test time, in a
   different service and language from the one that owns the enum.
 - **E2E:** `e2e/support/mailpit-client.ts`
-- Plus the Tracking test files that assert on status values (`test_test_mode_progression.py`,
+- Plus the Go test files that assert on status values under `internal/domain` and `internal/app`
+  (the retired Python suite covered the same surface as `test_test_mode_progression.py`,
   `test_rest_carrier_status.py`, `test_repository.py`, `test_status_state_machine.py`,
   `test_rest_init_tracking.py`, `test_sqs_event_publisher.py`, `test_status_changed_emission.py`,
   `test_rest_reads.py`, `test_log_identity.py`, `test_rest_e2e_cleanup.py`)
@@ -734,18 +1074,20 @@ consumer to notice.
 > [!note] How the Orders gap was found
 > A repo-wide grep during a benchmark run, after this checklist was first written, turned up the
 > Orders coupling. `TrackingDto.cs`'s own docstring already documented "Mirrors `TrackingResponse`
-> in `services/tracking/src/features/tracking/api/schemas.py`. Change them together." — the
-> coupling was recorded at the source, just not aggregated here.
+> in `services/tracking/src/features/tracking/api/schemas.py` [retired]. Change them together." —
+> the coupling was recorded at the source, just not aggregated here. The Go equivalent is the
+> response DTO in `internal/adapter/http`.
 
 > [!danger] The silent failure — `catalog.ts` maps status to email template, with no compiler and no test to catch a miss
 > `functions/events-pipeline/src/email/catalog.ts` maps each status value to the email template
 > rendered for it. Rename a status in Tracking without updating this map and the mapping simply
-> stops matching — there is no compile error (TypeScript sees a string, not the Python enum) and no
-> failing Tracking test (Tracking's own suite has no visibility into events-pipeline). Users stop
-> receiving the right delivery notification, and the break surfaces only as production behavior —
-> an email that never arrives, or arrives with the wrong content — not as a red build. This is the
-> same class of gap [[events-pipeline-design]] documents for the envelope contract generally: a
-> string crossing a service boundary over SQS carries none of the guarantees a shared type would.
+> stops matching — there is no compile error (TypeScript sees a string, not the Tracking enum) and
+> no failing Tracking test (Tracking's own suite has no visibility into events-pipeline). Users
+> stop receiving the right delivery notification, and the break surfaces only as production
+> behavior — an email that never arrives, or arrives with the wrong content — not as a red build.
+> This is the same class of gap [[events-pipeline-design]] documents for the envelope contract
+> generally: a string crossing a service boundary over SQS carries none of the guarantees a
+> shared type would.
 
 The status values also **persist in the database as strings** (`Tracking.status`,
 `Tracking_History.status` — see [Data Model](#tracking)). A rename is therefore not just a code
@@ -770,29 +1112,62 @@ every already-persisted tracking, not only for code going forward.
 | `x-user-id` injection (local) | [[nginx-njs-x-user-id-injection]] |
 | Structured logging context, incl. `request_id` | [[logging-context]] |
 | Distributed tracing backend | [[ADR-0019-distributed-tracing-opentelemetry]] |
+| Response caching (`X-Cache` header contract, `CACHE_ENABLED` kill switch) | [[2026-08-25-response-caching-layer-design]], [[x-cache-response-header]] |
 
 ## Observability — workflow spans
 
-The 3 Tracking flows with a full `app_event` triad — `init_tracking`, `carrier_status_update`,
-`test_mode_progression` — are wrapped in a manual `INTERNAL` span via `workflow_span`, a
+> [!info] Go cutover — instrumentation moved into code; behaviour and flow names unchanged
+> The Go service instruments the same four flows — `init_tracking`, `carrier_status_update`,
+> `test_mode_progression`, `internal_delete_by_user` — but the mechanism differs, and the
+> difference is deliberate, not a gap: the retired Python service auto-instrumented via
+> `opentelemetry-instrument` wrapping uvicorn (no code, all `OTEL_*` env vars); Go has no
+> equivalent auto-instrumentation agent, so wiring necessarily moves into code (`otelgin` for
+> inbound HTTP, `otelsql` for the database, `otelgrpc` for the outbound Users client, the SQS
+> producer instrumented by hand). What still comes from the environment, in both languages, is
+> the endpoint/protocol/exporter selection — see
+> [[2026-08-27-tracking-go-migration-design#Observability and event parity]] for the full
+> scoping argument, and [[ADR-0019-distributed-tracing-opentelemetry]] for the backend decision
+> this does not violate.
+>
+> The paragraphs below describe the **retired Python implementation** (`workflow_span`, the
+> ASGI double-span bug, `mark_phase`) as historical record — the bugs and fixes are real and
+> worth keeping, but the file paths and library names are Python-specific and gone from the
+> running service. The equivalent Go wiring lives in `internal/adapter/otel/` (`provider.go`,
+> `workflow.go`, `loghandler.go`).
+>
+> **The Go database instrumentation (`otelsql`) needed two of its own defaults overridden** —
+> unrelated to the ASGI bug above, and specific to the Go driver stack: it records the literal
+> SQL text on spans by default (a PII leak, since write paths carry `shipping_address`), and it
+> records the `database/sql` sentinel `driver.ErrSkip` as an ERROR on spans and metrics by
+> default, even though `go-sql-driver/mysql` returns it on essentially every ordinary
+> parameterized query. Both are disabled in `cmd/server/main.go`'s `poolTracingOptions`. See
+> [services/tracking-go/CLAUDE.md §11](../../../../services/tracking-go/CLAUDE.md) and
+> [[2026-08-27-a-librarys-defaults-encode-assumptions-about-a-generic-service]] for the full
+> write-up and the generalised lesson.
+
+**Four** Tracking flows carried a full `app_event` triad — `init_tracking`,
+`carrier_status_update`, `test_mode_progression`, and (added 2026-08-26)
+`internal_delete_by_user` (see [Account-deletion cascade
+(internal)](#account-deletion-cascade-internal) above) — wrapped in a manual `INTERNAL` span via
+`workflow_span`, a
 synchronous `@contextmanager` in `src/shared/observability/workflow_tracing.py` (Tracking's flows
-run inside sync command handlers or `asyncio.to_thread`-wrapped sync functions, so a sync context
-manager matches every call site — no `@asynccontextmanager` needed). Same shape as Users'
+ran inside sync command handlers or `asyncio.to_thread`-wrapped sync functions, so a sync context
+manager matched every call site — no `@asynccontextmanager` needed). Same shape as Users'
 `withWorkflowSpan` and Orders' `IWorkflowTracer`: `OK` on success, `ERROR` + the same `reason` the
 log line carries on failure, closed on Python's own `with`-block `finally`. `test_mode_progression`
-spans the **whole** ~40-second, four-transition run as one span — the workflow's natural unit, the
+spanned the **whole** ~40-second, four-transition run as one span — the workflow's natural unit, the
 same granularity its log already uses (one `_started`, one `_succeeded`/`_failed` for the whole
-run), not one span per tick.
+run), not one span per tick. The Go port keeps this granularity.
 
 Tracking also gained `opentelemetry-instrumentation-boto3sqs`, scoped deliberately to the one
-boto3 client it covers — `sqs_event_publisher.py`'s SQS client, which now produces a CLIENT span
-on publish and injects a `traceparent` `MessageAttribute` for events-pipeline's consumer to link
-back to. It does **not** cover Tracking's separate CloudWatch client
-(`shared/metrics/cloudwatch_metrics.py`) — `PutMetricData` calls stay unspanned, a deliberate
-scope limit, not a gap. Full design and implementation:
-[[2026-08-18-distributed-tracing-spans-design]] / [[2026-08-18-distributed-tracing-spans]].
+boto3 client it covered — `sqs_event_publisher.py`'s SQS client, which produced a CLIENT span
+on publish and injected a `traceparent` `MessageAttribute` for events-pipeline's consumer to link
+back to. It did **not** cover Tracking's separate CloudWatch client
+(`shared/metrics/cloudwatch_metrics.py`) — `PutMetricData` calls stayed unspanned, a deliberate
+scope limit, not a gap; the Go service preserves the same scope limit by hand. Full design and
+implementation: [[2026-08-18-distributed-tracing-spans-design]] / [[2026-08-18-distributed-tracing-spans]].
 
-> [!important] Amendment (2026-08-21) — the ASGI transport was double-spanning every request, and `init_tracking` gained lifecycle milestones
+> [!important] Amendment (2026-08-21) — historical (Python implementation, retired). This ASGI-specific bug has no Go equivalent; `otelgin` does not double-span.
 > **ASGI double-span, dropped in the collector.** `opentelemetry-instrumentation-asgi` opens a
 > span per ASGI transport message, and a normal HTTP response is two messages
 > (`http.response.start`, `http.response.body`) — so every Tracking endpoint drew a `<route>
@@ -866,6 +1241,31 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
 
 ## Related
 
+- [[2026-08-27-tracking-go-migration-design]] — design for the completed port of this service
+  from Python/FastAPI to Go/Gin (faithful layer-by-layer port, coexisting `services/tracking-go/`
+  during the migration, wave-based agent team, and the four-part closing gate — three of four
+  criteria met — that this cutover was executed against). See
+  [[ADR-0021-tracking-go-gin-sqlc-stack]] for the Go stack decisions (Gin, sqlc, golang-migrate,
+  goenv).
+- [[2026-08-27-go-vs-python-performance]] — the measured performance comparison satisfying the
+  migration's closing-gate criterion 3 (partially): Go wins all four measurable resource/startup
+  dimensions, latency/throughput under load unmeasurable on this stack (Floci-bound, not
+  code-bound).
+- [[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]] — the
+  wiring-hazard lesson: five instances of correct, unit-tested Go code never reached from
+  `main()`, why hexagonal architecture and `golangci-lint`'s `unused` both structurally miss it,
+  and the call-graph reachability gate that now guards it.
+- [[2026-08-27-a-producer-side-test-proves-nothing-about-what-the-consumer-accepts]] — the
+  wire-contract lesson: a `shipping_address` emitted as a JSON string against a consumer schema
+  requiring an object, silently dropped with no retry, and why the fix has to parse the
+  consumer's actual Zod schema rather than a redescription of it.
+- [[2026-08-27-a-librarys-defaults-encode-assumptions-about-a-generic-service]] — `otelsql`'s
+  `db.query.text` (PII leak) and `driver.ErrSkip` (false error on every ordinary query) defaults,
+  both wrong for this service and both overridden in `poolTracingOptions`; see the Observability
+  section above and `services/tracking-go/CLAUDE.md` §11.
+- [[2026-08-25-account-deletion-design]] — full design for the internal
+  `DELETE /v1/trackings/by-user` cascade: the route-ordering trap, `soft_delete_by_user`, the
+  `cognito_sub OR user_id` predicate, and the four-layer empty-identity guards.
 - [[2026-08-15-request-id-correlation-design]] — the cross-service `request_id` correlation
   field: Tracking seeds it in `LogContextMiddleware`, propagates via gRPC metadata to Users and
   as a root field on `TRACKING_STATUS_CHANGED`, and must list it in `_ALLOWED_KEYS`.
@@ -911,8 +1311,9 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
   by `cognito_sub`, never `user_id`, and the incident that motivated it.
 - [[two-api-keys-two-trust-domains]] — the ADR formalizing why `GRPC_API_KEY` and
   `TRACKING_CARRIER_API_KEY` must never collapse into one secret.
-- [[testmode-in-process-asyncio-task]] — the ADR formalizing the in-process `asyncio`
-  scheduling choice for TestMode and its accepted restart-loses-progress limitation.
+- [[testmode-in-process-no-durable-scheduler]] — the ADR formalizing the in-process scheduling
+  choice for TestMode (a goroutine, not a durable scheduler) and its accepted
+  restart-loses-progress limitation.
 - [[events-pipeline-design]] — the consuming side of `TRACKING_STATUS_CHANGED`: the shared SQS
   queue, the dispatch map, the error taxonomy, and the `tracking-status-changed` email template
   family (one event type, five rendered variants).
@@ -925,3 +1326,12 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
 - [[2026-08-12-custom-business-metrics-cloudwatch-design]] — the design for
   `orders_by_tracking_status_total`, the DELIVERED/IN_PROGRESS split, and the `main.py` lifespan
   it added.
+- [[2026-08-25-response-caching-layer-design]] — the full cross-service response-caching
+  design: the two cached reads and their TTL, the normalized-then-hashed list key, the
+  identity-mapping cache, and the fail-open 50ms budget. See
+  [Response caching](#response-caching) above.
+- [[x-cache-response-header]] — the `X-Cache`/`X-Cache-TTL` response-header contract Tracking's
+  `_serve_cached`/`_store_cached` helpers implement.
+- [[2026-08-26-cache-keys-built-from-a-raw-identity-header]] — the data leak this service's
+  account-deletion cascade (`invalidate_user`) exists to close: a response key built from the
+  raw `x-user-id` header, not the canonical identity pair the cascade receives.

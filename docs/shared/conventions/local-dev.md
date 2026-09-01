@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-03
-updated: 2026-08-21
+updated: 2026-08-27
 tags:
   - type/convention
   - area/shared
@@ -39,7 +39,9 @@ list. Key targets:
   environment composing the real Terraform modules (see [[ADR-0017-floci-local]]); the earlier
   `spike-floci` stack has been deleted.
 - **Database:** `make migrate` — applies Prisma migrations (`migrate deploy`) against Floci's
-  Postgres.
+  Postgres (Users). `make migrate-tracking` — applies golang-migrate migrations against Floci's
+  MySQL (Tracking); idempotent, and stamps rather than replays against a database Alembic
+  already built (`migrate force 1`), never a plain `up`, on the shared local database.
 - **Orchestration:** `make bootstrap` (compose up floci → wait for Floci → apply infra →
   regenerate `.env` → migrate → build/start `users`/`orders`/`tracking` → nginx alias), split
   into a not-safely-repeatable `make bootstrap-provision` and a resumable, idempotent
@@ -96,7 +98,7 @@ Endpoints are exercised with the VS Code **REST Client** extension
 lives next to the service code and is named after it:
 
 - `services/users/users.http` — exists today.
-- `services/orders/orders.http`, `services/tracking/tracking.http`, … — add each when
+- `services/orders/orders.http`, `services/tracking-go/tracking-go.http`, … — add each when
   that service gains real endpoints. Follow the same shape (a file-level `@baseUrl`,
   `###`-separated requests, and named requests like `# @name register` so later
   requests can reference captured response fields, e.g.

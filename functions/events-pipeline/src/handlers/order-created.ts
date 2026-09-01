@@ -3,6 +3,7 @@ import type { Envelope } from "#domain/envelope";
 import { renderTemplate } from "#email/renderer";
 import { sendEmail } from "#email/sender";
 import { PermanentError } from "#pipeline/errors";
+import type { HandlerDeps } from "#pipeline/process-record";
 
 // Payload contract — snake_case, matching the envelope and the persisted
 // event document (see the events-pipeline design spec's Data Model section
@@ -67,7 +68,7 @@ const OrderCreatedPayloadSchema = z.object({
 // #handlers/user-created: validate payload (Zod) → render the react-email
 // template to HTML → SES SendEmail → COMPLETED (the state machine records the
 // status; this handler only has to return or throw).
-export async function orderCreatedHandler(envelope: Envelope): Promise<void> {
+export async function orderCreatedHandler(envelope: Envelope, deps: HandlerDeps = {}): Promise<void> {
   const result = OrderCreatedPayloadSchema.safeParse(envelope.payload);
 
   if (!result.success) {
@@ -113,5 +114,7 @@ export async function orderCreatedHandler(envelope: Envelope): Promise<void> {
     subject: "Order confirmed",
     html,
     templateKey: "order-created",
+    // No `code`: this template carries none.
+    recordEmail: deps.recordEmail,
   });
 }
