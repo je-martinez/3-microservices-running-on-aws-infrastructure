@@ -7,11 +7,10 @@ import { OtpDigit } from '../../shared/ui/otp-digit';
 import { ButtonPrimary } from '../../shared/ui/button-primary';
 
 /**
- * Design: `Verify Code — OTP` (V16TI, 1440) and
- *         `Mobile — Verify Code` (zouHC, 390).
- * One component, two breakpoints (spec D8, DESIGN.md "Responsive rule").
- * The code is 6 digits (`^\d{6}$` in `OtpVerifyInput`) — composed from six
- * `OtpDigit`s. Phase 1: layout and navigation only, no submission.
+ * Design: `Verify Code — OTP` (V16TI, 1440) and `Mobile — Verify Code`
+ * (zouHC, 390) as one component, two breakpoints (spec D8).
+ * Six `OtpDigit`s match `^\d{6}$` in `OtpVerifyInput`. Phase 1: layout and
+ * navigation only, no submission.
  */
 @Component({
   selector: 'app-verify-code',

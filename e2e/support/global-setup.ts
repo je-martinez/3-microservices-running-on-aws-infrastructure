@@ -29,21 +29,14 @@ async function waitForHealthy(url: string, notHealthyMessage: string) {
 }
 
 export default async function globalSetup() {
-  // The `web` project is the one project that needs NO BACKEND: the phase-1 web
-  // app renders fixtures and makes no gateway call. globalSetup is a top-level
-  // option, so it runs for EVERY invocation including `--project=web` — without
-  // this guard a machine that has never run `make bootstrap` sees a web-only run
-  // die on a Users health check it does not depend on, which reads as "the web
-  // suite is broken" when nothing about the web app is.
-  //
-  // Read from argv, NOT from globalSetup's `config.projects`: that argument holds
-  // every project DECLARED in the config regardless of --project (verified — it
-  // logs ["internal","gateway","observability","web"] on a `--project=web` run),
-  // so filtering on it silently never matches and the guard does nothing.
-  //
-  // Requiring EVERY --project to be `web` keeps a mixed run
-  // (`--project=web --project=internal`) doing the checks, and an unfiltered
-  // `pnpm e2e` (no --project at all) does them too.
+  // CONTRACT: Detect the selected projects from argv, NOT from globalSetup's
+  // `config.projects` — that argument lists every project DECLARED in the
+  // config regardless of --project, so filtering on it silently never matches
+  // and this guard does nothing. globalSetup is top-level and runs for every
+  // invocation, so without it a `--project=web` run on a machine that never ran
+  // `make bootstrap` dies on a Users health check the web app does not use.
+  // Requiring EVERY --project to be `web` keeps mixed and unfiltered runs
+  // checking. See [[testing]]
   const selectedProjects = process.argv
     .flatMap((arg, i) =>
       arg === "--project" ? [process.argv[i + 1]] : arg.startsWith("--project=") ? [arg.slice("--project=".length)] : [],

@@ -9,14 +9,10 @@ import { ProductCard } from '../../shared/ui/product-card';
 import { CartDrawer } from '../cart/cart-drawer';
 
 /**
- * Design: `Home — Products` (`eK0x6` desktop / `ffO4d` mobile). `App Header`
- * + `Body` — a real page, unlike the overlay frames also anchored here (see
- * DESIGN.md "Overlays are not routes"). The `Body`'s Toolbar (title, filter
- * pills, sort) is presentational only in Phase 1 — no filter/sort state
- * exists yet, matching the fixture's flat product list.
- *
- * `CartDrawer` mounts here off `OverlayStore.active()`; `AccountMenu` and
- * `NotificationsPanel` are Task 11's panels and mount in `Shell` instead.
+ * Design: `Home — Products` (`eK0x6` desktop / `ffO4d` mobile) — a real page of
+ * `App Header` + `Body`, unlike the overlay frames also anchored here. The
+ * Toolbar is presentational in Phase 1. `CartDrawer` mounts here off
+ * `OverlayStore.active()`; the other two panels mount in `Shell`.
  */
 @Component({
   selector: 'app-home',
@@ -28,9 +24,8 @@ export class HomePage {
   protected readonly products = PRODUCTS;
   protected readonly categories = ['Footwear', 'Bags', 'Accessories'];
 
-  // Phase 1 has no address/profile store yet, so the saved-address state
-  // (the primary design, per DESIGN.md) reads the populated address off the
-  // user fixture. Phase 2 reads it from the real profile store instead.
+  // Phase 1 has no profile store, so the saved-address state (the primary
+  // design, per DESIGN.md) reads the populated address off the user fixture.
   protected readonly savedAddress = CURRENT_USER.address;
 
   // Drives the bell's unread dot (AppHeader's `hasUnreadNotifications`

@@ -3,17 +3,14 @@ import { LucideDynamicIcon } from '@lucide/angular';
 import type { TrackingStatus } from '../../fixtures/api-types';
 
 /**
- * Design: frame `Tracking Status Icon` (S59Ud1); states read from the
- * `Tracking Status — Icons` variant sheet (hImQh) via the Pencil MCP — one
- * glyph + tint per tracking state, used in the order timeline, notifications
- * and toast:
- *   PLACED -> receipt-text (bg-line / ink-secondary)
- *   PROCESSING -> package (warn-bg / warn-ink)
- *   SHIPPED -> warehouse (info-bg / info-blue)
- *   OUT_FOR_DELIVERY -> truck (brand-orange-light / brand-orange-text)
- *   DELIVERED -> package-check (success-bg / success-ink)
- * PLACED's cell fill is a literal #E5E7EB in the sheet (not a $token
- * reference) but that hex is exactly the `line` token's value.
+ * Design: frame `Tracking Status Icon` (S59Ud1) — one glyph and tint per
+ * tracking state, used in the order timeline, notifications and toast.
+ *
+ * CONTRACT: Every glyph and tint below comes from the `Tracking Status — Icons`
+ * variant sheet (hImQh) read over the Pencil MCP, not from the export. PLACED's
+ * cell is a literal hex in the sheet rather than a $token, and `bg-line` is the
+ * token holding that exact value — do not replace it with a nearby grey.
+ * See [[pencil-design-extraction]]
  */
 @Component({
   selector: 'app-tracking-status-icon',

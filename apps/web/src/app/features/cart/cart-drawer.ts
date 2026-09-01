@@ -16,23 +16,16 @@ import { PRODUCTS } from '../../fixtures/catalogue.fixture';
 import { CartLine } from '../../shared/ui/cart-line';
 
 /**
- * Design: `Cart Drawer` (`ET6dr`). ONE component covers three frame pairs
- * (spec D8) — they differ only by state, never by structure:
- *   - `Home — Cart Open (saved address)` (`wevx6`/`OIjLT`) — `step: "cart"`,
- *     `address` set.
- *   - `Home — Cart Open (no address)` (`eig49`/`KzgZN`) — `step: "cart"`,
- *     `address` null: renders the inline address form instead of the
- *     "Deliver to" card.
- *   - `Home — Cart Payment (Stripe)` (`hed4V`/`NfXeq`) — `step: "payment"`.
- *     Reachable only when `APP_CONFIG.stripeEnabled` is true; the build
- *     cannot open a step it has disabled (spec D-checkout).
+ * Design: `Cart Drawer` (`ET6dr`). ONE component (spec D8) for three frame pairs
+ * that differ only by state: cart with a saved address (`wevx6`), cart without
+ * one (`eig49`, inline address form), and the Stripe payment step (`hed4V`).
+ * Phase 1 has no cart store; contents are the first three fixture products.
  *
- * Mounts off `OverlayStore` in `Home`, ABOVE its own Scrim (`z-40`) — this
- * panel is `z-50`, or it would render underneath the scrim meant to sit
- * behind it (see task-10-brief.md).
- *
- * No cart store exists in Phase 1: cart contents are the first three
- * fixture products, mirroring how `Home` renders the flat fixture catalogue.
+ * CONTRACT: The payment step opens only when `APP_CONFIG.stripeEnabled` is true
+ * — a build with Stripe off must not reach a step it has disabled (spec
+ * D-checkout). This panel stays `z-50`, above its Scrim's `z-40`, or it renders
+ * underneath the scrim meant to sit behind it.
+ * See [[angular-component-authoring]]
  */
 @Component({
   selector: 'app-cart-drawer',

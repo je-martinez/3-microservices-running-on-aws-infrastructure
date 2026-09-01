@@ -1,12 +1,10 @@
 import type { AppNotification } from "./api-types";
 
 /**
- * NOT from a contract — no service exposes a notifications endpoint today
- * (see api-types.ts's AppNotification comment). Read from the design's
- * Notification Item (qwO6X) and Toast (jYz4h) frames.
- *
- * 2 unread (ntf_1, ntf_3), 2 read (ntf_2, ntf_4) — the design has distinct
- * Read and Unread frames.
+ * NOT from a contract — no service exposes a notifications endpoint today (see
+ * api-types.ts's AppNotification comment). Read from the design's Notification
+ * Item (qwO6X) and Toast (jYz4h) frames. Two unread and two read, because the
+ * panel has distinct Read and Unread tabs to fill.
  */
 export const NOTIFICATIONS: readonly AppNotification[] = [
   {

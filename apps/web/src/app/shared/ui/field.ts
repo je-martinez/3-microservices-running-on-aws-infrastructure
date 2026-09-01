@@ -2,13 +2,10 @@ import { Component, input, output } from '@angular/core';
 import { LucideDynamicIcon } from '@lucide/angular';
 
 /**
- * Design: frame `Field` (TLRTA). Label + icon input box + optional trailing
- * icon (`Field Trailing`, disabled by default — the password show/hide
- * toggle) + optional help text (`Field Help`, disabled by default).
- *
- * Screens (Tasks 9-11) own the actual value/model — this component only
- * wraps an `<input>` with the label/icon/help chrome the design shows,
- * exposing `valueChange` for two-way binding convenience.
+ * Design: frame `Field` (TLRTA). Label + icon input box + optional trailing icon
+ * (the password show/hide toggle) + optional help text, both off by default.
+ * Screens own the value/model; this only wraps an `<input>` with the design's
+ * chrome, exposing `valueChange` for two-way binding.
  */
 @Component({
   selector: 'app-field',

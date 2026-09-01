@@ -336,7 +336,7 @@
               "type": "text",
               "id": "BNDKA",
               "name": "Panel Subtitle",
-              "fill": "#A9B2C0",
+              "fill": "$text-muted-on-dark",
               "textGrowth": "fixed-width",
               "width": "fill_container",
               "content": "One account for your orders, tracking and returns. Sign in with a password — or skip it entirely and use a one-time code.",
@@ -397,7 +397,7 @@
                   "type": "text",
                   "id": "ZR4X7",
                   "name": "Feature Label",
-                  "fill": "#C7CDD8",
+                  "fill": "$text-subtle-on-dark",
                   "content": "Free returns within 30 days",
                   "fontFamily": "$font-body",
                   "fontSize": 14,
@@ -427,7 +427,7 @@
                   "type": "text",
                   "id": "TsFXk",
                   "name": "Feature Label",
-                  "fill": "#C7CDD8",
+                  "fill": "$text-subtle-on-dark",
                   "content": "Checkout secured end to end",
                   "fontFamily": "$font-body",
                   "fontSize": 14,
@@ -457,7 +457,7 @@
                   "type": "text",
                   "id": "L2G4Hr",
                   "name": "Feature Label",
-                  "fill": "#C7CDD8",
+                  "fill": "$text-subtle-on-dark",
                   "content": "Same-day dispatch before 4 pm",
                   "fontFamily": "$font-body",
                   "fontSize": 14,
@@ -1941,7 +1941,7 @@
                       "type": "text",
                       "id": "tLb6V",
                       "name": "Note Text",
-                      "fill": "#8A5A11",
+                      "fill": "$text-on-orange-light",
                       "textGrowth": "fixed-width",
                       "width": "fill_container",
                       "content": "You can add a password later from your account settings.",
@@ -6401,7 +6401,7 @@
           "x": 0,
           "y": 0,
           "name": "Scrim",
-          "fill": "#12161FA6",
+          "fill": "$scrim-overlay",
           "width": 1440,
           "height": 1120
         },
@@ -6902,7 +6902,7 @@
           "x": 0,
           "y": 0,
           "name": "Scrim",
-          "fill": "#12161FA6",
+          "fill": "$scrim-overlay",
           "width": 1440,
           "height": 1120
         },
@@ -11294,7 +11294,7 @@
           "x": 0,
           "y": 0,
           "name": "Scrim",
-          "fill": "#12161FA6",
+          "fill": "$scrim-overlay",
           "width": 390,
           "height": 844
         },
@@ -20751,7 +20751,7 @@
           "x": 0,
           "y": 0,
           "name": "Scrim",
-          "fill": "#12161FA6",
+          "fill": "$scrim-overlay",
           "width": 1440,
           "height": 1120
         },
@@ -20984,6 +20984,22 @@
     "brand-orange-text": {
       "type": "color",
       "value": "#C2710E"
+    },
+    "text-muted-on-dark": {
+      "type": "color",
+      "value": "#A9B2C0"
+    },
+    "text-subtle-on-dark": {
+      "type": "color",
+      "value": "#C7CDD8"
+    },
+    "text-on-orange-light": {
+      "type": "color",
+      "value": "#8A5A11"
+    },
+    "scrim-overlay": {
+      "type": "color",
+      "value": "#12161FA6"
     }
   },
   "fileToken": "d47359f3-8968-480c-b671-faa693ea90b5"

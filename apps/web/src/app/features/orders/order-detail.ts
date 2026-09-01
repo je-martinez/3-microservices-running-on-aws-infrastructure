@@ -22,16 +22,12 @@ import { TrackingStatusIcon } from '../../shared/ui/tracking-status-icon';
 /**
  * Design: `Orders — Detail` (`x7ABM`, 1040 desktop / `eq3Tk`, mobile).
  *
- * The tracking timeline renders `TRACKING_STATUSES` in their fixed order
- * (spec: PLACED -> PROCESSING -> SHIPPED -> OUT_FOR_DELIVERY -> DELIVERED),
- * marking a step "reached" when it's present in `tracking.history` — the
- * design's `ord_fB6rEjN4uK` fixture reaches all five; `ord_3kLpQx8vRn`
- * reaches only PLACED. `tracking: null` (the `ord_hV2sTaC7wQ` fixture) skips
- * the whole tracking card rather than rendering an empty timeline.
- *
- * Order lines are joined against the catalogue the same way `OrderCard`
- * does (see its comment on `joinOrderLine`) — `product: null` for a
- * delisted line still renders a row, with a placeholder name.
+ * CONTRACT: The timeline renders `TRACKING_STATUSES` in their fixed order and
+ * marks a step reached only when `tracking.history` contains it; `tracking:
+ * null` skips the whole card rather than rendering an empty timeline. A line
+ * whose `product` is null (delisted) still renders a row with a placeholder
+ * name — dropping it silently loses an item the buyer paid for.
+ * See [[angular-component-authoring]]
  */
 @Component({
   selector: 'app-order-detail',

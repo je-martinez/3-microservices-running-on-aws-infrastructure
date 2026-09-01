@@ -147,14 +147,10 @@ export default defineConfig({
     {
       name: "internal",
       testDir: "./tests",
-      // `testDir: "./tests"` is RECURSIVE, so every subdirectory that has its own
-      // project must also be ignored here or its specs run twice — once under
-      // their own project and once under `internal`. `gateway` established the
-      // pattern; `observability` follows it.
-      // The email-asserting specs run under the `email` project instead — see
-      // its comment for the measurement that justifies the split. `**/web/**`
-      // is excluded for a different reason: testDir is recursive, so without it
-      // the web specs would run twice, once here and once under `web`.
+      // CONTRACT: Every subdirectory with its own project must be listed here.
+      // `testDir: "./tests"` is RECURSIVE, so an unlisted one runs its specs
+      // twice — under its own project and again under `internal`.
+      // See [[testing]]
       testIgnore: [
         "**/gateway/**",
         "**/observability/**",
@@ -240,13 +236,10 @@ export default defineConfig({
       use: { baseURL: process.env.API_GATEWAY_URL },
     },
     {
-      // Phase-1 web verification: every route mounts and renders clean.
-      //
-      // Unlike every other project this one needs NO BACKEND — the app renders
-      // fixtures and phase 1 makes no gateway call at all (spec's phase-1
-      // boundary). What it does need is the Angular dev server on WEB_BASE_URL:
-      // `pnpm web:dev`. That asymmetry is also why global-setup skips its
-      // service health checks for a web-only run — see support/global-setup.ts.
+      // Phase-1 web verification: every route mounts and renders clean. This is
+      // the one project needing NO BACKEND — the app renders fixtures and makes
+      // no gateway call — but it does need `pnpm web:dev` on WEB_BASE_URL. That
+      // asymmetry is why global-setup skips health checks for a web-only run.
       name: "web",
       testDir: "./tests/web",
       use: { baseURL: process.env.WEB_BASE_URL ?? "http://localhost:4200" },

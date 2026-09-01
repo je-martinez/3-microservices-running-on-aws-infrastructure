@@ -5,17 +5,14 @@ const USER_ID = CURRENT_USER.id;
 const COGNITO_SUB = "a3c1e6d0-4f2b-4a9d-8e7c-1b6f0d2a9c44";
 
 /**
- * GET /v1/orders/my-orders returns an array of OrderWithTracking, not of
- * bare orders (see api-types.ts). Order ids use the `ord_` nano-id prefix.
+ * GET /v1/orders/my-orders returns an array of OrderWithTracking, not of bare
+ * orders (see api-types.ts). Order ids use the `ord_` nano-id prefix.
  *
- * Deliberate edge-state coverage for layout (see task-4b-brief.md):
- *   - ord_3kLpQx8vRn: status PLACED, tracking present
- *   - ord_9mWtZo2hYd: status SHIPPED, tracking present
- *   - ord_fB6rEjN4uK: status DELIVERED, full tracking history
- *   - ord_hV2sTaC7wQ: tracking is null (no tracking record yet); its one
- *     line also references a delisted product (prd_zZ9delisted0, absent
- *     from catalogue.fixture.ts) so joinOrderLine's `product: null` branch
- *     (Task 11) actually renders somewhere instead of staying dead code
+ * CONTRACT: Do NOT normalise these rows — they carry the only coverage of the
+ * PLACED/SHIPPED/DELIVERED badges, of `tracking: null`, and of a line pointing
+ * at a delisted product absent from catalogue.fixture.ts, which is what makes
+ * `joinOrderLine`'s `product: null` branch render anywhere at all.
+ * See [[angular-component-authoring]]
  */
 export const ORDERS: readonly OrderWithTracking[] = [
   {

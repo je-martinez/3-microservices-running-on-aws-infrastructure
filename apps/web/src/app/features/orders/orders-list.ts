@@ -7,19 +7,14 @@ import { ORDERS } from '../../fixtures/orders.fixture';
 import { OrderCard } from '../../shared/ui/order-card';
 
 /**
- * Design: `Orders — List` (`rGwBO`, 1040 desktop / `OoNex`, mobile).
+ * Design: `Orders — List` (`rGwBO`, 1040 desktop / `OoNex`, mobile). The filter
+ * pills are presentational in Phase 1; each row reuses `OrderCard`.
  *
- * The filter pills ("All" / "In progress" / "Delivered") are presentational
- * only in Phase 1, matching Home's Toolbar pills (Task 10) — no filter state
- * exists yet, so the list always renders the full `ORDERS` fixture.
- *
- * Each row reuses `OrderCard` (Task 11's own `l6TyrG`/`tWTSZ` component) —
- * the catalogue join it performs is not duplicated here.
- *
- * The header's bell/profile actions open `AccountMenu`/`NotificationsPanel`
- * off `OverlayStore` — both mount in `Shell` (global) so they work from any
- * route. `CartDrawer` mounts only in `HomePage` (Task 10), so the cart
- * button instead navigates to `/`, where it can actually open.
+ * CONTRACT: The cart button here navigates to `/` rather than opening the
+ * overlay. `CartDrawer` mounts only in `HomePage`, so opening it from this route
+ * sets overlay state that nothing renders. `AccountMenu` and
+ * `NotificationsPanel` mount in `Shell` and do work from any route.
+ * See [[angular-component-authoring]]
  */
 @Component({
   selector: 'app-orders-list',

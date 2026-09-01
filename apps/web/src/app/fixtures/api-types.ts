@@ -2,9 +2,10 @@
  * Phase-1 fixture types, derived from the services' openapi.yaml.
  * Phase 2 swaps the DATA SOURCE, not these types or the templates.
  *
- * Field names mirror the wire EXACTLY, including the case inconsistency
- * between Orders (camelCase) and its embedded tracking (snake_case).
- * Normalising here would hide a real contract inconsistency from phase 2.
+ * CONTRACT: Field names mirror the wire EXACTLY, including the camelCase
+ * (Orders) / snake_case (embedded tracking) split. Normalising it here hides a
+ * real contract inconsistency until phase 2 hits it at runtime.
+ * See [[openapi-specs]]
  */
 
 /**
@@ -73,11 +74,12 @@ export interface Order {
 
 /**
  * The five delivery statuses.
- * NOT in any openapi.yaml — Tracking deliberately types `status` as a bare
- * string so an unknown value yields 400 from the handler rather than 422 from
- * Pydantic. Source of truth:
- *   services/tracking/src/features/tracking/domain/status.py
- * The design agrees: frame `Status Badge — States` (UOHCo) lists exactly these.
+ *
+ * CONTRACT: These are NOT in any openapi.yaml — Tracking types `status` as a
+ * bare string on the wire, so nothing generated will catch a drift here. The
+ * source of truth is services/tracking-go/internal/domain/status.go; the design
+ * frame `Status Badge — States` (UOHCo) lists exactly these.
+ * See [[openapi-specs]]
  */
 export type TrackingStatus =
   | "PLACED"

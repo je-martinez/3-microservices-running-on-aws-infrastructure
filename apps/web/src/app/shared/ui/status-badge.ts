@@ -3,14 +3,13 @@ import type { TrackingStatus } from '../../fixtures/api-types';
 
 /**
  * Design: frame `Status Badge` (l7LGs); states from `Status Badge — States`
- * (UOHCo), whose label reads:
- *   ORDER STATUS — PLACED -> PROCESSING -> SHIPPED -> OUT_FOR_DELIVERY -> DELIVERED
- * Identical to the backend enum in tracking's domain/status.py.
+ * (UOHCo), matching Tracking's own status list.
  *
- * Colours read directly from the UOHCo variant sheet (Get('UOHCo') via the
- * Pencil MCP, not guessed from the export): each state pairs a distinct
- * background/dot/label token — SHIPPED and OUT_FOR_DELIVERY are NOT the same
- * colour, unlike a plausible-looking info/warn split would suggest.
+ * CONTRACT: Every colour below comes from the UOHCo variant sheet read over the
+ * Pencil MCP, never from the HTML export. Each state pairs a distinct
+ * background/dot/label token — SHIPPED and OUT_FOR_DELIVERY are different
+ * colours, which a plausible info/warn split gets wrong.
+ * See [[pencil-design-extraction]]
  */
 @Component({
   selector: 'app-status-badge',

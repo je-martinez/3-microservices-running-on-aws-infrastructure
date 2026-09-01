@@ -6,11 +6,11 @@ const PLACEHOLDER_IMAGE_URI =
 /**
  * Product ids use the `prd_` nano-id prefix, as the Orders service does.
  *
- * Deliberate edge-state coverage for layout (see task-4b-brief.md):
- *   - prd_hQ3nWbT8xL has `image: null`             (no-image card state)
- *   - prd_pR9kLmZ2vN has `unitsInStock: 0`          (out-of-stock state)
- *   - prd_tY6cQoE1sF has `unitPriceCents: "12900"`  (string, exercises IntLike)
- *   - prd_wK4jNpX7bH has three categories           (chip overflow)
+ * CONTRACT: Do NOT normalise these rows. Four carry the only coverage of a card
+ * edge state — null image, zero stock, a string `unitPriceCents` exercising
+ * `IntLike`, and three categories for chip overflow. "Tidying" any of them
+ * leaves that layout branch unrendered anywhere.
+ * See [[angular-component-authoring]]
  */
 export const PRODUCTS: readonly Product[] = [
   {

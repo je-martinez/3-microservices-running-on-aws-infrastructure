@@ -5,16 +5,14 @@ import { formatShortDateTime } from '../date/format-date';
 import { TrackingStatusIcon } from './tracking-status-icon';
 
 /**
- * Design: frame `Notification Item` (`qwO6X`). One row inside
- * `NotificationsPanel`'s list (spec D8) — the panel's Unread/Read frame pair
- * differs only in this row's background (`bg-surface-subtle` unread vs.
- * transparent read) and whether the trailing dot renders, both driven here
- * by `notification().read`, never by two separate templates.
+ * Design: frame `Notification Item` (`qwO6X`). One row in `NotificationsPanel`'s
+ * list; the Unread/Read frames differ only in this row's background and trailing
+ * dot, both driven by `notification().read` rather than two templates.
  *
- * `AppNotification.status` is nullable (see api-types.ts) — a notification
- * with no tracking status (e.g. "Welcome to 3MRAI") falls back to a plain
- * `bell` glyph on a neutral tint rather than reusing `TrackingStatusIcon`,
- * which requires a non-null `TrackingStatus`.
+ * CONTRACT: `AppNotification.status` is nullable — a notification without one
+ * falls back to a plain `bell` glyph. `TrackingStatusIcon` requires a non-null
+ * `TrackingStatus` and cannot take its place.
+ * See [[angular-component-authoring]]
  */
 @Component({
   selector: 'app-notification-item',

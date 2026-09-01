@@ -10,14 +10,12 @@ import { CartLine } from '../../shared/ui/cart-line';
  * Design: `Checkout — Payment` (`DOtD2`, 1440) / `Mobile — Checkout Payment`
  * (`P0lhqj`). `App Header` + `Body` — a real page, unlike the cart overlays.
  *
- * Two payment paths exist in the design and `APP_CONFIG.stripeEnabled`
- * decides which one the user gets:
- *   - `false` -> this page's own card fields (`data-testid="checkout-plain"`)
- *   - `true`  -> the Stripe step, laid out in the cart drawer (`hed4V`),
- *     reached via `data-testid="checkout-stripe"` here as a hand-off panel
- *
- * Phase 1 renders both branches and submits neither — no payment backend
- * exists anywhere in this repo (no service, no Terraform, no `.env`).
+ * CONTRACT: `APP_CONFIG.stripeEnabled` alone picks the payment path — false
+ * renders this page's card fields (`checkout-plain`), true hands off to the
+ * Stripe step in the cart drawer (`hed4V`, via `checkout-stripe`). Reaching
+ * Stripe with the flag off exposes a path the build disabled. Phase 1 renders
+ * both branches and submits neither; this repo has no payment backend.
+ * See [[angular-component-authoring]]
  */
 @Component({
   selector: 'app-checkout-payment',

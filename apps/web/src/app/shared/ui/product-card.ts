@@ -3,14 +3,13 @@ import { LucidePlus } from '@lucide/angular';
 import { formatCents, type Product, toInt } from '../../fixtures/api-types';
 
 /**
- * Design: frame `Product Card` (QmNIg, 318px wide), reused in the `Home —
- * Products` grid (`eK0x6`/`ffO4d`).
+ * Design: frame `Product Card` (QmNIg), reused in the `Home — Products` grid.
+ * `image` is nullable, with a token surface standing in. Out-of-stock disables
+ * the Add button rather than hiding it — the design has no "sold out" layout.
  *
- * `image` is nullable (a token surface stands in when absent) and
- * `unitPriceCents` is `IntLike` — read through `formatCents`/`toInt` rather
- * than doing arithmetic on a value that may arrive as a string. Out-of-stock
- * (`unitsInStock === 0`) disables the Add button instead of hiding it: the
- * design has no separate "sold out" card layout.
+ * CONTRACT: `unitPriceCents` is `IntLike` — go through `formatCents`/`toInt`,
+ * since arithmetic on a value that arrives as a string concatenates instead.
+ * See [[money-as-integer-cents]]
  */
 @Component({
   selector: 'app-product-card',

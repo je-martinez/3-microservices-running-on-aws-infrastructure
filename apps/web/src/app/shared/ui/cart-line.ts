@@ -3,15 +3,14 @@ import { LucideMinus, LucidePlus } from '@lucide/angular';
 import { formatCents, type Product, toInt } from '../../fixtures/api-types';
 
 /**
- * Design: frame `Cart Line` (L5XVFs, 372px wide), reused in `Cart Drawer`
- * (`ET6dr`) and `Checkout — Payment`'s Order Summary card (`DOtD2`).
+ * Design: frame `Cart Line` (L5XVFs), reused in `Cart Drawer` (`ET6dr`) and
+ * `Checkout — Payment`'s Order Summary (`DOtD2`). With no cart contract yet, it
+ * renders off a `Product` plus a `quantity`. The design's variant text has no
+ * backing field, so the first category stands in as the descriptor.
  *
- * No OrderLine/cart-item contract exists yet — Phase 1 has no cart store —
- * so this renders straight off a `Product` plus a `quantity` count, computing
- * the line total itself (`unitPriceCents` is `IntLike`, never arithmetic'd
- * directly). The design's "Size 42 · Sand" variant text has no backing field
- * on `ProductDto`; the product's first category stands in as the line's
- * descriptor, matching `ProductCard`'s own category chip.
+ * CONTRACT: `unitPriceCents` is `IntLike` — coerce it with `toInt` before any
+ * arithmetic, or a string price silently concatenates into the line total.
+ * See [[money-as-integer-cents]]
  */
 @Component({
   selector: 'app-cart-line',

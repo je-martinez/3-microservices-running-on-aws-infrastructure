@@ -4,16 +4,13 @@ import { NOTIFICATIONS } from '../../fixtures/notifications.fixture';
 import { NotificationItem } from '../../shared/ui/notification-item';
 
 /**
- * Design: `Notifications Panel` (`LWQ8g`), covering the Unread (`mSssa`) /
- * Read (`YZIGp`) frame pair (+ mobile `MP3DR`/`b6S5Bl`) — ONE component
- * (spec D8) whose Tabs switch a local `activeTab` signal, filtering
- * `NOTIFICATIONS` by each item's `read` flag; the two frames differ only in
- * which tab is selected and which subset renders, never in structure.
+ * Design: `Notifications Panel` (`LWQ8g`) — ONE component (spec D8) for the
+ * Unread (`mSssa`) / Read (`YZIGp`) pair, whose Tabs switch a local `activeTab`
+ * signal filtering `NOTIFICATIONS` by each item's `read` flag.
  *
- * Mounts off `OverlayStore` (in `Shell`, the Task 10/11 seam) ABOVE the
- * Scrim: per DESIGN.md, the notifications frames wrap `Page` + this panel
- * with NO Scrim rectangle, so `hasScrim` stays false for `'notifications'`
- * and this panel alone needs `z-50` to still sit above anything at `z-40`.
+ * CONTRACT: Keep this panel at `z-50`. Its frames carry no Scrim rectangle, so
+ * `hasScrim` is false for 'notifications' and nothing else lifts it above
+ * anything sitting at `z-40`. See [[angular-component-authoring]]
  */
 @Component({
   selector: 'app-notifications-panel',
@@ -25,8 +22,7 @@ export class NotificationsPanel {
 
   protected readonly activeTab = signal<'unread' | 'read'>('unread');
 
-  // Phase 1 has no notifications store — read/unread is derived straight
-  // from the fixture. "Mark all as read" has nothing to persist to yet.
+  // Phase 1 has no notifications store — read/unread derives from the fixture.
   protected readonly unread = computed(() => NOTIFICATIONS.filter((n) => !n.read));
   protected readonly read = computed(() => NOTIFICATIONS.filter((n) => n.read));
 
@@ -35,7 +31,6 @@ export class NotificationsPanel {
   );
 
   protected markAllRead(): void {
-    // No-op in Phase 1 (see class comment) — the button is present to match
-    // the design, not wired to a mutable store.
+    // No-op in Phase 1: the button matches the design, with no store to persist to.
   }
 }

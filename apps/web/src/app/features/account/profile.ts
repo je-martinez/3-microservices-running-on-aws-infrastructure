@@ -10,18 +10,13 @@ import { ButtonPrimary } from '../../shared/ui/button-primary';
 import { Field } from '../../shared/ui/field';
 
 /**
- * Design: `Profile` (`hZ87b`, 1440 desktop / `nyVEI`, mobile).
+ * Design: `Profile` (`hZ87b`, 1440 / `nyVEI`, 390). Fields are pre-filled from
+ * `CURRENT_USER`; Save/Cancel are presentational, with no backing mutation.
  *
- * `User.address` is `anyOf: [{}, null]` in services/users/openapi.yaml —
- * completely untyped on the wire (see api-types.ts's `Address` comment).
- * The `Address` interface, and every field this screen shows for it, is
- * DESIGN-derived, not contract-derived: phase 2 must reconcile it with
- * whatever shape the backend settles on before this screen can write back.
- *
- * Fields render read-only-looking `Field` boxes pre-filled from
- * `CURRENT_USER` (no profile store exists yet); Save/Cancel are
- * presentational, matching the design's affordance without a backing
- * mutation.
+ * CONTRACT: The address fields are DESIGN-derived, not contract-derived —
+ * `User.address` is `anyOf: [{}, null]` in services/users/openapi.yaml. Wiring a
+ * write-back before reconciling that shape sends the backend a payload it never
+ * agreed to. See [[openapi-specs]]
  */
 @Component({
   selector: 'app-profile',

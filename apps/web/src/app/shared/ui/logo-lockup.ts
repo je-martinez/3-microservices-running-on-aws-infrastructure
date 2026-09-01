@@ -2,13 +2,9 @@ import { Component, input } from '@angular/core';
 
 /**
  * Design: frame `Logo Lockup` (M8f7U). Mark + wordmark ("3M" navy, "RAI"
- * orange). The mark image is the same `img/standalone-logo.png` asset used
- * by the email templates (see assets/assets.manifest.json).
- *
- * `onDark` covers the two instances that override the wordmark to white on
- * the navy Brand Panel / Mobile Brand Header (Get('WXmng')/Get('u2nnov')
- * both override Logo 3M's fill to #FFFFFF — the surface-white token, not
- * ink-on-dark — while Logo RAI stays brand-orange).
+ * orange), sharing `img/standalone-logo.png` with the email templates.
+ * `onDark` covers the Brand Panel / Mobile Brand Header instances, which paint
+ * "3M" with the surface-white token (not `ink-on-dark`) and leave "RAI" orange.
  */
 @Component({
   selector: 'app-logo-lockup',

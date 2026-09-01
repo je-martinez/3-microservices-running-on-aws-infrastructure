@@ -6,21 +6,15 @@ import { formatPlacedLabel } from '../date/format-date';
 import { StatusBadge } from './status-badge';
 
 /**
- * Design: `Order Card` (`l6TyrG`, 1040px) and `Mobile Order Card` (`tWTSZ`,
- * 342px) — ONE responsive component (spec D8), not two: both frames share
- * the same node structure (Order Top / Divider / Order Bottom), differing
- * only in spacing/thumb size, which the `md:` breakpoint carries.
+ * Design: `Order Card` (`l6TyrG`) and `Mobile Order Card` (`tWTSZ`) as ONE
+ * responsive component (spec D8) — same node structure, `md:` carries the
+ * spacing and thumb-size deltas. `OrderLineDto` carries only `productId`, so
+ * lines are joined against the catalogue to render a count.
  *
- * `OrderLineDto` carries ONLY `productId` — no name, image or unit price —
- * so a line is joined against the catalogue fixture to render a count and
- * (were the design to need one) a name. In phase 2 this join moves to a
- * selector over real catalogue data; the template does not change.
- *
- * `tracking` is nullable on the wire (`OrderWithTracking.tracking`) — the
- * fixture's `ord_hV2sTaC7wQ` exercises exactly that. `StatusBadge` needs a
- * `TrackingStatus`, which only exists when tracking is non-null, so the
- * badge (and the desktop chevron beside it) is skipped entirely for that
- * order rather than guessing a status.
+ * CONTRACT: `OrderWithTracking.tracking` is nullable, and `StatusBadge` needs a
+ * non-null `TrackingStatus` — skip the badge and its chevron for such an order
+ * rather than guessing a status the backend never sent.
+ * See [[angular-component-authoring]]
  */
 @Component({
   selector: 'app-order-card',
@@ -31,11 +25,9 @@ export class OrderCard {
   readonly entry = input.required<OrderWithTracking>();
 
   /**
-   * Joined for line count/rendering. `product: null` for a delisted product
-   * (GET /v1/products returns only the active catalogue) is a real runtime
-   * case the join surfaces rather than hides — the thumbnail row below
-   * tolerates it because it renders a token placeholder per line regardless
-   * of whether the join found a product.
+   * Joined for line count/rendering. `product: null` is a real runtime case:
+   * GET /v1/products returns only the active catalogue, so a delisted line finds
+   * no match. The thumbnail row renders a token placeholder either way.
    */
   protected readonly lines = computed(() =>
     this.entry().order.lines.map((line) => joinOrderLine(line, PRODUCTS)),

@@ -1,33 +1,14 @@
 #!/usr/bin/env python3
 """Locate the Pencil MCP server binary and exec it, so `.mcp.json` is portable.
 
-`.mcp.json` is committed, and the Pencil MCP server is a binary shipped INSIDE
-the Pen desktop app — at an absolute path whose filename encodes the platform
-(`mcp-server-darwin-arm64`, `-darwin-x64`, `-linux-x64`, `win32-x64.exe`). Naming
-one of those paths directly in the committed config makes the repo work on
-exactly one machine: everyone else gets a server that cannot start, and anybody
-who edits the path to suit their box carries a permanently dirty diff.
-
-This resolver keeps `.mcp.json` machine-independent. It searches the known
-install locations for the binary matching the current platform, then `exec`s it
-so the MCP stdio transport is unaffected — no extra process sits between the
-client and the server.
-
-WHY NOT THE `~/.pencil/mcp/cursor/` BINARY. Pencil also installs per-editor
-bridges under `~/.pencil/mcp/<editor>/`. The Cursor one accepts a
-`--agent claudeCodeCLI` flag and looks like it should work, but every call fails
-with "A file needs to be open in the editor" even with the file demonstrably
-open — the Pen renderer reports `connectedAgents: []`, so the app never registers
-the agent. That cost six failed reconnects to diagnose. Only the bundled binary
-run with `--app desktop` talks to the running desktop app. This resolver
-deliberately never falls back to the per-editor bridges: a working-looking server
-that answers every call with an error is worse than one that fails to start.
-
-Escape hatch: set `PENCIL_MCP_BIN` in `.env` to an absolute path and it is used
-verbatim, for installs this does not know about.
-
-Usage (from .mcp.json):
-    python3 scripts/pencil_mcp.py [extra args passed through to the server]
+The binary ships inside the Pen desktop app at a platform-specific absolute path,
+so naming one in the committed config works on exactly one machine. This searches
+the known install locations and `exec`s the match, leaving the MCP stdio transport
+untouched; `PENCIL_MCP_BIN` overrides the search with an absolute path, verbatim.
+CONTRACT: Do NOT fall back to the per-editor bridges under `~/.pencil/mcp/`. They
+start cleanly, then fail every call with "A file needs to be open in the editor"
+while the renderer reports `connectedAgents: []`. Only the bundled binary run
+with `--app desktop` reaches the running app. See [[pencil-design-extraction]]
 """
 from __future__ import annotations
 

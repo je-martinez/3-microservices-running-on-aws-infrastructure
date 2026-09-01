@@ -1,40 +1,21 @@
 // Phase-1 web verification (spec D9): every route mounts and renders clean.
+// This is the whole verification layer for phase 1 — no screen calls the
+// gateway, and component unit tests arrive in phase 2 with the logic they test.
 //
-// ## Why this is the whole verification layer for phase 1
-//
-// The repo's three-layer rule ([[testing]]) is written for HTTP endpoints, and
-// phase 1 ships none — no screen calls the gateway, every screen renders from
-// `src/app/fixtures/`. Component unit tests are a deliberate phase-2 decision
-// (spec D9), arriving with the logic they would test. So this file is it.
-//
-// ## The trap this spec exists to avoid
-//
-// An Angular SPA serves `index.html` for EVERY path, so a 200 proves nothing —
-// a route deleted from `app.routes.ts` still "loads", and the wildcard quietly
-// redirects it home. Every assertion below is therefore on RENDERED CONTENT
-// (the page's own `<h1>`), never on a status code.
-//
-// ## Two things that make a green run here meaningful
-//
-//   1. The console listener is attached BEFORE `goto`. Errors thrown during
-//      initial load — a failed lazy chunk, an injector error — are missed
-//      entirely by a listener attached afterwards, which is the quiet way this
-//      spec would become decorative.
-//   2. Failures print WHAT arrived, not a count. "expected 0 received 3" cannot
-//      distinguish a broken app from a wrong expectation, so every message
-//      below carries the actual text.
-//
-// Headings are asserted against the REAL markup in each component, not guessed
-// from the route name: `/` is "New arrivals" (not "Products"), `/checkout` is
-// "Checkout" (not "Payment"), `/login` is "Welcome back". A regex invented from
-// the URL fails against a perfectly good screen and reads as a broken route.
+// CONTRACT: Assert on RENDERED CONTENT, never a status code — an Angular SPA
+// serves `index.html` for every path, so a route deleted from `app.routes.ts`
+// still returns 200 while the wildcard redirects it home. Attach the console
+// listener BEFORE `goto`, or errors thrown during initial load go uncaught and
+// this spec turns decorative. Print WHAT arrived on failure, not a count.
+// Headings come from each component's real markup, not from the route name.
+// See [[testing]]
 
 import { expect, test, type Page } from "@playwright/test";
 
 /**
  * Every route in `apps/web/src/app/app.routes.ts`, with the exact `<h1>` its
- * component renders. Keep in sync with that file — a route added there without
- * an entry here is an unverified screen.
+ * component renders. A route added there without an entry here is an
+ * unverified screen.
  */
 const ROUTES = [
   { path: "/", heading: /new arrivals/i },
@@ -46,50 +27,36 @@ const ROUTES = [
   { path: "/password/new", heading: /set a new password/i },
   { path: "/checkout", heading: /checkout/i },
   { path: "/orders", heading: /my orders/i },
-  // `/orders/:orderId` renders the ORDER ID as its heading, so this must be an
-  // id that exists in `orders.fixture.ts` — an unknown id renders "Order not
-  // found." with no <h1> at all, which is a different screen and is covered by
-  // its own test below. `ord_fB6rEjN4uK` is the fixture whose tracking reaches
-  // all five statuses, so it also exercises the fullest timeline.
+  // This id must exist in `orders.fixture.ts` — the heading IS the order id, and
+  // an unknown one renders the not-found screen with no <h1> (own test below).
   { path: "/orders/ord_fB6rEjN4uK", heading: /ord_fB6rEjN4uK/i },
   { path: "/profile", heading: /profile/i },
 ] as const;
 
 /**
- * KNOWN DEFECT, deliberately allowed so it masks nothing else.
+ * KNOWN DEFECT: `logo-lockup.ts` requests this asset, which is absent from
+ * `apps/web/public/`, so every screen emits one 404.
  *
- * `shared/ui/logo-lockup.ts` renders `url('/img/standalone-logo.png')`, but that
- * asset was never copied out of the Pencil design into `apps/web/public/` —
- * there is no `img/` directory in the app at all. `LogoLockup` sits in the app
- * header, so EVERY screen emits one 404. This spec found it; fixing it means
- * exporting the asset (a web-app change, not a test change), so it is recorded
- * here rather than silently tolerated by a weaker assertion.
- *
- * Scoped to this exact URL on purpose: a blanket "ignore 404s" would also hide
- * the next missing chunk or asset, which is most of what this layer is for.
- * **Delete this once the asset lands** — `expectedFailure` is asserted to still
- * be missing below, so a stale entry fails the run instead of rotting.
+ * CONTRACT: Keep the allowance scoped to this exact URL. A blanket "ignore 404s"
+ * hides the next missing chunk, which is most of what this layer catches. The
+ * test below asserts the asset is STILL missing, so the allowance fails loudly
+ * instead of rotting once someone exports it. See [[testing]]
  */
 const KNOWN_MISSING_ASSET = "/img/standalone-logo.png";
 
 function isKnownMissingAsset(message: string): boolean {
-  // Chromium reports a failed subresource as a bare "Failed to load resource:
-  // ... 404" with the URL only in the `location`, not in the text — so match on
-  // the location the listener records alongside it (see collectPageErrors).
+  // Chromium puts a failed subresource's URL in `location`, not in the message
+  // text, so this matches what collectPageErrors appends from there.
   return message.includes(KNOWN_MISSING_ASSET);
 }
 
 /**
  * Attaches the console/pageerror listeners and returns the collected messages.
  *
- * Must be called BEFORE `goto` — see the header note. Returning the live array
- * (rather than a getter) keeps the call sites honest about that ordering: there
- * is nothing to read until after navigation.
- *
- * The message carries `msg.location().url` because Chromium's resource-load
- * errors put the failing URL THERE and not in `msg.text()` — without it every
- * such failure reads as an indistinguishable "Failed to load resource", which
- * is the count-without-cause failure mode this suite is meant to avoid.
+ * CONTRACT: Call this BEFORE `goto`, and keep `msg.location().url` in the
+ * message. Chromium puts a resource-load failure's URL there, not in
+ * `msg.text()`, so dropping it makes every such error an indistinguishable
+ * "Failed to load resource". See [[testing]]
  */
 function collectPageErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -113,9 +80,7 @@ for (const route of ROUTES) {
 
     await page.goto(route.path);
 
-    // The page's own <h1>. Asserted by role+name so a screen that mounts an
-    // empty shell (or that the wildcard silently redirected home) fails here
-    // rather than passing on a 200.
+    // By role+name, so an empty shell or a silent wildcard redirect fails here.
     await expect(
       page.getByRole("heading", { level: 1, name: route.heading }),
       `no <h1> matching ${route.heading} on ${route.path} — the route may be missing from ` +
@@ -129,10 +94,9 @@ for (const route of ROUTES) {
   });
 }
 
-// The wildcard is a real route entry (`{ path: '**', redirectTo: '' }`) and the
-// only one whose correct behaviour is a redirect, so it is asserted on the
-// resulting URL *and* on home's content — a redirect that lands on a blank page
-// would satisfy the URL alone.
+// The wildcard is the one route whose correct behaviour IS a redirect, so this
+// asserts the URL *and* home's content — a redirect onto a blank page satisfies
+// the URL alone.
 test("an unknown route redirects home", async ({ page }) => {
   const errors = collectPageErrors(page);
 
@@ -146,9 +110,8 @@ test("an unknown route redirects home", async ({ page }) => {
   ).toHaveLength(0);
 });
 
-// An order id that is not in the fixtures renders the explicit empty state, not
-// a crash and not a redirect. Worth its own test because it is the branch a
-// deep-linked stale URL actually hits.
+// The branch a deep-linked stale URL hits: an explicit empty state, not a crash
+// and not a redirect.
 test("an unknown order id renders the not-found state", async ({ page }) => {
   const errors = collectPageErrors(page);
 
@@ -162,36 +125,25 @@ test("an unknown order id renders the not-found state", async ({ page }) => {
 });
 
 /**
- * `NG_APP_STRIPE_ENABLED` is BUILD-TIME — `@ngx-env/builder` inlines it into
- * the bundle (apps/web/CLAUDE.md §2b), so ONE RUNNING BUILD CAN ONLY EVER SHOW
- * ONE PATH. This asserts the build under test is internally consistent; it
- * cannot prove both positions are good.
- *
- * Proving both means running this suite twice, REBUILDING AND RESTARTING THE
- * DEV SERVER between runs, because a running server keeps serving the value
- * that was compiled in:
- *
- *   cd apps/web && echo 'NG_APP_STRIPE_ENABLED=false' > .env  # then restart `pnpm web:dev`
- *   pnpm e2e:web
- *   cd apps/web && echo 'NG_APP_STRIPE_ENABLED=true'  > .env  # restart again
- *   pnpm e2e:web
- *
- * Do not try to toggle it at runtime — there is nothing to toggle.
+ * CONTRACT: `NG_APP_STRIPE_ENABLED` is BUILD-TIME — `@ngx-env/builder` inlines
+ * it, so one running build shows one path and there is nothing to toggle at
+ * runtime. This proves the build under test is internally consistent, not that
+ * both flag positions are good; covering both means rewriting `apps/web/.env`
+ * and RESTARTING `pnpm web:dev` between two runs of this suite.
+ * See [[env-files]]
  */
 test("checkout renders exactly one payment path", async ({ page }) => {
   await page.goto("/checkout");
 
-  // Wait for the screen itself before probing the branches, so "neither is
-  // visible" means the flag showed nothing rather than the page not having
-  // mounted yet.
+  // Wait for the screen first, so "neither visible" means the flag rendered
+  // nothing rather than the page not having mounted.
   await expect(page.getByRole("heading", { level: 1, name: /checkout/i })).toBeVisible();
 
   const stripeVisible = await page.getByTestId("checkout-stripe").isVisible();
   const plainVisible = await page.getByTestId("checkout-plain").isVisible();
 
-  // Exactly one — never both, never neither. A flag position that renders NO
-  // payment path at all is precisely the failure a "renders without error"
-  // assertion sails straight past.
+  // Exactly one — a flag position rendering NO payment path is the failure a
+  // "renders without error" assertion sails straight past.
   expect(
     [stripeVisible, plainVisible].filter(Boolean).length,
     `expected exactly one payment path, got stripe=${stripeVisible} plain=${plainVisible} ` +
@@ -201,12 +153,9 @@ test("checkout renders exactly one payment path", async ({ page }) => {
 });
 
 /**
- * Keeps KNOWN_MISSING_ASSET honest.
- *
- * An allowance that outlives the defect is worse than no allowance: it quietly
- * suppresses a real 404 on that URL forever. This asserts the asset is STILL
- * missing, so the day someone exports it this test goes red with an instruction
- * to delete the allowance — rather than the suppression surviving unnoticed.
+ * CONTRACT: Keeps KNOWN_MISSING_ASSET honest. An allowance outliving its defect
+ * suppresses a real 404 on that URL forever, so this goes red the day the asset
+ * lands, carrying the instruction to delete the allowance. See [[testing]]
  */
 test("the known-missing logo asset is still missing (delete the allowance when it lands)", async ({
   request,

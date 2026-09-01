@@ -3,23 +3,18 @@ import { patchState, signalStore, withComputed, withMethods, withState } from '@
 
 /**
  * Which overlay covers the current route, if any.
- *
- * The design's frames — Home — Cart Open (wevx6), Home — Account Menu (H2A9g),
- * Home — Notifications (mSssa) — each wrap a `Page` plus ONE overlay, never two.
- * A single discriminated value makes that exclusivity unrepresentable-otherwise;
- * four independent booleans would allow states the design does not define.
+ * CONTRACT: Keep this one discriminated value rather than a boolean per panel.
+ * Every frame wraps a `Page` plus exactly ONE overlay; independent booleans
+ * would make two-panels-open representable, a state no frame defines.
+ * See [[angular-component-authoring]]
  */
 export type OverlayKind = 'cart' | 'cart-payment' | 'account-menu' | 'notifications' | null;
 
 /**
- * The toast is deliberately NOT an OverlayKind.
- *
- * The other four are mutually exclusive panels: the design never shows two at
- * once, which is what the single `active` signal encodes. A toast is different
- * in kind — it is transient, carries no Scrim (verified: only the three cart
- * frames have one), and can legitimately appear WHILE the cart is open. Folding
- * it into `active` would make "toast" close the cart, which no frame implies.
- * Task 11 models it as its own independent signal.
+ * CONTRACT: Do NOT add the toast to OverlayKind. It is transient, carries no
+ * Scrim, and may appear WHILE the cart is open; folding it into `active` makes
+ * showing a toast close the cart. It lives as its own independent signal.
+ * See [[angular-component-authoring]]
  */
 
 export const OverlayStore = signalStore(

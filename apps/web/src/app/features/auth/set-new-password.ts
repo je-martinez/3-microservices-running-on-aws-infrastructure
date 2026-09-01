@@ -6,12 +6,10 @@ import { Field } from '../../shared/ui/field';
 import { ButtonPrimary } from '../../shared/ui/button-primary';
 
 /**
- * Design: `Set New Password — Forced` (atwtV, 1440) and
- *         `Mobile — Set New Password` (G6lEnQ, 390).
- * One component, two breakpoints (spec D8, DESIGN.md "Responsive rule").
- * Renders the password checklist the frame shows (3 rules met, 1 not) —
- * phase 1 has no live validation wiring that state up yet. Phase 1: layout
- * and navigation only, no submission.
+ * Design: `Set New Password — Forced` (atwtV, 1440) and `Mobile — Set New
+ * Password` (G6lEnQ, 390) as one component, two breakpoints (spec D8).
+ * The checklist renders the frame's fixed state (3 rules met, 1 not); phase 1 is
+ * layout and navigation only, with no validation or submission.
  */
 @Component({
   selector: 'app-set-new-password',
