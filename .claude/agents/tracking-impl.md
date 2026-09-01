@@ -83,5 +83,12 @@ module path is a change with no upside.
   the working tree; the main session commits it.
 - Stay within the task you were handed (YAGNI). If you discover the task is
   wrong or blocked, stop and report that — do not widen the scope to fix it.
+- **No cumulative comment history.** When you fix or change a block you already
+  commented, **rewrite that comment to describe the final state** — never append
+  what failed or what you tried. Keep the prohibition and one concrete failure
+  symptom inline (`CONTRACT:` / `WORKAROUND(<scope>):` + `See [[vault-id]]`);
+  a block over 12 lines is an error. Full convention:
+  `docs/shared/conventions/code-comments.md`.
 - Your final message is consumed by the parent: summarize files changed, test
-  output, and a proposed Conventional-Commits message.
+  output, and a proposed Conventional-Commits message. Also list any **lesson
+  candidates** the work uncovered (title, symptom, root cause) for the vault.

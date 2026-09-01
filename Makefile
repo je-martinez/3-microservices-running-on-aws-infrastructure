@@ -63,7 +63,7 @@ export EXECUTION_LOG_TABLE ?= 3mrai-local-tfstate-execution-log
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke cache-toggle load-test-cache-ab-on load-test-cache-ab-off backend-up infra-init infra-plan infra-up post-infra infra-down infra-output env-file migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean observability-up observability-down observability-dashboards observability-traces-schema redeploy-lambdas scripts-setup ai-sync ai-sync-check
+.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke cache-toggle load-test-cache-ab-on load-test-cache-ab-off backend-up infra-init infra-plan infra-up post-infra infra-down infra-output env-file migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean observability-up observability-down observability-dashboards observability-traces-schema redeploy-lambdas scripts-setup lint-comments lint-comments-diff install-comment-hook ai-sync ai-sync-check
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -83,6 +83,40 @@ $(PY):
 	$(VENV)/bin/pip install -q --upgrade pip
 	$(VENV)/bin/pip install -q -e infra/scripts
 	@echo "infra script venv ready at $(VENV)"
+
+## --- Code-comment convention ---
+
+# The linter is stdlib-only and must run before scripts-setup creates the repo
+# venv. Prefer the absolute repo interpreter when present; otherwise fall back
+# to python3 so a fresh clone can still run the gate.
+COMMENT_PY       := $(if $(wildcard $(PY)),$(PY),python3)
+COMMENT_DIFF_REF ?= main
+
+lint-comments: ## Check the whole repo for new code-comment violations
+	@command -v "$(COMMENT_PY)" >/dev/null 2>&1 \
+	  || { echo "ERROR: Python 3 is required to lint code comments"; exit 1; }
+	@$(COMMENT_PY) scripts/validate-comments.py --all --root . \
+	  --strict-narrative \
+	  || { status=$$?; echo "ERROR: code-comment lint failed"; exit $$status; }
+
+lint-comments-diff: ## Check code-comment violations in the diff (COMMENT_DIFF_REF=main)
+	@command -v "$(COMMENT_PY)" >/dev/null 2>&1 \
+	  || { echo "ERROR: Python 3 is required to lint code comments"; exit 1; }
+	@$(COMMENT_PY) scripts/validate-comments.py --diff "$(COMMENT_DIFF_REF)" --root . \
+	  --strict-narrative \
+	  || { status=$$?; echo "ERROR: diff-scoped code-comment lint failed"; exit $$status; }
+
+install-comment-hook: ## Install the staged code-comment pre-commit hook
+	@hook_dir="$$(git rev-parse --git-path hooks 2>/dev/null)" \
+	  || { echo "ERROR: not inside a Git working tree"; exit 1; }; \
+	if test -e "$$hook_dir/pre-commit" \
+	   && ! cmp -s .githooks/pre-commit "$$hook_dir/pre-commit"; then \
+	  echo "ERROR: $$hook_dir/pre-commit already exists and differs; preserve or remove it first"; \
+	  exit 1; \
+	fi; \
+	mkdir -p "$$hook_dir"; \
+	install -m 0755 .githooks/pre-commit "$$hook_dir/pre-commit"; \
+	echo "Installed $$hook_dir/pre-commit"
 
 ## --- Docker Compose ---
 

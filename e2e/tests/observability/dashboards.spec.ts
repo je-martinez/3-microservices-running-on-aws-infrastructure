@@ -1,93 +1,7 @@
-// Dashboard field contract — stops the OpenObserve dashboards from silently
-// breaking when a service renames or drops a log/metric field.
-//
-// ## The failure this layer exists to catch
-//
-// Every panel queries fields BY NAME (`http_route`, `duration_ms`,
-// `service_name`, …). When a service stops emitting one, OpenObserve answers
-// `Search field not found: Schema error: No field named X` and the panel renders
-// empty. Nothing fails, nothing alerts — the break is only visible to whoever
-// happens to open the dashboard. This spec turns that into a test failure.
-//
-// ## Two failure modes that look identical, and only one is a bug
-//
-// This distinction IS the design of this spec, not a detail of it:
-//
-//   1. REAL BUG — the dashboard queries a field no service emits any more.
-//      Must fail.
-//   2. NOT A BUG — the field is correct, but the stream is EMPTY, so OpenObserve
-//      has not inferred it yet. OpenObserve derives a stream's schema from
-//      ingested data, so a freshly-cleaned stream reports little more than
-//      `_timestamp` and `service_name` and EVERY panel looks broken.
-//
-// A spec that cannot tell them apart fails constantly for reason 2 and gets
-// ignored, which is worse than no spec. So this one GENERATES A REAL FLOW FIRST
-// (register → login → products → order → tracking), waits for those logs to
-// land, and only then asserts. When a stream still looks trivial afterwards, it
-// fails with "this stream looks un-ingested" rather than blaming the dashboards.
-//
-// ## The wait must cover every producer, not just the fast ones
-//
-// Reason 2 has a subtler form that bit this spec repeatedly, and it is worth
-// stating plainly because it is invisible on a warm stack: the flow above
-// reaches FOUR producers, and they do not arrive on the same timescale.
-// Users/orders/tracking push over OTLP in milliseconds, while the
-// events-pipeline is a Lambda whose logs the collector pulls on a 1-minute
-// `aws_cloudwatch` poll. Waiting only for the fast producers' fields and then
-// asserting on all of them is a race the slow producer loses on a clean stream,
-// and it reported the false "no service emits author_actor any more" that this
-// design note now exists to prevent. The wait is therefore derived from the
-// dashboards themselves — see requiredLogFields() below.
-//
-// ## Reproducing the empty stream: delete the VOLUME, never the stream
-//
-// Written down because it cost real time and will mislead the next person the
-// same way. The obvious way to recreate a fresh stack's empty stream is
-// `DELETE /api/{org}/streams/logs?type=logs` against a running stack. DO NOT —
-// it does not emulate `make clean`, it breaks ingestion for the next minutes:
-//
-//   openobserve  [Schema:watch] flushed cache for stream 3mrai/logs/logs
-//   collector    Exporting failed. Dropping data. … HTTP Status Code 400,
-//                "not retryable error: Permanent error", dropped_items: 25
-//
-// Deleting a live stream invalidates OpenObserve's schema cache while the
-// collector is mid-flight, and the batches that race the invalidation are
-// rejected 400 and dropped PERMANENTLY — the collector does not retry a
-// permanent error. The result looks exactly like the bug this spec hunts (a
-// field "missing" from the schema) but the records were destroyed in transit.
-// Confirmed by correlation: zero 400s in the hour before the first manual
-// delete, then a burst within the same minute as every one that followed.
-//
-// `make clean` is safe precisely because it removes the openobserve-data volume
-// and restarts the container — the collector reconnects to a cold server rather
-// than racing a cache flush under a live one. So: reproduce with a real
-// `make clean` + `make bootstrap`, or trust the assertions below.
-//
-// ## Why fields, not rows
-//
-// This asserts the FIELDS EXIST, never that a query RETURNS ROWS. A panel can be
-// legitimately empty and correct: "recent errors" shows nothing when there were
-// no 5xx in the window, and "orders delivered" is zero before anything ships.
-// Asserting on rows would make a healthy system red, which is exactly the kind
-// of noise that gets a suite muted.
-//
-// ## Streams covered — and the one that is not
-//
-//   COVERED  logs (all 24 SQL panels across users/orders/tracking/
-//            events-pipeline/overview) — driven directly by the traffic below.
-//   COVERED  the metrics streams (amazonaws_com_3mrai_*, 10 SQL cards +
-//            3 PromQL panels on business-metrics/tracking). These are fed by
-//            CloudWatch polling on a ~1-minute cycle and by the business-metrics
-//            publishers, NOT by this spec's traffic — so they are asserted only
-//            when the stream already exists, and skipped with a named reason
-//            when it does not. Generating them here would mean waiting minutes
-//            on a background poller, which is the flakiness the task warned
-//            against; a stale-but-present schema still catches a renamed label.
-//   NOT COVERED  the `sql`, `redis` and `nginx` log streams. Deliberate, and not
-//            an omission: no committed dashboard panel reads them today
-//            (verified across all six files). They will be covered
-//            automatically the moment a panel does, because the assertions are
-//            driven by the dashboards, not by a hardcoded stream list.
+// CONTRACT: Dashboard panels query fields BY NAME — rename/drop yields empty panels.
+// Assert FIELDS not rows; derive waits from loadDashboardQueries().
+// Do NOT DELETE live OpenObserve streams via API — HTTP 400 drops batches permanently.
+// See [[logging-context]]
 
 import { test, expect } from "@playwright/test";
 import { apiClient, ordersClient, trackingClient } from "../../support/api-client.js";
@@ -106,69 +20,14 @@ import {
 // signature of "no traffic arrived", not of "the dashboards are wrong".
 const TRIVIAL_LOG_FIELDS = new Set(["_timestamp", "service_name"]);
 
-// The collector batches, and the CloudWatch-sourced logs poll on ~60s. Poll for
-// the data instead of sleeping a fixed guess — a fixed sleep is either too short
-// (flaky) or too long (slow), and it never says which.
-//
-// The timeout must clear a FULL CloudWatch cycle plus the batch flush behind it,
-// not just one. The events-pipeline is a Lambda, so its lines reach OpenObserve
-// through `aws_cloudwatch` on a `poll_interval: 1m` (observability/
-// otel-collector-config.yaml) — traffic generated just after a poll waits out
-// the remainder of that minute before the next one even starts. 90s left almost
-// no margin for the flush that follows; 150s clears the worst-case cycle twice
-// over and still fails fast, because the wait below returns the moment the
-// fields arrive rather than sleeping to the deadline.
+// WHY: Poll instead of fixed sleep — events-pipeline logs arrive via aws_cloudwatch
+// on poll_interval 1m; 150s clears one full cycle plus batch flush margin.
 const INGEST_TIMEOUT_MS = 150_000;
 const INGEST_POLL_MS = 3_000;
 
-// The fields to wait for are DERIVED FROM THE DASHBOARDS, never hardcoded.
-//
-// ## The false positive this replaced, and why a hardcoded list caused it
-//
-// This used to be the literal `["http_route", "duration_ms",
-// "http_response_status_code"]` — three fields that users/orders/tracking push
-// straight over OTLP. The assertion, however, covers every field ANY log panel
-// queries, and five of those (`app_event`, `author_actor`, `event_id`, `reason`,
-// `severity_text`) are emitted ONLY by the events-pipeline, which arrives on the
-// slow CloudWatch path described above. So the wait watched the fast producer
-// and then asserted on the slow one: on a freshly-cleaned stream it returned as
-// soon as the HTTP fields landed and the assertion ran a minute too early,
-// reporting `missing field(s): author_actor … (doc_num=0)` and claiming "no
-// service emits it any more". That claim was FALSE — `author_actor` is emitted
-// at functions/events-pipeline/src/handler.ts:111 on every record — and the
-// giveaway was `doc_num=0`: the stream was simply still empty.
-//
-// Deriving the list from `loadDashboardQueries()` closes the gap permanently and
-// makes the spec STRICTER, not weaker: the wait and the assertion now read the
-// same source, so a panel that starts querying a new field is waited for
-// automatically instead of racing it. A field genuinely removed from a producer
-// still fails — it never arrives, the wait times out, and the message below
-// names it.
-// ## The one field a SUCCESSFUL flow would never produce, and why it is still waited for
-//
-// `reason` is written exclusively on failure branches — [[logging-context]]
-// states it as a rule ("`reason` on failures"), and the pipeline follows it at
-// functions/events-pipeline/src/handler.ts:582/736/747, as does Users at
-// features/users/commands/login.ts:66/99. A spec that generated only a happy
-// path could therefore never satisfy a wait on `reason`, and measuring said
-// exactly that: against a freshly-deleted stream this wait timed out after the
-// full 150s with `Never arrived: reason` while all ten other fields had landed.
-//
-// There were two ways out and only one of them is honest. Excluding `reason`
-// from the wait would have moved the same failure into the assertion a second
-// later — verified: the rebuilt stream genuinely has no `reason` column — which
-// is a false positive relocated, not removed. So `generateTraffic()` now drives
-// a REAL failing login instead, which makes `reason` an ordinary unconditional
-// field like the rest and keeps the assertion at full strength.
+// See [[logging-context]]
 
-// Fields that ONLY the events-pipeline emits — used to tell ingestion lag from a
-// real removal in the timeout message, never to relax an assertion.
-//
-// Derived from the dashboards, not hand-listed: a field counts as
-// pipeline-only when EVERY panel querying it filters on
-// `service_name = 'events-pipeline'`. That keeps the set honest as panels
-// change — the moment another service's panel starts querying one of these, it
-// stops being pipeline-only and the message stops making excuses for it.
+// WHY: Labels pipeline-only fields for timeout diagnosis (ingestion lag vs removal).
 function eventsPipelineOnlyFields(panelQueries: PanelQuery[]): Set<string> {
   const producers = new Map<string, Set<string>>();
   for (const q of panelQueries) {
@@ -192,6 +51,7 @@ function eventsPipelineOnlyFields(panelQueries: PanelQuery[]): Set<string> {
   return only;
 }
 
+// CONTRACT: requiredLogFields() derives from loadDashboardQueries(); failed login emits `reason`.
 function requiredLogFields(panelQueries: PanelQuery[]): string[] {
   const fields = new Set<string>();
   for (const q of panelQueries) {
@@ -218,27 +78,11 @@ test.beforeAll(async () => {
   );
 });
 
-// Generating traffic + waiting for ingestion is the slow part and runs once.
-//
-// `describe.configure({ timeout })` sets the TEST timeout only — hooks keep the
-// 30s default, which is shorter than the ingestion poll below. Without the
-// explicit `setTimeout` in the hook itself, a stream that never ingests fails
-// with a bare "beforeAll hook timeout of 30000ms exceeded" and the diagnostic
-// message this spec exists to print is never reached. Observed, then fixed.
+// CONTRACT: describe.configure({ timeout }) does NOT apply to hooks — raise
+// test.setTimeout in beforeAll or ingestion poll dies at 30s with no diagnostic.
 test.describe.configure({ mode: "serial", timeout: 240_000 });
 
-/**
- * Drives one real end-to-end flow so every field the dashboards care about has
- * been emitted at least once by every service they chart.
- *
- * Uses the direct-service clients (the `internal` layer): the point here is to
- * make the three services LOG, and each emits the same HTTP attributes whether
- * the call arrived via the gateway or not. Going direct removes the Cognito
- * round-trip from a spec that is not testing auth.
- *
- * `X-E2E-Source` comes from the shared clients, so everything created here is
- * torn down by the usual global teardown.
- */
+/** Drives register→order flow so every dashboard log field is emitted once. */
 async function generateTraffic(): Promise<void> {
   const users = await apiClient();
   const orders = await ordersClient();
@@ -297,19 +141,8 @@ async function generateTraffic(): Promise<void> {
   });
   expect([400, 404]).toContain(notFound.status());
 
-  // 7. one deliberately WRONG password. The dashboards' "recent errors" panels
-  //    select `reason`, and every producer writes that field on failure
-  //    branches ONLY ([[logging-context]]: "`reason` on failures"). A purely
-  //    successful flow therefore never emits it, and the ingestion wait below —
-  //    which requires every field the panels query — could never be satisfied.
-  //    Measured before this step existed: the wait ran its full 150s and failed
-  //    with `Never arrived: reason` while all ten other fields had landed.
-  //
-  //    Users logs `app_event=login_failed, reason=invalid_credentials`
-  //    (services/users/src/features/users/commands/login.ts:99) and pushes it
-  //    over OTLP, so it lands in seconds rather than on the 1m CloudWatch poll.
-  //    A rejected login is also the cheapest possible failure to provoke: it
-  //    creates nothing, needs no teardown, and leaves no state behind.
+  // WHY: Failed login emits `reason` over OTLP so the ingestion wait can satisfy
+  // failure-only fields the dashboard panels query.
   const badLogin = await users.post("/v1/users/login", {
     data: { email: user.email, password: `${user.password}-wrong` },
   });
@@ -322,35 +155,12 @@ async function generateTraffic(): Promise<void> {
   await Promise.all([users.dispose(), orders.dispose(), tracking.dispose()]);
 }
 
-/**
- * Waits until the `logs` stream has inferred EVERY field the log dashboards
- * query — the same set the assertions below check, passed in by the caller so
- * the two can never drift apart.
- *
- * Bounded, and on timeout it reports WHICH fields never arrived: a count alone
- * could not distinguish a slow collector from a renamed attribute, and naming
- * them is what lets the reader see at a glance whether the stragglers all belong
- * to one producer (ingestion lag) or are scattered (a real removal).
- */
+/** Poll until every required log field appears; timeout names missing fields. */
 async function waitForLogIngestion(required: string[]): Promise<StreamSchema> {
   const deadline = Date.now() + INGEST_TIMEOUT_MS;
   let schema: StreamSchema | null = null;
 
-  // A stream that is COMPLETELY empty will not fill up by waiting on it — the
-  // stack is down. Polling the full timeout there only delays the same verdict,
-  // so give it a bounded grace period and then stop.
-  //
-  // "Completely empty" means ONLY the free fields, and that is the whole test.
-  // It is deliberately NOT "some required field is still missing": a stream
-  // holding the HTTP attributes but not yet the events-pipeline ones is
-  // mid-ingestion — the fast OTLP producers have landed and the 1m CloudWatch
-  // poll has not — and giving up there is exactly the bug being fixed. Only a
-  // stream with nothing but `_timestamp`/`service_name` after the grace period
-  // is genuinely dead.
-  //
-  // The grace period is deliberately generous relative to the ~4s a recreated
-  // stream took to reappear when measured against this stack, while still
-  // failing a genuinely dead stack in a fraction of the 150s deadline.
+  // WHY: Only `_timestamp`/`service_name` after grace period means dead ingestion.
   const emptyStreamGiveUpAt = Date.now() + INGEST_POLL_MS * 5;
 
   while (Date.now() < deadline) {
@@ -370,14 +180,7 @@ async function waitForLogIngestion(required: string[]): Promise<StreamSchema> {
   // the reader to completely different places.
   const nonTrivial = schema ? [...schema.fields].filter((f) => !TRIVIAL_LOG_FIELDS.has(f)) : [];
 
-  // Whether the stragglers are ALL from the slow producer decides the verdict.
-  // The events-pipeline is a Lambda polled by `aws_cloudwatch` every minute,
-  // while users/orders/tracking push over OTLP in milliseconds — so "only the
-  // pipeline's fields are missing" is the signature of ingestion lag (or a
-  // Lambda that never ran), whereas a field missing from a producer that HAS
-  // otherwise landed is a genuine removal. Saying which one it is here is the
-  // difference between a reader fixing the stack and a reader wrongly editing
-  // the dashboard JSON — the exact wrong turn this spec once caused.
+  // WHY: All-missing pipeline fields imply CloudWatch poll lag, not dashboard defect.
   const onlySlowProducerMissing =
     missing.length > 0 && missing.every((f) => EVENTS_PIPELINE_ONLY_FIELDS.has(f));
 

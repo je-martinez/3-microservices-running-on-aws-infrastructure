@@ -1,44 +1,9 @@
 #!/usr/bin/env python3
-"""Generate every env file that derives from Terraform discovery.
-
-Usage: generate_env_files.py [--repo-root PATH]
-
-Produces seven files, each for one consumer:
-
-  .env                        the ONLY four vars docker-compose interpolates as ${VAR}
-  .env.local.infra            terraform outputs — read by the E2E suite and by humans
-  .env.local.users            the Users service environment    (compose env_file:)
-  .env.local.orders           the Orders service environment   (compose env_file:)
-  .env.local.tracking         the Tracking service environment (compose env_file:)
-  .env.local.events-pipeline  the events-pipeline environment  (compose env_file:)
-  .env.local.debug            HOST-reachable connection strings for a SQL client
-
-There was an eighth, `.env.local.tracking-go`, while the Go rewrite ran beside
-the Python service. It is gone: the Go service IS Tracking now and reads
-`.env.local.tracking`. A stale copy may still sit in the working tree of a
-checkout that predates the cutover — nothing reads it, and `make env-file` no
-longer rewrites it, so delete it by hand if it bothers you.
-
-WHY PER-SERVICE FILES, and not the single `.services` file originally sketched:
-DATABASE_WRITER_URL and DATABASE_READER_URL exist in EVERY service with
-different values AND different formats — a postgres:// URL for Users, an ADO
-connection string for Orders, a SQLAlchemy URL for Tracking. One shared file
-cannot hold three values for one key without renaming variables the application
-code already reads.
-
-IMPORTANT — no interpolation here. docker-compose expands ${USERS_DB_PORT} in
-the compose file, but `env_file:` does NOT: values are taken literally. So every
-port and id is resolved to its real value as the file is written. A `${...}`
-left in one of these files would reach the service as that literal string.
-
-Every value is REQUIRED. A missing one raises rather than writing an empty
-string, because an empty segment inside a connection string yields a service
-that starts and then cannot connect — much harder to diagnose than failing here.
-
-ONE DOCUMENTED EXCEPTION: ASSETS_BASE_URL is read from the PHASE 2 root
-(environments/local/post), which `make bootstrap` does not apply — so it falls
-back to the derived value phase 2 would produce instead of raising. See
-discover_assets_base_url; every other value still fails loudly.
+"""CONTRACT: Generate separate files because services reuse database variable
+names with incompatible formats. Do NOT emit interpolation or missing values;
+env_file passes literals and services otherwise boot with unusable URLs.
+WORKAROUND(local): ASSETS_BASE_URL may use its exact phase-2-derived fallback.
+See [[env-files]], [[two-phase-terraform-apply]]
 """
 
 import argparse
@@ -56,151 +21,49 @@ AWS_ENDPOINT = "http://floci:4566"
 AWS_REGION = "us-east-1"
 OTLP_ENDPOINT = "http://otel-collector:4318"
 
-# Custom-metrics publication cadence (see the metrics design spec's "Polling
-# intervals"). CloudWatch standard resolution is 60s; anything finer is a
-# separately billed high-resolution metric. Local EventBridge already ticks
-# once per minute, and the narrowest dashboard range is five minutes, which
-# still yields five data points at this cadence, so no read observability is
-# lost. Two names express the same setting in each stack's natural unit: the
-# Node and .NET services take milliseconds, while Tracking takes seconds.
+# WHY: CloudWatch standard resolution and local EventBridge both use 60 seconds.
+# Separate constants express the same cadence in each service's native unit.
 METRICS_INTERVAL_MS = "60000"
 METRICS_INTERVAL_SECONDS = "60"
 
-# TestMode's status cadence, in seconds. The design's value is 10 (see
-# app.DefaultProgressionInterval), and that is what the service falls back to
-# when this is unset — a deployed environment behaves exactly as before.
-#
-# 5 LOCALLY, and the number was measured rather than picked. A tracking walks
-# PLACED -> PROCESSING -> SHIPPED -> OUT_FOR_DELIVERY -> DELIVERED, so a delivery
-# spec cannot finish sooner than FOUR intervals however fast the rest is. At the
-# design's 10s the three delivery specs cost 48.7s, 43.5s and 42.1s — 134s, over
-# half the gateway project's wall-clock, spent waiting on a timer.
-#
-# 2 was tried first and was TOO FAST: it publishes four TRACKING_STATUS_CHANGED
-# events in 8 seconds, and the emulator dropped some of them before they reached
-# the queue. Tracking logged 21 published against 16 processed, with an empty
-# DLQ and no consumer error — the events never arrived, and gateway/
-# tracking-flow.spec.ts failed on a `delivered` email whose transition had
-# demonstrably happened. At 5s the same spec passes.
-#
-# It changes no assertion: the specs poll for the same transitions in the same
-# order and still fail if one is missing. It only stops the E2E suite paying for
-# a cadence that exists to look realistic in a demo.
+# WORKAROUND(local): Do NOT lower TestMode progression below five seconds.
+# Faster publication drops TRACKING_STATUS_CHANGED events in the emulator and
+# makes the gateway delivery-email assertion time out. Deployed default is 10s.
+# See [[tracking-service-design]]
 PROGRESSION_INTERVAL_SECONDS = "5"
 FLOCI_HOST = "floci"
 
-# Mailpit's HTTP API, HOST-facing, including the `/api/v1` prefix its endpoints
-# hang off (`/search`, `/message/{id}`, `/info`).
-#
-# A fixed constant rather than a `terraform_output`, unlike everything else in
-# .env.local.infra: Mailpit is not a Terraform resource at all. It is a
-# docker-compose service whose port is published by docker-compose.yml
-# (`8025:8025`), so the value cannot change per apply the way a Floci-minted
-# Cognito id or a reassigned RDS proxy port does. Reading it from Terraform is
-# not merely unnecessary — there is no output to read.
-#
-# `localhost`, not the compose service name, because the sole consumer is the
-# E2E suite, which runs on the HOST. The same reasoning that makes
-# .env.local.debug host-facing applies: a container-internal `http://mailpit:8025`
-# would not resolve from a Playwright process outside Docker.
-#
-# The NAME is deliberately the one that already exists in
-# functions/events-pipeline/tests/email/sender.integration.test.ts, which reads
-# `process.env.MAILPIT_API_URL` with this exact string as its fallback. One name
-# across the repo means the pipeline's integration suite and the E2E suite can
-# both be pointed at a different Mailpit by setting a single variable.
+# CONTRACT: Do NOT replace localhost with the compose hostname. Host-run E2E
+# cannot resolve `mailpit` and loses inbox assertions. Mailpit is compose-owned,
+# so this host-published URL has no Terraform output.
+# See [[testing]]
 MAILPIT_API_URL = "http://localhost:8025/api/v1"
 
 # ─── The two key-based auth schemes — KEEP THEM SEPARATE ─────────────────────
-# These are two different keys for two different TRUST DOMAINS. Do not
-# "simplify" by collapsing them into one constant, and do not point both env
-# vars at the same value. See the Tracking design's "Auth schemes" section
-# (docs/domains/tracking/specs/tracking-service-design.md).
-#
-#   GRPC_API_KEY            INTERNAL. Shared symmetric secret between our own
-#                           services. Users is the only gRPC server left, and
-#                           both Orders and Tracking call it to resolve a
-#                           caller's identity, carrying this as `x-api-key`
-#                           metadata; the interceptor compares it in constant
-#                           time (see docs/domains/orders/decisions/
-#                           grpc-api-key-authorization.md). Orders reaches
-#                           Tracking over HTTP instead — Tracking serves no
-#                           gRPC. This key never leaves the compose network/VPC.
-#
-#   TRACKING_CARRIER_API_KEY  EXTERNAL. Issued to a third-party shipping carrier
-#                           so it can call PUT /v1/trackings/{orderId}/status.
-#                           That gateway route is declared `auth = false` — it
-#                           sits OUTSIDE the Cognito authorizer, so the Tracking
-#                           service validates this key itself.
-#
-# Reusing the internal key as the carrier key would hand an outside vendor a
-# credential that authenticates as an internal service against every gRPC
-# surface we have. The blast radius is the entire inter-service mesh, so the
-# separation is a security boundary, not a naming preference.
-#
-# Both are local-dev placeholders here, matching how GRPC_API_KEY has always
-# been sourced locally (a static constant, no Terraform resource). Neither is
-# provisioned in Parameter Store or Secrets Manager: as of today this repo has
-# ZERO `aws_ssm_parameter` resources, and Secrets Manager holds only
-# Terraform-generated DB credentials. Real rotation for both keys is prod work,
-# deferred exactly like every other secret in ADR-0007.
+# CONTRACT: Do NOT collapse these keys or give them the same value. The gRPC key
+# authenticates internal services; the carrier key is exposed to a third party.
+# Reuse grants that carrier access across the internal service mesh.
+# See [[tracking-service-design]], [[grpc-api-key-authorization]]
 GRPC_API_KEY = "local-dev-grpc-key"
 TRACKING_CARRIER_API_KEY = "local-dev-carrier-key"
 
-# Third key of the same family: the shared secret the E2E suite presents as
-# `x-e2e-token` to the events Lambda's email-query Function URL, which is
-# AuthType NONE and answers 404 to anything without it.
-#
-# A CONSTANT here rather than a `terraform_output`, even though Terraform also
-# needs it (var.e2e_query_token feeds the Lambda's environment) — and the
-# duplication is deliberate, so read this before "fixing" it. A `-target`ed
-# apply never persists an output that does not depend on the targeted
-# resources, and against Floci a full untargeted apply is not available: the
-# second apply fails on UpdateTags for API GW v2 / RDS (infra/CLAUDE.md, and
-# reproduced on 2026-08-29 while wiring this route). Reading the token through
-# an output would therefore make `make env-file` fail on exactly the stacks
-# that need it most — every already-running one.
-#
-# Nothing DISCOVERS this value, which is what makes duplicating it safe: unlike
-# a Cognito id or an RDS proxy port, Floci does not mint it, so the two literals
-# cannot drift apart on their own. They can only drift if a human edits one, so
-# keep them in step: infra/environments/local/variables.tf → e2e_query_token.
+# WORKAROUND(local): Do NOT read this token through a Terraform output. Targeted
+# applies omit it, while a full Floci reapply fails UpdateTags and makes env-file
+# unusable. Keep this static literal synchronized with e2e_query_token.
+# See [[floci-rds-apigw-limits]]
 E2E_QUERY_TOKEN = "local-e2e-query-token"
 
-# Public base URL of the assets bucket, with NO trailing slash. The email
-# templates append a known object key to it ("<base>/email/logo.png") to build
-# the REMOTE <img> src of every icon.
-#
-# The bucket lives in the PHASE 2 root (environments/local/post/assets.tf), so
-# unlike every other value in this file it may not exist yet: `make bootstrap`
-# runs `env-file` and phase 2 is a separate, explicit `make post-infra`. This is
-# therefore the ONE value read with a fallback rather than as a hard-required
-# terraform output — the alternative is a generator that fails for everyone who
-# has not run phase 2, which would break bootstrap itself.
-#
-# The fallback is not a guess. Phase 2 pins endpoint_url = "http://localhost:4566"
-# and names the bucket "post-<label_post.id>-assets" off the fixed
-# (3mrai, local, post) label triple, so both halves are static and this string is
-# byte-identical to what the output returns. It is the same default declared on
-# var.assets_base_url in environments/local/variables.tf, which is what the
-# LAMBDA reads — the two must stay in sync, and they are kept so by both being
-# derived from the same two static facts.
-#
-# `localhost`, not the in-network `floci`: this URL is never fetched by our own
-# code. It is embedded in a delivered email and resolved by the reader's mail
-# client (Mailpit in a host browser locally), so an in-network hostname would
-# render as a broken image.
+# WORKAROUND(local): Do NOT require the phase-2 output during bootstrap; phase 2
+# has not run and env generation fails. This exact host-facing fallback matches
+# the static phase-2 bucket name; using `floci` renders broken email images.
+# See [[two-phase-terraform-apply]]
 ASSETS_BASE_URL_FALLBACK = "http://localhost:4566/post-3mrai-local-post-assets"
 
 
 def discover_assets_base_url(repo_root: Path) -> str:
-    """Phase 2's assets_base_url output, or the derived fallback.
-
-    Deliberately tolerant, unlike `terraform_output`: a developer who has not run
-    `make post-infra` still gets a working env file, and the value they get is
-    the one phase 2 would produce anyway. Once phase 2 HAS been applied its
-    output wins, so a rename or a switch to CloudFront propagates here without
-    this constant being edited.
+    """WORKAROUND(local): Do NOT fail before post-infra creates its output.
+    Use the exact derived fallback until the real output exists, then prefer it.
+    See [[two-phase-terraform-apply]]
     """
     post_dir = repo_root / "infra" / "environments" / "local" / "post"
     try:
@@ -230,13 +93,10 @@ def build(repo_root: Path) -> dict[Path, dict]:
     # Tracking ever moves to its own cluster.
     tracking_db_host = terraform_output(tf_dir, "tracking_db_writer_endpoint")
 
-    # Redis (ElastiCache) — the Users service's short-lived store for
-    # password-reset codes. `redis_host` is already the value to connect to: the
-    # module resolves it to Floci's BACKING CONTAINER NAME (floci-valkey-<id>),
-    # not to the endpoint the ElastiCache API reports. Floci returns
-    # ConfigurationEndpoint.Address = "localhost", which from inside a container
-    # is that container itself — so nothing here derives a host from the endpoint.
-    # Same class of quirk as DOCDB_HOST below.
+    # WORKAROUND(local): Do NOT derive Redis host from Floci's `localhost`
+    # endpoint; containers dial themselves and get ECONNREFUSED. This output is
+    # already the reachable floci-valkey-<id> container name.
+    # See [[floci-elasticache-two-ports-and-provider-panic]]
     redis_host = terraform_output(tf_dir, "redis_host")
     redis_port = terraform_output(tf_dir, "redis_port")
 
@@ -280,32 +140,18 @@ def build(repo_root: Path) -> dict[Path, dict]:
         f"Server={FLOCI_HOST};Port={my_port};Database=orders;"
         "User=test;Password=test;SslMode=None;"
     )
-    # Tracking is Python/SQLAlchemy, so its URL is a SQLAlchemy DSN — NOT the
-    # .NET `Server=...;Database=...;` form Orders uses, even though both point
-    # at the same MySQL cluster on the same discovered port.
-    #
-    # Driver `pymysql`: the pure-Python DBAPI, the only MySQL driver this repo
-    # has ever named (the scaffold design calls out psycopg2/pymysql as the
-    # bundled drivers). Sync rather than async (aiomysql/asyncmy) because
-    # nothing in the Tracking design commits to an async engine, Alembic
-    # migrations run against a sync engine regardless, and pymysql needs no
-    # build toolchain in the container (unlike mysqlclient's C extension). If
-    # the service later adopts `create_async_engine`, this becomes
-    # `mysql+aiomysql://` — a one-line change here, since the URL is generated.
-    #
-    # ?charset=utf8mb4 matches the collation the tracking database is created
-    # with; pymysql otherwise negotiates latin1 and mangles non-ASCII text.
-    # No TLS parameters: Floci's MySQL proxy does not terminate TLS.
+    # CONTRACT: Do NOT change the mysql+pymysql DSN spelling. Tracking's Go
+    # parser, test-db target, and debug URL all consume it; a generic MySQL URL
+    # breaks those consumers. utf8mb4 prevents non-ASCII corruption.
+    # See [[tracking-service-design]]
     tracking_db = (
         f"mysql+pymysql://test:test@{FLOCI_HOST}:{my_port}/tracking?charset=utf8mb4"
     )
 
-    # DocumentDB is reached by the backing container name on the Docker
-    # network, NEVER by IP (Floci reassigns it on every recreation) and NEVER
-    # by `localhost` (27017 is not published to the host in our containerized
-    # Floci setup). This mirrors main.tf's `module.lambda_events_pipeline`
-    # exactly — the compose container and the deployed Lambda must resolve the
-    # same Mongo. See docs/lessons/floci-sqs-lambda-docdb-support.md.
+    # CONTRACT: Do NOT use an IP or localhost for DocumentDB. Floci reassigns
+    # the IP and does not publish 27017, so consumers get ECONNREFUSED. Use the
+    # stable backing-container name shared with the Lambda module.
+    # See [[floci-sqs-lambda-docdb-support]]
     docdb_host = f"floci-docdb-{docdb_cluster_identifier}"
 
     return {
@@ -341,13 +187,9 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # Mailpit, so it needs the inbox's API. A compose-published
                 # constant rather than a Terraform output — see the definition.
                 "MAILPIT_API_URL": MAILPIT_API_URL,
-                # The events Lambda's E2E email-query route, host-facing. It
-                # exists because the suite cannot read DocumentDB directly:
-                # 27017 is not published to the host under our containerized
-                # Floci, so the function that already holds a Mongo connection
-                # serves the collection over HTTP instead. Mailpit answers "did
-                # the mail send?"; this answers "what did we render, for which
-                # run?" — the two are complements, not substitutes.
+                # WHY: Host-run E2E cannot reach DocumentDB port 27017, so this
+                # Lambda URL exposes rendered-email records while Mailpit proves
+                # delivery.
                 "EVENTS_QUERY_URL": events_query_url,
                 # Presented as `x-e2e-token` on every request to the URL above,
                 # which is AuthType NONE and 404s without it.
@@ -367,29 +209,15 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 "COGNITO_USER_POOL_ID": pool_id,
                 "COGNITO_CLIENT_ID": client_id,
                 "GRPC_API_KEY": GRPC_API_KEY,
-                # The account-deletion cascade (DELETE /v1/users/me). Users calls
-                # DELETE /v1/orders/by-user and DELETE /v1/trackings/by-user over
-                # plain HTTP, authenticating with the GRPC_API_KEY above — neither
-                # route is published on the API Gateway.
-                #
-                # Container-network names and CONTAINER ports: Orders serves 8080
-                # (published to the host as 3001, which is not what a peer service
-                # dials), Tracking serves 8000. Same values Orders already uses for
-                # its own TRACKING_BASE_URL below.
+                # CONTRACT: Do NOT use host ports for the account-deletion
+                # cascade. Peer containers dial these private routes on container
+                # ports; host mappings return ECONNREFUSED inside the network.
                 "ORDERS_BASE_URL": "http://orders:8080",
                 "TRACKING_BASE_URL": "http://tracking:8000",
-                # Short-lived store for password-reset codes (10-minute TTL),
-                # backed by ElastiCache Redis. Deliberately not a Postgres table:
-                # the codes are regenerable and expire on their own, so Redis's
-                # native TTL replaces a sweeper job.
-                #
-                # REDIS_HOST is the floci-valkey-<id> CONTAINER NAME on the
-                # Docker network, NOT the endpoint the ElastiCache API reports —
-                # that one is literally "localhost", which inside the users
-                # container is the users container. Do not "fix" this to
-                # localhost; the value comes from a terraform output that already
-                # did the derivation. Same rule as DOCDB_HOST for the
-                # events-pipeline.
+                # WORKAROUND(local): Do NOT replace REDIS_HOST with Floci's
+                # reported localhost; Users dials itself and gets ECONNREFUSED.
+                # The output already supplies the backing container name.
+                # See [[floci-elasticache-two-ports-and-provider-panic]]
                 "REDIS_HOST": redis_host,
                 "REDIS_PORT": redis_port,
                 # Users publishes USER_CREATED here (its Zod env schema requires
@@ -438,14 +266,10 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # tracking record, forwarding the x-user-id it received.
                 "TRACKING_BASE_URL": "http://tracking:8000",
                 "GRPC_API_KEY": GRPC_API_KEY,
-                # Redis/Valkey for the response cache (see
-                # docs/shared/conventions/x-cache-response-header.md).
-                # REDIS_HOST is the floci-valkey-<id> CONTAINER NAME on the
-                # Docker network, never "localhost" — inside this container
-                # localhost is this container. REDIS_PORT is the BACKING
-                # CONTAINER's port (6379), not the host-side proxy port the
-                # ElastiCache API reports; those differ whenever the proxy range
-                # is moved off its default. Same values Users already consumes.
+                # WORKAROUND(local): Do NOT use localhost or the proxy port for
+                # Redis; Orders dials itself or the wrong port and gets
+                # ECONNREFUSED. Use the backing container name and port 6379.
+                # See [[floci-elasticache-two-ports-and-provider-panic]]
                 "REDIS_HOST": redis_host,
                 "REDIS_PORT": redis_port,
                 # Orders publishes ORDER_CREATED here — the same shared queue
@@ -476,17 +300,10 @@ def build(repo_root: Path) -> dict[Path, dict]:
             },
         ),
         # --- tracking service ------------------------------------------------
-        # Go/Gin/sqlc. Same MySQL cluster as Orders, different database — hence
-        # the same discovered port with `/tracking` as the database segment.
-        #
-        # The DSN keeps the SQLAlchemy-flavoured `mysql+pymysql://` spelling it
-        # had under the Python service, and that is deliberate rather than
-        # leftover: the Go service PARSES that prefix itself
-        # (internal/platform/config/dsn.go), the same string is what
-        # services/tracking-go/Makefile's `test-db` reads to discover the port,
-        # and .env.local.debug derives the host-side URL from the same value.
-        # Changing the spelling here would silently break all three at once for
-        # no gain.
+        # CONTRACT: Do NOT change the mysql+pymysql DSN spelling. The Go parser,
+        # test-db target, and debug URL consume it; changing it breaks all three.
+        # Tracking shares Orders' MySQL port but uses the `/tracking` database.
+        # See [[tracking-service-design]]
         repo_root / ".env.local.tracking": dict(
             header="Tracking service environment. Loaded via env_file: in docker-compose.yml.",
             generated={
@@ -508,14 +325,10 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # Orders share. Tracking presents it when calling Users, rather
                 # than validating it on the way in.
                 "GRPC_API_KEY": GRPC_API_KEY,
-                # Redis/Valkey for the response cache (see
-                # docs/shared/conventions/x-cache-response-header.md).
-                # REDIS_HOST is the floci-valkey-<id> CONTAINER NAME on the
-                # Docker network, never "localhost" — inside this container
-                # localhost is this container. REDIS_PORT is the BACKING
-                # CONTAINER's port (6379), not the host-side proxy port the
-                # ElastiCache API reports; those differ whenever the proxy range
-                # is moved off its default. Same values Users already consumes.
+                # WORKAROUND(local): Do NOT use localhost or the proxy port for
+                # Redis; Tracking dials itself or the wrong port and gets
+                # ECONNREFUSED. Use the backing container name and port 6379.
+                # See [[floci-elasticache-two-ports-and-provider-panic]]
                 "REDIS_HOST": redis_host,
                 "REDIS_PORT": redis_port,
                 # The EXTERNAL carrier/webhook key, validated by the service
@@ -569,13 +382,9 @@ def build(repo_root: Path) -> dict[Path, dict]:
             },
         ),
         # --- events-pipeline service ------------------------------------------
-        # Node.js (SQS message → Lambda in prod; here a compose container with
-        # hot-reload for local dev — see functions/events-pipeline/CLAUDE.md).
-        # DOCDB_PASSWORD mirrors main.tf's `var.docdb_password` LOCAL default
-        # ("test", set in environments/local/variables.tf) rather than reading
-        # a Terraform output: the password is a sensitive input var, never
-        # exposed as an output, exactly like the AWS_SECRET_ACCESS_KEY/DB
-        # `test` credentials every other service file already embeds this way.
+        # CONTRACT: Do NOT expose DOCDB_PASSWORD as a Terraform output. This
+        # local-only file mirrors the fixed `test` input; exporting a sensitive
+        # value would leak it through state output surfaces.
         repo_root / ".env.local.events-pipeline": dict(
             header="Events-pipeline environment. Loaded via env_file: in docker-compose.yml.",
             generated={
@@ -636,14 +445,9 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 "USERS_DB_PROXY_HOST": users_db_host,
                 "ORDERS_DB_PROXY_HOST": orders_db_host,
                 "TRACKING_DB_PROXY_HOST": tracking_db_host,
-                # The WebSocket data plane, host-facing — which is why it lives
-                # in THIS file and not in .env.local.infra: it belongs with the
-                # other "reachable from outside Docker" values. The realtime E2E
-                # harness reads WS_URL from here.
-                #
-                # ws://localhost:4566/ws/{apiId}/{stage}, NOT the
-                # restapis/<id>/$default/_user_request_/ shape API_GATEWAY_URL
-                # uses — the two gateways are served on different paths.
+                # CONTRACT: Do NOT use API_GATEWAY_URL's REST path for WS_URL.
+                # The realtime E2E handshake fails because Floci serves the
+                # WebSocket data plane at /ws/{apiId}/{stage}.
                 "WS_URL": ws_url,
             },
         ),

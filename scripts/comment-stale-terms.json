@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "description": "Denylist of decommissioned component names that must not appear in source comments. Add a term when a component is decommissioned — the moment an ADR, a CLAUDE.md rule, or a lesson note records the removal. Each entry is a case-sensitive Python regex matched against comment bodies only (never code or string literals). Consumed by scripts/validate-comments.py, severity error, ratcheted through scripts/comment-baseline.json like every other rule. See docs/shared/conventions/code-comments.md.",
+  "fields": {
+    "id": "Short stable identifier; appears in the violation message and therefore in baseline keys — renaming it invalidates baseline entries.",
+    "pattern": "Case-sensitive Python regex. Prefer word boundaries (\\bName\\b) over bare substrings.",
+    "since": "ISO date the component was decommissioned.",
+    "replacement": "What the comment should name instead.",
+    "vault": "Bare vault note basename for the See [[...]] pointer in the violation message.",
+    "note": "One line explaining why the term is stale, for whoever hits the violation."
+  },
+  "terms": [
+    {
+      "id": "jaeger",
+      "pattern": "\\bJaeger\\b",
+      "since": "2026-08-21",
+      "replacement": "OpenObserve (:5080)",
+      "vault": "logging-context",
+      "note": "Jaeger was removed once OpenObserve stopped rejecting trace ingest; logs AND traces both go to OpenObserve and nothing listens on :16686."
+    }
+  ]
+}

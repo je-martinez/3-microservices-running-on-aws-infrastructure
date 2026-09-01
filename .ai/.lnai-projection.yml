@@ -163,6 +163,59 @@ rules:
   # otherwise receive an unsupported assertion.
   review-against-the-brief: universal
 
+  # code-comments: universal. Added 2026-08-30, same day as the source section
+  # (CLAUDE.md, "Code comments — describe the final state").
+  #
+  # Universal on the strongest available test: it governs the content of
+  # comments in .tf/.py/.ts/.js/.mjs/.cs/.go source files and names no tool, skill,
+  # plugin, or Claude Code affordance. The failure it prevents — a comment that
+  # only ever grows, until 38 blocks still name a Jaeger that was removed on
+  # 2026-08-21 and no longer runs anywhere — is a property of how agents edit
+  # code, not of which CLI does the editing. Every provider in this repo writes
+  # comments, and an agent with no memory of the previous session is exactly the
+  # actor most likely to append rather than rewrite.
+  #
+  # Gets its own rule file rather than joining scripting-language: that rule is
+  # about which LANGUAGE a new script is written in, while this is about the
+  # content of comments in files that already exist. Its path globs are also
+  # wider (adds **/*.cs, **/*.go, and **/*.tsx) and the two would fight over scope.
+  #
+  # It ALSO gets an AGENTS.md paragraph, for the same reason shared-queue-backlog
+  # and review-against-the-brief did — but the reason is stronger here. A rule
+  # file activates on the path glob of the file being edited, which does cover
+  # the moment a comment is written. What it does not cover is the DECISION not
+  # to narrate: an agent that has just spent an hour debugging reaches for the
+  # comment as the place to record it, and the ambient line is what makes the
+  # "that is a lesson candidate, not a source comment" redirect present at that
+  # moment. Cursor and Windsurf make this decisive — both receive every rule
+  # non-ambient (alwaysApply: false / trigger: manual), so on those two
+  # providers AGENTS.md is the only surface that is reliably read.
+  #
+  # NOT dropped: `scripts/validate-comments.py` travels in full. It is a plain
+  # Python linter (argparse, no Claude Code dependency) operating as a
+  # baseline/ratchet against scripts/comment-baseline.json, so it fails only on
+  # NEW violations. Projected with the venv-absolute invocation the repo's
+  # python-first rule already mandates, plus the warning not to run
+  # --update-baseline to silence one's own violation. It is untracked and no
+  # Makefile target wraps it as of this run; if a `make lint-comments` target
+  # lands later, update the rule file to prefer it.
+  #
+  # Dropped, and worth naming:
+  #   · The `[[code-comments]]` wikilink, replaced by the backticked vault path
+  #     per the route-completeness precedent — Obsidian link syntax does not
+  #     resolve outside Claude Code.
+  #   · Routing a lesson candidate THROUGH `obsidian-vault` is the
+  #     Claude-specific mechanism; the policy (surface it in the handoff, never
+  #     write docs/ yourself) is already carried by ## Prohibitions.
+  #
+  # NOTE on the `See [[vault-id]]` reference form: this is the ONE place the
+  # projection deliberately keeps Obsidian wikilink syntax, because here the
+  # syntax IS the rule — validate-vault.mjs resolves bare basenames, so a
+  # comment written as `See docs/shared/patterns/foo.md` rots the moment the
+  # note moves. Projecting a "portable" path form would teach every provider to
+  # write the exact reference this convention forbids.
+  code-comments: universal
+
 skills:
   # Portable knowledge worth having in any tool.
   #

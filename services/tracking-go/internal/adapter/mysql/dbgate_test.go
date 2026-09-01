@@ -7,104 +7,15 @@ import (
 	"testing"
 )
 
-// THE SILENT-SKIP GATE.
-//
-// # The hollow green this file exists to prevent
-//
-// Without a database configured, every real-MySQL test in this package calls
-// t.Skip and the package prints:
-//
-//	ok  	.../internal/adapter/mysql	0.285s
-//
-// Measured, not assumed: with no database reachable, FOURTEEN tests skip and
-// the suite still reports ok across every package. Somebody reading that output
-// would reasonably conclude the suite passed. It did not — it declined to run
-// the tests that guard the most expensive bugs in this service:
-//
-//   - ownership scoping by cognito_sub (CLAUDE.md §7 — the bug that answered
-//     404 to every rightful owner, including on their own trackings, while
-//     looking correctly implemented),
-//   - soft delete by user and by tag (routes 6 and 7, the widest blast radius
-//     this service has),
-//   - transactional ROLLBACK of the two-row create,
-//   - the 1062 duplicate-key translation that makes creation idempotent,
-//   - the scoped-vs-unscoped distinction that a Go zero value makes so easy to
-//     get backwards.
-//
-// None of those can be covered by a mock. That is a documented repo-wide
-// lesson: only the server produces error 1062, only the server rounds a
-// DATETIME at fsp 0, only the server evaluates JSON_CONTAINS. A mocked test
-// passes while the real schema rejects the write.
-//
-// This already caused a hollow green during Wave 3A of the migration: "16
-// packages ok" concealed all of them.
-//
-// # Why FAIL rather than a loud SKIP — the design decision
-//
-// Three options were on the table.
-//
-//  1. A SUMMARY LINE naming what was skipped. Rejected as the primary
-//     mechanism: it changes the output but not the EXIT CODE. CI is green, the
-//     PR is mergeable, and the line scrolls past above a wall of `ok`. It
-//     informs a reader who is already paying attention — which is precisely the
-//     reader who did not need it.
-//  2. A MAKE TARGET that sets the DSN. Necessary, and added (see `make
-//     test-db`), but not sufficient on its own: it makes the right thing easy
-//     without making the wrong thing loud, and the wrong thing here is the
-//     DEFAULT — a bare `go test ./...`, which is what an agent or a CI job
-//     reaches for first.
-//  3. FAIL when the database is absent, unless skipping is an explicit,
-//     recorded choice. Chosen. It inverts the default: the suite's honest
-//     answer to "did everything pass?" becomes no unless the eleven-plus
-//     database tests actually ran. Skipping remains possible — it must, since
-//     not every machine has Floci up — but it becomes a DELIBERATE ACT that
-//     leaves a trace in the command line, rather than the silent default.
-//
-// The escape hatch is TRACKING_SKIP_DB_TESTS=1. It is deliberately not a
-// value anyone sets by accident, and when it IS set this gate still prints the
-// full inventory of what went unverified, so even the opted-out run cannot be
-// mistaken for a full pass.
-//
-// # Why TestMain and not an ordinary test
-//
-// An ordinary test can assert the environment is configured, but it runs
-// alongside the others and says nothing about the RESULT of the run. TestMain
-// wraps m.Run(), so it can inspect the outcome and — critically — OVERRIDE THE
-// EXIT CODE. The exit code is the only part of a test run that CI, a Makefile,
-// and an agent all actually read.
-//
-// # KNOWN LIMITATION, measured rather than reasoned about
-//
-// `go test` BUFFERS AND DISCARDS a passing package's stdout and stderr unless
-// -v is passed. Verified directly against this gate:
-//
-//	grep -c "DATABASE TESTS WERE SKIPPED"  ->  1 with -v, 0 without it
-//
-// So on the OPT-OUT path — which exits 0 by design — the inventory below is
-// invisible in a default `go test ./...`. The only output channel Go surfaces
-// reliably without -v is a FAILURE, and failing is precisely what the opt-out
-// exists not to do; the two cannot both be had from inside a test binary.
-//
-// This matters because it is the same shape as the bug being fixed: an
-// opted-out run that LOOKS like a full pass. The mitigation is therefore
-// outside the test binary, where output is never buffered — `make test-no-db`
-// prints a short always-visible banner of its own, and this file keeps the
-// detailed inventory for -v runs.
-//
-// The FAILING path has no such limitation: a failing package's output is always
-// shown, so the run that actually needs the inventory always gets it.
+// CONTRACT: Do NOT let the real-MySQL suites skip implicitly. Without both DSNs,
+// fourteen tests covering ownership, deletion, transactions, and MySQL semantics
+// disappear behind package `ok`. TRACKING_SKIP_DB_TESTS=1 is the explicit escape.
+// See [[testing]]
 
 // dbDSNEnv and dbServerDSNEnv are the two variables this package's tests read.
-//
-// TWO variables, not one, and that split is itself a hazard worth naming: the
-// creation/reads/transition suites read TRACKING_DATABASE_URL (a full mysql://
-// URL, database segment included), while the count and soft-delete suites read
-// TRACKING_TEST_MYSQL_DSN (a Go driver DSN with NO database segment, since they
-// each create a throwaway schema). Setting only one leaves the other group
-// skipping — the exact split that made the documented skip list read as
-// "eleven tests" when a database-less run actually skips fourteen.
-//
-// This gate therefore checks BOTH, and reports which one is missing.
+// CONTRACT: Do NOT treat either DSN as sufficient; setting only one silently
+// skips the other database-test group.
+// See [[testing]]
 const (
 	dbDSNEnv       = "TRACKING_DATABASE_URL"
 	dbServerDSNEnv = "TRACKING_TEST_MYSQL_DSN"
@@ -114,13 +25,9 @@ const (
 // guardedByTheDatabase is the inventory of what a database-less run does not
 // verify, and why each entry is expensive.
 //
-// It is a hand-maintained list rather than a computed one on purpose: the point
-// is not to count skips, it is to tell a reader WHAT COVERAGE THEY DO NOT HAVE.
-// A generated list of test names ("TestScopedReadsFilterByCognitoSub skipped")
-// names the symbol; this names the bug.
-//
-// When you add a real-MySQL test here whose subject is not already covered by a
-// line below, add a line. When you delete one, delete its line.
+// CONTRACT: Keep this semantic inventory aligned with real-MySQL coverage.
+// A generated test-name list would hide which production failures went untested.
+// See [[testing]]
 var guardedByTheDatabase = []string{
 	"ownership scoping by cognito_sub — the bug that answered 404 to every rightful owner while looking correct",
 	"scoped vs unscoped reads — separate methods, because Go's zero value for string is \"\" and not nil",
@@ -168,10 +75,9 @@ func TestMain(m *testing.M) {
 // databaseConfiguration reports whether BOTH DSN variables are set, and which
 // are not.
 //
-// Both, not either: the two groups of tests in this package read different
-// variables, so a run with only one set still silently skips the other group —
-// and "some of the database tests ran" is the same hollow green in a smaller
-// package.
+// CONTRACT: Require both variables; either missing DSN leaves a database-test
+// group silently skipped.
+// See [[testing]]
 func databaseConfiguration() (configured bool, missing []string) {
 	for _, name := range []string{dbDSNEnv, dbServerDSNEnv} {
 		if strings.TrimSpace(os.Getenv(name)) == "" {

@@ -15,54 +15,11 @@ import {
   waitForOrderTrackingReadable,
 } from "../../support/tracking-readiness.js";
 
-// Gateway E2E for the response cache — real Cognito JWT through
-// API_GATEWAY_URL, the URL a person actually hits.
-//
-// ## This layer exists for exactly ONE reason
-//
-// An API Gateway, or an nginx `location` block, can silently STRIP a response
-// header it does not know about — and that failure is completely invisible from
-// the service port. The internal specs in tests/cache.spec.ts would stay green
-// while every real client received a response with no `X-Cache` at all, which
-// is indistinguishable from the cache being off. Nothing else in the suite can
-// see that, which is why this file duplicates the MISS/HIT shape rather than
-// being folded into the internal spec: the assertion is not "does the cache
-// work" — layer 2 answered that — it is "does the header SURVIVE the full
-// path". Required by docs/shared/conventions/testing.md and each service's
-// CLAUDE.md §2b.
-//
-// **Answered, 2026-08-26: it survives.** Verified by hand against the running
-// Floci stack before these specs were written — `X-Cache` and `X-Cache-TTL`
-// both arrive intact through the API Gateway, the JWT authorizer, njs
-// sub-extraction and nginx, for Users (`location /`), Orders (`/v1/products`,
-// `/v1/cart`, `/v1/orders`) and Tracking (`/v1/trackings`). That is a finding
-// with a short shelf life, which is precisely why it is a test and not a note:
-// the next proxy config change is free to break it silently.
-//
-// Every route these specs touch already has both its API Gateway route entry
-// (infra/modules/api-gateway/main.tf) and its nginx `location` block
-// (infra/modules/compute/nginx/nginx.conf: /v1/orders, /v1/products, /v1/cart,
-// /v1/trackings, and the default `/` for Users) — caching adds no new routes.
-// A 404 carrying the gateway's own `{"message":"Not Found"}` body rather than a
-// service's `{error: …}` shape would mean the request never reached nginx.
-//
-// ## All request paths are RELATIVE
-//
-// gatewayClient() normalizes baseURL to a trailing slash, and Playwright joins
-// with the WHATWG URL algorithm where a LEADING slash REPLACES the whole
-// baseURL path — dropping the request onto Floci's S3 root instead of the
-// gateway integration. See support/gateway-client.ts.
-//
-// ## Same TTL discipline as the internal spec
-//
-// MISS/HIT pairs are issued back to back with all setup done first, and there
-// is no waitForTimeout anywhere: the cart and tracking TTLs are 60 seconds, and
-// a sleep between the two reads is what turns a correct spec into an
-// intermittent one. This layer is SLOWER per request (JWT authorizer + nginx
-// hop), which makes the discipline matter more here, not less — so the coverage
-// is deliberately narrower than the internal spec's: one pair per endpoint,
-// plus the CACHE_ENABLED=false assertion. The exhaustive invalidation and
-// cross-user matrix stays in layer 2 where it is cheap.
+// CONTRACT: Gateway layer-3 — assert X-Cache survives API Gateway + nginx, not just
+// that the cache works on the service port (layer 2 in tests/cache.spec.ts).
+// WHY: All paths are RELATIVE — leading slash replaces gateway baseURL path.
+// MISS/HIT pairs are back-to-back with setup first; no waitForTimeout (60s TTLs).
+// See [[testing]]
 
 const TTL = {
   products: 600,
@@ -165,25 +122,8 @@ test("X-Cache survives the gateway on GET v1/users/me (nginx default `/` locatio
   expectHit(second, "second GET v1/users/me through the gateway", TTL.me);
 });
 
-// ## Why this one test retries, and why that is not papering over a flake
-//
-// `orders:products:v1` is the ONE cache key with no owner in it — a single
-// shared catalogue entry for the whole service. Every `POST /v1/orders` in the
-// suite decrements stock and therefore INVALIDATES it, and the gateway project
-// runs specs that create orders (orders.spec.ts, tracking-flow.spec.ts,
-// delivered-emails.spec.ts, and this file's own later tests). So a foreign
-// order landing between this test's two reads legitimately turns the second one
-// into a MISS.
-//
-// That is not a cache defect and not a race in the service — it is this test
-// asserting exclusivity it does not have. Measured: the pair passes every time
-// in isolation and failed once in a full `--project=gateway` run.
-//
-// The retry is BOUNDED and the assertion is NOT weakened: each attempt still
-// demands a real MISS/HIT (or HIT/HIT) pair, and exhausting the attempts fails
-// the test. Accepting "MISS then MISS" instead would have been the weakening —
-// it would pass against a cache that never stores anything at all, which is
-// precisely the vacuous green this milestone keeps producing.
+// CONTRACT: orders:products:v1 is ownerless — concurrent POST /v1/orders invalidates
+// it between reads. Retry bounded; each attempt still demands real MISS/HIT.
 test("X-Cache survives the gateway on GET v1/products (nginx `location /v1/products`)", async () => {
   const api = await newAuthedClient();
   const attempts = 4;
@@ -259,23 +199,7 @@ test("X-Cache survives the gateway on both my-orders variants and on GET v1/orde
   const api = await newAuthedClient();
   const { orderId, product } = await createOrderWithAvailableProduct(api);
 
-  // ## The tracking window, and why the setup ends with a WRITE
-  //
-  // Orders declines to STORE a `t1` response whose tracking has not arrived yet
-  // (TrackingCacheRules) — a tracking is created asynchronously, and freezing its
-  // momentary absence into a 2-minute entry would serve a stale `tracking: null`
-  // long after Tracking has the record. So a `t1` pair taken inside that window
-  // MISSes twice, and the window has to be left before the pair is issued.
-  //
-  // The wait's own final read stores the entry, which would leave `t1` warm and
-  // turn the pair into HIT/HIT. A `PUT v1/cart` sweeps the caller's whole key index
-  // — broader than its name, it removes every my-orders and order-by-id entry too
-  // (see CacheInvalidator) — returning all three keys below to genuinely cold
-  // without disturbing the order or its tracking. Relaxing the MISS assertions
-  // instead would pass against a cache that stores nothing at all.
-  //
-  // Polling BEFORE the pairs rather than between their reads is what keeps the
-  // 2-minute TTL from biting, exactly as the tracking test below does.
+  // WHY: Wait for tracking, sweep cart keys cold, then settle before t1 MISS/HIT pair.
   await waitForOrderTrackingReadable(
     api,
     `v1/orders/${orderId}?includeTracking=true`,
@@ -307,32 +231,8 @@ test("X-Cache survives the gateway on both my-orders variants and on GET v1/orde
     TTL.myOrders,
   );
 
-  // t1 — a DIFFERENT key with a different body. Asserting a HIT here off the
-  // warm t0 would be asserting a bug: it would only pass if the query
-  // parameter were absent from the key.
-  //
-  // ## Why this pair retries, and why the assertion is NOT weakened
-  //
-  // Storing a `t1` entry requires Orders to actually HAVE the tracking, and Orders
-  // fetches it from Tracking under a hard 2s budget
-  // (`TrackingHttpClient.ReadTimeout`), degrading to `tracking: null` when it
-  // overruns — which the cache then correctly declines to store, so the pair MISSes
-  // twice. Tracking serves this batch route from a SINGLE uvicorn dev worker, and
-  // measured during a full run of this file its latency is p50 1546ms but p90
-  // 4792ms (max 6726ms): 11 of 29 reads overran the budget, purely because the rest
-  // of the suite keeps that one worker busy. In isolation the same pair was
-  // MISS→HIT 5 times out of 5.
-  //
-  // So this is the same hazard as the `v1/products` test above — a pair asserting
-  // exclusivity over a shared resource it does not have — and it takes the same
-  // remedy, already established in this file. Each attempt re-sweeps to get a
-  // genuinely cold key and still demands a REAL MISS followed by a REAL HIT; only
-  // a run of consecutive slow reads is retried. Accepting "MISS then MISS", or
-  // relaxing either assertion to `/MISS|HIT/`, would be the weakening — it would
-  // pass against a cache that stores nothing at all, which is exactly the vacuous
-  // green this milestone keeps producing. Exhausting the attempts FAILS the test,
-  // and the message names the service-side cause so it is not misread as a cache
-  // defect.
+  // CONTRACT: t1 pair retries when Orders' 2s Tracking budget overruns — bounded;
+  // each attempt still demands real MISS then HIT, not MISS/MISS.
   const t1Attempts = 4;
   let t1Second: string | undefined;
   for (let attempt = 1; attempt <= t1Attempts; attempt++) {
@@ -388,27 +288,14 @@ test("X-Cache survives the gateway on both my-orders variants and on GET v1/orde
   );
 });
 
-// ## Tracking through the gateway
-//
-// Two things at once, and only the first is unique to this layer: that
-// `X-Cache`/`X-Cache-TTL` survive the gateway and nginx's
-// `location /v1/trackings` for BOTH tracking routes, and that the cache really
-// serves a HIT through the full path.
-//
-// The gateway user is a real Cognito registration, so Users resolves its sub and
-// the response key builds — see the note in tests/cache.spec.ts for why a caller
-// Users cannot resolve would sit at MISS forever by design.
+// CONTRACT: Gateway X-Cache on both Tracking routes; real Cognito user resolves cache key.
 test("X-Cache survives the gateway on both Tracking read routes, and both serve a HIT", async () => {
   const api = await newAuthedClient();
   // No `x-test-mode`, so the tracking parks at PLACED and cannot advance —
   // and therefore cannot invalidate its own key — mid-test.
   const { orderId } = await createOrderWithAvailableProduct(api);
 
-  // Tracking rows are created by ORDERS, asynchronously, after its transaction
-  // commits — there is no gateway route to init-tracking for an end user. Poll
-  // for the row FIRST (bounded, never unbounded), and only then assert. Polling
-  // BEFORE the pair rather than between its two reads is what keeps the 60s TTL
-  // from biting.
+  // Poll tracking exists before cache assertions (async init-tracking; 60s TTL).
   const deadline = Date.now() + 20_000;
   let ready = false;
   while (Date.now() < deadline) {
@@ -425,11 +312,7 @@ test("X-Cache survives the gateway on both Tracking read routes, and both serve 
       "POST /v1/trackings/init-tracking did not land. Check the Orders logs.",
   ).toBe(true);
 
-  // The successful poll already warmed the single-read key, so this is asserted
-  // as a HIT rather than as a MISS/HIT pair — claiming the first read is cold
-  // after polling would be writing an assertion the test itself made false.
-  // A HIT is the STRONGER assertion anyway: it proves the header AND the TTL
-  // survived the gateway, which a MISS could not.
+  // Poll warmed single-read key — assert HIT (stronger than MISS/HIT after poll).
   const single = await api.get(`v1/trackings/${orderId}`);
   expect(single.status()).toBe(200);
   expectHit(
@@ -439,8 +322,7 @@ test("X-Cache survives the gateway on both Tracking read routes, and both serve 
     TTL.tracking,
   );
 
-  // The batch read is a DIFFERENT key and a different nginx match (query string,
-  // no path param), and the poll never touched it — so it is a genuine cold pair.
+  // Batch route is a separate cache key — cold MISS/HIT pair.
   expectMiss(
     await api.get(`v1/trackings?order_ids=${orderId}`),
     "first batch read through the gateway",
@@ -455,9 +337,7 @@ test("X-Cache survives the gateway on both Tracking read routes, and both serve 
   // Envelope, not a bare array — verified live against the running service.
   expect(Array.isArray((await batchWarm.json()).trackings)).toBe(true);
 
-  // The carrier route is declared `auth = false` at the gateway: no Bearer
-  // token, only the API key. It must still reach the service through the full
-  // path AND invalidate — a write, so it carries no cache header of its own.
+  // Carrier route: API key only (auth=false at gateway); write invalidates cache.
   const carrier = await gatewayClient();
   const advanced = await carrier.put(`v1/trackings/${orderId}/status`, {
     headers: carrierHeaders(),
@@ -475,16 +355,8 @@ test("X-Cache survives the gateway on both Tracking read routes, and both serve 
   expect((await after.json()).status).toBe("PROCESSING");
 });
 
-// With CACHE_ENABLED=false there is NO X-Cache header at all — not MISS, not
-// BYPASS, nothing. That absence is worth its own gateway assertion for the same
-// reason the presence is: it is the observable difference between "the cache is
-// off" and "the gateway stripped the header", and confusing those two is
-// exactly the mistake this file exists to prevent.
-//
-// Guarded rather than skipped-by-default-forever: the ordinary suite runs with
-// caching ON, where this test would legitimately fail. The A/B load run's OFF
-// leg (see e2e/load-tests/README.md) is when it is meaningful, and
-// `E2E_EXPECT_CACHE_DISABLED=1` is how the operator says so.
+// CONTRACT: CACHE_ENABLED=false means no X-Cache at all — distinct from gateway stripping.
+// Guarded by E2E_EXPECT_CACHE_DISABLED=1 during the A/B load run OFF leg.
 test("with CACHE_ENABLED=false the gateway returns NO X-Cache header at all", async () => {
   test.skip(
     process.env.E2E_EXPECT_CACHE_DISABLED !== "1",

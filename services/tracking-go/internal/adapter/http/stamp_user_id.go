@@ -33,13 +33,10 @@ type internalIDResolver interface {
 	ResolveInternalUserID(ctx context.Context, cognitoSub string) (string, error)
 }
 
-// identityCache is the read-through cache in FRONT of that call, likewise
-// declared by its consumer. redis.IdentityCache satisfies it.
-//
-// It returns a plain string with no error, and that is its whole contract: the
-// cache absorbs every failure the loader can produce and answers "" for all of
-// them, because this mechanism is an optimization on top of an enrichment that
-// must never fail a request.
+// identityCache is the consumer-owned read-through cache contract.
+// CONTRACT: Do NOT surface loader failures; enrichment is optional, so a cache
+// failure returns "" instead of failing the request.
+// See [[tracking-service-design]]
 type identityCache interface {
 	Resolve(ctx context.Context, cognitoSub string, loader func(context.Context) (string, error)) string
 }
@@ -47,62 +44,13 @@ type identityCache interface {
 // StampResolvedUserID resolves the caller's internal usr_ id and records it for
 // the rest of the request.
 //
-// # What it is FOR, and why the read paths pay for it
-//
-// LogContextMiddleware seeds cognito_sub for free — it is already on the
-// request. user_id is not: it is a usr_ id only Users knows, so putting it on a
-// read's log line costs one outbound gRPC call on a path that previously made
-// none. That cost is accepted deliberately, for two returns:
-//
-//  1. A dashboard query joining Tracking to Orders and Users joins on user_id.
-//     A service whose read lines carry only a sub cannot participate in it.
-//  2. THE RESPONSE CACHE IS KEYED ON IT. Both read handlers build their key from
-//     ResolvedUserID(c), and the key builders answer "not keyable" without one —
-//     so with nothing calling SetResolvedUserID the response cache stores
-//     nothing and serves nothing, on every request, forever. It looks
-//     implemented and is inert. That is exactly what shipped, and this
-//     middleware is what closes it.
-//
-// # Applied PER ROUTE, never globally
-//
-// Three of this service's surfaces have no caller identity at all and must never
-// reach Users:
-//
-//   - PUT /v1/trackings/{order_id}/status — the carrier's, authenticated by its
-//     own external API key and identified by order_id alone. Its gateway route
-//     declares no Cognito authorizer, so it receives no x-user-id.
-//   - DELETE /v1/trackings/by-user — the account-deletion cascade, authenticated
-//     by the internal key, with its subject in the BODY.
-//   - DELETE /v1/trackings/e2e-cleanup — the harness's teardown, which has no
-//     session at all and selects by tag.
-//
-// And GET /v1/health is probed continuously by the ALB; resolving there would
-// turn a liveness check into a dependency on Users being up.
-//
-// A GLOBAL middleware guarding on "is x-user-id present?" would work today and
-// break the first time someone adds a route — and it would still fire on a STRAY
-// header sent to the carrier PUT, paying a call on a request that has no
-// business making one. Applying it to the routes that declare it inverts the
-// default, which is the same reason RequireCallerSub is per-route rather than
-// middleware-plus-an-allowlist. The Python does this with a FastAPI dependency
-// (`IdentifiedCaller`); a Gin route group is the direct equivalent.
-//
-// # FAILURE IS NEVER FATAL — on the READ paths
-//
-// Users being down, slow, or holding no record for the sub all end the same way:
-// nothing is stamped, nothing is merged, the read is served from MySQL and
-// simply goes uncached. Enriching a log line and building a cache key are not
-// worth failing a request over.
-//
-// CREATION IS THE OPPOSITE AND IS UNCHANGED. POST /v1/trackings/init-tracking
-// resolves the id ITSELF inside its use case and answers 404 when Users has no
-// record — because a tracking persisted with an empty user_id is an orphan no
-// ownership predicate can ever match. This middleware having quietly failed
-// first costs that path nothing: it makes its own call, and a negative is never
-// cached.
-//
-// Returns a no-op handler when there is nothing to resolve WITH, so a process
-// whose gRPC dial failed at startup still serves every read.
+// CONTRACT: Do NOT install this globally or remove it from user-scoped reads.
+// Global use sends carrier, delete, and health traffic to Users; omission leaves
+// every read without the usr_ id required for cache keys and cross-service logs.
+// Treat lookup failure as non-fatal enrichment: serve MySQL uncached. Creation
+// resolves identity as a required operation and returns 404 for an unknown user.
+// The x-user-id header carries cognito_sub, never the internal user_id.
+// See [[tracking-service-design]]
 func StampResolvedUserID(users internalIDResolver, identities identityCache, log *slog.Logger) gin.HandlerFunc {
 	if log == nil {
 		log = slog.Default()
@@ -145,12 +93,9 @@ func StampResolvedUserID(users internalIDResolver, identities identityCache, log
 
 // resolveIdentity asks the cache first and the loader only on a miss.
 //
-// THROUGH THE CACHE, NOT STRAIGHT TO gRPC. The identity cache exists precisely
-// so a response-cache HIT does not still pay a gRPC round trip — which would
-// give back most of the latency the response cache was added to remove. A nil
-// cache (an unbuildable one, a runtime with caching off) degrades to the direct
-// call rather than to no resolution at all: the read is still enriched and still
-// keyed, it just pays the round trip.
+// CONTRACT: Do NOT bypass the identity cache when present; a response-cache hit
+// would still pay a Users gRPC call. A nil cache degrades to direct resolution.
+// See [[tracking-service-design]]
 func resolveIdentity(
 	ctx context.Context,
 	users internalIDResolver,
@@ -183,14 +128,8 @@ func resolveIdentity(
 
 // logUnresolved records WHY enrichment came up empty.
 //
-// DEBUG, never WARN. On a read this is pure enrichment and an unknown caller is
-// an ORDINARY outcome — a token minted for a Cognito user whose record was never
-// created, or was deleted. One WARN per request during a Users blip would bury
-// every real signal in the stream.
-//
-// It logs two OPAQUE IDENTIFIERS and a reason token, and nothing else. No email
-// (not even hashed — this path has none), no address, no key, and never the
-// resolved value beside anything that could pair them with a person.
+// WARNING: Keep this at DEBUG and log only opaque identifiers plus reason.
+// WARN during a Users outage floods the stream; PII would expose caller data.
 func logUnresolved(ctx context.Context, log *slog.Logger, err error, cognitoSub string) {
 	reason := reasonIdentityLookupFailed
 	switch {

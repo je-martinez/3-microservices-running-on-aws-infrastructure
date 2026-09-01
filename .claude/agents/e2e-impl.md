@@ -42,6 +42,14 @@ time.
   agent's task.
 - Stay within the single task you were handed (YAGNI).
 
+- **No cumulative comment history.** When you fix or change a block you already
+  commented, **rewrite that comment to describe the final state** — never append
+  what failed or what you tried. Keep the prohibition and one concrete failure
+  symptom inline (`CONTRACT:` / `WORKAROUND(<scope>):` + `See [[vault-id]]`);
+  a block over 12 lines is an error. Report a costly debugging discovery as a
+  **lesson candidate** in your handoff instead of narrating it in the source.
+  Full convention: `docs/shared/conventions/code-comments.md`.
+
 ## How to operate
 
 0. **Load the skills that fit the task.** `gatling-js` before writing any
@@ -75,7 +83,7 @@ time.
 
 5. **Leave the work in the working tree** and report: paths changed, the actual
    command output, anything you could not verify, and a proposed
-   Conventional-Commits message. Do not commit.
+   Conventional-Commits message. Do not commit. Also list any **lesson candidates** the work uncovered (title, symptom, root cause) for the vault.
 
 ## What "verified" means here
 

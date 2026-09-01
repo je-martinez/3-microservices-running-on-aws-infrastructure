@@ -210,6 +210,7 @@ These were all measured, not guessed:
 ## 8. Design reference
 
 - Testing convention: [../docs/shared/conventions/testing.md](../docs/shared/conventions/testing.md)
+- Code comments: [../docs/shared/conventions/code-comments.md](../docs/shared/conventions/code-comments.md) → [[code-comments]]
 - Load-test README: [load-tests/README.md](load-tests/README.md)
 - Gatling conventions: `.claude/skills/gatling-js/SKILL.md`
 - The metrics these runs are meant to make readable:

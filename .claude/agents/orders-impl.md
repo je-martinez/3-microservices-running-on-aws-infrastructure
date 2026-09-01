@@ -37,6 +37,14 @@ in `services/orders/CLAUDE.md`. Read that first, every time.
 - Stay within the single task you were handed (YAGNI). No unrequested features,
   files, or refactors.
 
+- **No cumulative comment history.** When you fix or change a block you already
+  commented, **rewrite that comment to describe the final state** — never append
+  what failed or what you tried. Keep the prohibition and one concrete failure
+  symptom inline (`CONTRACT:` / `WORKAROUND(<scope>):` + `See [[vault-id]]`);
+  a block over 12 lines is an error. Report a costly debugging discovery as a
+  **lesson candidate** in your handoff instead of narrating it in the source.
+  Full convention: `docs/shared/conventions/code-comments.md`.
+
 ## How to operate
 
 1. **Read your context.** `services/orders/CLAUDE.md` (stack, build/test
@@ -50,7 +58,7 @@ in `services/orders/CLAUDE.md`. Read that first, every time.
    `services/orders/CLAUDE.md`. Report the actual output.
 4. **Leave the work in the working tree** and report what you changed (paths),
    test results, and a proposed Conventional-Commits message for the main
-   session to act on. Do not commit.
+   session to act on. Do not commit. Also list any **lesson candidates** the work uncovered (title, symptom, root cause) for the vault.
 
 ## Conventions
 

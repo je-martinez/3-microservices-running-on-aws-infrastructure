@@ -1,0 +1,201 @@
+---
+trigger: manual
+---
+
+# Code comments — describe the final state, never append debugging history
+
+Code keeps the **invariant**, the **failure consequence**, and a **pointer**. The
+vault keeps the history, the rejected alternatives, the measurements, the error
+transcripts, and the verification dates.
+
+Applies to comments in `.tf`, `.py`, `.ts`, `.js`, `.mjs`, `.cs`, and `.go`
+source files. It does **not** apply to vault notes, generated files, or vendored
+code. `spike/` is excluded as throwaway.
+
+## Rewrite on edit, never append
+
+When you fix or change a block you already commented, **rewrite that comment to
+describe the final state.** Do not append what failed, what you tried, or why the
+previous attempt was wrong.
+
+This is the loop that produces 100-line comment essays: the code gets fixed, the
+comment only grows. Past-tense narration of earlier attempts — *used to*,
+*previously*, *tried*, *turned out*, *the fix was*, *no longer* — does not belong
+in source.
+
+This axis is **narrative accumulation, not line count**. A 3-line comment can be
+a diary and a 12-line comment can be a clean description; it is independent of
+the length budget below.
+
+Accumulated history rots with no compiler or linter feedback to catch it.
+Measured in this repo: 63 comment lines carry narrative markers, and **30
+comments still name Jaeger**, removed on 2026-08-21 and no longer running
+anywhere in the stack. Stale history does not merely add noise — it misinforms
+every later reader, human or agent.
+
+## Five tags, and only five
+
+Every non-trivial comment block starts with exactly one. Scope values in
+`WORKAROUND(<scope>)` are lowercase: `local`, `provider`, `runtime`.
+
+| Tag | Purpose | Must state |
+|---|---|---|
+| `CONTRACT:` | Load-bearing invariant: identifier stability, serialization format, omission rule, cross-service schema | The invariant AND what breaks if violated |
+| `WORKAROUND(<scope>):` | Deliberate departure from normal code due to an external constraint | What is bypassed, the failure symptom, and why prod differs |
+| `WHY:` | Non-obvious local decision whose rationale fits inline | The reason, not code narration |
+| `WARNING:` | Operational hazard or security boundary | The concrete consequence, not "be careful" |
+| `TODO(JE-<id>):` | Tracked debt | The Linear issue ID and the removal condition |
+
+The set is **closed**. `FIXME:` duplicates `TODO:` without ownership or an exit
+condition; `HACK:` states an opinion rather than whether the code is safe to
+remove; `XXX:` has no stable meaning and is hostile to search; `NOTE:` becomes a
+catch-all that defeats the taxonomy. Do not introduce a sixth tag — including for
+regression guards in tests, which use `CONTRACT:`.
+
+Exempt from tagging: one-line section dividers (`# ─── Name ───`) and tool
+directives (`// eslint-disable`, `# tfsec:ignore`).
+
+Obvious narration (`// Return the result`) and commented-out code must not be
+committed — version control already preserves the latter.
+
+## Length budget
+
+- Untagged comment: **up to 6 lines** (p75; keep it to 3 where the point fits). Section
+  divider: 1 line.
+- Tagged entry: target **≤6 lines** (the repo's own healthy p75).
+- 7–12 lines: allowed only when tagged `CONTRACT:`/`WORKAROUND(...)` **and**
+  carrying a `See [[...]]` reference.
+- **Over 12 lines must not be committed — hard error.**
+
+The threshold is p90, chosen to isolate the ~9% of blocks that are the actual
+problem while leaving the healthy median untouched.
+
+## References — `See [[vault-id]]`
+
+Reference a vault note with the **bare basename**:
+
+```
+See [[awscli-fallback-for-floci]]
+```
+
+A reference must **not** carry a leading `docs/`, a trailing `.md`, or a heading
+anchor. This exact form is load-bearing rather than cosmetic: the vault validator
+indexes bare basenames, so `See [[foo]]` survives a note moving between
+`docs/lessons/` and `docs/shared/patterns/`, while `See docs/shared/patterns/foo.md`
+does not resolve and rots the moment the note moves. Heading anchors are never
+validated, so they rot silently.
+
+Every `CONTRACT:` and `WORKAROUND(...)` block carries a `See [[...]]` where a
+durable vault note exists. `WHY:` may omit it.
+
+## Load-bearing history is relocated, not deleted
+
+The knowledge that stops someone re-trying a failed approach must survive — as a
+**prohibition**, not as a story. "We tried X and it broke Y" becomes a
+present-tense prohibition plus **one concrete failure symptom**:
+
+```
+// CONTRACT: Do NOT <prohibited action>. <Concrete failure symptom>.
+// See [[vault-id]]
+```
+
+```
+// WORKAROUND(<scope>): Do NOT rely on <mechanism>. <Failure symptom if violated>.
+// See [[vault-id]]
+```
+
+Write one by: using present tense or the imperative (never "we tried"), naming
+the prohibited action explicitly, naming the exact failure symptom rather than a
+vague warning, and carrying `See [[vault-id]]` when a durable note exists.
+
+**A bare `See [[note]]` with no prohibition is not enough.** An agent treats the
+vault as optional background, never opens it, and reverts the workaround. Keep
+both the prohibition and one symptom inline.
+
+The narrative, transcripts, and dates go to a lesson note named
+`YYYY-MM-DD-<title>.md` under the vault's `lessons` folder.
+
+| Stays in code (present tense) | Moves to a vault note |
+|---|---|
+| The invariant the code enforces today | The chronological sequence of attempts |
+| The explicit prohibition (`Do NOT …`) | Why an earlier hypothesis failed |
+| One concrete failure symptom | Error transcripts, stack traces, CLI output |
+| Systems that currently exist | Retired systems and removed packages |
+| `See [[vault-id]]` | The full diagnosis and its measurements |
+
+## Placement
+
+1. Put the tagged entry immediately above the **smallest** resource, argument, or
+   statement it governs.
+2. The tag goes on the first line after the comment delimiter.
+3. In C# XML docs, keep tags inside `<remarks>` or a concise `<param>`. Never
+   invent custom XML pseudo-elements — they corrupt IDE tooltips and Roslyn
+   analyzers.
+4. Never paste CLI transcripts, stack traces, or verification dates
+   (`verified 2026-08-09`) into source. Those belong in the vault note.
+5. Repeat a `CONTRACT:` at each independent site that can violate it. Do **not**
+   repeat the history.
+6. Prefer executable enforcement where possible — a validation, a type, a schema,
+   or a Terraform precondition. The comment then explains the non-local reason
+   that enforcement exists.
+
+## A costly debugging loop is a lesson candidate
+
+If you burned real time on a discovery, it does **not** become a source comment.
+Surface it in your **handoff summary** — title, symptom, root cause — so it can be
+routed into the vault as a lesson. Do not write to the vault yourself; see the
+prohibitions in `AGENTS.md`.
+
+## The three-second test
+
+Run this before committing any comment:
+
+1. **Tense** — does a sentence describe earlier code or a past debugging step?
+   Rewrite it in the present, or move it to a lesson note.
+2. **Ghost** — does it name a library, service, or port that is not in the
+   current stack? Delete the ghost.
+3. **Deletion** — if you delete the sentence, is a prohibition lost? If yes,
+   condense it into a negative constraint. If no, delete it.
+
+## Worked rewrite
+
+The point is not the one line saved — it is that the comment stops narrating and
+starts prohibiting, which no length rule would ever catch.
+
+Before:
+
+```typescript
+// A missing `sub` used to fall back to the email. That is a silent
+// corruption: the email would be hashed into the idempotency key as if it
+// were a sub. Fail loudly instead.
+```
+
+After:
+
+```typescript
+// CONTRACT: Do NOT fall back to email when Cognito returns no sub — the email hashes into
+// the idempotency key as if it were a sub (silent corruption). Throw instead.
+// See [[logging-context]]
+```
+
+## Enforcement
+
+Checked by `scripts/validate-comments.py`, wrapped by Make targets:
+
+```
+make lint-comments        # whole repo
+make lint-comments-diff   # the current diff (COMMENT_DIFF_REF=main)
+make install-comment-hook # once per clone — installs the pre-commit gate
+```
+
+It operates as a **baseline/ratchet** against `scripts/comment-baseline.json`:
+pre-existing violations are frozen and it fails only on **new** ones. Do not run
+`--update-baseline` to make your own violation disappear — that flag is for
+dedicated cleanup work.
+
+`.git/hooks` is not version-controlled, so the hook lives in `.githooks/` and
+stays inert until `make install-comment-hook` runs. It lints the staged content,
+skips merge commits, and `git commit --no-verify` bypasses it.
+
+Full convention, including per-language examples and the migration plan:
+`docs/shared/conventions/code-comments.md`.

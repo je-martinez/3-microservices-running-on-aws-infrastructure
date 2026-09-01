@@ -19,12 +19,9 @@ import (
 // AppRouterOptions is everything the composed router needs from OUTSIDE the HTTP
 // layer.
 //
-// Every field is a dependency the composition root DECIDES and this function only
-// USES. In particular the two pools arrive already opened, the gateway arrives
-// already chosen (real or null), and E2ETestingEnabled arrives already read — so
-// this function contains no config lookup, no sql.Open and no Redis dial, and a
-// test can therefore construct the complete route table without a database, a
-// Redis or an AWS endpoint.
+// WHY: All configuration decisions and opened dependencies arrive from the
+// composition root, keeping the complete route table testable without external
+// services.
 type AppRouterOptions struct {
 	// WriterDB and ReaderDB are SEPARATE fields even where both point at the
 	// same local server (ADR-0006). Honouring the split in code is what makes
@@ -70,73 +67,12 @@ type AppRouterOptions struct {
 }
 
 // NewAppRouter builds the fully-wired Gin engine: every middleware, every route.
-//
-// # Why the whole composition lives here rather than in main.go
-//
-// So it can be TESTED. main.go cannot be imported, so anything it decides is
-// only observable by starting a process; a dropped Register* call would then be
-// caught by a gateway E2E hours later, or by nothing. With the composition in an
-// importable function, a forgotten seam fails a unit test against the route
-// table at the commit that dropped it. main.go's remaining job is the part that
-// genuinely cannot be tested in-process: reading the environment, opening
-// sockets, and shutting them down.
-//
-// # The middleware ORDER is load-bearing, in both directions
-//
-//  1. gin.Recovery() is registered FIRST, which makes it the OUTERMOST.
-//     LogContextMiddleware observes a panic, counts it as a 500 and RE-RAISES it —
-//     producing the error response is still Recovery's job. Inverted, that
-//     re-raise has nothing outside it to catch it and the panic escapes to
-//     net/http: the connection is dropped with NO response rather than a 500.
-//  2. otelgin.Middleware is next, and it MUST sit ABOVE LogContextMiddleware.
-//     See the block below — this ordering is the difference between a request
-//     line that can be joined to its trace and one that cannot.
-//  3. LogContextMiddleware follows, still OUTSIDE routing, so a 401 from a key
-//     guard and a 404 from the router — the requests people ask about most —
-//     still get a request id and a log line. Users shipped the opposite ordering
-//     and 401s had no id.
-//  4. The two flag middlewares are last: they only annotate the request for the
-//     handlers, and nothing above them reads what they set.
-//
-// # WHY otelgin GOES ABOVE LogContextMiddleware AND NOT BELOW
-//
-// Read otelgin's Middleware and the reason is structural rather than stylistic.
-// It does two things around c.Next():
-//
-//	savedCtx := c.Request.Context()
-//	defer func() { c.Request = c.Request.WithContext(savedCtx) }()  // RESTORES
-//	ctx := propagators.Extract(savedCtx, HeaderCarrier(c.Request.Header))
-//	ctx, span := tracer.Start(ctx, ...)
-//	c.Request = c.Request.WithContext(ctx)                          // installs
-//	c.Next()
-//
-// The span is on the request context only for the DURATION of c.Next(), and the
-// deferred restore puts the pre-span context back on the way out.
-//
-// Registering otelgin EARLIER makes it OUTER, so the nesting is:
-//
-//	Recovery( otelgin( LogContext( flags( handler ) ) ) )
-//
-// LogContextMiddleware writes its one `request completed` line AFTER its own
-// c.Next() returns — but that moment is still INSIDE otelgin's c.Next(), so the
-// span is installed on the request context and TraceHandler stamps trace_id and
-// span_id onto the line.
-//
-// Inverted, LogContextMiddleware becomes the outer one and its line is written
-// after otelgin's deferred restore has already stripped the span: the request's
-// context carries no span, TraceHandler finds no valid span context, and the
-// line is emitted with trace_id and span_id OMITTED. Valid JSON, correct fields,
-// silently unjoinable to the trace it belongs to — the same failure this service
-// already shipped once (0 of 348 lines carried a trace_id) reappearing in a new
-// place. That inversion is a mutation that fails
-// TestTheRequestLineCarriesTheTraceID.
-//
-// It sits BELOW gin.Recovery for the same reason everything does: Recovery must
-// stay outermost so a panic still produces a 500.
-//
-// GinFilter is passed so the liveness probe produces no span. Python excludes it
-// with OTEL_PYTHON_FASTAPI_EXCLUDED_URLS="/v1/health$"; Go has no such variable,
-// so DEFINING the filter is not excluding anything — it has to be handed over.
+// CONTRACT: Do NOT move composition into main.go or reorder Recovery -> otelgin
+// -> LogContext -> flags. Moving it hides dropped seams from unit tests;
+// inverted Recovery drops panicked connections without a 500, while LogContext
+// outside otelgin emits request lines without trace_id/span_id. Keep GinFilter
+// installed to suppress health spans.
+// See [[logging-context]]
 func NewAppRouter(opts AppRouterOptions) *gin.Engine {
 	log := opts.Logger
 	if log == nil {
@@ -156,16 +92,10 @@ func NewAppRouter(opts AppRouterOptions) *gin.Engine {
 	router := gin.New()
 	router.Use(
 		gin.Recovery(),
-		// The INBOUND half of trace propagation, and the only thing that reads
-		// the gateway's traceparent. Without it every workflow span this service
-		// opens starts a NEW root trace: the flow still appears complete in
-		// OpenObserve, just as a second unrelated trace beside the caller's.
-		//
-		// No provider or propagator is passed. otelgin falls back to
-		// otel.GetTracerProvider() and otel.GetTextMapPropagator(), which
-		// SetupTracing has already installed — and passing the globals
-		// explicitly here would only reintroduce the option-versus-autodetection
-		// trap that cost this repo three silent failures.
+		// CONTRACT: Do NOT remove otelgin or pass explicit provider globals.
+		// Missing middleware splits one request into unrelated traces; explicit
+		// globals bypass otelgin's configured autodetection.
+		// See [[logging-context]]
 		otelgin.Middleware(logging.ServiceName, otelgin.WithFilter(tracing.GinFilter)),
 		LogContextMiddleware(log, opts.Metrics),
 		E2ESourceMiddleware(opts.E2ETestingEnabled),
@@ -196,33 +126,11 @@ func NewAppRouter(opts AppRouterOptions) *gin.Engine {
 		tracing.Tracer(tracing.TracerWorkflow),
 	))
 
-	// The two user-scoped reads. READER pool — the only routes that use it.
-	//
-	// # They and ONLY they carry the identity stamp
-	//
-	// StampResolvedUserID is applied to a GROUP, not with router.Use, because
-	// three of this service's surfaces have no caller identity at all: the
-	// carrier PUT (its gateway route declares no authorizer), and both deletes
-	// (API-key authenticated, subject in the body or in a tag). A global
-	// middleware guarding on "is x-user-id present?" would still fire on a stray
-	// header sent to the carrier PUT, and would silently start resolving on the
-	// next route somebody adds. Per-route inverts the default — the same reason
-	// RequireCallerSub is per-route rather than middleware-plus-an-allowlist,
-	// and the direct equivalent of the Python's `IdentifiedCaller` dependency.
-	//
-	// Health is exempt by the same structure: the ALB probes it continuously,
-	// and resolving there would turn a liveness check into a dependency on
-	// Users being up.
-	//
-	// WITHOUT THIS LINE THE RESPONSE CACHE IS ENTIRELY INERT. Both read handlers
-	// build their cache key from ResolvedUserID(c), and the key builders decline
-	// to build one without a usr_ id — so nothing calling SetResolvedUserID means
-	// every read is a MISS forever, while every part of the code looks correct.
-	//
-	// Creation is deliberately NOT in this group: it resolves the id itself and
-	// answers 404 when Users has no record, and stamping first would change
-	// nothing there (a negative is never cached, so it still makes its own call)
-	// while blurring which path is allowed to fail.
+	// CONTRACT: Do NOT apply StampResolvedUserID globally or remove it from the
+	// read group. Global stamping sends carrier, delete, and health traffic to
+	// Users; missing stamping makes every response-cache lookup unkeyable and a
+	// permanent MISS. Creation resolves identity as a required operation itself.
+	// See [[tracking-service-design]]
 	reads := router.Group("", StampResolvedUserID(
 		// A nil app.UserResolver arrives as a nil internalIDResolver, which the
 		// middleware treats as "nothing to resolve with" and no-ops.

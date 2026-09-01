@@ -1,45 +1,11 @@
-// Package redis is the cache adapter: key construction, the Redis gateway, the
-// identity cache and invalidation.
-//
-// # Why every response key carries TWO identities
-//
-// cognito_sub is the ownership key every user-scoped read filters by; user_id is
-// the internal usr_ id. Both travel so a key is unambiguous under either identity
-// model, and so the per-user index can be reconstructed from either.
-//
-// # The cognitoSub parameter is the RAW header, not always a Cognito sub
-//
-// Read this before writing anything that INVALIDATES a key. Every builder here is
-// called with the x-user-id header verbatim — whichever identifier the client
-// chose to send. Clients legitimately send either: Users' GetUserById resolves the
-// Cognito sub and the internal usr_ id alike, which is why the E2E suite sends the
-// usr_ id on the direct path. So these are all live key shapes for ONE person:
-//
-//	tracking:order:v1:<uuid-sub>:usr_abc:ord_1
-//	tracking:order:v1:usr_abc:usr_abc:ord_1
-//	identity:sub-to-user:v1:<uuid-sub>
-//	identity:sub-to-user:v1:usr_abc
-//
-// The user_id segment is stable (always the resolved usr_ id); the FIRST segment
-// is not. Assuming otherwise is what let a deleted account's entries survive
-// their full TTL — see InvalidateUser.
-//
-// # Why a builder may answer "no key"
-//
-// user_id is resolved lazily over gRPC to Users, and that resolution is allowed to
-// fail: enriching a log line must never fail a request. So a fully authenticated
-// caller can reach a handler with no user_id. Formatting an empty segment would
-// produce a key that LIES about what it is scoped by, and the per-user index keyed
-// on the same empty value would collapse. Answering "no key" makes the route skip
-// caching for that request entirely: it pays a MISS, serves from MySQL, and writes
-// nothing.
-//
-// # Why the list key is a hash
-//
-// order_ids is an arbitrary caller-supplied list of up to 100 ids. Keying on the
-// raw list would make the key length proportional to the request and the key SPACE
-// combinatorial. Sorting and deduplicating first, then hashing, collapses every
-// ordering and every repetition of one set onto one fixed-length key.
+// Package redis is the cache adapter: keys, gateway, identity cache, and eviction.
+// CONTRACT: Do NOT treat cognitoSub as canonical; it is raw x-user-id and may be
+// either a Cognito sub or usr_ id. Assuming only the sub leaves deleted-account
+// entries readable until TTL expiry. Response keys carry both that raw identity
+// and the resolved usr_ id; unresolved user_id makes a request unkeyable rather
+// than collapsing callers into an empty segment. List IDs are normalized and
+// hashed to keep equivalent sets on one bounded key.
+// See [[tracking-service-design]]
 package redis
 
 import (
@@ -95,14 +61,10 @@ func IdentityKey(cognitoSub string) string {
 
 // UserIndexKey builds the key of the Redis SET holding this user's live response
 // keys.
-//
-// Required because a list key embeds a HASH of an arbitrary id list and therefore
-// cannot be reconstructed at invalidation time. KEYS and SCAN are the wrong
-// answer: both are O(N) over the whole keyspace, and KEYS blocks the server while
-// it runs.
-//
-// Same warning as IdentityKey: the first segment is the RAW header value, so one
-// person can own more than one index.
+// CONTRACT: Do NOT replace the per-user index with KEYS or SCAN; whole-keyspace
+// work blocks or scales every invalidation with cache size. The first segment is
+// raw x-user-id, so one person can own multiple indexes.
+// See [[tracking-service-design]]
 func UserIndexKey(cognitoSub, userID string) string {
 	return "tracking:index:" + Version + ":" + cognitoSub + ":" + userID
 }
@@ -123,13 +85,10 @@ func PrefixOf(key string) string {
 // hashOrderIDs normalizes then hashes: sorted, deduplicated, newline-joined,
 // sha256, truncated.
 //
-// The newline join is a separator that cannot appear inside an order id, so
-// ["ab","c"] and ["a","bc"] cannot collide.
-//
-// sha256 rather than a runtime hash: Go's maphash is explicitly per-process
-// seeded (as Python's str hash is under PYTHONHASHSEED), so two replicas would
-// compute DIFFERENT keys for the same request and the cache would never hit
-// across them. Never use maphash here.
+// CONTRACT: Do NOT use a process-seeded runtime hash; replicas would compute
+// different keys and never share cache hits. Newlines prevent ambiguous joins,
+// and sha256 keeps the digest deterministic.
+// See [[tracking-service-design]]
 func hashOrderIDs(orderIDs []string) string {
 	seen := make(map[string]struct{}, len(orderIDs))
 	unique := make([]string, 0, len(orderIDs))

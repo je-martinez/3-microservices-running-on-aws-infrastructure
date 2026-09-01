@@ -223,6 +223,7 @@ client and the Pre-Token V2 trigger. See [[awscli-fallback-for-floci]] and
 - Floci local: [../docs/shared/decisions/ADR-0017-floci-local.md](../docs/shared/decisions/ADR-0017-floci-local.md) (supersedes ADR-0012, Ministack)
 - Scripting language (Python first): [../docs/shared/conventions/scripting-language.md](../docs/shared/conventions/scripting-language.md)
 - Env files (generated, never hand-edited): [../docs/shared/conventions/env-files.md](../docs/shared/conventions/env-files.md)
+- Code comments (Floci workarounds keep their prohibition + symptom inline): [../docs/shared/conventions/code-comments.md](../docs/shared/conventions/code-comments.md) → [[code-comments]]
 
 ### Env files are generated here
 `environments/local/scripts/generate_env_files.py` writes all five env files from
