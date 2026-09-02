@@ -286,3 +286,39 @@ for (const route of AUTH_ROUTES_WITH_PANEL) {
     ).toBeLessThan(2);
   });
 }
+
+/**
+ * CONTRACT: A router navigation animates; a direct URL load does not.
+ * Every other test here uses `page.goto()`, a full document load the router
+ * never sees — so without this one the suite cannot tell a working transition
+ * from a missing one. `skipInitialTransition` is what keeps a cold load from
+ * fading in on first paint, which reads as slowness.
+ * See [[angular-component-authoring]]
+ */
+test("a router navigation transitions, a direct load does not", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __vt: number }).__vt = 0;
+    const doc = document as unknown as { startViewTransition?: (...a: unknown[]) => unknown };
+    const original = doc.startViewTransition;
+    if (original) {
+      doc.startViewTransition = function (this: unknown, ...args: unknown[]) {
+        (window as unknown as { __vt: number }).__vt++;
+        return original.apply(this, args);
+      };
+    }
+  });
+
+  await page.goto("/register/passwordless");
+  const count = () => page.evaluate(() => (window as unknown as { __vt: number }).__vt);
+
+  expect(await count(), "a cold load animated — skipInitialTransition is not taking effect").toBe(0);
+
+  await page.getByRole("link", { name: /back to sign up/i }).click();
+  await page.waitForURL("**/register");
+
+  expect(
+    await count(),
+    "navigating did not start a view transition — withViewTransitions is not wired, " +
+      "or the browser lacks the API (Angular then degrades to an instant swap)",
+  ).toBeGreaterThan(0);
+});
