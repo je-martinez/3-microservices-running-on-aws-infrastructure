@@ -145,13 +145,26 @@
   --spacing-header-offset: 5.375rem; /* 86px — sticky offset below header */
 }
 
-/* WHY: Reserve the scrollbar's gutter on every route, whether or not that route
- * overflows. `/profile` fits 1440x900 exactly and `/orders` does not, so without
- * this the classic scrollbar appears on navigation and narrows the page from
- * 1440 to 1425 — the header, the content and the right-anchored popovers all
- * jump 15px sideways mid view-transition. The gutter is browser-computed, which
- * is why no width is hardcoded here. See [[angular-component-authoring]] */
-html {
+/* CONTRACT: The DOCUMENT must never scroll — the app scrolls inside
+ * `.app-scroll` instead, and the gutter is reserved there, not here. Moving
+ * `scrollbar-gutter: stable` up to `html` reserves a 15px strip the header
+ * cannot cover, so at 1920 the header stops at 1905 with no scrollbar in
+ * sight; dropping the gutter entirely instead re-narrows the content box from
+ * 1440 to 1425 when `/profile` navigates to the taller `/orders`, jumping the
+ * content and the right-anchored popovers sideways mid view-transition.
+ * See [[angular-component-authoring]] */
+html,
+body {
+  overflow: hidden;
+}
+
+/* The single scroll container: full-width so the header spans the viewport,
+ * with the gutter reserved inside it so its content box is one constant width
+ * whether or not the route overflows. */
+.app-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   scrollbar-gutter: stable;
 }
 

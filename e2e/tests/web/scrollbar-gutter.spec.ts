@@ -23,15 +23,26 @@ const TALL_ROUTE = "/orders";
 const VIEWPORT = { width: 1440, height: 900 };
 
 /**
- * The width the page actually renders into.
- * WHY: Not `documentElement.clientWidth` — with the gutter reserved that reads
- * the full 1440 on a non-scrolling route, so it cannot tell a reserved gutter
- * from a missing one. The header spans the content box.
+ * The width the routed PAGE renders into — the scroll container's content box.
+ * CONTRACT: Measure `.app-scroll`, not the header and not
+ * `documentElement.clientWidth`. The header sits OUTSIDE the scroller and spans
+ * the full viewport on every route by design, so measuring it reads 1440 on
+ * both routes and the navigation test passes against any regression.
+ * See [[angular-component-authoring]]
  */
 async function contentWidth(page: Page): Promise<number> {
   return page.evaluate(() => {
+    const scroller = document.querySelector(".app-scroll");
+    if (!scroller) throw new Error("no .app-scroll container — cannot measure the content width");
+    return scroller.clientWidth;
+  });
+}
+
+/** The header's own box — full viewport width on every route (see the last test). */
+async function headerWidth(page: Page): Promise<number> {
+  return page.evaluate(() => {
     const header = document.querySelector("app-app-header header");
-    if (!header) throw new Error("no app header rendered — cannot measure the content width");
+    if (!header) throw new Error("no app header rendered — cannot measure the header width");
     return header.getBoundingClientRect().width;
   });
 }
@@ -48,7 +59,13 @@ async function settledLayout(page: Page): Promise<number> {
   const gutter = await page.evaluate(
     () =>
       new Promise<number>((resolve) => {
-        const read = () => window.innerWidth - document.documentElement.clientWidth;
+        // The gutter belongs to the SCROLLER, which is `.app-scroll` and not the
+        // document — `innerWidth - documentElement.clientWidth` is 0 on every
+        // route now, which would skip this whole file as "overlay scrollbars".
+        const read = () => {
+          const scroller = document.querySelector(".app-scroll");
+          return scroller ? scroller.offsetWidth - scroller.clientWidth : 0;
+        };
         let previous = read();
         let stableRounds = 0;
         const interval = setInterval(() => {
@@ -218,3 +235,60 @@ for (const [control, icon] of [
     }
   });
 }
+
+/**
+ * CONTRACT: Where NO route overflows, the header spans the FULL viewport width.
+ * `scrollbar-gutter: stable` on `html` passes the two tests above but fails
+ * this one — it reserves 15px on every route, so at 1920 the header stops at
+ * 1905 with no scrollbar on screen: an empty strip down the right edge.
+ * See [[angular-component-authoring]]
+ *
+ * WARNING: Assert on the HEADER's box, not `documentElement.clientWidth` — that
+ * reads 1920 whether or not `html` reserves a gutter, so the usual
+ * `innerWidth - clientWidth` formula returns 0 against both the fixed and the
+ * broken app.
+ */
+test("no reserved strip on a viewport where nothing scrolls", async ({ baseURL }) => {
+  // 1920x1080: every app route fits, so a correct app shows no scrollbar and no
+  // gutter on any of them. At 1440x900 `/orders` genuinely overflows, so the
+  // strip there is a real scrollbar and this assertion would not distinguish it.
+  const viewport = { width: 1920, height: 1080 };
+  const page = await browser.newPage({ viewport, baseURL });
+
+  try {
+    for (const { route, heading } of [
+      { route: SHORT_ROUTE, heading: /profile/i },
+      { route: TALL_ROUTE, heading: /my orders/i },
+    ]) {
+      await page.goto(route);
+      await expect(page.getByRole("heading", { level: 1, name: heading })).toBeVisible();
+      await settledLayout(page);
+
+      // Guards against a vacuous pass: if the route DOES overflow here, the
+      // 15px is an honest scrollbar and proves nothing about a reserved strip.
+      // Reads whichever element actually scrolls, so the guard stays meaningful
+      // whether the app scrolls the document or an inner container.
+      const routeScrolls = await page.evaluate(() => {
+        const scroller = document.querySelector(".app-scroll") ?? document.documentElement;
+        return scroller.scrollHeight > scroller.clientHeight;
+      });
+      expect(
+        routeScrolls,
+        `${route} overflows at ${viewport.width}x${viewport.height}, so any missing width is a ` +
+          "real scrollbar rather than a reserved strip — this test can no longer tell the two " +
+          "apart. Pick a taller viewport or a shorter route.",
+      ).toBe(false);
+
+      const width = await headerWidth(page);
+      expect(
+        width,
+        `the header is ${width}px wide on ${route} at a ${viewport.width}px viewport where ` +
+          `nothing scrolls — the missing ${viewport.width - width}px is a scrollbar gutter ` +
+          "reserved on `html` that no scrollbar ever fills, and it reads as an empty strip down " +
+          "the right edge",
+      ).toBe(viewport.width);
+    }
+  } finally {
+    await page.close();
+  }
+});
