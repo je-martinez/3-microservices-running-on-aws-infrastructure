@@ -16,6 +16,12 @@ import { LogoLockup } from '../../shared/ui/logo-lockup';
   selector: 'app-app-header',
   imports: [LogoLockup, LucideBell, LucideSearch, LucideShoppingBag, LucideUser],
   templateUrl: './app-header.html',
+  // CONTRACT: The host must be a block. A custom element defaults to
+  // display:inline, so it shrinks to its content and the inner header's
+  // `w-full` resolves against that shrunken width — the bar stops short of
+  // the viewport edge instead of spanning it. Setting it here rather than on
+  // each of the five call sites means a new one cannot forget it.
+  host: { class: 'block w-full' },
 })
 export class AppHeader {
   readonly cartCount = input(0);

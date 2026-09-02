@@ -322,3 +322,26 @@ test("a router navigation transitions, a direct load does not", async ({ page })
       "or the browser lacks the API (Angular then degrades to an instant swap)",
   ).toBeGreaterThan(0);
 });
+
+/**
+ * CONTRACT: The app header spans the full viewport width.
+ * `app-app-header` is a custom element, so it defaults to display:inline and
+ * shrinks to its content — the inner header's `w-full` then resolves against
+ * that shrunken width and the bar stops short of the edge. The component sets
+ * `host: { class: 'block w-full' }`; dropping it renders a 667px bar on a
+ * 1440px viewport. See [[angular-component-authoring]]
+ */
+for (const route of ["/", "/orders", "/profile", "/checkout"] as const) {
+  test(`the app header spans the viewport on ${route}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(route);
+
+    const header = await page.locator("app-app-header header").boundingBox();
+    expect(header, `no app header rendered on ${route}`).not.toBeNull();
+    expect(
+      Math.abs(1440 - header!.width),
+      `the header is ${header!.width.toFixed(0)}px wide on a 1440px viewport — ` +
+        "the host has collapsed to its content instead of filling the page",
+    ).toBeLessThan(2);
+  });
+}
