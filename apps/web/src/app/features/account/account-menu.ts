@@ -1,5 +1,7 @@
-import { Component, inject } from '@angular/core';
-import { Router } from '@angular/router';
+import { Component, computed, inject } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { NavigationEnd, Router } from '@angular/router';
+import { filter, map, startWith } from 'rxjs';
 import { LucideLogOut, LucidePackage, LucideUser } from '@lucide/angular';
 import { OverlayStore } from '../../core/overlay/overlay-store';
 import { CURRENT_USER } from '../../fixtures/user.fixture';
@@ -46,6 +48,25 @@ export class AccountMenu {
   private readonly router = inject(Router);
 
   protected readonly user = CURRENT_USER;
+
+  /**
+   * WHY: Derived from the router rather than a static class in the template.
+   * The design frame ships `Profile` pre-highlighted, so a hardcoded class
+   * leaves it lit on every route, including `/orders`.
+   */
+  private readonly url = toSignal(
+    this.router.events.pipe(
+      filter((e): e is NavigationEnd => e instanceof NavigationEnd),
+      map((e) => e.urlAfterRedirects),
+      startWith(this.router.url),
+    ),
+    { initialValue: this.router.url },
+  );
+
+  protected readonly isActive = computed(() => {
+    const path = this.url().split('?')[0].split('#')[0];
+    return (route: string) => path === route;
+  });
 
   protected goTo(path: string): void {
     this.overlay.close();

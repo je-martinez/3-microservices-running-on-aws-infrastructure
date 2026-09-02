@@ -573,3 +573,31 @@ test("each named view-transition element is unique per document", async ({ page 
     await expect(page.locator("app-app-header"), `app header leaked onto ${route}`).toHaveCount(0);
   }
 });
+
+/**
+ * CONTRACT: The account menu's highlight follows the ROUTE, never a static
+ * class. The design frame ships `Profile` pre-highlighted; copying that class
+ * into the template leaves it lit on `/orders` too, which is what shipped.
+ * See [[angular-component-authoring]]
+ */
+test("the account menu highlights the route it is on", async ({ page }) => {
+  const ACTIVE = /bg-surface-subtle/;
+  const item = (name: string) => page.locator("app-account-menu button", { hasText: name });
+
+  const openMenu = async () => {
+    await page.locator("app-app-header button").filter({ has: page.locator("svg.lucide-user") }).click();
+    await expect(item("Profile")).toBeVisible();
+  };
+
+  await page.goto("/profile");
+  await openMenu();
+  await expect(item("Profile")).toHaveClass(ACTIVE);
+  await expect(item("My orders")).not.toHaveClass(ACTIVE);
+
+  // Navigating from inside the menu is the case a static class never survives.
+  await item("My orders").click();
+  await expect(page).toHaveURL(/\/orders$/);
+  await openMenu();
+  await expect(item("My orders")).toHaveClass(ACTIVE);
+  await expect(item("Profile")).not.toHaveClass(ACTIVE);
+});

@@ -22,7 +22,8 @@
 
   <button
     type="button"
-    class="bg-surface-subtle flex h-control-xl w-full shrink-0 flex-row items-center justify-start gap-lg rounded-lg px-3 md:h-control-md"
+    class="flex h-control-xl w-full shrink-0 flex-row items-center justify-start gap-lg rounded-lg px-3 md:h-control-md"
+    [class.bg-surface-subtle]="isActive()('/profile')"
     (click)="goTo('/profile')"
   >
     <svg lucideUser class="text-ink-primary h-icon-md w-icon-md md:h-icon md:w-icon"></svg>
@@ -32,6 +33,7 @@
   <button
     type="button"
     class="flex h-control-xl w-full shrink-0 flex-row items-center justify-start gap-lg rounded-lg px-3 md:h-control-md"
+    [class.bg-surface-subtle]="isActive()('/orders')"
     (click)="goTo('/orders')"
   >
     <svg lucidePackage class="text-ink-primary h-icon-md w-icon-md md:h-icon md:w-icon"></svg>
