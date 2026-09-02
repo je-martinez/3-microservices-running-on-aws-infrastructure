@@ -601,3 +601,45 @@ test("the account menu highlights the route it is on", async ({ page }) => {
   await expect(item("My orders")).toHaveClass(ACTIVE);
   await expect(item("Profile")).not.toHaveClass(ACTIVE);
 });
+
+/**
+ * CONTRACT: No route scrolls horizontally at a phone width. `/profile`'s identity
+ * card is a row on desktop and a COLUMN on mobile (frame `Mobile — Profile`);
+ * shipping only the row put the "Member since" badge — `whitespace-nowrap`, 170px
+ * — past the edge, giving a 504px scrollWidth in a 399px viewport.
+ * See [[angular-component-authoring]]
+ */
+for (const width of [414, 390, 375] as const) {
+  test(`no horizontal overflow at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 736 });
+
+    for (const route of ["/profile", "/orders", "/"] as const) {
+      await page.goto(route);
+      // CONTRACT: Wait for real content before measuring. `goto` resolves before
+      // Angular paints, and an unrendered page's widest element is <html> at
+      // exactly the viewport width — so the assertion passes against any layout
+      // bug whatsoever. See [[testing]]
+      await expect(page.locator("app-app-header header")).toBeVisible();
+
+      // Measure the widest element, not a container's scrollWidth: the overflow
+      // is clipped before it reaches `.app-scroll`, so that reads clean while
+      // content visibly runs past the edge.
+      const worst = await page.evaluate(() => {
+        let right = 0;
+        let tag = "";
+        document.querySelectorAll("*").forEach((el) => {
+          const r = el.getBoundingClientRect();
+          if (r.width > 0 && r.right > right) {
+            right = r.right;
+            tag = el.tagName.toLowerCase();
+          }
+        });
+        return { right: Math.round(right), viewport: window.innerWidth, tag };
+      });
+      expect(
+        worst.right,
+        `${route} overflows at ${width}px: <${worst.tag}> reaches ${worst.right}px in a ${worst.viewport}px viewport`,
+      ).toBeLessThanOrEqual(worst.viewport + 1);
+    }
+  });
+}
