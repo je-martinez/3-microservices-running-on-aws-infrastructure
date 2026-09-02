@@ -1,8 +1,6 @@
 import { Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { LucideArrowLeft, LucideShieldCheck, LucideTimer } from '@lucide/angular';
-import { BrandPanel } from '../../shared/ui/brand-panel';
-import { MobileBrandHeader } from '../../shared/ui/mobile-brand-header';
 import { OtpDigit } from '../../shared/ui/otp-digit';
 import { ButtonPrimary } from '../../shared/ui/button-primary';
 
@@ -19,8 +17,6 @@ import { ButtonPrimary } from '../../shared/ui/button-primary';
     LucideArrowLeft,
     LucideTimer,
     LucideShieldCheck,
-    BrandPanel,
-    MobileBrandHeader,
     OtpDigit,
     ButtonPrimary,
   ],

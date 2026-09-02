@@ -1,8 +1,6 @@
 import { Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { LucideArrowLeft, LucideCheck, LucideInfo } from '@lucide/angular';
-import { BrandPanel } from '../../shared/ui/brand-panel';
-import { MobileBrandHeader } from '../../shared/ui/mobile-brand-header';
 import { Field } from '../../shared/ui/field';
 import { ButtonPrimary } from '../../shared/ui/button-primary';
 import { ButtonGhost } from '../../shared/ui/button-ghost';
@@ -20,8 +18,6 @@ import { ButtonGhost } from '../../shared/ui/button-ghost';
     LucideArrowLeft,
     LucideCheck,
     LucideInfo,
-    BrandPanel,
-    MobileBrandHeader,
     Field,
     ButtonPrimary,
     ButtonGhost,

@@ -345,3 +345,229 @@ for (const route of ["/", "/orders", "/profile", "/checkout"] as const) {
     ).toBeLessThan(2);
   });
 }
+
+/**
+ * The header's own controls, located the same way as the bell above: these
+ * buttons carry no accessible name, so role+name cannot reach them.
+ */
+const bell = (page: Page) =>
+  page.locator("header button").filter({ has: page.locator("svg.lucide-bell") });
+const profileButton = (page: Page) =>
+  page.locator("header button").filter({ has: page.locator("svg.lucide-user") });
+
+/**
+ * CONTRACT: Assert visibility on CONTENT INSIDE each panel, never on the
+ * `app-notifications-panel` / `app-account-menu` host. Every child of those
+ * hosts is `position: fixed`, so the host collapses to a zero-size box and
+ * Playwright calls it hidden even while the panel is plainly on screen — the
+ * open assertions then fail against perfectly working code. The host element is
+ * still the right locator for counting NODES (see the double-click test).
+ * See [[testing]]
+ */
+const notificationsPanel = (page: Page) =>
+  page.getByRole("heading", { level: 2, name: /notifications/i });
+const accountMenu = (page: Page) => page.getByText("Sign out", { exact: true });
+
+/**
+ * CONTRACT: The bell and the profile button TOGGLE their panel. Each panel
+ * covers the control that opened it, so without this a second click is a dead
+ * click and the only way out is a menu item or the mobile scrim.
+ * Both panels animate out over 120ms (`popover-leave`), so assert on HIDDEN
+ * rather than detached — `toBeHidden` passes for a removed node too, while a
+ * `count()` of 0 races the leave animation and flakes. See [[testing]]
+ */
+test("the bell toggles the notifications panel", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(notificationsPanel(page), "the panel is up before anything opened it").toBeHidden();
+
+  await bell(page).click();
+  await expect(
+    notificationsPanel(page),
+    "the first click did not open the panel — AppHeader's bell emits notificationsClicked, " +
+      "bound to overlay.toggleNotifications() in home.html",
+  ).toBeVisible();
+
+  await bell(page).click();
+  await expect(
+    notificationsPanel(page),
+    "the panel stayed open on a second click — toggleNotifications must clear `active` when " +
+      "it already holds 'notifications', not re-assign it",
+  ).toBeHidden();
+});
+
+test("the profile button toggles the account menu", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(accountMenu(page), "the menu is up before anything opened it").toBeHidden();
+
+  await profileButton(page).click();
+  await expect(
+    accountMenu(page),
+    "the first click did not open the menu — AppHeader's profile button emits profileClicked, " +
+      "bound to overlay.toggleAccountMenu() in home.html",
+  ).toBeVisible();
+
+  await profileButton(page).click();
+  await expect(
+    accountMenu(page),
+    "the menu stayed open on a second click — toggleAccountMenu must clear `active` when " +
+      "it already holds 'account-menu', not re-assign it",
+  ).toBeHidden();
+});
+
+/**
+ * CONTRACT: Opening a panel while a DIFFERENT one is up SWITCHES; it does not
+ * close everything. `active` is one discriminated value, so a toggle that
+ * negated a boolean per panel would both regress this and make two panels
+ * coexistable. This is the case the two tests above cannot catch.
+ * See [[angular-component-authoring]]
+ */
+test("opening one panel over another switches between them", async ({ page }) => {
+  await page.goto("/");
+
+  await bell(page).click();
+  await expect(notificationsPanel(page)).toBeVisible();
+
+  await profileButton(page).click();
+  await expect(
+    accountMenu(page),
+    "bell → profile did not open the account menu — a toggle comparing anything other than " +
+      "the kind treats a foreign `active` as 'open' and closes instead of switching",
+  ).toBeVisible();
+  await expect(
+    notificationsPanel(page),
+    "both panels are up at once — `active` holds ONE kind, so this means the toggle stopped " +
+      "assigning it",
+  ).toBeHidden();
+
+  // And back the other way: the switch must not be one-directional.
+  await bell(page).click();
+  await expect(notificationsPanel(page)).toBeVisible();
+  await expect(accountMenu(page)).toBeHidden();
+});
+
+/**
+ * CONTRACT: A double-click must not strand a panel. `Shell` removes the host
+ * with `@if` while `popover-leave` still runs, so the leaving node lingers for
+ * 120ms; re-opening inside that window must still settle with the DOM agreeing
+ * with `active`. The waits here are deliberately absent — clicking twice with
+ * no delay is the whole point. See [[angular-component-authoring]]
+ */
+test("a rapid double-click leaves the panel closed, not stranded", async ({ page }) => {
+  await page.goto("/");
+
+  await bell(page).dblclick();
+
+  // The HOST here, not the content locator: this asserts the leaving node is
+  // gone from the DOM, well past the 120ms that keeps it alive.
+  await expect(
+    page.locator("app-notifications-panel"),
+    "the panel is still in the DOM after a double-click — the leave animation stranded a node, " +
+      "leaving the DOM disagreeing with overlay.active()",
+  ).toHaveCount(0, { timeout: 2000 });
+
+  // The control still works afterwards: a stranded node would block the re-open.
+  await bell(page).click();
+  await expect(
+    notificationsPanel(page),
+    "the bell stopped working after a double-click — state and DOM have diverged",
+  ).toBeVisible();
+  await expect(
+    page.locator("app-notifications-panel"),
+    "more than one panel node is mounted — a leaving node survived alongside the new one",
+  ).toHaveCount(1);
+});
+
+/**
+ * CONTRACT: The header's controls work on EVERY route that renders it, not just
+ * `/`. The header and its handlers come from `AppLayout`, so a page cannot mount
+ * the bar and forget to wire it — which is exactly what `/checkout` did while
+ * every other route worked, invisible because each template was self-consistent.
+ * Mounting the header without handlers is the regression this guards.
+ * See [[angular-component-authoring]]
+ */
+const ROUTES_WITH_HEADER = ["/", "/checkout", "/orders", "/orders/ord_fB6rEjN4uK", "/profile"] as const;
+
+for (const route of ROUTES_WITH_HEADER) {
+  test(`the header's controls work on ${route}`, async ({ page }) => {
+    await page.goto(route);
+
+    // Exactly one: two layouts nesting, or a page that kept its own copy after
+    // the header moved up, both render a duplicate bar that looks almost right.
+    await expect(
+      page.locator("app-app-header"),
+      `expected exactly one header on ${route} — zero means the route sits outside AppLayout, ` +
+        "more than one means a page still mounts its own copy alongside the layout's",
+    ).toHaveCount(1);
+
+    await bell(page).click();
+    await expect(
+      notificationsPanel(page),
+      `the bell is dead on ${route} — the header renders but nothing is bound to ` +
+        "notificationsClicked, which is what AppLayout exists to prevent",
+    ).toBeVisible();
+    await bell(page).click();
+    await expect(notificationsPanel(page)).toBeHidden();
+
+    await profileButton(page).click();
+    await expect(
+      accountMenu(page),
+      `the profile button is dead on ${route} — nothing is bound to profileClicked`,
+    ).toBeVisible();
+  });
+}
+
+/**
+ * CONTRACT: The cart button opens the drawer in place on `/` and navigates home
+ * from anywhere else. `CartDrawer` mounts in `HomePage` alone, so opening the
+ * overlay from another route sets `active` to a panel nothing renders — a dead
+ * button and no scrim. `AppLayout.openCart()` is what keeps the two behaviours
+ * apart now that one handler serves five routes.
+ * See [[angular-component-authoring]]
+ */
+test("the cart button opens the drawer on / and navigates home elsewhere", async ({ page }) => {
+  await page.goto("/");
+
+  const cartButton = page.locator("header button").filter({ has: page.locator("svg.lucide-shopping-bag") });
+  await cartButton.click();
+  await expect(
+    page.locator("app-cart-drawer"),
+    "the cart drawer did not open on / — AppLayout.openCart() must call overlay.openCart() " +
+      "when already home, not navigate",
+  ).toHaveCount(1);
+  await expect(page).toHaveURL(/\/$/);
+
+  await page.goto("/orders");
+  await cartButton.click();
+  await page.waitForURL(/\/$/);
+  await expect(
+    page.getByRole("heading", { level: 1, name: /new arrivals/i }),
+    "the cart button on /orders did not land on home — navigating there is what makes the " +
+      "drawer reachable at all, since it mounts only in HomePage",
+  ).toBeVisible();
+});
+
+/**
+ * CONTRACT: The layouts render their chrome ONCE per document. `styles.css`
+ * gives `app-app-header`, `app-brand-panel` and `app-mobile-brand-header` a
+ * `view-transition-name`, and a duplicate name in one snapshot makes the browser
+ * skip the transition entirely rather than fail loudly. See [[angular-component-authoring]]
+ */
+test("each named view-transition element is unique per document", async ({ page }) => {
+  for (const route of ["/", "/checkout", "/orders", "/profile"] as const) {
+    await page.goto(route);
+    await expect(page.locator("app-app-header"), `duplicate header on ${route}`).toHaveCount(1);
+    await expect(page.locator("app-brand-panel"), `brand panel leaked onto ${route}`).toHaveCount(0);
+  }
+
+  for (const route of ["/login", "/register", "/verify"] as const) {
+    await page.goto(route);
+    await expect(page.locator("app-brand-panel"), `duplicate brand panel on ${route}`).toHaveCount(1);
+    await expect(
+      page.locator("app-mobile-brand-header"),
+      `duplicate mobile brand header on ${route}`,
+    ).toHaveCount(1);
+    await expect(page.locator("app-app-header"), `app header leaked onto ${route}`).toHaveCount(0);
+  }
+});

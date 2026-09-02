@@ -1,0 +1,10 @@
+<div class="flex min-h-screen w-full flex-col">
+  <app-app-header
+    [hasUnreadNotifications]="hasUnreadNotifications"
+    (notificationsClicked)="overlay.toggleNotifications()"
+    (profileClicked)="overlay.toggleAccountMenu()"
+    (cartClicked)="openCart()"
+  />
+
+  <router-outlet />
+</div>

@@ -1,9 +1,6 @@
 import { Component, computed, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { LucideLock } from '@lucide/angular';
-import { AppHeader } from '../../core/layout/app-header';
-import { OverlayStore } from '../../core/overlay/overlay-store';
-import { NOTIFICATIONS } from '../../fixtures/notifications.fixture';
 import { CURRENT_USER } from '../../fixtures/user.fixture';
 import { formatMonthYear } from '../../shared/date/format-date';
 import { ButtonPrimary } from '../../shared/ui/button-primary';
@@ -20,15 +17,13 @@ import { Field } from '../../shared/ui/field';
  */
 @Component({
   selector: 'app-profile',
-  imports: [AppHeader, ButtonPrimary, Field, LucideLock],
+  imports: [ButtonPrimary, Field, LucideLock],
   templateUrl: './profile.html',
 })
 export class ProfilePage {
   private readonly router = inject(Router);
-  protected readonly overlay = inject(OverlayStore);
 
   protected readonly user = CURRENT_USER;
-  protected readonly hasUnreadNotifications = NOTIFICATIONS.some((n) => !n.read);
 
   protected readonly initials = computed(() =>
     this.user.fullName

@@ -1,7 +1,5 @@
 import { Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { BrandPanel } from '../../shared/ui/brand-panel';
-import { MobileBrandHeader } from '../../shared/ui/mobile-brand-header';
 import { Field } from '../../shared/ui/field';
 import { ButtonPrimary } from '../../shared/ui/button-primary';
 import { ButtonGhost } from '../../shared/ui/button-ghost';
@@ -14,7 +12,7 @@ import { ButtonGhost } from '../../shared/ui/button-ghost';
  */
 @Component({
   selector: 'app-login-password',
-  imports: [RouterLink, BrandPanel, MobileBrandHeader, Field, ButtonPrimary, ButtonGhost],
+  imports: [RouterLink, Field, ButtonPrimary, ButtonGhost],
   templateUrl: './login-password.html',
 })
 export class LoginPasswordPage {}

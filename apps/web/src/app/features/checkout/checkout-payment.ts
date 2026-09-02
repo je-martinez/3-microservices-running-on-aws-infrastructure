@@ -1,7 +1,6 @@
 import { Component, computed } from '@angular/core';
 import { LucideCheck, LucideChevronLeft, LucideCreditCard, LucideLock, LucideShieldCheck } from '@lucide/angular';
 import { APP_CONFIG } from '../../core/config/app-config';
-import { AppHeader } from '../../core/layout/app-header';
 import { formatCents, toInt } from '../../fixtures/api-types';
 import { PRODUCTS } from '../../fixtures/catalogue.fixture';
 import { CartLine } from '../../shared/ui/cart-line';
@@ -19,7 +18,7 @@ import { CartLine } from '../../shared/ui/cart-line';
  */
 @Component({
   selector: 'app-checkout-payment',
-  imports: [AppHeader, CartLine, LucideCheck, LucideChevronLeft, LucideCreditCard, LucideLock, LucideShieldCheck],
+  imports: [CartLine, LucideCheck, LucideChevronLeft, LucideCreditCard, LucideLock, LucideShieldCheck],
   templateUrl: './checkout-payment.html',
 })
 export class CheckoutPaymentPage {

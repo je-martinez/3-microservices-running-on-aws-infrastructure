@@ -1,7 +1,5 @@
 import { Component } from '@angular/core';
 import { LucideCheck, LucideShieldAlert } from '@lucide/angular';
-import { BrandPanel } from '../../shared/ui/brand-panel';
-import { MobileBrandHeader } from '../../shared/ui/mobile-brand-header';
 import { Field } from '../../shared/ui/field';
 import { ButtonPrimary } from '../../shared/ui/button-primary';
 
@@ -13,7 +11,7 @@ import { ButtonPrimary } from '../../shared/ui/button-primary';
  */
 @Component({
   selector: 'app-set-new-password',
-  imports: [LucideCheck, LucideShieldAlert, BrandPanel, MobileBrandHeader, Field, ButtonPrimary],
+  imports: [LucideCheck, LucideShieldAlert, Field, ButtonPrimary],
   templateUrl: './set-new-password.html',
 })
 export class SetNewPasswordPage {

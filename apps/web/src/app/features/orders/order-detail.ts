@@ -3,8 +3,6 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { LucideArrowLeft } from '@lucide/angular';
 import { map } from 'rxjs';
-import { AppHeader } from '../../core/layout/app-header';
-import { OverlayStore } from '../../core/overlay/overlay-store';
 import {
   formatCents,
   joinOrderLine,
@@ -12,7 +10,6 @@ import {
   type TrackingStatus,
 } from '../../fixtures/api-types';
 import { PRODUCTS } from '../../fixtures/catalogue.fixture';
-import { NOTIFICATIONS } from '../../fixtures/notifications.fixture';
 import { ORDERS } from '../../fixtures/orders.fixture';
 import { CURRENT_USER } from '../../fixtures/user.fixture';
 import { formatDateTime, formatPlacedLabel } from '../../shared/date/format-date';
@@ -31,14 +28,12 @@ import { TrackingStatusIcon } from '../../shared/ui/tracking-status-icon';
  */
 @Component({
   selector: 'app-order-detail',
-  imports: [AppHeader, LucideArrowLeft, StatusBadge, TrackingStatusIcon],
+  imports: [LucideArrowLeft, StatusBadge, TrackingStatusIcon],
   templateUrl: './order-detail.html',
 })
 export class OrderDetailPage {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
-  protected readonly overlay = inject(OverlayStore);
-  protected readonly hasUnreadNotifications = NOTIFICATIONS.some((n) => !n.read);
 
   protected readonly formatCents = formatCents;
   /** Timeline rows: `Aug 2, 2026 · 10:24 am` (see shared/date/format-date.ts). */

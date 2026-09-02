@@ -17,6 +17,15 @@ export type OverlayKind = 'cart' | 'cart-payment' | 'account-menu' | 'notificati
  * See [[angular-component-authoring]]
  */
 
+/**
+ * Clears `kind` if it is already the open overlay, otherwise selects it.
+ * The `OverlayKind` return annotation is load-bearing: without it the ternary
+ * widens to `string` and `patchState` rejects the updater.
+ */
+function toggled(kind: OverlayKind): (state: { active: OverlayKind }) => { active: OverlayKind } {
+  return (state) => ({ active: state.active === kind ? null : kind });
+}
+
 export const OverlayStore = signalStore(
   { providedIn: 'root' },
   withState<{ active: OverlayKind }>({ active: null }),
@@ -28,8 +37,16 @@ export const OverlayStore = signalStore(
   withMethods((store) => ({
     openCart: () => patchState(store, { active: 'cart' }),
     openCartPayment: () => patchState(store, { active: 'cart-payment' }),
-    openAccountMenu: () => patchState(store, { active: 'account-menu' }),
-    openNotifications: () => patchState(store, { active: 'notifications' }),
+    /**
+     * CONTRACT: The bell and profile controls TOGGLE — a plain open leaves the
+     * second click on the same button a no-op, with the panel covering the
+     * control meant to dismiss it. Compare against `kind`, never negate a
+     * boolean: opening one panel while a DIFFERENT one is up must switch
+     * (bell → profile shows the menu), which only assignment preserves.
+     * See [[angular-component-authoring]]
+     */
+    toggleAccountMenu: () => patchState(store, toggled('account-menu')),
+    toggleNotifications: () => patchState(store, toggled('notifications')),
     close: () => patchState(store, { active: null }),
   })),
 );
