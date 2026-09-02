@@ -252,3 +252,37 @@ test("notifications panel renders its date in UTC", async ({ page }) => {
       "formatShortDateTime has regressed to the viewer's local zone",
   ).toBeVisible();
 });
+
+/**
+ * CONTRACT: The brand panel spans the FULL page height, not the viewport's.
+ * Its container is `min-h-screen` and grows with the form, so pinning the panel
+ * to `h-screen` leaves a strip of page background below it whenever the content
+ * overflows — visible on the tallest auth screens at a short viewport, and
+ * invisible at a tall one. The viewport here is deliberately short enough to
+ * make the longest form overflow. See [[angular-component-authoring]]
+ */
+const AUTH_ROUTES_WITH_PANEL = [
+  "/login",
+  "/login/passwordless",
+  "/verify",
+  "/register",
+  "/register/passwordless",
+  "/password/new",
+] as const;
+
+for (const route of AUTH_ROUTES_WITH_PANEL) {
+  test(`the brand panel reaches the bottom of ${route}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 800 });
+    await page.goto(route);
+
+    const panel = await page.locator("app-brand-panel").boundingBox();
+    const main = await page.locator("main").boundingBox();
+
+    expect(panel, `no brand panel rendered on ${route}`).not.toBeNull();
+    expect(
+      main!.height - panel!.height,
+      `the panel is ${(main!.height - panel!.height).toFixed(1)}px shorter than the page, ` +
+        "leaving a background strip under it — the panel is height-pinned instead of stretching",
+    ).toBeLessThan(2);
+  });
+}
