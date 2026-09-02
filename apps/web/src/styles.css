@@ -150,3 +150,60 @@ body {
   color: var(--color-ink-primary);
   font-family: var(--font-body);
 }
+
+/* ─── Route view transitions ─────────────────────────────────────────────── */
+
+/* CONTRACT: View-transition rules MUST live in this global stylesheet. The
+ * `::view-transition-*` pseudo-elements hang off the document root, outside any
+ * component's style encapsulation, so the same rules in a component's styles
+ * silently do nothing. See [[angular-component-authoring]] */
+
+/* The shared chrome keeps its own name, so the browser snapshots it as a stable
+ * element instead of folding it into `root`: it stays put while the content
+ * around it cross-fades. Without this the navy panel would fade into an
+ * identical navy panel, which reads as a flicker. Only one instance of each
+ * renders at a time, which is what keeps these names unique per snapshot. */
+app-brand-panel {
+  view-transition-name: brand-panel;
+}
+
+app-mobile-brand-header {
+  view-transition-name: mobile-brand-header;
+}
+
+app-app-header {
+  view-transition-name: app-header;
+}
+
+@keyframes view-transition-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes view-transition-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* WHY: 180ms — this transition is seen dozens of times a day, so it should be
+ * felt rather than watched. The old and new snapshots overlap for the whole
+ * duration, which is what makes it read as a cross-fade rather than a blink. */
+::view-transition-old(root) {
+  animation: 180ms ease-out both view-transition-fade-out;
+}
+
+::view-transition-new(root) {
+  animation: 180ms ease-in both view-transition-fade-in;
+}
+
+/* WARNING: Reduced motion is a medical setting (vestibular disorders, migraine),
+ * not a taste preference — animating anyway can make someone ill. Duration 0
+ * keeps the transition machinery intact while making the swap instant. */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 0s;
+  }
+}

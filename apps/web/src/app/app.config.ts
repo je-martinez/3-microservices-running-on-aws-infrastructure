@@ -1,5 +1,5 @@
 import { ApplicationConfig, provideBrowserGlobalErrorListeners } from '@angular/core';
-import { provideRouter } from '@angular/router';
+import { provideRouter, withViewTransitions } from '@angular/router';
 import { provideStore } from '@ngrx/store';
 import {
   provideLucideIcons,
@@ -44,7 +44,12 @@ import { routes } from './app.routes';
 export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
-    provideRouter(routes),
+    // Route changes cross-fade instead of hard-cutting; the shared chrome
+    // (brand panel, app header) is pinned by `view-transition-name` in
+    // styles.css so only the changing content animates.
+    // WHY: `skipInitialTransition` — landing directly on a URL has nothing to
+    // transition from, and a fade on first paint reads as slowness.
+    provideRouter(routes, withViewTransitions({ skipInitialTransition: true })),
     // Phase 1 exercises almost none of this. It is registered up front so
     // phase 2 adds reducers rather than rewiring bootstrap.
     provideStore({}),
