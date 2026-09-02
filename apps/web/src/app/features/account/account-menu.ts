@@ -14,10 +14,24 @@ import { CURRENT_USER } from '../../fixtures/user.fixture';
  * the sheet undimmed. Both layers stay `z-50`, above that Scrim's `z-40`.
  * See [[angular-component-authoring]]
  */
+
+/**
+ * CONTRACT: The animation binds on the HOST, not the two root divs. Shell
+ * removes this component with `@if`, and Angular runs `animate.leave` only on
+ * the removed element or a descendant of the SAME template — a binding on an
+ * inner div is another template and never fires. The host also fades the local
+ * scrim with the sheet, which two bindings would let drift apart.
+ * See [[angular-component-authoring]]
+ */
 @Component({
   selector: 'app-account-menu',
   imports: [LucideLogOut, LucidePackage, LucideUser],
   templateUrl: './account-menu.html',
+  host: {
+    'class': 'block',
+    'animate.enter': 'popover-enter',
+    'animate.leave': 'popover-leave',
+  },
 })
 export class AccountMenu {
   protected readonly overlay = inject(OverlayStore);

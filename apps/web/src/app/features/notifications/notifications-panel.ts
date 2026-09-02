@@ -12,10 +12,24 @@ import { NotificationItem } from '../../shared/ui/notification-item';
  * `hasScrim` is false for 'notifications' and nothing else lifts it above
  * anything sitting at `z-40`. See [[angular-component-authoring]]
  */
+
+/**
+ * CONTRACT: The animation binds on the HOST, not the panel div. Shell removes
+ * this component with `@if`, and Angular runs `animate.leave` only on the
+ * removed element or a descendant of the SAME template — a binding on the
+ * inner div is another template and never fires, leaving the close
+ * unanimated. `block` makes the host a transform target.
+ * See [[angular-component-authoring]]
+ */
 @Component({
   selector: 'app-notifications-panel',
   imports: [NotificationItem],
   templateUrl: './notifications-panel.html',
+  host: {
+    'class': 'block',
+    'animate.enter': 'popover-enter',
+    'animate.leave': 'popover-leave',
+  },
 })
 export class NotificationsPanel {
   protected readonly overlay = inject(OverlayStore);

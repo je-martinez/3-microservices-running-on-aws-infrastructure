@@ -207,3 +207,49 @@ app-app-header {
     animation-duration: 0s;
   }
 }
+
+/* ─── Overlay popover enter/leave ────────────────────────────────────────── */
+
+/* CONTRACT: These classes are consumed by `animate.enter`/`animate.leave` host
+ * bindings on AccountMenu and NotificationsPanel, and MUST live in this global
+ * stylesheet. Shell removes those components with `@if`, so Angular applies the
+ * class to the host element from OUTSIDE the component — component-scoped
+ * styles carry an attribute selector the host does not match, and the rule
+ * silently never applies. See [[angular-component-authoring]] */
+
+/* WHY: A quarter-rem slide, not a longer one — the panel should read as having
+ * come from the control that opened it, not as an object travelling across the
+ * screen. Out (120ms) is faster than in (150ms): a dismissal should feel like
+ * it already happened, while an opening can afford to accompany the eye. */
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.25rem);
+  }
+}
+
+@keyframes popover-out {
+  to {
+    opacity: 0;
+    transform: translateY(-0.25rem);
+  }
+}
+
+.popover-enter {
+  animation: 150ms ease-out both popover-in;
+}
+
+.popover-leave {
+  animation: 120ms ease-in both popover-out;
+}
+
+/* WARNING: Reduced motion is a medical setting (vestibular disorders, migraine),
+ * not a taste preference — animating anyway can make someone ill. The animation
+ * is kept (Angular removes the leaving node on its `animationend`) but made
+ * instant; dropping it entirely would strand the node in the DOM forever. */
+@media (prefers-reduced-motion: reduce) {
+  .popover-enter,
+  .popover-leave {
+    animation-duration: 1ms;
+  }
+}
