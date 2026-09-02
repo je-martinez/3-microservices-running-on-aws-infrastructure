@@ -2,6 +2,7 @@ import { readEventsQueueDepth, EVENTS_QUEUE_WARN_DEPTH } from "./events-queue-de
 import { restockCatalogue } from "./restock-catalogue.js";
 import { purgeMailpit } from "./purge-mailpit.js";
 import { randomUUID } from "node:crypto";
+import { isWebProject, WEB_PROJECT_NAMES } from "./web-projects.js";
 
 // The local stack (Floci + terraform apply + generated .env + docker compose)
 // is provisioned by `make bootstrap` from the repo root — a multi-minute
@@ -33,20 +34,21 @@ export default async function globalSetup() {
   // `config.projects` — that argument lists every project DECLARED in the
   // config regardless of --project, so filtering on it silently never matches
   // and this guard does nothing. globalSetup is top-level and runs for every
-  // invocation, so without it a `--project=web` run on a machine that never ran
-  // `make bootstrap` dies on a Users health check the web app does not use.
-  // Requiring EVERY --project to be `web` keeps mixed and unfiltered runs
-  // checking. See [[testing]]
+  // invocation, so without it a `--project=web-tokyo` run on a machine that never
+  // ran `make bootstrap` dies on a Users health check the web app does not use.
+  // Requiring EVERY --project to be a web project (the list lives in
+  // web-projects.ts) keeps mixed and unfiltered runs checking. See [[testing]]
   const selectedProjects = process.argv
     .flatMap((arg, i) =>
       arg === "--project" ? [process.argv[i + 1]] : arg.startsWith("--project=") ? [arg.slice("--project=".length)] : [],
     )
     .filter((name): name is string => Boolean(name));
 
-  if (selectedProjects.length > 0 && selectedProjects.every((name) => name === "web")) {
+  if (selectedProjects.length > 0 && selectedProjects.every(isWebProject)) {
     console.log(
-      "[global-setup] Only the `web` project is selected — skipping the service health checks. " +
-        "It renders fixtures and needs no backend, just the dev server (`pnpm web:dev`).",
+      `[global-setup] Only web projects are selected (${WEB_PROJECT_NAMES.join(", ")}) — skipping ` +
+        "the service health checks. They render fixtures and need no backend, just the dev " +
+        "server (`pnpm web:dev`).",
     );
     return;
   }

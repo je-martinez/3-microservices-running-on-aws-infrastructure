@@ -170,3 +170,85 @@ test("the known-missing logo asset is still missing (delete the allowance when i
       "and assert on the raw `errors` array again.",
   ).toBe(404);
 });
+
+// CONTRACT: These strings are HARDCODED, never computed from `format-date.ts`.
+// An expectation derived from the code under test reimplements the bug it exists
+// to catch — a helper regressed to viewer-local rendering would produce a
+// matching expectation and pass. See [[testing]]
+
+// CONTRACT: This file runs under TWO non-UTC timezones (`web-projects.ts`) and
+// the same literal must hold in both. Local-time rendering read `10:24 am` at
+// UTC and `4:24 am` at UTC-6, and this suite passed throughout. See [[testing]]
+
+/**
+ * The year asymmetry below is the DESIGN, verified against the Pencil exports:
+ * the order timeline carries it (`Aug 15, 2026 · 6:22 pm`), notifications do not
+ * (`Aug 12 · 2:30 pm`). "Fixing" one to match the other breaks a frame.
+ */
+const DATE_SURFACES = [
+  {
+    name: "orders list — order card",
+    path: "/orders",
+    // `ord_3kLpQx8vRn`, createdAt 2026-08-15T18:22:41Z, one line.
+    text: "Placed Aug 15, 2026 · 1 item",
+  },
+  {
+    name: "order detail — tracking timeline",
+    // Its tracking history has the single PLACED step, at the same instant.
+    path: "/orders/ord_3kLpQx8vRn",
+    text: "Aug 15, 2026 · 6:22 pm",
+  },
+  {
+    name: "profile — member since",
+    path: "/profile",
+    // CURRENT_USER.createdAt 2026-02-11T15:04:22Z. Month granularity: verified
+    // to survive a local-time regression in BOTH zones, so this row asserts the
+    // label's shape, not the normalisation. The other three carry that.
+    text: "Member since Feb 2026",
+  },
+] as const;
+
+for (const surface of DATE_SURFACES) {
+  test(`${surface.name} renders its date in UTC`, async ({ page }) => {
+    await page.goto(surface.path);
+
+    await expect(
+      page.getByText(surface.text, { exact: true }).first(),
+      `"${surface.text}" not rendered on ${surface.path}. If the text is present but the ` +
+        "time differs, formatting has regressed to the viewer's local zone — check that " +
+        "apps/web/src/app/shared/date/format-date.ts still normalises to UTC. If the DATE " +
+        "differs, a fixture instant changed and this literal needs updating with it.",
+    ).toBeVisible();
+  });
+}
+
+/**
+ * The notifications panel is an OVERLAY over `/`, not a route: its frames wrap a
+ * Page plus the panel, so it has no URL to `goto`. It is opened here through the
+ * real header control the app binds `notificationsClicked` to — asserting
+ * against a panel forced open another way would not prove it is reachable.
+ */
+test("notifications panel renders its date in UTC", async ({ page }) => {
+  await page.goto("/");
+
+  const panel = page.getByRole("heading", { level: 2, name: /notifications/i });
+  await expect(panel, "the panel is visible before anything opened it").toBeHidden();
+
+  // The bell: the header's buttons carry no accessible name, so it is located by
+  // the lucide icon it renders rather than by role+name.
+  await page.locator("header button").filter({ has: page.locator("svg.lucide-bell") }).click();
+
+  await expect(
+    panel,
+    "the notifications panel did not open — AppHeader's bell emits notificationsClicked, " +
+      "bound in home.ts, and Shell renders the panel on overlay.active() === 'notifications'",
+  ).toBeVisible();
+
+  // Unread is the default tab; this is `ntf_9kDpXmR3vL`, createdAt
+  // 2026-08-12T14:30:05Z. No year, unlike the order timeline above.
+  await expect(
+    page.getByText("Aug 12 · 2:30 pm", { exact: true }),
+    'the panel is open but "Aug 12 · 2:30 pm" is not in it — a differing TIME means ' +
+      "formatShortDateTime has regressed to the viewer's local zone",
+  ).toBeVisible();
+});

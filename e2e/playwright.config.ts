@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import dotenv from "dotenv";
 import { defineConfig } from "@playwright/test";
+import { WEB_TIMEZONES } from "./support/web-projects";
 
 // Load the GENERATED env files (written by `make env-file`) so API_GATEWAY_URL,
 // the Cognito ids, and the service ports are available to every project +
@@ -235,14 +236,23 @@ export default defineConfig({
       // internal ones carry their own base URLs through api-client.ts.
       use: { baseURL: process.env.API_GATEWAY_URL },
     },
-    {
-      // Phase-1 web verification: every route mounts and renders clean. This is
-      // the one project needing NO BACKEND — the app renders fixtures and makes
-      // no gateway call — but it does need `pnpm web:dev` on WEB_BASE_URL. That
-      // asymmetry is why global-setup skips health checks for a web-only run.
-      name: "web",
+    // Phase-1 web verification: every route mounts and renders clean, and every
+    // rendered date reads the same in both zones. These are the only projects
+    // needing NO BACKEND — the app renders fixtures and makes no gateway call —
+    // but they do need `pnpm web:dev` on WEB_BASE_URL. That asymmetry is why
+    // global-setup skips health checks for a web-only run.
+    //
+    // CONTRACT: One project per entry in WEB_TIMEZONES, and `web-projects.ts`
+    // is the single list — global-setup reads it to decide whether to skip the
+    // health checks. Adding a zone here only, or renaming one, silently makes a
+    // web-only run demand a backend it never touches. See [[testing]]
+    ...Object.entries(WEB_TIMEZONES).map(([name, timezoneId]) => ({
+      name,
       testDir: "./tests/web",
-      use: { baseURL: process.env.WEB_BASE_URL ?? "http://localhost:4200" },
-    },
+      use: {
+        baseURL: process.env.WEB_BASE_URL ?? "http://localhost:4200",
+        timezoneId,
+      },
+    })),
   ],
 });
