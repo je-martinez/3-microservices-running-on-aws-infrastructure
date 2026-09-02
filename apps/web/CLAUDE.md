@@ -179,6 +179,10 @@ apps/web/
 - Scripting language: [../../docs/shared/conventions/scripting-language.md](../../docs/shared/conventions/scripting-language.md) → [[scripting-language]]
 - Git workflow & commit conventions: [../../docs/shared/conventions/git-workflow.md](../../docs/shared/conventions/git-workflow.md) → [[git-workflow]]
 - Logging & tracing (applies once this app makes real HTTP calls in phase 2): [../../docs/shared/conventions/logging-context.md](../../docs/shared/conventions/logging-context.md) → [[logging-context]]
+- Code comments (five tags, ≤6 lines untagged, >12 a hard error): [../../docs/shared/conventions/code-comments.md](../../docs/shared/conventions/code-comments.md) → [[code-comments]]
+  - Enforced on this app's `.ts` by `scripts/validate-comments.py` (pre-commit hook). Angular
+    `.html` templates are **not** scanned — `LANG_BY_SUFFIX` has no `.html` entry — so template
+    comments are held to the same rule by review alone.
 
 ## 5. Other hard-won facts from building this app
 

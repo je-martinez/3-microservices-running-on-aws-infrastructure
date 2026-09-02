@@ -189,6 +189,13 @@ rationale; this step only states the two rules that follow from it.
 - Standalone Angular component, `input()`/`output()` signals (never `@Input()` /
   `@Output()` decorators) — see `apps/web/CLAUDE.md` §3 for the folder convention
   and `apps/web/DESIGN.md`'s component table for the target path.
+- **Comments follow [[code-comments]]:** one of five tags (`CONTRACT:`,
+  `WORKAROUND(<scope>):`, `WHY:`, `WARNING:`, `TODO(JE-<id>):`), ≤6 lines
+  untagged, >12 a hard error, present tense only. Do **not** carry the export's
+  `data-pencil-name` provenance or the frame's history into a comment — the
+  frame id belongs in the commit message or a vault note, not in the source. A
+  translation decision worth recording (a token that had no design equivalent,
+  a deliberate structural departure) is a `WHY:` of one or two lines.
 - If the frame is a variant sheet (e.g. `Status Badge — States`,
   `Tracking Status — Icons`) rather than a component itself, it documents the
   states of another component — build the state-driven component, not a second one
@@ -256,6 +263,8 @@ rationale; this step only states the two rules that follow from it.
 - [[angular-component-authoring]] — the two component-authoring rules Step 6
   applies (`.html` templates via `templateUrl`, `rem` not `px`), with the
   conversion arithmetic, both exceptions, and the measured current-state gap.
+- [[code-comments]] — the comment rules Step 6 applies to the component it
+  writes: the five tags, the length gate, and present-tense-only.
 - `apps/web/DESIGN.md` — current state of the design system this procedure
   produces: full token table, component → path mapping, route table, asset table.
 - `apps/web/CLAUDE.md` — app stack, the tokens golden rule and its Tailwind v4

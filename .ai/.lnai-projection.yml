@@ -244,6 +244,18 @@ skills:
   json-canvas: exclude
   defuddle: exclude
 
+  # Added 2026-09-02. Same class as the Obsidian ones, and another instance of
+  # the JE-194 silent skip: it had no entry, so it reached nobody and nothing
+  # failed. Excluded on tooling, not on topic — every step runs over the Pencil
+  # MCP server, and `.cursor/mcp.json` carries only drawio and apidog, so no
+  # other provider can reach it. `.pen` files are encrypted and unreadable with
+  # Read or Grep, so a provider given this procedure could not execute a single
+  # step. Of the portable half, only the comment rules travel today, via the
+  # code-comments rule; the templateUrl/rem-not-px pair does NOT reach any
+  # provider yet — angular-component-authoring has no entry under `rules:`.
+  # Worth adding when apps/web stops being Claude-only work.
+  pencil-design-extraction: exclude
+
   # ---------------------------------------------------------------------------
   # Added 2026-08-25 (JE-194). These 17 had no entry at all, which meant they
   # reached no provider AND nothing failed — the silent-skip failure mode the
@@ -499,6 +511,11 @@ subagents:
   # Added 2026-08-13. Sixth code-only implementer; same shape as the others —
   # writes only test/simulation code, never git, never Linear.
   e2e-impl: role
+
+  # Added 2026-09-02. Seventh code-only implementer (apps/web, Angular). Absent
+  # from this map until now, so lnai skipped it silently and every sync left the
+  # providers with six implementers instead of seven.
+  web-impl: role
 
   # Single writers. Projecting these as "available roles" would invite an agent
   # to believe it may write to Linear or docs/ itself. They become prohibitions.

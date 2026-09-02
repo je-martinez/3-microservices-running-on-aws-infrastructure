@@ -45,6 +45,16 @@ specialist: your stack and conventions are **not** in this file — they live in
 - **No `px` in component Tailwind classes — use `rem`** (divide by 16). Exception:
   borders/hairlines stay `px`. Full rules, conversion table, and rationale:
   `docs/shared/conventions/angular-component-authoring.md` → [[angular-component-authoring]].
+- **Comments carry the invariant and a pointer, never the story.** Every
+  non-trivial block opens with one of five tags — `CONTRACT:`,
+  `WORKAROUND(<scope>):`, `WHY:`, `WARNING:`, `TODO(JE-<id>):` — and a
+  `CONTRACT:`/`WORKAROUND(...)` states the prohibition *and* one concrete
+  failure symptom inline, plus `See [[bare-basename]]` where a vault note
+  exists. Untagged blocks stay ≤6 lines; over 12 is a hard error. Describe the
+  code as it is now — no `used to` / `previously` / `the fix was`. Report a
+  costly debugging discovery as a **lesson candidate** in your handoff instead
+  of narrating it in the source. Full convention:
+  `docs/shared/conventions/code-comments.md` → [[code-comments]].
 - Stay within the single task you were handed (YAGNI).
 
 ## How to operate
