@@ -17,9 +17,12 @@ import { NotificationItem } from '../../shared/ui/notification-item';
  * CONTRACT: The animation binds on the HOST, not the panel div. Shell removes
  * this component with `@if`, and Angular runs `animate.leave` only on the
  * removed element or a descendant of the SAME template — a binding on the
- * inner div is another template and never fires, leaving the close
- * unanimated. `block` makes the host a transform target.
- * See [[angular-component-authoring]]
+ * inner div is another template and never fires, leaving the close unanimated.
+ *
+ * CONTRACT: Do NOT give the host a `transform`; the popover keyframes slide the
+ * panel via a `.popover-* > *` rule instead. A transformed host becomes the
+ * containing block for this `fixed` panel, and the document grows to reach it —
+ * the scrollbar thumb visibly resizes on every open. See [[angular-component-authoring]]
  */
 @Component({
   selector: 'app-notifications-panel',

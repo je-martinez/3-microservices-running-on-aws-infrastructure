@@ -227,30 +227,59 @@ app-app-header {
  * styles carry an attribute selector the host does not match, and the rule
  * silently never applies. See [[angular-component-authoring]] */
 
+/* CONTRACT: The HOST animates opacity ONLY — never `transform`. A transformed
+ * element becomes the containing block for its `position: fixed` descendants,
+ * so a transform here re-anchors each panel from the viewport to this in-flow
+ * host and the document grows by the host's offset: measured 1085 -> 1558px on
+ * `/`, visible as the scrollbar thumb shrinking every time a popover opens.
+ * The slide lives on the panel below, which is itself `fixed` and so cannot
+ * lengthen the document. See [[angular-component-authoring]] */
+
 /* WHY: A quarter-rem slide, not a longer one — the panel should read as having
  * come from the control that opened it, not as an object travelling across the
  * screen. Out (120ms) is faster than in (150ms): a dismissal should feel like
  * it already happened, while an opening can afford to accompany the eye. */
-@keyframes popover-in {
+@keyframes popover-fade-in {
   from {
     opacity: 0;
+  }
+}
+
+@keyframes popover-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes popover-slide-in {
+  from {
     transform: translateY(-0.25rem);
   }
 }
 
-@keyframes popover-out {
+@keyframes popover-slide-out {
   to {
-    opacity: 0;
     transform: translateY(-0.25rem);
   }
 }
 
 .popover-enter {
-  animation: 150ms ease-out both popover-in;
+  animation: 150ms ease-out both popover-fade-in;
 }
 
 .popover-leave {
-  animation: 120ms ease-in both popover-out;
+  animation: 120ms ease-in both popover-fade-out;
+}
+
+/* CONTRACT: Keep these durations equal to the host's above. Angular ends the
+ * leave on the HOST's own `animationend` (a child's is filtered out by target),
+ * so a longer slide here is cut off mid-motion when the node is removed. */
+.popover-enter > * {
+  animation: 150ms ease-out both popover-slide-in;
+}
+
+.popover-leave > * {
+  animation: 120ms ease-in both popover-slide-out;
 }
 
 /* WARNING: Reduced motion is a medical setting (vestibular disorders, migraine),
@@ -259,7 +288,9 @@ app-app-header {
  * instant; dropping it entirely would strand the node in the DOM forever. */
 @media (prefers-reduced-motion: reduce) {
   .popover-enter,
-  .popover-leave {
+  .popover-leave,
+  .popover-enter > *,
+  .popover-leave > * {
     animation-duration: 1ms;
   }
 }

@@ -23,6 +23,14 @@ import { CURRENT_USER } from '../../fixtures/user.fixture';
  * scrim with the sheet, which two bindings would let drift apart.
  * See [[angular-component-authoring]]
  */
+
+/**
+ * CONTRACT: Do NOT give the host a `transform`; the popover keyframes slide the
+ * root divs via a `.popover-* > *` rule instead. A transformed host becomes the
+ * containing block for these `fixed` layers, growing the document to reach it —
+ * the scrollbar thumb visibly resizes on every open.
+ * See [[angular-component-authoring]]
+ */
 @Component({
   selector: 'app-account-menu',
   imports: [LucideLogOut, LucidePackage, LucideUser],
