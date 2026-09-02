@@ -145,6 +145,16 @@
   --spacing-header-offset: 5.375rem; /* 86px — sticky offset below header */
 }
 
+/* WHY: Reserve the scrollbar's gutter on every route, whether or not that route
+ * overflows. `/profile` fits 1440x900 exactly and `/orders` does not, so without
+ * this the classic scrollbar appears on navigation and narrows the page from
+ * 1440 to 1425 — the header, the content and the right-anchored popovers all
+ * jump 15px sideways mid view-transition. The gutter is browser-computed, which
+ * is why no width is hardcoded here. See [[angular-component-authoring]] */
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   background-color: var(--color-surface-body);
   color: var(--color-ink-primary);

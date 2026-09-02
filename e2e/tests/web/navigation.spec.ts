@@ -324,12 +324,12 @@ test("a router navigation transitions, a direct load does not", async ({ page })
 });
 
 /**
- * CONTRACT: The app header spans the full viewport width.
- * `app-app-header` is a custom element, so it defaults to display:inline and
- * shrinks to its content — the inner header's `w-full` then resolves against
- * that shrunken width and the bar stops short of the edge. The component sets
- * `host: { class: 'block w-full' }`; dropping it renders a 667px bar on a
- * 1440px viewport. See [[angular-component-authoring]]
+ * CONTRACT: The app header spans the full CONTENT width, measured against
+ * `body` — never a hardcoded 1440. `scrollbar-gutter: stable` makes the content
+ * box the viewport minus the reserved gutter (1425 of 1440 with classic
+ * scrollbars, 1440 with overlay ones), so a literal fails against a correct
+ * header. A collapsed host renders a 667px bar.
+ * See [[angular-component-authoring]]
  */
 for (const route of ["/", "/orders", "/profile", "/checkout"] as const) {
   test(`the app header spans the viewport on ${route}`, async ({ page }) => {
@@ -338,10 +338,12 @@ for (const route of ["/", "/orders", "/profile", "/checkout"] as const) {
 
     const header = await page.locator("app-app-header header").boundingBox();
     expect(header, `no app header rendered on ${route}`).not.toBeNull();
+
+    const contentWidth = await page.evaluate(() => document.body.getBoundingClientRect().width);
     expect(
-      Math.abs(1440 - header!.width),
-      `the header is ${header!.width.toFixed(0)}px wide on a 1440px viewport — ` +
-        "the host has collapsed to its content instead of filling the page",
+      Math.abs(contentWidth - header!.width),
+      `the header is ${header!.width.toFixed(0)}px wide inside a ${contentWidth.toFixed(0)}px ` +
+        "content box — the host has collapsed to its content instead of filling the page",
     ).toBeLessThan(2);
   });
 }
