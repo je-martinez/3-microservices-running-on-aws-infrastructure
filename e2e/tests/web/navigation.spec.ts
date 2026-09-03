@@ -673,3 +673,57 @@ test("the reset screen states the backend's real code length and expiry", async 
     "the expiry here must match RESET_CODE_TTL_SECONDS (600s) in the same file",
   ).toBeVisible();
 });
+
+/**
+ * CONTRACT: In-app links use `routerLink`, never `href`. An `href` does a full
+ * browser navigation: the SPA reboots and the view transition never runs, which
+ * is what "Back to cart" did. The probe survives only a router navigation — a
+ * reload wipes it, so `undefined` IS the failure.
+ * See [[angular-component-authoring]]
+ */
+test("in-app links navigate through the router, not by reloading", async ({ page }) => {
+  await page.goto("/checkout");
+  await expect(page.getByText(/back to cart/i)).toBeVisible();
+
+  await page.evaluate(() => {
+    (window as unknown as { __routed?: boolean }).__routed = true;
+  });
+
+  await page.getByText(/back to cart/i).click();
+  await expect(page).toHaveURL(/\/$/);
+
+  const survived = await page.evaluate(
+    () => (window as unknown as { __routed?: boolean }).__routed,
+  );
+  expect(
+    survived,
+    "'Back to cart' reloaded the page instead of routing — it is probably an `href` " +
+      "rather than a `routerLink`, so the view transition never runs",
+  ).toBe(true);
+});
+
+/**
+ * CONTRACT: Keeps the rule above enforceable across the whole app, not just the
+ * one link that regressed. A new `href="/…"` is the same defect wherever it lands.
+ * See [[angular-component-authoring]]
+ */
+test("no template ships an internal href", async () => {
+  const { readdirSync, readFileSync, statSync } = await import("node:fs");
+  const { join } = await import("node:path");
+
+  const walk = (dir: string): string[] =>
+    readdirSync(dir).flatMap((entry) => {
+      const full = join(dir, entry);
+      return statSync(full).isDirectory() ? walk(full) : full.endsWith(".html") ? [full] : [];
+    });
+
+  const offenders = walk(join(process.cwd(), "..", "apps", "web", "src", "app"))
+    .filter((file) => /href="(?:\/|#)/.test(readFileSync(file, "utf8")))
+    .map((file) => file.replace(/.*apps\/web\//, "apps/web/"));
+
+  expect(
+    offenders,
+    "these templates use href for in-app navigation; use routerLink so the router " +
+      "handles it and the view transition runs",
+  ).toEqual([]);
+});
