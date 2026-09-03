@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-08-19
-updated: 2026-08-19
+updated: 2026-09-03
 tags:
   - type/convention
   - area/shared
@@ -12,6 +12,7 @@ tags:
 related:
   - "[[pencil-design-extraction]]"
   - "[[2026-08-17-web-app-foundation-design]]"
+  - "[[2026-09-03-unstyled-custom-element-host-is-inline]]"
 ---
 
 # Angular Component Authoring
@@ -94,6 +95,27 @@ The concrete rule:
 - The two metric tokens in `styles.css` (`--radius-md: 10px`, `--spacing-field: 56px`) should
   be expressed as `0.625rem` and `3.5rem` respectively.
 
+## Rule 3 — a component whose template fills its parent needs `host: { class: 'block w-full' }`
+
+An Angular custom element defaults to `display: inline` when unstyled — the same as `<span>` —
+so it shrink-wraps to its content and ignores width/height rules applied *inside* its template.
+If a component's template root uses `w-full` (or `h-full`) expecting to fill the space its
+caller gives it, that expectation silently fails as a flex/grid item unless the component
+itself declares a block-level host:
+
+```ts
+@Component({
+  // ...
+  host: { class: 'block w-full' },
+})
+```
+
+Put this on the **component**, not at each call site — a call site added later has no way to
+know the component needs it, so the fix must travel with the component. This hit `app-header`,
+`app-cart-line`, and `app-field` before landing here; full incident detail, the measured
+evidence, and why it reads as a content-alignment bug rather than a sizing bug:
+[[2026-09-03-unstyled-custom-element-host-is-inline]].
+
 ## Where this bites — the extraction workflow, not just the component
 
 The Pencil `html-tailwind` export emits fixed `px` for every value and has no `.html`/`.ts`
@@ -116,3 +138,6 @@ colours — and it was the half that got missed when the app was first built.
 - `apps/web/CLAUDE.md` — the app's stack, the tokens golden rule (§2a), and the `${{ }}`
   template gotcha this note's Rule 1 references.
 - [[2026-08-17-web-app-foundation-design]] — the design spec `apps/web/` was built from.
+- [[2026-09-03-unstyled-custom-element-host-is-inline]] — the lesson behind Rule 3: the
+  incident detail, measured evidence, and why the bug reads as content misalignment rather
+  than a sizing defect.
