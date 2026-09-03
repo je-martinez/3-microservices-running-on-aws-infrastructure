@@ -1,5 +1,5 @@
 import { Component, computed, input, output } from '@angular/core';
-import { LucidePlus } from '@lucide/angular';
+import { LucideImageOff, LucidePlus } from '@lucide/angular';
 import { formatCents, type Product, toInt } from '../../fixtures/api-types';
 
 /**
@@ -13,7 +13,7 @@ import { formatCents, type Product, toInt } from '../../fixtures/api-types';
  */
 @Component({
   selector: 'app-product-card',
-  imports: [LucidePlus],
+  imports: [LucideImageOff, LucidePlus],
   templateUrl: './product-card.html',
 })
 export class ProductCard {

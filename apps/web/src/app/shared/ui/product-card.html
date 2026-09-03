@@ -6,8 +6,15 @@
       class="h-75 w-full shrink-0 rounded-md object-cover"
     />
   } @else {
-    <!-- The design has no artwork for this state; a token surface stands in. -->
-    <div class="bg-surface-subtle h-75 w-full shrink-0 rounded-md"></div>
+    <!-- WHY: The design has no frame for a product without artwork. A bare
+         surface reads as a failed image load beside cards that do have one, so
+         the state is labelled rather than left blank. -->
+    <div
+      class="bg-surface-subtle flex h-75 w-full shrink-0 flex-col items-center justify-center gap-sm rounded-md"
+    >
+      <svg lucideImageOff class="text-ink-muted h-icon-lg w-icon-lg"></svg>
+      <span class="text-ink-muted text-body-sm">No image</span>
+    </div>
   }
   <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-xs">
     @if (category(); as categoryLabel) {

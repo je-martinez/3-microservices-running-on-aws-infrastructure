@@ -602,3 +602,18 @@ for (const width of [414, 390, 375] as const) {
     }
   });
 }
+
+/**
+ * CONTRACT: A product with no image gets a LABELLED placeholder, not a bare
+ * surface. `catalogue.fixture.ts` keeps one `image: null` row on purpose; an
+ * unlabelled box reads as a failed load beside cards that do have artwork.
+ * See [[angular-component-authoring]]
+ */
+test("a product without artwork says so", async ({ page }) => {
+  await page.goto("/");
+
+  const card = page.locator("app-product-card").filter({ hasText: "Basalt Ceramic Mug" });
+  await expect(card).toBeVisible();
+  await expect(card.locator("img")).toHaveCount(0);
+  await expect(card, "the no-image card renders an unlabelled box").toContainText("No image");
+});
