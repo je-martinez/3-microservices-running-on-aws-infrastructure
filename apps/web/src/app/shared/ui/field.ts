@@ -11,6 +11,11 @@ import { LucideDynamicIcon } from '@lucide/angular';
   selector: 'app-field',
   imports: [LucideDynamicIcon],
   templateUrl: './field.html',
+  // CONTRACT: Keep `block w-full` on the host. A bare custom element is
+  // display:inline and shrinks to its content as a flex item, so the template's
+  // `w-full` resolves against that instead of the row — profile's Address field
+  // rendered 304px inside a 760px card. See [[angular-component-authoring]]
+  host: { class: 'block w-full' },
 })
 export class Field {
   readonly label = input.required<string>();

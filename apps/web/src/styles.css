@@ -307,3 +307,72 @@ app-app-header {
     animation-duration: 1ms;
   }
 }
+
+/* ─── Cart drawer + scrim enter/leave ────────────────────────────────────── */
+
+/* CONTRACT: Same three rules as the popovers above, for the same reasons: these
+ * classes live GLOBALLY because HomePage/Shell apply them to a host from outside
+ * the component; the HOST animates opacity ONLY, never `transform`, or it becomes
+ * the containing block for its `fixed` panel and the document grows mid-animation
+ * (the scrollbar thumb visibly resizes); and the panel's slide below MUST NOT
+ * outlast the host's fade, since Angular ends the leave on the host's own
+ * `animationend`. See [[angular-component-authoring]] */
+
+/* WHY: A drawer is a side panel, so it slides along the edge it is anchored to
+ * rather than dropping like the popovers. 1.5rem, not the full panel width — the
+ * motion should say "this came from the right", not replay the whole journey.
+ * Out (140ms) stays faster than in (180ms), matching the popovers' logic that a
+ * dismissal should feel already done. Both are a touch slower than the popovers'
+ * 150/120 because the drawer is a much larger surface. */
+@keyframes drawer-slide-in {
+  from {
+    transform: translateX(1.5rem);
+  }
+}
+
+@keyframes drawer-slide-out {
+  to {
+    transform: translateX(1.5rem);
+  }
+}
+
+.drawer-enter {
+  animation: 180ms ease-out both popover-fade-in;
+}
+
+.drawer-leave {
+  animation: 140ms ease-in both popover-fade-out;
+}
+
+.drawer-enter > * {
+  animation: 180ms ease-out both drawer-slide-in;
+}
+
+.drawer-leave > * {
+  animation: 140ms ease-in both drawer-slide-out;
+}
+
+/* WHY: The scrim fades on the drawer's own timings. It mounts in Shell while the
+ * drawer mounts in HomePage, so without this the backdrop vanishes instantly
+ * while the panel is still sliding — the one frame that reads as a glitch. */
+.scrim-enter {
+  animation: 180ms ease-out both popover-fade-in;
+}
+
+.scrim-leave {
+  animation: 140ms ease-in both popover-fade-out;
+}
+
+/* WARNING: Reduced motion is a medical setting, not a taste preference. Kept at
+ * 1ms rather than 0s: Angular removes the leaving node on `animationend`, which
+ * a zero-duration animation may never emit, stranding the drawer in the DOM. */
+@media (prefers-reduced-motion: reduce) {
+  .drawer-enter,
+  .drawer-leave,
+  .drawer-enter > *,
+  .drawer-leave > *,
+  .scrim-enter,
+  .scrim-leave {
+    animation-duration: 1ms;
+  }
+}

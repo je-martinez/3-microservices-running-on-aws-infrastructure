@@ -16,6 +16,12 @@ import { formatCents, type Product, toInt } from '../../fixtures/api-types';
   selector: 'app-cart-line',
   imports: [LucideMinus, LucidePlus],
   templateUrl: './cart-line.html',
+  // CONTRACT: Keep `block w-full` on the host. A bare custom element is
+  // display:inline, so as a flex item under `items-start` it shrinks to its own
+  // text and the template's `w-full` resolves against that: each line gets a
+  // different width and the prices stop sharing a right edge, worst on the
+  // widest one ($149.00 juts past its neighbours). See [[angular-component-authoring]]
+  host: { class: 'block w-full' },
 })
 export class CartLine {
   readonly product = input.required<Product>();

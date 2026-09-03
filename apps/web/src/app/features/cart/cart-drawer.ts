@@ -27,6 +27,16 @@ import { CartLine } from '../../shared/ui/cart-line';
  * underneath the scrim meant to sit behind it.
  * See [[angular-component-authoring]]
  */
+
+/**
+ * CONTRACT: The animation binds on the HOST, not the `<aside>`. HomePage removes
+ * this with `@if`, and `animate.leave` runs only on the removed element or a
+ * descendant of the SAME template — a binding on the panel never fires.
+ *
+ * CONTRACT: Do NOT give the host a `transform`; `.drawer-enter > *` slides the
+ * `fixed` panel instead. A transformed host becomes that panel's containing
+ * block, re-anchoring it out of the viewport. See [[angular-component-authoring]]
+ */
 @Component({
   selector: 'app-cart-drawer',
   imports: [
@@ -41,6 +51,11 @@ import { CartLine } from '../../shared/ui/cart-line';
     LucideX,
   ],
   templateUrl: './cart-drawer.html',
+  host: {
+    'class': 'block',
+    'animate.enter': 'drawer-enter',
+    'animate.leave': 'drawer-leave',
+  },
 })
 export class CartDrawer {
   readonly address = input<Address | null>(null);
