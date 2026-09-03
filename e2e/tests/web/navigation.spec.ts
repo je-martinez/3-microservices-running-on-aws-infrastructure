@@ -652,3 +652,24 @@ test("a product without artwork says so", async ({ page }) => {
   await expect(card.locator("img")).toHaveCount(0);
   await expect(card, "the no-image card renders an unlabelled box").toContainText("No image");
 });
+
+/**
+ * CONTRACT: These two numbers are the Users service's, not copy. `reset-code.ts`
+ * sets RESET_CODE_TTL_SECONDS=600 and RESET_CODE_LENGTH=6; the 202 from
+ * POST /v1/users/password/forgot carries neither, so nothing checks them at
+ * runtime and a backend change would leave this screen quietly lying.
+ * See [[users-openapi]]
+ */
+test("the reset screen states the backend's real code length and expiry", async ({ page }) => {
+  await page.goto("/password/reset");
+
+  await expect(
+    page.getByText(/6-digit code/i),
+    "the code length here must match RESET_CODE_LENGTH in services/users/src/shared/auth/reset-code.ts",
+  ).toBeVisible();
+
+  await expect(
+    page.getByText(/expires 10 minutes after it is sent/i),
+    "the expiry here must match RESET_CODE_TTL_SECONDS (600s) in the same file",
+  ).toBeVisible();
+});
