@@ -14,6 +14,7 @@ related:
   - "[[angular-component-authoring]]"
   - "[[2026-08-17-web-app-foundation-design]]"
   - "[[pencil-design-extraction]]"
+  - "[[2026-09-03-cart-drawer-scrim-lead-flicker]]"
 ---
 
 # Unstyled Angular custom elements default to display:inline, collapsing w-full template roots
@@ -105,3 +106,6 @@ file B. The rule has to live somewhere read *before* writing a new component, wh
 - [[pencil-design-extraction]] — the extraction workflow that produces these components from
   Pencil frames; relevant because the misdiagnosis path (frames look right, alignment classes
   look right) starts from its output looking correct on inspection.
+- [[2026-09-03-cart-drawer-scrim-lead-flicker]] — a sibling lesson from the same milestone: a
+  different cart-drawer animation defect that also presented one level away from its real
+  cause (CSS cascade order, not component mount timing).

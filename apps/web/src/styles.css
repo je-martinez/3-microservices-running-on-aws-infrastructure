@@ -357,9 +357,17 @@ app-app-header {
  * the host leaves the slide a fifth of the way in, which is the flicker itself.
  * `DeferEnterAnimation` clears the attribute once the first frame has been
  * presented. See [[cart-drawer-first-open-flicker]] */
+
+/* CONTRACT: `!important`, because every enter class sets the `animation`
+ * SHORTHAND, which resets `animation-play-state` to `running`. Without it this
+ * rule binds only on classes declared ABOVE it: `.scrim-enter` sits below and
+ * un-paused itself, so the backdrop led the panel by a frame the whole way and
+ * darkened before the white panel covered it — the flicker. Ordering is not a
+ * fix; the next enter class added below reintroduces it silently.
+ * See [[2026-09-03-cart-drawer-scrim-lead-flicker]] */
 [data-deferred-enter],
 [data-deferred-enter] > * {
-  animation-play-state: paused;
+  animation-play-state: paused !important;
 }
 
 /* WHY: The scrim fades on the drawer's own timings. It mounts in Shell while the

@@ -13,6 +13,7 @@ related:
   - "[[pencil-design-extraction]]"
   - "[[2026-08-17-web-app-foundation-design]]"
   - "[[2026-09-03-unstyled-custom-element-host-is-inline]]"
+  - "[[2026-09-03-cart-drawer-scrim-lead-flicker]]"
 ---
 
 # Angular Component Authoring
@@ -141,3 +142,8 @@ colours — and it was the half that got missed when the app was first built.
 - [[2026-09-03-unstyled-custom-element-host-is-inline]] — the lesson behind Rule 3: the
   incident detail, measured evidence, and why the bug reads as content misalignment rather
   than a sizing defect.
+- [[2026-09-03-cart-drawer-scrim-lead-flicker]] — a lesson from the shared enter/leave
+  animation classes in `styles.css` (the ones this app's components apply from outside, per
+  `[data-deferred-enter]`): the `animation` shorthand resets `animation-play-state`, so a pause
+  rule's effect on same-specificity selectors depends on declaration order unless it uses
+  `!important`.
