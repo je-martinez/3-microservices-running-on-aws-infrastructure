@@ -3,13 +3,16 @@
     class="h-9 w-9 shrink-0 rounded-lg bg-surface-white bg-contain bg-center bg-no-repeat"
     style="background-image: url('/img/standalone-logo.png')"
   ></span>
-  <span class="inline-flex w-fit items-center gap-px">
+  <span
+    class="inline-flex w-fit items-center gap-px"
+    [class]="hideWordmarkOnTiny() ? 'max-[22.5rem]:hidden' : ''"
+  >
     <span
-      class="text-title font-extrabold tracking-[-0.3px] whitespace-nowrap"
+      class="text-title font-extrabold tracking-[-0.01875rem] whitespace-nowrap"
       [class]="onDark() ? 'text-surface-white' : 'text-brand-navy'"
       >3M</span
     >
-    <span class="text-brand-orange text-title font-extrabold tracking-[-0.3px] whitespace-nowrap"
+    <span class="text-brand-orange text-title font-extrabold tracking-[-0.01875rem] whitespace-nowrap"
       >RAI</span
     >
   </span>

@@ -13,4 +13,11 @@ import { Component, input } from '@angular/core';
 export class LogoLockup {
   /** True on the navy Brand Panel / Mobile Brand Header instances. */
   readonly onDark = input(false);
+
+  /**
+   * Drops the wordmark below 360px, keeping the mark. Opt-in because only the
+   * app header is width-contended there — the auth brand panels own the whole
+   * viewport and keep the full lockup.
+   */
+  readonly hideWordmarkOnTiny = input(false);
 }

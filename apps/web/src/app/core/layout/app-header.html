@@ -1,11 +1,19 @@
 <header
   class="border-line bg-surface-white flex h-15 w-full items-center justify-between border-b px-5 md:h-19 md:px-12"
 >
-  <div class="flex items-center gap-10">
-    <app-logo-lockup />
+  <!--
+    CONTRACT: The logo group stays `min-w-0` and the lockup's wordmark hides below
+    360px. The design's narrowest frame is 390px (`Mobile App Header`), where the
+    20px padding, the 107px lockup and the 219px control group leave 15px of slack;
+    at 320px the same row needs 366px and pushes the cart button 27px past the
+    viewport edge, clipping it. Nothing in the control group is decorative, so the
+    wordmark is what yields. See [[angular-component-authoring]]
+  -->
+  <div class="flex min-w-0 items-center gap-10">
+    <app-logo-lockup [hideWordmarkOnTiny]="true" />
   </div>
 
-  <div class="flex items-center gap-md md:gap-2xl">
+  <div class="flex shrink-0 items-center gap-md md:gap-2xl">
     <!-- Desktop: full search field. -->
     <div
       class="border-line bg-surface-subtle hidden h-11 w-65 items-center gap-md rounded-md border px-2xl md:flex"
