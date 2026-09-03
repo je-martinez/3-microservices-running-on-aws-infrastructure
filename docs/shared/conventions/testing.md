@@ -4,9 +4,10 @@ type: convention
 area: shared
 status: active
 created: 2026-07-17
-updated: 2026-08-29
+updated: 2026-09-03
 tags: [type/convention, area/shared, status/active]
 related:
+  - "[[2026-09-03-animation-clock-sampling-beats-style-and-class-probes]]"
   - "[[ADR-0010-cognito-auth]]"
   - "[[ADR-0016-local-apigw-nginx-ecs]]"
   - "[[local-dev]]"
@@ -310,6 +311,19 @@ whether the production code under test was correct. When writing a test, ask wha
 fail — if the only thing that can make it fail is changing the test's own fixture or mock
 configuration, it is not testing the system.
 
+## Verifying a browser animation needs the frame clock, not a class or style probe
+
+The three-layer rule above is written for request/response and event-driven surfaces; a browser
+animation defect needs its own probe discipline for the same reason a metric or a WebSocket
+surface did — the obvious way to look at it can pass while the real defect is invisible to it.
+`MutationObserver` on a host's `class` attribute only sees discrete lifecycle events (mount,
+cleanup), not interpolation, and per-frame `getComputedStyle()` reports the animation's
+mathematically-correct value regardless of whether that frame was ever painted — neither can see
+a dropped or delayed frame. Only sampling `Animation.currentTime` inside `requestAnimationFrame`
+(which fires solely for presented frames) exposes a hole where a frame was dropped. See
+[[2026-09-03-animation-clock-sampling-beats-style-and-class-probes]] for the full incident,
+including the same-page-vs-fresh-page measurement pitfall for before/after comparisons.
+
 ## A rejection test is mandatory wherever a credential is verified
 
 **Rule:** any endpoint or flow that verifies a credential (a password, an OTP code, a token, a
@@ -422,3 +436,7 @@ invalidates the catalogue cache.
   catch a requirement that was specified in a brief and never implemented — only a
   requirement that was implemented incorrectly. A specified-but-dropped concurrency guard
   produced a fully green suite.
+- [[2026-09-03-animation-clock-sampling-beats-style-and-class-probes]] — the probe-choice
+  discipline for verifying a browser animation renders smoothly: sample the frame clock
+  (`requestAnimationFrame` + `Animation.currentTime`), not a class mutation or computed style,
+  and compare fresh page loads, not two opens in the same warm session.
