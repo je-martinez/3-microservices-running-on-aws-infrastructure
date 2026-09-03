@@ -352,6 +352,16 @@ app-app-header {
   animation: 140ms ease-in both drawer-slide-out;
 }
 
+/* CONTRACT: Pause the DESCENDANT too, not just the element carrying the
+ * attribute — the host fades while its panel child slides, and resuming only
+ * the host leaves the slide a fifth of the way in, which is the flicker itself.
+ * `DeferEnterAnimation` clears the attribute once the first frame has been
+ * presented. See [[cart-drawer-first-open-flicker]] */
+[data-deferred-enter],
+[data-deferred-enter] > * {
+  animation-play-state: paused;
+}
+
 /* WHY: The scrim fades on the drawer's own timings. It mounts in Shell while the
  * drawer mounts in HomePage, so without this the backdrop vanishes instantly
  * while the panel is still sliding — the one frame that reads as a glitch. */

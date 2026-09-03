@@ -1,5 +1,7 @@
 import { Component, output } from '@angular/core';
 
+import { DeferEnterAnimation } from './defer-enter-animation';
+
 /**
  * The `Scrim` rectangle in the cart frames. Dismisses the overlay on click.
  *
@@ -14,6 +16,7 @@ import { Component, output } from '@angular/core';
   template: `
     <div class="fixed inset-0 z-40 bg-scrim" role="presentation" (click)="dismiss.emit()"></div>
   `,
+  hostDirectives: [DeferEnterAnimation],
   host: {
     'class': 'block',
     'animate.enter': 'scrim-enter',
