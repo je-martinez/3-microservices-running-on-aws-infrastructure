@@ -63,7 +63,7 @@ async function settledLayout(page: Page): Promise<number> {
         // document — `innerWidth - documentElement.clientWidth` is 0 on every
         // route now, which would skip this whole file as "overlay scrollbars".
         const read = () => {
-          const scroller = document.querySelector(".app-scroll");
+          const scroller = document.querySelector<HTMLElement>(".app-scroll");
           return scroller ? scroller.offsetWidth - scroller.clientWidth : 0;
         };
         let previous = read();
