@@ -24,6 +24,7 @@ const ROUTES = [
   { path: "/verify", heading: /check your inbox/i },
   { path: "/register", heading: /create your account/i },
   { path: "/register/passwordless", heading: /sign up with just your email/i },
+  { path: "/password/reset", heading: /reset your password/i },
   { path: "/password/new", heading: /set a new password/i },
   { path: "/checkout", heading: /checkout/i },
   { path: "/orders", heading: /my orders/i },
@@ -85,6 +86,40 @@ test("an unknown route redirects home", async ({ page }) => {
   expect(
     errors,
     `console errors on /no-such-page:\n${errors.join("\n") || "(none captured)"}`,
+  ).toHaveLength(0);
+});
+
+/**
+ * CONTRACT: Click the real link; do NOT `goto` the reset route. The route
+ * mounting and the link REACHING it are independent — this control was an
+ * `href="#"` while `/password/reset` rendered perfectly, and every mount test
+ * above passed against it. An `href="#"` also leaves the URL on `/login` with
+ * only a `#` appended, so the URL assertion is what fails first; the heading
+ * assertion then rules out a route that resolves to a blank screen.
+ * See [[testing]]
+ */
+test("the forgot-password link on /login reaches the reset screen", async ({ page }) => {
+  const errors = collectPageErrors(page);
+
+  await page.goto("/login");
+  await expect(page.getByRole("heading", { level: 1, name: /welcome back/i })).toBeVisible();
+
+  await page.getByRole("link", { name: /forgot password/i }).click();
+
+  await expect(
+    page,
+    "clicking 'Forgot password?' did not navigate — the control is probably still an " +
+      "`href=\"#\"` placeholder, or its routerLink points at a path missing from app.routes.ts",
+  ).toHaveURL(/\/password\/reset$/);
+
+  await expect(
+    page.getByRole("heading", { level: 1, name: /reset your password/i }),
+    "the URL is /password/reset but its <h1> did not render — the route resolves to a blank screen",
+  ).toBeVisible();
+
+  expect(
+    errors,
+    `console errors reaching /password/reset:\n${errors.join("\n") || "(none captured)"}`,
   ).toHaveLength(0);
 });
 

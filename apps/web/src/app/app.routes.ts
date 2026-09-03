@@ -83,6 +83,12 @@ export const routes: Routes = [
         title: 'Create account — 3MRAI',
       },
       {
+        path: 'password/reset',
+        loadComponent: () =>
+          import('./features/auth/reset-password-request').then((m) => m.ResetPasswordRequestPage),
+        title: 'Reset your password — 3MRAI',
+      },
+      {
         path: 'password/new',
         loadComponent: () =>
           import('./features/auth/set-new-password').then((m) => m.SetNewPasswordPage),

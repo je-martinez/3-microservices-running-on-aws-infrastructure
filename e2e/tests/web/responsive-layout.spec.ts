@@ -64,6 +64,78 @@ function overlapWidth(a: Box, b: Box): number {
   return x > 0 && y > 0 ? x : 0;
 }
 
+/**
+ * The reset-password screen's own sweep. Its widths are a superset of the
+ * `lg:` boundary either side (the auth layout swaps the brand rail for the
+ * mobile header at 1024), plus the three phone widths where its longest
+ * unbroken strings — the subtitle and the field help line — are tightest.
+ */
+const RESET_WIDTHS = [320, 375, 390, 768, 1440] as const;
+
+for (const width of RESET_WIDTHS) {
+  /**
+   * CONTRACT: Measure each TEXT LEAF's own `scrollWidth - clientWidth`, not an
+   * ancestor's. A clipped leaf does not grow any container's `scrollWidth`, so
+   * the document-level overflow check below reads clean against a line that is
+   * cut off inside its own box. See [[testing]]
+   */
+  test(`the reset screen clips no text at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: HEIGHT });
+    await page.goto("/password/reset");
+    await expect(
+      page.getByRole("heading", { level: 1, name: /reset your password/i }),
+    ).toBeVisible();
+
+    const clipped = await page
+      .locator("app-reset-password-request h1, app-reset-password-request p, " +
+        "app-reset-password-request span, app-reset-password-request label")
+      .evaluateAll((els) =>
+        els
+          .map((el) => ({
+            text: (el.textContent ?? "").trim().slice(0, 40),
+            overflow: el.scrollWidth - el.clientWidth,
+          }))
+          .filter((entry) => entry.overflow > 1),
+      );
+
+    expect(
+      clipped,
+      `at ${width}px these lines are wider than the box they are painted in: ` +
+        `${clipped.map((c) => `"${c.text}" (+${c.overflow}px)`).join(", ")}`,
+    ).toEqual([]);
+  });
+
+  test(`nothing on the reset screen overflows the viewport at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: HEIGHT });
+    await page.goto("/password/reset");
+    await expect(
+      page.getByRole("heading", { level: 1, name: /reset your password/i }),
+    ).toBeVisible();
+
+    const widest = await page.evaluate(() => {
+      let worst = { right: 0, description: "nothing" };
+      for (const el of document.querySelectorAll("*")) {
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) continue;
+        if (rect.right > worst.right) {
+          const classes = [...el.classList].slice(0, 3).join(".");
+          worst = {
+            right: rect.right,
+            description: `${el.tagName.toLowerCase()}${classes ? "." + classes : ""}`,
+          };
+        }
+      }
+      return worst;
+    });
+
+    expect(
+      widest.right,
+      `at ${width}px the widest element (${widest.description}) reaches ` +
+        `${Math.round(widest.right)}px, ${Math.round(widest.right - width)}px past the right edge`,
+    ).toBeLessThanOrEqual(width + 1);
+  });
+}
+
 for (const width of WIDTHS) {
   /**
    * CONTRACT: Compare the two bounding boxes; do NOT infer collision from a
