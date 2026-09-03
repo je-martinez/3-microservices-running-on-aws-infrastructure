@@ -34,23 +34,6 @@ const ROUTES = [
 ] as const;
 
 /**
- * KNOWN DEFECT: `logo-lockup.ts` requests this asset, which is absent from
- * `apps/web/public/`, so every screen emits one 404.
- *
- * CONTRACT: Keep the allowance scoped to this exact URL. A blanket "ignore 404s"
- * hides the next missing chunk, which is most of what this layer catches. The
- * test below asserts the asset is STILL missing, so the allowance fails loudly
- * instead of rotting once someone exports it. See [[testing]]
- */
-const KNOWN_MISSING_ASSET = "/img/standalone-logo.png";
-
-function isKnownMissingAsset(message: string): boolean {
-  // Chromium puts a failed subresource's URL in `location`, not in the message
-  // text, so this matches what collectPageErrors appends from there.
-  return message.includes(KNOWN_MISSING_ASSET);
-}
-
-/**
  * Attaches the console/pageerror listeners and returns the collected messages.
  *
  * CONTRACT: Call this BEFORE `goto`, and keep `msg.location().url` in the
@@ -69,11 +52,6 @@ function collectPageErrors(page: Page): string[] {
   return errors;
 }
 
-/** Errors this suite treats as real — the known asset 404 filtered out. */
-function unexpectedErrors(errors: string[]): string[] {
-  return errors.filter((message) => !isKnownMissingAsset(message));
-}
-
 for (const route of ROUTES) {
   test(`${route.path} mounts and renders clean`, async ({ page }) => {
     const errors = collectPageErrors(page);
@@ -88,7 +66,7 @@ for (const route of ROUTES) {
     ).toBeVisible();
 
     expect(
-      unexpectedErrors(errors),
+      errors,
       `console errors on ${route.path}:\n${errors.join("\n") || "(none captured)"}`,
     ).toHaveLength(0);
   });
@@ -105,7 +83,7 @@ test("an unknown route redirects home", async ({ page }) => {
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole("heading", { level: 1, name: /new arrivals/i })).toBeVisible();
   expect(
-    unexpectedErrors(errors),
+    errors,
     `console errors on /no-such-page:\n${errors.join("\n") || "(none captured)"}`,
   ).toHaveLength(0);
 });
@@ -119,7 +97,7 @@ test("an unknown order id renders the not-found state", async ({ page }) => {
 
   await expect(page.getByText(/order not found/i)).toBeVisible();
   expect(
-    unexpectedErrors(errors),
+    errors,
     `console errors on an unknown order:\n${errors.join("\n") || "(none captured)"}`,
   ).toHaveLength(0);
 });
@@ -150,25 +128,6 @@ test("checkout renders exactly one payment path", async ({ page }) => {
       "(both visible = the branch condition is inverted somewhere; neither = the flag " +
       "matched no branch, check NG_APP_STRIPE_ENABLED parsing in core/config/app-config.ts)",
   ).toBe(1);
-});
-
-/**
- * CONTRACT: Keeps KNOWN_MISSING_ASSET honest. An allowance outliving its defect
- * suppresses a real 404 on that URL forever, so this goes red the day the asset
- * lands, carrying the instruction to delete the allowance. See [[testing]]
- */
-test("the known-missing logo asset is still missing (delete the allowance when it lands)", async ({
-  request,
-  baseURL,
-}) => {
-  const response = await request.get(`${baseURL}${KNOWN_MISSING_ASSET}`);
-
-  expect(
-    response.status(),
-    `${KNOWN_MISSING_ASSET} now returns ${response.status()}. If it is 200 the asset has been ` +
-      "added: remove KNOWN_MISSING_ASSET, isKnownMissingAsset, unexpectedErrors and this test, " +
-      "and assert on the raw `errors` array again.",
-  ).toBe(404);
 });
 
 // CONTRACT: These strings are HARDCODED, never computed from `format-date.ts`.

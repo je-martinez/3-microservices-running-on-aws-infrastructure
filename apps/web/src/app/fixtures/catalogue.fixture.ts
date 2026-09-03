@@ -1,7 +1,13 @@
 import type { Product } from "./api-types";
 
-const PLACEHOLDER_IMAGE_URI =
-  "http://localhost:4566/post-3mrai-local-post-assets/web-app/placeholder-product.png";
+/**
+ * CONTRACT: Do NOT ship this past the fixtures — it reaches a third party on
+ * every card render. `web-app/placeholder-product.png` was referenced but never
+ * existed in the bucket, so each card drew a broken image; real artwork is a
+ * content decision with no owner yet. See [[pencil-design-extraction]]
+ */
+const placeholder = (width: number, height: number): string =>
+  `https://placehold.co/${width}x${height}/EEEEEE/6B7280/png?text=3MRAI`;
 
 /**
  * Product ids use the `prd_` nano-id prefix, as the Orders service does.
@@ -21,7 +27,7 @@ export const PRODUCTS: readonly Product[] = [
     unitsInStock: 42,
     categories: ["lighting", "office"],
     image: {
-      uri: PLACEHOLDER_IMAGE_URI,
+      uri: placeholder(640, 640),
       width: 640,
       height: 640,
       blurhash: "LkQ0aQof00ofoffQayfQ00ayD%ay",
@@ -35,7 +41,7 @@ export const PRODUCTS: readonly Product[] = [
     unitsInStock: 17,
     categories: ["peripherals", "office"],
     image: {
-      uri: PLACEHOLDER_IMAGE_URI,
+      uri: placeholder(640, 480),
       width: 640,
       height: 480,
       blurhash: "L6PZfSi_.AyE_3t7t7R**0o#DgR4",
@@ -60,7 +66,7 @@ export const PRODUCTS: readonly Product[] = [
     unitsInStock: 0,
     categories: ["home"],
     image: {
-      uri: PLACEHOLDER_IMAGE_URI,
+      uri: placeholder(800, 600),
       width: 800,
       height: 600,
       blurhash: "L9Cs4-of00of~qofRjay00ayIUay",
@@ -75,7 +81,7 @@ export const PRODUCTS: readonly Product[] = [
     unitsInStock: 58,
     categories: ["bags", "travel"],
     image: {
-      uri: PLACEHOLDER_IMAGE_URI,
+      uri: placeholder(640, 640),
       width: 640,
       height: 640,
       blurhash: "L5H2EC=PM{9F00%M~q9F00Rj-;bH",
@@ -90,7 +96,7 @@ export const PRODUCTS: readonly Product[] = [
     // Three categories: exercises chip-overflow layout.
     categories: ["kitchen", "cookware", "home"],
     image: {
-      uri: PLACEHOLDER_IMAGE_URI,
+      uri: placeholder(640, 640),
       width: 640,
       height: 640,
       blurhash: "L3A^V?%M9F9F00Rj~qM{00xu%MRj",
