@@ -66,15 +66,26 @@ elsewhere — re-derive them, don't copy the numbers:
 
 ## What "ask first" means in practice
 
-- Before running the full E2E suite (which includes the four headed specs) or any one-off headed
-  probe, ask the user whether to proceed, and wait for an explicit accept.
-- On accept, target the built-in display's origin unless the user says otherwise for that
-  session — don't default to whichever screen happens to be `0,0` on a machine that hasn't been
-  measured.
-- Declining means the headed specs are skipped or run headless where a headless run is
-  meaningful for what's being checked; per the reverted attempt above, headless is not a
-  universal substitute for the four scrollbar/animation specs, so declining may mean deferring the
-  check rather than silently downgrading it.
+Before running the full E2E suite (which includes the four headed specs) or any one-off headed
+probe, ask the user and wait for an explicit choice — never open a window on the assumption that
+silence or a generic "go ahead" means the built-in display. The consent prompt offers exactly
+these four options, presented as a real choice rather than an accept/decline binary:
+
+1. **"Lo pruebo yo y te digo"** — no window opens at all. Rebuild the container (or otherwise
+   apply the change) and let the user look at it themselves, e.g. http://localhost:3004, and
+   report back. Asked for by name after the first use of this rule, then picked immediately —
+   treat it as a common, expected choice, not a rare fallback.
+2. Open it on the **built-in display**, `--window-position=0,0` — the user's standing default
+   when they do want a window.
+3. Open it on another monitor: FHD at `1512,-98`, ultrawide at `3432,-98` (see the geometry table
+   below).
+4. **Commit without verifying.** State plainly, in the same message, exactly what was left
+   unchecked (which spec/behavior, why it wasn't run) — this option trades verification for speed
+   and the gap must be visible, not silently absorbed.
+
+Per the reverted attempt above, headless is not a universal substitute for the four
+scrollbar/animation specs — so when the user's choice means no headed run happens (options 1 or
+4), that is a deferred or skipped check, not a downgrade to an equivalent headless one.
 
 ## Related
 

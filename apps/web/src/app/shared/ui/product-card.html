@@ -17,16 +17,32 @@
     </div>
   }
   <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-xs">
-    @if (category(); as categoryLabel) {
-      <div class="text-ink-muted text-overline font-semibold tracking-overline-lg">
-        {{ categoryLabel }}
-      </div>
-    }
-    <h3 class="text-ink-primary w-full text-label-lg leading-label-lg font-semibold">
+    <!-- WHY: Always rendered, never inside an `@if`, and truncated. `categories`
+         has no `minItems` in the Orders contract, so an empty array is legal —
+         dropping the line shortens the card below its grid neighbours, and a long
+         category wraps to two lines and pushes everything down. -->
+    <div
+      class="text-ink-muted w-full min-w-0 truncate text-overline font-semibold tracking-overline-lg"
+      [title]="category() ?? ''"
+    >
+      {{ category() }}
+    </div>
+    <!-- WHY: Truncated to one line. The frames' names all fit, so the design
+         never showed this; a two-line name pushes its price and Add button down
+         and the grid row stops lining up. `min-w-0` is required — a flex child
+         refuses to shrink below its content without it, so `truncate` alone
+         would not bite. -->
+    <h3
+      class="text-ink-primary w-full min-w-0 truncate text-label-lg leading-label-lg font-semibold"
+      [title]="product().name"
+    >
       {{ product().name }}
     </h3>
   </div>
-  <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
+  <!-- WHY: `h-10` matches the Add button, not `h-fit`. Out-of-stock swaps that
+       button for a line of text, so a fitted row collapses and drags its price
+       up out of line with the card beside it in the grid. -->
+  <div class="flex h-10 w-full shrink-0 flex-row items-center justify-between">
     <span class="text-ink-primary text-lg font-bold tracking-[-0.3px]">{{ price() }}</span>
     @if (outOfStock()) {
       <span class="text-danger-red text-xs font-semibold">Out of stock</span>
