@@ -318,45 +318,45 @@ app-app-header {
  * outlast the host's fade, since Angular ends the leave on the host's own
  * `animationend`. See [[angular-component-authoring]] */
 
-/* WHY: A drawer is a side panel, so it slides along the edge it is anchored to
- * rather than dropping like the popovers. 1.5rem, not the full panel width — the
- * motion should say "this came from the right", not replay the whole journey.
- * Out (140ms) stays faster than in (180ms), matching the popovers' logic that a
- * dismissal should feel already done. Both are a touch slower than the popovers'
- * 150/120 because the drawer is a much larger surface. */
+/* WHY: The panel travels its own full width, so it reads as arriving from
+ * off-screen rather than nudging into place. `100%` and not a fixed length: the
+ * panel is `w-full` on mobile and `md:w-110`/`md:w-130` on desktop, so any fixed
+ * value leaves a gap or overshoots at one of those widths.
+ * Out (200ms) stays faster than in (250ms) — a dismissal should feel already
+ * done. The scrim keeps the same timings so the two never drift apart. */
 @keyframes drawer-slide-in {
   from {
-    transform: translateX(1.5rem);
+    transform: translateX(100%);
   }
 }
 
 @keyframes drawer-slide-out {
   to {
-    transform: translateX(1.5rem);
+    transform: translateX(100%);
   }
 }
 
 .drawer-enter {
-  animation: 180ms ease-out both popover-fade-in;
+  animation: 250ms ease both popover-fade-in;
 }
 
 .drawer-leave {
-  animation: 140ms ease-in both popover-fade-out;
+  animation: 200ms ease both popover-fade-out;
 }
 
 .drawer-enter > * {
-  animation: 180ms ease-out both drawer-slide-in;
+  animation: 250ms ease both drawer-slide-in;
 }
 
 .drawer-leave > * {
-  animation: 140ms ease-in both drawer-slide-out;
+  animation: 200ms ease both drawer-slide-out;
 }
 
 /* CONTRACT: Pause the DESCENDANT too, not just the element carrying the
  * attribute — the host fades while its panel child slides, and resuming only
  * the host leaves the slide a fifth of the way in, which is the flicker itself.
  * `DeferEnterAnimation` clears the attribute once the first frame has been
- * presented. See [[cart-drawer-first-open-flicker]] */
+ * presented. See [[2026-09-03-cart-drawer-first-open-flicker]] */
 
 /* CONTRACT: `!important`, because every enter class sets the `animation`
  * SHORTHAND, which resets `animation-play-state` to `running`. Without it this
@@ -374,11 +374,11 @@ app-app-header {
  * drawer mounts in HomePage, so without this the backdrop vanishes instantly
  * while the panel is still sliding — the one frame that reads as a glitch. */
 .scrim-enter {
-  animation: 180ms ease-out both popover-fade-in;
+  animation: 250ms ease both popover-fade-in;
 }
 
 .scrim-leave {
-  animation: 140ms ease-in both popover-fade-out;
+  animation: 200ms ease both popover-fade-out;
 }
 
 /* WARNING: Reduced motion is a medical setting, not a taste preference. Kept at
