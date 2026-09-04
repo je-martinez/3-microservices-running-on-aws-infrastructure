@@ -14,6 +14,7 @@ related:
   - "[[angular-component-authoring]]"
   - "[[2026-09-03-unstyled-custom-element-host-is-inline]]"
   - "[[2026-09-03-cart-drawer-scrim-lead-flicker]]"
+  - "[[2026-09-03-cart-drawer-first-open-flicker]]"
   - "[[testing]]"
   - "[[2026-08-14-counter-metrics-need-a-clock-and-a-window]]"
 ---
@@ -134,6 +135,10 @@ sample was taken.
 - [[2026-09-03-cart-drawer-scrim-lead-flicker]] — the defect this probe discipline uncovered:
   the frame-by-frame opacity measurement in that note is what made the scrim/drawer lead
   visible as a real defect rather than noise.
+- [[2026-09-03-cart-drawer-first-open-flicker]] — the other defect this probe technique
+  uncovered in the same milestone: the mount-to-first-presented-frame gap on a drawer's first
+  open, invisible to a computed-style sweep or a class-mutation probe for the same reasons
+  described above.
 - [[testing]] — this repo's testing-method conventions; the measurement-window pitfall below
   is the same family as this note's "verify across a full cycle" guidance for metrics.
 - [[2026-08-14-counter-metrics-need-a-clock-and-a-window]] — an unrelated system (OpenObserve

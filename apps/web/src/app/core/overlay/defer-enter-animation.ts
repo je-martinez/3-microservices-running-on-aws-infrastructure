@@ -8,7 +8,7 @@ import { afterNextRender, Directive, ElementRef, inject, signal } from '@angular
 /* WHY: The clock starts when the class lands, but a freshly mounted overlay's
  * first frame misses its deadline while the compositor rasters the panel's new
  * layers (~30ms, once per session). The panel holds at its start pose and then
- * jumps a fifth in — the flicker. See [[cart-drawer-first-open-flicker]] */
+ * jumps a fifth in — the flicker. See [[2026-09-03-cart-drawer-first-open-flicker]] */
 @Directive({
   selector: '[appDeferEnterAnimation]',
   // The attribute drives `[data-deferred-enter]` in styles.css, which pauses the
@@ -23,7 +23,7 @@ export class DeferEnterAnimation {
    * paused, and because Angular removes its enter class on `animationend` —
    * which a paused animation never fires — the overlay is left permanently
    * covering the page and swallowing clicks.
-   * See [[cart-drawer-first-open-flicker]]
+   * See [[2026-09-03-cart-drawer-first-open-flicker]]
    */
   protected readonly deferred = signal(true);
 

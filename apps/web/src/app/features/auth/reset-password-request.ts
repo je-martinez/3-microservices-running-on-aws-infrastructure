@@ -10,7 +10,7 @@ import { ButtonPrimary } from '../../shared/ui/button-primary';
  * derives its own wording from them so the two cannot drift. The 202 from
  * POST /v1/users/password/forgot carries no TTL — it is deliberately identical
  * whether or not the email exists — so the value cannot be read at runtime.
- * See [[users-openapi]]
+ * See [[openapi-specs]]
  */
 const RESET_CODE_TTL_MINUTES = 10;
 const RESET_CODE_LENGTH = 6;

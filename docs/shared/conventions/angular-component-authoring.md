@@ -14,6 +14,7 @@ related:
   - "[[2026-08-17-web-app-foundation-design]]"
   - "[[2026-09-03-unstyled-custom-element-host-is-inline]]"
   - "[[2026-09-03-cart-drawer-scrim-lead-flicker]]"
+  - "[[2026-09-03-cart-drawer-first-open-flicker]]"
 ---
 
 # Angular Component Authoring
@@ -147,3 +148,7 @@ colours — and it was the half that got missed when the app was first built.
   `[data-deferred-enter]`): the `animation` shorthand resets `animation-play-state`, so a pause
   rule's effect on same-specificity selectors depends on declaration order unless it uses
   `!important`.
+- [[2026-09-03-cart-drawer-first-open-flicker]] — the `DeferEnterAnimation` host directive
+  (`apps/web/src/app/core/overlay/defer-enter-animation.ts`) this app uses to hold an overlay's
+  enter animation until its first frame is actually presented, and why its deferred flag must
+  be a `signal` rather than a plain field.

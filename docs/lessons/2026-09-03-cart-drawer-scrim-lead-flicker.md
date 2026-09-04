@@ -14,6 +14,7 @@ related:
   - "[[angular-component-authoring]]"
   - "[[2026-09-03-animation-clock-sampling-beats-style-and-class-probes]]"
   - "[[2026-09-03-unstyled-custom-element-host-is-inline]]"
+  - "[[2026-09-03-cart-drawer-first-open-flicker]]"
 ---
 
 # The animation shorthand resets animation-play-state, so a pause rule's effect depends on declaration order
@@ -109,3 +110,6 @@ After the fix, the opacity gap between scrim and drawer is 0.000 on every sample
 - [[2026-09-03-unstyled-custom-element-host-is-inline]] — a sibling lesson from the same
   milestone: another animation-adjacent bug that presented one level away from its real cause,
   the same shape of trap as blaming mount timing here instead of the CSS cascade.
+- [[2026-09-03-cart-drawer-first-open-flicker]] — the sibling defect that motivated the same
+  `[data-deferred-enter]` descendant-pause rule this note's fix lives on; that note covers why
+  the pause exists at all, this one covers why it didn't reliably apply.

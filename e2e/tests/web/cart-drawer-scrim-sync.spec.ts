@@ -17,7 +17,7 @@ const VIEWPORT = { width: 1440, height: 900 };
  * ~16.7ms lead for the whole animation, so a budget at or above a frame passes
  * against it. Measured 33.3ms peak with the bug present and under 2ms once both
  * elements honour the same pause.
- * See [[cart-drawer-first-open-flicker]]
+ * See [[2026-09-03-cart-drawer-first-open-flicker]]
  */
 const MAX_CLOCK_GAP_MS = 8;
 

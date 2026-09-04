@@ -658,7 +658,7 @@ test("a product without artwork says so", async ({ page }) => {
  * sets RESET_CODE_TTL_SECONDS=600 and RESET_CODE_LENGTH=6; the 202 from
  * POST /v1/users/password/forgot carries neither, so nothing checks them at
  * runtime and a backend change would leave this screen quietly lying.
- * See [[users-openapi]]
+ * See [[openapi-specs]]
  */
 test("the reset screen states the backend's real code length and expiry", async ({ page }) => {
   await page.goto("/password/reset");

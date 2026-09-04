@@ -17,7 +17,7 @@ const VIEWPORT = { width: 1440, height: 900 };
  * CONTRACT: Keep this above one 60Hz frame (16.7ms) and below two (33.3ms) — it
  * must absorb ordinary jitter yet still fail on a genuinely skipped frame.
  * Measured 25-50ms with the bug present, a flat ~10ms once the animation waits
- * for its first presented frame. See [[cart-drawer-first-open-flicker]]
+ * for its first presented frame. See [[2026-09-03-cart-drawer-first-open-flicker]]
  */
 const MAX_FRAME_STEP_MS = 25;
 
