@@ -727,3 +727,31 @@ test("no template ships an internal href", async () => {
       "handles it and the view transition runs",
   ).toEqual([]);
 });
+
+/**
+ * CONTRACT: The overlay layer paints nothing but must stay clickable. It is the
+ * only way to close the cart other than the X, and it carries no background now
+ * that the dimming is gone — so a "tidy-up" that deletes the seemingly-empty
+ * div takes outside-click dismissal with it.
+ * See [[angular-component-authoring]]
+ */
+test("clicking outside the cart closes it, and nothing dims the page", async ({ page }) => {
+  await page.goto("/");
+  await page
+    .locator("app-app-header button")
+    .filter({ has: page.locator("svg.lucide-shopping-bag") })
+    .click();
+  await expect(page.locator("app-cart-drawer")).toHaveCount(1);
+
+  const painted = await page.evaluate(() => {
+    const layer = document.querySelector("app-scrim div");
+    if (!layer) throw new Error("no overlay layer rendered — outside-click dismissal is gone");
+    return getComputedStyle(layer).backgroundColor;
+  });
+  expect(painted, "the overlay layer is painting a background; the dimming was removed").toMatch(
+    /rgba\(0, 0, 0, 0\)|transparent/,
+  );
+
+  await page.locator("app-scrim div").click({ position: { x: 40, y: 300 } });
+  await expect(page.locator("app-cart-drawer")).toHaveCount(0);
+});

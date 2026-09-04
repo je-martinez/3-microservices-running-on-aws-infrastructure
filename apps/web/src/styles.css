@@ -49,10 +49,6 @@
   --color-ink-subtle-on-dark: #C7CDD8;
   --color-ink-on-orange-light: #8A5A11;
 
-  /* Overlay scrim. The design uses one colour for every scrim — the cart's and
-   * the mobile account menu's are the same #12161FA6 (A6 = 65% alpha). */
-  --color-scrim: #12161FA6;
-
   /* Borders (.pen: border-color, border-strong) */
   --color-line: #E5E7EB;
   --color-line-strong: #D1D5DB;
@@ -308,7 +304,7 @@ app-app-header {
   }
 }
 
-/* ─── Cart drawer + scrim enter/leave ────────────────────────────────────── */
+/* ─── Cart drawer enter/leave ─────────────────────────────────────────────── */
 
 /* CONTRACT: Same three rules as the popovers above, for the same reasons: these
  * classes live GLOBALLY because HomePage/Shell apply them to a host from outside
@@ -323,7 +319,7 @@ app-app-header {
  * panel is `w-full` on mobile and `md:w-110`/`md:w-130` on desktop, so any fixed
  * value leaves a gap or overshoots at one of those widths.
  * Out (200ms) stays faster than in (250ms) — a dismissal should feel already
- * done. The scrim keeps the same timings so the two never drift apart. */
+ * done. */
 @keyframes drawer-slide-in {
   from {
     transform: translateX(100%);
@@ -360,25 +356,13 @@ app-app-header {
 
 /* CONTRACT: `!important`, because every enter class sets the `animation`
  * SHORTHAND, which resets `animation-play-state` to `running`. Without it this
- * rule binds only on classes declared ABOVE it: `.scrim-enter` sits below and
- * un-paused itself, so the backdrop led the panel by a frame the whole way and
- * darkened before the white panel covered it — the flicker. Ordering is not a
+ * rule binds only on classes declared ABOVE it, so one declared below silently
+ * un-pauses itself and starts a frame early — a visible lead. Ordering is not a
  * fix; the next enter class added below reintroduces it silently.
  * See [[2026-09-03-cart-drawer-scrim-lead-flicker]] */
 [data-deferred-enter],
 [data-deferred-enter] > * {
   animation-play-state: paused !important;
-}
-
-/* WHY: The scrim fades on the drawer's own timings. It mounts in Shell while the
- * drawer mounts in HomePage, so without this the backdrop vanishes instantly
- * while the panel is still sliding — the one frame that reads as a glitch. */
-.scrim-enter {
-  animation: 250ms ease both popover-fade-in;
-}
-
-.scrim-leave {
-  animation: 200ms ease both popover-fade-out;
 }
 
 /* WARNING: Reduced motion is a medical setting, not a taste preference. Kept at
@@ -388,9 +372,7 @@ app-app-header {
   .drawer-enter,
   .drawer-leave,
   .drawer-enter > *,
-  .drawer-leave > *,
-  .scrim-enter,
-  .scrim-leave {
+  .drawer-leave > * {
     animation-duration: 1ms;
   }
 }

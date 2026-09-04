@@ -1,27 +1,19 @@
 import { Component, output } from '@angular/core';
 
-import { DeferEnterAnimation } from './defer-enter-animation';
-
 /**
- * The `Scrim` rectangle in the cart frames. Dismisses the overlay on click.
+ * A transparent click-catcher over the page while the cart is open.
  *
- * CONTRACT: The animation binds on the HOST and fades opacity only, never
- * `transform`. Shell removes this with `@if`, so a binding on the inner div is
- * another template and never fires; and a transformed host would become the
- * containing block for that `fixed` div, growing the document mid-animation.
+ * CONTRACT: Keep this layer even though it paints nothing. It is what closes the
+ * drawer on an outside click; deleting it leaves the X button as the only way
+ * out. It carries no background by design — the dimming was removed.
  * See [[angular-component-authoring]]
  */
 @Component({
   selector: 'app-scrim',
   template: `
-    <div class="fixed inset-0 z-40 bg-scrim" role="presentation" (click)="dismiss.emit()"></div>
+    <div class="fixed inset-0 z-40" role="presentation" (click)="dismiss.emit()"></div>
   `,
-  hostDirectives: [DeferEnterAnimation],
-  host: {
-    'class': 'block',
-    'animate.enter': 'scrim-enter',
-    'animate.leave': 'scrim-leave',
-  },
+  host: { class: 'block' },
 })
 export class Scrim {
   readonly dismiss = output<void>();
