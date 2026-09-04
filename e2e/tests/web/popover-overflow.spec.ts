@@ -8,6 +8,7 @@
 // See [[angular-component-authoring]]
 
 import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
+import { launchWebBrowser } from "../../support/web-browser";
 
 const VIEWPORT = { width: 1440, height: 900 };
 
@@ -49,10 +50,9 @@ async function sampleHeightPerFrame(page: Page, duration: number): Promise<numbe
 let browser: Browser;
 
 test.beforeAll(async () => {
-  // Headed, to match scrollbar-gutter.spec.ts: headless Chromium draws OVERLAY
-  // scrollbars. The height growth reproduces in both, but a headed run is what
-  // makes the thumb resize the user reported observable at all.
-  browser = await chromium.launch({ headless: false });
+  // Headed on purpose, and placed on the user's chosen display.
+  // See `support/web-browser.ts` for why headless cannot stand in.
+  browser = await launchWebBrowser();
 });
 
 test.afterAll(async () => {

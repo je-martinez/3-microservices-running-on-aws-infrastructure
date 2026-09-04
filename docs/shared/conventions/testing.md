@@ -8,6 +8,7 @@ updated: 2026-09-03
 tags: [type/convention, area/shared, status/active]
 related:
   - "[[2026-09-03-animation-clock-sampling-beats-style-and-class-probes]]"
+  - "[[headed-browser-consent]]"
   - "[[ADR-0010-cognito-auth]]"
   - "[[ADR-0016-local-apigw-nginx-ecs]]"
   - "[[local-dev]]"
@@ -311,6 +312,15 @@ whether the production code under test was correct. When writing a test, ask wha
 fail — if the only thing that can make it fail is changing the test's own fixture or mock
 configuration, it is not testing the system.
 
+## Never open a headed browser window without asking first
+
+Four specs launch headed browsers (`cart-drawer-animation`, `popover-overflow`,
+`scrollbar-gutter`, `cart-drawer-first-open`), so a plain full-suite run pops several windows
+with no warning — they steal focus and can land on an unpredictable monitor. Ask the user before
+any headed window opens, every time, whether it's the full suite or a one-off probe; on accept,
+target the monitor they've chosen. Full convention, including why two attempted workarounds
+(offscreen positioning, headless-with-injected-CSS) both failed: [[headed-browser-consent]].
+
 ## Verifying a browser animation needs the frame clock, not a class or style probe
 
 The three-layer rule above is written for request/response and event-driven surfaces; a browser
@@ -440,3 +450,5 @@ invalidates the catalogue cache.
   discipline for verifying a browser animation renders smoothly: sample the frame clock
   (`requestAnimationFrame` + `Animation.currentTime`), not a class mutation or computed style,
   and compare fresh page loads, not two opens in the same warm session.
+- [[headed-browser-consent]] — ask before opening any headed browser window for a frontend
+  check, and which monitor to target when the user accepts.

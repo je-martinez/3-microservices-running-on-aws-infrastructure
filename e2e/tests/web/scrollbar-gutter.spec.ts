@@ -12,6 +12,7 @@
 // without reserving space. See [[testing]]
 
 import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
+import { launchWebBrowser } from "../../support/web-browser";
 
 /**
  * `/profile` fits 1440x900 exactly and has no scrollbar; every other route
@@ -87,7 +88,7 @@ async function settledLayout(page: Page): Promise<number> {
 let browser: Browser;
 
 test.beforeAll(async () => {
-  browser = await chromium.launch({ headless: false });
+  browser = await launchWebBrowser();
 });
 
 test.afterAll(async () => {

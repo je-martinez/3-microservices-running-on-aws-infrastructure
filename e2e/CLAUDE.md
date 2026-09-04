@@ -202,6 +202,15 @@ These were all measured, not guessed:
 
 ## 7. Agent rules
 
+- **ASK the user before running anything that opens a browser window** — the full
+  suite and one-off probes alike — and wait for a yes. Four web specs are headed
+  on purpose (`cart-drawer-animation`, `popover-overflow`, `scrollbar-gutter`,
+  `cart-drawer-first-open`): headless draws overlay scrollbars, so a width-shift
+  regression measures clean there. They launch through
+  `support/web-browser.ts`, which places the window on the display the user
+  chose; never call `chromium.launch` directly. Convention:
+  [../docs/shared/conventions/headed-browser-consent.md](../docs/shared/conventions/headed-browser-consent.md).
+
 - Converse with the user in **Spanish**; write code and comments in **English**.
 - `e2e-impl` writes **only test/simulation code** — never runs git, never
   touches Linear. Leave the work in the working tree for the main session.

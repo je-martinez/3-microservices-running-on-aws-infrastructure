@@ -10,6 +10,7 @@
 // passes against it. See [[angular-component-authoring]]
 
 import { chromium, expect, test, type Browser, type Locator, type Page } from "@playwright/test";
+import { launchWebBrowser } from "../../support/web-browser";
 
 const VIEWPORT = { width: 1440, height: 900 };
 
@@ -67,9 +68,9 @@ const closeButton = (page: Page): Locator =>
 let browser: Browser;
 
 test.beforeAll(async () => {
-  // Headed, matching popover-overflow.spec.ts: headless Chromium draws OVERLAY
-  // scrollbars, so a layout regression a real user sees can measure clean there.
-  browser = await chromium.launch({ headless: false });
+  // Headed on purpose, and placed on the user's chosen display.
+  // See `support/web-browser.ts` for why headless cannot stand in.
+  browser = await launchWebBrowser();
 });
 
 test.afterAll(async () => {
