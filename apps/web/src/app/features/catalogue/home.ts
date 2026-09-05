@@ -1,5 +1,5 @@
 import { Component, computed, inject, signal } from '@angular/core';
-import { LucideChevronDown, LucideRefreshCw, LucideTriangleAlert } from '@lucide/angular';
+import { LucideRefreshCw, LucideTriangleAlert } from '@lucide/angular';
 import { firstValueFrom } from 'rxjs';
 import { CatalogueApi } from '../../core/api/catalogue-api';
 import type { Product } from '../../core/api/types';
@@ -18,7 +18,7 @@ import { CartDrawer } from '../cart/cart-drawer';
  */
 @Component({
   selector: 'app-home',
-  imports: [CartDrawer, LucideChevronDown, LucideRefreshCw, LucideTriangleAlert, ProductCard],
+  imports: [CartDrawer, LucideRefreshCw, LucideTriangleAlert, ProductCard],
   templateUrl: './home.html',
 })
 export class HomePage {
