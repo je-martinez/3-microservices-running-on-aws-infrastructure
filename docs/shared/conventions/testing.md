@@ -8,6 +8,7 @@ updated: 2026-09-04
 tags: [type/convention, area/shared, status/active]
 related:
   - "[[2026-08-17-web-app-foundation-design]]"
+  - "[[2026-09-04-web-gateway-integration-design]]"
   - "[[2026-09-03-animation-clock-sampling-beats-style-and-class-probes]]"
   - "[[headed-browser-consent]]"
   - "[[ADR-0010-cognito-auth]]"
@@ -445,6 +446,9 @@ invalidates the catalogue cache.
 
 - [[2026-08-17-web-app-foundation-design]] — D9, the phase-1 web verification the `web-tokyo` /
   `web-tegucigalpa` Playwright projects implement.
+- [[2026-09-04-web-gateway-integration-design]] — phase 2's adapted three-layer treatment for a
+  client app: Vitest unit coverage (refresh interceptor concurrency, encrypted token store,
+  guards) plus gateway-backed Playwright specs for login, reload persistence, and expiry.
 - [[ADR-0010-cognito-auth]]
 - [[ADR-0016-local-apigw-nginx-ecs]]
 - [[local-dev]]

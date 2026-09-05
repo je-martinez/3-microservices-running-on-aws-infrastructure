@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-08-19
-updated: 2026-09-03
+updated: 2026-09-04
 tags:
   - type/convention
   - area/shared
@@ -15,6 +15,7 @@ related:
   - "[[2026-09-03-unstyled-custom-element-host-is-inline]]"
   - "[[2026-09-03-cart-drawer-scrim-lead-flicker]]"
   - "[[2026-09-03-cart-drawer-first-open-flicker]]"
+  - "[[2026-09-04-web-gateway-integration-design]]"
 ---
 
 # Angular Component Authoring
@@ -140,6 +141,8 @@ colours — and it was the half that got missed when the app was first built.
 - `apps/web/CLAUDE.md` — the app's stack, the tokens golden rule (§2a), and the `${{ }}`
   template gotcha this note's Rule 1 references.
 - [[2026-08-17-web-app-foundation-design]] — the design spec `apps/web/` was built from.
+- [[2026-09-04-web-gateway-integration-design]] — phase 2, whose new `core/` code (HTTP client,
+  auth interceptors, session store, API services) follows this convention.
 - [[2026-09-03-unstyled-custom-element-host-is-inline]] — the lesson behind Rule 3: the
   incident detail, measured evidence, and why the bug reads as content misalignment rather
   than a sizing defect.

@@ -29,6 +29,7 @@ related:
   - "[[phase-c-review-flow]]"
   - "[[2026-08-18-web-app-foundation]]"
   - "[[2026-08-17-web-app-foundation-design]]"
+  - "[[2026-09-04-web-gateway-integration-design]]"
 ---
 
 # Web App Foundation Milestone
@@ -153,3 +154,4 @@ Per [[phase-c-review-flow]], this milestone has three stop points, matching the 
 - [[phase-c-review-flow]] — batch-review flow and dependency-gate stop points referenced above.
 - [[2026-08-18-web-app-foundation]] — the implementation plan with detailed task steps.
 - [[2026-08-17-web-app-foundation-design]] — the design spec specifying each deliverable.
+- [[2026-09-04-web-gateway-integration-design]] — phase 2 design, replacing the fixtures this milestone shipped with real gateway calls.
