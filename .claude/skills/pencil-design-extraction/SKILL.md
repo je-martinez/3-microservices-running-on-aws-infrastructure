@@ -92,11 +92,21 @@ misses the first, which is a CSS background.
 
 1. **Local repo asset** — a CSS background url, written here broken so it reads as
    prose and not a real class: `bg-[url('...standalone-logo.png')]`, relative to
-   the `.pen`'s own directory. Resolve it against `assets/`, look the path up in
-   `assets/assets.manifest.json` (keys are repo-relative, e.g.
-   `email/blank-dot.png`), and use the manifest entry's `url`. If the asset is
-   missing from the manifest: copy the file into `assets/web-app/` and run
-   `make assets-sync` — no need to ask first.
+   the `.pen`'s own directory. **Where it is served from depends on the consumer.**
+
+   For the **web app**, serve it from the app's own origin: copy the file into
+   `apps/web/public/` — only that folder is emitted by `angular.json` — and
+   reference it as `/img/…`. A manifest URL is not what the browser asks for, and
+   an asset outside `public/` 404s no matter what the bucket holds. The logo did
+   exactly that on every screen until `82f3d85`. The one exception is the boot
+   loader, which inlines its mark as a data URI: a second request resolves after
+   the white first paint it exists to cover.
+
+   For the **email templates**, the bucket is correct — their clients cannot read
+   our origin. Look the path up in `assets/assets.manifest.json` (keys are
+   repo-relative, e.g. `email/blank-dot.png`) and use the entry's `url`; if it is
+   missing, copy the file into `assets/web-app/` and run `make assets-sync` — no
+   need to ask first.
 
    `make assets-sync` needs `make post-infra` to have already run (it reads the
    bucket name and base URL from Terraform outputs). If the stack is down, the sync

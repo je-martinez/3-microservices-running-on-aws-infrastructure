@@ -1,7 +1,12 @@
 <span class="inline-flex w-fit items-center gap-md">
+  <!-- WHY: A bordered white tile, matching the boot loader's lockup. White is the
+       only background with usable contrast against BOTH of the mark's colours —
+       measured 2.28 against its orange and 12.52 against its navy, where navy
+       itself scores 1.04 against that navy and disappears. The border is what
+       separates the tile from the header's own white. -->
   <span
-    class="h-9 w-9 shrink-0 rounded-lg bg-surface-white bg-contain bg-center bg-no-repeat"
-    style="background-image: url('/img/standalone-logo.png')"
+    class="border-line bg-surface-white h-9 w-9 shrink-0 rounded-xl border bg-center bg-no-repeat"
+    style="background-image: url('/img/standalone-logo.png'); background-size: 72%"
   ></span>
   <span
     class="inline-flex w-fit items-center gap-px"

@@ -1,6 +1,7 @@
 import { Component, input, output } from '@angular/core';
 import { LucideBell, LucideSearch, LucideShoppingBag, LucideUser } from '@lucide/angular';
 import { LogoLockup } from '../../shared/ui/logo-lockup';
+import { RouterLink } from '@angular/router';
 
 /**
  * Design: `App Header` (EMNqu, 1440) and `Mobile App Header` (fguH5, 390) as one
@@ -14,7 +15,7 @@ import { LogoLockup } from '../../shared/ui/logo-lockup';
  */
 @Component({
   selector: 'app-app-header',
-  imports: [LogoLockup, LucideBell, LucideSearch, LucideShoppingBag, LucideUser],
+  imports: [RouterLink, LogoLockup, LucideBell, LucideSearch, LucideShoppingBag, LucideUser],
   templateUrl: './app-header.html',
   // CONTRACT: The host must be a block. A custom element defaults to
   // display:inline, so it shrinks to its content and the inner header's

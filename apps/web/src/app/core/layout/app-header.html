@@ -10,7 +10,11 @@
     wordmark is what yields. See [[angular-component-authoring]]
   -->
   <div class="flex min-w-0 items-center gap-10">
-    <app-logo-lockup [hideWordmarkOnTiny]="true" />
+    <!-- WHY: The lockup links home here, and only here. The auth screens show the
+         same component with nowhere to go back to. -->
+    <a routerLink="/" aria-label="3MRAI home" class="inline-flex w-fit shrink-0">
+      <app-logo-lockup [hideWordmarkOnTiny]="true" />
+    </a>
   </div>
 
   <div class="flex shrink-0 items-center gap-md md:gap-2xl">

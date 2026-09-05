@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-08-18
-updated: 2026-08-19
+updated: 2026-09-04
 tags:
   - type/convention
   - area/shared
@@ -37,8 +37,8 @@ project. It does not restate either file's steps; read them for the mechanics.
 2. **`apps/web/design/exports/*.html`** — committed HTML snapshots, reference-only. Never
    imported by the app, never hand-edited — a drifted export is fixed by re-exporting from the
    `.pen`, not by patching the HTML.
-3. **Referenced images**, resolved through `assets/assets.manifest.json` and synced to the
-   assets bucket via `make assets-sync`.
+3. **Referenced images** — resolution now splits by consumer (see "Images: web serves its own,
+   email uses the bucket" below), not a single manifest-and-sync path for every surface.
 
 ## Tokens come from `GetVariables()`, never from an export's classes
 
@@ -79,6 +79,31 @@ represented two different ways in code is a design-token gap wearing a disguise,
 legitimate decisions. That comparison is what became the `scrim-overlay` token, and it is the
 reason the "stop and report" discipline exists — a substitution would have picked one of the
 two wrong opacities and moved on.
+
+## Images: web serves its own, email uses the bucket
+
+Item 3 above used to read as one manifest-and-sync path for every referenced image, regardless
+of consumer. That was wrong for the web app, and following it produced a real bug: the header
+logo 404'd on every screen for weeks because it sat in `assets/img/` at the repo root and the
+manifest URL was never what the browser actually requested. Fixed in `82f3d85`. The rule now
+splits by who renders the image, not by where the export found it:
+
+- **The web app serves its own images from its own origin, never the bucket.** An asset
+  referenced in a frame (e.g. `apps/web/src/app/shared/ui/logo-lockup.html`'s
+  `/img/standalone-logo.png`) is copied into `apps/web/public/img/` — only `apps/web/public/` is
+  emitted by `angular.json`, so a file left anywhere else 404s regardless of what the manifest or
+  bucket holds. The manifest/`assets-sync` path does not apply to this surface at all.
+- **Email keeps the manifest-and-bucket path, unchanged.** Email clients cannot read our origin,
+  so their images legitimately resolve through `assets/assets.manifest.json` and sync to the
+  assets bucket via `make assets-sync` — see [[email-templates]], which is correct as written and
+  is not affected by this split.
+- **One exception inside the web app itself:** the boot loader inlines the mark as a base64 data
+  URI directly in `index.html`, because a second HTTP request for that image resolves after the
+  white first paint it exists to cover — neither the app-origin path nor the bucket path is fast
+  enough for that one case.
+
+This is a split by consumer, not a replacement of the bucket path — a future asset step still
+needs to ask "who renders this?" before choosing app-origin vs. manifest/bucket.
 
 ## Web and email share one design system
 

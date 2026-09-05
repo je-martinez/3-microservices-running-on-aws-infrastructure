@@ -118,7 +118,7 @@ An export references images in three distinct ways — scanning only `<img>` tag
 
 | Kind | How it appears | Resolution |
 |---|---|---|
-| Local repo asset | `bg-[url('../img/standalone-logo.png')]`, relative to the `.pen` | Resolve against `assets/`, look the path up in `assets/assets.manifest.json` (keys are repo-relative), use the manifest's `url`. If missing: copy the file into `assets/web-app/` and run `make assets-sync`. |
+| Local repo asset | `bg-[url('../img/standalone-logo.png')]`, relative to the `.pen` | Serve it from the app's **own origin**, not the bucket: copy it into `apps/web/public/` (only that folder is emitted by `angular.json`) and reference it as `/img/…`. The bucket copy exists for the email templates, whose clients cannot read our origin. The boot loader is the one exception — it inlines the mark as a data URI, because a second request resolves after the white frame it exists to cover. |
 | Inline Lucide icon | `data-icon-set="lucide"`, `data-icon-name="mail"` | Not an asset — nothing to sync. Render the named icon directly in the component; this is the web's advantage over email, where inline SVG is unusable and the same icons had to become PNGs in the bucket ([[email-templates]]). |
 | Remote stock placeholder | an `images.unsplash.com` URL | Neither a repo asset nor final artwork. Do not copy it into `assets/` and do not ship a template hotlinking it in production. Render a token-coloured placeholder and flag the frame as needing real artwork. |
 

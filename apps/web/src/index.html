@@ -2,12 +2,107 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Web</title>
+    <title>3MRAI</title>
     <base href="/" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
+
+    <!-- CONTRACT: This block stays INLINE — no <link>, nothing moved to styles.css.
+         An external stylesheet is fetched after the HTML, so the white first paint
+         this loader exists to cover has already happened by the time it arrives.
+         CONTRACT: #2D3748 mirrors --color-brand-navy in styles.css and is the one
+         hard-coded hex the app allows; that token lives in a stylesheet that has not
+         loaded yet. Change one and change the other, or the loader flashes a
+         different navy than the app it hands over to. -->
+    <style>
+      #boot-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #2D3748;
+        opacity: 1;
+        transition: opacity 200ms ease;
+      }
+      /* WHY: The mark is a data URI, not /img/standalone-logo.png — a second
+         request resolves after the flash it is meant to cover. */
+      #boot-loader .boot-loader-lockup {
+        display: flex;
+        align-items: center;
+        gap: 1.25rem;
+        animation: boot-loader-pulse 1.4s ease-in-out infinite;
+      }
+      /* WHY: A white tile behind the mark, mirroring app-logo-lockup. The cube's
+         faces are near-navy, so straight on this background only its orange edge
+         survives and the shape reads as a stray fragment. */
+      #boot-loader .boot-loader-tile {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 5rem;
+        height: 5rem;
+        border-radius: 1.375rem;
+        background: #FFFFFF;
+      }
+      #boot-loader img {
+        width: 3.75rem;
+        height: 3.75rem;
+      }
+      /* CONTRACT: These mirror the tokens app-logo-lockup uses — #FFFFFF is
+         --color-surface-white and #F7941D is --color-brand-orange. They are
+         literals only because styles.css has not loaded at first paint. */
+      #boot-loader .boot-loader-wordmark {
+        display: flex;
+        align-items: center;
+        font-family: Inter, system-ui, sans-serif;
+        font-size: 2.75rem;
+        font-weight: 800;
+        letter-spacing: -0.03rem;
+        line-height: 1;
+      }
+      #boot-loader .boot-loader-wordmark .boot-loader-3m { color: #FFFFFF; }
+      #boot-loader .boot-loader-wordmark .boot-loader-rai { color: #F7941D; }
+      /* Removed by the teardown below; the class only drives the fade. */
+      #boot-loader.boot-loader-done {
+        opacity: 0;
+        pointer-events: none;
+      }
+      @keyframes boot-loader-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.55; }
+      }
+      /* WARNING: Reduced motion is a medical setting (vestibular disorders,
+         migraine), not a taste preference. The pulse is dropped outright; the
+         fade-out is a plain opacity change and stays. */
+      @media (prefers-reduced-motion: reduce) {
+        #boot-loader .boot-loader-lockup { animation: none; }
+      }
+    </style>
   </head>
   <body>
+    <!-- WHY: aria-hidden + no live region — the loader is decorative, and the
+         screen reader should land on the app's own content, not announce a wait. -->
+    <div id="boot-loader" aria-hidden="true">
+      <div class="boot-loader-lockup">
+        <span class="boot-loader-tile"><img alt="" src="data:image/png;base64,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" /></span>
+        <span class="boot-loader-wordmark"><span class="boot-loader-3m">3M</span><span class="boot-loader-rai">RAI</span></span>
+      </div>
+    </div>
     <app-root></app-root>
+
+    <!-- CONTRACT: The loader MUST come down even when the bundle never boots.
+         Angular's own teardown (boot-loader.ts) is the normal path and fires after
+         first render; this timeout is the last resort for a bundle that 404s or
+         throws before bootstrap, whose only other outcome is a navy screen forever
+         with no error visible. 8s is far past a healthy boot, so it never races the
+         normal path. -->
+    <script>
+      setTimeout(function () {
+        var el = document.getElementById('boot-loader');
+        if (el) el.remove();
+      }, 8000);
+    </script>
   </body>
 </html>
