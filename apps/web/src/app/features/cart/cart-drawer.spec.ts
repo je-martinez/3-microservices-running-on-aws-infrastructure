@@ -3,7 +3,7 @@ import 'fake-indexeddb/auto';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import {
   LucideArrowRight,
   LucideBuilding2,
@@ -18,6 +18,8 @@ import {
 } from '@lucide/angular';
 
 import { CartDrawer } from './cart-drawer';
+import { APP_CONFIG } from '../../core/config/app-config';
+import { OverlayStore } from '../../core/overlay/overlay-store';
 import { awaitRequest, settle } from '../auth/testing';
 import {
   EMPTY_CART,
@@ -58,13 +60,29 @@ describe('CartDrawer', () => {
     fixture.detectChanges();
   });
 
+  const STRIPE_ENABLED = APP_CONFIG.stripeEnabled;
+
   afterEach(() => {
+    withStripeEnabled(STRIPE_ENABLED);
     controller.verify({ ignoreCancelled: true });
     TestBed.resetTestingModule();
   });
 
   function root(): HTMLElement {
     return fixture.nativeElement as HTMLElement;
+  }
+
+  /**
+   * CONTRACT: Restore this in `afterEach`. APP_CONFIG is a module-level const
+   * shared by every spec in the run, so a redefinition left in place leaks the
+   * flag into unrelated files — which then pass or fail by test ORDER.
+   */
+  function withStripeEnabled(enabled: boolean): void {
+    Object.defineProperty(APP_CONFIG, 'stripeEnabled', {
+      value: enabled,
+      configurable: true,
+      writable: false,
+    });
   }
 
   it('reads the cart from /v1/cart with no duplicated prefix', async () => {
@@ -178,45 +196,60 @@ describe('CartDrawer', () => {
   });
 
   /**
-   * CONTRACT: `canCheckout: true` is a HINT — stock can go between the read and
-   * POST /orders. The 409 must reach the buyer as a sentence, not as an
-   * unhandled rejection, and the cart is re-read so the badge tells the truth.
+   * CONTRACT: Continue NAVIGATES; it never posts an order. The cart holds items
+   * and checkout completes the purchase — a drawer that also charges gives one
+   * flow two implementations, and `controller.verify()` here is what pins that:
+   * a POST /orders would leave an unverified request and fail this test.
    */
-  it('surfaces a checkout that fails on a cart reported as buyable', async () => {
+  it('leaves for /checkout on continue without posting an order', async () => {
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
     (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
     await settle(fixture);
 
     root().querySelector<HTMLButtonElement>('[data-testid="cart-continue"]')?.click();
     await settle(fixture);
 
-    const order = await awaitRequest(fixture, controller, '/v1/orders');
-    expect(order.request.method).toBe('POST');
-    // POST /orders does NOT read the cart: the lines go in the body or it 400s.
-    expect(order.request.body).toEqual({
-      lines: [{ productId: 'prd_V1StGXR8Z5', quantity: 2 }],
-    });
-    order.flush({ message: 'stock' }, { status: 409, statusText: 'Conflict' });
-    await settle(fixture);
-
-    expect(root().textContent).toContain('Someone bought the last one');
-
-    (await awaitRequest(fixture, controller, '/v1/cart')).flush(
-      cart([unavailableLine('out_of_stock')]),
-    );
-    await settle(fixture);
+    expect(navigate).toHaveBeenCalledWith(['/checkout']);
+    controller.verify();
   });
 
-  /** Order creation deletes the cart server-side, so nothing is re-read. */
-  it('drops the cart after a successful checkout without re-reading it', async () => {
+  /**
+   * CONTRACT: The overlay closes on the way out. `/checkout` renders under the
+   * same layout, so a drawer left open covers the page the buyer was just sent
+   * to, behind a scrim that blocks it.
+   */
+  it('closes the overlay when it navigates to checkout', async () => {
+    const overlay = TestBed.inject(OverlayStore);
+    overlay.openCart();
+    vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+
     (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
     await settle(fixture);
 
     root().querySelector<HTMLButtonElement>('[data-testid="cart-continue"]')?.click();
     await settle(fixture);
 
-    (await awaitRequest(fixture, controller, '/v1/orders')).flush({ id: 'ord_3kLpQx8vRn' });
+    expect(overlay.active()).toBeNull();
+  });
+
+  /**
+   * CONTRACT: The Stripe flag must NOT change where continue goes. Payment
+   * lives on one surface, so a drawer branching on the flag reintroduces a
+   * second checkout path that only a Stripe-enabled build ever exercises.
+   */
+  it.each([true, false])('navigates the same way with stripeEnabled %s', async (enabled) => {
+    withStripeEnabled(enabled);
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
     await settle(fixture);
 
+    root().querySelector<HTMLButtonElement>('[data-testid="cart-continue"]')?.click();
+    await settle(fixture);
+
+    expect(navigate).toHaveBeenCalledWith(['/checkout']);
     controller.verify();
   });
 

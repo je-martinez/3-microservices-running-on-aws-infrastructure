@@ -106,22 +106,72 @@
         <div class="flex w-full flex-col items-start justify-start gap-6 md:flex-row">
           <div class="flex h-fit flex-1 flex-col items-start justify-start gap-5">
             <div
+              data-testid="checkout-address"
               class="bg-surface-white border-line flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5"
             >
               <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
                 <span class="text-ink-muted text-xs font-semibold tracking-overline"
                   >DELIVERY ADDRESS</span
                 >
-                <span class="text-brand-navy text-sm font-semibold">Change</span>
               </div>
-              <!-- WHY: The frame's copy stands in. Users types `address` as
-                   `anyOf: [{}, null]` — an untyped blob no service populates,
-                   so there is no contract to bind this to yet. -->
-              <span class="text-ink-primary text-body-lg font-semibold">Jose Martinez</span>
-              <p class="text-ink-secondary w-full text-body leading-body">
-                Av. Rómulo Betancourt 1204, Apto 5B<br />
-                Santo Domingo 10604, DO · +1 809 555 0142
-              </p>
+
+              @if (address(); as deliveryAddress) {
+                <span class="text-ink-primary text-body-lg font-semibold">{{ fullName() }}</span>
+                <p class="text-ink-secondary w-full text-body leading-body">
+                  {{ deliveryAddress.line1
+                  }}{{ deliveryAddress.line2 ? ', ' + deliveryAddress.line2 : '' }}<br />
+                  {{ deliveryAddress.city }} {{ deliveryAddress.postalCode }},
+                  {{ deliveryAddress.country }}{{ phoneNumber() ? ' · ' + phoneNumber() : '' }}
+                </p>
+              } @else {
+                <!-- WHY: The form lives here, not in the cart drawer. The order
+                     is placed on this page, so the address it needs is
+                     collected on the surface that cannot proceed without it. -->
+                <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-1">
+                  <h2 class="text-ink-primary text-label font-semibold">Add a delivery address</h2>
+                  <p class="text-ink-secondary w-full text-body-sm leading-body-sm">
+                    We need it once — we'll save it to your profile.
+                  </p>
+                </div>
+
+                <app-field
+                  label="Street address"
+                  icon="map-pin"
+                  placeholder="Street, number, apartment"
+                  [value]="street()"
+                  (valueChange)="street.set($event)"
+                />
+                <app-field
+                  label="City and postal code"
+                  icon="building-2"
+                  placeholder="Santo Domingo, 10604"
+                  [value]="cityAndPostalCode()"
+                  (valueChange)="cityAndPostalCode.set($event)"
+                />
+                <app-field
+                  label="Phone number"
+                  icon="phone"
+                  placeholder="+1 809 000 0000"
+                  [value]="phoneInput()"
+                  (valueChange)="phoneInput.set($event)"
+                />
+
+                @if (addressError(); as message) {
+                  <p role="alert" class="text-danger-red w-full shrink-0 text-body-sm">
+                    {{ message }}
+                  </p>
+                }
+
+                <button
+                  type="button"
+                  data-testid="checkout-save-address"
+                  class="bg-brand-navy text-surface-white flex h-control-2xl w-full shrink-0 flex-row items-center justify-center gap-md rounded-md text-base font-semibold disabled:opacity-50"
+                  [disabled]="!canSaveAddress()"
+                  (click)="saveAddress()"
+                >
+                  {{ savingAddress() ? 'Saving…' : 'Save address' }}
+                </button>
+              }
             </div>
 
             @if (stripeEnabled()) {
@@ -137,7 +187,7 @@
                   </div>
                 </div>
                 <p class="text-ink-secondary w-full text-sm">
-                  Payment is completed in the cart — open the cart to pay with Stripe.
+                  Pay securely with Stripe. Your card details never touch our servers.
                 </p>
                 <div
                   class="text-ink-muted flex h-fit w-full shrink-0 flex-row items-center justify-center gap-2xs text-xs"

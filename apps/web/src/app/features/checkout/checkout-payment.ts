@@ -12,11 +12,14 @@ import {
   LucideTriangleAlert,
 } from '@lucide/angular';
 import { APP_CONFIG } from '../../core/config/app-config';
-import { toInt } from '../../core/api/types';
+import { type Address, toInt } from '../../core/api/types';
 import { OrdersApi } from '../../core/api/orders-api';
+import { UsersApi } from '../../core/api/users-api';
+import { SessionStore } from '../../core/auth/session-store';
 import { CartStore } from '../../core/cart/cart-store';
 import { authErrorMessage } from '../auth/auth-errors';
 import { CartLine } from '../../shared/ui/cart-line';
+import { Field } from '../../shared/ui/field';
 
 /**
  * Design: `Checkout — Payment` (`DOtD2`, 1440) / `Mobile — Checkout Payment`
@@ -24,17 +27,17 @@ import { CartLine } from '../../shared/ui/cart-line';
  * Loading, error and empty states use existing tokens: the `.pen` has no frame
  * for any of the three.
  *
- * CONTRACT: `APP_CONFIG.stripeEnabled` alone picks the payment path — false
- * renders this page's card fields (`checkout-plain`), true hands off to the
- * Stripe step in the cart drawer (`hed4V`, via `checkout-stripe`). Reaching
- * Stripe with the flag off exposes a path the build disabled.
- * See [[angular-component-authoring]]
+ * CONTRACT: This page owns BOTH the delivery address and POST /orders — the
+ * cart drawer only routes here. Placing an order without an address ships goods
+ * nowhere, so `canPay` requires one and the form below is how it is collected.
+ * See [[2026-09-04-web-gateway-integration-design]]
  */
 @Component({
   selector: 'app-checkout-payment',
   imports: [
     RouterLink,
     CartLine,
+    Field,
     LucideCheck,
     LucideChevronLeft,
     LucideCreditCard,
@@ -48,6 +51,8 @@ import { CartLine } from '../../shared/ui/cart-line';
 })
 export class CheckoutPaymentPage {
   private readonly ordersApi = inject(OrdersApi);
+  private readonly usersApi = inject(UsersApi);
+  private readonly session = inject(SessionStore);
   private readonly router = inject(Router);
 
   protected readonly cart = inject(CartStore);
@@ -59,6 +64,25 @@ export class CheckoutPaymentPage {
   protected readonly checkoutError = signal<string | null>(null);
 
   protected readonly itemCount = computed(() => this.cart.itemCount());
+
+  /** The saved delivery address, or null when the profile carries none. */
+  protected readonly address = computed<Address | null>(() => this.session.user()?.address ?? null);
+  protected readonly phoneNumber = computed(() => this.session.user()?.phoneNumber ?? null);
+  protected readonly fullName = computed(() => this.session.user()?.fullName ?? '');
+
+  /** Form state for the no-address branch, in the design's three fields. */
+  protected readonly street = signal('');
+  protected readonly cityAndPostalCode = signal('');
+  protected readonly phoneInput = signal('');
+  protected readonly savingAddress = signal(false);
+  protected readonly addressError = signal<string | null>(null);
+
+  protected readonly canSaveAddress = computed(
+    () =>
+      this.street().trim() !== '' &&
+      this.cityAndPostalCode().trim() !== '' &&
+      !this.savingAddress(),
+  );
 
   /**
    * CONTRACT: Every figure here is the server's `formatted` string, rendered
@@ -77,12 +101,70 @@ export class CheckoutPaymentPage {
     };
   });
 
+  /**
+   * CONTRACT: A missing address disables paying. It is collected precisely so
+   * the order has somewhere to go; charging first and asking after leaves a
+   * paid order the warehouse cannot ship.
+   */
   protected readonly canPay = computed(
-    () => this.cart.canCheckout() && !this.cart.saving() && !this.placing(),
+    () =>
+      this.cart.canCheckout() &&
+      !this.cart.saving() &&
+      !this.placing() &&
+      this.address() !== null,
   );
 
   constructor() {
     void this.cart.load();
+  }
+
+  /**
+   * CONTRACT: Store the SessionStore user the response carries, not a locally
+   * assembled one. PATCH /users/me answers with the whole profile, and the card
+   * re-renders off the session — assembling it here would drift from whatever
+   * the service normalised.
+   */
+  protected async saveAddress(): Promise<void> {
+    if (!this.canSaveAddress()) return;
+
+    this.savingAddress.set(true);
+    this.addressError.set(null);
+    try {
+      const updated = await firstValueFrom(
+        this.usersApi.updateMe({
+          address: this.parseAddress(),
+          ...(this.phoneInput().trim() === '' ? {} : { phoneNumber: this.phoneInput().trim() }),
+        }),
+      );
+      this.session.setUser(updated);
+    } catch (error: unknown) {
+      this.addressError.set(authErrorMessage(error));
+    } finally {
+      this.savingAddress.set(false);
+    }
+  }
+
+  /**
+   * WHY: The design collects city and postal code in ONE field, while the API
+   * stores them apart. The last comma-separated part is the postal code when it
+   * looks like one; otherwise the whole value is the city and the code is left
+   * empty rather than guessed.
+   */
+  private parseAddress(): Address {
+    const parts = this.cityAndPostalCode()
+      .split(',')
+      .map((part) => part.trim())
+      .filter((part) => part !== '');
+    const last = parts.length > 1 ? parts[parts.length - 1] : '';
+    const isPostalCode = last !== '' && /^[\w -]{3,10}$/.test(last);
+    return {
+      line1: this.street().trim(),
+      line2: null,
+      city: (isPostalCode ? parts.slice(0, -1).join(', ') : parts.join(', ')) || '',
+      state: '',
+      postalCode: isPostalCode ? last : '',
+      country: 'DO',
+    };
   }
 
   /**

@@ -95,9 +95,6 @@
   </div>
 </div>
 
-@if (overlay.active() === 'cart' || overlay.active() === 'cart-payment') {
-  <app-cart-drawer
-    [step]="overlay.active() === 'cart-payment' ? 'payment' : 'cart'"
-    [address]="savedAddress()"
-  />
+@if (overlay.active() === 'cart') {
+  <app-cart-drawer />
 }

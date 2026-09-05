@@ -3,7 +3,6 @@ import { LucideRefreshCw, LucideTriangleAlert } from '@lucide/angular';
 import { firstValueFrom } from 'rxjs';
 import { CatalogueApi } from '../../core/api/catalogue-api';
 import type { Product } from '../../core/api/types';
-import { SessionStore } from '../../core/auth/session-store';
 import { CartStore } from '../../core/cart/cart-store';
 import { CatalogueSearchStore } from '../../core/catalogue/catalogue-search-store';
 import { OverlayStore } from '../../core/overlay/overlay-store';
@@ -24,7 +23,6 @@ import { CartDrawer } from '../cart/cart-drawer';
 })
 export class HomePage {
   private readonly catalogueApi = inject(CatalogueApi);
-  private readonly session = inject(SessionStore);
   private readonly cart = inject(CartStore);
   protected readonly search = inject(CatalogueSearchStore);
 
@@ -85,9 +83,6 @@ export class HomePage {
   protected readonly products = signal<readonly Product[]>([]);
   protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);
-
-  /** The cart drawer's saved-address state reads the signed-in user's address. */
-  protected readonly savedAddress = computed(() => this.session.user()?.address ?? null);
 
   constructor() {
     void this.load();

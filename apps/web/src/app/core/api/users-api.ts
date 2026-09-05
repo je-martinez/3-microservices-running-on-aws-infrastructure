@@ -36,6 +36,21 @@ export interface RegisterPasswordlessInput {
   phoneNumber?: string;
 }
 
+/**
+ * PATCH /users/me — a PARTIAL profile update; omitted keys are left alone.
+ *
+ * CONTRACT: `address` is sent as the STRUCTURED object, never a flattened
+ * string. Verified live: the service persists these six keys verbatim and
+ * GET /users/me reads them back in the same shape. Sending a single-line
+ * string stores an address no reader can split back into city or postal code.
+ * See [[2026-09-04-web-gateway-integration-design]]
+ */
+export interface UpdateProfileInput {
+  fullName?: string;
+  address?: Address;
+  phoneNumber?: string;
+}
+
 /** POST /users/otp/start — the opaque session to hand back to otp/verify. */
 export interface OtpStartResponse {
   session: string;
@@ -112,5 +127,10 @@ export class UsersApi {
   /** GET /users/me — the profile the session store holds after a sign-in. */
   me(): Observable<User> {
     return this.api.get<User>('/users/me');
+  }
+
+  /** PATCH /users/me — answers 200 with the whole updated profile. */
+  updateMe(input: UpdateProfileInput): Observable<User> {
+    return this.api.patch<User>('/users/me', input);
   }
 }

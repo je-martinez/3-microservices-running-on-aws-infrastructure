@@ -1,38 +1,30 @@
-import { Component, computed, inject, input, signal } from '@angular/core';
-import { firstValueFrom } from 'rxjs';
+import { Component, computed, inject } from '@angular/core';
+import { Router } from '@angular/router';
 import {
-  LucideBuilding2,
-  LucideChevronLeft,
-  LucideCreditCard,
-  LucideDynamicIcon,
-  LucideMapPin,
-  LucidePhone,
+  LucideArrowRight,
   LucideRefreshCw,
   LucideShieldCheck,
   LucideShoppingBag,
   LucideTriangleAlert,
   LucideX,
 } from '@lucide/angular';
-import { APP_CONFIG } from '../../core/config/app-config';
 import { DeferEnterAnimation } from '../../core/overlay/defer-enter-animation';
 import { OverlayStore } from '../../core/overlay/overlay-store';
-import { type Address, type CartLine as CartLineDto, toInt } from '../../core/api/types';
-import { OrdersApi } from '../../core/api/orders-api';
+import { type CartLine as CartLineDto, toInt } from '../../core/api/types';
 import { CartStore } from '../../core/cart/cart-store';
-import { authErrorMessage } from '../auth/auth-errors';
 import { CartLine } from '../../shared/ui/cart-line';
 
 /**
- * Design: `Cart Drawer` (`ET6dr`). ONE component (spec D8) for three frame pairs
- * that differ only by state: cart with a saved address (`wevx6`), cart without
- * one (`eig49`, inline address form), and the Stripe payment step (`hed4V`).
- * Loading, error and empty states use existing tokens: the `.pen` has no frame
- * for any of the three.
+ * Design: `Cart Drawer` (`ET6dr`), the saved-address frame (`wevx6`) reduced to
+ * its cart half. Loading, error and empty states use existing tokens: the
+ * `.pen` has no frame for any of the three.
  *
- * CONTRACT: The payment step opens only when `APP_CONFIG.stripeEnabled` is true
- * — a build with Stripe off must not reach a step it has disabled (spec
- * D-checkout). This panel stays `z-50`, above its Scrim's `z-40`, or it renders
- * underneath. See [[angular-component-authoring]]
+ * CONTRACT: This drawer holds items and NEVER places an order — `Continue`
+ * routes to `/checkout`, which owns the address and POST /orders. A drawer that
+ * checks out too gives one purchase two implementations, and the one the buyer
+ * did not use silently stops matching. This panel stays `z-50`, above its
+ * Scrim's `z-40`, or it renders underneath.
+ * See [[angular-component-authoring]]
  */
 
 /**
@@ -48,12 +40,7 @@ import { CartLine } from '../../shared/ui/cart-line';
   selector: 'app-cart-drawer',
   imports: [
     CartLine,
-    LucideBuilding2,
-    LucideChevronLeft,
-    LucideCreditCard,
-    LucideDynamicIcon,
-    LucideMapPin,
-    LucidePhone,
+    LucideArrowRight,
     LucideRefreshCw,
     LucideShieldCheck,
     LucideShoppingBag,
@@ -69,17 +56,10 @@ import { CartLine } from '../../shared/ui/cart-line';
   },
 })
 export class CartDrawer {
-  readonly address = input<Address | null>(null);
-  readonly step = input<'cart' | 'payment'>('cart');
-
-  private readonly ordersApi = inject(OrdersApi);
+  private readonly router = inject(Router);
 
   protected readonly overlay = inject(OverlayStore);
   protected readonly cart = inject(CartStore);
-
-  /** Set while POST /orders is in flight, and by its failure. */
-  protected readonly placing = signal(false);
-  protected readonly checkoutError = signal<string | null>(null);
 
   protected readonly itemCount = computed(() => this.cart.itemCount());
 
@@ -99,18 +79,13 @@ export class CartDrawer {
     };
   });
 
-  protected readonly continueLabel = computed(() => {
-    if (this.step() === 'payment') return `Pay ${this.totals()?.total ?? ''}`.trim();
-    return this.address() ? 'Continue to payment' : 'Save address & continue';
-  });
-
   /**
-   * CONTRACT: `canCheckout` gates the button but never guarantees success —
-   * another buyer can take the last unit between the cart read and POST
-   * /orders. The failure branch in `placeOrder` is the one that matters.
+   * CONTRACT: `canCheckout` gates the button but never guarantees the order
+   * succeeds — another buyer can take the last unit before checkout charges.
+   * The failure branch lives in CheckoutPaymentPage, which does the charging.
    */
   protected readonly canContinue = computed(
-    () => this.cart.canCheckout() && !this.cart.saving() && !this.placing(),
+    () => this.cart.canCheckout() && !this.cart.saving(),
   );
 
   constructor() {
@@ -131,48 +106,13 @@ export class CartDrawer {
     void this.cart.remove(line.productId);
   }
 
-  protected continue(): void {
-    if (this.step() === 'payment') {
-      void this.placeOrder();
-      return;
-    }
-    if (APP_CONFIG.stripeEnabled) {
-      this.overlay.openCartPayment();
-      return;
-    }
-    void this.placeOrder();
-  }
-
   /**
-   * CONTRACT: Send the cart's own lines explicitly — POST /orders does NOT read
-   * the cart and answers 400 on an empty body. On success the server has
-   * already DELETED the cart, so the local one is dropped rather than re-read.
-   * See [[2026-09-04-web-gateway-integration-design]]
+   * CONTRACT: Close the overlay as well as navigating. `/checkout` is a routed
+   * page under the same layout, so a drawer left open covers the page the
+   * buyer was just sent to, over a scrim that blocks it.
    */
-  private async placeOrder(): Promise<void> {
-    const lines = this.cart
-      .lines()
-      .filter((line) => line.available)
-      .map((line) => ({ productId: line.productId, quantity: toInt(line.quantity) }));
-    if (lines.length === 0) return;
-
-    this.placing.set(true);
-    this.checkoutError.set(null);
-    try {
-      await firstValueFrom(this.ordersApi.createOrder(lines));
-      this.cart.forgetAfterCheckout();
-      this.overlay.close();
-    } catch (error: unknown) {
-      // 409 is the race `canCheckout` cannot rule out: stock went in the gap
-      // between reading the cart and charging it.
-      this.checkoutError.set(
-        authErrorMessage(error, {
-          409: 'Someone bought the last one while you were checking out. Adjust your cart and try again.',
-        }),
-      );
-      void this.cart.load();
-    } finally {
-      this.placing.set(false);
-    }
+  protected continue(): void {
+    this.overlay.close();
+    void this.router.navigate(['/checkout']);
   }
 }
