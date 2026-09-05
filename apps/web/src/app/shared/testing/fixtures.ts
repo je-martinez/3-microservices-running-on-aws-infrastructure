@@ -22,7 +22,16 @@ import {
   provideLucideIcons,
 } from '@lucide/angular';
 
-import type { Money, Order, OrderWithTracking, Product, Tracking } from '../../core/api/types';
+import type {
+  Cart,
+  CartLine,
+  Money,
+  Order,
+  OrderWithTracking,
+  Product,
+  Tracking,
+  UnavailableReason,
+} from '../../core/api/types';
 
 /**
  * WHY: LucideDynamicIcon resolves an icon by NAME from the registry, so an
@@ -137,3 +146,60 @@ export async function awaitPath(
   }
   throw new Error(`No request for ${path} within 25 turns`);
 }
+
+/** An ordinary, buyable cart line. */
+export function cartLine(overrides: Partial<CartLine> = {}): CartLine {
+  return {
+    productId: 'prd_V1StGXR8Z5',
+    name: 'Field Tote 18L',
+    quantity: 2,
+    unitsInStock: 50,
+    available: true,
+    unitPrice: money(12800, '$128.00'),
+    subtotal: money(25600, '$256.00'),
+    image: null,
+    unavailableReason: null,
+    ...overrides,
+  };
+}
+
+/**
+ * An unavailable line, in whichever of the two shapes the reason implies.
+ *
+ * CONTRACT: The branches are NOT interchangeable. `unknown_product` nulls
+ * `name`/`unitPrice`/`subtotal`/`image`; every other reason leaves them
+ * POPULATED, so a low-stock line renders its price normally. A fixture that
+ * nulls both ways cannot catch a component that guards on `available`, which is
+ * the exact bug these two shapes exist to expose. See [[money-representation]]
+ */
+export function unavailableLine(reason: UnavailableReason): CartLine {
+  const base = cartLine({ available: false, unavailableReason: reason });
+  if (reason !== 'unknown_product') return base;
+  return { ...base, name: null, unitPrice: null, subtotal: null, image: null };
+}
+
+/**
+ * A cart whose totals hold the server's invariant, `total = subtotal + tax +
+ * shipping`. Shipping is 1500 because the service charges it on every cart,
+ * empty ones included.
+ */
+export function cart(items: CartLine[], overrides: Partial<Cart> = {}): Cart {
+  const subtotal = items.reduce((sum, line) => sum + Number(line.subtotal?.cents ?? 0), 0);
+  const tax = Math.round(subtotal * 0.08);
+  return {
+    id: items.length > 0 ? 'crt_9wKpL2xRnZ' : null,
+    items,
+    subtotal: money(subtotal, `$${(subtotal / 100).toFixed(2)}`),
+    tax: money(tax, `$${(tax / 100).toFixed(2)}`),
+    shipping: money(1500, '$15.00'),
+    total: money(subtotal + tax + 1500, `$${((subtotal + tax + 1500) / 100).toFixed(2)}`),
+    canCheckout: items.length > 0 && items.every((line) => line.available),
+    ...overrides,
+  };
+}
+
+/**
+ * The empty cart the server actually returns: a null id and no items, but a
+ * non-zero total, because shipping is charged regardless.
+ */
+export const EMPTY_CART: Cart = cart([]);

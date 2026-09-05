@@ -4,6 +4,7 @@ import { firstValueFrom } from 'rxjs';
 import { CatalogueApi } from '../../core/api/catalogue-api';
 import type { Product } from '../../core/api/types';
 import { SessionStore } from '../../core/auth/session-store';
+import { CartStore } from '../../core/cart/cart-store';
 import { OverlayStore } from '../../core/overlay/overlay-store';
 import { authErrorMessage } from '../auth/auth-errors';
 import { ProductCard } from '../../shared/ui/product-card';
@@ -23,6 +24,7 @@ import { CartDrawer } from '../cart/cart-drawer';
 export class HomePage {
   private readonly catalogueApi = inject(CatalogueApi);
   private readonly session = inject(SessionStore);
+  private readonly cart = inject(CartStore);
 
   protected readonly overlay = inject(OverlayStore);
   protected readonly categories = ['Footwear', 'Bags', 'Accessories'];
@@ -38,6 +40,15 @@ export class HomePage {
 
   constructor() {
     void this.load();
+  }
+
+  /**
+   * CONTRACT: Goes through CartStore, never CartApi. Two fast clicks here on a
+   * user with no cart yet are exactly the creation race that makes the losing
+   * PUT answer 500 (JE-246); the store's queue is what serializes them.
+   */
+  protected addToCart(productId: string): void {
+    void this.cart.add(productId);
   }
 
   protected async load(): Promise<void> {

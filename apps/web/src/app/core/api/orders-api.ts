@@ -2,7 +2,7 @@ import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { ApiClient } from '../http/api-client';
-import { OrderWithTracking } from './types';
+import { IntLike, Order, OrderWithTracking } from './types';
 
 /**
  * The order-reading surface of services/orders/openapi.yaml.
@@ -23,9 +23,28 @@ import { OrderWithTracking } from './types';
  */
 const WITH_TRACKING = { includeTracking: 'true' } as const;
 
+/** One line of a CreateOrderRequest. */
+export interface CreateOrderLine {
+  productId: string;
+  quantity: IntLike;
+}
+
 @Injectable({ providedIn: 'root' })
 export class OrdersApi {
   private readonly api = inject(ApiClient);
+
+  /**
+   * POST /orders — creates an order and DELETES the caller's cart server-side.
+   *
+   * CONTRACT: The server does NOT read the cart; it prices exactly the `lines`
+   * sent, and a body of `{}` answers 400. Sending anything but the cart's own
+   * lines charges for something the buyer never saw. The caller must drop its
+   * local cart afterwards — the cart it still holds no longer exists.
+   * See [[2026-09-04-web-gateway-integration-design]]
+   */
+  createOrder(lines: readonly CreateOrderLine[]): Observable<Order> {
+    return this.api.post<Order>('/orders', { lines });
+  }
 
   /** GET /orders/my-orders?includeTracking=true — the caller's own orders. */
   listMyOrders(): Observable<OrderWithTracking[]> {

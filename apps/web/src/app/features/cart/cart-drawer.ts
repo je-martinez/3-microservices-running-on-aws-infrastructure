@@ -1,6 +1,5 @@
-import { Component, computed, inject, input } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
-import { catchError, of } from 'rxjs';
+import { Component, computed, inject, input, signal } from '@angular/core';
+import { firstValueFrom } from 'rxjs';
 import {
   LucideBuilding2,
   LucideChevronLeft,
@@ -8,28 +7,32 @@ import {
   LucideDynamicIcon,
   LucideMapPin,
   LucidePhone,
+  LucideRefreshCw,
   LucideShieldCheck,
+  LucideShoppingBag,
+  LucideTriangleAlert,
   LucideX,
 } from '@lucide/angular';
 import { APP_CONFIG } from '../../core/config/app-config';
 import { DeferEnterAnimation } from '../../core/overlay/defer-enter-animation';
 import { OverlayStore } from '../../core/overlay/overlay-store';
-import { type Address, type Product, toInt } from '../../core/api/types';
-import { CatalogueApi } from '../../core/api/catalogue-api';
-import { formatCentsAsUsd } from '../../shared/money/format-money';
+import { type Address, type CartLine as CartLineDto, toInt } from '../../core/api/types';
+import { OrdersApi } from '../../core/api/orders-api';
+import { CartStore } from '../../core/cart/cart-store';
+import { authErrorMessage } from '../auth/auth-errors';
 import { CartLine } from '../../shared/ui/cart-line';
 
 /**
  * Design: `Cart Drawer` (`ET6dr`). ONE component (spec D8) for three frame pairs
  * that differ only by state: cart with a saved address (`wevx6`), cart without
  * one (`eig49`, inline address form), and the Stripe payment step (`hed4V`).
- * Phase 1 has no cart store; contents are the first three fixture products.
+ * Loading, error and empty states use existing tokens: the `.pen` has no frame
+ * for any of the three.
  *
  * CONTRACT: The payment step opens only when `APP_CONFIG.stripeEnabled` is true
  * — a build with Stripe off must not reach a step it has disabled (spec
  * D-checkout). This panel stays `z-50`, above its Scrim's `z-40`, or it renders
- * underneath the scrim meant to sit behind it.
- * See [[angular-component-authoring]]
+ * underneath. See [[angular-component-authoring]]
  */
 
 /**
@@ -51,7 +54,10 @@ import { CartLine } from '../../shared/ui/cart-line';
     LucideDynamicIcon,
     LucideMapPin,
     LucidePhone,
+    LucideRefreshCw,
     LucideShieldCheck,
+    LucideShoppingBag,
+    LucideTriangleAlert,
     LucideX,
   ],
   templateUrl: './cart-drawer.html',
@@ -66,38 +72,107 @@ export class CartDrawer {
   readonly address = input<Address | null>(null);
   readonly step = input<'cart' | 'payment'>('cart');
 
+  private readonly ordersApi = inject(OrdersApi);
+
   protected readonly overlay = inject(OverlayStore);
+  protected readonly cart = inject(CartStore);
+
+  /** Set while POST /orders is in flight, and by its failure. */
+  protected readonly placing = signal(false);
+  protected readonly checkoutError = signal<string | null>(null);
+
+  protected readonly itemCount = computed(() => this.cart.itemCount());
 
   /**
-   * TODO(JE-245): Replace with GET /cart. This issue wires the catalogue,
-   * orders and profile only; there is no cart store yet, so the drawer keeps
-   * showing three products as its stand-in contents — now real ones, so it
-   * cannot outlive the deleted fixture.
+   * CONTRACT: These render the server's `formatted` strings verbatim. Rebuilding
+   * a total from `cents` shows a figure a cent away from what checkout charges,
+   * because the server rounds tax per line. See [[money-representation]]
    */
-  private readonly catalogue = toSignal(
-    inject(CatalogueApi)
-      .listProducts()
-      .pipe(catchError(() => of<Product[]>([]))),
-    { initialValue: [] as Product[] },
-  );
-
-  protected readonly cartItems = computed<readonly Product[]>(() => this.catalogue().slice(0, 3));
-
-  protected readonly subtotal = computed(() =>
-    formatCentsAsUsd(this.cartItems().reduce((sum, p) => sum + toInt(p.unitPrice.cents), 0)),
-  );
+  protected readonly totals = computed(() => {
+    const cart = this.cart.cart();
+    if (!cart) return null;
+    return {
+      subtotal: cart.subtotal.formatted,
+      tax: cart.tax.formatted,
+      shipping: cart.shipping.formatted,
+      total: cart.total.formatted,
+    };
+  });
 
   protected readonly continueLabel = computed(() => {
-    if (this.step() === 'payment') return `Pay ${this.subtotal()}`;
+    if (this.step() === 'payment') return `Pay ${this.totals()?.total ?? ''}`.trim();
     return this.address() ? 'Continue to payment' : 'Save address & continue';
   });
 
-  // The Stripe step only exists in the build when the flag enables it — the
-  // drawer cannot reach `cart-payment` otherwise (spec D-checkout).
+  /**
+   * CONTRACT: `canCheckout` gates the button but never guarantees success —
+   * another buyer can take the last unit between the cart read and POST
+   * /orders. The failure branch in `placeOrder` is the one that matters.
+   */
+  protected readonly canContinue = computed(
+    () => this.cart.canCheckout() && !this.cart.saving() && !this.placing(),
+  );
+
+  constructor() {
+    void this.cart.load();
+  }
+
+  // CONTRACT: Coerce `quantity` with toInt — it is IntLike, so `+ 1` on the
+  // string form concatenates and PUTs a quantity of "21" for 2 plus one.
+  protected increment(line: CartLineDto): void {
+    void this.cart.setQuantity(line.productId, toInt(line.quantity) + 1);
+  }
+
+  protected decrement(line: CartLineDto): void {
+    void this.cart.setQuantity(line.productId, toInt(line.quantity) - 1);
+  }
+
+  protected remove(line: CartLineDto): void {
+    void this.cart.remove(line.productId);
+  }
+
   protected continue(): void {
-    if (this.step() === 'payment') return; // Neither path submits (no payment backend).
+    if (this.step() === 'payment') {
+      void this.placeOrder();
+      return;
+    }
     if (APP_CONFIG.stripeEnabled) {
       this.overlay.openCartPayment();
+      return;
+    }
+    void this.placeOrder();
+  }
+
+  /**
+   * CONTRACT: Send the cart's own lines explicitly — POST /orders does NOT read
+   * the cart and answers 400 on an empty body. On success the server has
+   * already DELETED the cart, so the local one is dropped rather than re-read.
+   * See [[2026-09-04-web-gateway-integration-design]]
+   */
+  private async placeOrder(): Promise<void> {
+    const lines = this.cart
+      .lines()
+      .filter((line) => line.available)
+      .map((line) => ({ productId: line.productId, quantity: toInt(line.quantity) }));
+    if (lines.length === 0) return;
+
+    this.placing.set(true);
+    this.checkoutError.set(null);
+    try {
+      await firstValueFrom(this.ordersApi.createOrder(lines));
+      this.cart.forgetAfterCheckout();
+      this.overlay.close();
+    } catch (error: unknown) {
+      // 409 is the race `canCheckout` cannot rule out: stock went in the gap
+      // between reading the cart and charging it.
+      this.checkoutError.set(
+        authErrorMessage(error, {
+          409: 'Someone bought the last one while you were checking out. Adjust your cart and try again.',
+        }),
+      );
+      void this.cart.load();
+    } finally {
+      this.placing.set(false);
     }
   }
 }

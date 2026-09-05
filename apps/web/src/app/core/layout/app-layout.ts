@@ -1,6 +1,7 @@
 import { Component, inject } from '@angular/core';
 import { Router, RouterOutlet } from '@angular/router';
 import { NOTIFICATIONS } from '../../fixtures/notifications.fixture';
+import { CartStore } from '../cart/cart-store';
 import { OverlayStore } from '../overlay/overlay-store';
 import { AppHeader } from './app-header';
 
@@ -19,6 +20,7 @@ import { AppHeader } from './app-header';
 export class AppLayout {
   private readonly router = inject(Router);
   protected readonly overlay = inject(OverlayStore);
+  protected readonly cart = inject(CartStore);
 
   // Drives the bell's unread dot straight off the fixture — Phase 1 has no
   // notifications store.
