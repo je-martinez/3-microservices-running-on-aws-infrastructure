@@ -9,6 +9,31 @@ import { HomePage } from './home';
 import { awaitRequest, settle, textOf } from '../auth/testing';
 import { PRODUCT, SCREEN_TEST_PROVIDERS, money } from '../../shared/testing/fixtures';
 
+/** The chip row's labels, in render order. */
+function chipLabels(fixture: ComponentFixture<HomePage>): string[] {
+  const root = fixture.nativeElement as HTMLElement;
+  return [...root.querySelectorAll('button[aria-pressed]')].map((el) =>
+    (el.textContent ?? '').trim(),
+  );
+}
+
+/** The label of the chip currently in force. */
+function pressedChip(fixture: ComponentFixture<HomePage>): string | undefined {
+  const root = fixture.nativeElement as HTMLElement;
+  const active = [...root.querySelectorAll('button[aria-pressed="true"]')];
+  return active.length === 1 ? (active[0].textContent ?? '').trim() : undefined;
+}
+
+function clickChip(fixture: ComponentFixture<HomePage>, label: string): void {
+  const root = fixture.nativeElement as HTMLElement;
+  const chip = [...root.querySelectorAll('button[aria-pressed]')].find(
+    (el) => (el.textContent ?? '').trim() === label,
+  );
+  if (!chip) throw new Error(`no chip labelled "${label}" — found: ${chipLabels(fixture).join(', ')}`);
+  (chip as HTMLButtonElement).click();
+  fixture.detectChanges();
+}
+
 describe('HomePage', () => {
   let fixture: ComponentFixture<HomePage>;
   let controller: HttpTestingController;
@@ -85,6 +110,74 @@ describe('HomePage', () => {
     expect(root.textContent).toContain('$128.00');
     // A client dividing cents by 100 renders "$1000.00" — no thousands separator.
     expect(root.textContent).toContain('$1,000.00');
+  });
+
+  /**
+   * CONTRACT: The chips come from the products, never a constant. A hardcoded
+   * list silently drops a category the catalogue gains — OUTERWEAR was missing
+   * that way, so its product could not be reached by any chip.
+   * See [[2026-09-04-web-gateway-integration-design]]
+   */
+  it('derives the chips from the loaded products, including a one-off category', async () => {
+    (await awaitRequest(fixture, controller, '/v1/products')).flush([
+      PRODUCT,
+      { ...PRODUCT, id: 'prd_boot', name: 'Wool Runner', categories: ['FOOTWEAR'] },
+      { ...PRODUCT, id: 'prd_coat', name: 'Rain Shell', categories: ['OUTERWEAR'] },
+    ]);
+    await settle(fixture);
+
+    const chips = chipLabels(fixture);
+    expect(chips).toEqual(['All', 'Bags', 'Footwear', 'Outerwear']);
+  });
+
+  it('filters the grid to the chosen category and back with All', async () => {
+    (await awaitRequest(fixture, controller, '/v1/products')).flush([
+      PRODUCT,
+      { ...PRODUCT, id: 'prd_boot', name: 'Wool Runner', categories: ['FOOTWEAR'] },
+    ]);
+    await settle(fixture);
+
+    clickChip(fixture, 'Footwear');
+    await settle(fixture);
+
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelectorAll('app-product-card')).toHaveLength(1);
+    expect(root.textContent).toContain('Wool Runner');
+    expect(root.textContent).not.toContain('Field Tote');
+    expect(root.textContent).toContain('1 products');
+
+    clickChip(fixture, 'All');
+    await settle(fixture);
+    expect(root.querySelectorAll('app-product-card')).toHaveLength(2);
+    expect(root.textContent).toContain('2 products');
+  });
+
+  it('shows a product under every category it carries', async () => {
+    (await awaitRequest(fixture, controller, '/v1/products')).flush([
+      { ...PRODUCT, id: 'prd_dual', name: 'Convertible Pack', categories: ['BAGS', 'OUTERWEAR'] },
+    ]);
+    await settle(fixture);
+
+    expect(chipLabels(fixture)).toEqual(['All', 'Bags', 'Outerwear']);
+
+    const root = fixture.nativeElement as HTMLElement;
+    clickChip(fixture, 'Bags');
+    await settle(fixture);
+    expect(root.textContent).toContain('Convertible Pack');
+
+    clickChip(fixture, 'Outerwear');
+    await settle(fixture);
+    expect(root.textContent).toContain('Convertible Pack');
+  });
+
+  it('marks the active chip with aria-pressed', async () => {
+    (await awaitRequest(fixture, controller, '/v1/products')).flush([PRODUCT]);
+    await settle(fixture);
+
+    expect(pressedChip(fixture)).toBe('All');
+    clickChip(fixture, 'Bags');
+    await settle(fixture);
+    expect(pressedChip(fixture)).toBe('Bags');
   });
 
   it('renders an error state with a retry that refetches', async () => {

@@ -9,18 +9,39 @@
           } @else if (error()) {
             Catalogue unavailable
           } @else {
-            {{ products().length }} products · updated today
+            {{ visibleProducts().length }} products · updated today
           }
         </p>
       </div>
       <div class="flex h-fit w-full flex-row flex-wrap items-center justify-start gap-md md:w-fit">
-        <span class="bg-brand-navy border-brand-navy text-surface-white flex h-control w-fit shrink-0 flex-row items-center justify-start rounded-full border px-icon text-body font-semibold">
+        <!-- CONTRACT: Buttons, not spans. These were decorative markup that
+             looked pressable and filtered nothing. `aria-pressed` is what tells
+             a screen reader which one is in force. -->
+        <button
+          type="button"
+          [attr.aria-pressed]="selectedCategory() === null"
+          (click)="selectCategory(null)"
+          [class]="
+            selectedCategory() === null
+              ? 'bg-brand-navy border-brand-navy text-surface-white flex h-control w-fit shrink-0 cursor-pointer flex-row items-center justify-start rounded-full border px-icon text-body font-semibold'
+              : 'border-line-strong text-ink-secondary flex h-control w-fit shrink-0 cursor-pointer flex-row items-center justify-start rounded-full border px-icon text-body'
+          "
+        >
           All
-        </span>
-        @for (category of categories; track category) {
-          <span class="border-line-strong text-ink-secondary flex h-control w-fit shrink-0 flex-row items-center justify-start rounded-full border px-icon text-body">
-            {{ category }}
-          </span>
+        </button>
+        @for (category of categories(); track category) {
+          <button
+            type="button"
+            [attr.aria-pressed]="selectedCategory() === category"
+            (click)="selectCategory(category)"
+            [class]="
+              selectedCategory() === category
+                ? 'bg-brand-navy border-brand-navy text-surface-white flex h-control w-fit shrink-0 cursor-pointer flex-row items-center justify-start rounded-full border px-icon text-body font-semibold'
+                : 'border-line-strong text-ink-secondary flex h-control w-fit shrink-0 cursor-pointer flex-row items-center justify-start rounded-full border px-icon text-body'
+            "
+          >
+            {{ categoryLabel(category) }}
+          </button>
         }
         <span class="border-line-strong text-ink-primary flex h-control w-fit shrink-0 flex-row items-center justify-start gap-2 rounded-full border px-2xl text-body">
           Featured
@@ -60,7 +81,7 @@
       </div>
     } @else {
       <div class="grid w-full grid-cols-2 gap-3 md:grid-cols-4 md:gap-6">
-        @for (product of products(); track product.id) {
+        @for (product of visibleProducts(); track product.id) {
           <app-product-card [product]="product" (add)="addToCart(product.id)" />
         } @empty {
           <p class="text-ink-secondary col-span-full py-10 text-center text-sm">

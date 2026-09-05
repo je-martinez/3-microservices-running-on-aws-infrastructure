@@ -27,7 +27,38 @@ export class HomePage {
   private readonly cart = inject(CartStore);
 
   protected readonly overlay = inject(OverlayStore);
-  protected readonly categories = ['Footwear', 'Bags', 'Accessories'];
+  /**
+   * CONTRACT: Derived from the loaded products, never a constant list. A
+   * hardcoded one silently drops a category the catalogue gains — OUTERWEAR was
+   * missing exactly that way, leaving its product unreachable by any chip.
+   * `Product.categories` is an array, so this flattens rather than assuming one
+   * per product. See [[2026-09-04-web-gateway-integration-design]]
+   */
+  protected readonly categories = computed(() =>
+    [...new Set(this.products().flatMap((product) => product.categories))].sort(),
+  );
+
+  /** The chip in force, or null for "All". Holds the RAW wire value. */
+  protected readonly selectedCategory = signal<string | null>(null);
+
+  protected readonly visibleProducts = computed(() => {
+    const category = this.selectedCategory();
+    if (category === null) return this.products();
+    return this.products().filter((product) => product.categories.includes(category));
+  });
+
+  /**
+   * The catalogue sends categories UPPERCASE; the chips read as words. The
+   * product card's own label stays uppercase, so this converts for the chip
+   * only — the raw value is what `selectedCategory` filters on.
+   */
+  protected categoryLabel(category: string): string {
+    return category.charAt(0) + category.slice(1).toLowerCase();
+  }
+
+  protected selectCategory(category: string | null): void {
+    this.selectedCategory.set(category);
+  }
   /** One skeleton per grid slot on a desktop row, so the loading grid fills it. */
   protected readonly skeletons = [0, 1, 2, 3, 4, 5, 6, 7];
 
@@ -56,6 +87,10 @@ export class HomePage {
     this.error.set(null);
     try {
       this.products.set(await firstValueFrom(this.catalogueApi.listProducts()));
+      // A category that no longer exists would filter the grid to nothing.
+      if (!this.categories().includes(this.selectedCategory() ?? '')) {
+        this.selectedCategory.set(null);
+      }
     } catch (error: unknown) {
       this.error.set(authErrorMessage(error));
     } finally {
