@@ -1,3 +1,4 @@
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { ApplicationConfig, provideBrowserGlobalErrorListeners } from '@angular/core';
 import { provideRouter, withViewTransitions } from '@angular/router';
 import { provideStore } from '@ngrx/store';
@@ -40,6 +41,7 @@ import {
 } from '@lucide/angular';
 
 import { routes } from './app.routes';
+import { authInterceptor } from './core/auth/auth-interceptor';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -50,6 +52,11 @@ export const appConfig: ApplicationConfig = {
     // WHY: `skipInitialTransition` — landing directly on a URL has nothing to
     // transition from, and a fade on first paint reads as slowness.
     provideRouter(routes, withViewTransitions({ skipInitialTransition: true })),
+    // CONTRACT: Interceptor order is execution order. Anything added later that
+    // retries a request (the refresh interceptor, JE-241) belongs BEFORE
+    // authInterceptor, so its retry re-enters this one and picks up the new
+    // token instead of replaying the expired header it already set.
+    provideHttpClient(withInterceptors([authInterceptor])),
     // Phase 1 exercises almost none of this. It is registered up front so
     // phase 2 adds reducers rather than rewiring bootstrap.
     provideStore({}),
