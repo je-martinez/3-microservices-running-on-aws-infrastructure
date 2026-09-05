@@ -14,8 +14,8 @@
   </div>
 
   <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-rule pt-xs px-3 pb-3 md:py-md md:px-3">
-    <div class="text-ink-primary text-base font-semibold whitespace-nowrap md:text-body-lg">{{ user.fullName }}</div>
-    <div class="text-ink-secondary text-body whitespace-nowrap md:text-body-sm">{{ user.email }}</div>
+    <div class="text-ink-primary text-base font-semibold whitespace-nowrap md:text-body-lg">{{ user()?.fullName }}</div>
+    <div class="text-ink-secondary text-body whitespace-nowrap md:text-body-sm">{{ user()?.email }}</div>
   </div>
 
   <div class="bg-line h-px w-full shrink-0"></div>

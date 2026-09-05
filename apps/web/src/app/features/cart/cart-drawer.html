@@ -19,7 +19,7 @@
         {{ step() === 'payment' ? 'Payment' : 'Your cart' }}
       </h2>
       <span class="text-ink-secondary text-body">
-        {{ step() === 'payment' ? 'Step 2 of 2' : cartItems.length + ' items' }}
+        {{ step() === 'payment' ? 'Step 2 of 2' : cartItems().length + ' items' }}
       </span>
     </div>
     <button
@@ -33,7 +33,7 @@
 
   @if (step() === 'cart') {
     <div class="flex w-full flex-1 flex-col items-start justify-start gap-5 overflow-y-auto px-6 py-4xl">
-      @for (product of cartItems; track product.id) {
+      @for (product of cartItems(); track product.id) {
         <app-cart-line [product]="product" />
       }
     </div>

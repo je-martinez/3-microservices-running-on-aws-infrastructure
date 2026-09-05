@@ -1,6 +1,7 @@
 import { Component, computed, input, output } from '@angular/core';
 import { LucideMinus, LucidePlus } from '@lucide/angular';
-import { formatCents, type Product, toInt } from '../../core/api/types';
+import { formatCentsAsUsd } from '../money/format-money';
+import { type Product, toInt } from '../../core/api/types';
 
 /**
  * Design: frame `Cart Line` (L5XVFs), reused in `Cart Drawer` (`ET6dr`) and
@@ -8,9 +9,11 @@ import { formatCents, type Product, toInt } from '../../core/api/types';
  * renders off a `Product` plus a `quantity`. The design's variant text has no
  * backing field, so the first category stands in as the descriptor.
  *
- * CONTRACT: `unitPriceCents` is `IntLike` — coerce it with `toInt` before any
- * arithmetic, or a string price silently concatenates into the line total.
- * See [[money-as-integer-cents]]
+ * CONTRACT: A quantity preview is arithmetic the server does not do, so it
+ * computes from `unitPrice.cents` rather than rendering `formatted`. Coerce
+ * with `toInt` — `cents` is `IntLike` and a string concatenates instead.
+ * Cart and order TOTALS must still come from the server's `Money`.
+ * See [[money-representation]]
  */
 @Component({
   selector: 'app-cart-line',
@@ -32,6 +35,6 @@ export class CartLine {
 
   protected readonly variant = computed(() => this.product().categories[0]?.toUpperCase());
   protected readonly linePrice = computed(
-    () => `$${formatCents(toInt(this.product().unitPriceCents) * this.quantity())}`,
+    () => formatCentsAsUsd(toInt(this.product().unitPrice.cents) * this.quantity()),
   );
 }

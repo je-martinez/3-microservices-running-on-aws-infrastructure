@@ -1,4 +1,6 @@
 import { Component, computed, inject, input } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { catchError, of } from 'rxjs';
 import {
   LucideBuilding2,
   LucideChevronLeft,
@@ -12,8 +14,9 @@ import {
 import { APP_CONFIG } from '../../core/config/app-config';
 import { DeferEnterAnimation } from '../../core/overlay/defer-enter-animation';
 import { OverlayStore } from '../../core/overlay/overlay-store';
-import { type Address, formatCents, type Product, toInt } from '../../core/api/types';
-import { PRODUCTS } from '../../fixtures/catalogue.fixture';
+import { type Address, type Product, toInt } from '../../core/api/types';
+import { CatalogueApi } from '../../core/api/catalogue-api';
+import { formatCentsAsUsd } from '../../shared/money/format-money';
 import { CartLine } from '../../shared/ui/cart-line';
 
 /**
@@ -64,10 +67,24 @@ export class CartDrawer {
   readonly step = input<'cart' | 'payment'>('cart');
 
   protected readonly overlay = inject(OverlayStore);
-  protected readonly cartItems: readonly Product[] = PRODUCTS.slice(0, 3);
+
+  /**
+   * TODO(JE-245): Replace with GET /cart. This issue wires the catalogue,
+   * orders and profile only; there is no cart store yet, so the drawer keeps
+   * showing three products as its stand-in contents — now real ones, so it
+   * cannot outlive the deleted fixture.
+   */
+  private readonly catalogue = toSignal(
+    inject(CatalogueApi)
+      .listProducts()
+      .pipe(catchError(() => of<Product[]>([]))),
+    { initialValue: [] as Product[] },
+  );
+
+  protected readonly cartItems = computed<readonly Product[]>(() => this.catalogue().slice(0, 3));
 
   protected readonly subtotal = computed(() =>
-    `$${formatCents(this.cartItems.reduce((sum, product) => sum + toInt(product.unitPriceCents), 0))}`,
+    formatCentsAsUsd(this.cartItems().reduce((sum, p) => sum + toInt(p.unitPrice.cents), 0)),
   );
 
   protected readonly continueLabel = computed(() => {

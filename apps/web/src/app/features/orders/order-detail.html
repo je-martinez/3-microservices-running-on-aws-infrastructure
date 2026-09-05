@@ -1,7 +1,56 @@
 <div class="bg-surface-body flex w-full flex-1 flex-col items-start justify-start gap-0">
-  @if (entry(); as entry) {
+  @if (loading()) {
+    <div class="flex w-full flex-1 flex-col items-center justify-start gap-0 p-5 md:p-9" aria-busy="true">
+      <div class="flex h-fit w-full max-w-260 shrink-0 animate-pulse flex-col items-start justify-start gap-4 md:gap-[1.375rem]">
+        <div class="bg-surface-subtle h-4 w-24 shrink-0 rounded-full"></div>
+        <div class="bg-surface-subtle h-7 w-56 shrink-0 rounded-full"></div>
+        <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-5 md:flex-row md:gap-6">
+          <div class="border-line bg-surface-white h-75 w-full min-w-0 flex-1 rounded-xl border"></div>
+          <div class="border-line bg-surface-white h-52 w-full shrink-0 rounded-xl border md:w-85"></div>
+        </div>
+      </div>
+    </div>
+  } @else if (error(); as message) {
     <div class="flex w-full flex-1 flex-col items-center justify-start gap-0 p-5 md:p-9">
-      <div class="flex h-fit w-full max-w-[65rem] shrink-0 flex-col items-start justify-start gap-4 md:gap-[1.375rem]">
+      <div
+        role="alert"
+        class="border-line bg-surface-white flex h-fit w-full max-w-125 shrink-0 flex-col items-center justify-center gap-lg rounded-xl border p-9"
+      >
+        <svg lucideTriangleAlert class="text-danger-red h-icon-lg w-icon-lg"></svg>
+        <p class="text-ink-primary text-label font-semibold">We could not load this order.</p>
+        <p class="text-ink-secondary text-center text-body">{{ message }}</p>
+        <button
+          type="button"
+          class="border-line-strong text-brand-navy flex h-control w-fit shrink-0 flex-row items-center justify-start gap-sm rounded-lg border px-2xl text-body font-semibold"
+          (click)="reload()"
+        >
+          <svg lucideRefreshCw class="h-icon-sm w-icon-sm"></svg>
+          Try again
+        </button>
+      </div>
+    </div>
+  } @else if (notFound() || !entry()) {
+    <!-- CONTRACT: A 404 here means "not yours OR not real" — Orders checks
+         ownership by cognito_sub and declines to confirm the id exists at all.
+         Do NOT word this as "deleted"; it also covers another user's order. -->
+    <div class="flex w-full flex-1 flex-col items-center justify-start gap-0 p-5 md:p-9">
+      <div class="border-line bg-surface-white flex h-fit w-full max-w-125 shrink-0 flex-col items-center justify-center gap-lg rounded-xl border p-9">
+        <p class="text-ink-primary text-label font-semibold">Order not found.</p>
+        <p class="text-ink-secondary text-center text-body">
+          We could not find this order on your account.
+        </p>
+        <button
+          type="button"
+          class="border-line-strong text-brand-navy flex h-control w-fit shrink-0 flex-row items-center justify-start rounded-lg border px-2xl text-body font-semibold"
+          (click)="goTo('/orders')"
+        >
+          Back to all orders
+        </button>
+      </div>
+    </div>
+  } @else if (entry(); as entry) {
+    <div class="flex w-full flex-1 flex-col items-center justify-start gap-0 p-5 md:p-9">
+      <div class="flex h-fit w-full max-w-260 shrink-0 flex-col items-start justify-start gap-4 md:gap-[1.375rem]">
         <button
           type="button"
           class="text-ink-secondary flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-[0.4375rem]"
@@ -65,7 +114,7 @@
                         <span class="text-ink-secondary text-[0.8125rem]">Qty {{ line.quantity }}</span>
                       </div>
                       <span class="text-ink-primary text-[0.90625rem] font-semibold">
-                        {{ '$' + formatCents(line.totalCents) }}
+                        {{ line.total.formatted }}
                       </span>
                     </div>
                   </div>
@@ -77,38 +126,41 @@
             </div>
           </div>
 
-          <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-5 md:w-[21.25rem]">
+          <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-5 md:w-85">
             <div class="border-line bg-surface-white flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5">
               <span class="text-ink-muted text-xs font-semibold tracking-[0.09375rem]">ORDER SUMMARY</span>
 
               <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
                 <span class="text-ink-secondary text-sm">Subtotal</span>
-                <span class="text-ink-primary text-sm font-semibold">{{ '$' + formatCents(entry.order.subtotalCents) }}</span>
+                <span class="text-ink-primary text-sm font-semibold">{{ entry.order.subtotal.formatted }}</span>
               </div>
               <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
                 <span class="text-ink-secondary text-sm">Shipping</span>
+                <!-- CONTRACT: "Free" is chosen on `cents`, but the amount shown
+                     is the server's own `formatted` string — never a locally
+                     rebuilt one. See [[money-representation]] -->
                 <span class="text-ink-primary text-sm font-semibold">
-                  {{ toInt(entry.order.shippingCents) === 0 ? 'Free' : '$' + formatCents(entry.order.shippingCents) }}
+                  {{ toInt(entry.order.shipping.cents) === 0 ? 'Free' : entry.order.shipping.formatted }}
                 </span>
               </div>
               <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
                 <span class="text-ink-secondary text-sm">Taxes</span>
-                <span class="text-ink-primary text-sm font-semibold">{{ '$' + formatCents(entry.order.taxCents) }}</span>
+                <span class="text-ink-primary text-sm font-semibold">{{ entry.order.tax.formatted }}</span>
               </div>
               <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
                 <span class="text-ink-primary text-[0.96875rem] font-bold">Total</span>
-                <span class="text-ink-primary text-lg font-bold tracking-[-0.01875rem]">{{ '$' + formatCents(entry.order.totalCents) }}</span>
+                <span class="text-ink-primary text-lg font-bold tracking-[-0.01875rem]">{{ entry.order.total.formatted }}</span>
               </div>
             </div>
 
-            @if (address; as deliveryAddress) {
+            @if (address(); as deliveryAddress) {
               <div class="border-line bg-surface-white flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5">
                 <span class="text-ink-muted text-xs font-semibold tracking-[0.09375rem]">DELIVERY ADDRESS</span>
-                <span class="text-ink-primary text-[0.90625rem] font-semibold">{{ userName }}</span>
+                <span class="text-ink-primary text-[0.90625rem] font-semibold">{{ userName() }}</span>
                 <p class="text-ink-secondary w-full text-[0.84375rem] leading-[1.375rem]">
                   {{ deliveryAddress.line1 }}{{ deliveryAddress.line2 ? ', ' + deliveryAddress.line2 : '' }}<br />
                   {{ deliveryAddress.city }} {{ deliveryAddress.postalCode }}, {{ deliveryAddress.country }}<br />
-                  {{ userPhone }}
+                  {{ userPhone() }}
                 </p>
               </div>
             }
@@ -116,7 +168,5 @@
         </div>
       </div>
     </div>
-  } @else {
-    <p class="text-ink-secondary w-full p-9 text-center text-sm">Order not found.</p>
   }
 </div>

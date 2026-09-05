@@ -1,9 +1,12 @@
-import { Component, computed } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { catchError, of } from 'rxjs';
 import { RouterLink } from '@angular/router';
 import { LucideCheck, LucideChevronLeft, LucideCreditCard, LucideLock, LucideShieldCheck } from '@lucide/angular';
 import { APP_CONFIG } from '../../core/config/app-config';
-import { formatCents, toInt } from '../../core/api/types';
-import { PRODUCTS } from '../../fixtures/catalogue.fixture';
+import { type Product, toInt } from '../../core/api/types';
+import { CatalogueApi } from '../../core/api/catalogue-api';
+import { formatCentsAsUsd } from '../../shared/money/format-money';
 import { CartLine } from '../../shared/ui/cart-line';
 
 /**
@@ -26,9 +29,22 @@ export class CheckoutPaymentPage {
   /** Read from APP_CONFIG, never from import.meta.env — see app-config.ts. */
   protected readonly stripeEnabled = computed(() => APP_CONFIG.stripeEnabled);
 
-  protected readonly cartItems = PRODUCTS.slice(0, 3);
-  protected readonly itemCount = computed(() => this.cartItems.length);
-  protected readonly total = computed(
-    () => `$${formatCents(this.cartItems.reduce((sum, product) => sum + toInt(product.unitPriceCents), 0))}`,
+  /**
+   * TODO(JE-245): Replace with GET /cart. This issue wires the catalogue,
+   * orders and profile only; with no cart store yet the summary keeps showing
+   * three products as its stand-in contents — now real ones, so it cannot
+   * outlive the deleted fixture.
+   */
+  private readonly catalogue = toSignal(
+    inject(CatalogueApi)
+      .listProducts()
+      .pipe(catchError(() => of<Product[]>([]))),
+    { initialValue: [] as Product[] },
+  );
+
+  protected readonly cartItems = computed<readonly Product[]>(() => this.catalogue().slice(0, 3));
+  protected readonly itemCount = computed(() => this.cartItems().length);
+  protected readonly total = computed(() =>
+    formatCentsAsUsd(this.cartItems().reduce((sum, p) => sum + toInt(p.unitPrice.cents), 0)),
   );
 }

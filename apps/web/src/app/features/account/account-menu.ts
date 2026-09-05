@@ -3,8 +3,8 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
 import { LucideLogOut, LucidePackage, LucideUser } from '@lucide/angular';
+import { SessionStore } from '../../core/auth/session-store';
 import { OverlayStore } from '../../core/overlay/overlay-store';
-import { CURRENT_USER } from '../../fixtures/user.fixture';
 
 /**
  * Design: `Account Menu` (`B6fdc`) — one responsive component (spec D8) for the
@@ -47,7 +47,12 @@ export class AccountMenu {
   protected readonly overlay = inject(OverlayStore);
   private readonly router = inject(Router);
 
-  protected readonly user = CURRENT_USER;
+  /**
+   * WHY: reads the store rather than fetching. Boot loads the profile once
+   * (see core/auth/profile-loader.ts), and an overlay that issued its own
+   * request would refetch on every open.
+   */
+  protected readonly user = inject(SessionStore).user;
 
   /**
    * WHY: Derived from the router rather than a static class in the template.
@@ -73,9 +78,9 @@ export class AccountMenu {
     void this.router.navigateByUrl(path);
   }
 
+  // TODO(JE-246): Tear down the session here. This issue wires reads only;
+  // sign-out needs TokenStore.clear plus a redirect, which is its own change.
   protected signOut(): void {
-    // Phase 1 has no auth session to tear down — closing the menu matches
-    // the design's affordance without a real sign-out flow behind it yet.
     this.overlay.close();
   }
 }

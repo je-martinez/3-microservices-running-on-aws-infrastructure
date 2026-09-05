@@ -22,11 +22,6 @@ export function toInt(value: IntLike): number {
   return n;
 }
 
-/** Format integer cents as a display price. No currency in any contract. */
-export function formatCents(value: IntLike): string {
-  return (toInt(value) / 100).toFixed(2);
-}
-
 /**
  * services/orders/openapi.yaml — Money. Every HTTP amount is this object.
  *
@@ -57,7 +52,7 @@ export interface Product {
   id: string;
   name: string;
   description: string;
-  unitPriceCents: IntLike;
+  unitPrice: Money;
   unitsInStock: IntLike;
   categories: string[];
   image: ProductImage | null;
@@ -115,13 +110,18 @@ export interface Cart {
  * services/orders/openapi.yaml — OrderLineDto.
  * Carries ONLY productId: no name, image, or unit price. Rendering a line
  * requires joining against the product catalogue (see joinOrderLine).
+ *
+ * CONTRACT: A line has NO `shipping` — only the order does. A line total is
+ * therefore its own subtotal + tax, and summing the lines of an order yields
+ * less than `order.total` by exactly the shipping. Do NOT reconcile the two by
+ * inventing a per-line shipping share. See [[money-representation]]
  */
 export interface OrderLine {
   productId: string;
   quantity: IntLike;
-  subtotalCents: IntLike;
-  taxCents: IntLike;
-  totalCents: IntLike;
+  subtotal: Money;
+  tax: Money;
+  total: Money;
 }
 
 /** services/orders/openapi.yaml — OrderDto. No status field on the wire. */
@@ -129,10 +129,10 @@ export interface Order {
   id: string;
   userId: string;
   cognitoSub: string;
-  subtotalCents: IntLike;
-  taxCents: IntLike;
-  shippingCents: IntLike;
-  totalCents: IntLike;
+  subtotal: Money;
+  tax: Money;
+  shipping: Money;
+  total: Money;
   createdAt: string;
   lines: OrderLine[];
 }
@@ -180,7 +180,16 @@ export interface Tracking {
   history: TrackingHistoryEntry[];
 }
 
-/** GET /v1/orders/my-orders returns an array of THESE, not of bare orders. */
+/**
+ * GET /orders/my-orders returns an array of THESE only when the request carries
+ * `includeTracking=true`.
+ *
+ * CONTRACT: That parameter defaults to FALSE, and without it the same route
+ * answers 200 with an array of bare `Order`s. Nothing throws — every
+ * `entry.order` reads undefined and the list renders as if the user had no
+ * orders. OrdersApi is what pins the parameter on; see orders-api.ts.
+ * See [[openapi-specs]]
+ */
 export interface OrderWithTracking {
   order: Order;
   tracking: Tracking | null;

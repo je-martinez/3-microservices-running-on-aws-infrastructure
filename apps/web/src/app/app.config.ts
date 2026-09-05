@@ -47,6 +47,7 @@ import {
 import { routes } from './app.routes';
 import { authInterceptor } from './core/auth/auth-interceptor';
 import { refreshInterceptor } from './core/auth/refresh-interceptor';
+import { loadRestoredProfile } from './core/auth/profile-loader';
 import { rehydrateSession } from './core/auth/session-rehydration';
 
 export const appConfig: ApplicationConfig = {
@@ -57,6 +58,13 @@ export const appConfig: ApplicationConfig = {
     // /orders redirects to /login even with a valid session persisted.
     // See [[2026-09-04-web-gateway-integration-design]]
     provideAppInitializer(rehydrateSession),
+    // CONTRACT: Runs AFTER rehydrateSession, and needs it: the profile fetch
+    // goes out with the restored token, so it must not start before the token
+    // store has been read. Rehydration only proves a session exists — without
+    // this the header, account menu and profile render an empty user after
+    // every reload, while routing works.
+    // See [[2026-09-04-web-gateway-integration-design]]
+    provideAppInitializer(loadRestoredProfile),
     // Route changes cross-fade instead of hard-cutting; the shared chrome
     // (brand panel, app header) is pinned by `view-transition-name` in
     // styles.css so only the changing content animates.
