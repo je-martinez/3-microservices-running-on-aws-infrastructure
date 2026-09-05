@@ -1,5 +1,9 @@
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
-import { ApplicationConfig, provideBrowserGlobalErrorListeners } from '@angular/core';
+import {
+  ApplicationConfig,
+  provideAppInitializer,
+  provideBrowserGlobalErrorListeners,
+} from '@angular/core';
 import { provideRouter, withViewTransitions } from '@angular/router';
 import { provideStore } from '@ngrx/store';
 import {
@@ -43,10 +47,16 @@ import {
 import { routes } from './app.routes';
 import { authInterceptor } from './core/auth/auth-interceptor';
 import { refreshInterceptor } from './core/auth/refresh-interceptor';
+import { rehydrateSession } from './core/auth/session-rehydration';
 
 export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
+    // CONTRACT: Boot waits on this before the first navigation resolves. Drop
+    // it and authGuard runs against an unread token store, so a reload on
+    // /orders redirects to /login even with a valid session persisted.
+    // See [[2026-09-04-web-gateway-integration-design]]
+    provideAppInitializer(rehydrateSession),
     // Route changes cross-fade instead of hard-cutting; the shared chrome
     // (brand panel, app header) is pinned by `view-transition-name` in
     // styles.css so only the changing content animates.
