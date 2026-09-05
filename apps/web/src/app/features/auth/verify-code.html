@@ -1,8 +1,5 @@
 <section class="flex flex-1 flex-col items-center justify-center px-6 py-10 lg:px-10">
-  <form
-    class="flex w-full max-w-120 flex-col gap-6 lg:gap-7"
-    (submit)="$event.preventDefault()"
-  >
+  <form class="flex w-full max-w-120 flex-col gap-6 lg:gap-7" (submit)="$event.preventDefault(); submit()">
     <a routerLink="/login/passwordless" class="text-ink-secondary inline-flex w-fit items-center gap-sm">
       <svg lucideArrowLeft class="h-4 w-4"></svg>
       <span class="text-sm font-semibold">Use a different email</span>
@@ -13,30 +10,67 @@
         Check your inbox
       </h1>
       <p class="font-body text-ink-secondary text-body-lg leading-[1.55] lg:text-base">
-        We sent a 6-digit code to your email. Enter it below to finish signing in.
+        @if (email(); as address) {
+          We sent a {{ maxLength }}-digit code to {{ address }}. Enter it below to finish signing
+          in.
+        } @else {
+          We sent a {{ maxLength }}-digit code to your email. Enter it below to finish signing in.
+        }
       </p>
     </div>
 
     <div class="flex w-full flex-col gap-3">
-      <div class="flex w-full gap-3">
-        <app-otp-digit class="flex-1" value="4" />
-        <app-otp-digit class="flex-1" value="8" />
-        <app-otp-digit class="flex-1" value="3" />
-        <app-otp-digit class="flex-1" />
-        <app-otp-digit class="flex-1" />
-        <app-otp-digit class="flex-1" />
+      <!-- WHY: one real input laid over the six display boxes, rather than six
+           inputs. It gets native paste, autofill of a one-time code, and
+           backspace across the whole value for free; six separate fields have
+           to reimplement all three. -->
+      <div class="relative w-full">
+        <div class="flex w-full gap-3" aria-hidden="true">
+          @for (digit of digits(); track $index) {
+            <app-otp-digit class="flex-1" [value]="digit" />
+          }
+        </div>
+        <input
+          class="absolute inset-0 h-full w-full cursor-pointer bg-transparent text-transparent caret-transparent opacity-0 outline-none"
+          type="text"
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          aria-label="Verification code"
+          [attr.maxlength]="maxLength"
+          [value]="code()"
+          (input)="onCodeInput($any($event.target).value)"
+        />
       </div>
       <div class="flex items-center gap-xs">
         <svg lucideTimer class="text-ink-muted h-2xl w-2xl"></svg>
-        <span class="text-ink-muted text-sm">Code expires in 09:42</span>
+        <span class="text-ink-muted text-sm">The code expires 10 minutes after it is sent.</span>
       </div>
     </div>
 
-    <app-button-primary label="Verify and continue" icon="arrow-right" />
+    @if (error(); as message) {
+      <p role="alert" class="text-danger-red w-full text-body-lg">{{ message }}</p>
+    }
+    @if (notice(); as message) {
+      <p role="status" class="text-success-ink w-full text-body-lg">{{ message }}</p>
+    }
+
+    <app-button-primary
+      [label]="submitting() ? 'Verifying…' : 'Verify and continue'"
+      icon="arrow-right"
+      [disabled]="submitting() || !canSubmit()"
+      (clicked)="submit()"
+    />
 
     <p class="flex w-full justify-center gap-2xs text-label">
       <span class="text-ink-secondary">Didn't receive it?</span>
-      <button type="button" class="text-brand-navy font-semibold">Resend code</button>
+      <button
+        type="button"
+        class="text-brand-navy font-semibold"
+        [disabled]="resending()"
+        (click)="resend()"
+      >
+        {{ resending() ? 'Sending…' : 'Resend code' }}
+      </button>
     </p>
 
     <div class="bg-surface-subtle flex w-full items-center gap-md rounded-md p-3.5">

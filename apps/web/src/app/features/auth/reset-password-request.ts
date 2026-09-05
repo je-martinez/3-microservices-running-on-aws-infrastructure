@@ -1,8 +1,13 @@
-import { Component } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Component, inject, signal } from '@angular/core';
+import { Router, RouterLink } from '@angular/router';
 import { LucideArrowLeft } from '@lucide/angular';
+import { firstValueFrom } from 'rxjs';
+
+import { UsersApi } from '../../core/api/users-api';
 import { Field } from '../../shared/ui/field';
 import { ButtonPrimary } from '../../shared/ui/button-primary';
+import { PasswordResetStore } from './password-reset';
+import { authErrorMessage } from './auth-errors';
 
 /**
  * CONTRACT: These MIRROR the Users service and are not free copy. `reset-code.ts`
@@ -18,8 +23,7 @@ const RESET_CODE_LENGTH = 6;
 /**
  * Design: `Reset Password — Request` (P1pmu1, 1440) and `Mobile — Reset
  * Password` (f1j8HV, 390) as one component, two breakpoints (spec D8).
- * The step before `/password/new`: it asks for the email the reset code is sent
- * to. Phase 1 is layout and navigation only — the form submits nowhere.
+ * POST /users/password/forgot, then on to /password/new to enter the code.
  */
 @Component({
   selector: 'app-reset-password-request',
@@ -27,6 +31,44 @@ const RESET_CODE_LENGTH = 6;
   templateUrl: './reset-password-request.html',
 })
 export class ResetPasswordRequestPage {
+  private readonly usersApi = inject(UsersApi);
+  private readonly reset = inject(PasswordResetStore);
+  private readonly router = inject(Router);
+
   protected readonly codeLength = RESET_CODE_LENGTH;
   protected readonly ttlMinutes = RESET_CODE_TTL_MINUTES;
+
+  protected readonly email = signal('');
+  protected readonly submitting = signal(false);
+  protected readonly error = signal<string | null>(null);
+  protected readonly sent = signal(false);
+
+  /**
+   * CONTRACT: One confirmation for EVERY accepted request, never a branch on
+   * whether the account exists. The endpoint answers an identical 202 either
+   * way precisely so it reveals nothing; branching here re-opens the
+   * account-enumeration oracle client-side, where it reads just as easily.
+   * See [[2026-09-04-web-gateway-integration-design]]
+   */
+  protected async submit(): Promise<void> {
+    if (this.submitting()) return;
+    const email = this.email().trim();
+    this.error.set(null);
+    this.submitting.set(true);
+    try {
+      await firstValueFrom(this.usersApi.forgotPassword(email));
+      this.reset.request(email);
+      this.sent.set(true);
+    } catch (error: unknown) {
+      // Only a transport or validation failure lands here — an unknown email is
+      // a 202 like any other, and takes the success path above.
+      this.error.set(authErrorMessage(error));
+    } finally {
+      this.submitting.set(false);
+    }
+  }
+
+  protected continueToCode(): Promise<boolean> {
+    return this.router.navigateByUrl('/password/new');
+  }
 }
