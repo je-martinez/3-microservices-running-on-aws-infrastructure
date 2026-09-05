@@ -4,6 +4,8 @@
  */
 interface ImportMetaEnv {
   readonly NG_APP_STRIPE_ENABLED: string;
+  /** Relative base path ("/v1"), never an absolute gateway origin. */
+  readonly NG_APP_API_GATEWAY_URL: string;
 }
 
 interface ImportMeta {

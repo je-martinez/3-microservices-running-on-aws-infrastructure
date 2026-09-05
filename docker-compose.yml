@@ -500,11 +500,11 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        # BUILD-TIME, not runtime — this is why there is no env_file: below.
-        # @ngx-env/builder inlines NG_APP_* into the JS bundle at compile time
-        # (the app reads import.meta.env; a browser has no process.env), so a
-        # runtime variable would be read by nothing and the container would
-        # silently keep serving whatever was compiled in.
+        # BUILD-TIME, not runtime. @ngx-env/builder inlines NG_APP_* into the
+        # JS bundle at compile time (the app reads import.meta.env; a browser
+        # has no process.env), so moving either of these to the env_file below
+        # would leave it read by nothing — the container would keep serving
+        # whatever was compiled in, with no error anywhere.
         #
         # CHANGING THIS REQUIRES A REBUILD, NOT A RESTART:
         #     docker compose build web && docker compose up -d web
@@ -514,19 +514,26 @@ services:
         # false matches apps/web/.env.example: checkout uses the plain
         # "Checkout — Payment" screen rather than the Stripe step.
         NG_APP_STRIPE_ENABLED: "false"
+        # The base path every gateway call hangs off, and the one NG_APP_* that
+        # is effectively fixed. RELATIVE on purpose: nothing in this repo sends
+        # CORS headers, so an absolute gateway origin would be blocked at the
+        # preflight on every request. Floci's per-apply <api-id> stays out of
+        # the bundle entirely — it lives in the nginx proxy below.
+        NG_APP_API_GATEWAY_URL: "/v1"
     networks: [3mrai-network]
     ports:
       # Host 3004 → container 80 (nginx). 3000/3001/3002 are taken by users,
       # orders and tracking, and 3003 by email-preview, so this continues the
       # sequence.
       - "3004:80"
-    # NO env_file, on purpose. Every other service reads a generated
-    # .env.local.<service>, but this one has nothing to read at runtime: its
-    # only configuration is the build arg above, baked into the bundle. A file
-    # here would be loaded by nginx and ignored, which reads like configuration
-    # that works.
-    #
-    # NO fluentd logging driver either, unlike users/orders/tracking. Those emit
+    # Read at RUNTIME by nginx, not by the bundle — the two halves of this
+    # service's configuration are deliberately split. The build args above are
+    # compiled in; these two values are rendered into the nginx config at
+    # container start (see apps/web/Dockerfile's templates COPY), because Floci
+    # mints a new <api-id> on every apply and a baked-in one would 404.
+    env_file:
+      - .env.local.web
+    # NO fluentd logging driver, unlike users/orders/tracking. Those emit
     # structured JSON that the collector parses into service_name + severity;
     # nginx emits the combined ACCESS LOG format, which transform/parse_body has
     # no rule for, so every line would land with no service_name and severity 0
