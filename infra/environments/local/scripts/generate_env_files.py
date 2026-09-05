@@ -486,6 +486,14 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # it cannot express the `$default` stage segment as a literal.
                 "API_GATEWAY_API_ID": api_id,
             },
+            custom_defaults={
+                # CONTRACT: CUSTOM, never generated — the AUTO box is rewritten
+                # every run, destroying a key pasted there. Empty is the OFF
+                # state: nginx answers /geocode/ 503 rather than calling
+                # Geoapify keyless. Paste a key (3,000/day free,
+                # myprojects.geoapify.com) in .env.local.web. See [[env-files]]
+                "GEOAPIFY_API_KEY": "",
+            },
         ),
         # --- debug: HOST-reachable, loaded by nothing ------------------------
         # Floci's RDS proxy is published to the host, so these reach the DBs

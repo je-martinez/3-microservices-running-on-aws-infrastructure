@@ -388,6 +388,32 @@ processors:
           - set(attributes["nginx_log_kind"], "startup")
             where attributes["service_name"] == "nginx" and attributes["nginx_log_kind"] == nil
 
+          # The WEB app's nginx, which arrives over fluent_forward rather than
+          # CloudWatch, so the log-group rules above never see it.
+          #
+          # It logs exactly ONE thing per request — the /geocode/ JSON line the
+          # first statement in this file already parses (service_name
+          # web-geocode). Static-file requests are not logged at all; see
+          # apps/web/nginx.conf's `access_log off`. What is left is nginx's own
+          # startup output on stderr ("using the epoll event method", one line
+          # per worker), which is plain text no parse claims.
+          #
+          # Without this rule those ~18 lines per container start land in
+          # `unclassified`, whose entire value is being empty. They are bounded
+          # and one-time, so they are CLASSIFIED rather than dropped: a web
+          # container restarting in a loop is worth seeing.
+          # CONTRACT: The key is the DOTTED `fluent.tag`, on the LOG RECORD, not
+          # the underscored `fluent_tag` seen when querying OpenObserve — that
+          # spelling is the indexer's rename, and matching it here silently
+          # matches nothing. Same trap the nginx log-group rule above documents.
+          - set(attributes["service_name"], "web")
+            where attributes["service_name"] == nil
+              and attributes["fluent.tag"] == "web"
+          - set(attributes["severity_text"], "INFO")
+            where attributes["service_name"] == "web" and attributes["severity_text"] == nil
+          - set(attributes["severity_number"], 9)
+            where attributes["service_name"] == "web" and attributes["severity_number"] == nil
+
           # ---------------------------------------------------------------
           # NO severity translation happens here, on purpose.
           #

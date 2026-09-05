@@ -520,6 +520,13 @@ services:
         # preflight on every request. Floci's per-apply <api-id> stays out of
         # the bundle entirely — it lives in the nginx proxy below.
         NG_APP_API_GATEWAY_URL: "/v1"
+        # A FLAG, not the Geoapify key. The key is server-side only, read by
+        # nginx from GEOAPIFY_API_KEY in the env_file below — an NG_APP_* value
+        # is compiled into the bundle and readable in devtools, so a key there
+        # would be public. false by default: with no key the proxy answers 503,
+        # and offering an autocomplete that always fails is worse than not
+        # offering it. Turn both on together.
+        NG_APP_GEOCODE_ENABLED: "false"
     networks: [3mrai-network]
     ports:
       # Host 3004 → container 80 (nginx). 3000/3001/3002 are taken by users,
@@ -533,15 +540,27 @@ services:
     # mints a new <api-id> on every apply and a baked-in one would 404.
     env_file:
       - .env.local.web
-    # NO fluentd logging driver, unlike users/orders/tracking. Those emit
-    # structured JSON that the collector parses into service_name + severity;
-    # nginx emits the combined ACCESS LOG format, which transform/parse_body has
-    # no rule for, so every line would land with no service_name and severity 0
-    # and be routed straight to the `unclassified` stream — the stream whose
-    # entire value is being empty (see observability/otel-collector-config.yaml,
-    # filter/drop_unclassified). The pipeline already drops nginx records from
-    # the gateway task for the same reason. Static-file access logs stay on
-    # stdout, readable with `docker compose logs web`.
+    # stdout → the observability collector's fluent_forward receiver, to count
+    # /geocode/ calls against Geoapify's 3,000/day free tier.
+    #
+    # CONTRACT: This driver is only safe because apps/web/nginx.conf sets
+    # `access_log off` globally and re-enables it for /geocode/ ALONE, in a JSON
+    # format carrying service_name + severity_text/_number. Do NOT log
+    # static-file requests here: nginx's combined format has no service_name, so
+    # transform/parse_body cannot classify it and every line would land in the
+    # `unclassified` stream, whose entire value is being empty.
+    # See [[openobserve-cloudwatch]]
+    #
+    # fluentd-async so the app still starts when the observability profile is
+    # not running. A side effect of the driver: `docker compose logs web` shows
+    # nothing — the geocode count lives in OpenObserve's `logs` stream, under
+    # service_name = web-geocode.
+    logging:
+      driver: fluentd
+      options:
+        fluentd-address: "localhost:24224"
+        fluentd-async: "true"
+        tag: "web"
     develop:
       watch:
         # `rebuild`, not `sync`: the image serves a COMPILED bundle out of
