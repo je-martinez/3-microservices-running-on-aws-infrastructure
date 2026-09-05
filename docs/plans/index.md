@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-08-27
+updated: 2026-09-04
 tags: [type/spec, area/shared, status/active]
 related:
   - "[[2026-08-27-tracking-go-migration-design]]"
@@ -129,7 +129,7 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-08-29-e2e-email-support-store]] — implementation plan for a TTL-bounded `e2e_emails` collection the events-pipeline writes on every rendered email (run id, recipient, template, full HTML, plaintext code, trace id), served to Playwright over the events Lambda's Function URL behind a closed-by-default token. Deliberately ADDITIVE: specs keep asserting the real message, and this does not make the email-timing failures pass — see [[2026-08-29-the-emulator-was-the-ceiling-not-the-code]].
 - [[2026-08-17-web-app-foundation-design]] — design spec for `apps/web/` (Angular + NgRx + Tailwind) and the `pencil-design-extraction` skill: the `.pen`-as-source-of-truth pipeline, why the HTML export is a reference and never a source, and the phase-1 screens-not-behaviour scope boundary.
 - [[2026-08-18-web-app-foundation]] — implementation plan for the Web App Foundation milestone: scaffold, design tokens, fixtures, HTML snapshots, app shell, the 18 designed screens, and the extraction skill/agent/convention.
-- [[web-app-foundation-milestone]] — logical execution plan for the Web App Foundation milestone: task sequence, phases, and blocking dependency graph for JE-162 through JE-172.
+- [[web-app-foundation-milestone]] — logical execution plan for the Web App Foundation milestone: task sequence, phases, and blocking dependency graph for JE-162 through JE-172, plus JE-174 and JE-175.
 
 > [!note] No plan note for the AuditActor enum
 > [[2026-07-12-audit-actor-enum-design]] was implemented directly from the spec — there is no separate `writing-plans` plan for it.
