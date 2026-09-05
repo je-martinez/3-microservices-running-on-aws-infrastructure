@@ -32,6 +32,12 @@
 # the builder stage (an ARG's scope ends at the next FROM).
 # Default false, matching apps/web/.env.example.
 ARG NG_APP_STRIPE_ENABLED=false
+# CONTRACT: EVERY NG_APP_* the app reads needs an ARG here AND an ENV in the
+# builder stage. @ngx-env only inlines variables present at build time; one it
+# cannot see is left as a live `import.meta.env` lookup, which is undefined in a
+# browser and throws before Angular boots — a blank page, not a missing flag.
+# See [[2026-09-04-web-gateway-integration-design]]
+ARG NG_APP_API_GATEWAY_URL=/v1
 
 FROM node:24-alpine AS base
 ENV PNPM_HOME="/pnpm"
@@ -62,6 +68,8 @@ FROM deps AS builder
 # explicit and matches the pattern in @ngx-env/builder's own Docker docs.
 ARG NG_APP_STRIPE_ENABLED
 ENV NG_APP_STRIPE_ENABLED=$NG_APP_STRIPE_ENABLED
+ARG NG_APP_API_GATEWAY_URL
+ENV NG_APP_API_GATEWAY_URL=$NG_APP_API_GATEWAY_URL
 # Source and build configuration. public/ holds favicon.ico (angular.json
 # `assets`), styles/tsconfig drive the compile. apps/web/design is NOT copied —
 # it is 2MB of static HTML design references for humans, excluded in
