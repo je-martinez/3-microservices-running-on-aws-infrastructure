@@ -182,6 +182,81 @@ describe('RegisterPasswordlessPage', () => {
     expect(navigate).toHaveBeenCalledWith('/verify');
   });
 
+  /**
+   * CONTRACT: A 409 must NOT surface. Users refuses to register a duplicate
+   * address, but otp/start issues a code for an existing account either way, so
+   * the screen continues into the challenge instead of stranding the user.
+   * See [[2026-09-04-web-gateway-integration-design]]
+   */
+  it('continues to the OTP challenge when the email already exists', async () => {
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+    const fixture = TestBed.createComponent(RegisterPasswordlessPage);
+    fixture.detectChanges();
+
+    fillField(fixture, 'Full name', 'Jane Doe');
+    fillField(fixture, 'Email', 'jane@example.com');
+    acceptTerms(fixture);
+    submitForm(fixture);
+
+    (await awaitRequest(fixture, controller, '/v1/users/register/passwordless')).flush(
+      { error: 'email_exists' },
+      { status: 409, statusText: 'Conflict' },
+    );
+
+    (await awaitRequest(fixture, controller, '/v1/users/otp/start')).flush({ session: 'sess' });
+    await settle(fixture);
+
+    expect(textOf(fixture, '[role="alert"]')).toBe('');
+    expect(TestBed.inject(OtpChallengeStore).current()).toEqual({
+      email: 'jane@example.com',
+      session: 'sess',
+    });
+    expect(navigate).toHaveBeenCalledWith('/verify');
+  });
+
+  it('reports the challenge failure when otp/start fails after a 409', async () => {
+    const fixture = TestBed.createComponent(RegisterPasswordlessPage);
+    fixture.detectChanges();
+
+    fillField(fixture, 'Full name', 'Jane Doe');
+    fillField(fixture, 'Email', 'jane@example.com');
+    acceptTerms(fixture);
+    submitForm(fixture);
+
+    (await awaitRequest(fixture, controller, '/v1/users/register/passwordless')).flush(
+      { error: 'email_exists' },
+      { status: 409, statusText: 'Conflict' },
+    );
+    (await awaitRequest(fixture, controller, '/v1/users/otp/start')).flush(
+      { error: 'otp_unavailable' },
+      { status: 500, statusText: 'Server Error' },
+    );
+    await settle(fixture);
+
+    // The challenge's own failure is what the user needs to see: the 409 is no
+    // longer an error path, so repeating its copy would hide the real cause.
+    expect(textOf(fixture, '[role="alert"]')).toContain('otp_unavailable');
+  });
+
+  it('still reports a non-409 failure without starting a challenge', async () => {
+    const fixture = TestBed.createComponent(RegisterPasswordlessPage);
+    fixture.detectChanges();
+
+    fillField(fixture, 'Full name', 'Jane Doe');
+    fillField(fixture, 'Email', 'jane@example.com');
+    acceptTerms(fixture);
+    submitForm(fixture);
+
+    (await awaitRequest(fixture, controller, '/v1/users/register/passwordless')).flush(
+      { error: 'boom' },
+      { status: 500, statusText: 'Server Error' },
+    );
+    await settle(fixture);
+
+    controller.expectNone('/v1/users/otp/start');
+    expect(textOf(fixture, '[role="alert"]')).toContain('boom');
+  });
+
   it('does not submit until the Terms are accepted', async () => {
     const fixture = TestBed.createComponent(RegisterPasswordlessPage);
     fixture.detectChanges();

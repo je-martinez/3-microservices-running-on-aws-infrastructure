@@ -3,6 +3,7 @@ import { Router, RouterLink } from '@angular/router';
 import { LucideArrowLeft, LucideCheck, LucideInfo } from '@lucide/angular';
 import { firstValueFrom } from 'rxjs';
 
+import { ApiError } from '../../core/http/api-client';
 import { UsersApi } from '../../core/api/users-api';
 import { Field } from '../../shared/ui/field';
 import { ButtonPrimary } from '../../shared/ui/button-primary';
@@ -61,9 +62,20 @@ export class RegisterPasswordlessPage {
     this.error.set(null);
     this.submitting.set(true);
     try {
+      /**
+       * CONTRACT: A 409 (`email_exists`) is NOT a dead end — fall through to the
+       * OTP challenge. Users refuses to REGISTER a duplicate address, but
+       * `otp/start` happily issues a code for an existing account, password or
+       * passwordless (verified live). Surfacing the 409 instead strands a user
+       * on the one screen that cannot get them in.
+       * See [[2026-09-04-web-gateway-integration-design]]
+       */
       await firstValueFrom(
         this.usersApi.registerPasswordless({ email, fullName: this.fullName().trim() }),
-      );
+      ).catch((error: unknown) => {
+        if (error instanceof ApiError && error.status === 409) return null;
+        throw error;
+      });
       const { session } = await firstValueFrom(this.usersApi.startOtp(email));
       this.challenge.start({ email, session });
       await this.router.navigateByUrl('/verify');
