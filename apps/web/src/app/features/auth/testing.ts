@@ -75,13 +75,20 @@ export const USER: User = {
   isDeleted: false,
 };
 
-/** Types into the `app-field` whose label matches, the way a user would. */
+/**
+ * Types into the labelled field, the way a user would.
+ *
+ * CONTRACT: Match BOTH `app-field` and `app-phone-field`. Querying only
+ * `app-field` throws "No field labelled Phone number" the moment a screen
+ * adopts the phone variant — a red test reporting a missing field that is in
+ * fact rendered. See [[2026-09-05-phone-input-country-flag]]
+ */
 export function fillField(fixture: ComponentFixture<unknown>, label: string, value: string): void {
   const root = fixture.nativeElement as HTMLElement;
-  const field = Array.from(root.querySelectorAll('app-field')).find((element) =>
+  const field = Array.from(root.querySelectorAll('app-field, app-phone-field')).find((element) =>
     element.querySelector('span')?.textContent?.trim().startsWith(label),
   );
-  if (!field) throw new Error(`No app-field labelled "${label}"`);
+  if (!field) throw new Error(`No field labelled "${label}"`);
   const input = field.querySelector('input');
   if (!input) throw new Error(`Field "${label}" renders no input`);
   input.value = value;

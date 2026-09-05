@@ -290,7 +290,27 @@ describe('CheckoutPaymentPage', () => {
     await settle(fixture);
 
     expect(root().textContent).toContain('Add a delivery address');
-    expect(root().querySelectorAll('app-field')).toHaveLength(3);
+    expect(root().querySelectorAll('app-field')).toHaveLength(2);
+    expect(root().querySelectorAll('app-phone-field')).toHaveLength(1);
+  });
+
+  /**
+   * CONTRACT: `+1 809` is the Dominican Republic, not the US, and the two share
+   * a calling code. This asserts the DERIVED flag on the real screen, because a
+   * component-level test cannot catch a call site that never passes the value
+   * through. See [[2026-09-05-phone-input-country-flag]]
+   */
+  it('derives the country flag from the phone number typed into the form', async () => {
+    signIn(null);
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    fillField(fixture, 'Phone number', '+1 809 555 0142');
+
+    const phone = root().querySelector('app-phone-field');
+    expect(phone?.querySelector('[data-country]')?.getAttribute('data-country')).toBe('DO');
+    expect(phone?.querySelector('input')?.value).toBe('+1 809 555 0142');
   });
 
   /**

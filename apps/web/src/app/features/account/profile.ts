@@ -8,6 +8,7 @@ import { authErrorMessage } from '../auth/auth-errors';
 import { formatMonthYear } from '../../shared/date/format-date';
 import { ButtonPrimary } from '../../shared/ui/button-primary';
 import { Field } from '../../shared/ui/field';
+import { PhoneField } from '../../shared/ui/phone-field';
 
 /**
  * Design: `Profile` (`hZ87b`, 1440 / `nyVEI`, 390). Save/Cancel are
@@ -20,7 +21,7 @@ import { Field } from '../../shared/ui/field';
  */
 @Component({
   selector: 'app-profile',
-  imports: [ButtonPrimary, Field, LucideLock, LucideRefreshCw, LucideTriangleAlert],
+  imports: [ButtonPrimary, Field, PhoneField, LucideLock, LucideRefreshCw, LucideTriangleAlert],
   templateUrl: './profile.html',
 })
 export class ProfilePage {
@@ -77,6 +78,9 @@ export class ProfilePage {
     const line2 = address.line2 ? `, ${address.line2}` : '';
     return `${address.line1}${line2}, ${address.city} ${address.postalCode}, ${address.country}`;
   });
+
+  /** The flag's pre-typing default; a typed number overrides it. */
+  protected readonly seedCountry = computed(() => this.user()?.address?.country ?? undefined);
 
   protected goTo(path: string): void {
     void this.router.navigateByUrl(path);

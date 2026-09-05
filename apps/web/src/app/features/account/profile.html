@@ -74,7 +74,7 @@
               <app-field label="Full name" icon="user" [value]="user.fullName" />
             </div>
             <div class="w-full flex-1">
-              <app-field label="Phone number" icon="phone" type="text" [value]="user.phoneNumber ?? ''" />
+              <app-phone-field label="Phone number" icon="phone" [value]="user.phoneNumber ?? ''" [defaultCountry]="seedCountry()" />
             </div>
           </div>
         </div>

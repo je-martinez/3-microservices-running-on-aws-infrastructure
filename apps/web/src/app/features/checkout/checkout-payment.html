@@ -148,11 +148,12 @@
                   [value]="cityAndPostalCode()"
                   (valueChange)="cityAndPostalCode.set($event)"
                 />
-                <app-field
+                <app-phone-field
                   label="Phone number"
                   icon="phone"
                   placeholder="+1 809 000 0000"
                   [value]="phoneInput()"
+                  [defaultCountry]="seedCountry()"
                   (valueChange)="phoneInput.set($event)"
                 />
 

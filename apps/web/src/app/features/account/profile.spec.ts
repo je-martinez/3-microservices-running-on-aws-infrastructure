@@ -88,6 +88,20 @@ describe('ProfilePage', () => {
     expect(fieldValues().join(' ')).toContain('482 Birch Hollow Lane');
   });
 
+  /**
+   * The profile's own round trip: the stored number reaches the field and its
+   * country is derived on render, before any typing.
+   */
+  it('renders the phone number in a phone field flagged with its country', async () => {
+    create();
+    (await awaitRequest(fixture, controller, ME)).flush(MORGAN);
+    await settle(fixture);
+
+    const phone = (fixture.nativeElement as HTMLElement).querySelector('app-phone-field');
+    expect(phone?.querySelector('input')?.value).toBe('+1-503-555-0142');
+    expect(phone?.querySelector('[data-country]')?.getAttribute('data-country')).toBe('US');
+  });
+
   it('derives the initials from the full name', async () => {
     create();
     (await awaitRequest(fixture, controller, ME)).flush(MORGAN);

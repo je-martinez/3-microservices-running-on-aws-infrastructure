@@ -20,6 +20,7 @@ import { CartStore } from '../../core/cart/cart-store';
 import { authErrorMessage } from '../auth/auth-errors';
 import { CartLine } from '../../shared/ui/cart-line';
 import { Field } from '../../shared/ui/field';
+import { PhoneField } from '../../shared/ui/phone-field';
 
 /**
  * Design: `Checkout — Payment` (`DOtD2`, 1440) / `Mobile — Checkout Payment`
@@ -38,6 +39,7 @@ import { Field } from '../../shared/ui/field';
     RouterLink,
     CartLine,
     Field,
+    PhoneField,
     LucideCheck,
     LucideChevronLeft,
     LucideCreditCard,
@@ -76,6 +78,13 @@ export class CheckoutPaymentPage {
   protected readonly phoneInput = signal('');
   protected readonly savingAddress = signal(false);
   protected readonly addressError = signal<string | null>(null);
+
+  /**
+   * The flag's pre-typing default only. Once a digit is typed the NUMBER
+   * decides the country, so this never overrides what the buyer entered — and
+   * it matches the `country` parseAddress() writes.
+   */
+  protected readonly seedCountry = computed(() => this.address()?.country ?? 'DO');
 
   protected readonly canSaveAddress = computed(
     () =>
