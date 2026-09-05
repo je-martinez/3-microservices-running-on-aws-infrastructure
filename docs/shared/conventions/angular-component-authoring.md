@@ -16,6 +16,7 @@ related:
   - "[[2026-09-03-cart-drawer-scrim-lead-flicker]]"
   - "[[2026-09-03-cart-drawer-first-open-flicker]]"
   - "[[2026-09-04-web-gateway-integration-design]]"
+  - "[[web-gateway-integration-milestone]]"
 ---
 
 # Angular Component Authoring
@@ -119,6 +120,35 @@ know the component needs it, so the fix must travel with the component. This hit
 evidence, and why it reads as a content-alignment bug rather than a sizing bug:
 [[2026-09-03-unstyled-custom-element-host-is-inline]].
 
+## Rule 4 — `ApiClient` paths never include the `/v1` prefix
+
+`core/http/api-client.ts` (introduced in [[2026-09-04-web-gateway-integration-design]]) reads
+its base URL from `APP_CONFIG.apiGatewayUrl`, which **already supplies** the `/v1` prefix.
+Every caller passes a path relative to that prefix — `products`, `cart`, `users/me` — never
+`v1/products`. Passing a path that starts with `/v1/...` produces a doubled prefix,
+`/v1/v1/...`, which 404s at the gateway. This is easy to get wrong by habit, since the
+service's own OpenAPI paths are documented with the `/v1` prefix included — the prefix belongs
+to `APP_CONFIG`, not to the call site.
+
+## Rule 5 — interceptor order matters: refresh before auth
+
+The refresh interceptor MUST be registered **before** the auth interceptor in
+`provideHttpClient(withInterceptors([...]))`. Angular's HTTP interceptor chain runs in
+registration order for the outbound request and in reverse for the response, so refresh-before-
+auth is what makes a retried request **re-enter** the auth interceptor and pick up the freshly
+refreshed token, rather than replaying the same stale `Authorization` header that just produced
+the 401. Reversing the order produces a retry loop that fails identically every time, because
+the retried request never sees the new token.
+
+## Rule 6 — a guard must AWAIT async rehydration, never read a synchronous flag
+
+`authGuard` and `guestGuard` read session state that is rehydrated from the encrypted IndexedDB
+token store on boot — an inherently asynchronous read. A guard that checks a synchronous
+`isAuthenticated` flag before that rehydration resolves will see the pre-rehydration default
+(unauthenticated) and evict a genuinely logged-in user on a page reload. The guard function
+must `await` the rehydration before making its allow/deny decision — this is not an edge case,
+it is the default path every reload of `/orders`, `/checkout`, or `/profile` takes.
+
 ## Where this bites — the extraction workflow, not just the component
 
 The Pencil `html-tailwind` export emits fixed `px` for every value and has no `.html`/`.ts`
@@ -142,7 +172,9 @@ colours — and it was the half that got missed when the app was first built.
   template gotcha this note's Rule 1 references.
 - [[2026-08-17-web-app-foundation-design]] — the design spec `apps/web/` was built from.
 - [[2026-09-04-web-gateway-integration-design]] — phase 2, whose new `core/` code (HTTP client,
-  auth interceptors, session store, API services) follows this convention.
+  auth interceptors, session store, API services) follows this convention, and the source of
+  Rules 4–6 above (`ApiClient` path prefix, interceptor order, guard rehydration).
+- [[web-gateway-integration-milestone]] — the milestone that established Rules 4–6.
 - [[2026-09-03-unstyled-custom-element-host-is-inline]] — the lesson behind Rule 3: the
   incident detail, measured evidence, and why the bug reads as content misalignment rather
   than a sizing defect.

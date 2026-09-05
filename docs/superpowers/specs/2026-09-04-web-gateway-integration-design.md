@@ -11,6 +11,7 @@ tags:
   - status/active
 related:
   - "[[web-app-foundation-milestone]]"
+  - "[[web-gateway-integration-milestone]]"
   - "[[angular-component-authoring]]"
   - "[[testing]]"
   - "[[plans/index]]"
@@ -19,11 +20,19 @@ related:
   - "[[2026-08-17-web-app-foundation-design]]"
   - "[[logging-context]]"
   - "[[git-workflow]]"
+  - "[[2026-09-04-a-retrying-url-assertion-passes-mid-redirect]]"
+  - "[[2026-09-04-a-concurrency-test-can-fail-by-starvation]]"
+  - "[[2026-09-04-a-build-time-env-var-absent-at-build-time-is-a-live-lookup]]"
 propagates-to:
   - "[[web-app-foundation-milestone]]"
+  - "[[web-gateway-integration-milestone]]"
   - "[[angular-component-authoring]]"
   - "[[testing]]"
+  - "[[env-files]]"
   - "[[plans/index]]"
+  - "[[2026-09-04-a-retrying-url-assertion-passes-mid-redirect]]"
+  - "[[2026-09-04-a-concurrency-test-can-fail-by-starvation]]"
+  - "[[2026-09-04-a-build-time-env-var-absent-at-build-time-is-a-live-lookup]]"
 ---
 
 # Web App Phase 2 — Real Gateway Calls
@@ -193,12 +202,23 @@ Issues 1–3 are independent and parallelizable; from 4 onward the chain is sequ
 ## Related
 
 - [[web-app-foundation-milestone]] — the milestone this phase continues (issue tracking).
-- [[angular-component-authoring]] — component conventions the new `core/` code follows.
-- [[testing]] — the three-layer testing convention adapted above.
+- [[web-gateway-integration-milestone]] — this phase's own milestone-level task/dependency map
+  (JE-237–JE-245, plus JE-246 filed as a backend bug).
+- [[angular-component-authoring]] — component conventions the new `core/` code follows; extended
+  with Rules 4–6 (`ApiClient` path prefix, interceptor order, guard rehydration) from this spec.
+- [[testing]] — the three-layer testing convention adapted above; extended with this phase's
+  gateway-backed web E2E section.
 - [[plans/index]] — vault plan index this spec is linked from.
 - [[money-representation]] — the rounding/formatting contract the cart preview must mirror.
-- [[env-files]] — generated-env-file convention behind `NG_APP_API_GATEWAY_URL`.
+- [[env-files]] — generated-env-file convention behind `NG_APP_API_GATEWAY_URL`; extended with
+  `.env.local.web` and `apps/web/proxy.conf.json`.
 - [[2026-08-17-web-app-foundation-design]] — the phase 1 design this phase builds on.
 - [[logging-context]] — cross-service logging context conventions (client-side auth/session
   events should follow the same shape where applicable).
 - [[git-workflow]] — branch-flow convention for `feature/web-gateway-integration`.
+- [[2026-09-04-a-retrying-url-assertion-passes-mid-redirect]] — lesson from writing the JE-245
+  eviction E2E spec.
+- [[2026-09-04-a-concurrency-test-can-fail-by-starvation]] — lesson from testing the cart's
+  serialized-mutation guarantee.
+- [[2026-09-04-a-build-time-env-var-absent-at-build-time-is-a-live-lookup]] — lesson from the
+  missing `NG_APP_API_GATEWAY_URL` Dockerfile ARG/ENV found during JE-237.

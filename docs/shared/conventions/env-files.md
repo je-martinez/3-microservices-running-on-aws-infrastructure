@@ -4,7 +4,7 @@ type: convention
 area: infra
 status: active
 created: 2026-07-20
-updated: 2026-08-26
+updated: 2026-09-04
 tags:
   - type/convention
   - area/infra
@@ -18,6 +18,8 @@ related:
   - "[[2026-08-03-events-pipeline-milestone-design]]"
   - "[[2026-08-25-response-caching-layer-design]]"
   - "[[x-cache-response-header]]"
+  - "[[2026-09-04-web-gateway-integration-design]]"
+  - "[[web-gateway-integration-milestone]]"
 ---
 
 # Env Files
@@ -39,7 +41,28 @@ new API id, and reassigns RDS proxy ports by cluster creation order.
 | `.env.local.tracking` | the Tracking service environment (incl. `E2E_TESTING_ENABLED=true` in CUSTOM, `EVENTS_QUEUE_URL`) | compose `env_file:` |
 | `.env.local.events-pipeline` | the events-pipeline Lambda environment (DocumentDB connection, `EVENTS_QUEUE_URL`, SES sender) | the Lambda's environment variables, set via Terraform |
 | `.env.local.debug` | HOST-reachable connection strings | a SQL client; **loaded by nothing** |
+| `.env.local.web` | the web app's build-time env (`NG_APP_API_GATEWAY_URL`, `NG_APP_STRIPE_ENABLED`) | compose `env_file:` for the `web` service, and `@ngx-env/builder` |
 | `.env.example` | the committed contract | documentation only |
+
+`.env.local.web` was added with the [[2026-09-04-web-gateway-integration-design]] milestone
+([[web-gateway-integration-milestone]]), generated the same way as every other per-service
+file. Alongside it, `make env-file` also generates **`apps/web/proxy.conf.json`** — the `ng
+serve` development-proxy target, pointing at Floci's gateway from the developer's host. Unlike
+the `.env.local.*` files, this one is not a dotenv file; it is Angular's own proxy-config JSON,
+consumed by `ng serve --proxy-config` rather than by compose. It is **gitignored**, with
+`apps/web/proxy.conf.example.json` committed as the contract new contributors copy and adapt —
+the same generated/example split every other env surface in this repo already uses.
+
+> [!warning] A build-time `NG_APP_*` var absent at build time is not "missing" — it throws
+> `@ngx-env/builder` only inlines an `NG_APP_*` variable it can see at build time; one it
+> cannot see is left as a live `import.meta.env.NG_APP_*` lookup in the shipped bundle, which is
+> `undefined` in a browser and **throws before Angular boots** rather than falling back to a
+> default — a `||` fallback never runs, because the throw happens evaluating its left operand.
+> This bit `NG_APP_API_GATEWAY_URL`: `docker-compose.yml` passed it as a build arg, but
+> `apps/web/Dockerfile` declared no matching `ARG`/`ENV` to receive it. Every `NG_APP_*` the app
+> reads needs both an `ARG` and an `ENV` in the Dockerfile — see
+> [[2026-09-04-a-build-time-env-var-absent-at-build-time-is-a-live-lookup]] for the full
+> incident, including why unit tests, a clean build, and a 200 from the proxy all missed it.
 
 `EVENTS_QUEUE_URL` (the shared SQS queue the events-pipeline consumes) is generated into **four**
 files as of the events-pipeline milestone: `.env.local.events-pipeline` itself, plus
@@ -145,3 +168,8 @@ When changing env plumbing, verify against a real bring-up, not by inspection:
 - [[2026-08-25-response-caching-layer-design]] — `CACHE_ENABLED`/`REDIS_HOST`/`REDIS_PORT`'s
   propagation into Orders' and Tracking's env files.
 - [[x-cache-response-header]] — the `CACHE_ENABLED` kill switch's consumer contract.
+- [[2026-09-04-web-gateway-integration-design]] — the design that added `.env.local.web` and
+  `apps/web/proxy.conf.json`/`proxy.conf.example.json`.
+- [[web-gateway-integration-milestone]] — the milestone that shipped them.
+- [[2026-09-04-a-build-time-env-var-absent-at-build-time-is-a-live-lookup]] — the missing-ARG/ENV
+  incident behind the warning above.

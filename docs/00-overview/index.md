@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-08-31
+updated: 2026-09-04
 tags:
   - type/spec
   - area/shared
@@ -91,6 +91,11 @@ related:
   - "[[pencil-design-extraction]]"
   - "[[2026-08-17-web-app-foundation-design]]"
   - "[[angular-component-authoring]]"
+  - "[[2026-09-04-web-gateway-integration-design]]"
+  - "[[web-gateway-integration-milestone]]"
+  - "[[2026-09-04-a-retrying-url-assertion-passes-mid-redirect]]"
+  - "[[2026-09-04-a-concurrency-test-can-fail-by-starvation]]"
+  - "[[2026-09-04-a-build-time-env-var-absent-at-build-time-is-a-live-lookup]]"
 ---
 
 # 3MRAI — Index
@@ -287,7 +292,7 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-08-25-account-deletion-design]] — Design for self-service account deletion (`DELETE /v1/users/me`): synchronous internal-HTTP cascade to Orders and Tracking keyed on `cognito_sub` (with a `user_id` fallback in Tracking for pre-migration rows), a partial unique index freeing the email for re-registration, `AdminDeleteUser` as the point-of-no-return that frees the email in Cognito, and a deliberate decision **not** to publish a `USER_DELETED` event; per [[ADR-0004-soft-delete-only]], [[soft-delete]], [[users-service-design]], [[orders-service-design]], [[tracking-service-design]].
 - [[2026-08-27-tracking-go-migration-design]] — Design for migrating Tracking from Python/FastAPI to Go/Gin: a faithful layer-by-layer port (Gin + sqlc + golang-migrate, see [[ADR-0021-tracking-go-gin-sqlc-stack]]) run alongside the untouched Python service against the same database, a `tracking-go-impl` agent fanned out across 4 waves (foundations, platform, endpoints, a standalone TestMode wave fixing a request-context-cancellation bug invisible to line-by-line translation), OTel instrumentation moving from Python's zero-code auto-instrumentation into explicit Go code, and a four-part closing gate (three test layers, empty `openapi.yaml` diff, measured Gatling comparison, observability parity) before the Python folder is deleted; per [[tracking-service-design]], [[testmode-in-process-no-durable-scheduler]], [[user-id-vs-cognito-sub-ownership-key]], [[two-api-keys-two-trust-domains]], [[ADR-0019-distributed-tracing-opentelemetry]].
 - [[2026-08-17-web-app-foundation-design]] — Design of `apps/web/`: an Angular 21 + NgRx + Tailwind 4 web app laying out all 18 designed screens (36 responsive frames) from `assets/web-app/web-app.pen`, the `pencil-design-extraction` skill/agent that mines it, and typed phase-1 fixtures derived from the three services' `openapi.yaml` with no gateway calls yet; see [[pencil-design-extraction]] for the extraction convention this design established.
-- [[2026-09-04-web-gateway-integration-design]] — Design for phase 2 of `apps/web/`: replacing the phase-1 fixtures with real gateway calls via same-origin nginx/`ng serve` proxying (not CORS, which neither the gateway nor nginx configures), an encrypted-IndexedDB token store with a non-extractable `CryptoKey`, a shared/deduped refresh interceptor, and a server-backed cart; per [[2026-08-17-web-app-foundation-design]], [[money-representation]], [[env-files]], [[testing]], [[git-workflow]].
+- [[2026-09-04-web-gateway-integration-design]] — Design for phase 2 of `apps/web/`: replacing the phase-1 fixtures with real gateway calls via same-origin nginx/`ng serve` proxying (not CORS, which neither the gateway nor nginx configures), an encrypted-IndexedDB token store with a non-extractable `CryptoKey`, a shared/deduped refresh interceptor, and a server-backed cart; per [[2026-08-17-web-app-foundation-design]], [[money-representation]], [[env-files]], [[testing]], [[git-workflow]]. Milestone plan: [[web-gateway-integration-milestone]].
 
 ---
 
@@ -308,6 +313,9 @@ Durable empirical findings from spikes, incidents, and experiments.
 - [[2026-08-21-verify-in-the-viewer-not-the-api]] — Confirming data reached a backend (an API query) is not confirming a feature works; three claims in one session were verified against the wrong surface (span events invisible in Jaeger's waterfall, a re-verification that stayed API-first in OpenObserve, and 56/56 spans from `_search` while the UI's own `/dag` endpoint 400'd) before the pattern was named and corrected.
 - [[2026-08-26-cache-keys-built-from-a-raw-identity-header]] — A per-user cache key built from the raw `x-user-id` header (Cognito sub or `usr_` id, both valid) could not be invalidated by `DELETE /v1/users/me`'s canonical-identity cascade, leaving a deleted account's cached data live until TTL; fixed by invalidating both aliases, with normalizing keys at write time deliberately deferred as an accepted hit-rate cost. Per [[x-cache-response-header]], [[2026-08-25-response-caching-layer-design]].
 - [[2026-08-27-accumulated-local-state-degrades-the-stack-silently]] — A long-running local stack silently degraded to ~1700x normal latency on unchanged code, twice, and was misdiagnosed as a code defect both times until `/v1/health` on the same container proved it was the environment; invalidated three load-test A/B runs and two E2E specs before a `make clean` + `make bootstrap` restored it. Root mechanism unconfirmed, tracked as an open Deuda Técnica issue.
+- [[2026-09-04-a-retrying-url-assertion-passes-mid-redirect]] — Playwright's retrying `toHaveURL` can pass in the frame before a guard's redirect finishes; assert rendered content first, URL second, in guard/redirect E2E specs.
+- [[2026-09-04-a-concurrency-test-can-fail-by-starvation]] — A non-overlap assertion checked only after flushing every concurrent write can pass vacuously by starvation; move it inside the loop to name the real race instead of accusing the test harness.
+- [[2026-09-04-a-build-time-env-var-absent-at-build-time-is-a-live-lookup]] — An `NG_APP_*` variable `@ngx-env/builder` cannot see at build time is left as a live `import.meta.env` lookup that throws in the browser before Angular boots; every such variable needs both an `ARG` and an `ENV` in the Dockerfile.
 
 ---
 
@@ -396,3 +404,8 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[pencil-design-extraction]]
 - [[2026-08-17-web-app-foundation-design]]
 - [[angular-component-authoring]]
+- [[2026-09-04-web-gateway-integration-design]]
+- [[web-gateway-integration-milestone]]
+- [[2026-09-04-a-retrying-url-assertion-passes-mid-redirect]]
+- [[2026-09-04-a-concurrency-test-can-fail-by-starvation]]
+- [[2026-09-04-a-build-time-env-var-absent-at-build-time-is-a-live-lookup]]
