@@ -1,6 +1,6 @@
 import { Component, computed, input, output } from '@angular/core';
 import { LucideImageOff, LucidePlus } from '@lucide/angular';
-import { formatCents, type Product, toInt } from '../../fixtures/api-types';
+import { formatCents, type Product, toInt } from '../../core/api/types';
 
 /**
  * Design: frame `Product Card` (QmNIg), reused in the `Home — Products` grid.

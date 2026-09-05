@@ -1,6 +1,6 @@
 import { Component, computed, input } from '@angular/core';
 import { LucideDynamicIcon } from '@lucide/angular';
-import type { TrackingStatus } from '../../fixtures/api-types';
+import type { TrackingStatus } from '../../core/api/types';
 
 /**
  * Design: frame `Tracking Status Icon` (S59Ud1) — one glyph and tint per

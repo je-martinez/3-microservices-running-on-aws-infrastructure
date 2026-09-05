@@ -1,8 +1,8 @@
-import type { User } from "./api-types";
+import type { User } from "../core/api/types";
 
 /**
  * services/users/openapi.yaml — User.
- * `address` is design-derived (see api-types.ts's Address comment), not
+ * `address` is design-derived (see core/api/types.ts's Address comment), not
  * contract-derived: the contract types it as `anyOf: [{}, null]`.
  */
 export const CURRENT_USER: User = {

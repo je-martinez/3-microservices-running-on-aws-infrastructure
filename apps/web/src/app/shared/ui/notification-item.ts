@@ -1,6 +1,6 @@
 import { Component, computed, input } from '@angular/core';
 import { LucideDynamicIcon } from '@lucide/angular';
-import type { AppNotification } from '../../fixtures/api-types';
+import type { AppNotification } from '../../core/api/types';
 import { formatShortDateTime } from '../date/format-date';
 import { TrackingStatusIcon } from './tracking-status-icon';
 

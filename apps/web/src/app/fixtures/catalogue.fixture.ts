@@ -1,4 +1,4 @@
-import type { Product } from "./api-types";
+import type { Product } from "../core/api/types";
 
 /**
  * CONTRACT: Do NOT ship this past the fixtures — it reaches a third party on

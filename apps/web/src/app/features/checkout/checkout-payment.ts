@@ -2,7 +2,7 @@ import { Component, computed } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { LucideCheck, LucideChevronLeft, LucideCreditCard, LucideLock, LucideShieldCheck } from '@lucide/angular';
 import { APP_CONFIG } from '../../core/config/app-config';
-import { formatCents, toInt } from '../../fixtures/api-types';
+import { formatCents, toInt } from '../../core/api/types';
 import { PRODUCTS } from '../../fixtures/catalogue.fixture';
 import { CartLine } from '../../shared/ui/cart-line';
 

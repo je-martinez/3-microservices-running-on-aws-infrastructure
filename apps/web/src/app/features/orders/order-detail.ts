@@ -8,7 +8,7 @@ import {
   joinOrderLine,
   TRACKING_STATUSES,
   type TrackingStatus,
-} from '../../fixtures/api-types';
+} from '../../core/api/types';
 import { PRODUCTS } from '../../fixtures/catalogue.fixture';
 import { ORDERS } from '../../fixtures/orders.fixture';
 import { CURRENT_USER } from '../../fixtures/user.fixture';
@@ -66,7 +66,7 @@ export class OrderDetailPage {
   });
 
   // NOT from a contract — User.address is untyped on the wire (see
-  // api-types.ts's Address comment; the Address interface itself is
+  // core/api/types.ts's Address comment; the Address interface itself is
   // design-derived). The design's delivery-address card reads the current
   // user's address fixture; Phase 2 must reconcile this once the backend
   // settles on a real shape.

@@ -1,6 +1,6 @@
 import { Component, computed, input } from '@angular/core';
 import { LucideChevronRight } from '@lucide/angular';
-import { formatCents, joinOrderLine, type OrderWithTracking } from '../../fixtures/api-types';
+import { formatCents, joinOrderLine, type OrderWithTracking } from '../../core/api/types';
 import { PRODUCTS } from '../../fixtures/catalogue.fixture';
 import { formatPlacedLabel } from '../date/format-date';
 import { StatusBadge } from './status-badge';

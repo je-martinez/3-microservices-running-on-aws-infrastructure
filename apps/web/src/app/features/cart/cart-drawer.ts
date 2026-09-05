@@ -12,7 +12,7 @@ import {
 import { APP_CONFIG } from '../../core/config/app-config';
 import { DeferEnterAnimation } from '../../core/overlay/defer-enter-animation';
 import { OverlayStore } from '../../core/overlay/overlay-store';
-import { type Address, formatCents, type Product, toInt } from '../../fixtures/api-types';
+import { type Address, formatCents, type Product, toInt } from '../../core/api/types';
 import { PRODUCTS } from '../../fixtures/catalogue.fixture';
 import { CartLine } from '../../shared/ui/cart-line';
 

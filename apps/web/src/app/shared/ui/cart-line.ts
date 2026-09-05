@@ -1,6 +1,6 @@
 import { Component, computed, input, output } from '@angular/core';
 import { LucideMinus, LucidePlus } from '@lucide/angular';
-import { formatCents, type Product, toInt } from '../../fixtures/api-types';
+import { formatCents, type Product, toInt } from '../../core/api/types';
 
 /**
  * Design: frame `Cart Line` (L5XVFs), reused in `Cart Drawer` (`ET6dr`) and

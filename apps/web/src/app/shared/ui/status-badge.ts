@@ -1,5 +1,5 @@
 import { Component, computed, input } from '@angular/core';
-import type { TrackingStatus } from '../../fixtures/api-types';
+import type { TrackingStatus } from '../../core/api/types';
 
 /**
  * Design: frame `Status Badge` (l7LGs); states from `Status Badge — States`

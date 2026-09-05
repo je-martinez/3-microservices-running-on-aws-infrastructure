@@ -1,4 +1,4 @@
-import type { OrderWithTracking } from "./api-types";
+import type { OrderWithTracking } from "../core/api/types";
 import { CURRENT_USER } from "./user.fixture";
 
 const USER_ID = CURRENT_USER.id;
@@ -6,7 +6,7 @@ const COGNITO_SUB = "a3c1e6d0-4f2b-4a9d-8e7c-1b6f0d2a9c44";
 
 /**
  * GET /v1/orders/my-orders returns an array of OrderWithTracking, not of bare
- * orders (see api-types.ts). Order ids use the `ord_` nano-id prefix.
+ * orders (see core/api/types.ts). Order ids use the `ord_` nano-id prefix.
  *
  * CONTRACT: Do NOT normalise these rows — they carry the only coverage of the
  * PLACED/SHIPPED/DELIVERED badges, of `tracking: null`, and of a line pointing
@@ -193,7 +193,7 @@ export const ORDERS: readonly OrderWithTracking[] = [
           // this id. GET /v1/products returns only the active catalogue, so
           // an order referencing a since-removed product is a real runtime
           // case — this is the ONLY fixture line that exercises
-          // joinOrderLine's `product: null` branch (see api-types.ts).
+          // joinOrderLine's `product: null` branch (see core/api/types.ts).
           // Every other order line resolves against PRODUCTS.
           productId: "prd_zZ9delisted0",
           quantity: 1,
