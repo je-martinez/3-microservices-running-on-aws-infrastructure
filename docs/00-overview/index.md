@@ -88,6 +88,9 @@ related:
   - "[[2026-08-25-account-deletion-design]]"
   - "[[2026-08-27-tracking-go-migration-design]]"
   - "[[ADR-0021-tracking-go-gin-sqlc-stack]]"
+  - "[[pencil-design-extraction]]"
+  - "[[2026-08-17-web-app-foundation-design]]"
+  - "[[angular-component-authoring]]"
 ---
 
 # 3MRAI — Index
@@ -212,6 +215,8 @@ Coding and data conventions defined once in `shared/` and referenced project-wid
 - [[code-comments]] — Five-tag comment convention (`CONTRACT:`, `WORKAROUND(<scope>):`, `WHY:`, `WARNING:`, `TODO(JE-<id>):`), present-tense invariants with `See [[vault-id]]` references, and a >12-line hard error — comments describe the final state, not debugging history.
 - [[doc-propagation]] — Superpowers specs/plans are where decisions are made; the organized vault is where they live. New specs/plans must declare `propagates-to:` (or an explicit `none — reason` opt-out), enforced by a validator gate; the 63 historical notes predating the rule are tracked as debt, not errors.
 - [[x-cache-response-header]] — `X-Cache: HIT|MISS|BYPASS` contract for the shared-Redis response cache across Users/Orders/Tracking: header semantics, fail-open behaviour, the `CACHE_ENABLED` kill switch, and cacheability rules.
+- [[pencil-design-extraction]] — How a Pencil `.pen` design becomes code: the three derived artefacts (`DESIGN.md`, HTML exports, synced images), tokens from `GetVariables()` never from an export's hex classes, the "stop and report a gap, never substitute" rule (the scrim finding), the shared web/email design system, and the desktop-only MCP bridge quirk.
+- [[angular-component-authoring]] — Two Angular component rules: templates/styles live in a sibling `.html`/CSS file via `templateUrl` (never inline `template:` backticks, sidestepping the `${{ }}` parse trap), and sizing values use `rem` not `px` (the design isn't on a 4px grid, so convert by ÷16 rather than rounding to Tailwind's scale) — borders stay in `px` as the one exception. Extends [[pencil-design-extraction]]'s "translate, not transcribe" rule from colour tokens to units and file structure.
 
 ---
 
@@ -281,6 +286,7 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-08-25-response-caching-layer-design]] — Design for a shared-Redis, HTTP-layer response cache across Users/Orders/Tracking reporting `X-Cache: HIT|MISS|BYPASS` via a per-service interceptor (no handler-level cache-aside, no edge/nginx caching), fail-open with a 50ms timeout, explicit post-write invalidation, and a `CACHE_ENABLED` kill switch; reuses the existing `infra/modules/redis` deployment. New shared convention: [[x-cache-response-header]]. Per [[current-caller-context]], [[logging-context]], [[env-files]], [[testing]], [[ADR-0019-distributed-tracing-opentelemetry]].
 - [[2026-08-25-account-deletion-design]] — Design for self-service account deletion (`DELETE /v1/users/me`): synchronous internal-HTTP cascade to Orders and Tracking keyed on `cognito_sub` (with a `user_id` fallback in Tracking for pre-migration rows), a partial unique index freeing the email for re-registration, `AdminDeleteUser` as the point-of-no-return that frees the email in Cognito, and a deliberate decision **not** to publish a `USER_DELETED` event; per [[ADR-0004-soft-delete-only]], [[soft-delete]], [[users-service-design]], [[orders-service-design]], [[tracking-service-design]].
 - [[2026-08-27-tracking-go-migration-design]] — Design for migrating Tracking from Python/FastAPI to Go/Gin: a faithful layer-by-layer port (Gin + sqlc + golang-migrate, see [[ADR-0021-tracking-go-gin-sqlc-stack]]) run alongside the untouched Python service against the same database, a `tracking-go-impl` agent fanned out across 4 waves (foundations, platform, endpoints, a standalone TestMode wave fixing a request-context-cancellation bug invisible to line-by-line translation), OTel instrumentation moving from Python's zero-code auto-instrumentation into explicit Go code, and a four-part closing gate (three test layers, empty `openapi.yaml` diff, measured Gatling comparison, observability parity) before the Python folder is deleted; per [[tracking-service-design]], [[testmode-in-process-no-durable-scheduler]], [[user-id-vs-cognito-sub-ownership-key]], [[two-api-keys-two-trust-domains]], [[ADR-0019-distributed-tracing-opentelemetry]].
+- [[2026-08-17-web-app-foundation-design]] — Design of `apps/web/`: an Angular 21 + NgRx + Tailwind 4 web app laying out all 18 designed screens (36 responsive frames) from `assets/web-app/web-app.pen`, the `pencil-design-extraction` skill/agent that mines it, and typed phase-1 fixtures derived from the three services' `openapi.yaml` with no gateway calls yet; see [[pencil-design-extraction]] for the extraction convention this design established.
 
 ---
 
@@ -386,3 +392,6 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[2026-08-25-account-deletion-design]]
 - [[2026-08-27-tracking-go-migration-design]]
 - [[ADR-0021-tracking-go-gin-sqlc-stack]]
+- [[pencil-design-extraction]]
+- [[2026-08-17-web-app-foundation-design]]
+- [[angular-component-authoring]]

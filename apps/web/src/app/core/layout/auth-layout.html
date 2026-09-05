@@ -1,0 +1,11 @@
+<main class="bg-surface-white flex h-dvh w-full flex-col lg:flex-row">
+  <!-- 1440 only: the Brand Panel sits beside the form -->
+  <app-brand-panel class="hidden lg:flex lg:self-stretch lg:w-140 lg:shrink-0" />
+  <!-- 390 only: the brand becomes a header above the form -->
+  <app-mobile-brand-header class="lg:hidden" />
+
+  <!-- The brand chrome stays outside; only the form column scrolls. -->
+  <div class="app-scroll flex w-full flex-col lg:flex-1">
+    <router-outlet />
+  </div>
+</main>

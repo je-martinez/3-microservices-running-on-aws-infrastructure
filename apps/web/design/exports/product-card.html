@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      tailwind = { config: { corePlugins: { preflight: false } } };
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter%3Awght%40100..900&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      *, ::before, ::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      data-pencil-name="Product Card"
+      class="box-border w-[318px] h-fit flex flex-col gap-[14px] justify-start items-start"
+    >
+      <div
+        data-pencil-name="Product Image"
+        class="box-border w-full h-[300px] shrink-0 bg-[#FAFAFA] rounded-[12px]"
+      ></div>
+      <div
+        data-pencil-name="Product Info"
+        class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start"
+      >
+        <div
+          data-pencil-name="Product Category"
+          class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+        >
+          FOOTWEAR
+        </div>
+        <div
+          data-pencil-name="Product Name"
+          class="text-[15.5px]/[21px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+        >
+          Runner Low Canvas
+        </div>
+      </div>
+      <div
+        data-pencil-name="Product Row"
+        class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+      >
+        <div
+          data-pencil-name="Product Price"
+          class="text-[18px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+        >
+          $89.00
+        </div>
+        <div
+          data-pencil-name="Add Button"
+          class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-[7px] p-[0px_16px] justify-start items-center bg-[#2D3748] rounded-[8px]"
+        >
+          <svg
+            data-pencil-name="Add Icon"
+            data-icon-name="plus"
+            data-icon-set="lucide"
+            viewBox="0 0 13.99993896484375 14"
+            preserveAspectRatio="xMidYMid meet"
+            xmlns="http://www.w3.org/2000/svg"
+            class="box-border w-[16px] shrink-0 h-[16px]"
+          >
+            <path
+              d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+              fill="#FFFFFF"
+            ></path>
+          </svg>
+          <div
+            data-pencil-name="Add Label"
+            class="text-[14px]/[normal] box-border text-[#FFFFFF] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+          >
+            Add
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

@@ -424,6 +424,31 @@ that hides it.
 Read/Write/Edit/Bash/Glob/Grep/Skill. In this environment that restriction is
 not tool-enforceable — treat it as a norm.*
 
+### web-impl
+
+Code implementer for the 3MRAI **web app** (Angular, NgRx, Tailwind) in
+`apps/web`. Use to implement a single web task — a screen, a shared component,
+design tokens, or routing. Writes **source code only** — never touches git,
+never touches Linear. Reads `apps/web/CLAUDE.md` for its stack and conventions
+and `apps/web/DESIGN.md` for the design system, and leaves the work in the
+working tree for the main session to commit.
+
+Three rules carry extra weight here. **Never use a Tailwind arbitrary value for
+a design colour** — `bg-brand-navy`, never `bg-[#2D3748]`; the tokens live in
+`apps/web/src/styles.css` and an arbitrary hex is the detectable symptom of a
+skipped step. **Templates go in a sibling `.html` file** via `templateUrl`, not
+inline `template:` backticks, the sole exception being a genuinely one-line
+template. And **no `px` in component Tailwind classes — use `rem`** (divide by
+16), except borders and hairlines, which stay `px`.
+
+The design source is a Pencil `.pen` file reachable only over an MCP server this
+environment does not have, so translating a frame is Claude-Code-only work. The
+three rules above still bind any edit to an existing component.
+
+*In Claude Code this is a subagent whose tools are restricted to
+Read/Write/Edit/Bash/Glob/Grep/Skill. In this environment that restriction is
+not tool-enforceable — treat it as a norm.*
+
 ### solutions-architect
 
 Planner and coordinator for 3MRAI implementation. Turns raw design output

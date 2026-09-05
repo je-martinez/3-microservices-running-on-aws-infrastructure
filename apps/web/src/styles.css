@@ -1,0 +1,378 @@
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+@import "tailwindcss";
+
+/* DESIGN.md documents Tailwind class patterns as prose examples — including
+ * arbitrary-value url() utilities — and Tailwind 4 scans Markdown, so it would compile
+ * those examples as real utilities and fail to resolve the image. The doc is
+ * reference material, never a source of classes. */
+@source not "../DESIGN.md";
+
+/* apps/web/design/ holds committed HTML snapshots of Pencil frames (reference
+ * only — see the README in that folder). They use arbitrary-value utilities
+ * like arbitrary-value url() utilities that don't resolve from the app's build context,
+ * so Tailwind must not scan them for classes. */
+@source not "../design";
+
+/* CLAUDE.md documents the same class patterns as prose (it warns about this very
+ * trap), so it must be excluded too — otherwise the file explaining why Tailwind
+ * breaks the build is itself what breaks it. */
+@source not "../CLAUDE.md";
+
+/* Design tokens — generated from assets/web-app/web-app.pen via the Pencil MCP
+ * `GetVariables()`. Do NOT hand-edit: re-run the pencil-design-extraction skill.
+ * Some names are remapped from their .pen originals to avoid Tailwind v4 utility
+ * stutter (bg-body -> bg-bg-body); see the mapping table in the plan.
+ * These values are SHARED WITH THE EMAIL TEMPLATES (assets/email/DESIGN.md) —
+ * changing a brand colour here is a two-surface change. */
+@theme {
+  /* Brand */
+  --color-brand-navy: #2D3748;
+  --color-brand-navy-deep: #1F2733;
+  --color-brand-orange: #F7941D;
+  --color-brand-orange-light: #FFF4E5;
+  --color-brand-orange-text: #C2710E;
+
+  /* Surfaces (.pen: bg-*) */
+  --color-surface-body: #F4F4F5;
+  --color-surface-white: #FFFFFF;
+  --color-surface-subtle: #FAFAFA;
+
+  /* Text (.pen: text-*) */
+  --color-ink-primary: #1A1A2E;
+  --color-ink-secondary: #6B7280;
+  --color-ink-muted: #9CA3AF;
+  --color-ink-on-dark: #E8EAEE;
+  --color-ink-muted-on-dark: #A9B2C0;
+  --color-ink-subtle-on-dark: #C7CDD8;
+  --color-ink-on-orange-light: #8A5A11;
+
+  /* Borders (.pen: border-color, border-strong) */
+  --color-line: #E5E7EB;
+  --color-line-strong: #D1D5DB;
+
+  /* Semantic */
+  --color-success-green: #10B981;
+  --color-success-bg: #ECFDF5;
+  --color-success-ink: #047857;
+  --color-danger-red: #DC2626;
+  --color-info-blue: #2563EB;
+  --color-info-bg: #EFF6FF;
+  --color-warn-ink: #B45309;
+  --color-warn-bg: #FFF7ED;
+
+  /* Type */
+  --font-heading: Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-body: Inter, ui-sans-serif, system-ui, sans-serif;
+
+  /* Metrics (.pen numbers are px) */
+  --radius-md: 0.625rem;
+  --spacing-field: 3.5rem;
+}
+
+/* WHY: The design is not built on Tailwind's 0.25rem scale — most of its sizes are odd
+ * numbers (13, 19, 17, 15), so only ~65 of 418 measured values land on a scale step.
+ * These tokens carry the rest by role, keeping markup readable (text-body, not
+ * text-[0.8125rem]) while preserving the exact rendered size.
+ * Unlike the block above, these are a CODE-SIDE scale — not generated from the .pen. */
+@theme {
+  /* Type — roles, smallest to largest */
+  --text-eyebrow: 0.65625rem; /* 10.5px — uppercase tracked label */
+  --text-overline: 0.6875rem; /* 11px   — tracked brand/category overline */
+  --text-micro: 0.71875rem; /* 11.5px — count badges, footnotes */
+  --text-caption: 0.78125rem; /* 12.5px — status badges, metadata */
+  --text-body-sm: 0.8125rem; /* 13px   — dense secondary copy */
+  --text-body: 0.84375rem; /* 13.5px — default body copy, chips */
+  --text-body-lg: 0.90625rem; /* 14.5px — form input text, list titles */
+  --text-label: 0.9375rem; /* 15px   — form labels, emphasis copy */
+  --text-label-lg: 0.96875rem; /* 15.5px — product/card titles */
+  --text-subtitle: 1.0625rem; /* 17px   — section subtitles, header icons */
+  --text-title: 1.1875rem; /* 19px   — page/panel titles, wordmark */
+  --text-display-sm: 1.625rem; /* 26px   — mobile hero, OTP digit */
+  --text-display: 1.75rem; /* 28px   — catalogue hero */
+  --text-display-lg: 2.0625rem; /* 33px   — desktop auth hero */
+  --text-display-xl: 2.5rem; /* 40px   — brand panel hero */
+
+  /* Leading — paired with the type role of the same size */
+  --leading-body-sm: 1.1875rem; /* 19px on 13px */
+  --leading-body-lg: 1.25rem; /* 20px on 14.5px */
+  --leading-label-lg: 1.3125rem; /* 21px on 15.5px */
+  --leading-body: 1.375rem; /* 22px on 13.5px */
+
+  /* Radius — code-side, beyond the .pen's --radius-md */
+  --radius-sheet: 1.375rem; /* 22px — mobile bottom-sheet top corners */
+
+  /* Tracking — uppercase label spacing */
+  --tracking-label: 0.025rem; /* 0.4px  — semibold caption */
+  --tracking-eyebrow: 0.0875rem; /* 1.4px  — eyebrow */
+  --tracking-overline: 0.09375rem; /* 1.5px  — overline */
+  --tracking-overline-lg: 0.1rem; /* 1.6px  — wide overline */
+  --tracking-brand: 0.21875rem; /* 3.5px  — brand wordmark */
+
+  /* Spacing — gaps, padding, icons and control heights off the scale */
+  --spacing-hairline: 0.125rem; /* 2px  — progress bar */
+  --spacing-rule: 0.1875rem; /* 3px  — thick rule, tightest gap */
+  --spacing-2xs: 0.3125rem; /* 5px  — icon-to-label */
+  --spacing-xs: 0.375rem; /* 6px  — tight inline gap */
+  --spacing-sm: 0.4375rem; /* 7px  — badge padding, dot offset */
+  --spacing-base: 0.5625rem; /* 9px  — default inline gap */
+  --spacing-md: 0.625rem; /* 10px — default stack gap */
+  --spacing-lg: 0.6875rem; /* 11px — row gap */
+  --spacing-xl: 0.8125rem; /* 13px — section gap */
+  --spacing-2xl: 0.875rem; /* 14px — wide gap, chip padding */
+  --spacing-3xl: 1.125rem; /* 18px — panel padding, loose gap */
+  --spacing-4xl: 1.375rem; /* 22px — block padding, sheet radius */
+  --spacing-5xl: 1.625rem; /* 26px — sheet bottom padding */
+  --spacing-icon-2xs: 0.6875rem; /* 11px — smallest glyph */
+  --spacing-icon-xs: 0.8125rem; /* 13px — small glyph */
+  --spacing-icon-sm: 0.9375rem; /* 15px — dense-row icon */
+  --spacing-icon: 1.0625rem; /* 17px — inline icon */
+  --spacing-icon-md: 1.1875rem; /* 19px — default UI icon */
+  --spacing-icon-lg: 1.375rem; /* 22px — step marker */
+  --spacing-control-sm: 2.125rem; /* 34px — quantity stepper height */
+  --spacing-stepper: 1.875rem; /* 30px — quantity stepper button width */
+  --spacing-control: 2.375rem; /* 38px — filter chip */
+  --spacing-control-md: 2.625rem; /* 42px — desktop menu row */
+  --spacing-control-lg: 2.875rem; /* 46px — payment field */
+  --spacing-control-xl: 3.125rem; /* 50px — mobile menu row */
+  --spacing-control-2xl: 3.625rem; /* 58px — primary CTA / payment row (NOT --spacing-field, 56px) */
+  --spacing-header-offset: 5.375rem; /* 86px — sticky offset below header */
+}
+
+/* CONTRACT: The DOCUMENT must never scroll — the app scrolls inside
+ * `.app-scroll` instead, and the gutter is reserved there, not here. Moving
+ * `scrollbar-gutter: stable` up to `html` reserves a 15px strip the header
+ * cannot cover, so at 1920 the header stops at 1905 with no scrollbar in
+ * sight; dropping the gutter entirely instead re-narrows the content box from
+ * 1440 to 1425 when `/profile` navigates to the taller `/orders`, jumping the
+ * content and the right-anchored popovers sideways mid view-transition.
+ * See [[angular-component-authoring]] */
+html,
+body {
+  overflow: hidden;
+}
+
+/* The single scroll container: full-width so the header spans the viewport,
+ * with the gutter reserved inside it so its content box is one constant width
+ * whether or not the route overflows. */
+.app-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+body {
+  background-color: var(--color-surface-body);
+  color: var(--color-ink-primary);
+  font-family: var(--font-body);
+}
+
+/* ─── Route view transitions ─────────────────────────────────────────────── */
+
+/* CONTRACT: View-transition rules MUST live in this global stylesheet. The
+ * `::view-transition-*` pseudo-elements hang off the document root, outside any
+ * component's style encapsulation, so the same rules in a component's styles
+ * silently do nothing. See [[angular-component-authoring]] */
+
+/* The shared chrome keeps its own name, so the browser snapshots it as a stable
+ * element instead of folding it into `root`: it stays put while the content
+ * around it cross-fades. Without this the navy panel would fade into an
+ * identical navy panel, which reads as a flicker. Only one instance of each
+ * renders at a time, which is what keeps these names unique per snapshot. */
+app-brand-panel {
+  view-transition-name: brand-panel;
+}
+
+app-mobile-brand-header {
+  view-transition-name: mobile-brand-header;
+}
+
+app-app-header {
+  view-transition-name: app-header;
+}
+
+@keyframes view-transition-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes view-transition-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* WHY: 180ms — this transition is seen dozens of times a day, so it should be
+ * felt rather than watched. The old and new snapshots overlap for the whole
+ * duration, which is what makes it read as a cross-fade rather than a blink. */
+::view-transition-old(root) {
+  animation: 180ms ease-out both view-transition-fade-out;
+}
+
+::view-transition-new(root) {
+  animation: 180ms ease-in both view-transition-fade-in;
+}
+
+/* WARNING: Reduced motion is a medical setting (vestibular disorders, migraine),
+ * not a taste preference — animating anyway can make someone ill. Duration 0
+ * keeps the transition machinery intact while making the swap instant. */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 0s;
+  }
+}
+
+/* ─── Overlay popover enter/leave ────────────────────────────────────────── */
+
+/* CONTRACT: These classes are consumed by `animate.enter`/`animate.leave` host
+ * bindings on AccountMenu and NotificationsPanel, and MUST live in this global
+ * stylesheet. Shell removes those components with `@if`, so Angular applies the
+ * class to the host element from OUTSIDE the component — component-scoped
+ * styles carry an attribute selector the host does not match, and the rule
+ * silently never applies. See [[angular-component-authoring]] */
+
+/* CONTRACT: The HOST animates opacity ONLY — never `transform`. A transformed
+ * element becomes the containing block for its `position: fixed` descendants,
+ * so a transform here re-anchors each panel from the viewport to this in-flow
+ * host and the document grows by the host's offset: measured 1085 -> 1558px on
+ * `/`, visible as the scrollbar thumb shrinking every time a popover opens.
+ * The slide lives on the panel below, which is itself `fixed` and so cannot
+ * lengthen the document. See [[angular-component-authoring]] */
+
+/* WHY: A quarter-rem slide, not a longer one — the panel should read as having
+ * come from the control that opened it, not as an object travelling across the
+ * screen. Out (120ms) is faster than in (150ms): a dismissal should feel like
+ * it already happened, while an opening can afford to accompany the eye. */
+@keyframes popover-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes popover-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes popover-slide-in {
+  from {
+    transform: translateY(-0.25rem);
+  }
+}
+
+@keyframes popover-slide-out {
+  to {
+    transform: translateY(-0.25rem);
+  }
+}
+
+.popover-enter {
+  animation: 150ms ease-out both popover-fade-in;
+}
+
+.popover-leave {
+  animation: 120ms ease-in both popover-fade-out;
+}
+
+/* CONTRACT: Keep these durations equal to the host's above. Angular ends the
+ * leave on the HOST's own `animationend` (a child's is filtered out by target),
+ * so a longer slide here is cut off mid-motion when the node is removed. */
+.popover-enter > * {
+  animation: 150ms ease-out both popover-slide-in;
+}
+
+.popover-leave > * {
+  animation: 120ms ease-in both popover-slide-out;
+}
+
+/* WARNING: Reduced motion is a medical setting (vestibular disorders, migraine),
+ * not a taste preference — animating anyway can make someone ill. The animation
+ * is kept (Angular removes the leaving node on its `animationend`) but made
+ * instant; dropping it entirely would strand the node in the DOM forever. */
+@media (prefers-reduced-motion: reduce) {
+  .popover-enter,
+  .popover-leave,
+  .popover-enter > *,
+  .popover-leave > * {
+    animation-duration: 1ms;
+  }
+}
+
+/* ─── Cart drawer enter/leave ─────────────────────────────────────────────── */
+
+/* CONTRACT: Same three rules as the popovers above, for the same reasons: these
+ * classes live GLOBALLY because HomePage/Shell apply them to a host from outside
+ * the component; the HOST animates opacity ONLY, never `transform`, or it becomes
+ * the containing block for its `fixed` panel and the document grows mid-animation
+ * (the scrollbar thumb visibly resizes); and the panel's slide below MUST NOT
+ * outlast the host's fade, since Angular ends the leave on the host's own
+ * `animationend`. See [[angular-component-authoring]] */
+
+/* WHY: The panel travels its own full width, so it reads as arriving from
+ * off-screen rather than nudging into place. `100%` and not a fixed length: the
+ * panel is `w-full` on mobile and `md:w-110`/`md:w-130` on desktop, so any fixed
+ * value leaves a gap or overshoots at one of those widths.
+ * Out (200ms) stays faster than in (250ms) — a dismissal should feel already
+ * done. */
+@keyframes drawer-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes drawer-slide-out {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.drawer-enter {
+  animation: 250ms ease both popover-fade-in;
+}
+
+.drawer-leave {
+  animation: 200ms ease both popover-fade-out;
+}
+
+.drawer-enter > * {
+  animation: 250ms ease both drawer-slide-in;
+}
+
+.drawer-leave > * {
+  animation: 200ms ease both drawer-slide-out;
+}
+
+/* CONTRACT: Pause the DESCENDANT too, not just the element carrying the
+ * attribute — the host fades while its panel child slides, and resuming only
+ * the host leaves the slide a fifth of the way in, which is the flicker itself.
+ * `DeferEnterAnimation` clears the attribute once the first frame has been
+ * presented. See [[2026-09-03-cart-drawer-first-open-flicker]] */
+
+/* CONTRACT: `!important`, because every enter class sets the `animation`
+ * SHORTHAND, which resets `animation-play-state` to `running`. Without it this
+ * rule binds only on classes declared ABOVE it, so one declared below silently
+ * un-pauses itself and starts a frame early — a visible lead. Ordering is not a
+ * fix; the next enter class added below reintroduces it silently.
+ * See [[2026-09-03-cart-drawer-scrim-lead-flicker]] */
+[data-deferred-enter],
+[data-deferred-enter] > * {
+  animation-play-state: paused !important;
+}
+
+/* WARNING: Reduced motion is a medical setting, not a taste preference. Kept at
+ * 1ms rather than 0s: Angular removes the leaving node on `animationend`, which
+ * a zero-duration animation may never emit, stranding the drawer in the DOM. */
+@media (prefers-reduced-motion: reduce) {
+  .drawer-enter,
+  .drawer-leave,
+  .drawer-enter > *,
+  .drawer-leave > * {
+    animation-duration: 1ms;
+  }
+}

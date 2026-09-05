@@ -9,3 +9,4 @@ packages:
   - "infra/modules/cognito/otp-challenge-lambda"
   - "e2e"
   - "e2e/load-tests"
+  - "apps/web"

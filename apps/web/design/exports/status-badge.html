@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      tailwind = { config: { corePlugins: { preflight: false } } };
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter%3Awght%40100..900&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      *, ::before, ::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      data-pencil-name="Status Badge"
+      class="box-border w-fit h-[28px] flex flex-row gap-[7px] p-[0px_11px] justify-start items-center bg-[#ECFDF5] rounded-[14px]"
+    >
+      <div
+        data-pencil-name="Badge Dot"
+        class="box-border w-[7px] shrink-0 h-[7px] bg-[#047857] rounded-full"
+      ></div>
+      <div
+        data-pencil-name="Badge Label"
+        class="text-[12.5px]/[normal] box-border text-[#047857] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+      >
+        Delivered
+      </div>
+    </div>
+  </body>
+</html>

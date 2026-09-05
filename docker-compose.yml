@@ -481,3 +481,67 @@ services:
         - action: sync
           path: ./functions/events-pipeline/emails
           target: /app/emails
+
+  # Web app (Angular 21 + Tailwind 4 SPA) — the browser front end.
+  # Build context is the REPO ROOT so pnpm-lock.yaml and pnpm-workspace.yaml are
+  # available to the multi-stage Dockerfile, like users and orders.
+  #
+  # Served as STATIC FILES by nginx (see apps/web/Dockerfile): the build emits a
+  # browser bundle only — angular.json declares no ssr/server options — so there
+  # is no Node process in the runtime image.
+  #
+  # NO depends_on, deliberately. Phase 1 makes no backend calls at all: every
+  # screen renders typed fixtures. Declaring a dependency on floci/users would
+  # make the front end wait on services it never contacts, turning a broken
+  # emulator into a broken web app for no reason. Add one when, and only when,
+  # the app starts calling the gateway.
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # BUILD-TIME, not runtime — this is why there is no env_file: below.
+        # @ngx-env/builder inlines NG_APP_* into the JS bundle at compile time
+        # (the app reads import.meta.env; a browser has no process.env), so a
+        # runtime variable would be read by nothing and the container would
+        # silently keep serving whatever was compiled in.
+        #
+        # CHANGING THIS REQUIRES A REBUILD, NOT A RESTART:
+        #     docker compose build web && docker compose up -d web
+        # `docker compose restart web` re-serves the same bundle and looks
+        # exactly like the flag being ignored.
+        #
+        # false matches apps/web/.env.example: checkout uses the plain
+        # "Checkout — Payment" screen rather than the Stripe step.
+        NG_APP_STRIPE_ENABLED: "false"
+    networks: [3mrai-network]
+    ports:
+      # Host 3004 → container 80 (nginx). 3000/3001/3002 are taken by users,
+      # orders and tracking, and 3003 by email-preview, so this continues the
+      # sequence.
+      - "3004:80"
+    # NO env_file, on purpose. Every other service reads a generated
+    # .env.local.<service>, but this one has nothing to read at runtime: its
+    # only configuration is the build arg above, baked into the bundle. A file
+    # here would be loaded by nginx and ignored, which reads like configuration
+    # that works.
+    #
+    # NO fluentd logging driver either, unlike users/orders/tracking. Those emit
+    # structured JSON that the collector parses into service_name + severity;
+    # nginx emits the combined ACCESS LOG format, which transform/parse_body has
+    # no rule for, so every line would land with no service_name and severity 0
+    # and be routed straight to the `unclassified` stream — the stream whose
+    # entire value is being empty (see observability/otel-collector-config.yaml,
+    # filter/drop_unclassified). The pipeline already drops nginx records from
+    # the gateway task for the same reason. Static-file access logs stay on
+    # stdout, readable with `docker compose logs web`.
+    develop:
+      watch:
+        # `rebuild`, not `sync`: the image serves a COMPILED bundle out of
+        # nginx's html root, so copying a changed .ts file in would change
+        # nothing a browser can see — there is no compiler in the runtime stage
+        # to notice it. Requires `docker compose watch` to be active.
+        # For a fast edit loop, prefer `pnpm web:dev` (ng serve, HMR) and use
+        # this container for verifying the built artifact.
+        - action: rebuild
+          path: ./apps/web/src

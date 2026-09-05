@@ -1,0 +1,60 @@
+<article class="flex h-fit w-full flex-col items-start justify-start gap-2xl">
+  @if (product().image; as image) {
+    <img
+      [src]="image.uri"
+      [alt]="product().name"
+      class="h-75 w-full shrink-0 rounded-md object-cover"
+    />
+  } @else {
+    <!-- WHY: The design has no frame for a product without artwork. A bare
+         surface reads as a failed image load beside cards that do have one, so
+         the state is labelled rather than left blank. -->
+    <div
+      class="bg-surface-subtle flex h-75 w-full shrink-0 flex-col items-center justify-center gap-sm rounded-md"
+    >
+      <svg lucideImageOff class="text-ink-muted h-icon-lg w-icon-lg"></svg>
+      <span class="text-ink-muted text-body-sm">No image</span>
+    </div>
+  }
+  <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-xs">
+    <!-- WHY: Always rendered, never inside an `@if`, and truncated. `categories`
+         has no `minItems` in the Orders contract, so an empty array is legal —
+         dropping the line shortens the card below its grid neighbours, and a long
+         category wraps to two lines and pushes everything down. -->
+    <div
+      class="text-ink-muted w-full min-w-0 truncate text-overline font-semibold tracking-overline-lg"
+      [title]="category() ?? ''"
+    >
+      {{ category() }}
+    </div>
+    <!-- WHY: Truncated to one line. The frames' names all fit, so the design
+         never showed this; a two-line name pushes its price and Add button down
+         and the grid row stops lining up. `min-w-0` is required — a flex child
+         refuses to shrink below its content without it, so `truncate` alone
+         would not bite. -->
+    <h3
+      class="text-ink-primary w-full min-w-0 truncate text-label-lg leading-label-lg font-semibold"
+      [title]="product().name"
+    >
+      {{ product().name }}
+    </h3>
+  </div>
+  <!-- WHY: `h-10` matches the Add button, not `h-fit`. Out-of-stock swaps that
+       button for a line of text, so a fitted row collapses and drags its price
+       up out of line with the card beside it in the grid. -->
+  <div class="flex h-10 w-full shrink-0 flex-row items-center justify-between">
+    <span class="text-ink-primary text-lg font-bold tracking-[-0.3px]">{{ price() }}</span>
+    @if (outOfStock()) {
+      <span class="text-danger-red text-xs font-semibold">Out of stock</span>
+    } @else {
+      <button
+        type="button"
+        class="bg-brand-navy text-surface-white flex h-10 w-fit shrink-0 flex-row items-center justify-start gap-sm rounded-lg px-4"
+        (click)="add.emit()"
+      >
+        <svg lucidePlus class="h-4 w-4"></svg>
+        <span class="text-sm font-semibold">Add</span>
+      </button>
+    }
+  </div>
+</article>

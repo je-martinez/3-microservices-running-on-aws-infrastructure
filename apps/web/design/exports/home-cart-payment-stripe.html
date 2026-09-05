@@ -1,0 +1,1365 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      tailwind = { config: { corePlugins: { preflight: false } } };
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter%3Awght%40100..900&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      *, ::before, ::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      data-pencil-name="Home — Cart Payment (Stripe)"
+      class="box-border w-[1440px] h-[1120px] bg-[#FFFFFF] overflow-hidden relative"
+    >
+      <div
+        data-pencil-name="Page"
+        class="box-border w-[1440px] h-[1120px] absolute left-0 top-0 flex flex-col gap-0 justify-start items-start bg-[#FFFFFF] overflow-hidden [z-index:0]"
+      >
+        <div
+          data-pencil-name="App Header"
+          class="[box-sizing:content-box] w-[1440px] h-[75.5px] shrink-0 flex flex-row gap-0 p-[0px_48px] justify-between items-center bg-[#FFFFFF] [border-width:0px_0px_1px_0px] [border-style:solid] [border-color:#E5E7EB] [margin:0px_0px_-0.5px_0px]"
+        >
+          <div
+            data-pencil-name="Header Left"
+            class="box-border w-fit shrink-0 h-fit flex flex-row gap-[40px] justify-start items-center"
+          >
+            <div
+              data-pencil-name="Header Logo"
+              class="box-border w-fit shrink-0 h-fit flex flex-row gap-[10px] justify-start items-center"
+            >
+              <div
+                data-pencil-name="Logo Mark"
+                class="box-border w-[36px] shrink-0 h-[36px] flex flex-row gap-0 justify-start items-start bg-[#FFFFFF] bg-[url('../img/standalone-logo.png')] bg-no-repeat bg-contain bg-center rounded-[8px]"
+              ></div>
+              <div
+                data-pencil-name="Logo Text"
+                class="box-border w-fit shrink-0 h-fit flex flex-row gap-[1px] justify-start items-center"
+              >
+                <div
+                  data-pencil-name="Logo 3M"
+                  class="text-[19px]/[normal] box-border text-[#2D3748] font-[Inter,system-ui,sans-serif] font-extrabold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  3M
+                </div>
+                <div
+                  data-pencil-name="Logo RAI"
+                  class="text-[19px]/[normal] box-border text-[#F7941D] font-[Inter,system-ui,sans-serif] font-extrabold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  RAI
+                </div>
+              </div>
+            </div>
+          </div>
+          <div
+            data-pencil-name="Header Right"
+            class="box-border w-fit shrink-0 h-fit flex flex-row gap-[14px] justify-start items-center"
+          >
+            <div
+              data-pencil-name="Search"
+              class="box-border w-[260px] shrink-0 h-[44px] flex flex-row gap-[10px] p-[0px_14px] justify-start items-center bg-[#FAFAFA] [outline:1px_solid_#E5E7EB] [outline-offset:-0.5px] rounded-[10px]"
+            >
+              <svg
+                data-pencil-name="Search Icon"
+                data-icon-name="search"
+                data-icon-set="lucide"
+                viewBox="0 0 13.99993896484375 14"
+                preserveAspectRatio="xMidYMid meet"
+                xmlns="http://www.w3.org/2000/svg"
+                class="box-border w-[17px] shrink-0 h-[17px]"
+              >
+                <path
+                  d="M6.00537 1.17578q-0.04102 0.01367-0.23584 0.02734-0.57422 0.07178-1.16211 0.29053-0.58789 0.21533-1.09375 0.5503-0.39307 0.2666-0.74853 0.61181-0.35547 0.3418-0.62207 0.7041-0.646 0.92285-0.86817 2.03028-0.05811 0.28027-0.07861 0.46142-0.02051 0.18115-0.02051 0.57422 0 0.43408 0.02734 0.68018 0.02734 0.24268 0.12647 0.59472 0.19482 0.75537 0.60156 1.43555 0.40674 0.67676 0.96729 1.18262 0.40674 0.3623 0.81689 0.60156 0.41357 0.23926 0.91944 0.43408 1.06299 0.39307 2.21826 0.29395 1.15527-0.09912 2.1499-0.65967 0.12646-0.06836 0.33496-0.2085 0.2085-0.14014 0.29395-0.21191l0.05468-0.05469 1.10743 1.10742q1.12109 1.104 1.20312 1.15528 0.08545 0.04785 0.23926 0.04785 0.15381 0 0.23584-0.03418 0.08545-0.0376 0.18115-0.1333 0.09912-0.09912 0.1333-0.18115 0.0376-0.08545 0.0376-0.23926 0-0.15381-0.05127-0.23584-0.04785-0.08545-1.15186-1.20654l-1.10742-1.10743 0.05469-0.06836q0.05811-0.05469 0.19824-0.25293 0.82373-1.23047 0.89209-2.70703 0.07178-1.47656-0.63916-2.76513-0.5332-0.96729-1.42187-1.64405-0.88867-0.68018-1.95508-0.9331-0.29395-0.06836-0.54004-0.09571-0.24268-0.03076-0.60498-0.04443-0.43408 0-0.49219 0z m0.7417 1.17578q0.37939 0.01367 0.79297 0.14014 0.41357 0.12646 0.78955 0.32129 0.7417 0.39307 1.28857 1.08008 0.54687 0.68359 0.75538 1.49707 0.07178 0.28027 0.09228 0.49902 0.02051 0.21533 0.02051 0.50928 0 0.70068-0.19483 1.30224-0.39307 1.16211-1.33984 1.91065-0.94336 0.74853-2.16016 0.875-0.19824 0.01367-0.49218 0.00683-0.29395-0.00684-0.48877-0.03418-0.5332-0.08545-1.03907-0.30761-0.50244-0.22559-0.93652-0.56055-0.14014-0.12646-0.35205-0.3418-0.2085-0.21875-0.33154-0.37256-0.57422-0.76904-0.7417-1.69531-0.08545-0.43408-0.06494-0.90918 0.02051-0.4751 0.11963-0.89551 0.29395-1.14844 1.18945-1.95849 0.89551-0.81348 2.05762-1.02539 0.18115-0.02734 0.42041-0.04102 0.23926-0.01367 0.34863-0.01367l0.2666 0.01367z"
+                  fill="#9CA3AF"
+                ></path>
+              </svg>
+              <div
+                data-pencil-name="Search Placeholder"
+                class="text-[14px]/[normal] box-border [flex:1_1_0] text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-normal text-left"
+              >
+                Search products
+              </div>
+            </div>
+            <div
+              data-pencil-name="Bell Button"
+              class="box-border w-[44px] shrink-0 h-[44px] flex flex-row gap-0 justify-center items-center bg-[#FFFFFF] [outline:1px_solid_#E5E7EB] [outline-offset:-0.5px] rounded-[10px] relative"
+            >
+              <svg
+                data-pencil-name="Bell Icon"
+                data-icon-name="bell"
+                data-icon-set="lucide"
+                viewBox="0 0 13.99993896484375 14"
+                preserveAspectRatio="xMidYMid meet"
+                xmlns="http://www.w3.org/2000/svg"
+                class="box-border w-[19px] shrink-0 h-[19px] relative [z-index:0]"
+              >
+                <path
+                  d="M6.76074 0.60156q-0.62891 0.02734-1.22363 0.25293-0.59473 0.22217-1.0835 0.62891-0.63232 0.50586-1.03222 1.22705-0.39648 0.72119-0.48194 1.51758-0.01367 0.16748-0.03418 0.70068-0.02051 0.52979-0.0581 0.86817-0.03418 0.33496-0.12988 0.68359-0.09912 0.43408-0.28028 0.78613-0.14014 0.30762-0.29394 0.51953-0.15381 0.2085-0.50586 0.58448-0.22217 0.25293-0.30762 0.38623-0.08203 0.1333-0.12647 0.31445-0.04102 0.14014-0.02734 0.32471 0.01367 0.18115 0.05469 0.30761 0.1709 0.46143 0.60498 0.66993l0.04101 0.02734q0.09912 0.0581 0.28028 0.07178 0.23584 0.01367 1.04931 0.02734l7.5879 0q0.81348-0.01367 1.04931-0.02734 0.18115-0.01367 0.28027-0.07178l0.04102-0.02734q0.43408-0.2085 0.60498-0.66993 0.04102-0.12646 0.05469-0.30761 0.01367-0.18457-0.02735-0.32471-0.04443-0.18115-0.12988-0.32129-0.08203-0.14014-0.3042-0.37939-0.35205-0.37598-0.50586-0.58448-0.15381-0.21191-0.29394-0.51953-0.16748-0.33496-0.2666-0.69726-0.0957-0.36572-0.14014-0.72803-0.04102-0.36572-0.06836-0.9126-0.01367-0.72803-0.08545-1.04932-0.2085-1.08008-0.93652-1.9038-0.72803-0.82715-1.76367-1.1792-0.7417-0.23584-1.54151-0.19483z m0.68701 1.18946q0.46143 0.07178 0.88184 0.28369 0.42041 0.2085 0.7417 0.55713 0.46143 0.46143 0.67334 1.06298 0.0957 0.25293 0.12988 0.49219 0.0376 0.23584 0.05127 0.7417 0.01367 0.58789 0.06836 1.01514 0.05811 0.42725 0.15723 0.84765 0.16748 0.68359 0.46826 1.2168 0.30078 0.5332 0.84766 1.12109l0.19482 0.19483-9.32422 0 0.19482-0.19483q0.54688-0.58789 0.84766-1.12109 0.30078-0.5332 0.46826-1.2168 0.09912-0.42041 0.15381-0.84765 0.05811-0.42725 0.07861-1.01514 0.02051-0.58789 0.06836-0.875 0.05127-0.28711 0.21192-0.63574 0.16064-0.35205 0.46142-0.68701 0.30078-0.33838 0.63575-0.54688 0.60498-0.36572 1.333-0.42041 0.08203-0.01367 0.31104 0 0.23242 0.01367 0.34521 0.02735z m-1.6372 9.89843q-0.22559 0.08545-0.33155 0.28028-0.10254 0.19482-0.04785 0.42041 0.01367 0.08545 0.11963 0.24609 0.10596 0.16065 0.21875 0.27344 0.50244 0.50244 1.23047 0.50244 0.72803 0 1.23047-0.50244 0.11279-0.11279 0.21875-0.27344 0.10596-0.16064 0.11963-0.24609 0.05469-0.19482-0.0376-0.38282-0.08887-0.19141-0.27002-0.29052-0.08545-0.04102-0.25293-0.04102-0.11279 0-0.15381 0.01367-0.04102 0.01367-0.11279 0.04102-0.09912 0.05811-0.18115 0.15723-0.11279 0.15381-0.17774 0.20849-0.06152 0.05469-0.14697 0.09912-0.08203 0.04102-0.23584 0.04102-0.15381 0-0.23926-0.04102-0.08203-0.04443-0.14697-0.09912-0.06152-0.05469-0.17432-0.20849-0.15381-0.19824-0.43408-0.21192-0.14014 0-0.19482 0.01367z"
+                  fill="#2D3748"
+                ></path>
+              </svg>
+              <div
+                data-pencil-name="Bell Dot"
+                class="box-border w-[9px] h-[9px] absolute left-[26px] top-[9px] bg-[#F7941D] [outline:1.5px_solid_#FFFFFF] [outline-offset:-0.75px] rounded-full [z-index:1]"
+              ></div>
+            </div>
+            <div
+              data-pencil-name="Profile Button"
+              class="box-border w-[44px] shrink-0 h-[44px] flex flex-row gap-0 justify-center items-center bg-[#FFFFFF] [outline:1px_solid_#E5E7EB] [outline-offset:-0.5px] rounded-[10px]"
+            >
+              <svg
+                data-pencil-name="Profile Icon"
+                data-icon-name="user"
+                data-icon-set="lucide"
+                viewBox="0 0 13.99993896484375 14"
+                preserveAspectRatio="xMidYMid meet"
+                xmlns="http://www.w3.org/2000/svg"
+                class="box-border w-[19px] shrink-0 h-[19px]"
+              >
+                <path
+                  d="M6.59326 1.20313q-0.81006 0.11279-1.42871 0.61865-0.61523 0.50244-0.89551 1.24414-0.18115 0.48877-0.18115 1.02197 0 0.28027 0.04102 0.50586 0.04443 0.22217 0.14013 0.48877 0.15381 0.46143 0.46826 0.84766 0.31787 0.38281 0.7212 0.63574 0.36572 0.22559 0.73486 0.32471 0.37256 0.0957 0.80664 0.0957 0.22559 0 0.3623-0.01367 0.14014-0.01367 0.35206-0.05811 0.60156-0.15381 1.104-0.55713 0.50586-0.40674 0.7998-0.98096 0.19482-0.39307 0.26661-0.88183 0.02734-0.14014 0.02734-0.40674 0-0.2666-0.02734-0.40674-0.09912-0.65625-0.46485-1.20312-0.3623-0.54688-0.93652-0.89551-0.43408-0.2666-0.98096-0.36572-0.15381-0.02734-0.45459-0.03418-0.30078-0.00684-0.45459 0.02051z m0.60156 1.14843q0.40674 0.02734 0.78272 0.28711 0.37939 0.25977 0.58105 0.65967 0.20508 0.39648 0.18457 0.88184-0.02051 0.48193-0.28711 0.86132-0.15381 0.23584-0.37939 0.41358-0.22217 0.17432-0.46143 0.27002-0.19482 0.05811-0.2871 0.07861-0.08887 0.02051-0.32813 0.02051-0.23926 0-0.33154-0.02051-0.08887-0.02051-0.28369-0.07861-0.39307-0.14014-0.68018-0.46826-0.28711-0.32813-0.3999-0.73487-0.10938-0.46143 0.01367-0.90918 0.12646-0.44775 0.45459-0.76904 0.33154-0.32471 0.79297-0.45117 0.08545-0.02734 0.24609-0.04785 0.16064-0.02051 0.21533-0.00684l0.16748 0.01367z m-2.35156 5.85156q-0.96387 0.14014-1.65088 0.82715-0.54688 0.54688-0.75537 1.31592-0.07178 0.23926-0.08545 0.44092-0.01367 0.20166-0.01367 0.82031l0 0.76904 0.04102 0.1128q0.05811 0.0957 0.14013 0.18115 0.21191 0.19482 0.50586 0.14697 0.29395-0.04785 0.42041-0.31445l0.04102-0.09912 0.01367-0.79639q0.01367-0.61865 0.02734-0.77246 0.01367-0.15381 0.07178-0.34863 0.14014-0.37939 0.46826-0.68018 0.32813-0.30078 0.73487-0.41357 0.15381-0.04102 0.53662-0.05469 0.38623-0.01367 1.66113-0.01367 1.2749 0 1.65771 0.01367 0.38623 0.01367 0.54004 0.05469 0.42041 0.11279 0.75538 0.43066 0.33838 0.31445 0.46142 0.71778 0.05811 0.16748 0.06494 0.3247 0.00684 0.15381 0.02051 0.7417l0.01367 0.79639 0.04102 0.09912q0.12646 0.2666 0.42041 0.31445 0.29395 0.04785 0.50586-0.14697 0.08203-0.08545 0.14013-0.18115l0.04102-0.1128 0-0.76904q0-0.61865-0.01367-0.82031-0.01367-0.20166-0.08545-0.44092-0.08203-0.32129-0.23584-0.61523-0.2666-0.51953-0.73828-0.90235-0.46826-0.38623-1.02539-0.54004l-0.04444-0.01367q-0.16748-0.05811-0.29394-0.07178-0.15381-0.01367-0.56055-0.01367l-1.60986-0.01367q-2.05762 0-2.21143 0.02734z"
+                  fill="#2D3748"
+                ></path>
+              </svg>
+            </div>
+            <div
+              data-pencil-name="Cart Button"
+              class="box-border w-fit shrink-0 h-[44px] flex flex-row gap-[9px] p-[0px_16px] justify-start items-center bg-[#2D3748] rounded-[10px]"
+            >
+              <svg
+                data-pencil-name="Cart Icon"
+                data-icon-name="shopping-bag"
+                data-icon-set="lucide"
+                viewBox="0 0 13.99993896484375 14"
+                preserveAspectRatio="xMidYMid meet"
+                xmlns="http://www.w3.org/2000/svg"
+                class="box-border w-[18px] shrink-0 h-[18px]"
+              >
+                <path
+                  d="M3.92041 0.60156q-0.30762 0.01367-0.60156 0.16065-0.29395 0.14697-0.50586 0.37256-0.10938 0.11279-0.7417 0.96386-0.51611 0.68701-0.64941 0.90576-0.1333 0.21533-0.20508 0.44092l-0.04102 0.15381 0 8.38428 0.05469 0.15381q0.15723 0.51953 0.56055 0.86133 0.40674 0.3418 0.93994 0.3999 0.15381 0.02734 4.26904 0.02734 4.11523 0 4.26904-0.02734 0.30762-0.02734 0.58789-0.16748 0.32471-0.15381 0.56055-0.44092 0.23926-0.28711 0.35205-0.65283l0.05469-0.15381 0-8.38428-0.04102-0.15381q-0.07178-0.22559-0.20508-0.44092-0.1333-0.21875-0.64941-0.90576-0.63232-0.85107-0.7417-0.96386-0.21191-0.22559-0.50586-0.36573-0.29395-0.14014-0.6289-0.16748-0.16748-0.02734-3.06592-0.02734-2.89844 0-3.06592 0.02734z m6.14551 1.16211q0.12646 0.02734 0.22217 0.1333 0.09912 0.10596 0.42041 0.52637l0.37939 0.50244-2.04394 0.01367q-2.04395 0-4.0879 0l-2.04394-0.01367 0.37939-0.51611q0.30762-0.40674 0.40332-0.50586 0.09912-0.09912 0.22559-0.12647 0.08203-0.02734 3.05566-0.02734 2.97705 0 3.08985 0.01367z m1.60986 6.10449q0 3.75293-0.01367 3.86231-0.05469 0.32471-0.33496 0.46484l-0.09912 0.04102-8.45606 0-0.09912-0.04102q-0.28027-0.12646-0.32129-0.43408-0.02734-0.11279-0.02734-3.87939l0-3.76661 9.35156 0 0 3.75293z m-7.15381-2.60449q-0.11279 0.02734-0.21875 0.11279-0.10254 0.08203-0.16064 0.18116-0.08203 0.18115-0.04785 0.54004 0.03418 0.35547 0.17431 0.73486 0.15381 0.46143 0.46826 0.84766 0.31787 0.38281 0.7212 0.63574 0.36572 0.22559 0.73486 0.3247 0.37256 0.0957 0.80664 0.09571 0.30762 0 0.43408-0.01367 0.9502-0.16748 1.59619-0.81348 0.48877-0.46143 0.70069-1.07666 0.14014-0.37939 0.18115-0.78613 0.01367-0.24951-0.02051-0.37598-0.03418-0.12646-0.14697-0.23926-0.18115-0.19482-0.44776-0.17431-0.2666 0.02051-0.42041 0.23242-0.07178 0.08203-0.09912 0.17431-0.02734 0.08887-0.04101 0.27344-0.04102 0.62891-0.46143 1.09033-0.18457 0.18115-0.37939 0.30078-0.19482 0.11963-0.48877 0.20508-0.09912 0.04102-0.40674 0.04102-0.30762 0-0.40674-0.04102-0.29395-0.08545-0.48877-0.20508-0.19482-0.11963-0.37939-0.30078-0.43408-0.46143-0.46143-1.09033-0.02734-0.29395-0.11963-0.43408-0.08887-0.14014-0.27343-0.2085-0.18115-0.07178-0.34864-0.03076z"
+                  fill="#FFFFFF"
+                ></path>
+              </svg>
+              <div
+                data-pencil-name="Cart Count"
+                class="text-[14px]/[normal] box-border text-[#FFFFFF] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+              >
+                3
+              </div>
+            </div>
+          </div>
+        </div>
+        <div
+          data-pencil-name="Body"
+          class="box-border w-full [flex:1_1_0] flex flex-col gap-[28px] p-[36px_48px] justify-start items-start bg-[#FFFFFF]"
+        >
+          <div
+            data-pencil-name="Toolbar"
+            class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-end"
+          >
+            <div
+              data-pencil-name="Title Block"
+              class="box-border w-fit shrink-0 h-fit flex flex-col gap-[5px] justify-start items-start"
+            >
+              <div
+                data-pencil-name="Page Title"
+                class="text-[28px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.7px] text-left [white-space:nowrap]"
+              >
+                New arrivals
+              </div>
+              <div
+                data-pencil-name="Page Meta"
+                class="text-[14px]/[normal] box-border text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left [white-space:nowrap]"
+              >
+                42 products · updated today
+              </div>
+            </div>
+            <div
+              data-pencil-name="Filters"
+              class="box-border w-fit shrink-0 h-fit flex flex-row gap-[10px] justify-start items-center"
+            >
+              <div
+                data-pencil-name="Pill All"
+                class="box-border w-fit shrink-0 h-[38px] flex flex-row gap-0 p-[0px_17px] justify-start items-center bg-[#2D3748] [outline:1px_solid_#2D3748] [outline-offset:-0.5px] rounded-[19px]"
+              >
+                <div
+                  data-pencil-name="Pill Label"
+                  class="text-[13.5px]/[normal] box-border text-[#FFFFFF] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                >
+                  All
+                </div>
+              </div>
+              <div
+                data-pencil-name="Pill Footwear"
+                class="box-border w-fit shrink-0 h-[38px] flex flex-row gap-0 p-[0px_17px] justify-start items-center bg-[#FFFFFF] [outline:1px_solid_#D1D5DB] [outline-offset:-0.5px] rounded-[19px]"
+              >
+                <div
+                  data-pencil-name="Pill Label"
+                  class="text-[13.5px]/[normal] box-border text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left [white-space:nowrap]"
+                >
+                  Footwear
+                </div>
+              </div>
+              <div
+                data-pencil-name="Pill Bags"
+                class="box-border w-fit shrink-0 h-[38px] flex flex-row gap-0 p-[0px_17px] justify-start items-center bg-[#FFFFFF] [outline:1px_solid_#D1D5DB] [outline-offset:-0.5px] rounded-[19px]"
+              >
+                <div
+                  data-pencil-name="Pill Label"
+                  class="text-[13.5px]/[normal] box-border text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left [white-space:nowrap]"
+                >
+                  Bags
+                </div>
+              </div>
+              <div
+                data-pencil-name="Pill Accessories"
+                class="box-border w-fit shrink-0 h-[38px] flex flex-row gap-0 p-[0px_17px] justify-start items-center bg-[#FFFFFF] [outline:1px_solid_#D1D5DB] [outline-offset:-0.5px] rounded-[19px]"
+              >
+                <div
+                  data-pencil-name="Pill Label"
+                  class="text-[13.5px]/[normal] box-border text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left [white-space:nowrap]"
+                >
+                  Accessories
+                </div>
+              </div>
+              <div
+                data-pencil-name="Sort"
+                class="box-border w-fit shrink-0 h-[38px] flex flex-row gap-[8px] p-[0px_14px] justify-start items-center bg-[#FFFFFF] [outline:1px_solid_#D1D5DB] [outline-offset:-0.5px] rounded-[19px]"
+              >
+                <div
+                  data-pencil-name="Sort Label"
+                  class="text-[13.5px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-normal text-left [white-space:nowrap]"
+                >
+                  Featured
+                </div>
+                <svg
+                  data-pencil-name="Sort Icon"
+                  data-icon-name="chevron-down"
+                  data-icon-set="lucide"
+                  viewBox="0 0 13.99993896484375 14"
+                  preserveAspectRatio="xMidYMid meet"
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="box-border w-[15px] shrink-0 h-[15px]"
+                >
+                  <path
+                    d="M3.34619 4.68945q-0.25293 0.08545-0.37939 0.30762-0.04102 0.08545-0.04102 0.25293 0 0.16748 0.04785 0.25977 0.05127 0.08887 1.8628 1.9038 1.81494 1.81152 1.9038 1.8628 0.09229 0.04785 0.25977 0.04785 0.16748 0 0.25635-0.04785 0.09229-0.05127 1.90381-1.8628 1.81494-1.81494 1.86279-1.9038 0.05127-0.09229 0.05127-0.25977 0-0.16748-0.04102-0.25293-0.09912-0.16748-0.28027-0.2666-0.05811-0.02734-0.09912-0.04102-0.04102-0.01367-0.15381-0.01367-0.11279 0-0.15381 0.01367-0.04101 0.01367-0.11279 0.04102-0.09912 0.05811-1.66455 1.62695l-1.56885 1.56543-2.82666-2.81299q-0.31104-0.29395-0.42041-0.37939-0.08545-0.05469-0.19824-0.05469l-0.02735 0q-0.14014 0-0.18115 0.01367z"
+                    fill="#6B7280"
+                  ></path>
+                </svg>
+              </div>
+            </div>
+          </div>
+          <div
+            data-pencil-name="Product Grid"
+            class="box-border w-full h-fit shrink-0 flex flex-col gap-[36px] justify-start items-start"
+          >
+            <div
+              data-pencil-name="Grid Row 1"
+              class="box-border w-full h-fit shrink-0 flex flex-row gap-[24px] justify-start items-start"
+            >
+              <div
+                data-pencil-name="Card Runner Low Canvas"
+                class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start"
+              >
+                <div
+                  data-pencil-name="Product Image"
+                  class="box-border w-full h-[300px] shrink-0 bg-[url('https://images.unsplash.com/photo-1722489292294-426912777649?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMDh8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px]"
+                ></div>
+                <div
+                  data-pencil-name="Product Info"
+                  class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start"
+                >
+                  <div
+                    data-pencil-name="Product Category"
+                    class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                  >
+                    FOOTWEAR
+                  </div>
+                  <div
+                    data-pencil-name="Product Name"
+                    class="text-[15.5px]/[21px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                  >
+                    Runner Low Canvas
+                  </div>
+                </div>
+                <div
+                  data-pencil-name="Product Row"
+                  class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+                >
+                  <div
+                    data-pencil-name="Product Price"
+                    class="text-[18px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                  >
+                    $89.00
+                  </div>
+                  <div
+                    data-pencil-name="Add Button"
+                    class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-[7px] p-[0px_16px] justify-start items-center bg-[#2D3748] rounded-[8px]"
+                  >
+                    <svg
+                      data-pencil-name="Add Icon"
+                      data-icon-name="plus"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                        fill="#FFFFFF"
+                      ></path>
+                    </svg>
+                    <div
+                      data-pencil-name="Add Label"
+                      class="text-[14px]/[normal] box-border text-[#FFFFFF] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                    >
+                      Add
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div
+                data-pencil-name="Card Field Tote 18L"
+                class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start"
+              >
+                <div
+                  data-pencil-name="Product Image"
+                  class="box-border w-full h-[300px] shrink-0 bg-[url('https://images.unsplash.com/photo-1661148800433-7e0004fa3b08?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzZ8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px]"
+                ></div>
+                <div
+                  data-pencil-name="Product Info"
+                  class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start"
+                >
+                  <div
+                    data-pencil-name="Product Category"
+                    class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                  >
+                    BAGS
+                  </div>
+                  <div
+                    data-pencil-name="Product Name"
+                    class="text-[15.5px]/[21px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                  >
+                    Field Tote 18L
+                  </div>
+                </div>
+                <div
+                  data-pencil-name="Product Row"
+                  class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+                >
+                  <div
+                    data-pencil-name="Product Price"
+                    class="text-[18px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                  >
+                    $128.00
+                  </div>
+                  <div
+                    data-pencil-name="Add Button"
+                    class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-[7px] p-[0px_16px] justify-start items-center bg-[#2D3748] rounded-[8px]"
+                  >
+                    <svg
+                      data-pencil-name="Add Icon"
+                      data-icon-name="plus"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                        fill="#FFFFFF"
+                      ></path>
+                    </svg>
+                    <div
+                      data-pencil-name="Add Label"
+                      class="text-[14px]/[normal] box-border text-[#FFFFFF] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                    >
+                      Add
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div
+                data-pencil-name="Card Trail Shell Jacket"
+                class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start"
+              >
+                <div
+                  data-pencil-name="Product Image"
+                  class="box-border w-full h-[300px] shrink-0 bg-[url('https://images.unsplash.com/photo-1773932545972-2b00bfae7046?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzZ8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px]"
+                ></div>
+                <div
+                  data-pencil-name="Product Info"
+                  class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start"
+                >
+                  <div
+                    data-pencil-name="Product Category"
+                    class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                  >
+                    OUTERWEAR
+                  </div>
+                  <div
+                    data-pencil-name="Product Name"
+                    class="text-[15.5px]/[21px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                  >
+                    Trail Shell Jacket
+                  </div>
+                </div>
+                <div
+                  data-pencil-name="Product Row"
+                  class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+                >
+                  <div
+                    data-pencil-name="Product Price"
+                    class="text-[18px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                  >
+                    $215.00
+                  </div>
+                  <div
+                    data-pencil-name="Add Button"
+                    class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-[7px] p-[0px_16px] justify-start items-center bg-[#2D3748] rounded-[8px]"
+                  >
+                    <svg
+                      data-pencil-name="Add Icon"
+                      data-icon-name="plus"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                        fill="#FFFFFF"
+                      ></path>
+                    </svg>
+                    <div
+                      data-pencil-name="Add Label"
+                      class="text-[14px]/[normal] box-border text-[#FFFFFF] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                    >
+                      Add
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div
+                data-pencil-name="Card Everyday Backpack"
+                class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start"
+              >
+                <div
+                  data-pencil-name="Product Image"
+                  class="box-border w-full h-[300px] shrink-0 bg-[url('https://images.unsplash.com/photo-1568247067952-eab2ce84a349?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzd8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px]"
+                ></div>
+                <div
+                  data-pencil-name="Product Info"
+                  class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start"
+                >
+                  <div
+                    data-pencil-name="Product Category"
+                    class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                  >
+                    BAGS
+                  </div>
+                  <div
+                    data-pencil-name="Product Name"
+                    class="text-[15.5px]/[21px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                  >
+                    Everyday Backpack
+                  </div>
+                </div>
+                <div
+                  data-pencil-name="Product Row"
+                  class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+                >
+                  <div
+                    data-pencil-name="Product Price"
+                    class="text-[18px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                  >
+                    $149.00
+                  </div>
+                  <div
+                    data-pencil-name="Add Button"
+                    class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-[7px] p-[0px_16px] justify-start items-center bg-[#2D3748] rounded-[8px]"
+                  >
+                    <svg
+                      data-pencil-name="Add Icon"
+                      data-icon-name="plus"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                        fill="#FFFFFF"
+                      ></path>
+                    </svg>
+                    <div
+                      data-pencil-name="Add Label"
+                      class="text-[14px]/[normal] box-border text-[#FFFFFF] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                    >
+                      Add
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div
+              data-pencil-name="Grid Row 2"
+              class="box-border w-full h-fit shrink-0 flex flex-row gap-[24px] justify-start items-start"
+            >
+              <div
+                data-pencil-name="Card Linen Cap"
+                class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start"
+              >
+                <div
+                  data-pencil-name="Product Image"
+                  class="box-border w-full h-[300px] shrink-0 bg-[url('https://images.unsplash.com/photo-1633069387153-983ac0f13ab0?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzh8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px]"
+                ></div>
+                <div
+                  data-pencil-name="Product Info"
+                  class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start"
+                >
+                  <div
+                    data-pencil-name="Product Category"
+                    class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                  >
+                    ACCESSORIES
+                  </div>
+                  <div
+                    data-pencil-name="Product Name"
+                    class="text-[15.5px]/[21px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                  >
+                    Linen Cap
+                  </div>
+                </div>
+                <div
+                  data-pencil-name="Product Row"
+                  class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+                >
+                  <div
+                    data-pencil-name="Product Price"
+                    class="text-[18px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                  >
+                    $39.00
+                  </div>
+                  <div
+                    data-pencil-name="Add Button"
+                    class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-[7px] p-[0px_16px] justify-start items-center bg-[#2D3748] rounded-[8px]"
+                  >
+                    <svg
+                      data-pencil-name="Add Icon"
+                      data-icon-name="plus"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                        fill="#FFFFFF"
+                      ></path>
+                    </svg>
+                    <div
+                      data-pencil-name="Add Label"
+                      class="text-[14px]/[normal] box-border text-[#FFFFFF] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                    >
+                      Add
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div
+                data-pencil-name="Card Wool Runner Mid"
+                class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start"
+              >
+                <div
+                  data-pencil-name="Product Image"
+                  class="box-border w-full h-[300px] shrink-0 bg-[url('https://images.unsplash.com/photo-1581727113174-dd8ad9c3a6d3?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMTF8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px]"
+                ></div>
+                <div
+                  data-pencil-name="Product Info"
+                  class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start"
+                >
+                  <div
+                    data-pencil-name="Product Category"
+                    class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                  >
+                    FOOTWEAR
+                  </div>
+                  <div
+                    data-pencil-name="Product Name"
+                    class="text-[15.5px]/[21px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                  >
+                    Wool Runner Mid
+                  </div>
+                </div>
+                <div
+                  data-pencil-name="Product Row"
+                  class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+                >
+                  <div
+                    data-pencil-name="Product Price"
+                    class="text-[18px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                  >
+                    $119.00
+                  </div>
+                  <div
+                    data-pencil-name="Add Button"
+                    class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-[7px] p-[0px_16px] justify-start items-center bg-[#2D3748] rounded-[8px]"
+                  >
+                    <svg
+                      data-pencil-name="Add Icon"
+                      data-icon-name="plus"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                        fill="#FFFFFF"
+                      ></path>
+                    </svg>
+                    <div
+                      data-pencil-name="Add Label"
+                      class="text-[14px]/[normal] box-border text-[#FFFFFF] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                    >
+                      Add
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div
+                data-pencil-name="Card Leather Card Holder"
+                class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start"
+              >
+                <div
+                  data-pencil-name="Product Image"
+                  class="box-border w-full h-[300px] shrink-0 bg-[url('https://images.unsplash.com/photo-1614260937422-f93aec4da8c5?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMTJ8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px]"
+                ></div>
+                <div
+                  data-pencil-name="Product Info"
+                  class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start"
+                >
+                  <div
+                    data-pencil-name="Product Category"
+                    class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                  >
+                    ACCESSORIES
+                  </div>
+                  <div
+                    data-pencil-name="Product Name"
+                    class="text-[15.5px]/[21px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                  >
+                    Leather Card Holder
+                  </div>
+                </div>
+                <div
+                  data-pencil-name="Product Row"
+                  class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+                >
+                  <div
+                    data-pencil-name="Product Price"
+                    class="text-[18px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                  >
+                    $59.00
+                  </div>
+                  <div
+                    data-pencil-name="Add Button"
+                    class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-[7px] p-[0px_16px] justify-start items-center bg-[#2D3748] rounded-[8px]"
+                  >
+                    <svg
+                      data-pencil-name="Add Icon"
+                      data-icon-name="plus"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                        fill="#FFFFFF"
+                      ></path>
+                    </svg>
+                    <div
+                      data-pencil-name="Add Label"
+                      class="text-[14px]/[normal] box-border text-[#FFFFFF] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                    >
+                      Add
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div
+                data-pencil-name="Card Steel Bottle 750ml"
+                class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start"
+              >
+                <div
+                  data-pencil-name="Product Image"
+                  class="box-border w-full h-[300px] shrink-0 bg-[url('https://images.unsplash.com/photo-1709133706825-8d2f0bdd7465?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzNTh8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px]"
+                ></div>
+                <div
+                  data-pencil-name="Product Info"
+                  class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start"
+                >
+                  <div
+                    data-pencil-name="Product Category"
+                    class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                  >
+                    ACCESSORIES
+                  </div>
+                  <div
+                    data-pencil-name="Product Name"
+                    class="text-[15.5px]/[21px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                  >
+                    Steel Bottle 750ml
+                  </div>
+                </div>
+                <div
+                  data-pencil-name="Product Row"
+                  class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+                >
+                  <div
+                    data-pencil-name="Product Price"
+                    class="text-[18px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                  >
+                    $34.00
+                  </div>
+                  <div
+                    data-pencil-name="Add Button"
+                    class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-[7px] p-[0px_16px] justify-start items-center bg-[#2D3748] rounded-[8px]"
+                  >
+                    <svg
+                      data-pencil-name="Add Icon"
+                      data-icon-name="plus"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                        fill="#FFFFFF"
+                      ></path>
+                    </svg>
+                    <div
+                      data-pencil-name="Add Label"
+                      class="text-[14px]/[normal] box-border text-[#FFFFFF] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                    >
+                      Add
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div
+        data-pencil-name="Scrim"
+        class="box-border w-[1440px] h-[1120px] absolute left-0 top-0 bg-[#12161FA6] [z-index:1]"
+      ></div>
+      <div
+        data-pencil-name="Cart Drawer — Payment"
+        class="box-border w-[520px] h-[1120px] [box-shadow:-10px_0px_44px_0px_#1A1A2E26] absolute left-[920px] top-0 flex flex-col gap-0 justify-start items-start bg-[#FFFFFF] overflow-hidden [z-index:2]"
+      >
+        <div
+          data-pencil-name="Drawer Header"
+          class="[box-sizing:content-box] w-[520px] h-[79.5px] shrink-0 flex flex-row gap-0 p-[22px_24px] justify-between items-center [border-width:0px_0px_1px_0px] [border-style:solid] [border-color:#E5E7EB] [margin:0px_0px_-0.5px_0px]"
+        >
+          <div
+            data-pencil-name="Header Titles"
+            class="box-border w-fit shrink-0 h-fit flex flex-row gap-[9px] justify-start items-center"
+          >
+            <div
+              data-pencil-name="Back Button"
+              class="box-border w-[32px] shrink-0 h-[32px] flex flex-row gap-0 justify-center items-center bg-[#FAFAFA] rounded-[8px]"
+            >
+              <svg
+                data-pencil-name="Back Icon"
+                data-icon-name="chevron-left"
+                data-icon-set="lucide"
+                viewBox="0 0 13.99993896484375 14"
+                preserveAspectRatio="xMidYMid meet"
+                xmlns="http://www.w3.org/2000/svg"
+                class="box-border w-[16px] shrink-0 h-[16px]"
+              >
+                <path
+                  d="M8.59619 2.93945q-0.08545 0.02734-0.19482 0.1128-0.14014 0.12646-0.53321 0.51611l-1.28857 1.2749q-1.81836 1.82178-1.86279 1.90723-0.04102 0.08203-0.04102 0.24951 0 0.16748 0.04785 0.25977 0.05127 0.08887 1.8628 1.9038 1.81494 1.81152 1.9038 1.8628 0.09229 0.04785 0.2461 0.04785 0.15381 0 0.23584-0.03418 0.08545-0.0376 0.18115-0.1333 0.09912-0.09912 0.1333-0.18115 0.0376-0.08545 0.0376-0.23926 0-0.15381-0.04443-0.23584-0.04102-0.08545-1.62012-1.66797l-1.58252-1.58252 1.58252-1.58252q1.5791-1.58252 1.62012-1.66455 0.04443-0.08545 0.04443-0.23926 0-0.15381-0.0376-0.23584-0.03418-0.08545-0.11621-0.18457-0.16748-0.15381-0.39307-0.16748-0.14014 0-0.18115 0.01367z"
+                  fill="#1A1A2E"
+                ></path>
+              </svg>
+            </div>
+            <div
+              data-pencil-name="Drawer Title"
+              class="text-[19px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.4px] text-left [white-space:nowrap]"
+            >
+              Payment
+            </div>
+            <div
+              data-pencil-name="Drawer Count"
+              class="text-[13.5px]/[normal] box-border text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left [white-space:nowrap]"
+            >
+              Step 2 of 2
+            </div>
+          </div>
+          <div
+            data-pencil-name="Close Button"
+            class="box-border w-[36px] shrink-0 h-[36px] flex flex-row gap-0 justify-center items-center bg-[#FAFAFA] rounded-[8px]"
+          >
+            <svg
+              data-pencil-name="Close Icon"
+              data-icon-name="x"
+              data-icon-set="lucide"
+              viewBox="0 0 13.99993896484375 14"
+              preserveAspectRatio="xMidYMid meet"
+              xmlns="http://www.w3.org/2000/svg"
+              class="box-border w-[17px] shrink-0 h-[17px]"
+            >
+              <path
+                d="M3.34619 2.93945q-0.25293 0.08545-0.37939 0.30762-0.04102 0.08545-0.04102 0.25293 0 0.16748 0.04102 0.25293 0.04443 0.08203 1.62353 1.66455l1.58252 1.58252-1.58252 1.58252q-1.5791 1.58252-1.62353 1.66797-0.04102 0.08203-0.04102 0.23584 0 0.15381 0.03418 0.23926 0.0376 0.08203 0.1333 0.18115 0.09912 0.0957 0.18115 0.1333 0.08545 0.03418 0.23926 0.03418 0.15381 0 0.23584-0.04102 0.08545-0.04443 1.66797-1.62353l1.58252-1.58252 1.58252 1.58252q1.58252 1.5791 1.66455 1.62353 0.08545 0.04102 0.23926 0.04102 0.15381 0 0.23584-0.03418 0.08545-0.0376 0.18115-0.1333 0.09912-0.09912 0.1333-0.18115 0.0376-0.08545 0.0376-0.23926 0-0.15381-0.04443-0.23584-0.04101-0.08545-1.62012-1.66797l-1.58252-1.58252 1.58252-1.58252q1.5791-1.58252 1.62012-1.66455 0.04443-0.08545 0.04443-0.25293 0-0.16748-0.04102-0.25293-0.09912-0.16748-0.28027-0.2666-0.05811-0.02734-0.09912-0.04102-0.04102-0.01367-0.15381-0.01367-0.11279 0-0.15381 0.01367-0.04101 0.01367-0.11279 0.04102-0.09912 0.05811-1.66455 1.62695l-1.56885 1.56543-2.82666-2.81299q-0.31104-0.29395-0.42041-0.37939-0.08545-0.05469-0.19824-0.05469l-0.02735 0q-0.14014 0-0.18115 0.01367z"
+                fill="#1A1A2E"
+              ></path>
+            </svg>
+          </div>
+        </div>
+        <div
+          data-pencil-name="Payment Body"
+          class="box-border w-full [flex:1_1_0] flex flex-col gap-[16px] p-[22px_24px] justify-start items-start"
+        >
+          <div
+            data-pencil-name="Deliver To"
+            class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] p-[14px] justify-start items-start bg-[#FAFAFA] [outline:1px_solid_#E5E7EB] [outline-offset:-0.5px] rounded-[10px]"
+          >
+            <div
+              data-pencil-name="Address Top"
+              class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+            >
+              <div
+                data-pencil-name="Address Label"
+                class="box-border w-fit shrink-0 h-fit flex flex-row gap-[7px] justify-start items-center"
+              >
+                <svg
+                  data-pencil-name="Pin Icon"
+                  data-icon-name="map-pin"
+                  data-icon-set="lucide"
+                  viewBox="0 0 13.99993896484375 14"
+                  preserveAspectRatio="xMidYMid meet"
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="box-border w-[15px] shrink-0 h-[15px]"
+                >
+                  <path
+                    d="M6.71973 0.60156q-0.81006 0.02734-1.56885 0.31446-0.75537 0.28711-1.41162 0.80664-0.19824 0.15381-0.48535 0.44775-0.28711 0.29395-0.44092 0.48877-0.42041 0.57422-0.67334 1.17578-0.24951 0.60156-0.34863 1.31592-0.04102 0.23926-0.03418 0.68017 0.00684 0.44092 0.03418 0.69385 0.14014 0.88184 0.56054 1.79102 0.50586 1.07666 1.44922 2.27637 0.94678 1.19629 2.19092 2.31738 0.22559 0.19482 0.32129 0.27343 0.09912 0.0752 0.19824 0.11622 0.22217 0.11279 0.48877 0.11279 0.2666 0 0.48877-0.11279 0.11279-0.04101 0.19482-0.10254 0.08545-0.06494 0.31104-0.25977 0.96387-0.86816 1.79101-1.83203 0.82715-0.96728 1.37403-1.86621 0.75537-1.27148 0.98437-2.42676 0.23242-1.15527-0.06152-2.29004-0.35205-1.35693-1.35693-2.36523-0.36572-0.37939-0.74512-0.64258-0.37598-0.2666-0.8374-0.46484-1.12109-0.51611-2.42334-0.44776z m0.88183 1.18946q0.67334 0.09912 1.28174 0.42041 0.6084 0.32129 1.0835 0.82714 0.68701 0.71436 0.95361 1.66114 0.2666 0.94336 0.08203 1.90722-0.34863 1.72266-2.26611 3.92041-0.32129 0.36572-1.00147 1.03907-0.68018 0.66992-0.73486 0.66992-0.05469 0-0.73486-0.66992-0.68018-0.67334-1.00147-1.03907-1.79102-2.05762-2.21142-3.70849-0.08545-0.32129-0.1128-0.69385-0.02734-0.37256 0-0.69385 0.07178-0.66992 0.34864-1.29199 0.28027-0.62549 0.75879-1.11426 0.51611-0.54688 1.20312-0.875 0.68701-0.33154 1.44238-0.38623 0.12646-0.01367 0.44776 0 0.32129 0.01367 0.46142 0.02735z m-0.85449 1.72265q-0.7417 0.08545-1.28857 0.57422-0.5708 0.50244-0.7417 1.26123-0.04102 0.15381-0.04102 0.42041 0 0.26318 0.02734 0.43408 0.11279 0.72803 0.63233 1.25782 0.44775 0.46143 1.06299 0.62548 0.61523 0.16064 1.22363-0.00683 0.6084-0.1709 1.05957-0.63233 0.50244-0.5332 0.62891-1.24414 0.01367-0.1709 0.01367-0.43408 0-0.2666-0.04102-0.40674-0.1709-0.77246-0.7417-1.2749-0.46484-0.40674-1.0664-0.5332-0.15381-0.02734-0.3794-0.04102-0.22217-0.01367-0.34863 0z m0.51953 1.18946q0.29395 0.05811 0.54688 0.30761 0.18115 0.18457 0.26318 0.37256 0.08545 0.18799 0.08545 0.44092 0 0.5332-0.39307 0.88183-0.32129 0.29395-0.76904 0.29395-0.44775 0-0.76904-0.29395-0.44775-0.40674-0.3794-1.0083 0.01367-0.2085 0.09571-0.36914 0.08545-0.16406 0.25293-0.33154 0.1709-0.16748 0.35205-0.24268 0.18115-0.07861 0.43408-0.07861 0.16748 0 0.28027 0.02735z"
+                    fill="#6B7280"
+                  ></path>
+                </svg>
+                <div
+                  data-pencil-name="Deliver To"
+                  class="text-[12.5px]/[normal] box-border text-[#6B7280] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                >
+                  Deliver to
+                </div>
+              </div>
+              <div
+                data-pencil-name="Change Link"
+                class="text-[12.5px]/[normal] box-border text-[#2D3748] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+              >
+                Change
+              </div>
+            </div>
+            <div
+              data-pencil-name="Address Text"
+              class="text-[13px]/[20px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-normal text-left"
+            >
+              Jose Martinez · Av. Rómulo Betancourt 1204, Apto 5B, Santo Domingo 10604, DO
+            </div>
+          </div>
+          <div
+            data-pencil-name="Payment Section"
+            class="box-border w-full h-fit shrink-0 flex flex-col gap-[12px] justify-start items-start"
+          >
+            <div
+              data-pencil-name="Section Top"
+              class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+            >
+              <div
+                data-pencil-name="Section Label"
+                class="text-[11.5px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.4px] text-left [white-space:nowrap]"
+              >
+                PAYMENT
+              </div>
+              <div
+                data-pencil-name="Secure Badge"
+                class="box-border w-fit shrink-0 h-fit flex flex-row gap-[5px] justify-start items-center"
+              >
+                <svg
+                  data-pencil-name="Lock Icon"
+                  data-icon-name="lock"
+                  data-icon-set="lucide"
+                  viewBox="0 0 13.99993896484375 14"
+                  preserveAspectRatio="xMidYMid meet"
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="box-border w-[12px] shrink-0 h-[12px]"
+                >
+                  <path
+                    d="M6.77441 0.60156q-0.72803 0.02734-1.38769 0.3794-0.65625 0.34863-1.12451 0.92285-0.46826 0.57422-0.64942 1.28857l0 0.01367q-0.07178 0.29395-0.08545 0.48536-0.01367 0.18799-0.02734 1.02539l0 1.10742-0.2666 0q-0.40674 0-0.63916 0.04443-0.229 0.04102-0.45117 0.15039-0.32471 0.16748-0.56397 0.44776-0.23584 0.28027-0.34863 0.64599l-0.05469 0.15381 0 4.7168 0.05469 0.15381q0.15723 0.51953 0.56055 0.86132 0.40674 0.3418 0.93994 0.39991 0.14014 0.02734 4.26904 0.02734 4.12891 0 4.26904-0.02734 0.30762-0.02734 0.58789-0.16748 0.32471-0.15381 0.56055-0.44092 0.23926-0.28711 0.35205-0.65283l0.05469-0.15381 0-4.7168-0.05469-0.15381q-0.11279-0.36572-0.35205-0.64599-0.23584-0.28027-0.56055-0.44776-0.22217-0.10938-0.45459-0.15039-0.229-0.04443-0.63574-0.04443l-0.2666 0 0-1.13477q-0.01367-0.81006-0.02734-0.99804-0.01367-0.19141-0.08545-0.47168l0-0.02735q-0.18115-0.71436-0.66651-1.30224-0.48193-0.58789-1.15185-0.93653-0.82715-0.40674-1.79444-0.35205z m0.70069 1.20313q0.75537 0.15381 1.2749 0.7417 0.3623 0.40674 0.50244 0.92627 0.05811 0.19482 0.06494 0.41357 0.00684 0.21533 0.00684 0.9707l0 0.96729-4.64844 0 0-1.06299q0-0.82715 0.01367-1.0083 0.01367-0.18457 0.09912-0.40674 0.22217-0.64258 0.74854-1.06982 0.52637-0.42725 1.19629-0.5127 0.14014-0.01367 0.3623 0 0.22559 0.01367 0.3794 0.04102z m3.85205 5.25q0.08203 0.04443 0.15723 0.12304 0.07861 0.0752 0.11279 0.15381 0.0376 0.0752 0.0581 0.19483 0.02051 0.11621 0.00684 2.19092l0 1.6372q0 0.3623-0.02734 0.48877-0.01367 0.08545-0.07178 0.14014l-0.01367 0.02734q-0.11279 0.12646-0.26661 0.19824l-0.0957 0.04102-8.37402 0-0.0957-0.04102q-0.15381-0.0581-0.26661-0.19824l-0.01367-0.02734q-0.05811-0.06836-0.07178-0.14014-0.02734-0.12646-0.02734-0.48877l0-1.65088q-0.01367-2.08838 0.01367-2.20117 0.01367-0.18115 0.1333-0.31445 0.11963-0.1333 0.28711-0.17432 0.06836-0.01367 4.25537-0.01367l4.20069 0.01367 0.09912 0.04102z"
+                    fill="#9CA3AF"
+                  ></path>
+                </svg>
+                <div
+                  data-pencil-name="Secure Text"
+                  class="text-[12px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-normal text-left [white-space:nowrap]"
+                >
+                  Encrypted
+                </div>
+              </div>
+            </div>
+            <div
+              data-pencil-name="Stripe Payment Element"
+              class="box-border w-full h-fit shrink-0 flex flex-col gap-[13px] justify-start items-start"
+            >
+              <div
+                data-pencil-name="Method Tabs"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-[7px] justify-start items-start"
+              >
+                <div
+                  data-pencil-name="Tab Card"
+                  class="box-border [flex:1_1_0] h-[58px] flex flex-col gap-[6px] justify-center items-center bg-[#F7941D14] [outline:1.5px_solid_#F7941D] [outline-offset:-0.75px] rounded-[6px]"
+                >
+                  <svg
+                    data-pencil-name="Tab Icon"
+                    data-icon-name="credit-card"
+                    data-icon-set="lucide"
+                    viewBox="0 0 13.99993896484375 14"
+                    preserveAspectRatio="xMidYMid meet"
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="box-border w-[18px] h-[18px] shrink-0"
+                  >
+                    <path
+                      d="M2.15674 2.35156q-0.29395 0.02734-0.58789 0.16748-0.29395 0.14014-0.50586 0.3794-0.30762 0.32129-0.43408 0.79638l-0.04102 0.1709 0 6.29932 0.04102 0.16748q0.07178 0.25293 0.18115 0.44092 0.11279 0.18799 0.29394 0.37256 0.18457 0.18115 0.37256 0.29394 0.18799 0.10938 0.44092 0.18115l0.16748 0.04102 9.83008 0 0.16748-0.04102q0.25293-0.07178 0.44092-0.18115 0.18799-0.11279 0.36914-0.29394 0.18457-0.18457 0.29394-0.37256 0.11279-0.18799 0.18457-0.44092l0.04102-0.16748 0-6.33008-0.04102-0.16748q-0.12646-0.46143-0.43408-0.76904-0.44775-0.48877-1.13476-0.56055-0.16748-0.01367-4.81592-0.01367-4.64844 0-4.82959 0.02734z m9.74463 1.20313q0.19482 0.09912 0.29394 0.29394l0.04102 0.09912 0.01367 1.30225-10.5 0 0.01367-1.30225 0.04102-0.09912q0.11279-0.24951 0.37939-0.32129 0.08545-0.02734 4.85694-0.02734l4.76123 0.01367 0.09912 0.04102z m0.34863 4.67578l-0.01367 1.82178-0.02735 0.08545q-0.12646 0.26318-0.37939 0.33496-0.08203 0.02734-4.82959 0.02734-4.74756 0-4.82959-0.02734-0.25293-0.07178-0.37939-0.33496l-0.02735-0.08545-0.01367-3.62647 10.5 0 0 1.80469z"
+                      fill="#C2710E"
+                    ></path>
+                  </svg>
+                  <div
+                    data-pencil-name="Tab Label"
+                    class="text-[12px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                  >
+                    Card
+                  </div>
+                </div>
+                <div
+                  data-pencil-name="Tab Apple Pay"
+                  class="box-border [flex:1_1_0] h-[58px] flex flex-col gap-[6px] justify-center items-center bg-[#FFFFFF] [outline:1px_solid_#E5E7EB] [outline-offset:-0.5px] rounded-[6px]"
+                >
+                  <svg
+                    data-pencil-name="Tab Icon"
+                    data-icon-name="apple"
+                    data-icon-set="lucide"
+                    viewBox="0 0 13.99993896484375 14"
+                    preserveAspectRatio="xMidYMid meet"
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="box-border w-[18px] h-[18px] shrink-0"
+                  >
+                    <path
+                      d="M7.44775 0.60156q-0.39307 0.02734-0.70068 0.33496-0.14014 0.15381-0.2085 0.28028-0.08545 0.1709-0.09912 0.31103-0.01367 0.13672-0.01367 0.61524 0 0.57422-0.01367 0.57422-0.01367 0-0.2085-0.08545-0.71436-0.29395-1.52099-0.29395-0.80322 0-1.50391 0.28027-0.16748 0.06836-0.3999 0.18799-0.23242 0.11963-0.36914 0.20508-0.68701 0.46143-1.15869 1.17578-0.46826 0.71436-0.6084 1.53809-0.06836 0.40674-0.05469 0.99463 0.01367 0.58789 0.11279 1.18945 0.28027 1.75 1.17578 3.2915 0.18115 0.29394 0.44776 0.66651 0.2666 0.36914 0.51611 0.66308 0.19824 0.23926 0.37256 0.3794 0.17432 0.13672 0.41357 0.26318 0.48877 0.23926 1.04932 0.23926 0.30762 0 0.53662-0.05469 0.23242-0.05811 0.61182-0.23926 0.32129-0.15381 0.58105-0.21533 0.25977-0.06494 0.59473-0.06494 0.33496 0 0.59473 0.06494 0.25977 0.06152 0.58105 0.21533 0.36572 0.16748 0.60156 0.23243 0.23926 0.06152 0.54688 0.06152 0.86816 0 1.53808-0.56055 0.22559-0.19482 0.60499-0.68701 1.46973-1.90381 1.8457-4.29639 0.08545-0.56055 0.09912-1.15527 0.01367-0.59473-0.05469-0.98779-0.14014-0.85449-0.63232-1.58252-0.48877-0.72803-1.2168-1.17578-0.25293-0.16748-0.58105-0.30762-0.32813-0.14014-0.6084-0.2085-0.58789-0.15381-1.26123-0.10595-0.67334 0.04785-1.26123 0.28711-0.19482 0.08545-0.2085 0.08545-0.01367 0-0.01367-0.47852l0-0.48877 0.08545 0q0.12305-0.01367 0.25635-0.10254 0.1333-0.09229 0.1914-0.20508 0.02734-0.07178 0.04102-0.18115 0.04102-0.18457-0.05127-0.36572-0.08887-0.18115-0.25635-0.24951-0.16748-0.07178-0.39307-0.04444z m-2.43701 2.92578q0.43408 0.05811 0.80322 0.21192 0.37256 0.15381 0.72461 0.44775 0.15381 0.12646 0.23584 0.16065 0.08545 0.03418 0.22559 0.03418 0.14014 0 0.22217-0.03418 0.08545-0.03418 0.23926-0.16065 0.51953-0.42041 1.12793-0.58789 0.6084-0.16748 1.2373-0.0581 0.58789 0.09912 1.09033 0.42724 0.50586 0.32813 0.83057 0.82031 0.27685 0.43408 0.39648 0.875 0.11963 0.44092 0.10596 1.01514-0.04102 0.89551-0.23242 1.69531-0.18799 0.79639-0.56397 1.60645-0.25293 0.51953-0.65966 1.11426-0.40674 0.59473-0.70069 0.875-0.19482 0.16748-0.48193 0.23925-0.28711 0.06836-0.55371 0.01368-0.12646-0.04101-0.42041-0.17432-0.29395-0.1333-0.54004-0.2085-0.24268-0.07861-0.5503-0.13671-0.15381-0.02734-0.54687-0.02735-0.39307 0-0.54688 0.02735-0.30762 0.0581-0.55371 0.13671-0.24268 0.0752-0.53662 0.2085-0.29395 0.1333-0.42041 0.17432-0.2666 0.05469-0.55371-0.01368-0.28711-0.07178-0.48535-0.25293-0.19482-0.18115-0.4751-0.55029-0.27686-0.37256-0.51611-0.76562-0.12646-0.2085-0.30078-0.56397-0.17432-0.35889-0.28711-0.62549-0.2666-0.68701-0.40674-1.35693-0.14014-0.67334-0.16748-1.44238-0.01367-0.46484 0.05469-0.82032 0.07178-0.35547 0.25293-0.69384 0.42041-0.85449 1.2373-1.28858 0.82031-0.43408 1.71582-0.32129z"
+                      fill="#6B7280"
+                    ></path>
+                  </svg>
+                  <div
+                    data-pencil-name="Tab Label"
+                    class="text-[12px]/[normal] box-border text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left [white-space:nowrap]"
+                  >
+                    Apple Pay
+                  </div>
+                </div>
+                <div
+                  data-pencil-name="Tab Link"
+                  class="box-border [flex:1_1_0] h-[58px] flex flex-col gap-[6px] justify-center items-center bg-[#FFFFFF] [outline:1px_solid_#E5E7EB] [outline-offset:-0.5px] rounded-[6px]"
+                >
+                  <svg
+                    data-pencil-name="Tab Icon"
+                    data-icon-name="link"
+                    data-icon-set="lucide"
+                    viewBox="0 0 13.99993896484375 14"
+                    preserveAspectRatio="xMidYMid meet"
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="box-border w-[18px] h-[18px] shrink-0"
+                  >
+                    <path
+                      d="M9.36523 0.67334q-0.52979 0.06836-0.99462 0.29395-0.33496 0.16748-0.62891 0.38964-0.16748 0.12646-0.76904 0.72803-0.60156 0.60156-0.63233 0.67334-0.0957 0.18115-0.06152 0.36572 0.03418 0.18115 0.16748 0.31446 0.1333 0.12988 0.32812 0.16064 0.19824 0.02734 0.36573-0.07178 0.05469-0.02734 0.64257-0.60839 0.58789-0.58105 0.72803-0.68018 0.54688-0.37598 1.17578-0.43408 0.68701-0.05469 1.27491 0.25293 0.58789 0.30762 0.93994 0.90918 0.28027 0.47852 0.30761 1.05273 0.02734 0.5708-0.21191 1.09033-0.0957 0.18115-0.16748 0.29395-0.09912 0.14014-0.33496 0.39306-0.18115 0.18115-0.78613 0.78272-1.00488 1.02197-1.13135 1.10742-0.35205 0.28027-0.79981 0.3999-0.44775 0.11621-0.86816 0.06153-0.93652-0.11279-1.53809-0.84082-0.12646-0.14014-0.20507-0.19483-0.0752-0.05811-0.17432-0.08545-0.22217-0.06836-0.43408 0.04444-0.2085 0.10938-0.28028 0.33496-0.04102 0.16748-0.00683 0.30762 0.03418 0.14014 0.16064 0.30761 0.646 0.81348 1.62354 1.13477 0.98096 0.32129 1.97558 0.06836 0.72803-0.19482 1.34326-0.66992 0.12646-0.09912 1.12793-1.10059 1.00146-1.00146 1.09717-1.12793 0.58789-0.72803 0.7417-1.67822 0.04443-0.18115 0.04444-0.52295 0-0.34521-0.04444-0.52637-0.19482-1.17578-1.00488-1.96191-0.40674-0.40674-0.9126-0.65625-0.50244-0.25293-1.07666-0.32129-0.21191-0.03076-0.50586-0.03076-0.29395 0-0.4751 0.04443z m-4.01611 4.02979q-0.92627 0.12646-1.68164 0.70068-0.12646 0.11279-1.10742 1.08691-0.97754 0.9707-1.13135 1.13819-0.50586 0.61865-0.70068 1.37402-0.05469 0.24951-0.07862 0.42725-0.02051 0.17432-0.0205 0.45459 0 0.28027 0.01367 0.44775 0.01709 0.16748 0.08545 0.42041 0.18115 0.72803 0.67676 1.32959 0.49902 0.60156 1.17236 0.93652 0.72803 0.35205 1.52441 0.35205 0.84082 0 1.56885-0.36572 0.33496-0.16748 0.56396-0.34863 0.23242-0.18115 0.7793-0.7417 0.43408-0.43408 0.54004-0.54004 0.10596-0.10596 0.1333-0.17432 0.06836-0.22559-0.01025-0.43408-0.0752-0.21191-0.28369-0.30762-0.09912-0.0581-0.23926-0.0581l-0.01367 0q-0.14014 0-0.21192 0.03076-0.06836 0.02734-0.20849 0.15381-0.09912 0.0957-0.44776 0.44775l-0.02734 0.02735q-0.60156 0.58789-0.72803 0.68701-0.35205 0.24951-0.77246 0.36914-0.41699 0.11963-0.82373 0.07861-0.58789-0.0581-1.05957-0.35205-0.46826-0.29395-0.75537-0.78271-0.28711-0.49219-0.31445-1.06983-0.02734-0.58105 0.21191-1.10058 0.0957-0.18115 0.16748-0.29395 0.09912-0.14014 0.33496-0.39306 0.18115-0.18115 0.76904-0.78272 1.0083-1.0083 1.13477-1.10742 0.5332-0.40332 1.23389-0.4751 0.56055-0.04102 1.09033 0.18457 0.5332 0.22217 0.90918 0.68359 0.11279 0.12646 0.18799 0.18458 0.07861 0.05469 0.17773 0.08203 0.15381 0.04102 0.30762 0 0.15381-0.04102 0.27344-0.16065 0.11963-0.11963 0.14697-0.29394 0.02734-0.17773-0.04102-0.33155-0.03076-0.08203-0.16406-0.24267-0.12988-0.16064-0.27002-0.30078-0.40674-0.39307-0.92627-0.63575-0.51611-0.24609-1.09033-0.31787-0.14014-0.01367-0.44776-0.01367-0.30762 0-0.44775 0.02734z"
+                      fill="#6B7280"
+                    ></path>
+                  </svg>
+                  <div
+                    data-pencil-name="Tab Label"
+                    class="text-[12px]/[normal] box-border text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left [white-space:nowrap]"
+                  >
+                    Link
+                  </div>
+                </div>
+              </div>
+              <div
+                data-pencil-name="SField Card number"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start"
+              >
+                <div
+                  data-pencil-name="SField Label"
+                  class="text-[12.5px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-medium text-left [white-space:nowrap]"
+                >
+                  Card number
+                </div>
+                <div
+                  data-pencil-name="SField Box"
+                  class="box-border w-full h-[46px] shrink-0 flex flex-row gap-[9px] p-[0px_12px] justify-start items-center bg-[#FFFFFF] [outline:1px_solid_#E5E7EB] [outline-offset:-0.5px] rounded-[6px]"
+                >
+                  <svg
+                    data-pencil-name="Lead Icon"
+                    data-icon-name="credit-card"
+                    data-icon-set="lucide"
+                    viewBox="0 0 13.99993896484375 14"
+                    preserveAspectRatio="xMidYMid meet"
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="box-border w-[16px] shrink-0 h-[16px]"
+                  >
+                    <path
+                      d="M2.15674 2.35156q-0.29395 0.02734-0.58789 0.16748-0.29395 0.14014-0.50586 0.3794-0.30762 0.32129-0.43408 0.79638l-0.04102 0.1709 0 6.29932 0.04102 0.16748q0.07178 0.25293 0.18115 0.44092 0.11279 0.18799 0.29394 0.37256 0.18457 0.18115 0.37256 0.29394 0.18799 0.10938 0.44092 0.18115l0.16748 0.04102 9.83008 0 0.16748-0.04102q0.25293-0.07178 0.44092-0.18115 0.18799-0.11279 0.36914-0.29394 0.18457-0.18457 0.29394-0.37256 0.11279-0.18799 0.18457-0.44092l0.04102-0.16748 0-6.33008-0.04102-0.16748q-0.12646-0.46143-0.43408-0.76904-0.44775-0.48877-1.13476-0.56055-0.16748-0.01367-4.81592-0.01367-4.64844 0-4.82959 0.02734z m9.74463 1.20313q0.19482 0.09912 0.29394 0.29394l0.04102 0.09912 0.01367 1.30225-10.5 0 0.01367-1.30225 0.04102-0.09912q0.11279-0.24951 0.37939-0.32129 0.08545-0.02734 4.85694-0.02734l4.76123 0.01367 0.09912 0.04102z m0.34863 4.67578l-0.01367 1.82178-0.02735 0.08545q-0.12646 0.26318-0.37939 0.33496-0.08203 0.02734-4.82959 0.02734-4.74756 0-4.82959-0.02734-0.25293-0.07178-0.37939-0.33496l-0.02735-0.08545-0.01367-3.62647 10.5 0 0 1.80469z"
+                      fill="#9CA3AF"
+                    ></path>
+                  </svg>
+                  <div
+                    data-pencil-name="SField Value"
+                    class="text-[14px]/[normal] box-border [flex:1_1_0] text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-normal text-left"
+                  >
+                    1234 1234 1234 1234
+                  </div>
+                </div>
+              </div>
+              <div
+                data-pencil-name="Row Expiry CVC"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-[10px] justify-start items-start"
+              >
+                <div
+                  data-pencil-name="SField Expiration date"
+                  class="box-border [flex:1_1_0] h-fit flex flex-col gap-[6px] justify-start items-start"
+                >
+                  <div
+                    data-pencil-name="SField Label"
+                    class="text-[12.5px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-medium text-left [white-space:nowrap]"
+                  >
+                    Expiration date
+                  </div>
+                  <div
+                    data-pencil-name="SField Box"
+                    class="box-border w-full h-[46px] shrink-0 flex flex-row gap-[9px] p-[0px_12px] justify-start items-center bg-[#FFFFFF] [outline:1px_solid_#E5E7EB] [outline-offset:-0.5px] rounded-[6px]"
+                  >
+                    <div
+                      data-pencil-name="SField Value"
+                      class="text-[14px]/[normal] box-border [flex:1_1_0] text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-normal text-left"
+                    >
+                      MM / YY
+                    </div>
+                  </div>
+                </div>
+                <div
+                  data-pencil-name="SField Security code"
+                  class="box-border [flex:1_1_0] h-fit flex flex-col gap-[6px] justify-start items-start"
+                >
+                  <div
+                    data-pencil-name="SField Label"
+                    class="text-[12.5px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-medium text-left [white-space:nowrap]"
+                  >
+                    Security code
+                  </div>
+                  <div
+                    data-pencil-name="SField Box"
+                    class="box-border w-full h-[46px] shrink-0 flex flex-row gap-[9px] p-[0px_12px] justify-start items-center bg-[#FFFFFF] [outline:1px_solid_#E5E7EB] [outline-offset:-0.5px] rounded-[6px]"
+                  >
+                    <div
+                      data-pencil-name="SField Value"
+                      class="text-[14px]/[normal] box-border [flex:1_1_0] text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-normal text-left"
+                    >
+                      CVC
+                    </div>
+                    <svg
+                      data-pencil-name="Trail Icon"
+                      data-icon-name="info"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[15px] shrink-0 h-[15px]"
+                    >
+                      <path
+                        d="M6.69238 0.60156q-1.16211 0.04102-2.22851 0.50586-1.06299 0.46143-1.90381 1.26807-0.8374 0.80322-1.34326 1.85254-0.48877 1.0083-0.60157 2.15674-0.02734 0.19482-0.02734 0.61523 0 0.42041 0.02734 0.61523 0.11279 1.14844 0.60157 2.15674 0.65967 1.40137 1.89697 2.33789 1.24072 0.93652 2.75146 1.20313 0.5332 0.09912 1.13477 0.09912 0.75537 0 1.43213-0.15381 0.68018-0.15381 1.35351-0.4751 1.26123-0.61865 2.16358-1.70215 0.90234-1.0835 1.25439-2.44384 0.29395-1.11768 0.18116-2.25244-0.11279-1.13477-0.60157-2.17041-0.58789-1.20313-1.62011-2.08497-1.02881-0.88184-2.31397-1.2749-1.0083-0.30762-2.15674-0.25293z m0.96729 1.18946q1.07666 0.14014 1.99267 0.68017 0.91602 0.54004 1.56201 1.4082 0.82715 1.104 1.00831 2.54639 0.01367 0.16748 0.01367 0.57422 0 0.40674-0.01367 0.57422-0.14014 1.16211-0.7212 2.12939-0.58105 0.96387-1.53466 1.62354-0.4751 0.33496-1.04932 0.56055-0.57422 0.22217-1.18945 0.30761-0.25293 0.04102-0.72803 0.04102-0.4751 0-0.72803-0.04102-1.07666-0.15381-1.95849-0.68701-0.88184-0.5332-1.52784-1.3877-0.82715-1.104-1.0083-2.54638-0.01367-0.16748-0.01367-0.57422 0-0.40674 0.01367-0.57422 0.14014-1.12109 0.66993-2.05078 0.5332-0.92969 1.43212-1.58936 0.54346-0.40674 1.20655-0.66992 0.6665-0.2666 1.32617-0.3247l0.25293-0.02735q0.0957-0.01367 0.4751 0 0.37939 0.01367 0.51953 0.02735z m-0.75879 2.31054q-0.18115 0.02734-0.32129 0.16748-0.2085 0.21191-0.15381 0.50586 0.05469 0.29395 0.32129 0.42041 0.09912 0.04102 0.25293 0.04102 0.25293 0 0.42041-0.16748 0.12646-0.12646 0.15381-0.30762 0.05469-0.29395-0.15723-0.50244-0.2085-0.21191-0.51611-0.15723z m-0.05469 2.33789q-0.25293 0.08545-0.37939 0.30762l-0.04102 0.08545 0 2.46436q0 0.18115 0.03418 0.2666 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.2666l0-2.46436-0.04102-0.08545q-0.09912-0.18115-0.28027-0.2666-0.08545-0.04102-0.22559-0.04785-0.14014-0.00684-0.18115 0.00683z"
+                        fill="#9CA3AF"
+                      ></path>
+                    </svg>
+                  </div>
+                </div>
+              </div>
+              <div
+                data-pencil-name="Row Country ZIP"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-[10px] justify-start items-start"
+              >
+                <div
+                  data-pencil-name="SField Country"
+                  class="box-border [flex:1_1_0] h-fit flex flex-col gap-[6px] justify-start items-start"
+                >
+                  <div
+                    data-pencil-name="SField Label"
+                    class="text-[12.5px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-medium text-left [white-space:nowrap]"
+                  >
+                    Country
+                  </div>
+                  <div
+                    data-pencil-name="SField Box"
+                    class="box-border w-full h-[46px] shrink-0 flex flex-row gap-[9px] p-[0px_12px] justify-start items-center bg-[#FFFFFF] [outline:1px_solid_#E5E7EB] [outline-offset:-0.5px] rounded-[6px]"
+                  >
+                    <div
+                      data-pencil-name="SField Value"
+                      class="text-[14px]/[normal] box-border [flex:1_1_0] text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-normal text-left"
+                    >
+                      Dominican Rep.
+                    </div>
+                    <svg
+                      data-pencil-name="Trail Icon"
+                      data-icon-name="chevron-down"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[15px] shrink-0 h-[15px]"
+                    >
+                      <path
+                        d="M3.34619 4.68945q-0.25293 0.08545-0.37939 0.30762-0.04102 0.08545-0.04102 0.25293 0 0.16748 0.04785 0.25977 0.05127 0.08887 1.8628 1.9038 1.81494 1.81152 1.9038 1.8628 0.09229 0.04785 0.25977 0.04785 0.16748 0 0.25635-0.04785 0.09229-0.05127 1.90381-1.8628 1.81494-1.81494 1.86279-1.9038 0.05127-0.09229 0.05127-0.25977 0-0.16748-0.04102-0.25293-0.09912-0.16748-0.28027-0.2666-0.05811-0.02734-0.09912-0.04102-0.04102-0.01367-0.15381-0.01367-0.11279 0-0.15381 0.01367-0.04101 0.01367-0.11279 0.04102-0.09912 0.05811-1.66455 1.62695l-1.56885 1.56543-2.82666-2.81299q-0.31104-0.29395-0.42041-0.37939-0.08545-0.05469-0.19824-0.05469l-0.02735 0q-0.14014 0-0.18115 0.01367z"
+                        fill="#9CA3AF"
+                      ></path>
+                    </svg>
+                  </div>
+                </div>
+                <div
+                  data-pencil-name="SField ZIP"
+                  class="box-border [flex:1_1_0] h-fit flex flex-col gap-[6px] justify-start items-start"
+                >
+                  <div
+                    data-pencil-name="SField Label"
+                    class="text-[12.5px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-medium text-left [white-space:nowrap]"
+                  >
+                    ZIP
+                  </div>
+                  <div
+                    data-pencil-name="SField Box"
+                    class="box-border w-full h-[46px] shrink-0 flex flex-row gap-[9px] p-[0px_12px] justify-start items-center bg-[#FFFFFF] [outline:1px_solid_#E5E7EB] [outline-offset:-0.5px] rounded-[6px]"
+                  >
+                    <div
+                      data-pencil-name="SField Value"
+                      class="text-[14px]/[normal] box-border [flex:1_1_0] text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-normal text-left"
+                    >
+                      10604
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div
+                data-pencil-name="Save Info Row"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-[9px] p-[2px_0px_0px_0px] justify-start items-start"
+              >
+                <div
+                  data-pencil-name="Checkbox"
+                  class="box-border w-[18px] shrink-0 h-[18px] flex flex-row gap-0 justify-center items-center bg-[#F7941D] rounded-[4px]"
+                >
+                  <svg
+                    data-pencil-name="Check"
+                    data-icon-name="check"
+                    data-icon-set="lucide"
+                    viewBox="0 0 13.99993896484375 14"
+                    preserveAspectRatio="xMidYMid meet"
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="box-border w-[12px] shrink-0 h-[12px]"
+                  >
+                    <path
+                      d="M11.48096 2.95313q-0.07178 0.01367-0.12989 0.0581-0.05469 0.04102-3.07617 3.06592l-3.0249 3.00781-1.28857-1.28857q-1.28857-1.28516-1.38086-1.32618-0.08887-0.04443-0.22217-0.04443-0.1333 0-0.23242 0.0376-0.0957 0.03418-0.18799 0.11279-0.08887 0.0752-0.1333 0.1709-0.02734 0.07178-0.03418 0.11279-0.00684 0.04102-0.00684 0.14014l0 0.04102q-0.01367 0.11279 0.04102 0.19824 0.07178 0.10938 0.36572 0.40332 0.19482 0.21191 0.96729 0.98096l1.49707 1.48339q0.28027 0.2666 0.38964 0.33838 0.07178 0.05469 0.18457 0.04102l0.09571 0.01367q0.07178 0 0.14013-0.02734 0.08545-0.07178 0.32129-0.28711 0.23926-0.21875 0.79981-0.76221l2.2832-2.2832q2.08496-2.09863 2.7002-2.71387 0.61524-0.61865 0.64599-0.68701 0.04102-0.08545 0.04102-0.23926 0-0.09912-0.00684-0.14014-0.00684-0.04102-0.03418-0.11279-0.04443-0.08203-0.13672-0.16406-0.08887-0.08545-0.18115-0.11963-0.08887-0.0376-0.20849-0.0376-0.11963 0-0.18799 0.02734z"
+                      fill="#FFFFFF"
+                    ></path>
+                  </svg>
+                </div>
+                <div
+                  data-pencil-name="Save Text"
+                  class="box-border [flex:1_1_0] h-fit flex flex-col gap-[2px] justify-start items-start"
+                >
+                  <div
+                    data-pencil-name="Save Title"
+                    class="text-[13px]/[normal] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-medium text-left"
+                  >
+                    Save my payment info for faster checkout
+                  </div>
+                  <div
+                    data-pencil-name="Save Sub"
+                    class="text-[12px]/[18px] box-border w-full text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left"
+                  >
+                    Stored securely by Stripe — never on 3MRAI servers.
+                  </div>
+                </div>
+              </div>
+              <div
+                data-pencil-name="Element Divider"
+                class="box-border w-full h-[1px] shrink-0 bg-[#E5E7EB]"
+              ></div>
+              <div
+                data-pencil-name="Stripe Badge"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-[5px] justify-center items-center"
+              >
+                <div
+                  data-pencil-name="Powered By"
+                  class="text-[11.5px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-normal text-left [white-space:nowrap]"
+                >
+                  Powered by
+                </div>
+                <div
+                  data-pencil-name="Stripe Wordmark"
+                  class="text-[12.5px]/[normal] box-border text-[#6B7280] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  Stripe
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div
+          data-pencil-name="Drawer Footer"
+          class="[box-sizing:content-box] w-[520px] h-[226.5px] shrink-0 flex flex-col gap-[18px] p-[22px_24px] justify-start items-start bg-[#FFFFFF] [border-width:1px_0px_0px_0px] [border-style:solid] [border-color:#E5E7EB] [margin:-0.5px_0px_0px_0px]"
+        >
+          <div
+            data-pencil-name="Summary"
+            class="box-border w-full h-fit shrink-0 flex flex-col gap-[9px] justify-start items-start"
+          >
+            <div
+              data-pencil-name="Sum Subtotal"
+              class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+            >
+              <div
+                data-pencil-name="Sum Label"
+                class="text-[14px]/[normal] box-border text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left [white-space:nowrap]"
+              >
+                Subtotal
+              </div>
+              <div
+                data-pencil-name="Sum Value"
+                class="text-[14px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+              >
+                $256.00
+              </div>
+            </div>
+            <div
+              data-pencil-name="Sum Shipping"
+              class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+            >
+              <div
+                data-pencil-name="Sum Label"
+                class="text-[14px]/[normal] box-border text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left [white-space:nowrap]"
+              >
+                Shipping
+              </div>
+              <div
+                data-pencil-name="Sum Value"
+                class="text-[14px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+              >
+                Free
+              </div>
+            </div>
+            <div
+              data-pencil-name="Sum Total"
+              class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+            >
+              <div
+                data-pencil-name="Sum Label"
+                class="text-[15.5px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold text-left [white-space:nowrap]"
+              >
+                Total
+              </div>
+              <div
+                data-pencil-name="Sum Value"
+                class="text-[18px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+              >
+                $256.00
+              </div>
+            </div>
+          </div>
+          <div
+            data-pencil-name="Place Order Button"
+            class="box-border w-full h-[58px] shrink-0 flex flex-row gap-[10px] justify-center items-center bg-[#F7941D] rounded-[10px]"
+          >
+            <div
+              data-pencil-name="Button Label"
+              class="text-[16px]/[normal] box-border text-[#FFFFFF] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+            >
+              Pay $256.00
+            </div>
+            <svg
+              data-pencil-name="Button Icon"
+              data-icon-name="lock"
+              data-icon-set="lucide"
+              viewBox="0 0 13.99993896484375 14"
+              preserveAspectRatio="xMidYMid meet"
+              xmlns="http://www.w3.org/2000/svg"
+              class="box-border w-[19px] shrink-0 h-[19px]"
+            >
+              <path
+                d="M6.77441 0.60156q-0.72803 0.02734-1.38769 0.3794-0.65625 0.34863-1.12451 0.92285-0.46826 0.57422-0.64942 1.28857l0 0.01367q-0.07178 0.29395-0.08545 0.48536-0.01367 0.18799-0.02734 1.02539l0 1.10742-0.2666 0q-0.40674 0-0.63916 0.04443-0.229 0.04102-0.45117 0.15039-0.32471 0.16748-0.56397 0.44776-0.23584 0.28027-0.34863 0.64599l-0.05469 0.15381 0 4.7168 0.05469 0.15381q0.15723 0.51953 0.56055 0.86132 0.40674 0.3418 0.93994 0.39991 0.14014 0.02734 4.26904 0.02734 4.12891 0 4.26904-0.02734 0.30762-0.02734 0.58789-0.16748 0.32471-0.15381 0.56055-0.44092 0.23926-0.28711 0.35205-0.65283l0.05469-0.15381 0-4.7168-0.05469-0.15381q-0.11279-0.36572-0.35205-0.64599-0.23584-0.28027-0.56055-0.44776-0.22217-0.10938-0.45459-0.15039-0.229-0.04443-0.63574-0.04443l-0.2666 0 0-1.13477q-0.01367-0.81006-0.02734-0.99804-0.01367-0.19141-0.08545-0.47168l0-0.02735q-0.18115-0.71436-0.66651-1.30224-0.48193-0.58789-1.15185-0.93653-0.82715-0.40674-1.79444-0.35205z m0.70069 1.20313q0.75537 0.15381 1.2749 0.7417 0.3623 0.40674 0.50244 0.92627 0.05811 0.19482 0.06494 0.41357 0.00684 0.21533 0.00684 0.9707l0 0.96729-4.64844 0 0-1.06299q0-0.82715 0.01367-1.0083 0.01367-0.18457 0.09912-0.40674 0.22217-0.64258 0.74854-1.06982 0.52637-0.42725 1.19629-0.5127 0.14014-0.01367 0.3623 0 0.22559 0.01367 0.3794 0.04102z m3.85205 5.25q0.08203 0.04443 0.15723 0.12304 0.07861 0.0752 0.11279 0.15381 0.0376 0.0752 0.0581 0.19483 0.02051 0.11621 0.00684 2.19092l0 1.6372q0 0.3623-0.02734 0.48877-0.01367 0.08545-0.07178 0.14014l-0.01367 0.02734q-0.11279 0.12646-0.26661 0.19824l-0.0957 0.04102-8.37402 0-0.0957-0.04102q-0.15381-0.0581-0.26661-0.19824l-0.01367-0.02734q-0.05811-0.06836-0.07178-0.14014-0.02734-0.12646-0.02734-0.48877l0-1.65088q-0.01367-2.08838 0.01367-2.20117 0.01367-0.18115 0.1333-0.31445 0.11963-0.1333 0.28711-0.17432 0.06836-0.01367 4.25537-0.01367l4.20069 0.01367 0.09912 0.04102z"
+                fill="#FFFFFF"
+              ></path>
+            </svg>
+          </div>
+          <div
+            data-pencil-name="Footer Note"
+            class="box-border w-full h-fit shrink-0 flex flex-row gap-[7px] justify-center items-center"
+          >
+            <svg
+              data-pencil-name="Note Icon"
+              data-icon-name="shield-check"
+              data-icon-set="lucide"
+              viewBox="0 0 13.99993896484375 14"
+              preserveAspectRatio="xMidYMid meet"
+              xmlns="http://www.w3.org/2000/svg"
+              class="box-border w-[14px] shrink-0 h-[14px]"
+            >
+              <path
+                d="M6.84619 0.60156q-0.34863 0.02734-0.68701 0.30762-0.51611 0.42041-1.00147 0.70068-0.48193 0.28027-1.01513 0.4751-0.30762 0.11279-0.58789 0.1709-0.28027 0.05469-0.66992 0.08203-0.23926 0.01367-0.36573 0.07178-0.19482 0.06836-0.37939 0.22217-0.18115 0.15381-0.26319 0.34863l-0.01367 0.03076q-0.07178 0.12646-0.08545 0.22217-0.01367 0.15381-0.02734 0.60156l0 1.78076q0 2.25244 0.01367 2.46094 0.14014 1.6543 1.10742 2.88477 0.14014 0.16748 0.43409 0.46142 0.29395 0.29394 0.48877 0.44775 0.92285 0.7417 2.2832 1.27491 0.46143 0.18115 0.65625 0.23926 0.23926 0.05469 0.43408 0.01367 0.16748-0.02734 0.5332-0.15381 1.35693-0.51953 2.27979-1.20313 0.37939-0.2666 0.71435-0.60498 1.37402-1.3706 1.54151-3.37353 0.01367-0.23584 0.01367-2.46094 0-2.22852-0.02734-2.35498-0.07178-0.32129-0.31787-0.56396-0.24268-0.24609-0.5503-0.31788-0.09912-0.02734-0.37939-0.04101-0.48877-0.02734-0.96387-0.18115-0.81348-0.2666-1.55518-0.77246-0.2666-0.18115-0.64257-0.48877-0.42041-0.33496-0.96729-0.28028z m0.43408 1.34326q0.64258 0.51953 1.32959 0.86817 1.2168 0.61865 2.25244 0.68701l0.21192 0-0.01367 4.31348q0 0.33496-0.02735 0.50244-0.22559 1.34326-1.1416 2.27637-0.91602 0.92969-2.66601 1.57226l-0.21192 0.08545-0.18115-0.05469q-2.32422-0.85449-3.2334-2.22851-0.47852-0.71436-0.63232-1.63721-0.02734-0.18115-0.02735-0.50244l-0.01367-4.32715 0.19483 0q0.86816-0.05469 1.84912-0.48193 0.98096-0.42725 1.83545-1.12793 0.16748-0.14014 0.19482-0.14014 0.02734 0 0.28027 0.19482z m1.32959 3.31885q-0.06836 0.02734-0.12646 0.05127-0.05469 0.02051-1.06299 1.02539l-0.99463 0.99463-0.40674-0.40332q-0.2666-0.2666-0.3623-0.33838-0.12646-0.11279-0.19824-0.14013-0.06836-0.02734-0.19483-0.02735-0.12646 0-0.16748 0.01367-0.04102 0.01367-0.09912 0.04102-0.18115 0.09912-0.28027 0.2666-0.04102 0.08545-0.04102 0.25293l0 0.01367q0 0.14014 0.03418 0.21192 0.0376 0.06836 0.17774 0.22216 0.0957 0.11279 0.48876 0.50586l0.04102 0.04102q0.42041 0.42041 0.55371 0.54687 0.1333 0.12305 0.20166 0.15381 0.14014 0.06836 0.29395 0.05469 0.15381-0.01367 0.28027-0.09912 0.07178-0.05469 1.28857-1.27149 0.86816-0.86816 1.04932-1.06298 0.18457-0.19824 0.21192-0.27002 0.0957-0.27686-0.05811-0.52295-0.15381-0.24609-0.44775-0.25977-0.12646-0.01367-0.18116 0z"
+                fill="#9CA3AF"
+              ></path>
+            </svg>
+            <div
+              data-pencil-name="Note Text"
+              class="text-[12.5px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-normal text-left [white-space:nowrap]"
+            >
+              Secure checkout · You'll be charged $256.00
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

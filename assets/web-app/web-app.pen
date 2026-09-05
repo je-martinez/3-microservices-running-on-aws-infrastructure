@@ -336,7 +336,7 @@
               "type": "text",
               "id": "BNDKA",
               "name": "Panel Subtitle",
-              "fill": "#A9B2C0",
+              "fill": "$text-muted-on-dark",
               "textGrowth": "fixed-width",
               "width": "fill_container",
               "content": "One account for your orders, tracking and returns. Sign in with a password — or skip it entirely and use a one-time code.",
@@ -397,7 +397,7 @@
                   "type": "text",
                   "id": "ZR4X7",
                   "name": "Feature Label",
-                  "fill": "#C7CDD8",
+                  "fill": "$text-subtle-on-dark",
                   "content": "Free returns within 30 days",
                   "fontFamily": "$font-body",
                   "fontSize": 14,
@@ -427,7 +427,7 @@
                   "type": "text",
                   "id": "TsFXk",
                   "name": "Feature Label",
-                  "fill": "#C7CDD8",
+                  "fill": "$text-subtle-on-dark",
                   "content": "Checkout secured end to end",
                   "fontFamily": "$font-body",
                   "fontSize": 14,
@@ -457,7 +457,7 @@
                   "type": "text",
                   "id": "L2G4Hr",
                   "name": "Feature Label",
-                  "fill": "#C7CDD8",
+                  "fill": "$text-subtle-on-dark",
                   "content": "Same-day dispatch before 4 pm",
                   "fontFamily": "$font-body",
                   "fontSize": 14,
@@ -1941,7 +1941,7 @@
                       "type": "text",
                       "id": "tLb6V",
                       "name": "Note Text",
-                      "fill": "#8A5A11",
+                      "fill": "$text-on-orange-light",
                       "textGrowth": "fixed-width",
                       "width": "fill_container",
                       "content": "You can add a password later from your account settings.",
@@ -6401,7 +6401,7 @@
           "x": 0,
           "y": 0,
           "name": "Scrim",
-          "fill": "#12161FA6",
+          "fill": "$scrim-overlay",
           "width": 1440,
           "height": 1120
         },
@@ -6902,7 +6902,7 @@
           "x": 0,
           "y": 0,
           "name": "Scrim",
-          "fill": "#12161FA6",
+          "fill": "$scrim-overlay",
           "width": 1440,
           "height": 1120
         },
@@ -11294,7 +11294,7 @@
           "x": 0,
           "y": 0,
           "name": "Scrim",
-          "fill": "#12161FA6",
+          "fill": "$scrim-overlay",
           "width": 390,
           "height": 844
         },
@@ -20751,7 +20751,7 @@
           "x": 0,
           "y": 0,
           "name": "Scrim",
-          "fill": "#12161FA6",
+          "fill": "$scrim-overlay",
           "width": 1440,
           "height": 1120
         },
@@ -20878,6 +20878,398 @@
           }
         }
       ]
+    },
+    {
+      "type": "frame",
+      "id": "P1pmu1",
+      "x": 9360,
+      "y": 760,
+      "name": "Reset Password — Request",
+      "clip": true,
+      "width": 1440,
+      "height": 1024,
+      "fill": "$bg-white",
+      "children": [
+        {
+          "id": "EHy7G",
+          "type": "ref",
+          "ref": "WXmng",
+          "name": "Brand Panel",
+          "height": "fill_container"
+        },
+        {
+          "type": "frame",
+          "id": "V05J8R",
+          "name": "Auth Side",
+          "width": "fill_container",
+          "height": "fill_container",
+          "fill": "$bg-white",
+          "layout": "vertical",
+          "justifyContent": "center",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "OXqH6",
+              "name": "Reset Form",
+              "width": 480,
+              "layout": "vertical",
+              "gap": 28,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "y0NEN",
+                  "name": "Back Link",
+                  "gap": 7,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "ef4Xw",
+                      "name": "Back Icon",
+                      "width": 16,
+                      "height": 16,
+                      "icon": "arrow-left",
+                      "library": "lucide",
+                      "fill": "$text-secondary"
+                    },
+                    {
+                      "type": "text",
+                      "id": "q9tJlY",
+                      "name": "Back Label",
+                      "fill": "$text-secondary",
+                      "content": "Back to sign in",
+                      "fontFamily": "$font-body",
+                      "fontSize": 14,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "oqjqA",
+                  "name": "Form Header",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 10,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "SqWnO",
+                      "name": "Title",
+                      "fill": "$text-primary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "Reset your password",
+                      "lineHeight": 1.2,
+                      "fontFamily": "$font-heading",
+                      "fontSize": 33,
+                      "fontWeight": "700",
+                      "letterSpacing": -1
+                    },
+                    {
+                      "type": "text",
+                      "id": "ZGhod",
+                      "name": "Subtitle",
+                      "fill": "$text-secondary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "Enter the email on your account and we'll send you a 6-digit code to set a new password.",
+                      "lineHeight": 1.55,
+                      "fontFamily": "$font-body",
+                      "fontSize": 16,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "iSg7a",
+                  "name": "Fields",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 18,
+                  "children": [
+                    {
+                      "id": "y8FtxF",
+                      "type": "ref",
+                      "ref": "TLRTA",
+                      "name": "Email Field",
+                      "width": "fill_container",
+                      "descendants": {
+                        "x9933l": {
+                          "content": "Email"
+                        },
+                        "DBNRz": {
+                          "height": 58
+                        },
+                        "RPJzp": {
+                          "icon": "mail"
+                        },
+                        "XjoNi": {
+                          "content": "jose@3mrai.com",
+                          "fill": "$text-primary"
+                        },
+                        "ZLo0l": {
+                          "enabled": true,
+                          "content": "The code expires 10 minutes after it is sent."
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": "qBI3a",
+                  "type": "ref",
+                  "ref": "sHl96",
+                  "name": "Send Reset Code Button",
+                  "width": "fill_container",
+                  "height": 58,
+                  "descendants": {
+                    "G7D9G": {
+                      "content": "Send reset code"
+                    },
+                    "X0hR6V": {
+                      "enabled": true
+                    }
+                  }
+                },
+                {
+                  "type": "frame",
+                  "id": "oKOxT",
+                  "name": "Form Footer",
+                  "width": "fill_container",
+                  "gap": 5,
+                  "justifyContent": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "ITLfk",
+                      "name": "Footer Text",
+                      "fill": "$text-secondary",
+                      "content": "Remembered your password?",
+                      "fontFamily": "$font-body",
+                      "fontSize": 15,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "w5GBuq",
+                      "name": "Footer Link",
+                      "fill": "$brand-navy",
+                      "content": "Sign in",
+                      "fontFamily": "$font-body",
+                      "fontSize": 15,
+                      "fontWeight": "600"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "f1j8HV",
+      "x": 2940,
+      "y": 1964,
+      "name": "Mobile — Reset Password",
+      "clip": true,
+      "width": 390,
+      "height": 844,
+      "fill": "$bg-white",
+      "layout": "vertical",
+      "children": [
+        {
+          "id": "w2xypC",
+          "type": "ref",
+          "ref": "u2nnov",
+          "name": "Brand Header",
+          "width": "fill_container",
+          "descendants": {
+            "M7cPDa": {
+              "enabled": false
+            }
+          }
+        },
+        {
+          "type": "frame",
+          "id": "E6BOyE",
+          "name": "Body",
+          "width": "fill_container",
+          "height": "fill_container",
+          "fill": "$bg-white",
+          "layout": "vertical",
+          "gap": 20,
+          "padding": [
+            28,
+            24
+          ],
+          "justifyContent": "space_between",
+          "children": [
+            {
+              "type": "frame",
+              "id": "f84Msc",
+              "name": "Reset Form",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 22,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "vfQhE",
+                  "name": "Back Link",
+                  "gap": 7,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "UWXjH",
+                      "name": "Back Icon",
+                      "width": 16,
+                      "height": 16,
+                      "icon": "arrow-left",
+                      "library": "lucide",
+                      "fill": "$text-secondary"
+                    },
+                    {
+                      "type": "text",
+                      "id": "IbI07",
+                      "name": "Back Label",
+                      "fill": "$text-secondary",
+                      "content": "Back to sign in",
+                      "fontFamily": "$font-body",
+                      "fontSize": 13.5,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "WLnm4",
+                  "name": "Form Header",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 8,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "Kef6o",
+                      "name": "Title",
+                      "fill": "$text-primary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "Reset your password",
+                      "lineHeight": 1.25,
+                      "fontFamily": "$font-heading",
+                      "fontSize": 26,
+                      "fontWeight": "700",
+                      "letterSpacing": -0.6
+                    },
+                    {
+                      "type": "text",
+                      "id": "Re1rA",
+                      "name": "Subtitle",
+                      "fill": "$text-secondary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "Enter the email on your account and we'll send you a 6-digit code to set a new password.",
+                      "lineHeight": 1.5,
+                      "fontFamily": "$font-body",
+                      "fontSize": 14.5,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "esHux",
+                  "name": "Fields",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 16,
+                  "children": [
+                    {
+                      "id": "OHXg6",
+                      "type": "ref",
+                      "ref": "TLRTA",
+                      "name": "Email Field",
+                      "width": "fill_container",
+                      "descendants": {
+                        "x9933l": {
+                          "content": "Email"
+                        },
+                        "DBNRz": {
+                          "height": 58
+                        },
+                        "RPJzp": {
+                          "icon": "mail"
+                        },
+                        "XjoNi": {
+                          "content": "jose@3mrai.com",
+                          "fill": "$text-primary"
+                        },
+                        "ZLo0l": {
+                          "enabled": true,
+                          "content": "The code expires 10 minutes after it is sent."
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": "N6ZaVc",
+                  "type": "ref",
+                  "ref": "sHl96",
+                  "name": "Send Reset Code Button",
+                  "width": "fill_container",
+                  "height": 58,
+                  "descendants": {
+                    "G7D9G": {
+                      "content": "Send reset code"
+                    },
+                    "X0hR6V": {
+                      "enabled": true
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "AfVA7",
+              "name": "Form Footer",
+              "width": "fill_container",
+              "gap": 5,
+              "justifyContent": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "gkCj7",
+                  "name": "Footer Text",
+                  "fill": "$text-secondary",
+                  "content": "Remembered your password?",
+                  "fontFamily": "$font-body",
+                  "fontSize": 14,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "HPaY4",
+                  "name": "Footer Link",
+                  "fill": "$brand-navy",
+                  "content": "Sign in",
+                  "fontFamily": "$font-body",
+                  "fontSize": 14,
+                  "fontWeight": "600"
+                }
+              ]
+            }
+          ]
+        }
+      ]
     }
   ],
   "variables": {
@@ -20984,6 +21376,22 @@
     "brand-orange-text": {
       "type": "color",
       "value": "#C2710E"
+    },
+    "text-muted-on-dark": {
+      "type": "color",
+      "value": "#A9B2C0"
+    },
+    "text-subtle-on-dark": {
+      "type": "color",
+      "value": "#C7CDD8"
+    },
+    "text-on-orange-light": {
+      "type": "color",
+      "value": "#8A5A11"
+    },
+    "scrim-overlay": {
+      "type": "color",
+      "value": "#12161FA6"
     }
   },
   "fileToken": "d47359f3-8968-480c-b671-faa693ea90b5"

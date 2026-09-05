@@ -4,9 +4,12 @@ type: convention
 area: shared
 status: active
 created: 2026-07-17
-updated: 2026-08-29
+updated: 2026-09-04
 tags: [type/convention, area/shared, status/active]
 related:
+  - "[[2026-08-17-web-app-foundation-design]]"
+  - "[[2026-09-03-animation-clock-sampling-beats-style-and-class-probes]]"
+  - "[[headed-browser-consent]]"
   - "[[ADR-0010-cognito-auth]]"
   - "[[ADR-0016-local-apigw-nginx-ecs]]"
   - "[[local-dev]]"
@@ -99,6 +102,34 @@ only then checks field presence (never row counts, since a legitimately empty pa
 bug). Unlike `internal` and `gateway`, this project additionally needs `make observability-up` on
 top of `make bootstrap` — it skips with a named reason when OpenObserve is unreachable, rather
 than failing as a confusing connection error.
+
+**Two more projects, `web-tokyo` and `web-tegucigalpa`: one surface, many timezones, not a fifth
+layer.** `e2e/tests/web/` (6 spec files) is the phase-1 web verification described in
+[[2026-08-17-web-app-foundation-design#D9 — Phase 1 verification is navigation E2E plus typecheck and lint]]:
+every route mounts and renders clean, and every rendered date reads the same regardless of the
+viewer's clock. The pair is generated from a single list, `WEB_TIMEZONES` in
+`e2e/support/web-projects.ts` (`web-tokyo` → `Asia/Tokyo`, UTC+9; `web-tegucigalpa` →
+`America/Tegucigalpa`, UTC-6 — both no-DST, chosen so neither is UTC), rather than written out by
+hand in `playwright.config.ts`. The pair is load-bearing, not decoration: an 18:22Z instant reads
+Aug 16 in Tokyo and still Aug 15 at UTC-6, so `web-tokyo` **alone** fails the order-card assertion
+when date normalisation regresses to viewer-local rendering — verified by mutation.
+`web-tegucigalpa` is the zone the original local-time bug was reported from.
+
+- **They are the only projects needing NO backend.** The app renders fixtures and makes no
+  gateway call, so they need `pnpm web:dev` on `WEB_BASE_URL` and nothing else — no
+  `make bootstrap`, no service health checks. `e2e/support/global-setup.ts` reads the same
+  `WEB_TIMEZONES` list to decide whether to skip those checks, so adding a timezone in
+  `playwright.config.ts` only, or renaming one there, silently makes a web-only run demand a
+  backend it never touches. `web-projects.ts` carries a `CONTRACT` comment saying so; this
+  convention carries the rule, not just the code.
+- **The env var is `WEB_BASE_URL`, not `PLAYWRIGHT_WEB_BASE_URL`.** The wrong name is silently
+  ignored — Playwright falls back to `http://localhost:4200` regardless — and every test then
+  dies on connection-refused if nothing is actually listening there. Confirmed cost: a full false
+  "51 failed" run traced back to exactly this.
+- **Four of the six specs open a headed browser window** (`cart-drawer-animation`,
+  `popover-overflow`, `scrollbar-gutter`, `cart-drawer-first-open`) — the same four named in
+  "Never open a headed browser window without asking first" below; see [[headed-browser-consent]]
+  for why and the consent rule, not repeated here.
 
 **Symmetry check:** when adding a service or endpoint, confirm both `e2e/tests/<svc>.spec.ts` and
 `e2e/tests/gateway/<svc>.spec.ts` exist and cover it — an easy asymmetry to miss (this is exactly
@@ -310,6 +341,28 @@ whether the production code under test was correct. When writing a test, ask wha
 fail — if the only thing that can make it fail is changing the test's own fixture or mock
 configuration, it is not testing the system.
 
+## Never open a headed browser window without asking first
+
+Four specs launch headed browsers (`cart-drawer-animation`, `popover-overflow`,
+`scrollbar-gutter`, `cart-drawer-first-open`), so a plain full-suite run pops several windows
+with no warning — they steal focus and can land on an unpredictable monitor. Ask the user before
+any headed window opens, every time, whether it's the full suite or a one-off probe; on accept,
+target the monitor they've chosen. Full convention, including why two attempted workarounds
+(offscreen positioning, headless-with-injected-CSS) both failed: [[headed-browser-consent]].
+
+## Verifying a browser animation needs the frame clock, not a class or style probe
+
+The three-layer rule above is written for request/response and event-driven surfaces; a browser
+animation defect needs its own probe discipline for the same reason a metric or a WebSocket
+surface did — the obvious way to look at it can pass while the real defect is invisible to it.
+`MutationObserver` on a host's `class` attribute only sees discrete lifecycle events (mount,
+cleanup), not interpolation, and per-frame `getComputedStyle()` reports the animation's
+mathematically-correct value regardless of whether that frame was ever painted — neither can see
+a dropped or delayed frame. Only sampling `Animation.currentTime` inside `requestAnimationFrame`
+(which fires solely for presented frames) exposes a hole where a frame was dropped. See
+[[2026-09-03-animation-clock-sampling-beats-style-and-class-probes]] for the full incident,
+including the same-page-vs-fresh-page measurement pitfall for before/after comparisons.
+
 ## A rejection test is mandatory wherever a credential is verified
 
 **Rule:** any endpoint or flow that verifies a credential (a password, an OTP code, a token, a
@@ -390,6 +443,8 @@ invalidates the catalogue cache.
 
 ## Related
 
+- [[2026-08-17-web-app-foundation-design]] — D9, the phase-1 web verification the `web-tokyo` /
+  `web-tegucigalpa` Playwright projects implement.
 - [[ADR-0010-cognito-auth]]
 - [[ADR-0016-local-apigw-nginx-ecs]]
 - [[local-dev]]
@@ -422,3 +477,9 @@ invalidates the catalogue cache.
   catch a requirement that was specified in a brief and never implemented — only a
   requirement that was implemented incorrectly. A specified-but-dropped concurrency guard
   produced a fully green suite.
+- [[2026-09-03-animation-clock-sampling-beats-style-and-class-probes]] — the probe-choice
+  discipline for verifying a browser animation renders smoothly: sample the frame clock
+  (`requestAnimationFrame` + `Animation.currentTime`), not a class mutation or computed style,
+  and compare fresh page loads, not two opens in the same warm session.
+- [[headed-browser-consent]] — ask before opening any headed browser window for a frontend
+  check, and which monitor to target when the user accepts.

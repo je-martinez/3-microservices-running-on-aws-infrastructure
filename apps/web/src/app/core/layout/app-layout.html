@@ -1,0 +1,13 @@
+<div class="flex h-dvh w-full flex-col">
+  <app-app-header
+    [hasUnreadNotifications]="hasUnreadNotifications"
+    (notificationsClicked)="overlay.toggleNotifications()"
+    (profileClicked)="overlay.toggleAccountMenu()"
+    (cartClicked)="openCart()"
+  />
+
+  <!-- The header sits OUTSIDE so it spans the full viewport; only this scrolls. -->
+  <div class="app-scroll flex w-full flex-col">
+    <router-outlet />
+  </div>
+</div>

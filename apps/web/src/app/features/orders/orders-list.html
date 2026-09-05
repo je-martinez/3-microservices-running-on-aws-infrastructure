@@ -1,0 +1,44 @@
+<div class="bg-surface-body flex w-full flex-1 flex-col items-start justify-start gap-0">
+  <div class="flex w-full flex-1 flex-col items-center justify-start gap-0 p-5 md:p-11">
+    <div class="flex h-fit w-full max-w-260 shrink-0 flex-col items-start justify-start gap-4 md:gap-6">
+      <div class="flex h-fit w-full shrink-0 flex-col items-start justify-between gap-3 md:flex-row md:items-end">
+        <div class="flex h-fit w-fit shrink-0 flex-col items-start justify-start gap-rule md:gap-2xs">
+          <h1 class="text-ink-primary text-2xl font-bold tracking-[-0.5px] md:text-3xl md:tracking-[-0.8px]">
+            My orders
+          </h1>
+          <p class="text-ink-secondary text-body-sm md:text-label">
+            {{ orders.length }} order{{ orders.length === 1 ? '' : 's' }} in the last 90 days
+          </p>
+        </div>
+
+        <div class="flex h-fit w-full flex-row flex-wrap items-center justify-start gap-2 md:w-fit md:gap-md">
+          <span
+            class="bg-brand-navy border-brand-navy text-surface-white flex h-control w-fit shrink-0 flex-row items-center justify-start rounded-full border px-2xl text-body font-semibold md:px-icon"
+          >
+            All
+          </span>
+          <span
+            class="border-line-strong text-ink-secondary flex h-control w-fit shrink-0 flex-row items-center justify-start rounded-full border px-2xl text-body md:px-icon"
+          >
+            In progress
+          </span>
+          <span
+            class="border-line-strong text-ink-secondary flex h-control w-fit shrink-0 flex-row items-center justify-start rounded-full border px-2xl text-body md:px-icon"
+          >
+            Delivered
+          </span>
+        </div>
+      </div>
+
+      <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-3 md:gap-4">
+        @for (entry of orders; track entry.order.id) {
+          <button type="button" class="w-full text-left" (click)="goTo('/orders/' + entry.order.id)">
+            <app-order-card [entry]="entry" />
+          </button>
+        } @empty {
+          <p class="text-ink-secondary w-full py-10 text-center text-sm">No orders yet.</p>
+        }
+      </div>
+    </div>
+  </div>
+</div>

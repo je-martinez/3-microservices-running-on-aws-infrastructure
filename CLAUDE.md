@@ -121,6 +121,7 @@ Custom subagents own their write domains. `linear-pm` (Linear) and `obsidian-vau
 - **`github-ops`** (`.claude/agents/github-ops.md`) — **optional** git & GitHub helper for complex batches: commits, branches, pushes, PRs, merges. Uses `git` + `gh`. The main session may also run git directly; conventions live in [[git-workflow]].
 - **`obsidian-vault`** (`.claude/agents/obsidian-vault.md`) — **sole writer of the `docs/` vault.** All note creation/edits go through it so structure, frontmatter, tags, and wikilinks stay consistent. Has the Obsidian skills preloaded. **No other agent (including the main session) writes to `docs/` — route vault writes here.**
 - **`e2e-impl`** (`.claude/agents/e2e-impl.md`) — the testing surface: Playwright specs (internal + gateway) and Gatling JS load simulations. Reads `e2e/CLAUDE.md`. Verifies endpoint contracts against each service's `openapi.yaml` instead of guessing them, and **never edits service source to make a test pass** — a green suite bought that way is worse than a red one.
+- **`web-impl`** (`.claude/agents/web-impl.md`) — the web app in `apps/web/` (Angular + NgRx + Tailwind). Reads `apps/web/CLAUDE.md` and `apps/web/DESIGN.md`, and translates Pencil frames through the `pencil-design-extraction` skill. **Never uses a Tailwind arbitrary value for a design colour** — a hard-coded hex is the detectable symptom of a skipped token step.
 
 When `github-ops` is used, it coordinates with `linear-pm`: it needs milestone/issue IDs to name branches/PRs and reports merges back so `linear-pm` can update issue status. Route Linear↔GitHub work through the parent, which relays between them. (The main session, running git directly, does the same coordination inline.)
 
@@ -129,7 +130,7 @@ When `github-ops` is used, it coordinates with `linear-pm`: it needs milestone/i
 Two layers of agents (see `docs/superpowers/specs/2026-06-26-implementation-workflow-design.md`):
 
 - **Tool layer:** `obsidian-vault` (docs/) and `linear-pm` (Linear) are single writers. `github-ops` (git/GitHub) is **optional** — the main session may run git directly (see [[git-workflow]]).
-- **Domain layer:** `solutions-architect` (read-only planner — returns a **Coordination Plan**, writes nothing) and six **code-only** implementers: `users-impl`, `orders-impl`, `tracking-impl`, `events-pipeline-impl`, `infra-impl`, and `e2e-impl` (Playwright specs + Gatling load simulations; reads `e2e/CLAUDE.md`).
+- **Domain layer:** `solutions-architect` (read-only planner — returns a **Coordination Plan**, writes nothing) and seven **code-only** implementers: `users-impl`, `orders-impl`, `tracking-impl`, `events-pipeline-impl`, `infra-impl`, `e2e-impl` (Playwright specs + Gatling load simulations; reads `e2e/CLAUDE.md`), and `web-impl` (Angular screens and components; reads `apps/web/CLAUDE.md`).
 
 **Invariant:** implementers write **only source code** — they never run git or touch Linear, and they leave work in the working tree for the **main session** to commit (which may optionally delegate a complex git batch to `github-ops`). The architect writes nothing. A subagent cannot spawn another subagent, so the **parent** routes the architect's Coordination Plan to each hand.
 
@@ -139,7 +140,7 @@ Two layers of agents (see `docs/superpowers/specs/2026-06-26-implementation-work
 - **C — Implementation (per issue):** parent → `linear-pm` (issue → In Progress) → main session creates the task branch → `<svc>-impl` (implement; reads `services/<svc>/CLAUDE.md` + the vault spec note) → main session commits + opens PR task→feature via the A/B/C/D/E menu (or delegates to `github-ops`) → `linear-pm` (issue → Done after merge).
 - **D — Milestone close:** the main session (or `github-ops`) proposes PR feature→`main`; the user reviews and merges (no auto-merge).
 
-Each service's stack/conventions live in its nested `services/<svc>/CLAUDE.md` (or `infra/CLAUDE.md`, or `functions/<name>/CLAUDE.md` for the events-pipeline Lambda), created at the start of that service's milestone — the implementer agents are thin and defer to it.
+Each service's stack/conventions live in its nested `services/<svc>/CLAUDE.md` (or `infra/CLAUDE.md`, `apps/web/CLAUDE.md`, or `functions/<name>/CLAUDE.md` for the events-pipeline Lambda), created at the start of that service's milestone — the implementer agents are thin and defer to it.
 
 ### Superpowers output is part of the vault
 Anything brainstorming/writing-plans produces is a first-class vault note:

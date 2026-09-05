@@ -1,0 +1,187 @@
+<div class="bg-surface-white flex w-full flex-1 flex-col items-start justify-start gap-0">
+  <div class="bg-surface-body flex w-full flex-1 flex-col items-center justify-start gap-0 p-5 md:p-9">
+    <div class="flex h-fit w-full max-w-260 flex-col items-start justify-start gap-4xl">
+      <a class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-sm" routerLink="/">
+        <svg lucideChevronLeft class="text-ink-secondary h-4 w-4"></svg>
+        <span class="text-ink-secondary text-sm">Back to cart</span>
+      </a>
+
+      <div class="flex h-fit w-full shrink-0 flex-col items-center justify-between gap-4 md:flex-row md:items-center">
+        <div class="flex h-fit w-fit shrink-0 flex-col items-start justify-start gap-1">
+          <h1 class="text-ink-primary text-2xl font-bold tracking-[-0.8px] md:text-3xl">Checkout</h1>
+          <p class="text-ink-secondary text-sm">{{ itemCount() }} items · {{ total() }} total</p>
+        </div>
+        <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-md">
+          @for (label of ['Cart', 'Address']; track label) {
+            <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-2">
+              <span class="bg-brand-navy flex h-icon-lg w-icon-lg shrink-0 flex-row items-center justify-center rounded-full">
+                <svg lucideCheck class="text-surface-white h-3 w-3"></svg>
+              </span>
+              <span class="text-ink-secondary text-body">{{ label }}</span>
+            </div>
+            <div class="bg-line-strong h-px w-5 shrink-0"></div>
+          }
+          <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-2">
+            <span class="bg-brand-orange flex h-icon-lg w-icon-lg shrink-0 flex-row items-center justify-center rounded-full">
+              <svg lucideCreditCard class="text-surface-white h-3 w-3"></svg>
+            </span>
+            <span class="text-ink-primary text-body font-semibold">Payment</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex w-full flex-col items-start justify-start gap-6 md:flex-row">
+        <div class="flex h-fit flex-1 flex-col items-start justify-start gap-5">
+          <div class="bg-surface-white border-line flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5">
+            <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
+              <span class="text-ink-muted text-xs font-semibold tracking-overline">DELIVERY ADDRESS</span>
+              <span class="text-brand-navy text-sm font-semibold">Change</span>
+            </div>
+            <span class="text-ink-primary text-body-lg font-semibold">Jose Martinez</span>
+            <p class="text-ink-secondary w-full text-body leading-body">
+              Av. Rómulo Betancourt 1204, Apto 5B<br />
+              Santo Domingo 10604, DO · +1 809 555 0142
+            </p>
+          </div>
+
+          @if (stripeEnabled()) {
+            <div data-testid="checkout-stripe" class="bg-surface-white border-line flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5">
+              <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
+                <span class="text-ink-muted text-xs font-semibold tracking-overline">PAYMENT</span>
+                <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-xs">
+                  <svg lucideLock class="text-ink-muted h-3 w-3"></svg>
+                  <span class="text-ink-muted text-caption">Encrypted</span>
+                </div>
+              </div>
+              <p class="text-ink-secondary w-full text-sm">
+                Payment is completed in the cart — open the cart to pay with Stripe.
+              </p>
+              <div class="text-ink-muted flex h-fit w-full shrink-0 flex-row items-center justify-center gap-2xs text-xs">
+                Powered by <span class="text-ink-secondary font-bold tracking-[-0.3px]">Stripe</span>
+              </div>
+            </div>
+          } @else {
+            <div data-testid="checkout-plain" class="bg-surface-white border-line flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5">
+              <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
+                <span class="text-ink-muted text-xs font-semibold tracking-overline">PAYMENT</span>
+                <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-xs">
+                  <svg lucideLock class="text-ink-muted h-icon-xs w-icon-xs"></svg>
+                  <span class="text-ink-muted text-caption">Encrypted</span>
+                </div>
+              </div>
+
+              <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-2xl">
+                <div class="border-brand-orange bg-brand-orange-light flex h-15 w-full shrink-0 flex-row items-center justify-center gap-xs rounded-md border-[1.5px]">
+                  <svg lucideCreditCard class="text-brand-orange-text h-icon-md w-icon-md"></svg>
+                  <span class="text-ink-primary text-caption font-semibold">Card</span>
+                </div>
+
+                <label class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-xs">
+                  <span class="text-ink-primary text-body-sm font-medium">Card number</span>
+                  <span class="border-line bg-surface-white flex h-control-lg w-full items-center gap-md rounded-md border px-3">
+                    <svg lucideCreditCard class="text-ink-muted h-icon w-icon shrink-0"></svg>
+                    <input
+                      type="text"
+                      placeholder="1234 1234 1234 1234"
+                      class="text-ink-primary placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
+                    />
+                  </span>
+                </label>
+
+                <div class="flex h-fit w-full shrink-0 flex-row items-start justify-start gap-3">
+                  <label class="flex h-fit flex-1 flex-col items-start justify-start gap-xs">
+                    <span class="text-ink-primary text-body-sm font-medium">Expiration date</span>
+                    <span class="border-line bg-surface-white flex h-control-lg w-full items-center gap-md rounded-md border px-3">
+                      <input
+                        type="text"
+                        placeholder="MM / YY"
+                        class="text-ink-primary placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
+                      />
+                    </span>
+                  </label>
+                  <label class="flex h-fit flex-1 flex-col items-start justify-start gap-xs">
+                    <span class="text-ink-primary text-body-sm font-medium">Security code</span>
+                    <span class="border-line bg-surface-white flex h-control-lg w-full items-center gap-md rounded-md border px-3">
+                      <input
+                        type="text"
+                        placeholder="CVC"
+                        class="text-ink-muted placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
+                      />
+                    </span>
+                  </label>
+                </div>
+
+                <div class="flex h-fit w-full shrink-0 flex-row items-start justify-start gap-3">
+                  <label class="flex h-fit flex-1 flex-col items-start justify-start gap-xs">
+                    <span class="text-ink-primary text-body-sm font-medium">Country or region</span>
+                    <span class="border-line bg-surface-white flex h-control-lg w-full items-center gap-md rounded-md border px-3">
+                      <input
+                        type="text"
+                        value="Dominican Republic"
+                        class="text-ink-primary w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
+                      />
+                    </span>
+                  </label>
+                  <label class="flex h-fit flex-1 flex-col items-start justify-start gap-xs">
+                    <span class="text-ink-primary text-body-sm font-medium">ZIP</span>
+                    <span class="border-line bg-surface-white flex h-control-lg w-full items-center gap-md rounded-md border px-3">
+                      <input
+                        type="text"
+                        value="10604"
+                        class="text-ink-primary w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
+                      />
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="border-line h-px w-full shrink-0"></div>
+              <div class="text-ink-muted flex h-fit w-full shrink-0 flex-row items-center justify-center gap-2xs text-xs">
+                Powered by <span class="text-ink-secondary font-bold tracking-[-0.3px]">Stripe</span>
+              </div>
+            </div>
+          }
+
+          <button
+            type="button"
+            class="bg-brand-orange text-surface-white flex h-control-2xl w-full shrink-0 flex-row items-center justify-center gap-md rounded-md text-base font-semibold"
+          >
+            Pay {{ total() }}
+            <svg lucideLock class="h-icon-md w-icon-md"></svg>
+          </button>
+
+          <div class="flex h-fit w-full shrink-0 flex-row items-center justify-center gap-2">
+            <svg lucideShieldCheck class="text-ink-muted h-3.5 w-3.5"></svg>
+            <span class="text-ink-muted text-caption">You'll be charged {{ total() }}. Free returns within 30 days.</span>
+          </div>
+        </div>
+
+        <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-5 md:w-85">
+          <div class="bg-surface-white border-line flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5">
+            <span class="text-ink-muted text-xs font-semibold tracking-overline">ORDER SUMMARY</span>
+            @for (product of cartItems; track product.id) {
+              <app-cart-line [product]="product" />
+            }
+            <div class="border-line h-px w-full shrink-0"></div>
+            <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
+              <span class="text-ink-secondary text-sm">Subtotal</span>
+              <span class="text-ink-primary text-sm font-semibold">{{ total() }}</span>
+            </div>
+            <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
+              <span class="text-ink-secondary text-sm">Shipping</span>
+              <span class="text-ink-primary text-sm font-semibold">Free</span>
+            </div>
+            <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
+              <span class="text-ink-secondary text-sm">Taxes</span>
+              <span class="text-ink-primary text-sm font-semibold">$0.00</span>
+            </div>
+            <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
+              <span class="text-ink-primary text-label-lg font-bold">Total</span>
+              <span class="text-ink-primary text-lg font-bold tracking-[-0.3px]">{{ total() }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
