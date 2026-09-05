@@ -27,7 +27,7 @@ const PUBLIC_PATHS: readonly string[] = [
  * may carry a query string or trailing slash. Reducing it to a gateway-relative
  * path before comparing is what keeps the exact match above from being fooled.
  */
-function gatewayPath(url: string): string | null {
+export function gatewayPath(url: string): string | null {
   const prefix = APP_CONFIG.apiGatewayUrl;
   const withoutQuery = url.split(/[?#]/)[0];
   const path = withoutQuery.startsWith(prefix) ? withoutQuery.slice(prefix.length) : null;
@@ -35,7 +35,13 @@ function gatewayPath(url: string): string | null {
   return path.length > 1 && path.endsWith('/') ? path.replace(/\/+$/, '') : path;
 }
 
-function isPublic(url: string): boolean {
+/**
+ * CONTRACT: refreshInterceptor shares this rather than keeping its own list.
+ * Two copies drift, and the copy that forgets `/users/refresh` makes a 401 from
+ * the refresh call trigger another refresh — an unbounded loop of requests
+ * against Users, not a visible error.
+ */
+export function isPublic(url: string): boolean {
   const path = gatewayPath(url);
   return path === null || PUBLIC_PATHS.includes(path);
 }
