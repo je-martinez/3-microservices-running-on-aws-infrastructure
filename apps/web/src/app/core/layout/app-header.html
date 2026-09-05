@@ -18,19 +18,29 @@
   </div>
 
   <div class="flex shrink-0 items-center gap-md md:gap-2xl">
-    <!-- Desktop: full search field. -->
+    <!-- Desktop: full search field. Filters the loaded catalogue in the
+         browser; there is no search endpoint and none is called. -->
     <div
       class="border-line bg-surface-subtle hidden h-11 w-65 items-center gap-md rounded-md border px-2xl md:flex"
     >
       <svg lucideSearch class="text-ink-muted text-subtitle"></svg>
-      <span class="text-ink-muted text-sm">Search products</span>
+      <input
+        type="search"
+        aria-label="Search products"
+        placeholder="Search products"
+        class="text-ink-primary placeholder:text-ink-muted w-full bg-transparent text-sm outline-none"
+        [value]="search.query()"
+        (input)="onSearch($event)"
+      />
     </div>
 
-    <!-- Mobile: icon-only search button. -->
+    <!-- Mobile: the magnifier reveals the field rather than emitting nowhere. -->
     <button
       type="button"
+      aria-label="Search products"
+      [attr.aria-expanded]="search.expandedOnMobile()"
       class="border-line text-brand-navy flex h-10 w-10 items-center justify-center rounded-md border md:hidden"
-      (click)="searchClicked.emit()"
+      (click)="search.toggleMobileField()"
     >
       <svg lucideSearch class="text-lg"></svg>
     </button>
@@ -65,4 +75,20 @@
       {{ cartCount() }}
     </button>
   </div>
+
+  @if (search.expandedOnMobile()) {
+    <div
+      class="border-line bg-surface-subtle mt-md flex h-11 w-full items-center gap-md rounded-md border px-2xl md:hidden"
+    >
+      <svg lucideSearch class="text-ink-muted text-subtitle"></svg>
+      <input
+        type="search"
+        aria-label="Search products"
+        placeholder="Search products"
+        class="text-ink-primary placeholder:text-ink-muted w-full bg-transparent text-sm outline-none"
+        [value]="search.query()"
+        (input)="onSearch($event)"
+      />
+    </div>
+  }
 </header>

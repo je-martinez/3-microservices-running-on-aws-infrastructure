@@ -5,6 +5,7 @@ import { CatalogueApi } from '../../core/api/catalogue-api';
 import type { Product } from '../../core/api/types';
 import { SessionStore } from '../../core/auth/session-store';
 import { CartStore } from '../../core/cart/cart-store';
+import { CatalogueSearchStore } from '../../core/catalogue/catalogue-search-store';
 import { OverlayStore } from '../../core/overlay/overlay-store';
 import { authErrorMessage } from '../auth/auth-errors';
 import { ProductCard } from '../../shared/ui/product-card';
@@ -25,6 +26,7 @@ export class HomePage {
   private readonly catalogueApi = inject(CatalogueApi);
   private readonly session = inject(SessionStore);
   private readonly cart = inject(CartStore);
+  protected readonly search = inject(CatalogueSearchStore);
 
   protected readonly overlay = inject(OverlayStore);
   /**
@@ -41,10 +43,28 @@ export class HomePage {
   /** The chip in force, or null for "All". Holds the RAW wire value. */
   protected readonly selectedCategory = signal<string | null>(null);
 
+  /** Whether a chip or a query is narrowing the grid, for the empty state. */
+  protected readonly isFiltered = computed(
+    () => this.selectedCategory() !== null || this.search.isSearching(),
+  );
+
+  /**
+   * CONTRACT: The chip and the query NARROW together, never replace each other.
+   * Filtering happens here, in the browser: /v1/products has no search
+   * parameter, so typing must not issue a request.
+   * See [[2026-09-04-web-gateway-integration-design]]
+   */
   protected readonly visibleProducts = computed(() => {
     const category = this.selectedCategory();
-    if (category === null) return this.products();
-    return this.products().filter((product) => product.categories.includes(category));
+    const query = this.search.normalized();
+    return this.products().filter((product) => {
+      if (category !== null && !product.categories.includes(category)) return false;
+      if (query === '') return true;
+      return (
+        product.name.toLowerCase().includes(query) ||
+        product.description.toLowerCase().includes(query)
+      );
+    });
   });
 
   /**

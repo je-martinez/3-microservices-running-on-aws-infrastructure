@@ -80,8 +80,14 @@
         @for (product of visibleProducts(); track product.id) {
           <app-product-card [product]="product" (add)="addToCart(product.id)" />
         } @empty {
+          <!-- A filtered-to-nothing grid is a RESULT, not a broken catalogue;
+               saying "none available" for a typo would misreport the service. -->
           <p class="text-ink-secondary col-span-full py-10 text-center text-sm">
-            No products are available right now.
+            @if (isFiltered()) {
+              No products match your search.
+            } @else {
+              No products are available right now.
+            }
           </p>
         }
       </div>
