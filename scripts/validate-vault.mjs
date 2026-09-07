@@ -15,6 +15,7 @@
 // - Wikilinks inside inline code spans and fenced code blocks are ignored (syntax shown
 //   as an example is not a real link).
 import { readdirSync, readFileSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join, basename, extname, relative, sep } from "node:path";
 
 const ROOT = "docs";
@@ -239,6 +240,49 @@ for (const f of superpowersNotes) {
     const target = raw.replace(/^\[\[|\]\]$/g, "").split(/[|#]/)[0].trim();
     if (!resolves(target)) {
       errors.push(`${f}: '${PROPAGATION_KEY}' target does not resolve: ${target}`);
+    }
+  }
+}
+
+// ─── Wikilinks written OUTSIDE the vault ────────────────────────────────────
+// CONTRACT: A `See [[note]]` in a source comment is a vault reference and must
+// resolve like any other. Checking only docs/ let two comments ship pointing at
+// a note that was never written, and others at an assistant's private memory
+// store — knowledge no teammate can read, which is what the GOLDEN RULE exists
+// to prevent. Source files are read from git, so caches and vendored code
+// cannot pollute the scan.
+const SOURCE_EXT = /\.(ts|tsx|js|mjs|jsx|cs|go|py|tf|tfvars|ya?ml|conf|sql|sh|html)$/;
+// Placeholders in prose that document the syntax itself, not real targets.
+const LINK_PLACEHOLDERS = new Set([
+  "vault-id", "note", "Note", "wikilink", "wikilinks", "name", "note-name",
+  "a/b/name", "file.ext", "embed", "target",
+]);
+
+let sourceFiles = [];
+try {
+  sourceFiles = execFileSync("git", ["ls-files", "-z"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
+    .split("\0")
+    .filter((f) => f && !f.startsWith("docs/") && f !== "scripts/validate-vault.mjs" &&
+      (SOURCE_EXT.test(f) || basename(f) === "CLAUDE.md"));
+} catch {
+  // Not a git checkout: skip rather than fail, the vault checks above still ran.
+  sourceFiles = [];
+}
+
+for (const f of sourceFiles) {
+  let text;
+  try {
+    text = readFileSync(f, "utf8");
+  } catch {
+    continue; // unreadable or binary; nothing to check
+  }
+  if (!text.includes("[[")) continue;
+  for (const m of stripCode(text).matchAll(/\[\[([^\]\n]{1,120})\]\]/g)) {
+    const target = m[1].split(/[|#]/)[0].trim();
+    // Skip template/interpolation syntax ([[${x}]], [[{x}]]) and documented placeholders.
+    if (!target || /[${}\\^]/.test(target) || LINK_PLACEHOLDERS.has(target)) continue;
+    if (!resolves(target)) {
+      errors.push(`${f}: wikilink does not resolve: [[${target}]]`);
     }
   }
 }

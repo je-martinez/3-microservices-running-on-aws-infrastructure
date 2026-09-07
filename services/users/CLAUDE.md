@@ -108,7 +108,7 @@ services/users/
   Commands enrich it via `setLogContext` and log through `shared/logging/app-logger.ts` — no
   logger is injected, so no function signature changes.
 - **PITFALL:** Prisma promises are lazy. Any `await` must happen **inside** the ALS callback, or
-  the context is lost at the await site (see `runAsActor`'s comment and [[prisma-lazy-promise-als]]).
+  the context is lost at the await site (see `runAsActor`'s comment and [[2026-07-12-prisma-lazy-promise-als]]).
 - **PITFALL:** put the masked email on the **log call site**, not in the ambient context —
   context fields stick to every later line, which leaked it onto `request completed`.
 - The OTel SDK is loaded via `node --import` (Dockerfile CMD + npm scripts), **not** imported in

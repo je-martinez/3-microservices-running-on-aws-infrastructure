@@ -13,7 +13,7 @@ export interface LogContextStore {
   /**
    * Correlation id for one logical request, `req_` + nanoid. Seeded at ingress
    * from a valid `x-request-id` header or generated, then carried on every line
-   * and forwarded on every outbound hop — see [[request-id]].
+   * and forwarded on every outbound hop — see [[2026-08-15-request-id-correlation-design]].
    *
    * Distinct from `trace_id`, which comes from the OTel SDK: the events-pipeline
    * and the realtime Lambdas run no SDK, so this is the only id that spans them.
@@ -48,7 +48,7 @@ export interface LogContextStore {
    * It lives here rather than on a parameter because it has to reach every
    * event this request publishes without a single call site threading it,
    * exactly like `request_id`. The events-pipeline reads it off the envelope to
-   * scope its per-run email fixtures — see [[e2e-email-support-store]].
+   * scope its per-run email fixtures — see [[2026-08-29-e2e-email-support-store]].
    */
   run_id?: string;
 }

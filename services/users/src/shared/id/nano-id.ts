@@ -17,7 +17,7 @@ const PREFIXES = {
   User: "usr_",
   UsersCognitoData: "ucd_",
   UsersCognitoEvent: "cge_",
-  // Not persisted: the per-request correlation id ([[request-id]]).
+  // Not persisted: the per-request correlation id ([[2026-08-15-request-id-correlation-design]]).
   Request: "req_",
   // Not persisted: the SQS envelope's idempotency key, minted per published event.
   Event: "evt_",

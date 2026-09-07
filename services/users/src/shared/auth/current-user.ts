@@ -34,7 +34,7 @@ export class CurrentUser {
     // The await MUST happen inside this async method, not at the call site:
     // `findByIdOrCognitoSub` returns a LAZY PrismaPromise, and the log context
     // is an AsyncLocalStorage store. Awaiting here keeps the enrichment on the
-    // request's own store (see [[prisma-lazy-promise-als]] and the note in
+    // request's own store (see [[2026-07-12-prisma-lazy-promise-als]] and the note in
     // shared/logging/log-context.ts).
     const row = await this.db.user.findByIdOrCognitoSub(this.identity);
     // Best-effort: a valid token whose user no longer exists (deleted account)

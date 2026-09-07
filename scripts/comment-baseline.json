@@ -5439,7 +5439,7 @@
         "message": "L123: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
       },
       {
-        "fingerprint": "f5329a90f09e",
+        "fingerprint": "e594f7c55d97",
         "message": "density: 58% (77/132) exceeds 50% for typescript"
       }
     ],
@@ -5483,7 +5483,7 @@
         "message": "L3: length: block 9 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
       },
       {
-        "fingerprint": "d03f4b792fe0",
+        "fingerprint": "bd4594ebb7ad",
         "message": "L13: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
       },
       {
@@ -5491,7 +5491,7 @@
         "message": "L34: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
       },
       {
-        "fingerprint": "c16b47afa587",
+        "fingerprint": "f9a31b57c7c6",
         "message": "L42: length: block 11 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
       },
       {
@@ -5503,7 +5503,7 @@
         "message": "L76: length: block 13 lines exceeds hard max 12; move narrative to the vault"
       },
       {
-        "fingerprint": "2cf6bae3e95e",
+        "fingerprint": "d3b511c48f74",
         "message": "density: 68% (64/94) exceeds 50% for typescript"
       }
     ],

@@ -186,7 +186,7 @@ The ~1 ev/s ceiling is Floci's delivery cadence, not this feature.
   `error_type` / `error_message`.
 - The AsyncLocalStorage context unit is **one SQS record**, not an HTTP request — that is the only
   real adaptation of the Users pattern. `runWithLogContext` must `await` INSIDE the callback or the
-  store is lost at the await site (same hazard as [[prisma-lazy-promise-als]]; here it is the
+  store is lost at the await site (same hazard as [[2026-07-12-prisma-lazy-promise-als]]; here it is the
   mongodb driver's and SES client's promises).
 - Author fields are logged as `author_actor` / `author_user_id` / `author_cognito_sub`. The prefix
   is load-bearing: the envelope's root `user_id` already occupies `user_id`, and an unprefixed key
