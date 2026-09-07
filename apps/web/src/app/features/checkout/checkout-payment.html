@@ -30,27 +30,46 @@
             }
           </p>
         </div>
-        <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-md">
-          @for (label of ['Cart', 'Address']; track label) {
-            <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-2">
-              <span
-                class="bg-brand-navy flex h-icon-lg w-icon-lg shrink-0 flex-row items-center justify-center rounded-full"
-              >
-                <svg lucideCheck class="text-surface-white h-3 w-3"></svg>
-              </span>
-              <span class="text-ink-secondary text-body">{{ label }}</span>
-            </div>
-            <div class="bg-line-strong h-px w-5 shrink-0"></div>
-          }
-          <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-2">
-            <span
-              class="bg-brand-orange flex h-icon-lg w-icon-lg shrink-0 flex-row items-center justify-center rounded-full"
+        <!-- WHY: Driven by `steps()`, never hardcoded. A fixed "Cart ✓ Address ✓"
+             claims a saved address while the form below is still asking for one,
+             telling the buyer they are done when they are not. -->
+        <ol
+          data-testid="checkout-steps"
+          class="flex h-fit w-fit shrink-0 list-none flex-row items-center justify-start gap-md"
+        >
+          @for (step of steps(); track step.label; let last = $last) {
+            <li
+              class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-2"
+              [attr.data-step]="step.label"
+              [attr.data-state]="step.state"
+              [attr.aria-current]="step.state === 'current' ? 'step' : null"
             >
-              <svg lucideCreditCard class="text-surface-white h-3 w-3"></svg>
-            </span>
-            <span class="text-ink-primary text-body font-semibold">Payment</span>
-          </div>
-        </div>
+              <span
+                class="flex h-icon-lg w-icon-lg shrink-0 flex-row items-center justify-center rounded-full"
+                [class.bg-brand-navy]="step.state === 'complete'"
+                [class.bg-brand-orange]="step.state === 'current'"
+                [class.bg-line-strong]="step.state === 'upcoming'"
+              >
+                <svg
+                  [lucideIcon]="step.icon"
+                  class="text-surface-white h-3 w-3"
+                  aria-hidden="true"
+                ></svg>
+              </span>
+              <span
+                class="text-body"
+                [class.text-ink-secondary]="step.state === 'complete'"
+                [class.text-ink-primary]="step.state === 'current'"
+                [class.font-semibold]="step.state === 'current'"
+                [class.text-ink-muted]="step.state === 'upcoming'"
+                >{{ step.label }}</span
+              >
+            </li>
+            @if (!last) {
+              <li aria-hidden="true" class="bg-line-strong h-px w-5 shrink-0"></li>
+            }
+          }
+        </ol>
       </div>
 
       <!-- WHY: Outside the branches below. A failed checkout re-reads the cart,
@@ -113,9 +132,21 @@
                 <span class="text-ink-muted text-xs font-semibold tracking-overline"
                   >DELIVERY ADDRESS</span
                 >
+                <!-- WHY: Users holds ONE address per profile, so this reveals the
+                     same form over the same field — never an "add another". -->
+                @if (address() !== null && !editingAddress()) {
+                  <button
+                    type="button"
+                    data-testid="checkout-edit-address"
+                    class="text-brand-orange-text text-body-sm font-semibold"
+                    (click)="startEditingAddress()"
+                  >
+                    Edit
+                  </button>
+                }
               </div>
 
-              @if (address(); as deliveryAddress) {
+              @if (savedAddressOnShow(); as deliveryAddress) {
                 <span class="text-ink-primary text-body-lg font-semibold">{{ fullName() }}</span>
                 <p class="text-ink-secondary w-full text-body leading-body">
                   {{ deliveryAddress.line1
@@ -128,10 +159,19 @@
                      is placed on this page, so the address it needs is
                      collected on the surface that cannot proceed without it. -->
                 <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-1">
-                  <h2 class="text-ink-primary text-label font-semibold">Add a delivery address</h2>
-                  <p class="text-ink-secondary w-full text-body-sm leading-body-sm">
-                    We need it once — we'll save it to your profile.
-                  </p>
+                  @if (editingAddress()) {
+                    <h2 class="text-ink-primary text-label font-semibold">
+                      Edit your delivery address
+                    </h2>
+                    <p class="text-ink-secondary w-full text-body-sm leading-body-sm">
+                      Saving replaces the address on your profile.
+                    </p>
+                  } @else {
+                    <h2 class="text-ink-primary text-label font-semibold">Add a delivery address</h2>
+                    <p class="text-ink-secondary w-full text-body-sm leading-body-sm">
+                      We need it once — we'll save it to your profile.
+                    </p>
+                  }
                   <app-dev-fill-button (filled)="devFill($event)" />
                 </div>
 
@@ -170,15 +210,28 @@
                   </p>
                 }
 
-                <button
-                  type="button"
-                  data-testid="checkout-save-address"
-                  class="bg-brand-navy text-surface-white flex h-control-2xl w-full shrink-0 flex-row items-center justify-center gap-md rounded-md text-base font-semibold disabled:opacity-50"
-                  [disabled]="!canSaveAddress()"
-                  (click)="saveAddress()"
-                >
-                  {{ savingAddress() ? 'Saving…' : 'Save address' }}
-                </button>
+                <div class="flex h-fit w-full shrink-0 flex-row items-center justify-start gap-3">
+                  <button
+                    type="button"
+                    data-testid="checkout-save-address"
+                    class="bg-brand-navy text-surface-white flex h-control-2xl flex-1 shrink-0 flex-row items-center justify-center gap-md rounded-md text-base font-semibold disabled:opacity-50"
+                    [disabled]="!canSaveAddress()"
+                    (click)="saveAddress()"
+                  >
+                    {{ savingAddress() ? 'Saving…' : 'Save address' }}
+                  </button>
+                  @if (editingAddress()) {
+                    <button
+                      type="button"
+                      data-testid="checkout-cancel-edit-address"
+                      class="border-line-strong text-brand-navy flex h-control-2xl w-fit shrink-0 flex-row items-center justify-center rounded-md border px-2xl text-base font-semibold disabled:opacity-50"
+                      [disabled]="savingAddress()"
+                      (click)="cancelEditingAddress()"
+                    >
+                      Cancel
+                    </button>
+                  }
+                </div>
               }
             </div>
 
@@ -304,6 +357,18 @@
                   <span class="text-ink-secondary font-bold tracking-[-0.01875rem]">Stripe</span>
                 </div>
               </div>
+            }
+
+            <!-- WHY: A disabled Pay button with no explanation reads as a broken
+                 page. The address is the one blocker the buyer can clear here,
+                 so it is named rather than left to be inferred. -->
+            @if (address() === null) {
+              <p
+                data-testid="checkout-address-required"
+                class="text-warn-ink bg-warn-bg w-full shrink-0 rounded-md p-3 text-body-sm"
+              >
+                Add a delivery address above before paying — we need somewhere to send your order.
+              </p>
             }
 
             <button

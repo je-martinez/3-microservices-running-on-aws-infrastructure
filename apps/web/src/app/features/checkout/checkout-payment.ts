@@ -2,9 +2,9 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import {
-  LucideCheck,
   LucideChevronLeft,
   LucideCreditCard,
+  LucideDynamicIcon,
   LucideLock,
   LucideRefreshCw,
   LucideShieldCheck,
@@ -13,6 +13,7 @@ import {
 } from '@lucide/angular';
 import { APP_CONFIG } from '../../core/config/app-config';
 import { type Address, toInt } from '../../core/api/types';
+import type { CheckoutStep } from './checkout-steps';
 import { OrdersApi } from '../../core/api/orders-api';
 import { UsersApi } from '../../core/api/users-api';
 import { SessionStore } from '../../core/auth/session-store';
@@ -45,9 +46,9 @@ import type { DevData } from '../../core/dev/dev-fill';
     PhoneField,
     StreetAutocomplete,
     DevFillButton,
-    LucideCheck,
     LucideChevronLeft,
     LucideCreditCard,
+    LucideDynamicIcon,
     LucideLock,
     LucideRefreshCw,
     LucideShieldCheck,
@@ -83,6 +84,51 @@ export class CheckoutPaymentPage {
   protected readonly phoneInput = signal('');
   protected readonly savingAddress = signal(false);
   protected readonly addressError = signal<string | null>(null);
+
+  /**
+   * True while the buyer is correcting an address they already have. Users
+   * stores exactly ONE address per profile (`address Json?`, no addresses
+   * table), so this reveals the same form over the same field rather than
+   * offering to add a second one.
+   */
+  protected readonly editingAddress = signal(false);
+
+  /**
+   * CONTRACT: The form is shown when there is no address OR while editing one.
+   * Deriving the branch from `address()` alone re-renders the saved card the
+   * instant edit mode opens, leaving the buyer no way to change it.
+   */
+  protected readonly showAddressForm = computed(
+    () => this.address() === null || this.editingAddress(),
+  );
+
+  /** The saved address only while the card — not the form — is on show. */
+  protected readonly savedAddressOnShow = computed<Address | null>(() =>
+    this.showAddressForm() ? null : this.address(),
+  );
+
+  /**
+   * CONTRACT: Exactly one step is `current` and none is `complete` before its
+   * information exists. Cart is complete because the buyer reached this page
+   * with payable lines; Payment stays `upcoming` until an address is on file,
+   * mirroring the `canPay` rule rather than restating it.
+   */
+  protected readonly steps = computed<CheckoutStep[]>(() => {
+    const hasAddress = this.address() !== null;
+    return [
+      { label: 'Cart', state: 'complete', icon: 'check' },
+      {
+        label: 'Address',
+        state: hasAddress ? 'complete' : 'current',
+        icon: hasAddress ? 'check' : 'map-pin',
+      },
+      {
+        label: 'Payment',
+        state: hasAddress ? 'current' : 'upcoming',
+        icon: 'credit-card',
+      },
+    ];
+  });
 
   /**
    * CONTRACT: The address a suggestion resolved, held APART from the visible
@@ -153,10 +199,40 @@ export class CheckoutPaymentPage {
   }
 
   /**
+   * CONTRACT: Seed `resolvedAddress` as NULL — the buyer has picked no
+   * suggestion, so a plain edit takes the same heuristic parse a typed address
+   * does. The city/postal join mirrors onAddressSuggested(); splitting it any
+   * other way re-saves an untouched form as city "Santo Domingo 10604".
+   */
+  protected startEditingAddress(): void {
+    const saved = this.address();
+    if (!saved) return;
+
+    this.resolvedAddress.set(null);
+    this.addressError.set(null);
+    this.street.set(saved.line1);
+    this.cityAndPostalCode.set(
+      [saved.city, saved.postalCode].filter((part) => part !== '').join(', '),
+    );
+    this.phoneInput.set(this.phoneNumber() ?? '');
+    this.editingAddress.set(true);
+  }
+
+  /**
+   * Leaves edit mode without writing. The saved address is untouched because
+   * nothing was sent — the form fields are scratch state, not the address.
+   */
+  protected cancelEditingAddress(): void {
+    this.editingAddress.set(false);
+    this.addressError.set(null);
+    this.resolvedAddress.set(null);
+  }
+
+  /**
    * CONTRACT: Store the SessionStore user the response carries, not a locally
    * assembled one. PATCH /users/me answers with the whole profile, and the card
    * re-renders off the session — assembling it here would drift from whatever
-   * the service normalised.
+   * the service normalised. One PATCH covers add and edit alike.
    */
   protected async saveAddress(): Promise<void> {
     if (!this.canSaveAddress()) return;
@@ -171,6 +247,7 @@ export class CheckoutPaymentPage {
         }),
       );
       this.session.setUser(updated);
+      this.editingAddress.set(false);
     } catch (error: unknown) {
       this.addressError.set(authErrorMessage(error));
     } finally {

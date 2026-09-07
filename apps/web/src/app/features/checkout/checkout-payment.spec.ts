@@ -493,4 +493,156 @@ describe('CheckoutPaymentPage', () => {
       false,
     );
   });
+
+  /** The stepper's state per label, read off the rendered `data-*` attributes. */
+  function stepStates(): Record<string, string> {
+    const steps = root().querySelectorAll<HTMLElement>('[data-testid="checkout-steps"] [data-step]');
+    return Object.fromEntries(
+      Array.from(steps).map((step) => [
+        step.dataset['step'] ?? '',
+        step.dataset['state'] ?? '',
+      ]),
+    );
+  }
+
+  /**
+   * CONTRACT: The stepper is DERIVED, never hardcoded. It shipped as a literal
+   * "Cart ✓ — Address ✓ — Payment", so on a profile with no address it asserted
+   * the address step complete while the form below was still asking for one.
+   */
+  it('marks Address current and Payment upcoming while no address is on file', async () => {
+    signIn(null);
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    expect(stepStates()).toEqual({ Cart: 'complete', Address: 'current', Payment: 'upcoming' });
+
+    // The check glyph is what claims completion — Address must not render one.
+    const address = root().querySelector<HTMLElement>('[data-step="Address"]');
+    expect(address?.querySelector('svg')?.getAttribute('data-lucide-name')).not.toBe('check');
+    // Exactly one step is current, so the buyer is never pointed at two places.
+    expect(root().querySelectorAll('[aria-current="step"]')).toHaveLength(1);
+  });
+
+  it('marks Address complete and Payment current once an address is on file', async () => {
+    signIn(ADDRESS);
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    expect(stepStates()).toEqual({ Cart: 'complete', Address: 'complete', Payment: 'current' });
+    expect(root().querySelectorAll('[aria-current="step"]')).toHaveLength(1);
+  });
+
+  /**
+   * CONTRACT: Seeding rejoins city and postal code the way onAddressSuggested()
+   * splits them, so re-saving an untouched form round-trips to the same values
+   * instead of silently rewriting the city as "Santo Domingo 10604".
+   */
+  it('seeds the form from the saved address when editing begins', async () => {
+    signIn(ADDRESS, { phoneNumber: '+1 809 555 0142' });
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    root().querySelector<HTMLButtonElement>('[data-testid="checkout-edit-address"]')?.click();
+    await settle(fixture);
+
+    expect(root().querySelector<HTMLInputElement>('app-street-autocomplete input')?.value).toBe(
+      'Av. Rómulo Betancourt 1204, Apto 5B',
+    );
+    expect(root().querySelector<HTMLInputElement>('app-field input')?.value).toBe(
+      'Santo Domingo, 10604',
+    );
+    expect(root().querySelector<HTMLInputElement>('app-phone-field input')?.value).toBe(
+      '+1 809 555 0142',
+    );
+  });
+
+  /**
+   * CONTRACT: Editing PATCHes the same single `address` field — Users has no
+   * addresses table, so there is no second address to create. One PATCH, and
+   * the card afterwards shows the edited value rather than both.
+   */
+  it('updates the existing address in place rather than creating a second one', async () => {
+    signIn(ADDRESS);
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    root().querySelector<HTMLButtonElement>('[data-testid="checkout-edit-address"]')?.click();
+    await settle(fixture);
+
+    fillField(fixture, 'Street address', 'Calle Duarte 87');
+    fillField(fixture, 'City and postal code', 'Santiago, 51000');
+    root().querySelector<HTMLButtonElement>('[data-testid="checkout-save-address"]')?.click();
+    await settle(fixture);
+
+    const patch = await awaitRequest(fixture, controller, '/v1/users/me');
+    expect(patch.request.method).toBe('PATCH');
+    expect(patch.request.body).toEqual({
+      address: {
+        line1: 'Calle Duarte 87',
+        line2: null,
+        city: 'Santiago',
+        state: '',
+        postalCode: '51000',
+        country: 'DO',
+      },
+    });
+
+    const saved: Address = { ...ADDRESS, line1: 'Calle Duarte 87', city: 'Santiago', postalCode: '51000' };
+    patch.flush({ ...USER, fullName: 'Jose Martinez', address: saved });
+    await settle(fixture);
+
+    // Back to the card, showing the edited address — and only one PATCH went out.
+    expect(root().querySelector('[data-testid="checkout-edit-address"]')).not.toBeNull();
+    expect(root().querySelector('[data-testid="checkout-address"]')?.textContent).toContain(
+      'Calle Duarte 87',
+    );
+    expect(root().textContent).not.toContain('Rómulo Betancourt');
+    controller.verify();
+  });
+
+  it('leaves the saved address untouched when an edit is cancelled', async () => {
+    signIn(ADDRESS);
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    root().querySelector<HTMLButtonElement>('[data-testid="checkout-edit-address"]')?.click();
+    await settle(fixture);
+    fillField(fixture, 'Street address', 'Calle Duarte 87');
+
+    root().querySelector<HTMLButtonElement>('[data-testid="checkout-cancel-edit-address"]')?.click();
+    await settle(fixture);
+
+    expect(TestBed.inject(SessionStore).user()?.address).toEqual(ADDRESS);
+    expect(root().querySelector('[data-testid="checkout-address"]')?.textContent).toContain(
+      'Av. Rómulo Betancourt 1204',
+    );
+    expect(root().textContent).not.toContain('Calle Duarte 87');
+    // Nothing was sent: verify() reports any PATCH as unexpected.
+    controller.verify();
+  });
+
+  /** The disabled Pay button states its one clearable blocker, not nothing. */
+  it('names the missing address as the reason paying is blocked', async () => {
+    signIn(null);
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    expect(root().querySelector<HTMLButtonElement>('[data-testid="checkout-pay"]')?.disabled).toBe(
+      true,
+    );
+    expect(root().querySelector('[data-testid="checkout-address-required"]')?.textContent).toContain(
+      'Add a delivery address',
+    );
+
+    signIn(ADDRESS);
+    await settle(fixture);
+    expect(root().querySelector('[data-testid="checkout-address-required"]')).toBeNull();
+  });
 });
