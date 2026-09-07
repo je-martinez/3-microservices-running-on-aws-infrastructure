@@ -526,7 +526,7 @@ services:
         # would be public. false by default: with no key the proxy answers 503,
         # and offering an autocomplete that always fails is worse than not
         # offering it. Turn both on together.
-        NG_APP_GEOCODE_ENABLED: "false"
+        NG_APP_GEOCODE_ENABLED: "true"
     networks: [3mrai-network]
     ports:
       # Host 3004 → container 80 (nginx). 3000/3001/3002 are taken by users,

@@ -54,7 +54,7 @@
         "serve": {
           "builder": "@ngx-env/builder:dev-server",
           "options": {
-            "proxyConfig": "proxy.conf.json"
+            "proxyConfig": "proxy.conf.mjs"
           },
           "configurations": {
             "production": {
