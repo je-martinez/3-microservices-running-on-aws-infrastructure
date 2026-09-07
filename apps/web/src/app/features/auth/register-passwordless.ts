@@ -5,6 +5,8 @@ import { firstValueFrom } from 'rxjs';
 
 import { ApiError } from '../../core/http/api-client';
 import { UsersApi } from '../../core/api/users-api';
+import { DevFillButton } from '../../core/dev/dev-fill-button';
+import type { DevData } from '../../core/dev/dev-fill';
 import { Field } from '../../shared/ui/field';
 import { ButtonPrimary } from '../../shared/ui/button-primary';
 import { ButtonGhost } from '../../shared/ui/button-ghost';
@@ -29,6 +31,7 @@ const EMAIL_TAKEN = 'An account already exists for that email. Try signing in in
     Field,
     ButtonPrimary,
     ButtonGhost,
+    DevFillButton,
   ],
   templateUrl: './register-passwordless.html',
 })
@@ -46,6 +49,13 @@ export class RegisterPasswordlessPage {
   protected readonly canSubmit = computed(
     () => this.accepted() && this.fullName().trim().length > 0 && this.email().trim().length > 0,
   );
+
+  /** Dev-only: fills the inputs this form owns. See dev-fill.ts. */
+  protected devFill(data: DevData): void {
+    this.fullName.set(data.fullName);
+    this.email.set(data.email);
+    this.accepted.set(true);
+  }
 
   protected async submit(): Promise<void> {
     if (this.submitting()) return;

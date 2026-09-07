@@ -1,0 +1,12 @@
+@if (visible) {
+  <button
+    type="button"
+    data-testid="dev-fill"
+    title="Dev only — fill this form with generated data"
+    class="text-ink-muted hover:text-brand-navy inline-flex items-center gap-base text-body-sm"
+    (click)="fill()"
+  >
+    <svg lucideWand class="size-4"></svg>
+    <span>{{ busy() ? 'Filling…' : 'Fill (dev)' }}</span>
+  </button>
+}

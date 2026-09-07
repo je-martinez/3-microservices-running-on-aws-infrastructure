@@ -4,6 +4,8 @@ import { LucideCheck } from '@lucide/angular';
 import { firstValueFrom } from 'rxjs';
 
 import { UsersApi } from '../../core/api/users-api';
+import { DevFillButton } from '../../core/dev/dev-fill-button';
+import type { DevData } from '../../core/dev/dev-fill';
 import { Field } from '../../shared/ui/field';
 import { ButtonPrimary } from '../../shared/ui/button-primary';
 import { ButtonGhost } from '../../shared/ui/button-ghost';
@@ -22,7 +24,7 @@ const EMAIL_TAKEN = 'An account already exists for that email. Try signing in in
  */
 @Component({
   selector: 'app-register-password',
-  imports: [RouterLink, LucideCheck, Field, ButtonPrimary, ButtonGhost],
+  imports: [RouterLink, LucideCheck, Field, ButtonPrimary, ButtonGhost, DevFillButton],
   templateUrl: './register-password.html',
 })
 export class RegisterPasswordPage {
@@ -45,6 +47,14 @@ export class RegisterPasswordPage {
       this.email().trim().length > 0 &&
       this.password().length >= MIN_PASSWORD_LENGTH,
   );
+
+  /** Dev-only: fills the three inputs this form owns. See dev-fill.ts. */
+  protected devFill(data: DevData): void {
+    this.fullName.set(data.fullName);
+    this.email.set(data.email);
+    this.password.set(data.password);
+    this.accepted.set(true);
+  }
 
   protected async submit(): Promise<void> {
     if (this.submitting()) return;

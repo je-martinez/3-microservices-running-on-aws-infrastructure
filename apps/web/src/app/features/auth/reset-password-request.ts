@@ -4,6 +4,8 @@ import { LucideArrowLeft } from '@lucide/angular';
 import { firstValueFrom } from 'rxjs';
 
 import { UsersApi } from '../../core/api/users-api';
+import { DevFillButton } from '../../core/dev/dev-fill-button';
+import type { DevData } from '../../core/dev/dev-fill';
 import { Field } from '../../shared/ui/field';
 import { ButtonPrimary } from '../../shared/ui/button-primary';
 import { PasswordResetStore } from './password-reset';
@@ -27,7 +29,7 @@ const RESET_CODE_LENGTH = 6;
  */
 @Component({
   selector: 'app-reset-password-request',
-  imports: [RouterLink, LucideArrowLeft, Field, ButtonPrimary],
+  imports: [RouterLink, LucideArrowLeft, Field, ButtonPrimary, DevFillButton],
   templateUrl: './reset-password-request.html',
 })
 export class ResetPasswordRequestPage {
@@ -50,6 +52,11 @@ export class ResetPasswordRequestPage {
    * account-enumeration oracle client-side, where it reads just as easily.
    * See [[2026-09-04-web-gateway-integration-design]]
    */
+  /** Dev-only: fills the inputs this form owns. See dev-fill.ts. */
+  protected devFill(data: DevData): void {
+    this.email.set(data.email);
+  }
+
   protected async submit(): Promise<void> {
     if (this.submitting()) return;
     const email = this.email().trim();

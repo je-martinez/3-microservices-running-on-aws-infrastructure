@@ -3,6 +3,8 @@ import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 
 import { UsersApi } from '../../core/api/users-api';
+import { DevFillButton } from '../../core/dev/dev-fill-button';
+import type { DevData } from '../../core/dev/dev-fill';
 import { Field } from '../../shared/ui/field';
 import { ButtonPrimary } from '../../shared/ui/button-primary';
 import { ButtonGhost } from '../../shared/ui/button-ghost';
@@ -17,7 +19,7 @@ import { WRONG_CREDENTIALS, authErrorMessage } from './auth-errors';
  */
 @Component({
   selector: 'app-login-password',
-  imports: [RouterLink, Field, ButtonPrimary, ButtonGhost],
+  imports: [RouterLink, Field, ButtonPrimary, ButtonGhost, DevFillButton],
   templateUrl: './login-password.html',
 })
 export class LoginPasswordPage {
@@ -29,6 +31,12 @@ export class LoginPasswordPage {
   protected readonly showPassword = signal(false);
   protected readonly submitting = signal(false);
   protected readonly error = signal<string | null>(null);
+
+  /** Dev-only: fills the inputs this form owns. See dev-fill.ts. */
+  protected devFill(data: DevData): void {
+    this.email.set(data.email);
+    this.password.set(data.password);
+  }
 
   protected async submit(): Promise<void> {
     if (this.submitting()) return;

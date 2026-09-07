@@ -4,6 +4,8 @@ import { LucideArrowLeft } from '@lucide/angular';
 import { firstValueFrom } from 'rxjs';
 
 import { UsersApi } from '../../core/api/users-api';
+import { DevFillButton } from '../../core/dev/dev-fill-button';
+import type { DevData } from '../../core/dev/dev-fill';
 import { Field } from '../../shared/ui/field';
 import { ButtonPrimary } from '../../shared/ui/button-primary';
 import { ButtonGhost } from '../../shared/ui/button-ghost';
@@ -20,7 +22,7 @@ const NO_ACCOUNT = 'We could not start a sign-in code for that email.';
  */
 @Component({
   selector: 'app-login-passwordless',
-  imports: [RouterLink, LucideArrowLeft, Field, ButtonPrimary, ButtonGhost],
+  imports: [RouterLink, LucideArrowLeft, Field, ButtonPrimary, ButtonGhost, DevFillButton],
   templateUrl: './login-passwordless.html',
 })
 export class LoginPasswordlessPage {
@@ -31,6 +33,11 @@ export class LoginPasswordlessPage {
   protected readonly email = signal('');
   protected readonly submitting = signal(false);
   protected readonly error = signal<string | null>(null);
+
+  /** Dev-only: fills the inputs this form owns. See dev-fill.ts. */
+  protected devFill(data: DevData): void {
+    this.email.set(data.email);
+  }
 
   protected async submit(): Promise<void> {
     if (this.submitting()) return;

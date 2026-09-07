@@ -22,6 +22,8 @@ import { CartLine } from '../../shared/ui/cart-line';
 import { Field } from '../../shared/ui/field';
 import { PhoneField } from '../../shared/ui/phone-field';
 import { StreetAutocomplete } from '../../shared/ui/street-autocomplete';
+import { DevFillButton } from '../../core/dev/dev-fill-button';
+import type { DevData } from '../../core/dev/dev-fill';
 
 /**
  * Design: `Checkout — Payment` (`DOtD2`, 1440) / `Mobile — Checkout Payment`
@@ -42,6 +44,7 @@ import { StreetAutocomplete } from '../../shared/ui/street-autocomplete';
     Field,
     PhoneField,
     StreetAutocomplete,
+    DevFillButton,
     LucideCheck,
     LucideChevronLeft,
     LucideCreditCard,
@@ -135,6 +138,18 @@ export class CheckoutPaymentPage {
 
   constructor() {
     void this.cart.load();
+  }
+
+  /**
+   * Dev-only: fills the address form. `resolvedAddress` stays null on purpose —
+   * the generated city and postal code go through the same heuristic parse a
+   * hand-typed address does, so this exercises the real path.
+   * See dev-fill.ts
+   */
+  protected devFill(data: DevData): void {
+    this.street.set(data.street);
+    this.cityAndPostalCode.set(data.cityAndPostalCode);
+    this.phoneInput.set(data.phoneNumber);
   }
 
   /**
