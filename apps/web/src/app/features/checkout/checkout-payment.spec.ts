@@ -3,6 +3,7 @@ import 'fake-indexeddb/auto';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { Router, provideRouter } from '@angular/router';
 import {
   LucideBuilding2,
@@ -21,6 +22,7 @@ import {
 import { CheckoutPaymentPage } from './checkout-payment';
 import { USER, awaitRequest, fillField, settle } from '../auth/testing';
 import { SessionStore } from '../../core/auth/session-store';
+import { StreetAutocomplete } from '../../shared/ui/street-autocomplete';
 import type { Address, User } from '../../core/api/types';
 import {
   EMPTY_CART,
@@ -290,7 +292,10 @@ describe('CheckoutPaymentPage', () => {
     await settle(fixture);
 
     expect(root().textContent).toContain('Add a delivery address');
-    expect(root().querySelectorAll('app-field')).toHaveLength(2);
+    // The design's three fields: street (autocomplete variant), city+postal
+    // code, phone. No fourth input — nothing in the `.pen` has a frame for one.
+    expect(root().querySelectorAll('app-street-autocomplete')).toHaveLength(1);
+    expect(root().querySelectorAll('app-field')).toHaveLength(1);
     expect(root().querySelectorAll('app-phone-field')).toHaveLength(1);
   });
 
@@ -354,6 +359,97 @@ describe('CheckoutPaymentPage', () => {
     expect(root().querySelector('[data-testid="checkout-address"]')?.textContent).toContain(
       'Calle Duarte 87',
     );
+  });
+
+  /**
+   * CONTRACT: A chosen suggestion's city/state/postal code are KNOWN and go to
+   * the service verbatim — the heuristic parse of the city field never touches
+   * them. It has nowhere to put `state`, so routing a suggestion through it
+   * silently drops the province on every autocompleted address.
+   */
+  it('sends a chosen suggestion structurally, keeping the typed house number', async () => {
+    signIn(null);
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    const autocomplete = fixture.debugElement.query(By.directive(StreetAutocomplete));
+    autocomplete.componentInstance.addressSelected.emit({
+      line1: 'Avenida Winston Churchill',
+      line2: null,
+      city: 'Santo Domingo',
+      state: 'Distrito Nacional',
+      postalCode: '10148',
+      country: 'DO',
+    } satisfies Address);
+    await settle(fixture);
+
+    // The visible fields show what will be saved, so the buyer can correct it.
+    expect(root().querySelector<HTMLInputElement>('app-street-autocomplete input')?.value).toBe(
+      'Avenida Winston Churchill',
+    );
+    expect(root().querySelector<HTMLInputElement>('app-field input')?.value).toBe(
+      'Santo Domingo, 10148',
+    );
+
+    // Adding the house number keeps the resolution — the whole point of a
+    // STREET autocomplete against a dataset with no house numbers.
+    fillField(fixture, 'Street address', 'Avenida Winston Churchill 42');
+
+    root().querySelector<HTMLButtonElement>('[data-testid="checkout-save-address"]')?.click();
+    await settle(fixture);
+
+    const patch = await awaitRequest(fixture, controller, '/v1/users/me');
+    expect(patch.request.body).toEqual({
+      address: {
+        line1: 'Avenida Winston Churchill 42',
+        line2: null,
+        city: 'Santo Domingo',
+        state: 'Distrito Nacional',
+        postalCode: '10148',
+        country: 'DO',
+      },
+    });
+    patch.flush({ ...USER, address: ADDRESS });
+    await settle(fixture);
+  });
+
+  /** Correcting the city by hand returns to the heuristic parse, dropping `state`. */
+  it('falls back to the heuristic parse once the city field is edited', async () => {
+    signIn(null);
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    const autocomplete = fixture.debugElement.query(By.directive(StreetAutocomplete));
+    autocomplete.componentInstance.addressSelected.emit({
+      line1: 'Avenida Winston Churchill',
+      line2: null,
+      city: 'Santo Domingo',
+      state: 'Distrito Nacional',
+      postalCode: '10148',
+      country: 'DO',
+    } satisfies Address);
+    await settle(fixture);
+
+    fillField(fixture, 'City and postal code', 'Santiago, 51000');
+
+    root().querySelector<HTMLButtonElement>('[data-testid="checkout-save-address"]')?.click();
+    await settle(fixture);
+
+    const patch = await awaitRequest(fixture, controller, '/v1/users/me');
+    expect(patch.request.body).toEqual({
+      address: {
+        line1: 'Avenida Winston Churchill',
+        line2: null,
+        city: 'Santiago',
+        state: '',
+        postalCode: '51000',
+        country: 'DO',
+      },
+    });
+    patch.flush({ ...USER, address: ADDRESS });
+    await settle(fixture);
   });
 
   /**

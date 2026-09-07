@@ -21,6 +21,7 @@ import { authErrorMessage } from '../auth/auth-errors';
 import { CartLine } from '../../shared/ui/cart-line';
 import { Field } from '../../shared/ui/field';
 import { PhoneField } from '../../shared/ui/phone-field';
+import { StreetAutocomplete } from '../../shared/ui/street-autocomplete';
 
 /**
  * Design: `Checkout — Payment` (`DOtD2`, 1440) / `Mobile — Checkout Payment`
@@ -40,6 +41,7 @@ import { PhoneField } from '../../shared/ui/phone-field';
     CartLine,
     Field,
     PhoneField,
+    StreetAutocomplete,
     LucideCheck,
     LucideChevronLeft,
     LucideCreditCard,
@@ -78,6 +80,14 @@ export class CheckoutPaymentPage {
   protected readonly phoneInput = signal('');
   protected readonly savingAddress = signal(false);
   protected readonly addressError = signal<string | null>(null);
+
+  /**
+   * CONTRACT: The address a suggestion resolved, held APART from the visible
+   * fields. Round-tripping it through `cityAndPostalCode` hands it back to the
+   * heuristic parse, which has nowhere to put `state` and drops the province
+   * from every autocompleted address. Null while the buyer types freehand.
+   */
+  protected readonly resolvedAddress = signal<Address | null>(null);
 
   /**
    * The flag's pre-typing default only. Once a digit is typed the NUMBER
@@ -154,12 +164,52 @@ export class CheckoutPaymentPage {
   }
 
   /**
+   * CONTRACT: Mirror the resolved city and postal code into the VISIBLE field
+   * as well as into `resolvedAddress`. The design has three inputs and no frame
+   * for a fourth, so a value saved but never shown is a value the buyer cannot
+   * correct — and `canSaveAddress()` would stay false with the field empty.
+   */
+  protected onAddressSuggested(address: Address): void {
+    this.resolvedAddress.set(address);
+    this.street.set(address.line1);
+    this.cityAndPostalCode.set(
+      [address.city, address.postalCode].filter((part) => part !== '').join(', '),
+    );
+  }
+
+  /**
+   * CONTRACT: Editing the street KEEPS the resolved city/state/postal code —
+   * appending the house number is the expected next action, since no Dominican
+   * suggestion carries one. Only clearing the street drops the resolution,
+   * because a blank field means the buyer is starting over.
+   */
+  protected onStreetTyped(value: string): void {
+    if (value.trim() === '') this.resolvedAddress.set(null);
+    this.street.set(value);
+  }
+
+  /**
+   * CONTRACT: Editing city/postal code by hand DROPS the resolution and returns
+   * to the heuristic parse. Keeping it would save the suggestion's city while
+   * the buyer looks at the one they just corrected.
+   */
+  protected onCityAndPostalCodeTyped(value: string): void {
+    this.resolvedAddress.set(null);
+    this.cityAndPostalCode.set(value);
+  }
+
+  /**
    * WHY: The design collects city and postal code in ONE field, while the API
-   * stores them apart. The last comma-separated part is the postal code when it
-   * looks like one; otherwise the whole value is the city and the code is left
-   * empty rather than guessed.
+   * stores them apart. A chosen suggestion knows them exactly, so its values
+   * win; otherwise the last comma-separated part is the postal code when it
+   * looks like one, and the code is left empty rather than guessed.
    */
   private parseAddress(): Address {
+    const resolved = this.resolvedAddress();
+    // The street still comes from the field: the buyer adds the house number
+    // the suggestion has no data for.
+    if (resolved) return { ...resolved, line1: this.street().trim() };
+
     const parts = this.cityAndPostalCode()
       .split(',')
       .map((part) => part.trim())

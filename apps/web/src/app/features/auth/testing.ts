@@ -78,14 +78,16 @@ export const USER: User = {
 /**
  * Types into the labelled field, the way a user would.
  *
- * CONTRACT: Match BOTH `app-field` and `app-phone-field`. Querying only
- * `app-field` throws "No field labelled Phone number" the moment a screen
+ * CONTRACT: Match EVERY `Field` variant, not just `app-field`. Querying only
+ * the base one throws "No field labelled Phone number" the moment a screen
  * adopts the phone variant — a red test reporting a missing field that is in
- * fact rendered. See [[2026-09-05-phone-input-country-flag]]
+ * fact rendered. Add each new variant here as it appears.
+ * See [[2026-09-05-phone-input-country-flag]]
  */
 export function fillField(fixture: ComponentFixture<unknown>, label: string, value: string): void {
   const root = fixture.nativeElement as HTMLElement;
-  const field = Array.from(root.querySelectorAll('app-field, app-phone-field')).find((element) =>
+  const variants = 'app-field, app-phone-field, app-street-autocomplete';
+  const field = Array.from(root.querySelectorAll(variants)).find((element) =>
     element.querySelector('span')?.textContent?.trim().startsWith(label),
   );
   if (!field) throw new Error(`No field labelled "${label}"`);

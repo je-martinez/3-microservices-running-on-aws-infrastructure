@@ -1,0 +1,61 @@
+<label class="flex h-fit w-full flex-col gap-2">
+  <span class="text-ink-primary text-sm font-semibold">{{ label() }}</span>
+
+  <!-- `relative` anchors the absolutely-positioned list to the input box, not
+       to the card — without it the dropdown lands at the page's top-left. -->
+  <span class="relative block w-full">
+    <span
+      class="h-field border-line bg-surface-white flex w-full items-center gap-xl rounded-md border px-3xl"
+    >
+      @if (icon(); as iconName) {
+        <svg [lucideIcon]="iconName" class="text-ink-muted shrink-0 text-title"></svg>
+      }
+      <input
+        type="text"
+        autocomplete="street-address"
+        class="text-ink-primary placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-base outline-none"
+        [placeholder]="placeholder()"
+        [value]="value()"
+        [attr.role]="enabled ? 'combobox' : null"
+        [attr.aria-autocomplete]="enabled ? 'list' : null"
+        [attr.aria-expanded]="enabled ? (open() ? 'true' : 'false') : null"
+        [attr.aria-controls]="enabled ? 'street-suggestions' : null"
+        [attr.aria-activedescendant]="activeId()"
+        (input)="onInput($any($event.target).value)"
+        (keydown)="onKeydown($event)"
+        (blur)="dismiss()"
+      />
+    </span>
+
+    @if (open()) {
+      <ul
+        id="street-suggestions"
+        role="listbox"
+        data-testid="street-suggestions"
+        class="border-line bg-surface-white absolute inset-x-0 top-full z-50 mt-xs flex max-h-64 flex-col items-start justify-start gap-hairline overflow-y-auto rounded-md border p-2 shadow-[0px_12px_32px_0px_#1A1A2E29]"
+      >
+        @for (suggestion of suggestions(); track suggestion.id; let i = $index) {
+          <li class="w-full shrink-0">
+            <!-- WHY: `mousedown`, not `click` — the input's `blur` fires first
+                 on a click and closes the list, so the click never lands. -->
+            <button
+              type="button"
+              role="option"
+              [id]="optionId(i)"
+              [attr.aria-selected]="i === activeIndex()"
+              class="text-ink-primary flex h-fit w-full flex-row items-center justify-start rounded-lg px-3 py-md text-left text-body-lg"
+              [class.bg-surface-subtle]="i === activeIndex()"
+              (mousedown)="$event.preventDefault(); select(suggestion)"
+            >
+              {{ suggestion.label }}
+            </button>
+          </li>
+        }
+      </ul>
+    }
+  </span>
+
+  @if (help(); as helpText) {
+    <span class="text-ink-secondary text-body-sm">{{ helpText }}</span>
+  }
+</label>
