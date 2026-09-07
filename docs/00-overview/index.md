@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-09-04
+updated: 2026-09-06
 tags:
   - type/spec
   - area/shared
@@ -96,6 +96,7 @@ related:
   - "[[2026-09-04-a-retrying-url-assertion-passes-mid-redirect]]"
   - "[[2026-09-04-a-concurrency-test-can-fail-by-starvation]]"
   - "[[2026-09-04-a-build-time-env-var-absent-at-build-time-is-a-live-lookup]]"
+  - "[[2026-09-06-address-geocoding-proxy-design]]"
 ---
 
 # 3MRAI — Index
@@ -293,6 +294,7 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-08-27-tracking-go-migration-design]] — Design for migrating Tracking from Python/FastAPI to Go/Gin: a faithful layer-by-layer port (Gin + sqlc + golang-migrate, see [[ADR-0021-tracking-go-gin-sqlc-stack]]) run alongside the untouched Python service against the same database, a `tracking-go-impl` agent fanned out across 4 waves (foundations, platform, endpoints, a standalone TestMode wave fixing a request-context-cancellation bug invisible to line-by-line translation), OTel instrumentation moving from Python's zero-code auto-instrumentation into explicit Go code, and a four-part closing gate (three test layers, empty `openapi.yaml` diff, measured Gatling comparison, observability parity) before the Python folder is deleted; per [[tracking-service-design]], [[testmode-in-process-no-durable-scheduler]], [[user-id-vs-cognito-sub-ownership-key]], [[two-api-keys-two-trust-domains]], [[ADR-0019-distributed-tracing-opentelemetry]].
 - [[2026-08-17-web-app-foundation-design]] — Design of `apps/web/`: an Angular 21 + NgRx + Tailwind 4 web app laying out all 18 designed screens (36 responsive frames) from `assets/web-app/web-app.pen`, the `pencil-design-extraction` skill/agent that mines it, and typed phase-1 fixtures derived from the three services' `openapi.yaml` with no gateway calls yet; see [[pencil-design-extraction]] for the extraction convention this design established.
 - [[2026-09-04-web-gateway-integration-design]] — Design for phase 2 of `apps/web/`: replacing the phase-1 fixtures with real gateway calls via same-origin nginx/`ng serve` proxying (not CORS, which neither the gateway nor nginx configures), an encrypted-IndexedDB token store with a non-extractable `CryptoKey`, a shared/deduped refresh interceptor, and a server-backed cart; per [[2026-08-17-web-app-foundation-design]], [[money-representation]], [[env-files]], [[testing]], [[git-workflow]]. Milestone plan: [[web-gateway-integration-milestone]].
+- [[2026-09-06-address-geocoding-proxy-design]] — Design for a same-origin Geoapify geocoding proxy in `apps/web/nginx.conf` (JE-252): the API key stays server-side and is appended by nginx, the proxy fails CLOSED with a 503 when the key is unset (Geoapify answers 401 and still burns a free-tier request), and `NG_APP_GEOCODE_ENABLED`/`GEOAPIFY_API_KEY` are separate build-time/runtime switches that must both be on. Selective `/geocode/`-only access logging meters the 3,000/day free tier and surfaced a stack-wide OpenObserve ingestion gap (JE-253); per [[2026-09-04-web-gateway-integration-design]], [[env-files]], [[openobserve-cloudwatch]].
 
 ---
 
@@ -409,3 +411,4 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[2026-09-04-a-retrying-url-assertion-passes-mid-redirect]]
 - [[2026-09-04-a-concurrency-test-can-fail-by-starvation]]
 - [[2026-09-04-a-build-time-env-var-absent-at-build-time-is-a-live-lookup]]
+- [[2026-09-06-address-geocoding-proxy-design]]

@@ -4,7 +4,7 @@ type: plan
 area: shared
 status: draft
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-07
 tags:
   - type/plan
   - area/shared
@@ -29,6 +29,7 @@ related:
   - "[[testing]]"
   - "[[angular-component-authoring]]"
   - "[[env-files]]"
+  - "[[2026-09-06-address-geocoding-proxy-design]]"
 ---
 
 # Web Gateway Integration Milestone
@@ -67,7 +68,7 @@ phase 1 laid out.
 
 | # | Issue | Task | Deliverable | Spec note |
 |---|---|---|---|---|
-| 1 | [JE-237](https://linear.app/je-martinez/issue/JE-237) | nginx + `ng serve` proxy wiring | `apps/web/nginx.conf` as an envsubst template, `apps/web/proxy.conf.json` (gitignored) + `apps/web/proxy.conf.example.json` (committed contract), `NG_APP_API_GATEWAY_URL`, `make env-file` wiring | [[2026-09-04-web-gateway-integration-design]] |
+| 1 | [JE-237](https://linear.app/je-martinez/issue/JE-237) | nginx + `ng serve` proxy wiring | `apps/web/nginx.conf` as an envsubst template, `apps/web/proxy.conf.mjs` (gitignored, originally JSON — converted to an ES module 2026-09-07) + `apps/web/proxy.conf.example.mjs` (committed contract), `NG_APP_API_GATEWAY_URL`, `make env-file` wiring | [[2026-09-04-web-gateway-integration-design]] |
 | 2 | [JE-238](https://linear.app/je-martinez/issue/JE-238) | `core/api/types.ts` move + extension | `fixtures/api-types.ts` moved to `core/api/types.ts`, extended with `CartDto`, `CartLineDto`, `Money` | [[2026-09-04-web-gateway-integration-design]] |
 | 3 | [JE-239](https://linear.app/je-martinez/issue/JE-239) | Encrypted token store | `core/auth/token-store.ts` — AES-GCM with a non-extractable `CryptoKey` in IndexedDB | [[2026-09-04-web-gateway-integration-design]] |
 | 4 | [JE-240](https://linear.app/je-martinez/issue/JE-240) | HTTP client + auth interceptor | `core/http/api-client.ts`, `core/auth/auth-interceptor.ts` — needs 1, 2 | [[2026-09-04-web-gateway-integration-design]] |
@@ -209,5 +210,8 @@ Per [[phase-c-review-flow]], this milestone has two stop points, matching the bl
 - [[testing]] — the three-layer testing convention adapted for the web app's Vitest + gateway
   Playwright specs.
 - [[angular-component-authoring]] — component conventions the new `core/` code follows.
-- [[env-files]] — `.env.local.web` and `apps/web/proxy.conf.json` generation this milestone
-  established.
+- [[env-files]] — `.env.local.web` and `apps/web/proxy.conf.mjs` generation this milestone
+  established (the proxy started as JSON, converted to an ES module 2026-09-07 by
+  [[2026-09-06-address-geocoding-proxy-design]]).
+- [[2026-09-06-address-geocoding-proxy-design]] — converted this milestone's `ng serve` proxy
+  from JSON to an ES module to serve `/geocode/` alongside `/v1`.
