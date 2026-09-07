@@ -57,8 +57,37 @@ export class StreetAutocomplete {
   /** Closed after a selection or Escape, until the next keystroke reopens it. */
   private readonly dismissed = signal(false);
 
+  /**
+   * The query the pipeline still owes an answer for, or null when it owes none.
+   *
+   * CONTRACT: Set it ONLY for a query the pipeline really emits for, and clear
+   * it ONLY in the single subscribe. A boolean flipped at each call site spins
+   * forever on the two paths that emit nothing — a query under
+   * MIN_QUERY_LENGTH, and a repeat distinctUntilChanged swallows.
+   * See [[2026-09-06-address-geocoding-proxy-design]]
+   */
+  private readonly pendingQuery = signal<string | null>(null);
+
+  /**
+   * WHY: "No matches" is a positive fact, not the absence of suggestions — an
+   * untouched field holds an empty list too, and would otherwise announce a
+   * failed search before the buyer has typed anything.
+   */
+  private readonly emptyQuery = signal<string | null>(null);
+
+  /** The last query handed downstream — mirrors distinctUntilChanged's memory. */
+  private lastAcceptedQuery: string | null = null;
+
+  protected readonly pending = computed(() => this.pendingQuery() !== null);
+
+  /** Distinct from "searching": the lookup finished and found nothing. */
+  protected readonly empty = computed(() => this.emptyQuery() !== null);
+
   protected readonly open = computed(
-    () => this.enabled && !this.dismissed() && this.suggestions().length > 0,
+    () =>
+      this.enabled &&
+      !this.dismissed() &&
+      (this.pending() || this.empty() || this.suggestions().length > 0),
   );
 
   protected readonly activeId = computed(() => {
@@ -88,6 +117,12 @@ export class StreetAutocomplete {
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe((suggestions) => {
+        // WHY: The sole clearing point. switchMap emits once per surviving
+        // query, and GeocodeApi.suggest turns every failure into `[]`, so a
+        // 503, a network drop and an empty result all land right here.
+        const query = this.pendingQuery();
+        this.pendingQuery.set(null);
+        this.emptyQuery.set(query !== null && suggestions.length === 0 ? query : null);
         this.suggestions.set(suggestions);
         this.activeIndex.set(NO_ACTIVE_INDEX);
       });
@@ -97,10 +132,28 @@ export class StreetAutocomplete {
     return `street-option-${String(index)}`;
   }
 
+  /**
+   * CONTRACT: Pending starts HERE, not inside switchMap. The 300ms debounce is
+   * part of the dead interval the buyer perceives; flagging it only once the
+   * request goes out leaves every keystroke burst looking frozen for exactly as
+   * long as it does with no indicator at all.
+   */
   protected onInput(raw: string): void {
     this.valueChange.emit(raw);
     this.dismissed.set(false);
-    this.queries.next(raw.trim());
+
+    const query = raw.trim();
+    // WHY: Both guards replicate what the pipeline does with this query, so
+    // pending is set only when an emission is genuinely coming. A repeat query
+    // keeps whatever pending state the earlier one left, rather than starting a
+    // second wait that nothing downstream will ever end.
+    if (query !== this.lastAcceptedQuery) {
+      this.lastAcceptedQuery = query;
+      this.emptyQuery.set(null);
+      this.pendingQuery.set(query.length < MIN_QUERY_LENGTH ? null : query);
+    }
+
+    this.queries.next(query);
   }
 
   /**
@@ -114,9 +167,13 @@ export class StreetAutocomplete {
       this.dismiss();
       return;
     }
-    if (!this.open()) return;
-
+    // CONTRACT: Gate on the SUGGESTION COUNT, not on `open()`. The list also
+    // opens with zero options to show "Searching…", and an ArrowDown there
+    // computes `% 0` — activeIndex becomes NaN and every option silently stops
+    // highlighting for the rest of the session.
     const count = this.suggestions().length;
+    if (!this.open() || count === 0) return;
+
     switch (event.key) {
       case 'ArrowDown':
         event.preventDefault();
@@ -155,8 +212,16 @@ export class StreetAutocomplete {
     this.dismiss();
   }
 
+  /**
+   * CONTRACT: Clear pending as well as the highlight. An in-flight lookup still
+   * resolves after a dismiss, but nothing may keep spinning over a closed list
+   * — and `lastAcceptedQuery` stays as it is, because the pipeline's own
+   * distinctUntilChanged would swallow that repeat too.
+   */
   protected dismiss(): void {
     this.dismissed.set(true);
+    this.pendingQuery.set(null);
+    this.emptyQuery.set(null);
     this.activeIndex.set(NO_ACTIVE_INDEX);
   }
 }

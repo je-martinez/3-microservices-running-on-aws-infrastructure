@@ -21,10 +21,25 @@
         [attr.aria-expanded]="enabled ? (open() ? 'true' : 'false') : null"
         [attr.aria-controls]="enabled ? 'street-suggestions' : null"
         [attr.aria-activedescendant]="activeId()"
+        [attr.aria-busy]="enabled ? (pending() ? 'true' : 'false') : null"
         (input)="onInput($any($event.target).value)"
         (keydown)="onKeydown($event)"
         (blur)="dismiss()"
       />
+
+      <!-- The slot is always in the layout and only its contents toggle, so the
+           input keeps its width whether or not a lookup is in flight. -->
+      @if (enabled) {
+        <span class="size-icon-md shrink-0" data-testid="street-lookup-slot">
+          @if (pending()) {
+            <span
+              data-testid="street-lookup-spinner"
+              aria-hidden="true"
+              class="border-line border-t-ink-muted block size-full animate-spin rounded-full border-2"
+            ></span>
+          }
+        </span>
+      }
     </span>
 
     @if (open()) {
@@ -34,6 +49,17 @@
         data-testid="street-suggestions"
         class="border-line bg-surface-white absolute inset-x-0 top-full z-50 mt-xs flex max-h-64 flex-col items-start justify-start gap-hairline overflow-y-auto rounded-md border p-2 shadow-[0px_12px_32px_0px_#1A1A2E29]"
       >
+        <!-- WHY: One row, two texts. "Searching…" and "No matches" are different
+             answers, and an empty dropdown renders them identically. -->
+        @if (pending() || empty()) {
+          <li
+            class="text-ink-muted w-full shrink-0 px-3 py-md text-body-sm"
+            data-testid="street-lookup-status"
+          >
+            {{ pending() ? 'Searching…' : 'No matches' }}
+          </li>
+        }
+
         @for (suggestion of suggestions(); track suggestion.id; let i = $index) {
           <li class="w-full shrink-0">
             <!-- WHY: `mousedown`, not `click` — the input's `blur` fires first

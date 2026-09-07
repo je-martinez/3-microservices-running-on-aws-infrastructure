@@ -114,6 +114,22 @@ describe('StreetAutocomplete', () => {
     return Array.from(root().querySelectorAll('[role="option"]'));
   }
 
+  function spinner(): HTMLElement | null {
+    return root().querySelector('[data-testid="street-lookup-spinner"]');
+  }
+
+  function statusRow(): HTMLElement | null {
+    return root().querySelector('[data-testid="street-lookup-status"]');
+  }
+
+  function statusText(): string | undefined {
+    return statusRow()?.textContent?.trim();
+  }
+
+  function busy(): string | null {
+    return input().getAttribute('aria-busy');
+  }
+
   /** Types a query, flushes the debounce and answers with the given features. */
   function suggest(text: string, features: unknown[]): void {
     type(text);
@@ -146,6 +162,20 @@ describe('StreetAutocomplete', () => {
       expect(input().getAttribute('role')).toBeNull();
       expect(input().getAttribute('aria-expanded')).toBeNull();
       expect(root().querySelector('[data-testid="street-suggestions"]')).toBeNull();
+    });
+
+    /** No pipeline exists, so nothing could ever clear an indicator shown here. */
+    it('renders no loading indicator at all, not even its reserved slot', () => {
+      type('Avenida Winston');
+
+      expect(spinner()).toBeNull();
+      expect(root().querySelector('[data-testid="street-lookup-slot"]')).toBeNull();
+      expect(statusRow()).toBeNull();
+      expect(busy()).toBeNull();
+
+      settle();
+      expect(spinner()).toBeNull();
+      expect(geocodeRequests()).toHaveLength(0);
     });
 
     it('still propagates what the buyer types', () => {
@@ -372,11 +402,218 @@ describe('StreetAutocomplete', () => {
       expect(input().disabled).toBe(false);
     });
 
-    it('renders no list for an empty result set', () => {
-      suggest('Avenida', []);
+    /**
+     * CONTRACT: "Searching…" and "No matches" must not look alike. They were
+     * the same empty dropdown before, which is precisely why the field read as
+     * dead while a lookup was in flight.
+     */
+    it('tells a finished empty search apart from one still running', () => {
+      type('Avenida');
+      fixture.detectChanges();
+      expect(statusText()).toBe('Searching…');
 
+      settle();
+      geocodeRequests()[0].flush({ features: [] });
+      fixture.detectChanges();
+
+      expect(statusText()).toBe('No matches');
+      expect(options()).toHaveLength(0);
+      expect(busy()).toBe('false');
+    });
+
+    it('shows no status row before the buyer has typed anything', () => {
+      expect(statusRow()).toBeNull();
       expect(root().querySelector('[data-testid="street-suggestions"]')).toBeNull();
-      expect(input().getAttribute('aria-expanded')).toBe('false');
+      expect(busy()).toBe('false');
+    });
+
+    describe('loading feedback', () => {
+      /**
+       * CONTRACT: THE point of this indicator. The 300ms debounce is part of
+       * the interval that reads as a dead control, so pending must be visible
+       * before any request exists — asserting it only after `settle()` would
+       * pass against the exact behaviour the buyer complained about.
+       */
+      it('shows the spinner immediately on typing, before the debounce elapses', () => {
+        type('Avenida');
+        fixture.detectChanges();
+
+        expect(spinner()).not.toBeNull();
+        expect(busy()).toBe('true');
+        expect(statusText()).toBe('Searching…');
+        expect(geocodeRequests()).toHaveLength(0);
+
+        settle();
+        geocodeRequests()[0].flush({ features: [] });
+      });
+
+      it('clears the spinner once results arrive', () => {
+        suggest('Avenida', [CHURCHILL]);
+
+        expect(spinner()).toBeNull();
+        expect(busy()).toBe('false');
+        expect(statusRow()).toBeNull();
+        expect(options()).toHaveLength(1);
+      });
+
+      /** Case 1: `of([])` short-circuits, so a spinner set here never clears. */
+      it('never spins below the minimum query length, and issues no request', () => {
+        type('Av');
+        fixture.detectChanges();
+        expect(spinner()).toBeNull();
+        expect(busy()).toBe('false');
+
+        settle();
+        expect(spinner()).toBeNull();
+        expect(geocodeRequests()).toHaveLength(0);
+      });
+
+      it('stops spinning when the query is cut back below the minimum', () => {
+        type('Avenida');
+        fixture.detectChanges();
+        expect(spinner()).not.toBeNull();
+
+        type('Av');
+        fixture.detectChanges();
+
+        expect(spinner()).toBeNull();
+        expect(busy()).toBe('false');
+        settle();
+        expect(geocodeRequests()).toHaveLength(0);
+      });
+
+      /**
+       * CONTRACT: Case 2 — a superseded request emits NOTHING. The spinner must
+       * stay up rather than flicker off and on, because a newer lookup for what
+       * the buyer is typing right now is still running.
+       */
+      it('keeps spinning across a superseded request and clears on the newer one', () => {
+        type('Avenida');
+        settle();
+        const first = geocodeRequests()[0];
+        expect(spinner()).not.toBeNull();
+
+        type('Calle El Conde');
+        fixture.detectChanges();
+        expect(spinner()).not.toBeNull();
+
+        // The supersession lands only once the NEW query clears the debounce
+        // and reaches switchMap; the spinner must span that gap unbroken.
+        settle();
+        expect(first.cancelled).toBe(true);
+        expect(spinner()).not.toBeNull();
+
+        geocodeRequests()[0].flush({ features: [CONDE] });
+        fixture.detectChanges();
+
+        expect(spinner()).toBeNull();
+        expect(busy()).toBe('false');
+        expect(options()).toHaveLength(1);
+      });
+
+      /**
+       * CONTRACT: Case 3 — distinctUntilChanged swallows a repeat, so nothing
+       * downstream ever emits for it. A pending flag started on that keystroke
+       * would spin forever over a list that is already correct.
+       */
+      it('does not strand the spinner when a repeat query is swallowed', () => {
+        suggest('Avenida', [CHURCHILL]);
+        expect(spinner()).toBeNull();
+
+        // Trims back to the same "Avenida", so the pipeline emits nothing.
+        type('Avenida ');
+        fixture.detectChanges();
+        settle();
+
+        expect(geocodeRequests()).toHaveLength(0);
+        expect(spinner()).toBeNull();
+        expect(busy()).toBe('false');
+        expect(options()).toHaveLength(1);
+      });
+
+      it.each([
+        ['a 503 from the disabled proxy', 503],
+        ['a 500 from the upstream', 500],
+      ])('clears the spinner on %s', (_name, status) => {
+        type('Avenida');
+        settle();
+        expect(spinner()).not.toBeNull();
+
+        geocodeRequests()[0].flush(
+          { error: 'geocoding_disabled' },
+          { status, statusText: 'Error' },
+        );
+        fixture.detectChanges();
+
+        expect(spinner()).toBeNull();
+        expect(busy()).toBe('false');
+        expect(statusText()).toBe('No matches');
+        expect(root().querySelector('[role="alert"]')).toBeNull();
+      });
+
+      it('clears the spinner on a network error', () => {
+        type('Avenida');
+        settle();
+        expect(spinner()).not.toBeNull();
+
+        geocodeRequests()[0].error(new ProgressEvent('error'));
+        fixture.detectChanges();
+
+        expect(spinner()).toBeNull();
+        expect(busy()).toBe('false');
+        expect(input().disabled).toBe(false);
+      });
+
+      it('clears the spinner on Escape while a lookup is in flight', () => {
+        type('Avenida');
+        settle();
+        expect(spinner()).not.toBeNull();
+
+        input().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+        fixture.detectChanges();
+
+        expect(spinner()).toBeNull();
+        expect(busy()).toBe('false');
+        expect(statusRow()).toBeNull();
+
+        geocodeRequests()[0].flush({ features: [CHURCHILL] });
+      });
+
+      it('leaves no spinner behind after a suggestion is chosen', () => {
+        suggest('Avenida', [CHURCHILL]);
+        options()[0].dispatchEvent(
+          new MouseEvent('mousedown', { bubbles: true, cancelable: true }),
+        );
+        fixture.detectChanges();
+
+        expect(spinner()).toBeNull();
+        expect(busy()).toBe('false');
+        expect(statusRow()).toBeNull();
+      });
+
+      /**
+       * CONTRACT: The open list carries zero options while searching, so an
+       * ArrowDown would compute `% 0`. NaN in activeIndex kills highlighting
+       * for good, and nothing about it is visible at build time.
+       */
+      it('survives arrow keys pressed while the list shows only "Searching…"', () => {
+        type('Avenida');
+        fixture.detectChanges();
+
+        input().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
+        input().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp' }));
+        fixture.detectChanges();
+
+        settle();
+        geocodeRequests()[0].flush({ features: [CHURCHILL, CONDE] });
+        fixture.detectChanges();
+
+        input().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
+        fixture.detectChanges();
+
+        expect(options()[0].getAttribute('aria-selected')).toBe('true');
+        expect(input().getAttribute('aria-activedescendant')).toBe(options()[0].id);
+      });
     });
 
     /** See geocode-api.spec.ts for the mapping; asserted here as a leak check. */
