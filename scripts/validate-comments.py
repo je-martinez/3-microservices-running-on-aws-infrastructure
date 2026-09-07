@@ -57,6 +57,11 @@ LANG_BY_SUFFIX = {
     ".jsx": "typescript",
     ".py": "python",
     ".go": "go",
+    # CONTRACT: YAML counts. docker-compose.yml carried 25-line comment blocks
+    # for months because no suffix mapped here, so the gate never opened the
+    # file — a budget nothing measures is not a budget.
+    ".yml": "yaml",
+    ".yaml": "yaml",
 }
 
 # One p90 gate for every language: >12 lines is a hard error (see the Length
@@ -69,6 +74,8 @@ THRESHOLDS = {
     "typescript": {"density_warn": 0.50, "density_min_lines": 60},
     "python": {"density_warn": 0.45, "density_min_lines": 80},
     "go": {"density_warn": 0.50, "density_min_lines": 60},
+    # Config is declarative and legitimately needs more prose per line than code.
+    "yaml": {"density_warn": 0.60, "density_min_lines": 80},
 }
 
 # Blocks in 7..12 lines are allowed only when load-bearing AND referenced.
@@ -321,7 +328,12 @@ def _scan_python_comment(line: str, state: dict) -> str | None:
 
 def is_comment_line(line: str, lang: str, state: dict) -> bool:
     """Record the extracted comment body in state and report whether it exists."""
-    if lang == "python":
+    if lang == "yaml":
+        # YAML has only `#` line comments — no block or docstring form, so the
+        # Python scanner's triple-quote handling would misread a quoted value.
+        stripped = line.strip()
+        body = stripped[1:].strip() if stripped.startswith("#") else None
+    elif lang == "python":
         body = _scan_python_comment(line, state)
     elif lang in ("hcl", "typescript", "csharp", "go"):
         body = _scan_c_like_comment(line, lang, state)
