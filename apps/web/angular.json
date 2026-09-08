@@ -67,7 +67,10 @@
           "defaultConfiguration": "development"
         },
         "test": {
-          "builder": "@ngx-env/builder:unit-test"
+          "builder": "@ngx-env/builder:unit-test",
+          "options": {
+            "setupFiles": ["src/test-setup.ts"]
+          }
         },
         "lint": {
           "builder": "@angular-eslint/builder:lint",
