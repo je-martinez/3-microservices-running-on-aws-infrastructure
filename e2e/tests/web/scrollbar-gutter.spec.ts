@@ -1,5 +1,5 @@
-// Phase-1 web verification: the page does not change width when a route gains
-// or loses its scrollbar.
+// The page does not change width when a route gains or loses its scrollbar, and
+// the strip `scrollbar-gutter: stable` reserves is painted rather than left bare.
 //
 // CONTRACT: This file launches its OWN HEADED browser instead of using the
 // `page` fixture. Headless Chromium draws OVERLAY scrollbars, which occupy no
@@ -11,8 +11,9 @@
 // `::-webkit-scrollbar` does NOT restore the layout either — it paints one
 // without reserving space. See [[testing]]
 
-import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
+import { expect, test, type Browser, type Page } from "@playwright/test";
 import { launchWebBrowser } from "../../support/web-browser";
+import { signInAsNewUser } from "../../support/web-session";
 
 /**
  * `/profile` fits 1440x900 exactly and has no scrollbar; every other route
@@ -102,7 +103,17 @@ test.afterAll(async () => {
  * vacuous result this whole file exists to avoid, so the condition is measured
  * and named. See [[testing]]
  */
-async function gutterOrSkip(page: Page): Promise<number> {
+async function gutterOrSkip(page: Page, baseURL: string): Promise<number> {
+  // CONTRACT: Sign in before measuring anything. Both routes sit behind
+  // authGuard, so an anonymous visit renders the login form — which fits the
+  // viewport, reserves no gutter, and would make this guard skip the whole file
+  // against a perfectly working app.
+  await signInAsNewUser(page, baseURL);
+  return settledGutterOnOrders(page);
+}
+
+/** Measures the reserved gutter on the one route that reliably overflows. */
+async function settledGutterOnOrders(page: Page): Promise<number> {
   await page.goto(TALL_ROUTE);
 
   // CONTRACT: Wait for the route's CONTENT, not just `goto`. Angular has not
@@ -121,13 +132,138 @@ async function gutterOrSkip(page: Page): Promise<number> {
   return gutter;
 }
 
+/**
+ * The colours `.app-scroll` can paint, as the compositor writes them.
+ * `--color-surface-white` and `--color-surface-body` in `apps/web/src/styles.css`.
+ */
+const WHITE = "255,255,255";
+const GREY = "244,244,245";
+
+/**
+ * The colour actually PAINTED at `x` on the given row, read out of a screenshot.
+ *
+ * CONTRACT: Read a screenshot pixel; `getComputedStyle` cannot answer this.
+ * `scrollbar-gutter: stable` reserves the strip OUTSIDE the content box —
+ * `.app-scroll` measures 1440 wide with a 1425 content box — so no descendant
+ * occupies it and no element's computed style describes what is drawn there.
+ * Decoded in-page via `createImageBitmap` rather than a PNG library, so this
+ * needs no dependency the suite does not already have.
+ * See [[angular-component-authoring]]
+ */
+async function paintedColorAt(page: Page, x: number, y: number): Promise<string> {
+  const png = await page.screenshot();
+  return page.evaluate(
+    async ([bytes, px, py]) => {
+      const blob = new Blob([new Uint8Array(bytes as number[])], { type: "image/png" });
+      const bitmap = await createImageBitmap(blob);
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("no 2d context — cannot read the screenshot");
+      context.drawImage(bitmap, 0, 0);
+      // The screenshot is in DEVICE pixels; CSS coordinates scale by the ratio.
+      const scale = bitmap.width / window.innerWidth;
+      const [r, g, b] = context.getImageData(
+        Math.round((px as number) * scale),
+        Math.round((py as number) * scale),
+        1,
+        1,
+      ).data;
+      return `${r},${g},${b}`;
+    },
+    [[...png], x, y] as [number[], number, number],
+  );
+}
+
+/**
+ * Filters home down to a catalogue short enough not to overflow, and returns
+ * the number of products left.
+ *
+ * CONTRACT: The gutter is only visible where NO scrollbar fills it, so this test
+ * needs a route that fits the viewport. Home filtered by the header search is
+ * exactly the case the grey band was reported on, and it is the only short
+ * variant of a WHITE page in the app — `/profile` and `/orders` are grey, where a
+ * grey strip is correct and proves nothing. See [[angular-component-authoring]]
+ */
+async function shrinkHomeUntilItFits(page: Page): Promise<number> {
+  await expect(page.getByRole("heading", { level: 1, name: /new arrivals/i })).toBeVisible();
+  const firstName = (
+    await page.locator("app-product-card h3").first().innerText()
+  ).trim();
+
+  // CONTRACT: By ROLE. `getByLabel("Search products")` is ambiguous — the mobile
+  // magnifier button carries the same aria-label and Playwright fails strict mode.
+  await page.getByRole("searchbox", { name: "Search products" }).fill(firstName);
+  await expect(page.locator("app-product-card")).not.toHaveCount(0);
+  await settledLayout(page);
+
+  const remaining = await page.locator("app-product-card").count();
+  const overflows = await page.evaluate(() => {
+    const scroller = document.querySelector(".app-scroll");
+    return scroller ? scroller.scrollHeight > scroller.clientHeight : true;
+  });
+  expect(
+    overflows,
+    `home still overflows with ${remaining} product(s) matching "${firstName}", so the strip ` +
+      "down its right edge is a real scrollbar rather than the reserved gutter — this test " +
+      "cannot tell the two apart. Narrow the search or raise the viewport.",
+  ).toBe(false);
+
+  return remaining;
+}
+
+/**
+ * The regression `c6c2e6e` fixed: on a white page that does not overflow, the
+ * reserved strip showed as a grey band down the right edge.
+ */
+test("the reserved gutter is painted the page's colour on a route that does not scroll", async ({
+  baseURL,
+}) => {
+  const page = await browser.newPage({ viewport: VIEWPORT, baseURL });
+
+  try {
+    // `/orders` first, only to learn how wide this box's gutter is; the
+    // assertion itself is on home, which sign-in already reached.
+    await signInAsNewUser(page, baseURL!);
+    const gutter = await settledGutterOnOrders(page);
+    await page.goto("/");
+    const remaining = await shrinkHomeUntilItFits(page);
+
+    // Mid-strip, below the header: the gutter spans the scroller's right edge,
+    // and the reserved width is `gutter` px wide ending at the viewport edge.
+    const x = VIEWPORT.width - Math.ceil(gutter / 2);
+    const y = Math.round(VIEWPORT.height / 2);
+
+    const strip = await paintedColorAt(page, x, y);
+    // The page's own body, well inside the content box, as the reference.
+    const body = await paintedColorAt(page, Math.round(VIEWPORT.width / 2), y);
+
+    expect(
+      strip,
+      `home shows ${remaining} product(s) and does not scroll, yet the ${gutter}px strip at ` +
+        `x=${x} is painted rgb(${strip}) while the page beside it is rgb(${body}). ` +
+        `White is ${WHITE} and the body grey is ${GREY}. \`scrollbar-gutter: stable\` reserves ` +
+        "that strip OUTSIDE the content box, so only `.app-scroll` itself can paint it — it " +
+        "needs `background-color: var(--page-bg, ...)` and the page needs `data-page-bg`",
+    ).toBe(body);
+
+    expect(
+      strip,
+      `home is a white page but its reserved gutter is painted rgb(${strip}) rather than ` +
+        `rgb(${WHITE}) — \`--page-bg\` did not reach \`.app-scroll\`, so the \`data-page-bg="white"\` ` +
+        "hook on the page or the `:has()` rule that carries it up is missing",
+    ).toBe(WHITE);
+  } finally {
+    await page.close();
+  }
+});
+
 test("the content width is identical across a /profile -> /orders navigation", async ({
   baseURL,
 }) => {
   const page = await browser.newPage({ viewport: VIEWPORT, baseURL });
 
   try {
-    const gutter = await gutterOrSkip(page);
+    const gutter = await gutterOrSkip(page, baseURL!);
 
     await page.goto(SHORT_ROUTE);
     await expect(page.getByRole("heading", { level: 1, name: /profile/i })).toBeVisible();
@@ -148,8 +284,18 @@ test("the content width is identical across a /profile -> /orders navigation", a
       `the page is ${short}px wide on ${SHORT_ROUTE} and ${tall}px on ${TALL_ROUTE}, a ` +
         `${Math.abs(tall - short)}px jump on navigation. ${SHORT_ROUTE} fits the viewport and ` +
         `${TALL_ROUTE} does not, so the ${gutter}px scrollbar appears and narrows the page — ` +
-        "`html { scrollbar-gutter: stable }` in apps/web/src/styles.css reserves it on both",
+        "`scrollbar-gutter: stable` on `.app-scroll` in apps/web/src/styles.css reserves it on both",
     ).toBeLessThan(1);
+
+    // Both equal is satisfied by both being 1440 — which is what a dropped
+    // gutter looks like on a box with overlay scrollbars. Pin the value: the
+    // content box is the viewport minus the reserved strip on BOTH routes.
+    expect(
+      short,
+      `both routes agree at ${short}px, but a ${gutter}px gutter is reserved, so the content ` +
+        `box must be ${VIEWPORT.width - gutter}px. Reading the full ${VIEWPORT.width}px means ` +
+        "nothing is reserved and the two routes match only because neither has a scrollbar",
+    ).toBe(VIEWPORT.width - gutter);
   } finally {
     await page.close();
   }
@@ -165,7 +311,7 @@ test("a right-anchored popover lands in the same place on both routes", async ({
   const page = await browser.newPage({ viewport: VIEWPORT, baseURL });
 
   try {
-    await gutterOrSkip(page);
+    await gutterOrSkip(page, baseURL!);
 
     const rightEdges: Record<string, number> = {};
     for (const { route, heading } of [
@@ -212,7 +358,7 @@ for (const [control, icon] of [
     const page = await browser.newPage({ viewport: VIEWPORT, baseURL });
 
     try {
-      await gutterOrSkip(page);
+      await gutterOrSkip(page, baseURL!);
 
       // The route WITHOUT a scrollbar: if opening a panel were to lengthen the
       // document, this is where a new scrollbar would appear.
@@ -257,6 +403,9 @@ test("no reserved strip on a viewport where nothing scrolls", async ({ baseURL }
   const page = await browser.newPage({ viewport, baseURL });
 
   try {
+    // Both routes sit behind authGuard; the login form is not what this measures.
+    await signInAsNewUser(page, baseURL!);
+
     for (const { route, heading } of [
       { route: SHORT_ROUTE, heading: /profile/i },
       { route: TALL_ROUTE, heading: /my orders/i },

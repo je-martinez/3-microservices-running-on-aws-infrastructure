@@ -5,73 +5,17 @@
 // folder. `global-setup.ts` skips its health checks whenever every selected
 // project is a web one, so a stack that is down surfaces here as a login form
 // that does nothing rather than as a named prerequisite failure — which is why
-// `signIn` below fails with the status and body the gateway actually returned.
+// `registerWebUser` fails with the status and body the gateway actually returned.
 // See [[testing]]
 
-import { expect, request, test, type Browser, type Page } from "@playwright/test";
+import { expect, test, type Browser } from "@playwright/test";
 import { launchWebBrowser } from "../../support/web-browser";
-import { makeUser } from "../../support/chance-factory";
+import { registerWebUser as registerUser, signIn } from "../../support/web-session";
 
 const VIEWPORT = { width: 1440, height: 900 };
 
 /** Every route behind `authGuard` in `apps/web/src/app/app.routes.ts`. */
 const GUARDED_ROUTES = ["/", "/orders", "/profile", "/checkout"] as const;
-
-interface TestUser {
-  readonly email: string;
-  readonly password: string;
-}
-
-/**
- * Registers a user through the web app's OWN origin, so the account is created
- * over exactly the path the browser will later authenticate on.
- *
- * CONTRACT: Send `X-E2E-Source` — it is what tags the row for `global-teardown`
- * to delete. Users honors it only under its own `E2E_TESTING_ENABLED`, so the
- * header cannot tag anything in a production runtime. Verified live: the
- * register response comes back with `tags: ["E2E Source"]`. See [[testing]]
- */
-async function registerUser(baseURL: string): Promise<TestUser> {
-  const user = makeUser();
-  const ctx = await request.newContext({
-    baseURL,
-    extraHTTPHeaders: {
-      "X-E2E-Source": "true",
-      "x-e2e-run-id": process.env.E2E_RUN_ID ?? "",
-    },
-  });
-  try {
-    const res = await ctx.post("/v1/users/register", {
-      data: { email: user.email, password: user.password, fullName: user.fullName },
-    });
-    expect(
-      res.status(),
-      `register through the web app's own origin failed: ${res.status()} ${await res.text()}. ` +
-        "The nginx `/v1` proxy in front of the app is what makes this same-origin — a 404 here " +
-        "means the request never reached the gateway.",
-    ).toBe(201);
-  } finally {
-    await ctx.dispose();
-  }
-  return { email: user.email, password: user.password };
-}
-
-/**
- * Fills and submits the sign-in form, then waits for the app to land home.
- *
- * CONTRACT: Click by ROLE AND NAME. The shared `ButtonPrimary` renders
- * `type="button"`, so neither `form button` nor `button[type=submit]` finds it —
- * `form button` matches the password field's show/hide toggle instead and the
- * form silently never submits. See [[angular-component-authoring]]
- */
-async function signIn(page: Page, user: TestUser): Promise<void> {
-  await page.goto("/login");
-  await expect(page.getByRole("heading", { level: 1, name: /welcome back/i })).toBeVisible();
-
-  await page.getByLabel("Email").fill(user.email);
-  await page.getByLabel("Password").fill(user.password);
-  await page.getByRole("button", { name: /^sign in$/i }).click();
-}
 
 let browser: Browser;
 
@@ -90,16 +34,10 @@ test("signing in through the gateway lands the user in the app", async ({ baseUR
   const page = await browser.newPage({ viewport: VIEWPORT, baseURL });
 
   try {
+    // `signIn` already asserts the app left /login. Home's <h1> alone is
+    // satisfied by an unauthenticated render, so assert a product too — the
+    // catalogue is the first thing a real token has to buy.
     await signIn(page, user);
-
-    // The URL alone is satisfied by a blank shell, and home's <h1> alone is
-    // satisfied by an unauthenticated render — assert both, plus a product,
-    // because the catalogue is the first thing a real token has to buy.
-    await expect(
-      page,
-      "the app did not leave /login. A 401 means the credentials never reached Users; " +
-        "staying put with no error means the Sign in button is not wired to submit()",
-    ).toHaveURL(/\/$/);
 
     await expect(page.getByRole("heading", { level: 1, name: /new arrivals/i })).toBeVisible();
 

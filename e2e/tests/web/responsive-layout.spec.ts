@@ -9,6 +9,7 @@
 // luck and misses the overflow entirely. See [[testing]]
 
 import { expect, test, type Page } from "@playwright/test";
+import { signInAsNewUser } from "../../support/web-session";
 
 /**
  * CONTRACT: 320 and 768 are load-bearing and may not be dropped. 320 is the
@@ -29,13 +30,16 @@ interface Box {
 }
 
 /**
+ * CONTRACT: Sign in first — `/profile` is behind authGuard, and the login form
+ * has neither header nor identity card to measure.
  * CONTRACT: Wait for the HEADER, not just `goto`. Angular has not painted when
  * `goto` resolves, and an unrendered document's widest element is `<html>` at
- * exactly the viewport width — so every assertion below passes against any
- * layout bug at all. This is the false PASS that let the badge overlap and the
- * header overflow both ship. See [[testing]]
+ * exactly the viewport width, so every assertion below passes against any
+ * layout bug. This is the false PASS that let the badge overlap ship.
+ * See [[testing]]
  */
-async function gotoProfile(page: Page): Promise<void> {
+async function gotoProfile(page: Page, baseURL: string): Promise<void> {
+  await signInAsNewUser(page, baseURL);
   await page.goto("/profile");
   await expect(page.locator("app-app-header header")).toBeVisible();
   await expect(page.getByRole("heading", { level: 1, name: /profile/i })).toBeVisible();
@@ -144,9 +148,9 @@ for (const width of WIDTHS) {
    * clean at 768px against the broken layout, so only a geometric
    * intersection detects it. See [[testing]]
    */
-  test(`the member badge does not overlap the email at ${width}px`, async ({ page }) => {
+  test(`the member badge does not overlap the email at ${width}px`, async ({ page, baseURL }) => {
     await page.setViewportSize({ width, height: HEIGHT });
-    await gotoProfile(page);
+    await gotoProfile(page, baseURL!);
 
     const email = await boxOf(page, emailLine(page));
     const badge = await boxOf(page, memberBadge(page));
@@ -170,9 +174,9 @@ for (const width of WIDTHS) {
    * `scrollWidth` grows, so a document- or scroller-level overflow check reads
    * clean against the bug. See [[testing]]
    */
-  test(`the email text is not clipped at ${width}px`, async ({ page }) => {
+  test(`the email text is not clipped at ${width}px`, async ({ page, baseURL }) => {
     await page.setViewportSize({ width, height: HEIGHT });
-    await gotoProfile(page);
+    await gotoProfile(page, baseURL!);
 
     const clipped = await emailLine(page).evaluate((el) => el.scrollWidth - el.clientWidth);
 
@@ -189,9 +193,9 @@ for (const width of WIDTHS) {
    * header sits OUTSIDE that scroller, so the overflow it is responsible for
    * never reaches the container that check measures. See [[testing]]
    */
-  test(`nothing overflows the viewport at ${width}px`, async ({ page }) => {
+  test(`nothing overflows the viewport at ${width}px`, async ({ page, baseURL }) => {
     await page.setViewportSize({ width, height: HEIGHT });
-    await gotoProfile(page);
+    await gotoProfile(page, baseURL!);
 
     const widest = await page.evaluate(() => {
       let worst = { right: 0, description: "nothing" };
