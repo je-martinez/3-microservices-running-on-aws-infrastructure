@@ -9,14 +9,10 @@ vi.stubEnv("DOCDB_HOST", "docdb-test");
 vi.stubEnv("DOCDB_USERNAME", "root");
 vi.stubEnv("DOCDB_PASSWORD", "secret");
 vi.stubEnv("SES_FROM_ADDRESS", "noreply@example.com");
-// The renderer reads this to build every <img src>, so it lands INSIDE the
-// snapshot below. The value must therefore be the one the committed snapshot was
-// recorded with, not this file's usual http://assets.test/bucket placeholder.
-//
-// It was previously inherited by accident: sender.integration.test.ts sets this
-// same value with `??=` on the shared process env, so whether the snapshot
-// matched depended on FILE EXECUTION ORDER. Stubbing it explicitly here is what
-// makes the snapshot deterministic on its own.
+// CONTRACT: Stub this explicitly, and with the value the committed snapshot was
+// recorded against — the renderer builds every <img src> from it, so it lands
+// INSIDE the snapshot. Inheriting it from another suite's `??=` on the shared
+// process env makes a match depend on FILE EXECUTION ORDER.
 vi.stubEnv("ASSETS_BASE_URL", "http://localhost:4566/post-3mrai-local-post-assets");
 // No metric may leave this suite: the missing-template case below emits the
 // permanent-failure counter, and with this unset it would try to reach a real
@@ -62,17 +58,13 @@ describe("email catalog", () => {
     expect(html).toMatchSnapshot();
   });
 
-  // The gateway E2E signs in with a real OTP, which it can only do by scraping
-  // the code out of the delivered message body — `e2e/tests/gateway/otp-flow.spec.ts`
-  // strips the tags and takes the first `\b\d{6}\b`. This reproduces that exact
-  // extraction here, in the fast suite.
-  //
-  // Without it the property has NO permanent guard: the template renders the
-  // code twice on purpose (one contiguous sentence for machines, six boxed
-  // digits for humans), the duplication reads as redundant, and deleting the
-  // sentence breaks nothing visible — the emails still look right and the E2E
-  // suite silently loses its ability to log in. The six boxes alone can never
-  // satisfy the regex, since markup sits between every digit.
+  // CONTRACT: The template renders the OTP twice on purpose — one contiguous
+  // sentence for machines, six boxed digits for humans. Do NOT delete the
+  // sentence as redundant: the gateway E2E signs in by scraping the first
+  // `\b\d{6}\b` out of the body, and the boxes cannot satisfy that regex
+  // because markup sits between every digit. Nothing else guards this — the
+  // emails still look right and the E2E suite silently loses its login.
+  // See [[testing]]
   it("renders the OTP code as contiguous text the gateway E2E can extract", async () => {
     const html = await renderTemplate("auth-otp", catalog["auth-otp"].sampleProps);
 

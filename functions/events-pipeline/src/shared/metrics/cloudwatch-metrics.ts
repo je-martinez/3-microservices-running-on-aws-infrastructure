@@ -31,10 +31,8 @@ function getClient(): CloudWatchClient {
 /**
  * Publish one metric datum. NEVER throws.
  *
- * A metrics failure must not fail the record that produced it: the email was
- * already sent (or already failed for its own reason), and turning a metrics
- * outage into a TransientError would make SQS redeliver a message whose email
- * work is done — sending the customer a duplicate.
+ * CONTRACT: A metrics outage must not become a TransientError — SQS would
+ * redeliver a message whose email is already sent, duplicating it.
  */
 export async function publishMetric(
   name: string,
@@ -49,31 +47,15 @@ export async function publishMetric(
   // span at all rather than a zero-duration one implying a call was made.
   if (!env.METRICS_ENABLED) return;
 
-  // Manual CLIENT span, same bundling reason as the DocumentDB and SES ones: the
-  // AWS SDK is inlined by esbuild, so nothing auto-instruments this.
-  //
-  // It was the LAST hole in `process_record`. With the DocumentDB transitions and
-  // the template render instrumented, a ~44ms gap still sat between `ses
-  // SendEmail` and `ws publish` — this call, twice: publishEmailMetric emits a
-  // per-template series AND an ALL rollup, so one "publish a metric" is two round
-  // trips. Two spans is the honest rendering of that, and it is why the gap was
-  // wider than a single PutMetricData would explain.
-  //
-  // NOT withClientSpan: that helper rethrows, and this function's entire contract
-  // is that it never does. A metric failure must not fail the record, so the span
-  // records the failure and the function still returns normally — the span status
-  // reports what happened to the CALL, not to the caller.
-  // The metric name is IN the span name, not only in the attribute below. A
-  // waterfall renders names: `publishEmailMetric` emits two data points per
-  // email (a per-template series and an ALL rollup), so a record showed two
-  // identical `cloudwatch PutMetricData` bars and telling them apart — or
-  // knowing what either one published — took a click into the attributes. Same
-  // reasoning as `documentdb updateOne <STATUS>`.
-  //
-  // The metric name alone was not enough: both of those publishes carry the SAME
-  // metric, so they still rendered identically and the pair kept reading as a
-  // duplicated call. `spanLabel` appends what actually differs — the EmailType —
-  // which is the last step of the same idea, not a new one.
+  // CONTRACT: Do NOT switch this to `withClientSpan`. That helper rethrows, and
+  // this function's contract is that it never does — a metric failure would then
+  // fail a record whose email already went out. The span reports what happened
+  // to the CALL, not to the caller.
+
+  // WHY: The metric name and `spanLabel` go IN the span name — a waterfall
+  // renders names, and publishEmailMetric emits two data points per email (a
+  // per-template series and the ALL rollup) that otherwise draw as two identical
+  // bars. Manual span: esbuild inlines the AWS SDK, so nothing auto-instruments.
   await pipelineTracer.startActiveSpan(
     spanLabel === undefined
       ? `cloudwatch PutMetricData ${name}`
@@ -85,9 +67,8 @@ export async function publishMetric(
         "rpc.service": "CloudWatch",
         "rpc.method": "PutMetricData",
         "metric.name": name,
-        // Queryable form of the same distinction the span name now carries: a
-        // name is for reading a waterfall, an attribute is for filtering a
-        // dashboard, and neither should require parsing the other.
+        // WHY: The queryable form of what the span name carries — a name reads
+        // a waterfall, an attribute filters a dashboard.
         ...(dimensions.EmailType === undefined
           ? {}
           : { "metric.email_type": dimensions.EmailType }),
@@ -110,10 +91,8 @@ export async function publishMetric(
         );
         span.setStatus({ code: SpanStatusCode.OK });
       } catch (err) {
-        // Swallowed on purpose — see the function docstring. Only the message
-        // reaches the log: metric names and dimensions here are low-cardinality
-        // labels from our own code, never PII. The same string is safe on the
-        // span for the same reason.
+        // Swallowed on purpose — see the docstring. Safe to log: metric names
+        // and dimensions are low-cardinality labels from our own code, never PII.
         span.setStatus({
           code: SpanStatusCode.ERROR,
           message: err instanceof Error ? err.message : String(err),
@@ -135,11 +114,9 @@ export async function publishMetric(
 
 /**
  * Publish a per-type series AND the ALL rollup.
- *
- * The rollup is a SEPARATE published series, not a query-time aggregate: Floci
- * does not aggregate across dimensions, so a dimensionless query for the total
- * returns an empty result with StatusCode "Complete" — a silent zero, not an
- * error.
+ * WORKAROUND(local): The rollup is published as its own series — Floci does not
+ * aggregate across dimensions and answers a dimensionless total with an empty
+ * result and StatusCode "Complete" (a silent zero, not an error).
  */
 export async function publishEmailMetric(
   name: string,

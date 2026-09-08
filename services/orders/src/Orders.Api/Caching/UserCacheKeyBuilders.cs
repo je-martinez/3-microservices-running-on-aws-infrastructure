@@ -7,24 +7,13 @@ namespace Orders.Api.Caching;
 /// The <see cref="CacheKeyBuilder"/> implementations for the three per-user reads.
 /// </summary>
 /// <remarks>
-/// <para>
-/// Every one of them returns <c>null</c> — "do not cache this request" — when either
-/// identifier is missing. That is not defensive padding: <c>CallerContextMiddleware</c>
-/// stamps the internal id on every authenticated request but deliberately SWALLOWS every
-/// non-cancellation failure while doing so, so Users being down (or an unknown sub, which
-/// makes <c>CurrentCaller.ResolveInternalUserIdAsync</c> throw <c>UnknownUserException</c>)
-/// leaves a perfectly authenticated caller with a null <see cref="ICurrentCaller.ResolvedInternalUserId"/>.
-/// Building a key anyway would put an empty segment where <c>user_id</c> belongs — and
-/// every unresolvable caller would then share that ONE key. Declining costs a cache miss;
-/// not declining serves one user's cart to another.
-/// </para>
-/// <para>
-/// None of these calls <see cref="ICurrentCaller.ResolveInternalUserIdAsync"/>. They run on
-/// the HIT path, where the entire point is to avoid the network; a resolving key builder
-/// would reintroduce the gRPC call the cache exists to remove.
-/// <see cref="ICurrentCaller.ResolvedInternalUserId"/> is the non-triggering view for
-/// exactly this.
-/// </para>
+/// CONTRACT: Return <c>null</c> when either identifier is missing. Users being down leaves an
+/// authenticated caller with no resolved id, and building a key anyway puts an empty segment
+/// where <c>user_id</c> belongs — every unresolvable caller then SHARES that one key, serving
+/// one user's cart to another.
+/// CONTRACT: Never call <see cref="ICurrentCaller.ResolveInternalUserIdAsync"/> here. These
+/// run on the HIT path, so a resolving key builder reintroduces the gRPC call the cache
+/// exists to remove. See [[x-cache-response-header]]
 /// </remarks>
 public static class UserCacheKeyBuilders
 {
@@ -69,15 +58,11 @@ public static class UserCacheKeyBuilders
          caller.ResolvedInternalUserId is { Length: > 0 } id ? id : null);
 
     /// <summary>
-    /// Reads the <c>includeTracking</c> query parameter the way ASP.NET's binder does.
+    /// Reads <c>includeTracking</c> the way ASP.NET's binder does.
+    /// CONTRACT: Parse exactly as the binder does (<c>bool.TryParse</c>, defaulting false) —
+    /// a mismatch files the tracking-bearing response under the <c>t0</c> key.
+    /// See [[x-cache-response-header]]
     /// </summary>
-    /// <remarks>
-    /// The handler declares it as <c>bool includeTracking = false</c>, which the binder
-    /// fills from the query string via <c>bool.TryParse</c> — case-insensitive, defaulting
-    /// to false when absent or unparseable. Parsing it the same way here is what keeps the
-    /// KEY and the BODY in agreement: a mismatch would file the tracking-bearing response
-    /// under the <c>t0</c> key and serve it to a caller who asked for the bare shape.
-    /// </remarks>
     private static bool IncludeTracking(EndpointFilterInvocationContext ctx) =>
         bool.TryParse(ctx.HttpContext.Request.Query["includeTracking"], out var value) && value;
 }

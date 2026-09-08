@@ -86,32 +86,22 @@ output "events_lambda_function_name" {
 }
 
 # ─── E2E email-query route (LOCAL ONLY) ─────────────────────────────────────────
-# Consumed by `make env-file`, which writes it into .env.local.infra as
-# EVENTS_QUERY_URL for the Playwright suite. It is an output because Floci mints
-# a fresh <hash>.lambda-url host every time the URL is created, so nothing
-# downstream can hardcode it.
-#
-# Its companion secret has deliberately NO output here. The suite needs it too,
-# but a `-target`ed apply never persists an output that does not depend on the
-# targeted resources, and a full untargeted apply is unavailable against a live
-# Floci stack (the UpdateTags second-apply limit) — so an output for it would
-# make `make env-file` fail on every already-running stack. Nothing discovers
-# that value anyway; it is a static fixture secret, kept in step between
-# var.e2e_query_token and the generator's E2E_QUERY_TOKEN constant.
+# CONTRACT: An output because Floci mints a fresh <hash>.lambda-url host each
+# time the URL is created — nothing downstream can hardcode it.
+# CONTRACT: Do NOT add an output for the companion token. A `-target`ed apply
+# never persists an output outside the targeted resources, and a full apply is
+# unavailable against a live Floci stack, so it would break `make env-file` on
+# every running stack. See [[floci-rds-apigw-limits]]
 output "events_query_url" {
   description = "Function URL serving the events Lambda's E2E email-query route, host-reachable (http://<hash>.lambda-url.us-east-1.localhost:4566/)."
   value       = module.lambda_events_pipeline.function_url
 }
 
 # ─── Redis / ElastiCache (Users password-reset codes) ───────────────────────────
-# Consumed by `make env-file` to write REDIS_HOST / REDIS_PORT into
-# .env.local.users.
-#
-# redis_host is the BACKING CONTAINER NAME locally (floci-valkey-<id>), NOT the
-# endpoint ElastiCache reports — Floci returns ConfigurationEndpoint.Address =
-# "localhost", which from inside the Docker network resolves to the calling
-# service's own container. Same shape as docdb_cluster_identifier above, except
-# the module does the derivation so consumers read one ready-to-use value.
+# WORKAROUND(local): redis_host is the backing CONTAINER NAME, not the endpoint
+# ElastiCache reports — Floci returns "localhost", which inside the network is
+# the caller's own container. The module derives it, so consumers read one value.
+# See [[floci-elasticache-two-ports-and-provider-panic]]
 output "redis_host" {
   description = "Host the Users service connects to for Redis. LOCAL: the floci-valkey-<id> container name over Docker DNS — never 'localhost'. PROD: the ElastiCache primary endpoint."
   value       = module.redis.redis_host

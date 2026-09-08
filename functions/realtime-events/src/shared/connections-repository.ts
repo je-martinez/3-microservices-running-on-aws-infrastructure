@@ -6,13 +6,11 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { getEnv } from "#shared/config/env";
 
-// Two hours: API Gateway's own hard cap on a WebSocket connection's lifetime,
-// so a row older than this cannot correspond to a live connection.
-//
-// This is a SAFETY NET, not the cleanup mechanism. Real cleanup is reactive —
-// the events-pipeline deletes a row the moment PostToConnection answers 410
-// Gone. DynamoDB TTL deletes within a window of up to 48 hours, far too loose
-// to rely on. See the design spec's "TTL is a safety net" section.
+// Two hours: API Gateway's hard cap on a WebSocket connection's lifetime, so a
+// row older than this cannot be live.
+// CONTRACT: A safety net, not the cleanup mechanism. Real cleanup is reactive —
+// the events-pipeline deletes a row when PostToConnection answers 410 Gone.
+// DynamoDB TTL can lag up to 48 hours, far too loose to rely on.
 export const TTL_SECONDS = 7200;
 
 let docClient: DynamoDBDocumentClient | null = null;

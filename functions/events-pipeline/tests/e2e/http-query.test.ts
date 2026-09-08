@@ -25,13 +25,10 @@ async function load(envOverrides: Record<string, string>) {
   vi.stubEnv("DOCDB_PASSWORD", "docdb-test");
   vi.stubEnv("SES_FROM_ADDRESS", "no-reply@3mrai.local");
   vi.stubEnv("ASSETS_BASE_URL", "http://localhost:4566/assets");
-  // Cleared to UNDEFINED first, so a case that omits one is not silently
-  // inheriting the previous case's value — which would make the "no token
-  // configured" test pass for the wrong reason.
-  //
-  // undefined, not "": the schema declares E2E_QUERY_TOKEN as .min(1).optional(),
-  // so an empty string is a VALIDATION ERROR rather than an absent value, and
-  // stubbing "" would fail env parsing instead of exercising the unset path.
+  // CONTRACT: Clear to UNDEFINED, never "". Omitting the clear lets a case
+  // inherit the previous one's value and passes "no token configured" for the
+  // wrong reason; "" is a VALIDATION ERROR against .min(1).optional() and fails
+  // env parsing instead of exercising the unset path.
   vi.stubEnv("E2E_TESTING_ENABLED", undefined);
   vi.stubEnv("E2E_QUERY_TOKEN", undefined);
   for (const [k, v] of Object.entries(envOverrides)) vi.stubEnv(k, v);

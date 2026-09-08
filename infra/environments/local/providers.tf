@@ -19,21 +19,15 @@ provider "aws" {
     apigateway   = "http://localhost:4566"
     apigatewayv2 = "http://localhost:4566"
     cognitoidp   = "http://localhost:4566"
-    # The WebSocket connections registry (modules/dynamodb) — phase 1's first
-    # DynamoDB resource. Its absence is NOT a silent no-op: an undeclared
-    # service is sent to REAL AWS, which rejects the test/test credentials with
-    # `UnrecognizedClientException: The security token included in the request
-    # is invalid` — a message that reads like a Floci auth problem but means the
-    # request never reached Floci at all. (The `backend/` root already declared
-    # dynamodb for the state-lock table, which is why that one always worked.)
+    # CONTRACT: Every AWS service this root touches needs an entry here. An
+    # undeclared service is sent to REAL AWS, which rejects the test credentials
+    # with `UnrecognizedClientException` — a message that reads like a Floci auth
+    # problem but means the request never reached Floci.
     dynamodb = "http://localhost:4566"
     ec2      = "http://localhost:4566"
     ecs      = "http://localhost:4566"
-    # EventBridge, for the events-pipeline metrics tick (main.tf). Added after
-    # hitting exactly the failure the dynamodb comment above predicts: the rule
-    # was created fine by the AWS CLI (which reads AWS_ENDPOINT_URL) but
-    # Terraform sent it to real AWS and got `UnrecognizedClientException`. The
-    # provider's service key is `events`, not `eventbridge`.
+    # CONTRACT: The provider's EventBridge service key is `events`, not
+    # `eventbridge` — a wrong key is an undeclared service, see above.
     events           = "http://localhost:4566"
     elbv2            = "http://localhost:4566"
     iam              = "http://localhost:4566"
@@ -49,14 +43,9 @@ provider "aws" {
   }
 }
 
-# No `provider "postgresql"` block here (LOCAL ONLY — see main.tf's
-# `manage_app_user = false` comment on module.rds_aurora): Terraform configures
-# every declared provider BEFORE creating the resources a plan touches, but the
-# Floci-proxied Postgres endpoint for this cluster does not exist until AFTER
-# `aws_rds_cluster.this` is created — a chicken-and-egg no default value can
-# ever resolve on a clean apply (the endpoint/proxy port is assigned per-run).
-# The least-privilege app DB user is created post-apply by bootstrap.sh instead
-# (connects directly to the Floci-proxied endpoint once it exists). Production
-# has no such problem (stable, pre-existing Aurora DNS endpoint), so the
-# module's `postgresql_*` resources and its own `postgresql` provider
-# requirement are untouched — see environments/production/providers.tf.
+# WORKAROUND(local): Do NOT declare a `postgresql` provider here. Terraform
+# configures every declared provider BEFORE creating resources, and the
+# Floci-proxied endpoint does not exist until the cluster is created — no default
+# resolves on a clean apply. Phase 2 creates the app user instead. Production has
+# a stable Aurora endpoint and keeps the provider.
+# See [[two-phase-terraform-apply]]

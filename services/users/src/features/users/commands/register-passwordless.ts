@@ -25,13 +25,12 @@ export interface RegisterPasswordlessInput {
   e2eSource: boolean;
 }
 
-// Generates a random password the caller never sees and nothing stores
-// retrievably. Cognito requires every user to have SOME password internally
-// even on the passwordless path — this is that value, discarded immediately
-// after signUp() returns. 32 random bytes, base64url-encoded, comfortably
-// clears any password-policy minimum length and character-class requirement
-// (base64url mixes upper, lower and digits with overwhelming probability at
-// this length). It is never logged, never returned, and never persisted.
+// CONTRACT: 32 random bytes, base64url — that comfortably clears Cognito's
+// password-policy minimum length and character classes, and a shorter or narrower
+// value makes signUp fail as if the backend were broken. Cognito requires every user
+// to have SOME password even on the passwordless path; this is discarded right after
+// signUp() returns.
+// WARNING: Never logged, never returned, never persisted.
 function generateRandomPassword(): string {
   return randomBytes(32).toString("base64url");
 }
@@ -182,15 +181,11 @@ export class RegisterPasswordlessCommand {
       }
     }
 
-    // Best-effort by design (the publisher swallows and logs its own failures),
-    // so a queue outage never turns a completed registration into an HTTP error.
-    //
-    // Identical payload to register.ts, deliberately: a passwordless signup
-    // produces the same welcome email as a password one, so it must carry the
-    // same fields — `id` for the email's "Account ID" row and the created row's
-    // `createdAt` for its "Member Since" row. Both come from values already in
-    // hand here (the minted id and the row the `create` returned), so there is
-    // no extra query on this path either.
+    // CONTRACT: Keep this payload identical to register.ts — a passwordless signup
+    // renders the same welcome email, so `id` and `createdAt` must both be here or the
+    // "Account ID" and "Member Since" rows come out blank. Best-effort: the publisher
+    // swallows its own failures, so a queue outage never turns a completed
+    // registration into an HTTP error.
     await this.events.publishUserCreated({
       id,
       email: input.email,

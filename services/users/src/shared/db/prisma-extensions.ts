@@ -3,10 +3,9 @@ import { MODEL_ID_PREFIXES, generateId } from "../id/nano-id.ts";
 import { getActor } from "../audit/actor-context.ts";
 import { RecordNotFoundError } from "./db-errors.ts";
 
-// Minimal surface of the base client needed by the soft-delete rewrite
-// (`delete`/`deleteMany` call back into `update`/`updateMany` on the same
-// model). Kept narrow and exported so tests can pass a lightweight mock
-// instead of a real, connected PrismaClient.
+// Minimal surface of the base client the soft-delete rewrite needs
+// (`delete`/`deleteMany` call back into `update`/`updateMany`). Exported narrow so
+// tests can pass a lightweight mock instead of a connected PrismaClient.
 export interface CrossCuttingBaseClient {
   [modelKey: string]: {
     update?: (args: unknown) => Promise<unknown>;
@@ -15,21 +14,14 @@ export interface CrossCuttingBaseClient {
 }
 
 // Builds the `$allModels` query handlers for the three cross-cutting rules
-// (see [[nano-id]], [[audit-fields]], [[soft-delete]]). Extracted as a plain
-// function (instead of being inlined in `crossCuttingExtension` below) so it
-// can be unit-tested directly against a mock client — see
-// `tests/shared/db/prisma-extensions.test.ts`.
+// (see [[nano-id]], [[audit-fields]], [[soft-delete]]). A plain function so it can
+// be unit-tested against a mock client.
 export function buildCrossCuttingQueries(client: CrossCuttingBaseClient) {
   return {
-    // --- nano-id (see [[nano-id]]) ---
-    // Stamps `id = <prefix><nanoid()>` when the caller didn't supply one. The
-    // prefix comes from `MODEL_ID_PREFIXES`; models not listed there are left
-    // untouched, but every model in this schema is expected to have a prefix
-    // registered (see the map for how to extend it).
-    //
-    // --- audit fields (see [[audit-fields]]) ---
-    // Stamps `createdBy`/`updatedBy` with the actor read from the
-    // AsyncLocalStorage populated per-request in `routes.ts`.
+    // --- nano-id (see [[nano-id]]) + audit fields (see [[audit-fields]]) ---
+    // Stamps `id = <prefix><nanoid()>` from `MODEL_ID_PREFIXES` when the caller
+    // supplied none (unlisted models are left untouched), and `createdBy`/`updatedBy`
+    // from the per-request AsyncLocalStorage actor.
     async create({ model, args, query }: AllModelsCbArgs) {
       stampCreateData(model, args.data as Record<string, unknown>);
       return query(args);
@@ -42,27 +34,12 @@ export function buildCrossCuttingQueries(client: CrossCuttingBaseClient) {
       return query(args);
     },
 
-    // Stamps `updatedBy` AND injects `deletedAt: null` into `where` (via the
-    // same `excludeSoftDeleted` helper the reads use, respecting the caller's
-    // opt-out), so an update on a unique row ALSO requires that row to be
-    // non-deleted — the query-layer soft-delete guard (ADR-0004).
-    //
-    // The complication vs `updateMany`: `update` targets a single unique row,
-    // so when the injected `deletedAt: null` excludes a soft-deleted (or
-    // absent) target, Prisma raises `P2025` ("record not found") instead of
-    // silently affecting 0 rows. We catch that P2025 and translate it into a
-    // typed `RecordNotFoundError`, which the HTTP layer's `setErrorHandler`
-    // maps to the same 404 `{ error: "not_found" }` contract the /users/me
-    // routes already use — so a deleted-target update yields a coherent 404,
-    // never an unhandled 500. In practice update-profile (the only business
-    // `update` caller) pre-reads via `findByIdOrCognitoSub` and 404s a
-    // soft-deleted user BEFORE reaching here, so this only fires in a rare
-    // read-then-deleted race.
-    //
-    // The soft-delete rewrite's `update` path (delete -> update) is UNAFFECTED:
-    // it calls the BASE client's `update` directly (see below), bypassing this
-    // handler, so it never gets `deletedAt: null` injected and never surfaces
-    // this translated error.
+    // CONTRACT: Keep the P2025 translation. `update` targets one unique row, so the
+    // injected `deletedAt: null` makes Prisma raise P2025 rather than affecting 0
+    // rows; without the catch a deleted-target update surfaces as an unhandled 500
+    // instead of the 404 `{ error: "not_found" }` contract. The soft-delete rewrite
+    // bypasses this handler (it calls the BASE client), so it never sees either.
+    // See [[soft-delete]]
     async update({ args, query }: AllModelsCbArgs) {
       stampUpdateData(args.data as Record<string, unknown>);
       excludeSoftDeleted(args);
@@ -75,14 +52,9 @@ export function buildCrossCuttingQueries(client: CrossCuttingBaseClient) {
         throw e;
       }
     },
-    // Stamps `updatedBy` AND injects `deletedAt: null` into `where` (via the
-    // same `excludeSoftDeleted` helper the reads use), so a business bulk
-    // update skips soft-deleted rows at the query layer (ADR-0004) — turning
-    // the old call-site convention into an invariant. A caller can still opt
-    // out by filtering on `deletedAt` themselves. The soft-delete rewrite
-    // (`deleteMany`) is UNAFFECTED: it calls the BASE client's `updateMany`
-    // directly (see below), bypassing this handler, so it still re-stamps
-    // `deletedAt` even on already-deleted rows.
+    // Stamps `updatedBy` and injects `deletedAt: null`, so a bulk update skips
+    // soft-deleted rows at the query layer; a caller opts out by filtering on
+    // `deletedAt` themselves. The soft-delete rewrite bypasses this handler.
     async updateMany({ args, query }: AllModelsCbArgs) {
       stampUpdateData(args.data as Record<string, unknown>);
       excludeSoftDeleted(args);
@@ -94,11 +66,8 @@ export function buildCrossCuttingQueries(client: CrossCuttingBaseClient) {
       return query(args);
     },
 
-    // --- soft delete (see [[soft-delete]]) ---
-    // `delete`/`deleteMany` never hit the DB's DELETE — they're redirected to
-    // `update`/`updateMany`, stamping `deletedAt`/`deletedBy` instead of
-    // removing the row. Follows the pattern from the official
-    // `prisma-client-extensions` soft-delete example.
+    // CONTRACT: `delete`/`deleteMany` never issue a SQL DELETE — they redirect to
+    // `update`/`updateMany` and stamp `deletedAt`/`deletedBy`. See [[soft-delete]]
     async delete({ model, args }: AllModelsCbArgs) {
       const modelKey = uncapitalize(model);
       const modelClient = client[modelKey];
@@ -123,27 +92,11 @@ export function buildCrossCuttingQueries(client: CrossCuttingBaseClient) {
     },
 
     // --- find* (see [[soft-delete]]) ---
-    // Excludes soft-deleted rows by default by injecting `deletedAt: null`
-    // into `where`, unless the caller already filtered on `deletedAt`.
-    //
-    // `findUnique`/`findUniqueOrThrow` are safe here: `excludeSoftDeleted`
-    // only ever ADDS `deletedAt` alongside whatever unique field the caller
-    // supplied (`id`/`email`), it never removes/replaces it. Prisma's
-    // `prisma-client` generator (v7, driver-adapter engine) accepts extra
-    // non-unique `where` fields next to a unique one — it only rejects a
-    // `where` with NO unique field at all (`PrismaClientValidationError`).
-    // Verified against the live DB: a `findUnique({ where: { id } })` call
-    // with `deletedAt: null` injected returns the row when not soft-deleted
-    // and `null` when it is — see
-    // `tests/shared/db/prisma-extensions.test.ts` ("findUnique / find
-    // safety"). This was flagged as a latent break under an assumption from
-    // the classic (non-driver-adapter) Prisma engine, which does not hold
-    // for this stack's actual Prisma version — see JE-40.
-    //
-    // The find* handlers use `excludeSoftDeletedDeep`, which injects
-    // `deletedAt: null` at the top-level `where` (as before) AND propagates it
-    // into any nested `include`/`select` relations so a relational read can't
-    // leak soft-deleted children (see [[soft-delete]], ADR-0004).
+    // CONTRACT: Reads inject `deletedAt: null` at the top-level `where` AND into
+    // nested `include`/`select` relations (`excludeSoftDeletedDeep`) — shallow
+    // injection alone leaks soft-deleted children through a relational read.
+    // Safe on `findUnique`: the driver-adapter engine accepts extra non-unique
+    // `where` fields beside a unique one, and the injection only ever ADDS.
     async findMany({ model, args, query }: AllModelsCbArgs) {
       excludeSoftDeletedDeep(model, args);
       return query(args);
@@ -152,9 +105,7 @@ export function buildCrossCuttingQueries(client: CrossCuttingBaseClient) {
       excludeSoftDeletedDeep(model, args);
       return query(args);
     },
-    // `findFirstOrThrow` gets the same treatment as `findFirst` — it's just
-    // findFirst with a throw-on-empty semantic, so the same top-level + nested
-    // injection applies.
+    // Same as findFirst, with a throw-on-empty semantic.
     async findFirstOrThrow({ model, args, query }: AllModelsCbArgs) {
       excludeSoftDeletedDeep(model, args);
       return query(args);
@@ -167,9 +118,8 @@ export function buildCrossCuttingQueries(client: CrossCuttingBaseClient) {
       excludeSoftDeletedDeep(model, args);
       return query(args);
     },
-    // count/aggregate/groupBy accept a top-level `where` but no
-    // `include`/`select` relations, so shallow injection is sufficient and
-    // correct for them.
+    // count/aggregate/groupBy take a top-level `where` but no relations, so shallow
+    // injection is sufficient.
     async count({ args, query }: AllModelsCbArgs) {
       excludeSoftDeleted(args);
       return query(args);
@@ -185,28 +135,18 @@ export function buildCrossCuttingQueries(client: CrossCuttingBaseClient) {
   };
 }
 
-// `isDeleted` as a computed result field (see [[soft-delete]]) — replaces the
-// old standalone `isDeleted()` helper (removed from `shared/audit/audit.ts`).
-// Accessed as `row.isDeleted` directly on anything the extended client
-// returns; domain mapping (see `features/users/domain/user.ts`) derives it
-// the same way for rows that don't go through the client (e.g. hand-built
-// rows in tests).
-//
-// Registered per-model (`result: { user: {...} }`) instead of `$allModels`:
-// `$allModels`'s generic `needs` type can't resolve a concrete field shape
-// (like `{ deletedAt: true }`) across every model at once and collapses to
-// `never`, so this is added to each model as it's introduced — same
-// extensibility trade-off as `MODEL_ID_PREFIXES` in `shared/id/nano-id.ts`.
+// CONTRACT: Register `isDeleted` per-model, NOT under `$allModels` — that generic
+// `needs` type cannot resolve a concrete field shape across every model and
+// collapses to `never`. Add each model as it gains `deletedAt`.
+// See [[soft-delete]]
 export function computeIsDeleted(data: { deletedAt: Date | null }): boolean {
   return data.deletedAt !== null;
 }
 
-// One entry per soft-deletable model — i.e. every model carrying `deletedAt`
-// (see [[soft-delete]]). Kept as a named export, not inlined into the
-// `result:` block below, so a test can assert the schema and this map agree:
-// `UsersCognitoData`/`UsersCognitoEvent` were added with a `deletedAt` column
-// but no `isDeleted` for a while precisely because nothing checked that.
-// Add a model here when it gains `deletedAt`.
+// CONTRACT: One entry per model carrying `deletedAt`. Exported rather than inlined
+// below so a test can assert the schema and this map agree — a model can otherwise
+// gain a `deletedAt` column and no `isDeleted` with nothing detecting it.
+// See [[soft-delete]]
 const isDeletedField = {
   isDeleted: {
     needs: { deletedAt: true },
@@ -220,16 +160,11 @@ export const RESULT_EXTENSIONS = {
   usersCognitoEvent: isDeletedField,
 } as const;
 
-// Single Prisma Client extension that encapsulates the cross-cutting rules
-// (see [[nano-id]], [[audit-fields]], [[soft-delete]]) as query extensions
-// (nano-id + audit + soft-delete rewrite) plus a result extension (computed
-// `isDeleted`), so every model gets them "for free" — no manual stamping in
-// commands/queries. Composition with read replicas happens in
-// `shared/db/prisma.ts`.
-//
-// Uses the callback form of `defineExtension` (`(client) => client.$extends(...)`)
-// because the soft-delete rewrite of `delete`/`deleteMany` needs to call back
-// into the client as `update`/`updateMany` on the same model.
+// CONTRACT: Keep the callback form of `defineExtension` — the soft-delete rewrite
+// of `delete`/`deleteMany` must call back into the client as `update`/`updateMany`
+// on the same model. One extension carries all three cross-cutting rules, so no
+// command stamps anything by hand.
+// See [[soft-delete]]
 export const crossCuttingExtension = Prisma.defineExtension((client) =>
   client.$extends({
     name: "cross-cutting-rules",
@@ -239,9 +174,8 @@ export const crossCuttingExtension = Prisma.defineExtension((client) =>
     result: RESULT_EXTENSIONS,
     model: {
       user: {
-        // Resolve a user by their prefixed usr_ id OR their Cognito sub. Returns
-        // the raw row (or null); callers map via toDomain. findFirst so the
-        // cross-cutting soft-delete/read-replica behavior still applies.
+        // Resolve a user by their prefixed usr_ id OR their Cognito sub, as a raw
+        // row. findFirst so the soft-delete/read-replica behaviour still applies.
         async findByIdOrCognitoSub(idOrSub: string) {
           const ctx = Prisma.getExtensionContext(this);
           return (ctx as any).findFirst({
@@ -253,14 +187,9 @@ export const crossCuttingExtension = Prisma.defineExtension((client) =>
   }),
 );
 
-// Mirrors Prisma's `ModelQueryOptionsCbArgs` (see
-// `@prisma/client/runtime/client`'s `$allModels` query extension callback
-// shape) narrowed to what this module needs. `args`/`query` stay loosely
-// typed on purpose: Prisma's real type is a large generic union across every
-// model's operation input, and re-deriving it here would just recreate
-// `JsArgs` — this local shape is intentionally structural so both the real
-// extension (typed by Prisma's own `$extends`) and the unit tests (passing
-// plain mock args) satisfy it.
+// Mirrors Prisma's `$allModels` query-extension callback shape, narrowed to what
+// this module needs. `args`/`query` stay loosely typed so both the real extension
+// and the unit tests' plain mock args satisfy this structural shape.
 interface AllModelsCbArgs {
   model: string;
   operation: string;
@@ -312,38 +241,23 @@ function excludeSoftDeleted(args: { where?: Record<string, unknown> | null }): v
   }
 }
 
-// Relation map: model name -> { relationField: relatedModelName } (see
-// [[soft-delete]], ADR-0004). Single source of truth for which fields under a
-// read's `include`/`select` are RELATIONS (as opposed to scalar selections),
-// so `excludeSoftDeletedDeep` knows where to propagate `deletedAt: null`.
-//
-// Why a hand-maintained map instead of the Prisma DMMF: this stack's Prisma v7
-// `prisma-client` generator does NOT expose a stable public DMMF/datamodel on
-// the client (`Prisma.dmmf` doesn't exist; the runtime datamodel only lives as
-// an inline JSON string inside the generated `internal/class.ts`, which is not
-// a supported import surface). Reaching into generated internals would be
-// fragile across regenerations, so we mirror the schema here explicitly — the
-// same trade-off already made by `MODEL_ID_PREFIXES` (shared/id/nano-id.ts) and
-// `RESULT_EXTENSIONS` above. A test asserts this map agrees with the schema's
-// relation fields, so a new/changed relation that isn't added here fails CI.
-//
-// Add an entry when a model gains a relation.
+// CONTRACT: Hand-maintained, and add an entry when a model gains a relation — this
+// is the only source of truth telling `excludeSoftDeletedDeep` which `include`/
+// `select` keys are relations. Do NOT derive it from the DMMF: Prisma v7's
+// `prisma-client` generator exposes no public datamodel, only an inline JSON string
+// inside generated internals that breaks across regenerations. A test asserts this
+// map matches the schema, so an unlisted relation fails CI.
+// See [[soft-delete]]
 export const MODEL_RELATIONS: Record<string, Record<string, string>> = {
   User: { cognitoData: "UsersCognitoData" },
   UsersCognitoData: { user: "User", events: "UsersCognitoEvent" },
   UsersCognitoEvent: { data: "UsersCognitoData" },
 };
 
-// Recursively excludes soft-deleted rows from a read: injects `deletedAt: null`
-// at the top-level `where` (same opt-out behavior as `excludeSoftDeleted` — the
-// caller can filter on `deletedAt` themselves to bypass), THEN walks any nested
-// `include`/`select` relations and injects the same filter on each, recursing
-// to arbitrary depth (UsersCognitoData -> events is two levels deep).
-//
-// Relation-vs-scalar distinction: every key under `include` IS a relation, so
-// we recurse into all of them. Under `select`, keys can be scalar selections
-// (`{ id: true }`) OR relations — we consult `MODEL_RELATIONS` and only inject
-// a `where` on the relation keys, leaving scalar selections untouched.
+// Injects `deletedAt: null` at the top-level `where`, then recurses into nested
+// `include`/`select` relations to arbitrary depth. Every `include` key is a
+// relation; under `select` only the keys in `MODEL_RELATIONS` are, so scalar
+// selections are left untouched. A caller filtering on `deletedAt` opts out.
 function excludeSoftDeletedDeep(model: string, args: AllModelsCbArgs["args"]): void {
   excludeSoftDeleted(args);
   applyNested(model, asRecord(args.include), "include");

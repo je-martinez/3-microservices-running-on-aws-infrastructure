@@ -7,12 +7,10 @@ namespace Orders.Tests.Infrastructure;
 /// <see cref="CacheInvalidator.InvalidateDeletedUserAsync"/> — the account-deletion leg.
 /// </summary>
 /// <remarks>
-/// The endpoint test proves the entries are gone through the HTTP surface. This proves
-/// the two properties that surface cannot show: exactly WHICH keys are named (the
-/// catalogue must not be among them, and no route would reveal an extra delete of a
-/// shared key), and that a Redis fault is swallowed rather than propagated — the
-/// difference between a cascade Users records as done and an account deletion that fails
-/// for a person whose orders are already erased.
+/// CONTRACT: These pin the two properties the HTTP surface cannot show — exactly WHICH keys
+/// are named (no route reveals an extra delete of a shared key, and the catalogue must not be
+/// among them), and that a Redis fault is swallowed rather than failing a cascade for someone
+/// whose orders are already erased. See [[x-cache-response-header]]
 /// </remarks>
 public class CacheInvalidatorTests
 {
@@ -127,13 +125,10 @@ public class CacheInvalidatorTests
     }
 
     /// <summary>
-    /// Fails on BOTH invalidation paths.
+    /// Fails on BOTH invalidation paths. The real <see cref="CacheGateway"/> is fail-open and
+    /// would swallow these, so a throwing gateway is the only way to exercise the
+    /// invalidator's OWN guarantee, which is what the endpoint depends on.
     /// </summary>
-    /// <remarks>
-    /// The real <see cref="CacheGateway"/> is itself fail-open and would swallow these,
-    /// so a gateway that throws is the only way to exercise the invalidator's OWN
-    /// guarantee — which is what the endpoint depends on, not the gateway's.
-    /// </remarks>
     private sealed class ThrowingGateway : ICacheGateway
     {
         public Task<CacheOutcome<T>> GetAsync<T>(string key, CancellationToken ct) =>

@@ -30,15 +30,11 @@ import {
 } from "fastify-type-provider-zod";
 import { z } from "zod/v4";
 
-// `fastify-type-provider-zod` emits BOTH an output variant (`User`) and an
-// input variant (`UserInput`) for every schema in `z.globalRegistry`, by design
-// — the suffix is not configurable. Our registered schemas (User/AuthTokens/
-// Error) are response-only, so their `*Input` twins are orphans that no `$ref`
-// points at; they just bloat the spec (confusing when imported into Apidog).
-// Wrap the provider's transformObject and drop any component with zero inbound
-// `$ref` in the finished document. Operating on the OpenAPI object here (before
-// @fastify/swagger serializes it) is robust to YAML formatting — no textual
-// stripping. A future `*Input` that IS referenced keeps a `$ref` and survives.
+// WHY: `fastify-type-provider-zod` emits an `*Input` twin for every registered schema
+// and the suffix is not configurable. Our schemas are response-only, so those twins are
+// orphans that only bloat the spec in Apidog. Pruning on the OpenAPI object (before
+// @fastify/swagger serializes it) survives YAML reformatting; a referenced `*Input`
+// keeps its `$ref` and survives.
 function pruneOrphanComponents(openapiObject: ReturnType<typeof jsonSchemaTransformObject>) {
   const schemas = (openapiObject as { components?: { schemas?: Record<string, unknown> } })
     .components?.schemas;
@@ -90,14 +86,10 @@ export function serializeUser(user: User) {
   };
 }
 
-// Builds the Fastify app wired to an Awilix container. Commands/queries are resolved
-// per-request from `request.diScope` instead of a hand-rolled deps bag (see
-// shared/di/awilix-container.ts for registration). Defaults to the shared `diContainer`
-// singleton; tests can pass an isolated container pre-loaded with mocked services.
-//
-// `opts.logStream` is an optional second param (not part of the container arg) that lets
-// tests capture the schema log output instead of writing to stdout — see
-// `tests/shared/request-log.test.ts`.
+// Builds the Fastify app wired to an Awilix container. Commands/queries resolve
+// per-request from `request.diScope`; defaults to the shared `diContainer` singleton,
+// and tests can pass an isolated container pre-loaded with mocked services.
+// `opts.logStream` lets tests capture the schema log output instead of stdout.
 export function buildApp(
   container: AwilixContainer<Cradle> = diContainer,
   opts?: { logStream?: { write: (s: string) => void } },
@@ -116,19 +108,11 @@ export function buildApp(
     logger: opts?.logStream
       ? ({ ...loggerOptions, stream: opts.logStream } as never)
       : loggerOptions,
-    // Fastify's built-in request logging is OFF because the onResponse hook
-    // below replaces it. Without this the service emitted TWO lines per request,
-    // BOTH saying "request completed" — Fastify's own (carrying `res.statusCode`
-    // and `responseTime`) and the schema-aligned one (carrying `http_route`,
-    // `http_response_status_code`, `duration_ms`).
-    //
-    // That is worse than simple duplication: every request-rate figure computed
-    // from the message was DOUBLE the real count, and half the rows answered a
-    // `http_route` filter with nothing because they had no such field. Measured
-    // with a single registration request: 2 lines, one of each shape.
-    //
-    // The hook's comment always claimed it replaced the default. It did not —
-    // it added to it.
+    // CONTRACT: Keep this true — the onResponse hook below replaces Fastify's own
+    // request log rather than adding to it. Re-enabling it emits TWO "request
+    // completed" lines per request, doubling every request-rate figure and leaving
+    // half the rows with no `http_route` field to filter on.
+    // See [[logging-context]]
     disableRequestLogging: true,
   });
 
@@ -137,38 +121,22 @@ export function buildApp(
   app.addHook("onResponse", (req, reply, done) => {
     const route = req.routeOptions?.url ?? req.url;
 
-    // The liveness probe is exempt WHILE IT SUCCEEDS — see [[health-check-logging]].
-    // A succeeding probe is the one request whose log line carries nothing: the
-    // container being up already says it, and its duration is a constant. A
-    // FAILING one carries the status and latency that explain why, so it falls
-    // through and is logged like any other request.
-    //
-    // Scoped by status rather than by suppressing the route, which is what keeps
-    // the failure visible. Measured in Tracking before this was standardised
-    // across the services: 353 of 368 lines in an hour were this one request at
-    // 200, against 2 describing real work.
+    // CONTRACT: Exempt the liveness probe by STATUS, never by route. A succeeding
+    // probe logs nothing (the container being up already says it); a FAILING one
+    // must still log. Suppressing the route instead hides the failures, and not
+    // exempting it at all drowns real work — 353 of 368 lines in an hour.
+    // See [[health-check-logging]]
     const isHealthySoak =
       route === HEALTH_ROUTE &&
       reply.statusCode >= 200 &&
       reply.statusCode < 300;
 
     if (!isHealthySoak) {
-      // Emitted with the request's HTTP SERVER span active, NOT with whatever
-      // span happens to be active in this hook. `@fastify/otel` wraps every
-      // Fastify hook in its own span, so without this the logger's formatter
-      // stamps `span_id` = the "onResponse - fastify -> @fastify/otel" hook
-      // span, and clicking `POST /v1/users/register` in OpenObserve -> "View
-      // logs" (a `span_id`+`trace_id` filter) returns NOTHING — the one line
-      // carrying http_route/status/duration is filed under a span nobody looks
-      // at. See shared/observability/request-span.ts for the measured span tree
-      // and why RPC metadata is the supported way to reach that span.
-      //
-      // NOT the JE-77 trap ([[grpc-context-activate-at-dispatch]]): that one is
-      // about activating a context around a callback that returns before the
-      // real work is dispatched. Here the work IS the `req.log.info` call, which
-      // Pino performs synchronously inside this callback, so the span is still
-      // active when the record is formatted. The test asserts the resulting
-      // `span_id` rather than trusting that reasoning.
+      // CONTRACT: Log with the HTTP SERVER span active, not the ambient hook span.
+      // `@fastify/otel` wraps every hook in its own span, so without this the line
+      // is stamped with the onResponse hook's `span_id` and OpenObserve's "View
+      // logs" on the request span returns NOTHING.
+      // See [[logging-context]]
       withHttpServerSpan(req, () => {
         req.log.info(
           {
@@ -176,18 +144,11 @@ export function buildApp(
             http_route: route,
             http_response_status_code: reply.statusCode,
             duration_ms: reply.elapsedTime,
-            // NO `trace_id: req.id` here. The REAL OTel trace_id and span_id are
-            // stamped on every line by shared/logging/logger.ts's formatter, read
-            // from the active span, and explicit fields beat the ambient ones — so
-            // passing Fastify's local request counter would override the real id on
-            // the single most useful log line, breaking the join between logs and
-            // traces.
-            //
-            // This used to credit @opentelemetry/instrumentation-pino for the
-            // injection. That package is not a dependency of this service and is
-            // not in getNodeAutoInstrumentations' bundle, so nothing was injecting
-            // anything and every line here shipped WITHOUT a trace id — see the
-            // formatter's comment.
+            // CONTRACT: Do NOT add `trace_id: req.id`. The real OTel trace_id/span_id
+            // come from logger.ts's formatter, and an explicit field beats the ambient
+            // one — Fastify's local request counter would overwrite the real id on the
+            // most useful line and break the logs↔traces join.
+            // See [[logging-context]]
           },
           "request completed",
         );
@@ -199,16 +160,11 @@ export function buildApp(
     // would multiply the published series for no added signal.
     const status = reply.statusCode;
     if (status >= 400) {
-      // The whole hook is guarded: an observation of a response that already
-      // went out must never become an error of its own. Resolution itself can
-      // throw (a test container that registers no `metricsPublisher`), which
-      // Fastify would otherwise surface as a request error on an already-sent
-      // response.
+      // CONTRACT: Keep this guarded and unawaited. Resolution can throw (a test
+      // container with no `metricsPublisher`), which Fastify would surface as a
+      // request error on an already-sent response; awaiting would hold the
+      // connection open for a PutMetricData round trip. `publish()` never rejects.
       try {
-        // Deliberately NOT awaited: `onResponse` runs after the response has
-        // been sent, and awaiting here would delay the connection teardown for
-        // the duration of a PutMetricData round trip. `publish()` never rejects
-        // (it logs and swallows), so there is no unhandled rejection to catch.
         void req.diScope.cradle.metricsPublisher.publish("http_errors_total", 1, {
           Service: "users",
           StatusClass: status >= 500 ? "5xx" : "4xx",
@@ -231,11 +187,9 @@ export function buildApp(
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
-  // Maps domain `AuthError`s (InvalidCredentialsError/EmailAlreadyExistsError,
-  // see shared/auth/auth-errors.ts) thrown by login/register commands to their
-  // HTTP status. Everything else (Zod validation 400s, unexpected 500s) keeps
-  // Fastify's default handling — re-throw so the framework's default error
-  // handler produces the exact same body as before this change.
+  // Maps domain `AuthError`s (see shared/auth/auth-errors.ts) to their HTTP status.
+  // Everything else (Zod 400s, unexpected 500s) is re-thrown so Fastify's default
+  // error handler keeps producing its own body.
   app.setErrorHandler((error, _req, reply) => {
     if (error instanceof AuthError) {
       return reply.code(error.statusCode).send({ error: error.code });
@@ -290,41 +244,26 @@ export function buildApp(
     container,
   });
 
-  // Identity comes from the API Gateway authorizer (claims forwarded as headers).
-  // Registered per-request in `request.diScope` for handlers that need it directly
-  // (e.g. `/users/me`), AND run through `actorContext.run(...)` so the Prisma audit
-  // extension can read the same actor from AsyncLocalStorage for its whole async call
-  // chain (see [[audit-fields]] and `shared/audit/actor-context.ts`). `done()` is called
-  // from *inside* the `als.run` callback — that's what makes the rest of the request's
-  // hook/handler chain (which Fastify continues asynchronously off of this `done()` call)
-  // inherit the store.
-  //
-  // Also enforces auth: a missing x-user-id on a non-public route (see
-  // `shared/http/public-routes.ts`) short-circuits with 401 before any handler
-  // runs. `req.routeOptions?.url` is the route's registered template (e.g.
-  // "/v1/users/me"), matching `isPublicRoute`'s allowlist; it falls back to
-  // `req.url` for the rare case it isn't populated yet at this hook stage.
+  // CONTRACT: Call `done()` from INSIDE the `actorContext.run(...)` callback. Fastify
+  // continues the hook/handler chain off that call, so a `done()` outside the callback
+  // leaves the rest of the request without the store and the Prisma audit extension
+  // writes the actor as null. Also enforces auth: a missing x-user-id on a non-public
+  // route (shared/http/public-routes.ts) short-circuits with 401.
+  // See [[audit-fields]]
   app.addHook("onRequest", (req, reply, done) => {
     const actor = req.headers["x-user-id"] as string | undefined;
     const routePath = req.routeOptions?.url ?? req.url;
 
-    // Resolved and ATTACHED before the auth guard below, which short-circuits
-    // with `return` rather than `done()`. A 401 is a request someone will ask
-    // about, so it is the last one that should be missing its correlation id —
-    // and `enterWith` is what puts the id on the reply's own log line, since
-    // that branch never reaches the `logContext.run` wrapper further down.
+    // CONTRACT: Attach the request id BEFORE the auth guard below, which returns
+    // instead of calling `done()`. That branch never reaches the `logContext.run`
+    // wrapper, so without `enterWith` here every 401 ships with no correlation id.
+    // See [[2026-08-15-request-id-correlation-design]]
     const request_id = resolveRequestId(req.headers[REQUEST_ID_HEADER]);
-    // E2E ONLY, and gated exactly like `x-e2e-source` on /v1/users/register:
-    // the header is caller-controlled, so an environment without
-    // E2E_TESTING_ENABLED must behave as if it were never sent. Seeded here
-    // rather than threaded through call sites so every event this request
-    // publishes carries it, the same way `request_id` does — the
-    // events-pipeline reads it off the envelope to scope its per-run email
-    // fixtures.
-    //
-    // OMITTED, never blank: the store is spread into every log line and every
-    // envelope, and an empty `run_id` would attribute a fixture row to a run
-    // that does not exist instead of honestly having none.
+    // CONTRACT: `run_id` is E2E-only and caller-controlled — without
+    // E2E_TESTING_ENABLED the header must behave as if never sent. Omit it when
+    // absent, never blank: an empty run_id attributes an events-pipeline email
+    // fixture to a run that does not exist.
+    // See [[logging-context]]
     const run_id = resolveRunId(req.headers[RUN_ID_HEADER], container.cradle.env.E2E_TESTING_ENABLED);
     logContext.enterWith({ request_id, ...(run_id ? { run_id } : {}) });
 
@@ -340,15 +279,9 @@ export function buildApp(
         { lifetime: Lifetime.SCOPED },
       ),
     });
-    // Seed the per-request log context so EVERY log line of this request
-    // carries the caller's identity without any call site passing it (the
-    // logger's `formatters.log` merges this store — see shared/logging/).
-    // Commands enrich it later via `setLogContext` once they learn more (the
-    // resolved user_id, the email hash on auth flows).
-    //
-    // Nested inside actorContext.run rather than using enterWith: this hook
-    // already wraps `done` in a store, so the log context wraps the same
-    // continuation and both are live for the whole request.
+    // Seed the per-request log context so every line carries the caller's identity
+    // without any call site passing it; commands enrich it later via `setLogContext`.
+    // Nested inside actorContext.run so both stores wrap the same continuation.
     actorContext.run({ actor }, () => {
       logContext.run(
         {
@@ -361,18 +294,11 @@ export function buildApp(
     });
   });
 
-  // `app.after()` defers route registration until after `fastifySwagger`'s
-  // internal `onRoute` hook is attached (its `register()` call above is
-  // asynchronous/avvio-deferred, so routes added synchronously right after it
-  // would otherwise be missed by the spec — see @fastify/swagger's dynamic
-  // mode, which builds `paths` from routes captured by that hook).
-  //
-  // ORDERING INVARIANT: the `onRequest` actor-context hook and the
-  // `fastifyAwilixPlugin` registration MUST stay declared above this
-  // `app.after()`. Routes registered inside the callback inherit hooks and
-  // decorators already registered on this (root) context; `app.after()` does
-  // NOT create a child encapsulation context. Moving either below this block
-  // would silently drop `currentActor`/`diScope` from every route.
+  // CONTRACT: Keep the `onRequest` actor-context hook and the `fastifyAwilixPlugin`
+  // registration ABOVE this `app.after()`. Routes inside the callback inherit only
+  // what is already registered on this root context, so moving either below silently
+  // drops `currentActor`/`diScope` from every route. `after()` also defers
+  // registration until @fastify/swagger's `onRoute` hook exists, or routes miss the spec.
   app.after(() => {
     r.get("/v1/health", {
       schema: {
@@ -472,16 +398,11 @@ export function buildApp(
       return reply.send(tokens);
     });
 
-    // Password reset, step 1 of 2. SELF-OWNED flow: this service mints, stores
-    // (hashed) and later verifies the code itself — Cognito's ForgotPassword is
-    // not called anywhere, because it emails its own code, never returns it, and
-    // accepts only its own at ConfirmForgotPassword.
-    //
-    // ==== ALWAYS 202, EVEN FOR AN UNKNOWN EMAIL ====
-    // The response is a fixed body and a fixed status whether or not the address
-    // belongs to an account. That is a SECURITY PROPERTY (no user enumeration),
-    // not a missing error case — do not "improve" it into a 404. See the same
-    // note in commands/forgot-password.ts, which is where the branch actually is.
+    // CONTRACT: ALWAYS 202 with a fixed body, even for an unknown email — a 404
+    // here is a user-enumeration oracle, not a missing error case. The reset is
+    // self-owned: this service mints, hashes and verifies the code, because
+    // Cognito's ForgotPassword never returns its code to the caller.
+    // See [[users-service-design]]
     r.post("/v1/users/password/forgot", {
       schema: {
         tags: ["users"], operationId: "forgotPassword",
@@ -538,26 +459,20 @@ export function buildApp(
       const updated = await updateProfileCommand.execute(currentUser, req.body);
       if (!updated) return reply.code(404).send({ error: "not_found" });
 
-      // AFTER the write has persisted, never before. Invalidating first opens a
-      // window in which a concurrent read repopulates the OLD value between the
-      // delete and the write landing — the entry would then be stale for the
-      // full 5 minutes with nothing left to clear it.
-      //
-      // `currentActor` is the raw x-user-id, which is what the key was built
-      // from on the read path; `updated.id` is the resolved user_id. Both halves
-      // must match the read-side key exactly or this deletes nothing.
+      // CONTRACT: Invalidate AFTER the write persists, never before — a concurrent
+      // read otherwise repopulates the OLD value and it stays stale for the full
+      // 5 minutes. Both key halves must match the read path exactly (`currentActor`
+      // is the raw x-user-id, `updated.id` the resolved user_id) or this deletes nothing.
       await invalidateMeCache(req, currentActor, updated.id);
 
       return reply.send(serializeUser(updated));
     });
 
-    // Account deletion. Deliberately ABSENT from `shared/http/public-routes.ts`:
-    // that absence is what makes the onRequest hook answer 401 without an
-    // x-user-id. Listing it there would leave account deletion unauthenticated.
-    //
-    // 204 rather than 200-with-a-body: there is nothing left to describe, and the
-    // deleted row must not be echoed back. The 502 comes from the error handler
-    // when a cascade leg fails — see CascadeFailedError above.
+    // CONTRACT: Do NOT list this route in `shared/http/public-routes.ts` — that
+    // absence is the only thing making the onRequest hook 401 a request without
+    // x-user-id, so adding it leaves account deletion unauthenticated. 204 with no
+    // body: the deleted row must not be echoed back. 502 = a failed cascade leg.
+    // See [[soft-delete]]
     r.delete("/v1/users/me", {
       schema: {
         tags: ["users"], operationId: "deleteMe", summary: "Delete the current user's account",
@@ -572,17 +487,11 @@ export function buildApp(
         : reply.code(404).send({ error: "not_found" });
     });
 
-    // The DEDICATED change-password endpoint. It does ONE thing: set the new
-    // password (and clear `mustChangePassword`, which that act satisfies). It is
-    // separate from PATCH /v1/users/me on purpose and MUST STAY separate — its
-    // body accepts exactly one field, so a profile update can never
-    // double as a credential rewrite, and the audit trail can always say which
-    // of the two a given call was (`users_api:change_password` vs
-    // `users_api:update_profile`).
-    //
-    // Authenticated like the other /me routes: identity comes from `x-user-id`,
-    // put there by the gateway's JWT authorizer, and the onRequest hook 401s a
-    // request without it before this handler runs.
+    // CONTRACT: This endpoint sets the password and clears `mustChangePassword`,
+    // nothing else. Keep it separate from PATCH /v1/users/me and keep its body at
+    // one field — merging them lets a profile update double as a credential rewrite
+    // and makes the audit trail unable to tell the two apart.
+    // See [[audit-fields]]
     r.patch("/v1/users/me/password", {
       schema: {
         tags: ["users"], operationId: "changeMyPassword",
@@ -599,30 +508,21 @@ export function buildApp(
       const updated = await changePasswordCommand.execute(currentUser, req.body);
       if (!updated) return reply.code(404).send({ error: "not_found" });
 
-      // ==== WHY A PASSWORD CHANGE INVALIDATES THE PROFILE CACHE ====
-      // Nothing password-related is ever cached. But this command CLEARS
-      // `mustChangePassword` (change-password.ts), and that flag is a field of
-      // UserSchema (schemas.ts) and therefore part of the cached
-      // GET /v1/users/me body. Without this line the frontend keeps reading
-      // `mustChangePassword: true` for up to five minutes after the user has
-      // already changed it, and sends them round the forced-change flow again.
+      // CONTRACT: A password change must invalidate the profile cache. No password
+      // is cached, but this command clears `mustChangePassword`, a field of the
+      // cached GET /v1/users/me body — without this the frontend reads it as true
+      // for five more minutes and loops the user through the forced-change flow.
       await invalidateMeCache(req, currentActor, updated.id);
 
       return reply.send(serializeUser(updated));
     });
 
-    // Thin layer (spec D2): verify the shared secret, validate, delegate. The
-    // command is the single persistence path — register() calls the same class
-    // in-process when NODE_ENV !== "production", because Floci never invokes
-    // Cognito Lambda triggers (ADR-0017).
-    //
-    // This is a PUBLIC route at the API Gateway (no JWT authorizer): its callers
-    // are the Cognito Lambda shim and the service itself, never a user with a JWT.
-    // The shared secret is its only guard.
-    //
-    // NOTE: the payload is deliberately NOT declared in `schema.body` — it is
-    // validated manually below via `cognitoWebhookPayloadSchema.safeParse` so
-    // an invalid payload returns 422 (not Fastify's schema-validation 400).
+    // WARNING: PUBLIC at the API Gateway — no JWT authorizer. Its callers are the
+    // Cognito Lambda shim and the service itself, so the shared secret is its only
+    // guard. Keep the payload OUT of `schema.body`: it is parsed manually below so
+    // an invalid payload answers 422 rather than Fastify's schema-validation 400.
+    // Floci never invokes Cognito triggers, so register() calls the same command
+    // in-process when NODE_ENV !== "production".
     r.post("/v1/webhooks/cognito", {
       schema: {
         tags: ["webhooks"], operationId: "cognitoWebhook",
@@ -652,18 +552,12 @@ export function buildApp(
         return reply.code(200).send({ status });
       } catch (err) {
         if (err instanceof NoMatchingUserError) {
-          // A confirmed Cognito identity with no matching users row is a
-          // server-side inconsistency, not a client error (see this task's
-          // header note for the 404/409 alternatives considered). Cognito
-          // retries the trigger in prod on a non-2xx, so a transient race
-          // self-heals.
-          //
-          // The `cognito_webhook_no_match` line is emitted by the command, not
-          // here: this point is OUTSIDE the `cognito_webhook` span, which has
-          // already ended by the time the error surfaces, so a line logged here
-          // carries a different span_id and is invisible from the span in
-          // OpenObserve. Logging it in both places would double-count the
-          // failure instead.
+          // CONTRACT: Answer 500, not 404/409 — a confirmed Cognito identity with no
+          // users row is a server-side inconsistency, and Cognito retries the trigger
+          // on a non-2xx so a transient race self-heals. Do NOT log the
+          // `cognito_webhook_no_match` line here: this point is outside the already-ended
+          // `cognito_webhook` span, so the line lands under a different span_id.
+          // See [[logging-context]]
           return reply.code(500).send({ error: "no_matching_user" });
         }
         throw err;

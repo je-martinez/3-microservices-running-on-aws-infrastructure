@@ -157,14 +157,10 @@ func TestEnvelopeShape(t *testing.T) {
 	if payload["tracking_number"] != "TRK123456789" {
 		t.Errorf("payload.tracking_number = %v", payload["tracking_number"])
 	}
-	// A JSON OBJECT, and the assertion is written against the CONSUMER's schema
-	// rather than against whatever this producer happens to emit:
-	// functions/events-pipeline/src/handlers/tracking-status-changed.ts declares
-	// `shipping_address: z.record(z.string(), z.unknown()).optional()`. A Go
-	// *string here serialises as a JSON STRING CONTAINING JSON
-	// ("{\"city\": \"Austin\"}"), which fails that record() and is a
-	// PermanentError: the record is CONSUMED, not retried, and the email and the
-	// WebSocket push are lost with the producer logging success.
+	// CONTRACT: A JSON OBJECT, asserted against the CONSUMER's schema and not
+	// whatever this producer emits. A Go *string serialises as a JSON string
+	// containing JSON, which fails the consumer's record() as a PermanentError:
+	// consumed not retried, email and push lost, producer logs success.
 	address, isObject := payload["shipping_address"].(map[string]any)
 	if !isObject {
 		t.Fatalf("payload.shipping_address decoded as %T (%v), want a JSON object (map[string]any); "+

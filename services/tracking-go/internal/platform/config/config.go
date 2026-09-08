@@ -1,13 +1,9 @@
 // Package config reads and validates the process environment.
 //
-// Exactly four variables are REQUIRED; Load returns an error when any of them is
-// missing or empty, so a misconfigured process refuses to start rather than
-// failing later at its first query.
-//
-// Every other variable has a default, and an unparseable or out-of-range value
-// falls back to that same default WITHOUT an error. A malformed optional value
-// must never take a runtime down: refusing to boot over a mistyped feature flag
-// is the worse trade in both directions.
+// CONTRACT: Exactly four variables are REQUIRED and Load errors on any missing
+// one, so a misconfigured process refuses to start. Every other variable falls
+// back to its default WITHOUT an error — a malformed optional value must never
+// take a runtime down. See [[env-files]]
 package config
 
 import (
@@ -53,25 +49,15 @@ type Config struct {
 	AWSRegion      string
 
 	MetricsIntervalSeconds float64
-	// ProgressionIntervalSeconds is TestMode's cadence: one status transition
-	// per interval, PLACED -> PROCESSING -> SHIPPED -> OUT_FOR_DELIVERY ->
-	// DELIVERED. Four transitions, so a delivery spec cannot finish sooner than
-	// four intervals no matter how fast everything else is.
+	// ProgressionIntervalSeconds is TestMode's cadence: one transition per
+	// interval across four transitions, so a delivery spec cannot finish sooner
+	// than four intervals. Default 10s; local uses 5s.
 	//
-	// Configurable rather than the constant it used to be, because the E2E suite
-	// pays it three times over: at the design's 10s, the three delivery specs
-	// cost 48.7s, 43.5s and 42.1s — 134s, over half the gateway project's total
-	// wall-clock, spent almost entirely waiting on a timer. Lowering it locally
-	// buys back most of that without touching a single assertion.
-	//
-	// There is a FLOOR, found the hard way: at 2s the four transitions publish
-	// inside 8 seconds and the local emulator drops some before they reach the
-	// queue (21 published, 16 processed, empty DLQ, no consumer error). Local
-	// uses 5s. This is an emulator limit, not a service one — nothing here
-	// rate-limits the publish.
-	//
-	// The DEFAULT stays the design's 10s, so a deployed environment that sets
-	// nothing behaves exactly as before.
+	// CONTRACT: Do NOT lower this below 5s. At 2s the four transitions publish
+	// inside 8 seconds and the local emulator DROPS some before they reach the
+	// queue — 21 published, 16 processed, empty DLQ, no consumer error. That is
+	// an emulator limit; nothing here rate-limits the publish.
+	// See [[testmode-in-process-no-durable-scheduler]]
 	ProgressionIntervalSeconds float64
 	// MetricsEnabled defaults TRUE: forgetting the variable in a deployed
 	// environment must leave the dashboards populated, not silently empty.
@@ -167,17 +153,14 @@ func Load() (Config, error) {
 	return cfg, nil
 }
 
-// Bool reads a flag from the environment, falling back to fallback when the
-// variable is absent, empty, or unrecognized.
+// Bool reads a flag, falling back when the variable is absent, empty, or
+// unrecognized. Exported because the route-mounting decision reads
+// E2E_TESTING_ENABLED before a full Config exists, and a failed Load must not
+// change whether a route is served.
 //
-// Exported because two call sites need a flag BEFORE a full Config exists: the
-// route-mounting decision reads E2E_TESTING_ENABLED while the app is being
-// constructed, and a failed Load must not be able to change whether a route is
-// served.
-//
-// Accepted spellings, case-insensitively: true/1/yes/on and false/0/no/off.
-// Nothing more — a flag that switches on for many spellings is one a caller
-// enables by accident.
+// CONTRACT: Accept only true/1/yes/on and false/0/no/off, case-insensitively. A
+// flag switching on for many spellings is one enabled by accident.
+// See [[env-files]]
 func Bool(name string, fallback bool) bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
 	case "true", "1", "yes", "on":

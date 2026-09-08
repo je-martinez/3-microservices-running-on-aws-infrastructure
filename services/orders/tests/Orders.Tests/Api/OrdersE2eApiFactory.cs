@@ -15,25 +15,13 @@ using Testcontainers.MySql;
 namespace Orders.Tests.Api;
 
 /// <summary>
-/// In-process host for the E2E-tagging tests, parameterised on
-/// <c>E2E_TESTING_ENABLED</c>.
+/// In-process host for the E2E-tagging tests, parameterised on <c>E2E_TESTING_ENABLED</c>.
+/// CONTRACT: The flag is a property of the HOST — Program only MAPS the cleanup route when
+/// it is set, so flag-on and flag-off are two different applications.
+/// CONTRACT: Each subclass owns its own MySQL container. A cleanup run soft-deletes every
+/// tagged order, and the shared fixture's 5 units of stock are consumed exactly by its own
+/// tests, so an extra order there 409s an unrelated test. See [[testing]]
 /// </summary>
-/// <remarks>
-/// <para>
-/// The flag has to be a property of the HOST, not of a request: Program only MAPS
-/// <c>/v1/orders/e2e-cleanup</c> when it is set, and <c>CreateOrderEndpoint</c> reads
-/// it from configuration. "Flag on" and "flag off" are therefore two different
-/// applications, and the flag-off one is what a production runtime looks like — the
-/// case the security assertions need.
-/// </para>
-/// <para>
-/// Each subclass owns its own MySQL container rather than sharing
-/// <c>OrdersApiFactory</c>'s. Two independent reasons: a cleanup run soft-deletes every
-/// tagged order in its database by design, and the shared fixture seeds a fixed 5 units
-/// of stock that its existing tests consume exactly, so an extra order placed there
-/// fails an unrelated test with a 409.
-/// </para>
-/// </remarks>
 public abstract class OrdersE2eApiFactoryBase : WebApplicationFactory<Program>, IAsyncLifetime
 {
     private readonly MySqlContainer _mysql =
@@ -119,29 +107,15 @@ public abstract class OrdersE2eApiFactoryBase : WebApplicationFactory<Program>, 
         // regression that made the service require Redis unconditionally fails here.
         builder.UseSetting("CACHE_ENABLED", "false");
 
-        // The test host boots the REAL Program.cs, OTel pipeline included. With
-        // no OTEL_* set it falls back to the SDK default endpoint,
-        // http://localhost:4318 — which docker-compose publishes, so the spans
-        // this suite produces land in the same collector as the running
-        // container's, under the same service.name.
-        //
-        // The effect is not extra traces but DUPLICATED ones: the container and
-        // this host both export, and Jaeger stores each span twice, so a
-        // waterfall shows two identical roots and a reader cannot tell which is
-        // the real trace. Measured: a suite run produced 26 duplicated traces
-        // inside 587ms; the same run with the SDK off produced none.
-        //
-        // Off rather than pointed elsewhere: nothing in this suite asserts on
-        // exported spans, so an exporter here is pure noise in a shared backend.
-        // The tests that DO assert tracing (WorkflowTracerTests, and the
-        // Activity checks in the read services) read Activity.Current in
-        // process and never export, so this does not weaken them.
-        //
-        // Environment.SetEnvironmentVariable, NOT builder.UseSetting: the OTel
-        // SDK reads the PROCESS ENVIRONMENT, not this host's configuration, so
-        // UseSetting("OTEL_SDK_DISABLED") is silently ignored. Verified the
-        // hard way — the suite still produced 26 duplicated traces with the
-        // UseSetting form in place.
+        // CONTRACT: Use Environment.SetEnvironmentVariable, NOT builder.UseSetting — the
+        // OTel SDK reads the PROCESS environment, so the UseSetting form is silently ignored
+        // and the suite keeps exporting.
+        // CONTRACT: Disable the SDK here. The host boots the real Program.cs, and with no
+        // OTEL_* set it falls back to the default endpoint that docker-compose publishes, so
+        // this host and the running container both export and every span is stored twice —
+        // a waterfall with two identical roots. Nothing here asserts on exported spans; the
+        // tests that do assert tracing read Activity.Current in process.
+        // See [[ADR-0019-distributed-tracing-opentelemetry]]
         Environment.SetEnvironmentVariable("OTEL_SDK_DISABLED", "true");
 
         builder.ConfigureTestServices(services =>

@@ -6,20 +6,11 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../../../src/generated/prisma/client.ts";
 import { testSpanExporter } from "../../setup-tracing.ts";
 
-// Proves the DB layer actually produces spans — asserting that
-// @prisma/instrumentation is merely INSTALLED would pass even when it patches
-// nothing, which is precisely this mechanism's failure mode: register it after
-// PrismaClient is constructed and you get zero spans, silently, with no error.
-// (Confirmed by a negative control while writing this: with the registration
-// removed, the query below emits 0 spans instead of 5.)
-//
-// No live database is needed. The instrumentation wraps Prisma's ENGINE, not
-// the socket, so the query spans — including the CLIENT `db_query` span — are
-// emitted on the way down and exist even though the connection then fails.
-// That keeps this a plain unit test while still exercising the real client
-// rather than a mock. src/generated/prisma is imported directly instead of
-// through shared/db/prisma.ts because the latter builds its client from env
-// config at module load and pulls in read-replica routing this does not need.
+// CONTRACT: Assert real spans, not that @prisma/instrumentation is INSTALLED — that
+// passes even when it patches nothing, which is this mechanism's failure mode:
+// registered after PrismaClient is constructed it yields zero spans, silently.
+// No live database needed: the instrumentation wraps Prisma's ENGINE, not the socket,
+// so the query spans are emitted on the way down even though the connection fails.
 registerInstrumentations({ instrumentations: [new PrismaInstrumentation()] });
 
 const UNREACHABLE_DB = "postgres://user:pass@127.0.0.1:59999/nonexistent";

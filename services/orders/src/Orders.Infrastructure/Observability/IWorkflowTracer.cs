@@ -1,15 +1,11 @@
 namespace Orders.Infrastructure.Observability;
 
 /// <summary>
-/// One manual span per business workflow — the single Orders flow in
-/// docs/superpowers/specs/2026-08-18-distributed-tracing-spans-design.md
-/// Decision 3 (create_order). Mirrors the SAME status/finally shape Users'
-/// withWorkflowSpan and withGrpcServerSpan already use: OK on success, ERROR
-/// with the failure's reason otherwise, and the span always ends.
-///
-/// The span carries the SAME attributes as the flow's own log line
-/// (app_event, reason on failure, order_id, …) so the trace and the logs tell
-/// the same story and neither needs the other to be understood.
+/// One manual span per business workflow: OK on success, ERROR with the failure's reason
+/// otherwise, and the span always ends.
+/// CONTRACT: The span carries the SAME attributes as the flow's own log line (app_event,
+/// reason, order_id), so the trace and the logs tell one story and neither needs the other.
+/// See [[logging-context]]
 /// </summary>
 public interface IWorkflowTracer
 {

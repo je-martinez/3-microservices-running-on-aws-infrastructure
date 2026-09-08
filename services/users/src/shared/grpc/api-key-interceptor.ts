@@ -15,13 +15,10 @@ export function apiKeyMatches(
   return timingSafeEqual(a, b);
 }
 
-// Extract the caller's W3C trace context from inbound gRPC metadata, relative to
-// the currently-active context. Returns the active context unchanged when no
-// traceparent is present (a direct call), so the handler legitimately starts its
-// own root rather than a fabricated child.
-//
-// Pulled out as a pure, exported function so the propagation behaviour — the
-// part that regressed in JE-77 — is unit-testable without a live gRPC server.
+// Extract the caller's W3C trace context from inbound gRPC metadata, relative to the
+// active context. Returns it unchanged when no traceparent is present, so a direct
+// call legitimately starts its own root rather than a fabricated child. Exported as a
+// pure function so the propagation behaviour is testable without a live server.
 export function extractParentContext(metadata: grpc.Metadata): Context {
   const carrier: Record<string, string> = {};
   for (const key of ["traceparent", "tracestate"]) {
@@ -56,26 +53,15 @@ export function makeApiKeyInterceptor(expectedKey: string): grpc.ServerIntercept
               return;
             }
 
-            // Auth passed. Extract the caller's W3C trace context so the
-            // handler's span can become a CHILD of the caller's rather than a
-            // new root.
-            //
-            // Extraction has to happen HERE, and nowhere else: `ServerInterceptingCall`
-            // consumes the metadata, so the `call` the handler receives carries
-            // none at all (verified — the metadata map arrives empty). That is
-            // why @opentelemetry/instrumentation-grpc produced no server span
-            // and why extracting inside the handler could not work either.
-            //
-            // But the extracted context must NOT be activated here — see
-            // onReceiveHalfClose. This callback returns synchronously, long
-            // before grpc-js dispatches the async handler, so a `context.with`
-            // around `mdNext` would already have unwound by the time the handler
-            // (and its withGrpcServerSpan) runs, leaving it a root span. So we
-            // stash the context and activate it in the continuation that
-            // actually dispatches the handler.
-            //
-            // Deliberately AFTER the auth gate: an unauthenticated call is
-            // rejected before any tracing work happens.
+            // CONTRACT: Extract the caller's context HERE but do NOT activate it here.
+            // `ServerInterceptingCall` consumes the metadata, so the handler's `call`
+            // arrives with an empty metadata map — extraction cannot happen later. But
+            // this callback returns synchronously, long before grpc-js dispatches the
+            // async handler, so a `context.with` here unwinds first and the server span
+            // comes out a ROOT: two disjoint traces. Stash it and activate in
+            // onReceiveHalfClose, the continuation that dispatches the handler. After
+            // the auth gate, so an unauthenticated call does no tracing work.
+            // See [[grpc-context-activate-at-dispatch]]
             parentContext = extractParentContext(metadata);
             mdNext(metadata);
           },

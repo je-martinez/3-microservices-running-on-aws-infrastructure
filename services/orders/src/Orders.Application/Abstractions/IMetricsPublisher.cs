@@ -2,13 +2,9 @@ namespace Orders.Application.Abstractions;
 
 /// <summary>
 /// Publishes a custom business metric.
+/// CONTRACT: Implementations MUST NOT throw — a metrics backend being unreachable may never
+/// fail the operation that produced the metric. See [[logging-context]]
 /// </summary>
-/// <remarks>
-/// Implementations MUST NOT throw. A metrics backend being unreachable may never fail
-/// the operation that produced the metric — the same stance <see cref="IEventPublisher"/>
-/// takes. The port lives in Application; the CloudWatch implementation lives in
-/// Infrastructure, per the dependency-direction rule in this service's CLAUDE.md §3.
-/// </remarks>
 public interface IMetricsPublisher
 {
     Task PublishAsync(

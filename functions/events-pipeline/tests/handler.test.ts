@@ -72,17 +72,12 @@ vi.mock("#shared/db/events-repository", async () => {
     ensureIndexes: (...args: unknown[]) => ensureIndexes(...(args as [])),
   };
 });
-// Pino writes to its DESTINATION, never through console, so the console spies
-// this suite used before the pino migration would now capture nothing. The
-// logger is redirected instead: same real `buildLoggerOptions` — the ALS context
-// merge, the severity mapping and the `err` promotion are all the production
-// ones — but writing into an array rather than stdout. Only the destination is
-// faked, so the PII assertions below still exercise the real serialization path
-// that a leak would travel through.
-//
-// `level: "debug"` so #pipeline/process-record's DEBUG status lines are captured
-// too: they are below pino's default threshold, and a payload leak through one
-// of them would otherwise be invisible to this suite.
+// CONTRACT: Capture pino's DESTINATION, not console — a console spy captures
+// nothing here. Only the destination is faked; `buildLoggerOptions` stays real,
+// so the PII assertions below exercise the serialization path a leak would
+// actually travel. `level: "debug"` so DEBUG status lines are captured too — a
+// payload leak through one is otherwise invisible to this suite.
+// See [[logging-context]]
 const { rawLines } = vi.hoisted(() => ({ rawLines: [] as string[] }));
 
 vi.mock("#shared/logging/app-logger", async () => {
@@ -744,10 +739,9 @@ describe("handler — log context", () => {
     });
 
     it("still processes a normal SQS batch, and does NOT seed on that path", async () => {
-      // The regression this pair guards: seeding used to live at the top of the
-      // SQS path, where it ran only when mail was already flowing — publishing
-      // zeros exactly when they were not needed and nothing during the quiet
-      // windows they were meant to cover.
+      // CONTRACT: Seeding must NOT run on the SQS path. There it fires only
+      // while mail is already flowing — publishing zeros when they are not
+      // needed and nothing during the quiet windows they exist to cover.
       await handler({ Records: [sqsRecord("msg-1", envelope())] });
 
       expect(insertStarted).toHaveBeenCalledOnce();
@@ -819,13 +813,9 @@ describe("handler — tracing", () => {
   });
 
   it("parents the record span to the origin span", async () => {
-    // The record span is a REAL CHILD of the publisher's span and stays in the
-    // publisher's trace. That is what makes the email work visible inside the
-    // create_order trace instead of stranded in a second one reachable only by
-    // following a FOLLOWS_FROM reference.
-    //
-    // This holds for ANY batch size — see the multi-record test below. It is no
-    // longer conditional on the batch carrying exactly one record.
+    // CONTRACT: The record span is a REAL CHILD of the publisher's span and
+    // stays in the publisher's trace, at ANY batch size. Otherwise the email work
+    // strands in a second trace reachable only through a FOLLOWS_FROM link.
     const { traceparent, traceId, spanId } = await originTraceparent();
 
     await handler({ Records: [tracedRecord("msg-1", envelope(), traceparent)] });
@@ -868,20 +858,11 @@ describe("handler — tracing", () => {
   });
 
   it("parents EVERY record of a MULTI-record batch to its OWN origin trace", async () => {
-    // The point of the change: a batch of N records from N different requests
-    // yields N continuous cascades, one per order, instead of N detached ones.
-    //
-    // This REPLACES an earlier rule that linked (never parented) whenever the
-    // batch held more than one record. That rule existed because the batch span
-    // was the record spans' parent, and a span has exactly one parent — so with
-    // several origins the handler had to pick one and misattribute the rest.
-    // Parenting each record to its own origin removes the conflict entirely:
-    // there is no longer a single parent to fight over, because the records no
-    // longer share one.
-    //
-    // The cost, asserted below: the record spans leave this Lambda's trace, so
-    // the batch span is no longer their ancestor. Grouping "what did this
-    // invocation do" now comes from the batch span's LINKS and its
+    // CONTRACT: Each record parents to its OWN origin, so a batch of N records
+    // from N requests yields N continuous cascades. Do NOT make the batch span
+    // their parent — a span has exactly one parent, so several origins force the
+    // handler to pick one and misattribute the rest. The cost, asserted below:
+    // grouping per invocation comes from the batch span's LINKS and its
     // messaging.batch.message_count, not from ancestry.
     const first = await originTraceparent();
     const second = await originTraceparent();
@@ -990,8 +971,8 @@ describe("handler — tracing", () => {
   });
 
   it("ends the batch span and flushes even when the batch throws", async () => {
-    // The `finally` is the whole point: a span left unended never reaches
-    // Jaeger, and it does not surface as an error — it silently vanishes.
+    // CONTRACT: The `finally` is the whole point — an unended span silently
+    // vanishes rather than surfacing as an error.
     await expect(handler({ Records: undefined } as never)).rejects.toThrow();
 
     const [batchSpan] = spansNamed("events-queue process");
@@ -1001,17 +982,11 @@ describe("handler — tracing", () => {
   });
 
   it("nests the real DocumentDB span under the persist phase, under process_record", async () => {
-    // The whole cascade in one assertion, against the REAL repository:
+    // CONTRACT: The whole cascade in one assertion, against the REAL repository:
     // events-queue process -> process_record -> phase persist -> documentdb
-    // insertOne. Asserting only that "a span reached the exporter" would pass just
-    // as happily with an orphaned span, which is what a broken ambient context
-    // actually produces.
-    //
-    // The phase span sits BETWEEN the record and the write, which is the point of
-    // it: the waterfall groups a lifecycle stage into one bar in both viewers,
-    // where the span EVENTS that used to mark these boundaries were rendered by
-    // neither. That extra level is exactly what this test pins — drop the phase
-    // and the chain silently flattens back.
+    // insertOne. Asserting only that "a span reached the exporter" passes just as
+    // happily with the orphaned span a broken ambient context produces, and
+    // dropping the phase level flattens the chain silently.
     useRealRepository.value = true;
 
     await handler({ Records: [sqsRecord("msg-1", envelope())] });
@@ -1064,16 +1039,11 @@ describe("handler — tracing", () => {
   });
 });
 
-// The batch's records run CONCURRENTLY. Nothing above would notice if that
-// regressed to a serial loop — every existing assertion is about the RESULT of a
-// batch, and a serial loop produces identical results, just slower. These tests
-// assert the property itself.
-//
-// Why it matters, measured on the local stack rather than assumed: a record
-// spends p50 256ms almost entirely awaiting DocumentDB and SES, the pipeline
-// drained ~50 events/min, and an E2E suite publishing faster than that grew a
-// backlog until an event waited ~86s — past the 45s budget every email-asserting
-// spec allows. Serial I/O was the ceiling.
+// CONTRACT: The batch's records run CONCURRENTLY, and these tests assert the
+// property directly — every other assertion is about a batch's RESULT, which a
+// serial loop reproduces identically, just slower. A record spends most of its
+// p50 256ms awaiting DocumentDB and SES, so serial I/O caps the drain rate and
+// backs an E2E suite up past the 45s budget its email assertions allow.
 describe("handler — records within a batch run concurrently", () => {
   it("overlaps record handlers instead of awaiting them one after another", async () => {
     // Each handler call announces its entry, then waits to be released. If the

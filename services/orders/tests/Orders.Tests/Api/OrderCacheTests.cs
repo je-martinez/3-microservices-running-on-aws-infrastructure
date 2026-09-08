@@ -32,23 +32,17 @@ public class OrderCacheTests : IDisposable
             ? values.FirstOrDefault()
             : null;
 
-    // The two includeTracking variants return DIFFERENT SHAPES from one route: a bare
-    // OrderDto list at t0, an OrderWithTrackingDto[] at t1. If they shared a key,
-    // whichever ran first would serve its shape to the other — a caller asking for
-    // tracking would get a list with no `tracking` key, or a caller asking for the bare
-    // list would get objects wrapped under `order`.
-    //
-    // Asserted on the BODY SHAPE, not merely on X-Cache. A key that varied while the body
-    // did not would pass a header-only assertion while serving the wrong shape, and a key
-    // that did NOT vary would be caught only here.
+    // CONTRACT: Assert on the BODY SHAPE, not merely X-Cache. The two includeTracking
+    // variants return different shapes from one route, so a shared key serves one shape to
+    // the other — which a header-only assertion passes straight through.
     [Fact]
     public async Task Include_tracking_variants_are_cached_under_separate_keys()
     {
         await _factory.FlushCacheAsync();
         var client = Client(OrdersApiFactory.KnownCognitoSub);
 
-        // At least one order, so the two shapes have an element to differ on. Without a
-        // row both bodies are `[]` and the shape assertions below are vacuous.
+        // CONTRACT: At least one order — with no row both bodies are `[]` and the shape
+        // assertions below are vacuous.
         var productId = await SeedProductAsync(stock: 10, priceCents: 1000);
         var created = await client.PostAsJsonAsync("/v1/orders", new
         {
@@ -56,13 +50,10 @@ public class OrderCacheTests : IDisposable
         });
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
 
-        // Every order in the list needs a tracking, or the t1 variant is deliberately NOT
-        // stored and the HIT assertions below cannot hold — see TrackingCacheRules. This
-        // test is about KEY SEPARATION, not about the null-tracking rule, so it puts the
-        // list into the state where caching is legitimate and leaves that rule to
-        // TrackingNullCacheTests. The list is read first because this collection is shared:
-        // orders created by other classes for this same caller appear in it too, so
-        // stubbing only the order created above would leave the list incomplete.
+        // CONTRACT: Stub a tracking for EVERY listed order, not just the one created above —
+        // the collection is shared, so other classes' orders appear in this caller's list, and
+        // one missing tracking stops the t1 variant being stored at all. This test is about
+        // key separation; the null-tracking rule belongs to TrackingNullCacheTests.
         var listed = await (await client.GetAsync("/v1/orders/my-orders"))
             .Content.ReadFromJsonAsync<JsonElement>();
         foreach (var element in listed.EnumerateArray())

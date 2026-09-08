@@ -1,27 +1,15 @@
 // Soft-deletes everything this suite created, in every service that stores rows.
 //
-// Each service exposes a flag-guarded `e2e-cleanup` route that deletes by TAG
-// ("E2E Source"), not by caller: the rows were created by many different
-// throwaway users across the run, and teardown holds no identity for any of
-// them. Tagging is what makes a caller-less cleanup possible — the suite's HTTP
-// clients send `X-E2E-Source: true` on every request (support/api-client.ts and
-// support/gateway-client.ts), and each service honors it only when its own
-// E2E_TESTING_ENABLED is set.
-//
-// Tracking additionally scopes cleanup by run id when one is available (see
-// `buildCleanupUrl` below). An unscoped sweep there soft-deletes EVERY
-// E2E-tagged row globally; with `workers: 10` one run's teardown can land
-// inside another run's live TestMode progression and abort it mid-chain.
-//
-// Order matters: Tracking and Orders first, Users last. Users is the one whose
-// rows the other two reference (their `user_id` is a `usr_` id), so deleting it
-// first would leave the others pointing at a soft-deleted parent mid-teardown.
-//
-// Cleanup is best-effort by design. A failure here means leftover local rows,
-// which is untidy but harmless (every spec creates its own caller and its own
-// synthetic ids, so nothing collides across runs). Throwing would fail an
-// otherwise green run and hide the real result, so each call is reported and
-// swallowed.
+// CONTRACT: Delete by TAG ("E2E Source"), never by caller. Teardown runs with NO
+// identity — the rows belong to many throwaway users — so tagging is the only thing
+// that makes a caller-less sweep possible. The clients send `X-E2E-Source: true` and
+// each service honors it only under its own E2E_TESTING_ENABLED.
+// CONTRACT: Keep this order — Tracking and Orders first, Users LAST. The other two
+// reference Users rows by `usr_` id, so deleting Users first leaves them pointing at
+// a soft-deleted parent mid-teardown.
+// CONTRACT: Swallow every failure. Leftover local rows are harmless (every spec mints
+// its own caller and ids); throwing would fail an otherwise green run and hide the
+// real result. See [[2026-08-30-a-global-teardown-cannot-be-scoped]]
 
 type CleanupTarget = { name: string; url: string; scopeByRunId?: boolean };
 
@@ -29,21 +17,12 @@ const TARGETS: CleanupTarget[] = [
   {
     name: "tracking",
     url: `${process.env.TRACKING_BASE_URL ?? "http://localhost:3002"}/v1/trackings/e2e-cleanup`,
-    // Tracking alone: TestMode progressions tick for ~20s after creation and
-    // abort on tracking_not_found when another run's unscoped sweep deletes
-    // their row. Orders and Users have no equivalent in-flight work.
-    // OFF, and the measurement is why. Scoping the FINAL teardown to this run
-    // leaves every earlier run's rows alive, and they accumulate: one run
-    // soft-deleted 20 trackings against 25 orders, and whole-suite failures went
-    // from 1-2 to 7 and 9 across paired runs. The sweep is the only thing that
-    // clears them, so narrowing it trades a rare mid-run collision for permanent
-    // contamination.
-    //
-    // The service-side scoping stays and is worth keeping: `?run_id=` is
-    // implemented and tested, so a FUTURE per-spec or per-worker cleanup — which
-    // is where a scoped delete actually belongs — can use it without touching
-    // Tracking again. What does not belong is scoping the one global sweep whose
-    // job is to leave the database empty.
+    // CONTRACT: Keep this OFF. Scoping the FINAL sweep to one run leaves every earlier
+    // run's rows alive and they accumulate — one run soft-deleted 20 trackings against
+    // 25 orders, and whole-suite failures went from 1-2 to 7 and 9 across paired runs.
+    // The service-side `?run_id=` support stays for a future per-spec cleanup, which is
+    // where a scoped delete belongs; the one global sweep must leave the DB empty.
+    // See [[2026-08-30-a-global-teardown-cannot-be-scoped]]
     scopeByRunId: false,
   },
   {
@@ -60,16 +39,10 @@ const TARGETS: CleanupTarget[] = [
 const RUN_ID_PATTERN = /^run_[A-Za-z0-9_:.-]{1,64}$/;
 
 /**
- * Builds the DELETE URL for one cleanup target.
- *
- * When `scopeByRunId` is set and `E2E_RUN_ID` is present and valid, Tracking's
- * teardown is scoped to this invocation via `?run_id=`. Without a run id (an
- * internal-only run, or a spec outside the harness) the call stays unscoped —
- * the load-test / manual-teardown behaviour the service already implements.
- *
- * TRANSPORT ASSUMPTION: query param `run_id`. The Go service worker may instead
- * read `x-e2e-run-id`; if so, switch this to a request header and keep the
- * fallback-to-unscoped rule unchanged.
+ * Builds the DELETE URL for one cleanup target. With `scopeByRunId` and a valid
+ * `E2E_RUN_ID`, Tracking's teardown is scoped via `?run_id=`; without one it stays
+ * unscoped — the load-test and manual-teardown behaviour the service implements, and
+ * the fallback to keep if the transport ever moves to an `x-e2e-run-id` header.
  */
 function buildCleanupUrl(baseUrl: string, scopeByRunId: boolean | undefined): string {
   if (!scopeByRunId) return baseUrl;

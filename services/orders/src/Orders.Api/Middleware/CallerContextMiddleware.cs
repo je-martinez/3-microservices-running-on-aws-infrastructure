@@ -4,27 +4,17 @@ using Orders.Infrastructure.Id;
 
 namespace Orders.Api.Middleware;
 
-// Populates the scoped ICurrentCaller from x-user-id and 401s any route not on
-// the public allowlist when the header is missing. Must run AFTER routing has
-// resolved the endpoint (ctx.GetEndpoint() is only populated post-UseRouting),
-// otherwise RoutePattern.RawText is null and the health allowlist can't match.
-// Program.cs places this after app.UseSerilogRequestLogging and MapOrderEndpoints
-// registers the routes ahead of Run(), so by the time this middleware executes
-// for a real request, endpoint resolution has already happened.
+// Populates the scoped ICurrentCaller from x-user-id and 401s any route off the public
+// allowlist when the header is missing.
+// CONTRACT: Must run AFTER routing. ctx.GetEndpoint() is only populated post-UseRouting, so
+// earlier RoutePattern.RawText is null and the health allowlist silently cannot match.
 public sealed class CallerContextMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(HttpContext ctx, ICurrentCaller caller)
     {
-        // FIRST, and unconditionally — before the auth guard below, before anything can
-        // short-circuit. An unauthenticated request is exactly the one someone comes
-        // asking about later ("my call 401'd, what happened?"), so a 401 that carries no
-        // request_id is the one log line where the field is most missed. The equivalent
-        // ordering bug in the Users service was caught by a test for precisely this, and
-        // Orders pins it the same way.
-        //
-        // The caller's id is honoured only if it is one of ours; anything else is
-        // discarded in favour of a fresh one, silently, and never turned into a 400 —
-        // see RequestId.Resolve for why both halves of that are deliberate.
+        // CONTRACT: Set the correlation id FIRST and unconditionally, before the auth guard
+        // can short-circuit — otherwise a 401, the very request someone asks about later,
+        // is the one log line with no request_id. See [[logging-context]]
         AmbientRequestId.Set(RequestId.Resolve(ctx.Request.Headers[RequestId.HeaderName].FirstOrDefault()));
 
         var sub = ctx.Request.Headers["x-user-id"].FirstOrDefault();
@@ -45,20 +35,10 @@ public sealed class CallerContextMiddleware(RequestDelegate next)
         await next(ctx);
     }
 
-    // Resolve the internal usr_ id ONCE, here, so every log line of the request
-    // carries user_id — not only the ones emitted after some handler happened to
-    // need it. The reads (my-orders, order-by-id) scope by cognito_sub and never
-    // resolved it at all, so their lines carried only a sub and could not be joined
-    // to Users or Tracking on the id those services key by.
-    //
-    // Deliberately NOT done by making the enricher's getter resolve: that getter is
-    // read on EVERY log event, so a resolving getter would turn each line into a
-    // gRPC call. Resolving once here is what keeps ResolvedInternalUserId a cheap,
-    // non-triggering read (services/orders/CLAUDE.md §4).
-    //
-    // The cost is real and accepted: reads now make one Users call they previously
-    // did not. CurrentCaller memoizes it, so a handler needing the id later in the
-    // same request pays nothing more.
+    // CONTRACT: Resolve the internal usr_ id ONCE here, so every log line carries user_id
+    // and can be joined to Users and Tracking. Do NOT move this into the enricher's getter —
+    // that getter is read on every log event, so it would turn each line into a gRPC call.
+    // See [[logging-context]]
     private static async Task StampInternalUserIdAsync(ICurrentCaller caller, CancellationToken ct)
     {
         try
@@ -67,22 +47,15 @@ public sealed class CallerContextMiddleware(RequestDelegate next)
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            // The client went away. Not a Tracking-of-ours problem, and rethrowing
-            // would be pointless work on a dead request — let the pipeline unwind.
+            // WHY: The client went away; let the pipeline unwind.
             throw;
         }
         catch (Exception)
         {
-            // ANY other failure — Users down, an unknown sub, a deadline — leaves the
-            // request untouched and simply without user_id. Enriching a log line must
-            // never be able to fail a request that was going to succeed, and a read
-            // scoped by cognito_sub is answerable with no id at all. The enricher
-            // omits the field rather than emitting null, so an absent id reads as
-            // "not known" instead of "resolved, and it was null".
-            //
-            // Not logged here: a genuine outage would emit one line per request and
-            // bury the signal, and the failure is already visible as user_id being
-            // absent on lines that normally carry it.
+            // CONTRACT: Any other failure leaves the request untouched and simply without
+            // user_id — enriching a log line must never fail a request that would succeed.
+            // Not logged: an outage would emit one line per request and bury the signal.
+            // See [[logging-context]]
         }
     }
 }

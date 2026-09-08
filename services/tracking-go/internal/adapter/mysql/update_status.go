@@ -11,14 +11,10 @@ import (
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/domain/audit"
 )
 
-// StatusRepository is the write side of a status transition: the UNSCOPED lookup
-// the carrier webhook needs, and the transactional advance both it and TestMode
-// progression share.
-//
-// It holds a *sql.DB rather than a *Queries because ApplyTransition spans THREE
-// statements that must be one unit of work — the parent UPDATE, the history
-// INSERT, and the re-read that the caller's 200 body and published event are
-// built from.
+// StatusRepository is the write side of a status transition: the unscoped lookup
+// the carrier webhook needs, and the transactional advance it shares with the
+// TestMode progression. It holds a *sql.DB, not a *Queries, because
+// ApplyTransition spans three statements that are one unit of work.
 type StatusRepository struct {
 	db *sql.DB
 }
@@ -30,39 +26,16 @@ func NewStatusRepository(db *sql.DB) *StatusRepository {
 
 // GetByOrderID finds a LIVE tracking by order_id ALONE.
 //
-// # UNSCOPED, and a SEPARATE METHOD from the reads' scoped lookup
+// CONTRACT: Keep this UNSCOPED and a separate method from the scoped read. The
+// carrier webhook's gateway route declares no authorizer, so no x-user-id ever
+// arrives; applying the cognito_sub filter 404s every carrier call while looking
+// implemented. A separate method, not an optional argument: Go's zero string is
+// "", which silently means "scoped to the empty string".
+// See [[user-id-vs-cognito-sub-ownership-key]]
 //
-// The carrier webhook carries no caller identity: its gateway route declares no
-// Cognito authorizer, so no x-user-id ever reaches the service. There is nothing
-// to scope by, and applying the reads' cognito_sub filter here would compare a
-// value that was never sent against every row — 404ing EVERY carrier call while
-// looking perfectly implemented.
-//
-// It is a different METHOD rather than the scoped one called with an empty
-// argument, because Go's zero value for string is "" and not nil: an
-// optional-parameter shape silently turns "unscoped" into "scoped to the empty
-// string", which matches only rows whose cognito_sub is the empty string.
-//
-// sql.ErrNoRows is translated HERE, at the adapter boundary. Leaking it would
-// force the handler to import database/sql to tell "no such order" from a real
-// failure, or to answer 500 for a missing tracking.
-//
-// # Why this scans by hand instead of calling the generated GetTrackingByOrderID
-//
-// shipping_address is a NULLABLE JSON column and sqlc types it json.RawMessage.
-// json.RawMessage is a []byte alias with NO sql.Scanner, and database/sql cannot
-// store a NULL into a *json.RawMessage — it fails with
-//
-//	unsupported Scan, storing driver.Value type <nil> into type *json.RawMessage
-//
-// which is a RUNTIME error on every row whose address is NULL, not a build one.
-// Scanning into a plain []byte accepts NULL (yielding nil) and is byte-identical
-// otherwise. Verified against the live MySQL 8 on 2026-08-27; a mocked repository
-// test would have passed with the generated row and shipped the failure.
-//
-// The column list is written out rather than SELECT *, and `datetime` is
-// BACKTICKED and aliased: it is also a MySQL type keyword, so an unbackticked
-// reference is a syntax error reported at an unhelpful location.
+// CONTRACT: Scan shipping_address into a plain []byte, not json.RawMessage —
+// RawMessage is no sql.Scanner, so a NULL address fails at RUNTIME. Backtick
+// `datetime`: it is a MySQL type keyword.
 func (r *StatusRepository) GetByOrderID(ctx context.Context, orderID string) (domain.Tracking, error) {
 	const query = "SELECT\n" +
 		"  id, user_id, order_id, status, shipping_address,\n" +
@@ -126,35 +99,16 @@ func (r *StatusRepository) GetByOrderID(ctx context.Context, orderID string) (do
 }
 
 // ApplyTransition advances the parent, appends the history row, and RE-READS the
-// history — all in ONE transaction, all stamped from the single `now` the use
-// case minted.
+// history in ONE transaction, all stamped from the use case's single `now`.
 //
-// # Why the re-read is inside this method
+// CONTRACT: The parent UPDATE and history INSERT share a transaction.
+// tracking_history's (tracking_id, status) primary key rejects a duplicate
+// transition, and outside a transaction that leaves the parent already advanced.
 //
-// A caller holding the history it loaded before the append has no way to know
-// that slice is now stale, and publishing it produces an event that announces a
-// transition its own history does not contain. The Python service expires that
-// collection explicitly for this reason. Making the re-read part of THIS
-// method's contract removes the opportunity to get it wrong.
-//
-// The re-read runs INSIDE the transaction, before the commit: it sees this
-// transaction's own uncommitted INSERT (which a post-commit SELECT would also
-// see, but only after a second round trip and a window in which a concurrent
-// transition could add a row this call never wrote).
-//
-// # Why the parent UPDATE and the history INSERT must share a transaction
-//
-// tracking_history's composite primary key (tracking_id, status) rejects a
-// duplicate transition at INSERT — a second enforcement of the forward-only
-// machine, independent of the application guard. Outside a transaction, a
-// rejected INSERT would leave the parent already advanced: a tracking reporting
-// a status with no transition recorded behind it.
-//
-// # The identities are copied from the PARENT ROW
-//
-// user_id and cognito_sub on the history row come off `t`, never off a request.
-// The carrier sends neither, and the TestMode progression runs on a timer with
-// no request behind it at all.
+// CONTRACT: The re-read stays inside this method and the transaction — a caller
+// reusing history loaded before the append announces a transition its own
+// history omits. user_id and cognito_sub come off the parent row, never a
+// request. See [[user-id-vs-cognito-sub-ownership-key]]
 func (r *StatusRepository) ApplyTransition(
 	ctx context.Context,
 	t domain.Tracking,
@@ -219,14 +173,10 @@ func (r *StatusRepository) ApplyTransition(
 		return domain.TrackingWithHistory{}, err
 	}
 
-	// THE RE-READ. It happens after the append and before the commit, so the
-	// slice returned contains the transition being announced.
-	//
-	// The query's ORDER BY carries the FIELD() tiebreaker: DATETIME here has
-	// fsp 0, and every row a single unit of work writes is stamped from one
-	// `now`, so ties are the normal case. On a tie MySQL is free to return
-	// primary-key order, which for (tracking_id, status) is ALPHABETICAL —
-	// DELIVERED before PLACED, a shipment delivered before it was placed.
+	// CONTRACT: Keep the FIELD() tiebreaker on this query's ORDER BY. DATETIME
+	// here has fsp 0 and one unit of work stamps every row from one `now`, so
+	// ties are normal; on a tie MySQL may return primary-key order, which is
+	// alphabetical — DELIVERED before PLACED.
 	rows, err := queries.ListTrackingHistory(ctx, t.ID)
 	if err != nil {
 		err = fmt.Errorf("mysql: re-read tracking history: %w", err)

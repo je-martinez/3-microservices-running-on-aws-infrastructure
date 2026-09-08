@@ -10,17 +10,11 @@ import (
 	cache "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/redis"
 )
 
-// TestSelectGatewayConstructsNoClientWhenDisabled is the point of this seam.
-//
-// "CACHE_ENABLED=false uses the null gateway" is the WEAK claim, and a service
-// could satisfy it while still dialling Redis at startup and holding a pool open
-// for nothing. The STRONG claim — that no client is constructed AT ALL — is what
-// makes the flag a real kill switch: a runtime with the cache off then needs no
-// reachable Redis to boot, which is exactly what the local suite and any
-// cache-less environment depend on.
-//
-// Asserted by counting factory invocations, because "was a client built?" is not
-// otherwise observable from outside the composition root.
+// TestSelectGatewayConstructsNoClientWhenDisabled asserts the STRONG claim — no
+// client is constructed AT ALL — since a service can use the null gateway while
+// still dialling Redis at startup. That is what makes the flag a kill switch:
+// the cache off means no reachable Redis is needed to boot. Asserted by counting
+// factory invocations, the only way to observe it from outside main().
 func TestSelectGatewayConstructsNoClientWhenDisabled(t *testing.T) {
 	built := 0
 	factory := func() *goredis.Client {

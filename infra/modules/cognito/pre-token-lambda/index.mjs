@@ -1,22 +1,14 @@
 // Pre-Token-Generation V2 trigger: copy custom attributes into token claims on
-// both the id and access tokens. No DB access — every value is read from the
-// trigger event's userAttributes, which Cognito already has in hand.
+// both the id and access tokens. No DB access — every value comes from the
+// trigger event's userAttributes.
 //
-// `app_user_id` is immutable, written once by register at sign-up.
-//
-// `must_change_password` is NOT immutable: Users keeps the durable truth in
-// Postgres (users.must_change_password) and mirrors it onto
-// custom:must_change_password whenever it changes, so this trigger can stay
-// dependency-free. That mirroring is what makes the claim correct; a token
-// minted between the Postgres write and the Cognito write would carry the old
-// value until the next token is issued.
-//
-// The claim is ALWAYS emitted, unlike app_user_id, which is omitted when
-// absent. A missing boolean claim is ambiguous to a consumer — it cannot tell
-// "no forced change" from "this token predates the feature" — whereas `false`
-// says exactly one thing. Anything other than the string "true" reads as false,
-// so an unset attribute (accounts created before the attribute existed) is
-// safely permissive rather than locking users out of a change they cannot make.
+// CONTRACT: Always emit `must_change_password`, unlike app_user_id, which is
+// omitted when absent. A missing boolean claim cannot tell a consumer "no
+// forced change" from "this token predates the feature". Anything but the
+// string "true" reads as false, so an unset attribute stays permissive rather
+// than locking a user out of a change they cannot make. Postgres holds the
+// durable truth and Users mirrors it here, which keeps this trigger
+// dependency-free. See [[cognito-pre-token-lambda]]
 export const handler = async (event) => {
   const attributes = event.request.userAttributes;
   const appUserId = attributes["custom:app_user_id"];

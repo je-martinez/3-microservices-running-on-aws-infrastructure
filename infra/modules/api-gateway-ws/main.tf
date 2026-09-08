@@ -101,41 +101,15 @@ resource "aws_lambda_function" "fn" {
       WS_CONNECTIONS_GSI   = "by-cognito-sub"
       AWS_ENDPOINT_URL     = var.aws_endpoint_url
 
-      # Silence the AWS SDK v3 maintenance notice at the SOURCE rather than
-      # filtering it downstream.
-      #
-      # The runtime here is nodejs20.x, and the SDK warns that releases after
-      # early 2027 will require node >=22. It emits that through
-      # process.emitWarning, which the Lambda runtime writes to stderr — and
-      # CloudWatch tags every stderr line ERROR. So a purely informational
-      # notice arrived in OpenObserve at the same severity as a real failure,
-      # once per cold start, on all four functions.
-      #
-      # THE NAME MATTERS AND IS EASY TO GET WRONG. This variable used to be
-      # AWS_SDK_JS_SUPPRESS_MAINTENANCE_MODE_MESSAGE, which is a REAL AWS
-      # variable — it suppresses the SDK **v2 maintenance-mode** notice, a
-      # different message — so it was accepted silently, reached the deployed
-      # function, and suppressed nothing. The warning kept flowing while this
-      # block claimed to have fixed it.
-      #
-      # The emitter is the authority, not the docs:
-      # @aws-sdk/core/dist-es/submodules/client/emitWarningIfUnsupportedVersion.js
-      # returns early only on
-      # `AWS_SDK_JS_NODE_VERSION_SUPPORT_WARNING_DISABLED === "true"` — note the
-      # STRING "true", not "1". `--no-deprecation` does not work either: the
-      # notice is not a DeprecationWarning.
-      #
-      # Filtering it in the collector was the alternative and is strictly worse —
-      # the line would still be written, still be ERROR in CloudWatch, and the
-      # rule would have to survive every future SDK reword.
-      #
-      # This does not hide the underlying migration: the node 22 bump is real.
-      # It is also BLOCKED, which the `runtime` field above cannot express on its
-      # own — the AWS provider is pinned to = 5.31.0 (infra/CLAUDE.md) and its
-      # runtime validation tops out at nodejs20.x, rejecting nodejs22.x at plan
-      # time. Verified by trying it. Unpinning the provider for a log-severity
-      # cosmetic is the wrong trade, so this variable is the fix until the pin
-      # moves for a reason of its own.
+      # CONTRACT: This exact name and the STRING "true". The SDK's emitter
+      # returns early only on that pair;
+      # AWS_SDK_JS_SUPPRESS_MAINTENANCE_MODE_MESSAGE is a real variable for a
+      # DIFFERENT notice and is accepted silently while suppressing nothing, and
+      # `--no-deprecation` does not work either. Without it the SDK's
+      # node-version warning goes to stderr, CloudWatch tags it ERROR, and it
+      # reaches OpenObserve as a failure once per cold start on all four
+      # functions. Bumping to nodejs22.x would also fix it, but provider 5.31.0
+      # rejects that runtime at plan time. See [[logging-context]]
       AWS_SDK_JS_NODE_VERSION_SUPPORT_WARNING_DISABLED = "true"
     })
   }

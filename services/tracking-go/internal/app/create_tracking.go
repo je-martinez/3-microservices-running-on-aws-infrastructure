@@ -1,10 +1,10 @@
-// Package app holds the use cases: what this service DOES, expressed without
-// reference to how a request arrived or where a row is stored.
+// Package app holds the use cases: what this service DOES, without reference to
+// how a request arrived or where a row is stored.
 //
-// Each use case declares the narrow ports IT consumes, in its own file. There is
-// no shared repository interface and no central ports.go: a consumer-declared
-// port stays two methods wide, so a change to one use case's needs cannot ripple
-// into every adapter that happens to implement a wide shared interface.
+// CONTRACT: Each use case declares the narrow ports IT consumes, in its own
+// file. No shared repository interface, no central ports.go — a wide shared
+// interface makes one use case's change ripple into every adapter.
+// See [[screaming-architecture]]
 package app
 
 import (
@@ -24,11 +24,9 @@ var ErrUnknownUser = errors.New("users has no record for this cognito sub")
 
 // UserResolver resolves the caller's internal usr_ id from their Cognito sub.
 //
-// It returns domain.ErrUserNotFound, and ONLY that, for a sub Users has never
-// seen. Every other failure — Unavailable, DeadlineExceeded, Unauthenticated —
-// propagates unchanged, because an outage rendered as "unknown user" would blame
-// the caller for someone else's downtime and answer 404 to a perfectly valid
-// request.
+// CONTRACT: Return ErrUserNotFound ONLY for a sub Users has never seen. Every
+// other failure propagates unchanged — an outage rendered as "unknown user"
+// blames the caller for someone else's downtime and 404s a valid request.
 type UserResolver interface {
 	ResolveInternalUserID(ctx context.Context, cognitoSub string) (string, error)
 }
@@ -45,13 +43,12 @@ type TrackingCreator interface {
 	Create(ctx context.Context, in domain.NewTracking, now time.Time) (domain.TrackingWithHistory, error)
 }
 
-// CreateTrackingInput is the caller-supplied half of a creation.
+// CreateTrackingInput is the caller-supplied half of a creation. It carries no
+// id, status or audit actor — those are the service's to mint.
 //
-// It carries no id, no status and no audit actor: those are the service's to
-// mint, not a caller's to choose. CognitoSub comes from the gateway-injected
-// header and NEVER from the request body — a body field would be an
-// unauthenticated string a client picks, so anyone could create a tracking
-// attributed to anyone.
+// CONTRACT: CognitoSub comes from the gateway-injected header, NEVER the request
+// body. A body field is a string the client picks, so anyone could create a
+// tracking attributed to anyone. See [[user-id-vs-cognito-sub-ownership-key]]
 type CreateTrackingInput struct {
 	OrderID    string
 	CognitoSub string

@@ -29,13 +29,9 @@ const (
 // with a Z, a different string for the same instant).
 const timestampLayout = "2006-01-02T15:04:05"
 
-// HistoryEntry is one transition in the published timeline.
-//
-// Only status and datetime: tracking_id, order_id, user_id and cognito_sub are on
-// every row but are identical across all of them and already present at the
-// envelope root, so repeating them per entry would be five copies of one fact —
-// and cognito_sub in particular is an ownership key with no business leaving the
-// service.
+// HistoryEntry is one transition in the published timeline: status and datetime
+// only. The other row columns are identical across entries and already at the
+// envelope root, and cognito_sub is an ownership key that must not leave here.
 type HistoryEntry struct {
 	Status   string
 	Datetime time.Time
@@ -57,17 +53,11 @@ type StatusChanged struct {
 	// ChangedAt is the transition's own timestamp, NOT updated_at, which moves on
 	// any write.
 	ChangedAt time.Time
-	// ShippingAddress is the row's RAW JSON, forwarded byte-for-byte, and nil
-	// when the column holds NULL.
-	//
-	// json.RawMessage and NOT *string. The column is a MySQL JSON object owned by
-	// Orders, and the consumer's schema is
-	// `z.record(z.string(), z.unknown()).optional()` — an OBJECT. A *string here
-	// re-encodes those bytes as a JSON STRING CONTAINING JSON, which fails that
-	// record() as a PermanentError: the record is CONSUMED rather than retried,
-	// and the email and the WebSocket push are lost while this producer logs
-	// success. The domain already models it as opaque []byte (domain.Tracking);
-	// this type is what stops the adapter narrowing it on the way out.
+	// CONTRACT: json.RawMessage, NOT *string. The consumer's schema is
+	// z.record(...).optional(), an OBJECT; a *string re-encodes the bytes as a
+	// JSON string containing JSON, which is a PermanentError — the record is
+	// consumed, the email and push are lost, and this producer logs success.
+	// See [[events-pipeline-design]]
 	ShippingAddress json.RawMessage
 	History         []HistoryEntry
 	// Actor is what ORIGINATED the transition, threaded down from the command.
@@ -82,10 +72,10 @@ type StatusChanged struct {
 	CognitoSub string
 }
 
-// envelope is marshalled directly. Every omitempty here implements a rule from
-// the downstream Zod schema, which REJECTS NULLS: a violation is a PermanentError
-// that consumes the record and LOSES the email and the push, and nothing upstream
-// notices.
+// CONTRACT: Every omitempty here implements a downstream Zod rule. That schema
+// rejects nulls — a violation is a PermanentError that consumes the record and
+// loses the email and the push, with nothing upstream noticing.
+// See [[events-pipeline-design]]
 type envelope struct {
 	EventID string `json:"event_id"`
 	Type    string `json:"type"`
@@ -99,12 +89,9 @@ type envelope struct {
 	Payload   payload `json:"payload"`
 }
 
-// author carries ONLY actor and an optional cognito_sub.
-//
-// There is deliberately no user_id field and no source field, and their absence
-// is structural rather than conditional: no write path here has a human author,
-// and the root `source` already names the producer. A field that must never
-// appear is best represented by not existing.
+// author carries ONLY actor and an optional cognito_sub. user_id and source are
+// absent structurally, not conditionally: no write path has a human author and
+// the root source already names the producer.
 type author struct {
 	Actor      string `json:"actor"`
 	CognitoSub string `json:"cognito_sub,omitempty"`
@@ -124,19 +111,11 @@ type payload struct {
 	FullName       string `json:"full_name"`
 	OrderID        string `json:"order_id"`
 	TrackingNumber string `json:"tracking_number"`
-	// RAW JSON, emitted as the OBJECT the consumer's Zod schema requires:
-	// `shipping_address: z.record(z.string(), z.unknown()).optional()` in
-	// functions/events-pipeline/src/handlers/tracking-status-changed.ts. THAT FILE
-	// IS THE AUTHORITY for this field's type, not this struct.
-	//
-	// json.RawMessage's omitempty DOES drop the key on nil and on zero length
-	// (verified against Go 1.26.7, not assumed) — but omitempty alone is NOT
-	// sufficient, because a JSON column can legally hold the literal document
-	// `null`, whose bytes are non-empty and would marshal straight through as
-	// "shipping_address": null. The schema is `.optional()` and NOT `.nullable()`,
-	// so that null is a rejection exactly like the wrong type. buildEnvelope
-	// therefore normalizes those bytes to nil BEFORE they reach this field:
-	// omitted, never null.
+	// CONTRACT: Do NOT rely on omitempty alone. It drops nil and zero-length
+	// bytes, but a JSON column can hold the literal document `null`, whose
+	// non-empty bytes marshal through as "shipping_address": null — a rejection
+	// under a schema that is .optional() and not .nullable(). buildEnvelope
+	// normalizes those bytes to nil first. See [[events-pipeline-design]]
 	ShippingAddress json.RawMessage `json:"shipping_address,omitempty"`
 	History         []historyEntry  `json:"history"`
 }
@@ -148,24 +127,13 @@ type historyEntry struct {
 
 // DeriveEventID is the idempotency key for one transition.
 //
-// DETERMINISTIC ON PURPOSE — never a fresh id per attempt. The pipeline dedupes
-// on a unique index over event_id, so a redelivery is only collapsed if the
-// retried message carries the SAME id. A randomly generated one would slip past
-// that index and send a SECOND notification email for a transition that already
-// succeeded.
-//
-// (order_id, status) is a genuine natural key, not a convenient one: the state
-// machine is forward-only and tracking_history's primary key is
-// (tracking_id, status), so a given order enters each status at most once. Two
-// events with this id are therefore, by construction, the same transition.
-//
-// This matters most under TestMode, which walks all five statuses in ~40 seconds:
-// a transient SQS error anywhere in that burst retries into the same id rather
-// than into a duplicate email.
-//
-// The pair is HASHED rather than interpolated so the id has a fixed shape and
-// length whatever an order id contains. The hash is not a security boundary; it
-// is a formatting one.
+// CONTRACT: Keep this deterministic — never a fresh id per attempt. The pipeline
+// dedupes on a unique index over event_id, so a random id slips past it and
+// sends a SECOND notification email for a transition that already succeeded.
+// (order_id, status) is a natural key: the state machine is forward-only and
+// tracking_history is keyed on (tracking_id, status), so an order enters each
+// status at most once. The pair is hashed for a fixed id shape, not for secrecy.
+// See [[events-pipeline-design]]
 func DeriveEventID(orderID, status string) string {
 	sum := sha256.Sum256([]byte(orderID + "|" + status))
 	return eventIDPrefix + hex.EncodeToString(sum[:])[:eventIDHashLength]

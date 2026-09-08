@@ -6,14 +6,11 @@ using Orders.Infrastructure.Caching;
 namespace Orders.Tests.Api;
 
 /// <summary>
-/// The three per-user key builders, in isolation: no HTTP host, no Redis, no fixture.
+/// The three per-user key builders in isolation: no HTTP host, no Redis, no fixture.
+/// CONTRACT: A pure unit test, because the property that matters is NEGATIVE — no key when
+/// the internal id is unknown — and an endpoint test cannot tell that from "built one and
+/// Redis was down". See [[x-cache-response-header]]
 /// </summary>
-/// <remarks>
-/// Worth a pure unit test rather than only the endpoint tests, because the property that
-/// matters most here is a NEGATIVE one — that no key is produced when the caller's
-/// internal id is unknown — and an endpoint test cannot distinguish "declined to build a
-/// key" from "built a key and Redis was down". Both are a MISS on the wire.
-/// </remarks>
 public class CacheKeyBuilderTests
 {
     // CallerContextMiddleware.StampInternalUserIdAsync swallows EVERY non-cancellation

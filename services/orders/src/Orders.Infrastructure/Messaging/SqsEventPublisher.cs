@@ -14,27 +14,12 @@ namespace Orders.Infrastructure.Messaging;
 /// events-pipeline Lambda consumes it and sends the confirmation email.
 /// </summary>
 /// <remarks>
-/// <para>
-/// The wire contract is owned by the CONSUMER, not by this class:
-/// <c>functions/events-pipeline/src/domain/envelope.ts</c> (envelope) and
-/// <c>functions/events-pipeline/src/handlers/order-created.ts</c> (payload). Both are
-/// Zod-validated on arrival, both are entirely snake_case, and a mismatch is not a soft
-/// failure — an envelope or payload the schemas reject is classified PermanentError, so
-/// the message is CONSUMED, the event document is recorded FAILED, and no email is ever
-/// sent. Silently, for every single event. Change a field name here only together with
-/// those schemas.
-/// </para>
-/// <para>
-/// Every envelope key must be PRESENT: <c>order_id</c> is nullable in the schema but not
-/// optional. It carries the real order id here (unlike USER_CREATED, which sends null).
-/// </para>
-/// <para>
-/// The one exception is inside <c>author</c>, where <c>user_id</c>/<c>cognito_sub</c> are
-/// genuinely OPTIONAL and are omitted when there is no human author. Orders always has
-/// one — the buyer — so both are populated here; the omission path exists because the
-/// same block is produced by Tracking's carrier webhook, where no person acted at all.
-/// <c>author</c> carries no <c>source</c> of its own — the root one names the producer.
-/// </para>
+/// CONTRACT: The wire names are owned by the consumer's Zod schemas
+/// (<c>functions/events-pipeline/src/domain/envelope.ts</c> and
+/// <c>handlers/order-created.ts</c>). Do NOT rename a field without changing them: a
+/// rejected envelope is classified PermanentError, so the message is consumed, the event
+/// is recorded FAILED, and no email is ever sent — silently, for every event.
+/// See [[events-pipeline-design]]
 /// </remarks>
 public class SqsEventPublisher : IEventPublisher
 {
@@ -42,28 +27,20 @@ public class SqsEventPublisher : IEventPublisher
     private const string EventType = "ORDER_CREATED";
     private const string EventSource = "orders";
 
-    // No camelCase policy and no property renaming: the DTOs below already declare the
-    // exact snake_case names the consumer validates, so the wire shape is readable in
-    // the source rather than being the product of a serializer convention.
-    //
-    // WhenWritingNull, not Never: the author block OMITS an identity it does not have
-    // rather than sending `null` for it (see EventAuthor). Never would serialize those
-    // as `"cognito_sub": null`, which is precisely the shape the contract forbids.
-    //
-    // The envelope's own `order_id` is unaffected — it is nullable but REQUIRED, and this
-    // publisher always populates it with a real order id, so there is no null to drop.
-    // (USER_CREATED is the event that sends null there, and that is Users' publisher.)
+    // CONTRACT: WhenWritingNull, not Never. Optional identities are OMITTED, never sent as
+    // `"cognito_sub": null` — the shape the consumer's schema forbids. No camelCase policy
+    // either: each DTO below declares its own snake_case wire name.
+    // See [[events-pipeline-design]]
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
     /// <summary>
-    /// The ActivitySource for the publish span. Named separately from
-    /// <c>WorkflowTracer</c>'s so this span is identifiable as the queue hop, and
-    /// registered by name in <c>Program.cs</c> via <c>AddSource</c> — .NET drops every
-    /// ActivitySource the tracing pipeline was not explicitly told about, so an
-    /// unregistered source yields no span and no error.
+    /// The ActivitySource for the publish span, identifying the queue hop.
+    /// CONTRACT: Keep it registered in <c>Program.cs</c> via <c>AddSource</c>. .NET drops
+    /// every source the pipeline was not told about — no span, no error.
+    /// See [[ADR-0019-distributed-tracing-opentelemetry]]
     /// </summary>
     public const string ActivitySourceName = "orders-messaging";
 
@@ -99,35 +76,20 @@ public class SqsEventPublisher : IEventPublisher
         CancellationToken ct = default)
     {
         var envelope = new EventEnvelope(
-            // Minted HERE, not by the caller: this is the idempotency key behind the
-            // pipeline's unique index on event_id, so an SQS redelivery of the same
-            // message collides and is recognised as already-processed.
+            // CONTRACT: Mint the event id here, never in the caller. It is the idempotency
+            // key behind the pipeline's unique index on event_id; a caller-supplied id lets
+            // an SQS redelivery be processed twice.
             EventId: NanoId.NewId(EventIdPrefix),
             Type: EventType,
             Source: EventSource,
             UserId: userId,
             OrderId: orderId,
-            // Carries THIS order's correlation id onto the queue, so the confirmation
-            // email the pipeline sends can be traced back to the HTTP request that
-            // caused it. This hop is the whole reason the field exists: the pipeline
-            // Lambda runs no OTel SDK, so trace_id does not reach it and nothing else
-            // joins the two sides of the queue.
-            //
-            // Null outside a request (a background publish, a test that seeded no
-            // context) and OMITTED from the JSON when so — see EventEnvelope.
+            // WHY: The only link across the queue — the pipeline Lambda runs no OTel SDK,
+            // so trace_id never reaches it. Null outside a request, and omitted when null.
             RequestId: AmbientRequestId.Current,
-            // WHO originated the event, next to the UserId above, which is WHO it is
-            // about. A real human acted here — the buyer placed their own order — so the
-            // author carries both identities. `Actor` is the same semantic AuditActor
-            // value the audit interceptor stamps into CreatedBy/UpdatedBy for this write
-            // path, so the event and the row it produced name their origin identically.
-            //
-            // There is no author.source: the producing service is already this envelope's
-            // root Source, and a second copy would carry no information while inviting
-            // the two to disagree (see AuthorSchema in the consumer's envelope.ts).
-            //
-            // An absent CognitoSub is OMITTED from the JSON, never serialized as null —
-            // see SerializerOptions above.
+            // WHY: `author` is WHO acted; the root UserId is WHO the event is about. Actor
+            // reuses the AuditActor the interceptor stamps on the row, so event and row name
+            // the same origin. No author.source — the root Source already names the producer.
             Author: new EventAuthor(
                 Actor: AuditActor.CreateOrder,
                 UserId: userId,
@@ -137,26 +99,22 @@ public class SqsEventPublisher : IEventPublisher
                 UserId: userId,
                 Email: email,
                 FullName: fullName,
-                // The receipt's four figures travel as four figures. The consumer must never
-                // derive one from the others: the split was computed once, by the code that
-                // priced the order, and a template that re-does that arithmetic can disagree
-                // with the order row it is describing.
+                // CONTRACT: Send all four figures; the consumer must NOT derive one from the
+                // others. A template re-doing the arithmetic disagrees with the order row.
+                // See [[money-representation]]
                 SubtotalCents: subtotalCents,
                 TaxCents: taxCents,
                 ShippingCents: shippingCents,
                 TotalCents: totalCents,
-                // Re-parsed from the stored JSON into a JsonElement so it is embedded as a
-                // real JSON OBJECT, not as a string-of-JSON the consumer would receive
-                // double-escaped — the same treatment TrackingHttpClient gives this exact
-                // column. Absent (or unparsable) collapses to null, and null is OMITTED from
-                // the wire entirely by SerializerOptions above, exactly like author.cognito_sub:
-                // "no address on file" must not reach the consumer as `"shipping_address": null`.
+                // CONTRACT: Embed the address as a real JSON object, not a string-of-JSON —
+                // the consumer receives the latter double-escaped and renders quotes and
+                // backslashes on the receipt. Unparsable collapses to null and is omitted.
+                // See [[events-pipeline-design]]
                 ShippingAddress: ParseShippingAddress(shippingAddress, orderId),
                 Items: items
                     .Select(i => new OrderCreatedItemPayload(i.Name, i.Quantity, i.UnitPriceCents))
                     .ToList(),
-                // Round-trip ("O") UTC, so the consumer receives an unambiguous instant
-                // rather than a machine-locale rendering.
+                // WHY: Round-trip ("O") UTC — a machine-locale rendering is ambiguous.
                 CreatedAt: createdAt.ToUniversalTime().ToString("O")));
 
         var request = new SendMessageRequest
@@ -165,67 +123,40 @@ public class SqsEventPublisher : IEventPublisher
             MessageBody = JsonSerializer.Serialize(envelope, SerializerOptions),
         };
 
-        // The PUBLISH span, and the reason this send is wrapped at all: the traceparent
-        // on the message must name the span that performed THIS send, so the consumer's
-        // work hangs under the publish rather than beside it. See BuildMessageAttributes
-        // for why the attributes are built INSIDE.
-        //
-        // Started OUTSIDE the try, with the try/catch nested in its scope, so BOTH log
-        // lines below are written while this activity is current and therefore carry ITS
-        // span id. With the `using` inside the try, an exception disposed the activity on
-        // the way out and the failure line landed on the enclosing workflow span instead —
-        // invisible to a span-scoped lookup on the publish, which is where an operator
-        // looks after seeing the send go red.
+        // CONTRACT: Start the activity OUTSIDE the try, with the try/catch nested in its
+        // scope. Inside the try, an exception disposes it on the way out and the failure log
+        // lands on the enclosing workflow span, invisible to a span-scoped lookup on the
+        // publish. See [[logging-context]]
         using var activity = Source.StartActivity(PublishActivityName, ActivityKind.Producer);
 
         try
         {
-            // Built here, not in the initializer above: this must observe the activity
-            // just started. Evaluated one line earlier it would read the enclosing
-            // workflow span (create_order) instead — which is the bug this fixes.
+            // CONTRACT: Build the attributes here, inside the activity's scope. Evaluated in
+            // the request initializer above, Activity.Current is the enclosing create_order
+            // span and the consumer parents its work to that instead of to this send.
             request.MessageAttributes = BuildMessageAttributes();
 
             await _client.SendMessageAsync(request, ct);
 
-            // The span's OWN line, so "View logs" on this span in OpenObserve answers
-            // rather than coming back empty: that button filters by trace_id AND span_id
-            // with no fallback to the trace, so a span nobody logs from can only ever
-            // return nothing. It earns its place independently of that — it states that
-            // the event was emitted, WHICH event (type + event_id, the pipeline's
-            // idempotency key) and for WHICH order, which is what makes a missing
-            // confirmation email diagnosable from this side of the queue.
-            //
-            // NEVER the email, the name or the address (PII): the ids identify the
-            // message completely on their own.
+            // CONTRACT: Never log the email, name or address (PII) — the ids identify the
+            // message. Keep the line inside the activity: OpenObserve's "View logs" filters
+            // by trace_id AND span_id, so a span nobody logs from returns nothing.
+            // See [[logging-context]]
             _logger.LogInformation(
                 "ORDER_CREATED published {app_event} {event_type} {event_id} {order_id} {user_id}",
                 "order_created_published", EventType, envelope.EventId, orderId, userId);
         }
         catch (Exception ex)
         {
-            // The span must come out ERROR, not OK: a send that failed is the one thing a
-            // waterfall must not render as a healthy hop.
+            // WHY: A failed send must not render as a healthy hop in the waterfall.
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
 
 
-            // DELIBERATE: logged and swallowed, never rethrown.
-            //
-            // By the time this runs the order is already persisted and its products'
-            // stock already decremented. Rethrowing would abort the enclosing
-            // transaction, so a queue outage would roll back a commercially valid order
-            // that the customer successfully placed and that Tracking may already have
-            // been told about — trading a missing confirmation EMAIL for a lost SALE.
-            // The email is a notification about the order, not the order itself, so it
-            // degrades independently; this is the same best-effort stance order creation
-            // already takes for its Tracking call.
-            //
-            // NOT silent: logged at error with the `*_failed` app_event so it is
-            // alertable and the event is backfillable from the order row — and written
-            // INSIDE the publish activity (see above) so it is the line that span's
-            // "View logs" returns.
-            //
-            // NEVER log the email or any address field (PII). order_id and user_id
-            // identify the missing event completely on their own.
+            // CONTRACT: Do NOT rethrow. The order is already persisted and its stock already
+            // decremented, so rethrowing aborts the enclosing transaction and a queue outage
+            // rolls back a sale the customer completed. Log at error with the `*_failed`
+            // app_event so it stays alertable and backfillable — never the email or address
+            // (PII). See [[logging-context]]
             _logger.LogError(
                 ex,
                 "ORDER_CREATED publish failed (non-fatal): the order was created but no event was emitted {app_event} {reason} {order_id} {user_id}",
@@ -233,41 +164,13 @@ public class SqsEventPublisher : IEventPublisher
         }
     }
 
-    // `type` and `source` are duplicated out of the envelope as message attributes so the
-    // queue can be inspected (and filtered) without deserializing bodies.
-    //
-    // `traceparent` is the third, and it is not a duplicate of anything in the body: it is
-    // the TRACE hop across the queue. Activity.Current?.Id renders the current activity's
-    // context as a W3C-formatted string ("00-{traceId}-{spanId}-{flags}") — .NET's native
-    // Id format IS the traceparent header, so there is nothing to build by hand and no
-    // propagator to instantiate. It is the same string AddHttpClientInstrumentation already
-    // puts on the wire for the Orders -> Users hop; SQS gets no auto-instrumentation for
-    // this, so the injection is manual here.
-    //
-    // OMITTED, never empty, when there is no active Activity (a background publish, a unit
-    // test with no listener): the same "omitted, never null" rule the envelope's author
-    // fields follow — and here it is a correctness matter beyond tracing, because SQS
-    // REJECTS a MessageAttributeValue whose StringValue is empty, which would turn a
-    // missing trace into a failed publish.
-    //
-    // It rides in the attributes and NEVER in the envelope body: the consumer extracts it
-    // as a carrier header, and the body is a validated contract that has no such field.
-    //
-    // CALL ORDER IS PART OF THE CONTRACT. This reads Activity.Current, so it must be
-    // called INSIDE the publish activity's scope. Called while building the
-    // SendMessageRequest — as it originally was — Activity.Current is still the enclosing
-    // workflow span (create_order), and the consumer faithfully parents its work to that:
-    // process_record came out a SIBLING of the send instead of its child, so expanding the
-    // publish in the waterfall showed only AWS SDK internals and none of the work it caused.
-    //
-    // On AddAWSInstrumentation: it also injects a traceparent of its own, from its
-    // SQS.SendMessage span, via AWSTracingPipelineHandler -> SqsRequestContextHelper. That
-    // path is NOT what this relies on, and the two do not fight: the helper skips injection
-    // entirely when a key it would write is already present, so the value set here wins by
-    // construction. Deliberate — that path is invisible to these unit tests (which use a
-    // mocked IAmazonSQS, so no SDK pipeline runs at all) and it would silently inject
-    // nothing if the instrumentation were ever unregistered. An explicit span we own is
-    // assertable in-process and does not depend on either.
+    // CONTRACT: Call this INSIDE the publish activity's scope — it reads Activity.Current.
+    // Called while building the SendMessageRequest, it captures the enclosing create_order
+    // span and the consumer parents process_record as a sibling of the send, so expanding
+    // the publish shows only SDK internals. Omit traceparent when there is no activity:
+    // SQS rejects an empty StringValue, turning a missing trace into a failed publish.
+    // It rides in the attributes, never in the body, which the consumer's schema validates.
+    // See [[ADR-0019-distributed-tracing-opentelemetry]]
     private static Dictionary<string, MessageAttributeValue> BuildMessageAttributes()
     {
         var attributes = new Dictionary<string, MessageAttributeValue>
@@ -288,15 +191,10 @@ public class SqsEventPublisher : IEventPublisher
         return attributes;
     }
 
-    // The address arrives as the JSON snapshot persisted on the order, so it is re-parsed
-    // into a JsonElement and embedded as a real JSON value rather than re-encoded as a
-    // string-of-JSON (which would reach the consumer double-escaped and render as a blob of
-    // quotes and backslashes on the customer's receipt). Mirrors TrackingHttpClient.ParseAddress,
-    // which does the same thing to the same column for the same reason.
-    //
-    // Absent or malformed becomes null, and null is dropped from the JSON by
-    // SerializerOptions: an address we cannot parse must never cost the buyer the whole
-    // email, and must never be echoed into a log line (PII) — only the order id is logged.
+    // CONTRACT: Never echo the address into a log line (PII) — only the order id. A
+    // malformed snapshot degrades to null (and is then omitted) rather than costing the
+    // buyer the whole email. Mirrors TrackingHttpClient.ParseAddress on the same column.
+    // See [[logging-context]]
     private JsonElement? ParseShippingAddress(string? shippingAddress, string orderId)
     {
         if (string.IsNullOrWhiteSpace(shippingAddress))
@@ -316,17 +214,11 @@ public class SqsEventPublisher : IEventPublisher
         }
     }
 
-    // snake_case wire names are declared explicitly on each member — see the class
-    // remarks: these names ARE the contract the consumer's Zod schemas validate.
-    //
-    // `request_id` is the one ROOT key that is genuinely OPTIONAL, and it is omitted rather
-    // than nulled by the same WhenWritingNull that handles author.cognito_sub. The consumer
-    // declares it `.optional()` for an operational reason: at deploy time the queue can
-    // still hold messages published before the field existed, and a REQUIRED field would
-    // make those fail envelope validation — which the pipeline classifies PermanentError,
-    // so the message is dead-lettered and its email silently never sent. A `null` would be
-    // no better on the way out: it reads as "correlation resolved to nothing" rather than
-    // "this message carries none".
+    // CONTRACT: Every root key is required except `request_id`, which is omitted when
+    // absent. Making it required fails validation for messages already on the queue from
+    // before the field existed — PermanentError, dead-lettered, email silently never sent.
+    // `order_id` is nullable but required, and this publisher always fills it.
+    // See [[events-pipeline-design]]
     private sealed record EventEnvelope(
         [property: JsonPropertyName("event_id")] string EventId,
         [property: JsonPropertyName("type")] string Type,
@@ -337,26 +229,17 @@ public class SqsEventPublisher : IEventPublisher
         [property: JsonPropertyName("author")] EventAuthor Author,
         [property: JsonPropertyName("payload")] OrderCreatedPayload Payload);
 
-    // Who originated the event. Only `actor` is always present; `user_id` and
-    // `cognito_sub` are OMITTED when unknown rather than sent as null — which is what
-    // makes them nullable here and why the serializer uses WhenWritingNull. A producer
-    // with no human behind it (Tracking's carrier webhook) sends `actor` alone. There is
-    // no `source`: the envelope's root one already names the producing service.
+    // CONTRACT: Only `actor` is always present. Omit `user_id`/`cognito_sub` when unknown
+    // rather than sending null — a producer with no human behind it (Tracking's carrier
+    // webhook) sends `actor` alone. See [[events-pipeline-design]]
     private sealed record EventAuthor(
         [property: JsonPropertyName("actor")] string Actor,
         [property: JsonPropertyName("user_id")] string? UserId,
         [property: JsonPropertyName("cognito_sub")] string? CognitoSub);
 
-    // Exactly what OrderCreatedPayloadSchema requires, no more: the payload is persisted on
-    // the event document, so anything extra would be stored for no reason.
-    //
-    // It grew from a bare confirmation into a RECEIPT — greeting, money breakdown, address
-    // and line items — because the consumer holds no connection to the Orders database and
-    // cannot look any of it up. Whatever the email prints has to travel here.
-    //
-    // `shipping_address` is the one OPTIONAL key: a buyer with no address on file yields
-    // null, which WhenWritingNull omits from the JSON entirely. Every other key is always
-    // present, so the payload's shape never varies.
+    // WHY: The receipt travels whole because the consumer has no connection to the Orders
+    // database and cannot look anything up. `shipping_address` is the only optional key —
+    // omitted, never null; every other key is always present.
     private sealed record OrderCreatedPayload(
         [property: JsonPropertyName("order_id")] string OrderId,
         [property: JsonPropertyName("user_id")] string UserId,
@@ -370,15 +253,11 @@ public class SqsEventPublisher : IEventPublisher
         [property: JsonPropertyName("items")] IReadOnlyList<OrderCreatedItemPayload> Items,
         [property: JsonPropertyName("created_at")] string CreatedAt);
 
-    // One receipt line. Carries the product's NAME, not its id: OrderDetail stores only
-    // ProductId, and an id printed on a customer's receipt is not a receipt. The line's own
-    // total is deliberately absent — the template multiplies quantity by unit price, and a
-    // second figure on the wire could contradict the two it was derived from.
-    //
-    // A distinct type from Application's OrderCreatedItem on purpose: that one is the port's
-    // vocabulary, this one is the WIRE, and the wire's names are owned by the consumer's Zod
-    // schema. Collapsing them would let an innocuous rename in Application silently change
-    // what the pipeline validates.
+    // CONTRACT: Keep this distinct from Application's OrderCreatedItem — that one is the
+    // port's vocabulary, this one is the wire the consumer's schema validates, and merging
+    // them lets a rename in Application silently change what the pipeline accepts. Carries
+    // the product NAME (an id on a receipt is not a receipt) and no line total, which the
+    // template derives. See [[events-pipeline-design]]
     private sealed record OrderCreatedItemPayload(
         [property: JsonPropertyName("name")] string Name,
         [property: JsonPropertyName("quantity")] uint Quantity,

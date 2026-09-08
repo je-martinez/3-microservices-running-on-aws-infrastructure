@@ -3,14 +3,11 @@ using System.Text;
 
 namespace Orders.Api.Logging;
 
-// CROSS-SERVICE CONTRACT: must produce byte-identical output to the Users
-// service's hashEmail() in services/users/src/shared/logging/email-hash.ts —
-// SHA-256 of the trimmed, lowercased email, hex, first 16 chars.
-//
-// If the two ever drift, filtering one user across both services silently
-// returns nothing: no error, no warning, just no results. Both sides therefore
-// pin the same literal in a test (see EmailHashTests), so a drift fails loudly
-// in CI instead of quietly in production.
+// CONTRACT: Byte-identical to Users' hashEmail() in
+// services/users/src/shared/logging/email-hash.ts — SHA-256 of the trimmed, lowercased
+// email, hex, first 16 chars. A drift makes filtering one user across both services return
+// nothing at all: no error, no warning, no results. Both sides pin the same literal in a test
+// so it fails in CI instead. See [[logging-context]]
 public static class EmailHash
 {
     private const int HashLength = 16;

@@ -2,12 +2,10 @@ namespace Orders.Infrastructure.Caching;
 
 /// <summary>
 /// Every cache key this service uses, built in one place.
+/// CONTRACT: Never concatenate a key by hand. Centralizing construction is what makes
+/// forgetting the identity segments — and so leaking one user's entry to another —
+/// structurally impossible. See [[x-cache-response-header]]
 /// </summary>
-/// <remarks>
-/// Centralizing key construction is what makes cross-user leakage structurally impossible:
-/// no caller ever concatenates a key by hand, so no caller can forget the
-/// <c>cognito_sub</c>/<c>user_id</c> segments that scope a per-user entry to its owner.
-/// </remarks>
 public static class CacheKeys
 {
     public const string ProductsPrefix = "orders:products:v1";
@@ -43,12 +41,10 @@ public static class CacheKeys
 
     /// <summary>
     /// The leading three colon-separated segments of <paramref name="key"/> — its family.
+    /// CONTRACT: The prefix is the ONLY part of a key that may reach a span attribute or
+    /// metric dimension — the rest carries identity, and unbounded dimensions also explode
+    /// CloudWatch cardinality. See [[logging-context]]
     /// </summary>
-    /// <remarks>
-    /// The prefix is the ONLY part of a key that may reach a span attribute or a metric
-    /// dimension: the rest carries <c>cognito_sub</c> and <c>user_id</c>, and unbounded
-    /// dimension values would also explode CloudWatch cardinality and cost.
-    /// </remarks>
     public static string PrefixOf(string key)
     {
         var parts = key.Split(':');

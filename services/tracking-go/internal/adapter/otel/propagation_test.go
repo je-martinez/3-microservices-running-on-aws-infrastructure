@@ -12,25 +12,13 @@ import (
 	tracing "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/otel"
 )
 
-// The PROPAGATOR half of SetupTracing, which had no test at all.
+// The PROPAGATOR half of SetupTracing, which BOTH ends depend on.
 //
-// Found by a mutation check: replacing
-//
-//	propagation.NewCompositeTextMapPropagator(TraceContext{}, Baggage{})
-//
-// with an EMPTY composite — a propagator that extracts nothing and injects
-// nothing — left the entire suite green. That is the same "correct code, no
-// failing test" shape as the missing otelgin wiring, one layer down, and it is
-// the more dangerous one: the propagator is what BOTH ends depend on.
-//
-// Break it and two things fail at once, neither loudly:
-//   - inbound, otelgin extracts no traceparent, so every request starts a new
-//     trace and the gateway's trace is orphaned;
-//   - outbound, the SQS publisher injects no traceparent, so the events-pipeline
-//     Lambda's spans hang off nothing.
-//
-// In both directions the result is SEVERAL COMPLETE TRACES instead of one, which
-// no "is it traced?" assertion can tell from success.
+// CONTRACT: An empty composite passes every "is it traced?" assertion. Broken,
+// otelgin extracts no inbound traceparent so every request starts a new trace,
+// and the SQS publisher injects none so the pipeline's spans hang off nothing —
+// in both directions SEVERAL COMPLETE TRACES instead of one.
+// See [[ADR-0019-distributed-tracing-opentelemetry]]
 
 // TestSetupTracingInstallsTheW3CPropagator pins the contract by its OBSERVABLE
 // behaviour — the header names it carries — rather than by its Go type.

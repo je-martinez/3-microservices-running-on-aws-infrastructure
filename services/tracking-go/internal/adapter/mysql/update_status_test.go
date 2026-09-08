@@ -12,14 +12,12 @@ import (
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/domain/audit"
 )
 
-// REAL MySQL, never a mock. A mocked repository test passes against a schema
-// that does not exist: it cannot catch a column narrower than the value written,
-// a DATETIME that rounds a fractional second forward, or a composite primary key
-// rejecting a duplicate transition. All three are behaviours this file asserts.
+// CONTRACT: Real MySQL, never a mock. A mock cannot catch a column narrower than
+// the value written, a DATETIME rounding a fractional second forward, or a
+// composite primary key rejecting a duplicate transition. See [[testing]]
 //
-// requireMySQL and deleteOrders are shared with the creation suite in this same
-// test package; the seeding helper below is named transitionSeed so the suites
-// can coexist without colliding.
+// requireMySQL and deleteOrders come from the creation suite in this package;
+// the seeding helper here is transitionSeed so the two can coexist.
 
 // transitionCleanup removes this suite's rows from a t.Cleanup.
 //

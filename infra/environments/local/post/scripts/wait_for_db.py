@@ -3,23 +3,12 @@
 
 Usage: wait_for_db.py <host> <port> <engine:postgres|mysql>
 
-Runs the probe INSIDE a throwaway container joined to Floci's compose network
-(3mrai_3mrai-network) so it resolves the `floci` service by name — the same
-network the app containers use.
-
-Exit codes (unchanged from the bash version — gate.tf depends on them):
-  0 ready, 1 timeout, 2 unknown engine or usage error.
-
-A healthcheck rather than a mutation, but wrapped in the DynamoDB execution log
-like the other three provisioning scripts so the record of a provisioning
-sequence is complete. The usage errors (wrong arg count, non-numeric port) exit
-2 BEFORE the DB target is known — there is no resource identity to record them
-against, so they stay outside the wrapper entirely. The unknown-engine case
-also exits 2, but only after host:port is known, so it is recorded as a failed
-run; the wrapper never changes which code is returned.
-
-Overridable via env: WAIT_ATTEMPTS (default 30), WAIT_SLEEP (default 2).
-Optional: EXECUTION_LOG_TABLE — unset records nothing and behaves as before.
+CONTRACT: Do NOT change these exit codes — gate.tf depends on them. 0 ready,
+1 timeout, 2 unknown engine or usage error; the execution-log wrapper never
+changes which code is returned. The probe runs inside a throwaway container on
+3mrai_3mrai-network so it resolves `floci` by name, like the app containers do.
+Env: WAIT_ATTEMPTS (30), WAIT_SLEEP (2), optional EXECUTION_LOG_TABLE.
+See [[two-phase-terraform-apply]]
 """
 
 import os
@@ -32,10 +21,9 @@ from lib3mrai.execution_log import record_execution
 class NotReady(RuntimeError):
     """The DB never accepted a connection within the timeout.
 
-    Raised so record_execution observes the timeout: that path reported failure
-    by RETURNING 1, which the wrapper cannot detect (it sees exceptions only)
-    and would have recorded as "ok". main() catches it and returns 1 unchanged,
-    keeping gate.tf's dependency on the exit codes intact.
+    CONTRACT: Raise, do NOT return 1 here. record_execution sees exceptions
+    only, so a returned code is recorded as "ok". main() catches this and
+    returns 1 unchanged, keeping gate.tf's dependency on the exit codes intact.
     """
 
 

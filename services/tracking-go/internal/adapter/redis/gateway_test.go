@@ -253,15 +253,10 @@ func TestNewClientTimeoutsAndRetries(t *testing.T) {
 	if opts.WriteTimeout != want {
 		t.Errorf("WriteTimeout = %v, want %v", opts.WriteTimeout, want)
 	}
-	// NewClient must PASS -1, which is how go-redis spells "disabled" (passing 0
-	// would mean "use the default of 3" — the trap this asserts against).
-	//
-	// It is asserted as 0 because the sentinel is consumed at construction:
-	// goredis.NewClient clones the Options and runs init(), which rewrites -1 to
-	// 0 ("zero retries") and 0 to 3. Options() returns that post-init clone, so
-	// -1 is unobservable here and 0 is the observable proof that retries are off.
-	// Asserting -1 would fail against a CORRECT implementation, and asserting
-	// nothing would let the 0-means-3 default through silently.
+	// CONTRACT: NewClient passes -1 ("disabled"); 0 would mean go-redis's default
+	// of 3. Asserted as 0 because init() rewrites -1 to 0 and 0 to 3, so -1 is
+	// unobservable here — asserting -1 fails a CORRECT implementation, and
+	// asserting nothing lets the 0-means-3 default through.
 	if opts.MaxRetries != 0 {
 		t.Errorf("MaxRetries = %d, want 0 (retries disabled after init); a retry doubles the timeout budget", opts.MaxRetries)
 	}

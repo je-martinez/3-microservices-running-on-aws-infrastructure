@@ -14,13 +14,11 @@ export class RefreshTokenCommand {
     this.auth = auth;
   }
 
-  // This flow has NO identifying attribute to carry, and that is deliberate.
-  // Its only input is the refresh token, which is a credential exactly like the
-  // password in login.ts: it never appears on the span — not raw, not
-  // truncated, not hashed (a hash of a bearer credential is still a stable
-  // handle to it, and it identifies nothing an operator can act on). The
-  // returned tokens get the same treatment. The caller's identity reaches the
-  // trace anyway, through the log context and the parent HTTP span.
+  // WARNING: The refresh token is a credential and never reaches the span — not raw,
+  // not truncated, not hashed (a hash of a bearer credential is still a handle to it).
+  // Same for the returned tokens. This flow therefore carries no identifying
+  // attribute; the caller's identity reaches the trace via the log context and the
+  // parent HTTP span. See [[logging-context]]
   async execute(input: RefreshInput): Promise<RefreshedTokens> {
     return withWorkflowSpan("refresh_token", { app_event: "refresh_token_started" }, () =>
       this.doExecute(input),

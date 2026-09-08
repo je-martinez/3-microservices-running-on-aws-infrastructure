@@ -3,15 +3,12 @@ import { pickProductWithStock } from "../../support/catalogue.js";
 import { gatewayClient } from "../../support/gateway-client.js";
 import { makeUser } from "../../support/chance-factory.js";
 
-// Account deletion through the API GATEWAY with a real Cognito JWT: authorizer →
-// njs sub-extraction → nginx → Users → the two cascade legs. The internal
-// counterpart (direct service ports, faked `x-user-id`, exhaustive cases on the
-// cascade routes) is `tests/account-deletion.spec.ts`.
-//
-// This layer exists because the other two cannot see gateway-only failures: a
-// route absent from `infra/modules/api-gateway/main.tf`'s route map 404s here
-// while working perfectly on port 3000, and `DELETE` on an existing path is
-// exactly the shape of change that gets left out of a route map.
+// Account deletion through the API GATEWAY with a real Cognito JWT: authorizer → njs
+// sub-extraction → nginx → Users → the two cascade legs. The exhaustive cases live in
+// the internal counterpart, `tests/account-deletion.spec.ts`. This layer exists for
+// what neither of the other two can see: a route absent from the gateway's route map
+// 404s here while working perfectly on port 3000.
+// See [[2026-08-25-route-works-in-process-but-404s-at-gateway]]
 
 type Credentials = ReturnType<typeof makeUser>;
 
@@ -21,17 +18,11 @@ interface Session {
   userId: string;
 }
 
-// Registers a user through the gateway and logs them in.
-//
-// Not `support/auth.ts`'s `getGatewayToken()`, which returns only `{ token, email }`
-// — this spec needs (a) the PASSWORD, to log in again as the re-registered account,
-// and (b) the `usr_` id, because "the new account is a different row" is asserted by
-// comparing ids. Same shape as `tracking-flow.spec.ts`'s local `registerAndLogin`,
-// which forked the helper for the same reason rather than widening a return type
-// that 38 call sites depend on.
-//
-// Takes the credentials as a parameter instead of generating them, because the
-// headline case must register the SAME email twice — which is the entire feature.
+// Registers a user through the gateway and logs them in. Not `auth.ts`'s
+// `getGatewayToken()`, which returns only `{ token, email }`: this spec needs the
+// PASSWORD (to log in again as the re-registered account) and the `usr_` id ("the new
+// account is a different row" is asserted by comparing ids). Credentials come in as a
+// parameter because the headline case registers the SAME email twice.
 async function registerAndLogin(user: Credentials): Promise<Session> {
   const rawBaseURL = process.env.API_GATEWAY_URL;
   if (!rawBaseURL) throw new Error("API_GATEWAY_URL is not set — run `make bootstrap`.");
@@ -106,13 +97,11 @@ test("a deleted account releases its email, and re-registering it yields a clean
 
   // 3 — the old token no longer reaches a live account.
   //
-  // Observed to be 404, not 401, and the distinction is worth pinning: the JWT is
-  // still cryptographically valid for the rest of its lifetime, so the authorizer
-  // ADMITS it and the request reaches Users, which finds no live row. The task
-  // brief allowed "401 or 404"; the real behaviour is deterministic, so it is
-  // asserted exactly. A 200 is the failure this guards, and a future change that
-  // made the authorizer reject deleted subs would flip this to 401 — which should
-  // be a deliberate edit here, not silently absorbed by a disjunction.
+  // CONTRACT: Pin 404 exactly; do NOT widen this to "401 or 404". The JWT stays
+  // cryptographically valid, so the authorizer ADMITS it and Users finds no live row.
+  // A 200 is the failure this guards; an authorizer that later rejects deleted subs
+  // should force a deliberate edit here, not be absorbed by a disjunction.
+  // See [[testing]]
   const meAfter = await api.get("v1/users/me");
   expect(meAfter.status(), `old token returned ${await meAfter.text()}`).toBe(404);
 
@@ -148,33 +137,14 @@ test("a deleted account releases its email, and re-registering it yields a clean
   expect(trackings.status()).toBe(200);
   expect((await trackings.json()).trackings).toEqual([]);
 
-  // ## LIMITATION — the preserved-row assertion is NOT made here, deliberately
-  //
-  // The spec (Task 9, step 3) also asks that the OLD row still be in Postgres with
-  // `deleted_at` stamped and its REAL email intact — no tombstoning. That cannot be
-  // asserted through the API, and the reason is structural rather than an oversight:
-  // a soft-deleted row is invisible to every read path BY CONSTRUCTION (Prisma's
-  // global filter), so "preserved with its real email" and "erased outright" produce
-  // byte-identical API responses. An API-only assertion here would be a test that
-  // cannot fail — worse than no test, because it would read as coverage.
-  //
-  // Asserting it properly needs a direct Postgres connection, and this suite has
-  // NONE — no `pg` dependency, no DSN, no precedent (`support/` reaches only HTTP,
-  // WebSocket and OpenObserve). Adding a database client to the E2E suite for one
-  // assertion is a new dependency and a new failure mode, and was explicitly ruled
-  // out of this task.
-  //
-  // What IS proven above, and is the strongest the API can give: the new account
-  // exists, is a DIFFERENT row from the old one (`second.userId !== first.userId`),
-  // carries the same email, and owns nothing. The old row's existence is implied —
-  // if it had been hard-deleted, the ids could not be compared and, more to the
-  // point, ADR-0004 forbids the SQL `DELETE` that would do it (the write user holds
-  // no `DELETE` grant), which is enforced at the service layer with its own unit
-  // tests.
-  //
-  // The gap is real and named: **no test in any layer asserts that the deleted row
-  // keeps its real email.** Closing it belongs in Users' own integration suite,
-  // which already has a live Postgres, not here.
+  // CONTRACT: Do NOT add an API-level assertion that the old row survives with its
+  // real email. A soft-deleted row is invisible to every read path by construction
+  // (Prisma's global filter), so "preserved" and "erased outright" produce identical
+  // API responses — such a test cannot fail and would read as coverage. Proving it
+  // needs a direct Postgres connection this suite deliberately does not have.
+  // KNOWN GAP: no layer asserts the deleted row keeps its real email; that belongs in
+  // Users' integration suite, which already has a live Postgres.
+  // See [[soft-delete]]
 });
 
 test("DELETE v1/users/me without a Bearer token is 401 at the gateway", async () => {
@@ -196,13 +166,10 @@ test("the deleted account's credentials no longer authenticate", async () => {
   const api = await gatewayClient(session.token);
   expect((await api.delete("v1/users/me")).status()).toBe(204);
 
-  // Login is the surface a returning user actually hits, and it must fail — the
-  // Cognito account is gone, which is what freed the email. A 200 here would mean
-  // `AdminDeleteUser` never ran (or was an `AdminDisableUser`), and the
-  // re-registration in the headline case would then be racing an orphan in the
-  // pool. Asserted through the PUBLIC login route rather than the deleted user's
-  // stale token, because a token that has not expired yet says nothing about
-  // whether the identity behind it survived.
+  // CONTRACT: Assert through the PUBLIC login route, not the deleted user's stale
+  // token — an unexpired token says nothing about whether the identity survived. A 200
+  // here means `AdminDeleteUser` never ran (or was an `AdminDisableUser`), leaving the
+  // headline case's re-registration racing an orphan in the pool.
   const rawBaseURL = process.env.API_GATEWAY_URL!;
   const baseURL = rawBaseURL.endsWith("/") ? rawBaseURL : `${rawBaseURL}/`;
   const anon = await request.newContext({ baseURL });
@@ -224,16 +191,11 @@ test("a deleted user's stale token reaches Orders but owns nothing", async () =>
 
   expect((await api.delete("v1/users/me")).status()).toBe(204);
 
-  // The token is still cryptographically valid for its remaining lifetime, so the
-  // authorizer lets it through and Orders answers 200 — verified live, 2026-08-26.
-  // That is not a hole: `my-orders` is a scoped list, and an EMPTY list is the
-  // complete and correct answer for an identity that owns nothing. What the
-  // cascade must guarantee is precisely this — the rows are gone, so a stale
-  // credential is worth nothing even while it still parses.
-  //
-  // Pinned to 200-and-empty rather than "401 or 404 or empty": a disjunction wide
-  // enough to accept whatever happens is not an assertion, and this behaviour was
-  // observed, not guessed.
+  // CONTRACT: Pin 200-and-empty; do NOT widen to "401 or 404 or empty". The token is
+  // still cryptographically valid, so the authorizer admits it and Orders answers 200
+  // — and an EMPTY scoped list is the correct answer for an identity owning nothing,
+  // which is exactly what the cascade must guarantee. A disjunction wide enough to
+  // accept whatever happens is not an assertion.
   const after = await api.get("v1/orders/my-orders");
   expect(after.status()).toBe(200);
   expect(await after.json()).toEqual([]);

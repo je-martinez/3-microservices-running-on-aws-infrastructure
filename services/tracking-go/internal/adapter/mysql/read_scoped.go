@@ -11,23 +11,16 @@ import (
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/domain"
 )
 
-// TrackingReader is the READ side of the two user-scoped REST endpoints.
+// TrackingReader is the READ side of the two user-scoped REST endpoints, kept
+// separate from the write repository so the read path never receives the
+// creation and soft-delete methods it must not call.
 //
-// A separate type from TrackingRepository (the write side), and separate on
-// purpose: the reads have no transaction and no audit actor, and keeping them
-// apart is what lets each use case's port be satisfied by an object that can do
-// nothing else. A single wide repository would hand the read path the creation
-// and soft-delete methods it must never call.
-//
-// # EVERY METHOD HERE IS OWNERSHIP-SCOPED, AND THERE IS NO UNSCOPED VARIANT
-//
-// Both queries carry `cognito_sub = ?` INSIDE the SQL, never as a filter applied
-// to rows already loaded. A non-owned row therefore never enters this process,
-// so no later change to the mapping code can leak one. The unscoped lookup the
-// internal/gRPC path needs is a DIFFERENT method on a DIFFERENT type — not this
-// one with an optional argument, because Go's zero value for string is "" and an
-// optional-parameter port silently turns "unscoped" into "scoped to the empty
-// string".
+// CONTRACT: Every method here is ownership-scoped and there is no unscoped
+// variant. `cognito_sub = ?` goes INSIDE the SQL, never as a filter over loaded
+// rows, so a non-owned row never enters the process. An unscoped lookup is a
+// different method on a different type — not an optional argument, since Go's
+// zero string turns "unscoped" into "scoped to the empty string".
+// See [[user-id-vs-cognito-sub-ownership-key]]
 type TrackingReader struct {
 	db *sql.DB
 }
@@ -39,13 +32,9 @@ func NewTrackingReader(db *sql.DB) *TrackingReader {
 
 // trackingColumns is the SELECT list for the tracking table.
 //
-// `datetime` is BACKTICKED and ALIASED: it is also a MySQL type keyword, so an
-// unbackticked reference is a syntax error reported at an unhelpful location.
-//
-// shipping_address and tags are NOT selected. Neither appears on either read's
-// response, and a column that is never fetched cannot be leaked by a later edit
-// to the mapping — the narrowest query that answers the question is the one that
-// cannot answer a different one.
+// CONTRACT: Do NOT add shipping_address or tags — neither appears on either
+// read's response, and a column never fetched cannot be leaked by a later edit
+// to the mapping. Backtick `datetime`: it is a MySQL type keyword.
 const trackingColumns = "id, user_id, order_id, status, cognito_sub, `datetime`"
 
 // historyColumns mirrors trackingColumns for tracking_history.
@@ -53,35 +42,22 @@ const historyColumns = "tracking_id, status, user_id, order_id, cognito_sub, `da
 
 // historyOrder is the deterministic history ordering, shared by both reads.
 //
-// ORDER BY datetime ALONE IS NOT DETERMINISTIC. The column is DATETIME with
-// fsp 0 — second resolution — and any unit of work writing several transitions
-// stamps them all from one `now`, so ties are routine. On a tie MySQL is free to
-// return primary-key order, and the PK is (tracking_id, status): that resolves
-// ALPHABETICALLY, i.e. DELIVERED, OUT_FOR_DELIVERY, PLACED, PROCESSING, SHIPPED.
-// A caller would see the shipment delivered before it was ever placed.
-//
-// FIELD() maps each status to its position in the forward-only progression,
-// which is the only order that can be correct. domain.SortHistory applies the
-// same rule in Go, and both reads run it over the rows the database returned so
-// the ordering holds even if this clause is ever lost.
+// CONTRACT: Keep the FIELD() tiebreaker. ORDER BY datetime alone is not
+// deterministic — fsp 0 and one `now` per unit of work make ties routine, and on
+// a tie MySQL may use the (tracking_id, status) key, which sorts alphabetically:
+// DELIVERED before PLACED. domain.SortHistory repeats the rule in Go.
 const historyOrder = "ORDER BY `datetime` ASC, " +
 	"FIELD(status, 'PLACED', 'PROCESSING', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED') ASC"
 
-// GetByOrderIDScoped returns the caller's tracking for orderID, together with
-// its ordered history.
+// GetByOrderIDScoped returns the caller's tracking for orderID with its ordered
+// history.
 //
-// # Scoped by cognito_sub, NEVER by user_id
-//
-// The gateway injects the JWT `sub` as x-user-id; tracking.user_id holds the
-// internal usr_ id Orders resolved through Users. Comparing a sub against a
-// usr_ id never matches, so scoping by user_id would answer "not found" for
-// every read — including the rightful owner's — while looking correct. Only the
-// database can prove this predicate right, which is why the test covering it
-// runs against real MySQL with two DIFFERENT identity values.
-//
-// A missing row and a row owned by someone else both return
-// domain.ErrTrackingNotFound. The caller cannot distinguish them, so the
-// endpoint cannot be used as an oracle for other people's order ids.
+// CONTRACT: Scope by cognito_sub, NEVER by user_id. The gateway injects the JWT
+// sub as x-user-id while tracking.user_id holds the internal usr_ id, so a
+// user_id predicate answers "not found" for every read including the owner's,
+// while looking correct. A missing row and someone else's both return
+// ErrTrackingNotFound, so this is no oracle for other people's order ids.
+// See [[user-id-vs-cognito-sub-ownership-key]]
 func (r *TrackingReader) GetByOrderIDScoped(
 	ctx context.Context, orderID, cognitoSub string,
 ) (domain.TrackingWithHistory, error) {
@@ -118,16 +94,12 @@ func (r *TrackingReader) GetByOrderIDScoped(
 	}, nil
 }
 
-// ListByOrderIDsScoped returns the caller's trackings among orderIDs, each with
-// its ordered history.
+// ListByOrderIDsScoped returns the caller's trackings among orderIDs with their
+// ordered history. Unknown, soft-deleted and non-owned ids are simply absent.
 //
-// Unknown, soft-deleted and non-owned ids are simply absent from the result:
-// there is no per-id error entry and no 404, so the answer to a partly-owned
-// request is a shorter list.
-//
-// TWO QUERIES TOTAL, never one per tracking. The history is fetched in a single
-// statement keyed on the parent ids and then distributed in memory; a per-parent
-// query would make a 100-id request cost 101 round trips.
+// CONTRACT: Two queries total, never one per tracking — history is fetched in
+// one statement keyed on the parent ids, since per-parent queries make a 100-id
+// request cost 101 round trips.
 func (r *TrackingReader) ListByOrderIDsScoped(
 	ctx context.Context, orderIDs []string, cognitoSub string,
 ) ([]domain.TrackingWithHistory, error) {
@@ -284,13 +256,9 @@ type trackingRow struct {
 	occurredAt time.Time
 }
 
-// toDomain maps the row onto the pure domain type.
-//
-// A NULL cognito_sub becomes "", which is what domain.Tracking documents as
-// "absent". Such a row is unreachable over both scoped reads anyway: the
-// predicate compares against a sub, and NULL matches nobody — never
-// mis-attributed to a caller who happens to send an empty header, because an
-// empty header is rejected as 401 before this code runs.
+// toDomain maps the row onto the pure domain type. A NULL cognito_sub becomes
+// "", which domain.Tracking documents as absent; such a row is unreachable over
+// both scoped reads, since NULL matches no sub and an empty header is a 401.
 func (r trackingRow) toDomain() domain.Tracking {
 	return domain.Tracking{
 		ID:         r.id,

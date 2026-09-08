@@ -128,10 +128,9 @@ describe("CaptureCognitoIdentityCommand", () => {
   });
 });
 
-// Every line below asserts the record's `span_id` equals the `cognito_webhook`
-// span's own. That is the whole point of the change: the no-match line used to
-// be emitted by the route AFTER execute() returned, so the span had already
-// ended and "View logs" on it in OpenObserve came back empty.
+// CONTRACT: Every line below asserts the record's `span_id` equals the
+// `cognito_webhook` span's own. Emitting the no-match line from the route, after
+// execute() returns, ends the span first and "View logs" on it comes back empty.
 describe("CaptureCognitoIdentityCommand logging", () => {
   beforeEach(() => testSpanExporter.reset());
 

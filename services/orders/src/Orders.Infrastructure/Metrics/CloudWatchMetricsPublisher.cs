@@ -38,20 +38,12 @@ public class CloudWatchMetricsPublisher : IMetricsPublisher
         IReadOnlyDictionary<string, string> dimensions,
         CancellationToken cancellationToken = default)
     {
-        // A span of OUR OWN, naming the metric. The AWS SDK auto-instrumentation
-        // already produces one, but it is called `CloudWatch.PutMetricData` and
-        // carries no metric name — this service emitted 1,451 identical,
-        // unreadable bars. A waterfall renders names, so the metric belongs in
-        // the name, exactly as with `sqs.publish order_created`.
-        //
-        // The auto-instrumented activity stays as this one's child. That extra
-        // level is accepted rather than suppressed: turning SDK instrumentation
-        // off in code is the pattern that has silently killed telemetry three
-        // times in this repo.
-        //
-        // Null-conditional throughout: StartActivity returns NULL when no
-        // listener is registered for the source (a plain `dotnet test` run, or a
-        // host with tracing off), and that is a normal condition, not an error.
+        // CONTRACT: A span of our own, naming the metric — the SDK's auto-instrumented span
+        // is called `CloudWatch.PutMetricData` and carries no metric name, so a waterfall
+        // renders hundreds of identical, unreadable bars. Do NOT suppress the SDK's span to
+        // remove the extra level: turning instrumentation off in code has silently killed
+        // telemetry three times here. Null-conditional throughout, since StartActivity returns
+        // null with no listener registered. See [[ADR-0019-distributed-tracing-opentelemetry]]
         using var activity = Source.StartActivity(
             $"cloudwatch PutMetricData {name}",
             ActivityKind.Client);

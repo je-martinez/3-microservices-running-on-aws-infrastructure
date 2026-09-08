@@ -23,15 +23,10 @@ import (
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/platform/logging"
 )
 
-// The identity-stamping middleware's tests.
-//
-// The two constants below are DIFFERENT strings, deliberately. The whole point
-// of this middleware is that it turns a Cognito sub into an internal usr_ id;
-// a fixture using one value for both could not tell a working resolution from
-// one that echoed the header back.
-//
-// Helpers carry the `stamp` prefix — this package is shared by every handler
-// suite and generic names have collided across them before.
+// CONTRACT: The two constants below are DIFFERENT strings. This middleware turns
+// a Cognito sub into an internal usr_ id, and a fixture reusing one value cannot
+// tell a working resolution from one echoing the header back. Helpers carry the
+// `stamp` prefix — this package is shared by every handler suite.
 const (
 	stampSub    = "sub-owner-9f2c"
 	stampUserID = "usr_internal_abc"
@@ -287,15 +282,10 @@ func stampLines(t *testing.T, buf *bytes.Buffer) []map[string]any {
 
 // ─── THE GAP THIS TASK CLOSES ───────────────────────────────────────────────
 
-// TestTheResponseCacheActuallyEngages is the assertion whose absence let the
-// whole response cache ship inert.
-//
-// Nothing in production called SetResolvedUserID, so ResolvedUserID answered ""
-// for every request, every key builder declined to build a key, and every read
-// was a MISS forever — while every unit test passed, because each one stamped
-// the id itself in its own fixture middleware. The only test that can catch
-// that is one that goes through the REAL wiring and asserts a second identical
-// read is a HIT.
+// TestTheResponseCacheActuallyEngages goes through the REAL wiring and asserts a
+// second identical read is a HIT. Nothing else catches a production path that
+// never calls SetResolvedUserID: every key builder then declines and every read
+// misses forever, while each unit test stamps the id in its own fixture.
 func TestTheResponseCacheActuallyEngages(t *testing.T) {
 	deps := &stampDeps{}
 	router := stampRouter(t, deps)
@@ -329,16 +319,11 @@ func TestTheResponseCacheActuallyEngages(t *testing.T) {
 	}
 }
 
-// TestTheStampedValueIsTheUSRIDAndNeverTheSub is the two-identities rule, at the
-// one place in this service where the translation actually happens.
-//
-// x-user-id carries the JWT SUB, not the internal usr_ id, and the whole purpose
-// of this middleware is to turn one into the other. Stamping the sub instead
-// would look implemented, keep every cache assertion green (a key built from the
-// sub is still a key, and it still hits on a second identical request) and put a
-// sub into the user_id segment of every response key and onto every log line —
-// where a dashboard joining Tracking to Orders and Users on user_id would then
-// match nothing at all. That mutant survives every other test in this file.
+// TestTheStampedValueIsTheUSRIDAndNeverTheSub pins the two-identities rule where
+// the translation happens. Stamping the sub looks implemented and keeps every
+// cache assertion green — a key built from a sub still hits — while putting a
+// sub into every response key and log line, so a dashboard joining on user_id
+// matches nothing. That mutant survives every other test here.
 func TestTheStampedValueIsTheUSRIDAndNeverTheSub(t *testing.T) {
 	deps := &stampDeps{}
 
@@ -620,13 +605,10 @@ func TestTheMiddlewareLogsNoPII(t *testing.T) {
 // ─── The routes the middleware must never touch ─────────────────────────────
 
 // TestTheMiddlewareNeverRunsOnTheIdentitylessRoutes covers the carrier PUT and
-// the two deletes.
-//
-// None of the three carries an x-user-id at all: the carrier's gateway route
-// declares no Cognito authorizer, and both deletes are authenticated by an API
-// key with their subject in the body or in a tag. Resolving there would pay a
-// gRPC call on a request that has no identity to resolve — and a middleware
-// guarding merely on "the header is present" would still fire on a stray one.
+// the two deletes. None carries an x-user-id: the carrier's route declares no
+// authorizer and both deletes are API-key authenticated with their subject in
+// the body or a tag. A middleware guarding merely on header presence would still
+// fire on a stray one.
 func TestTheMiddlewareNeverRunsOnTheIdentitylessRoutes(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

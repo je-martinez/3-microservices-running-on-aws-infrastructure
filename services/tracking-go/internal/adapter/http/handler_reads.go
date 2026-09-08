@@ -44,14 +44,10 @@ const orderIDsParam = "order_ids"
 // carrying 0 would read as "expires now" rather than "unknown".
 const CacheTTLHeader = "X-Cache-TTL"
 
-// ReadsHandler serves the two user-scoped reads.
-//
-// It holds the cache GATEWAY and the enabled FLAG separately, and both are
-// needed. The gateway decides what happens (a null gateway does nothing); the
-// flag decides whether an X-Cache header is stamped at all. With the cache
-// disabled the service must look like one that has no cache — no MISS, no
-// BYPASS, no header — because the load test's control arm is exactly that
-// comparison.
+// ReadsHandler serves the two user-scoped reads. It holds the cache gateway and
+// the enabled flag separately: the gateway decides what happens, the flag
+// decides whether an X-Cache header is stamped at all.
+// See [[x-cache-response-header]]
 type ReadsHandler struct {
 	get   *app.GetMyTracking
 	list  *app.ListMyTrackings
@@ -79,19 +75,12 @@ func NewReadsHandler(
 	return &ReadsHandler{get: get, list: list, cache: gateway, cacheEnabled: cacheEnabled, log: log}
 }
 
-// RegisterReads mounts both routes.
+// RegisterReads mounts both routes, batch literal before the wildcard.
 //
-// # The batch literal is registered BEFORE the wildcard
-//
-// Gin builds one radix tree per HTTP METHOD, and both of these live in the GET
-// tree. /v1/trackings and /v1/trackings/:order_id do not actually collide — one
-// has a trailing segment and the other does not — but the ordering is kept
-// explicit because ANY further GET literal under /v1/trackings/ (say
-// /v1/trackings/summary) would land in the same tree as the wildcard and PANIC
-// THE PROCESS AT STARTUP. Whoever adds one must restructure the prefix, not
-// merely append a registration. Starlette matched by declaration order and
-// simply never reached a shadowed route, so this failure mode did not exist in
-// the Python service.
+// CONTRACT: Do NOT add another GET literal under /v1/trackings/. Both routes
+// here live in Gin's GET radix tree and coexist only because one has a trailing
+// segment; a further literal collides with the wildcard and PANICS THE PROCESS
+// AT STARTUP. Such a route needs a restructured prefix. See [[openapi-specs]]
 func RegisterReads(router gin.IRouter, handler *ReadsHandler) {
 	router.GET("/v1/trackings", handler.List)
 	router.GET("/v1/trackings/:order_id", handler.GetOne)
@@ -171,13 +160,10 @@ func (h *ReadsHandler) GetOne(c *gin.Context) {
 
 // List serves GET /v1/trackings?order_ids=<csv>.
 //
-// 200 with {"trackings": [...]} — an OBJECT, never a bare array: a bare array
-// cannot be extended without breaking every client, and there is deliberately no
-// `total`, since a count of what came back would start describing what the
-// caller does NOT own.
-//
-// THERE IS NO 404 ON THIS ROUTE BY DESIGN. Unknown and non-owned ids are
-// silently omitted, so a partly-owned request is a 200 with a shorter list.
+// CONTRACT: 200 with {"trackings": [...]}, an OBJECT and never a bare array, and
+// no `total` — a count would describe what the caller does NOT own. There is no
+// 404 here: unknown and non-owned ids are omitted, so a partly-owned request is
+// a 200 with a shorter list. See [[openapi-specs]]
 func (h *ReadsHandler) List(c *gin.Context) {
 	cognitoSub := strings.TrimSpace(c.GetHeader(UserIDHeader))
 	if cognitoSub == "" {
@@ -270,22 +256,17 @@ func (h *ReadsHandler) List(c *gin.Context) {
 // beside the handler that produces it; it is never returned to a caller.
 var errTooManyOrderIDs = errors.New("at most 100 order_ids per request")
 
-// serveCached looks the entry up and stamps X-Cache.
+// serveCached looks the entry up and stamps X-Cache, returning the raw bytes and
+// true on a hit.
 //
-// Returns the raw cached bytes and true when the response was served from the
-// cache. The bytes are replayed VERBATIM rather than decoded and re-encoded: a
-// round trip through a Go struct would silently normalise anything the stored
-// shape had that the current struct does not, which is precisely the drift the
-// key's version segment exists to make visible.
+// CONTRACT: Replay the bytes VERBATIM, never decoded and re-encoded — a round
+// trip normalises whatever the stored shape had that the current struct does
+// not, hiding the drift the key's version segment exists to reveal.
 //
-// # With the cache disabled, NOTHING is stamped
-//
-// Not MISS, not BYPASS — no header at all. The load test's control arm must look
-// like a service with no cache, and a MISS on every request is a service with a
-// cache that never hits, which is a different measurement.
-//
-// An unkeyable request (no resolved usr_ id) is a MISS with no lookup: it is
-// served from the database and cached neither way.
+// CONTRACT: With the cache disabled stamp NOTHING — not MISS, not BYPASS. A MISS
+// on every request is a cache that never hits, a different measurement from no
+// cache at all. An unkeyable request is a MISS with no lookup.
+// See [[x-cache-response-header]]
 func (h *ReadsHandler) serveCached(c *gin.Context, key string, keyable bool) ([]byte, bool) {
 	if !h.cacheEnabled {
 		return nil, false
@@ -319,16 +300,10 @@ func (h *ReadsHandler) serveCached(c *gin.Context, key string, keyable bool) ([]
 
 // storeCached writes the freshly-computed response.
 //
-// # A non-200 can never reach this
-//
-// It is called only after a handler has produced its success value, on the same
-// straight-line path as the 200. That is structural: every failure branch
-// returns before it, so a 404, a 400, a 401 and a 422 cannot be cached even by a
-// future edit that forgets a status check — because there is no status check to
-// forget.
-//
-// The index key ties this entry to the user, so the account-deletion cascade and
-// the carrier webhook can evict it without reconstructing the list key's hash.
+// CONTRACT: Keep this on the straight-line success path. Every failure branch
+// returns before it, so no 4xx can be cached even by an edit that forgets a
+// status check — there is no check to forget. The index key ties the entry to
+// the user so evictions need no list-key hash. See [[x-cache-response-header]]
 func (h *ReadsHandler) storeCached(c *gin.Context, key string, keyable bool, value any) {
 	if !h.cacheEnabled || !keyable {
 		return

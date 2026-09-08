@@ -21,13 +21,9 @@ vi.stubEnv("METRICS_ENABLED", "");
 // reasoning as tests/handlers/user-created.test.ts.
 vi.mock("#email/sender", () => ({ sendEmail: vi.fn(async () => {}) }));
 
-// The websocket publisher is mocked too: it is its own process boundary
-// (DynamoDB query + API Gateway Management API), and its own unit tests
-// already cover its internals. Mocked here via the SAME `#` alias the module
-// is imported by (not a relative path), matching every other vi.mock in this
-// suite. `vi.hoisted` is required (not a plain top-level const) because
-// `vi.mock` factories are hoisted above all other module code, including
-// normal top-level declarations.
+// CONTRACT: Mock via the SAME `#` alias the module is imported by, never a
+// relative path, and build the stub with `vi.hoisted` — `vi.mock` factories are
+// hoisted above all other module code, including top-level declarations.
 const { publishToUser } = vi.hoisted(() => ({ publishToUser: vi.fn(async () => {}) }));
 vi.mock("#shared/realtime/websocket-publisher", () => ({ publishToUser }));
 
@@ -103,14 +99,10 @@ describe("trackingStatusChangedHandler", () => {
     expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: "ada@example.com" }));
   });
 
-  // Without this, the previous test would still pass against a handler that
-  // sends a hardcoded/empty body — asserting only the recipient proves
-  // nothing about the render actually reaching the transport, nor that each
-  // status maps to ITS OWN copy rather than one shared/generic string.
-  //
-  // Comparing every pair (not just PLACED vs DELIVERED) matters: a handler
-  // that collapses PROCESSING/OUT_FOR_DELIVERY onto the SHIPPED template
-  // still passes a two-variant check as long as DELIVERED stays distinct.
+  // CONTRACT: Compare EVERY pair, not just PLACED vs DELIVERED. A handler that
+  // collapses PROCESSING/OUT_FOR_DELIVERY onto the SHIPPED template still
+  // passes a two-variant check while DELIVERED stays distinct, and asserting
+  // only the recipient proves nothing about the render reaching the transport.
   it("renders status-specific copy into the html body for each of the five variants", async () => {
     const bodies: Record<string, string> = {};
     for (const [status, previous] of [
@@ -244,14 +236,10 @@ describe("trackingStatusChangedHandler", () => {
     expect(error.message).not.toContain("leaky@example.com");
   });
 
-  // Scope, stated honestly: this covers only that the handler does NOT
-  // swallow a transport failure — it must propagate so process-record can
-  // persist FAILED and classify the record. It deliberately rejects with a
-  // PLAIN Error rather than a TransientError: rejecting with a TransientError
-  // and then asserting TransientError would only prove the mock returns what
-  // it was configured to return (see tests/handlers/user-created.test.ts for
-  // the fuller explanation). The real classification lives in sender.ts and
-  // is covered against a real failing send in tests/email/sender.test.ts.
+  // CONTRACT: Reject with a PLAIN Error — rejecting with a TransientError and
+  // asserting TransientError only proves the mock returns what it was told to.
+  // This covers only that the handler does not SWALLOW a transport failure; the
+  // classification is pinned in tests/email/sender.test.ts.
   it("does not swallow a transport failure — it propagates to the caller", async () => {
     vi.mocked(sendEmail).mockRejectedValue(new Error("transport exploded"));
 

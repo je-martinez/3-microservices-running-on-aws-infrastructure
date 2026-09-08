@@ -45,16 +45,12 @@ vi.mock("#shared/metrics/cloudwatch-metrics", () => ({
   resetMetricsClientForTests: vi.fn(),
 }));
 
-// Unit-level cover for #email/sender's OWN behaviour. The handler tests mock
-// this module, so without this file nothing exercises the code inside it —
-// verified by mutation: flipping its TransientError to PermanentError left the
-// entire suite green.
-//
-// What matters here is the CLASSIFICATION, which decides whether a failed send
-// is retried through batchItemFailures or consumed and lost. It is asserted
-// against a real failing send (an endpoint that refuses connections), not a
-// stubbed SDK — the point is that whatever the SDK throws comes back out as
-// TransientError.
+// CONTRACT: The only cover for #email/sender's own behaviour — the handler
+// tests mock this module, so flipping its TransientError to PermanentError
+// leaves the rest of the suite green. What is pinned is the CLASSIFICATION,
+// which decides whether a failed send is retried or consumed and LOST, and it is
+// asserted against a real refusing endpoint rather than a stubbed SDK.
+// See [[testing]]
 beforeAll(() => {
   // env is Zod-validated at import time and demands the full set; these mirror
   // .env.local.events-pipeline. The endpoint deliberately points at a closed

@@ -1,19 +1,11 @@
 /**
  * Resolves the metrics registrations THROUGH the real Awilix container.
  *
- * Why this file exists: every other metrics test constructs the class directly
- * with a hand-built double, which never exercises the registration itself. That
- * gap shipped a real outage — `metricsPublisher` was registered with `asClass`,
- * whose PROXY injection resolves each destructured constructor parameter as a
- * cradle KEY. `MetricsPublisher` takes `{ client }`, no `client` is registered,
- * and so resolution threw `AwilixResolutionError: Could not resolve 'client'`.
- *
- * Nothing caught it: it is a RESOLUTION-time failure, not an import-time one, so
- * typecheck, lint and 333 green unit tests all passed while the service died on
- * boot and the gateway answered 502.
- *
- * These tests resolve from the container for real, so a wiring mistake fails
- * here instead of at startup.
+ * CONTRACT: Resolve from the real container here. Every other metrics test builds the
+ * class directly with a hand-built double, which never exercises the registration —
+ * and an Awilix wiring mistake is a RESOLUTION-time failure, so typecheck, lint and a
+ * fully green unit suite all pass while the service dies on boot and the gateway
+ * answers 502. See [[mocks-hide-schema-bugs]]
  */
 import { describe, it, expect, beforeAll } from "vitest";
 import { diContainer } from "@fastify/awilix";

@@ -6,29 +6,14 @@ using Orders.Domain.Entities;
 
 namespace Orders.Infrastructure.Persistence;
 
-// SaveChanges interceptor that stamps the audit columns on every tracked
-// AuditableEntity — the .NET analog of the Users service's Prisma audit query
-// extension. The acting identity comes from AmbientActor.Current, which write
-// paths set by wrapping their persistence in `AmbientActor.RunAsync(AuditActor.X,
-// ...)`; the actor records WHAT produced the row (`orders_api:create_order`)
-// rather than a bare id.
-//
-// Null-actor policy (no RunAsync scope active): leave whatever the code set
-// explicitly and never throw. Timestamps are still centralized here (Added stamps
-// CreatedAt/UpdatedAt if unset; Modified always bumps UpdatedAt) so behavior is
-// consistent, but the *_By columns are only overwritten when an ambient actor is
-// present — this keeps direct/tests-only writes working and never crashes a save.
-//
-// ExecuteUpdate/ExecuteDelete bypass SaveChanges entirely, so they do NOT flow
-// through this interceptor; the E2E cleanup endpoint stamps DeletedBy explicitly
-// (see E2eEndpoints).
-//
-// Tracked `.Remove()`/`RemoveRange()` deletes (including cascade deletes) ARE
-// caught here and REWRITTEN to soft-deletes: an AuditableEntity in the Deleted
-// state is flipped to Modified and its DeletedAt/DeletedBy stamped, so EF issues
-// an UPDATE instead of a physical DELETE. This makes ADR-0004 (soft-delete only)
-// hold at the code layer, not merely by convention. The set-based ExecuteDelete
-// path still bypasses this interceptor and must never be used.
+// Stamps the audit columns on every tracked AuditableEntity, reading the actor from
+// AmbientActor.Current.
+// CONTRACT: Tracked deletes are REWRITTEN to soft-deletes here — a Deleted entity is flipped
+// to Modified with DeletedAt/DeletedBy stamped, so EF issues an UPDATE. This is what makes
+// soft-delete hold in code rather than by convention; ExecuteDelete bypasses it entirely and
+// must never be used. See [[ADR-0004-soft-delete-only]]
+// CONTRACT: With no actor scope active, leave what the code set and never throw — timestamps
+// are still stamped, so direct and test writes keep working. See [[audit-fields]]
 public sealed class AuditInterceptor : SaveChangesInterceptor
 {
     public override ValueTask<InterceptionResult<int>> SavingChangesAsync(

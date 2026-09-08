@@ -6,26 +6,21 @@ import (
 	"strings"
 )
 
-// Difference is one place where the generated Go document and the committed
-// Python contract disagree.
-//
-// Path is a dotted location — "paths./v1/trackings.get.responses.401" — rather
-// than a strict JSON pointer, because the segments it names (paths, media types)
-// contain the "/" a pointer would have to escape, and the whole value of this
-// string is being greppable in a test failure.
+// Difference is one place the generated document and the pinned contract
+// disagree. Path is a dotted location, not a JSON pointer: the segments it names
+// contain "/" a pointer would escape, and this string exists to be greppable in
+// a test failure.
 type Difference struct {
 	Path string
 	Got  any
 	Want any
 }
 
-// AllowedDifference is one enumerated, justified exception.
+// AllowedDifference is one enumerated, justified exception. Path supports a
+// trailing "*" matching a single segment.
 //
-// Path supports a trailing "*" as the LAST segment of a run, matching any single
-// segment there — "components.schemas.*.title" covers every schema's title
-// without listing thirteen of them. It is deliberately not a general glob: a
-// pattern powerful enough to swallow a subtree could hide a real divergence, and
-// the point of this list is that everything on it is inspectable.
+// CONTRACT: Do NOT widen this to a general glob. A pattern that swallows a
+// subtree hides a real divergence, and this list exists to be inspectable.
 type AllowedDifference struct {
 	Path          string
 	Justification string
@@ -34,13 +29,9 @@ type AllowedDifference struct {
 // Diff walks both documents and returns every difference NOT covered by
 // AllowedDifferences.
 //
-// # Why this compares the Go document against the Python one and not the reverse
-//
-// Both directions matter and both are reported: a key the Python declares and the
-// Go omits is a MISSING contract (a client loses a documented failure), and a key
-// the Go declares and the Python omits is an ADDED one. Neither is safe to ignore,
-// so absence on either side is a Difference with a nil on that side, and the
-// allowlist is what makes the deliberate ones explicit.
+// CONTRACT: Report BOTH directions. A key the contract declares and the code
+// omits loses a client a documented failure; the reverse adds one. Absence on
+// either side is a Difference with a nil on that side.
 func Diff(got, want map[string]any) []Difference {
 	var diffs []Difference
 	walk("", normalize(got), normalize(want), &diffs)
@@ -145,17 +136,12 @@ func join(path, key string) string {
 	return path + "." + key
 }
 
-// normalize makes two trees that came from different serializers comparable
-// WITHOUT hiding a real difference.
+// normalize makes two trees from different serializers comparable: map keys
+// become strings, and numbers collapse to one textual form.
 //
-// It does exactly two things, and both are about representation rather than
-// content: map keys become strings (a YAML parser yields the status code 401 as
-// an int on one side and the Go builder writes "401" on the other), and numbers
-// collapse to a single textual form (the YAML parser hands back uint64 where the
-// builder holds int). Anything beyond that — reordering a list, dropping a key —
-// would be the diff lying, so it is NOT done here; the `required` ordering is an
-// ALLOWLIST entry precisely because normalizing it away would also hide a
-// genuinely changed required set.
+// CONTRACT: Do NOT normalize anything else. Reordering a list or dropping a key
+// makes the diff lie — `required` ordering is an ALLOWLIST entry precisely
+// because normalizing it away would hide a genuinely changed required set.
 func normalize(v any) any {
 	switch value := v.(type) {
 	case map[string]any:

@@ -22,14 +22,10 @@ export class CascadeFailedError extends CascadeError {
   }
 }
 
-// Raised when the cascade cannot even be ATTEMPTED — today, a user row with no
-// `cognitoSub`, the key both downstream services filter by.
-//
-// A distinct type rather than a CascadeFailedError with an arbitrary `service`:
-// nothing downstream was called, so blaming one of them puts a lie in the logs
-// and the trace. It still maps to 502, because from the caller's side the fact is
-// the same — the deletion did not happen, the account is intact, and the fix is
-// not theirs to make.
+// CONTRACT: A distinct type, not a CascadeFailedError with an arbitrary `service` —
+// nothing downstream was called, so naming one puts a lie in the logs and the trace.
+// Raised when the cascade cannot be ATTEMPTED (a user row with no `cognitoSub`). Still
+// maps to 502: the deletion did not happen and the account is intact.
 export class CascadeUnavailableError extends CascadeError {
   constructor(readonly reason: string) {
     super(`cascade not attempted: ${reason}`);
@@ -45,18 +41,12 @@ export interface CascadeClientDeps {
   fetchImpl?: typeof fetch;
 }
 
-// The first plain-HTTP outbound client in this service: every other outbound call
-// Users makes is gRPC, an AWS SDK client, or Redis.
-//
-// Shaped after Orders' TrackingHttpClient, so this is not a new pattern in the
-// repo — only a new one here: relative paths against a configured base URL, so no
-// host is ever hardcoded.
-//
-// Both routes it calls are INTERNAL. They are absent from the API Gateway and
-// authenticate with the shared internal key (ADR-0003), never a user JWT. The
-// subject travels in the BODY rather than an x-user-id header, because the caller
-// is this service acting on a user's behalf — there is no end-user request on the
-// far side to carry an identity header.
+// CONTRACT: Both routes this calls are INTERNAL — absent from the API Gateway,
+// authenticated with the shared internal key, never a user JWT. The subject travels in
+// the BODY, not an x-user-id header: this service acts on a user's behalf, so there is
+// no end-user request on the far side to carry an identity header. Relative paths
+// against a configured base URL, so no host is hardcoded.
+// See [[ADR-0003-grpc-inter-service]]
 export class CascadeClient {
   private readonly ordersBaseUrl: string;
   private readonly trackingBaseUrl: string;
@@ -70,15 +60,11 @@ export class CascadeClient {
     this.fetchImpl = fetchImpl ?? fetch;
   }
 
-  // BOTH identities, like Tracking below. `cognito_sub` is the key Orders' reads
-  // filter by, but it is not the durable one: a user who deletes and registers
-  // again gets a NEW sub from Cognito, while their `usr_` id is stable. Matching
-  // either means a row whose sub was left empty or fell out of sync is still
-  // reachable, and it costs nothing — Orders indexes both columns
-  // (`idx_order_user_id`, `idx_order_cognito_sub`).
-  //
-  // camelCase on the wire: Orders' DTOs are camelCase, and the client adapts to
-  // each service's own convention rather than imposing one across two runtimes.
+  // CONTRACT: Send BOTH identities. `cognito_sub` is what Orders' reads filter by but
+  // is not durable — a user who deletes and re-registers gets a NEW sub, while their
+  // `usr_` id is stable — so matching either keeps a row with an empty or stale sub
+  // reachable. camelCase on the wire, because Orders' DTOs are camelCase and this
+  // client adapts to each service's own convention.
   async deleteOrdersForUser(cognitoSub: string, userId: string): Promise<void> {
     await this.send("orders", `${this.ordersBaseUrl}/v1/orders/by-user`, {
       cognitoSub,

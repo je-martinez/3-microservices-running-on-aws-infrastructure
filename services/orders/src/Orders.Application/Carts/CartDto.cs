@@ -20,17 +20,11 @@ public static class UnavailableReason
     public const string InsufficientStock = "insufficient_stock";
 }
 
-/// <summary>One line of the cart, priced live from the catalogue.</summary>
-/// <param name="UnitPrice">
-/// Null only for <see cref="UnavailableReason.UnknownProduct"/> — there is no catalogue
-/// row left to read a price from.
-/// </param>
-/// <param name="Subtotal">
-/// What this line WOULD cost (unit price × quantity). Always reported, even when the line
-/// is unavailable, so the frontend can render it normally with an unavailable badge. An
-/// unavailable line is excluded from the CART totals, not from its own.
-/// </param>
-/// <param name="UnavailableReason">Omitted when <paramref name="Available"/> is true.</param>
+/// <summary>
+/// One line of the cart, priced live from the catalogue. <c>UnitPrice</c> is null only for
+/// an unknown product, <c>UnavailableReason</c> only when unavailable, and <c>Subtotal</c> is
+/// always reported — an unavailable line is excluded from the CART totals, not its own.
+/// </summary>
 public record CartLineDto(
     string ProductId,
     string? Name,
@@ -42,14 +36,13 @@ public record CartLineDto(
     ProductImageDto? Image,
     string? UnavailableReason);
 
-/// <summary>The whole cart, fully calculated so the frontend computes nothing.</summary>
-/// <param name="Id">Null when the user has no cart — an empty cart is a 200, not a 404.</param>
-/// <param name="CanCheckout">
-/// True only when there is at least one line and EVERY line is available. A hint for
-/// enabling the checkout button — NOT a guarantee: another buyer may take the last unit
-/// between this read and POST /v1/orders, which is why order creation still locks stock
-/// with SELECT ... FOR UPDATE and may return 409.
-/// </param>
+/// <summary>
+/// The whole cart, fully calculated so the frontend computes nothing. <c>Id</c> is null when
+/// the user has no cart — an empty cart is a 200, not a 404.
+/// CONTRACT: <c>CanCheckout</c> is a hint, NOT a guarantee — another buyer may take the last
+/// unit before POST /v1/orders, which is why order creation still locks stock and may 409.
+/// See [[orders-service-design]]
+/// </summary>
 public record CartDto(
     string? Id,
     IReadOnlyList<CartLineDto> Items,

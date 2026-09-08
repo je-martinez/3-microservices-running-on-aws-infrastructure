@@ -235,9 +235,9 @@ describe("buildLoggerOptions", () => {
       });
 
       const rec = JSON.parse(lines[0]);
-      // Exact string equality with the span's own ids: the logs<->traces join is
-      // a string match between OpenObserve and Jaeger, so anything reformatted
-      // here matches nothing and reports no error.
+      // CONTRACT: Exact string equality with the span's own ids — the
+      // logs<->traces join is a string match, so anything reformatted here
+      // matches nothing and reports no error.
       expect(rec.trace_id).toBe(expected!.traceId);
       expect(rec.span_id).toBe(expected!.spanId);
     });

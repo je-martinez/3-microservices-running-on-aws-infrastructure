@@ -9,24 +9,11 @@ namespace Orders.Infrastructure.Orders;
 /// <c>Order.ShippingAddress</c>.
 /// </summary>
 /// <remarks>
-/// <para>
-/// <b>Why snake_case, spelled out literally.</b> This exact JSON is stored on the order
-/// AND handed to <c>ITrackingInitiator</c>, which re-parses it and embeds it verbatim in
-/// the body Tracking persists. One string therefore ends up in three places, so its field
-/// names are a cross-service contract, not an implementation detail: they must match
-/// <c>users.v1.Address</c> / <c>tracking.v1.Address</c> one for one. The names are written
-/// as explicit <see cref="JsonPropertyName"/> literals rather than left to a naming policy
-/// so that renaming a C# property cannot silently rewrite the wire shape.
-/// </para>
-/// <para>
-/// <b>Why null fields are dropped.</b> The gRPC adapter already normalized proto3's empty
-/// strings to null, meaning "absent". Writing them back as <c>null</c> keys would re-inflate
-/// that noise into the stored snapshot and into Tracking's copy; omitting them keeps
-/// "absent" spelled exactly one way, matching the logging convention's same rule for fields.
-/// </para>
-/// <para>
-/// PII — the produced string is the shipping address. Never log it.
-/// </para>
+/// CONTRACT: Spell the snake_case names as explicit <see cref="JsonPropertyName"/> literals.
+/// This string is stored on the order AND embedded verbatim in what Tracking persists, so the
+/// names are a cross-service contract a C# rename must not rewrite. Drop null fields rather
+/// than writing <c>null</c> keys.
+/// WARNING: PII. Never log it. See [[logging-context]]
 /// </remarks>
 public static class ShippingAddressSnapshot
 {

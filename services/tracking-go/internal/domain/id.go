@@ -10,21 +10,13 @@ import (
 // ─── Nano ID: the machine identifier (trk_…) ─────────────────────────────────
 
 const (
-	// NanoIDAlphabet is letters and digits ONLY, in this exact order.
-	//
-	// nanoid's default alphabet adds '_' and '-', and those two characters are
-	// why this configuration exists: an id is pasted into a shell, a URL, a log
-	// grep and a CSV, and a leading '-' reads as a flag while '_' disappears
-	// against an underscored column name. Restricting the alphabet costs
-	// nothing: 62^24 is MORE entropy than the 64^21 it replaces, so collision
-	// risk goes down, not up.
-	//
-	// CROSS-SERVICE CONTRACT. The same alphabet, the same length and the same
-	// prefixes are declared in Users (shared/id/nano-id.ts) and Orders
-	// (Orders.Infrastructure/Id/NanoId.cs). Ids cross service boundaries in
-	// headers, envelopes and foreign keys, so a service that disagrees about the
-	// alphabet or the length produces ids the others reject. CHANGING ANY OF
-	// THESE MEANS CHANGING ALL THREE SERVICES TOGETHER.
+	// CONTRACT: Letters and digits ONLY, in this exact order — nanoid's default
+	// adds '_' and '-', and a leading '-' reads as a shell flag while '_' hides
+	// against an underscored column name. Alphabet, length and prefixes are
+	// declared identically in Users and Orders, and ids cross service boundaries
+	// in headers, envelopes and foreign keys: a service that disagrees produces
+	// ids the others reject. Changing any of these changes all three services.
+	// See [[nano-id]]
 	NanoIDAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 
 	// NanoIDLength is the RANDOM portion only. A stored id is
@@ -76,13 +68,9 @@ const (
 	TrackingNumberSeparator  = "-"
 
 	// TrackingNumberLength is 5 + 3*(1+4) = 20, the width of the
-	// tracking.tracking_number column.
-	//
-	// Entropy: 12 characters from a 32-symbol alphabet is 5 bits each, i.e. 60
-	// bits (~1.15e18 values). The birthday bound puts a 50% chance of any
-	// collision at ~1.3e9 rows. It is not left to luck either: there is NO
-	// checksum, because tracking_number is UNIQUE — a collision is a failed
-	// INSERT, not two shipments sharing a number.
+	// tracking.tracking_number column. Twelve characters over 32 symbols is 60
+	// bits, a 50% birthday bound at ~1.3e9 rows. No checksum: tracking_number is
+	// UNIQUE, so a collision is a failed INSERT, not two shipments sharing one.
 	TrackingNumberLength = len(TrackingNumberPrefix) +
 		TrackingNumberGroupCount*(len(TrackingNumberSeparator)+TrackingNumberGroupSize)
 )
@@ -91,15 +79,11 @@ const (
 
 // randomString returns n characters drawn uniformly from alphabet.
 //
-// crypto/rand, NEVER math/rand. math/rand is a deterministic PRNG: observing a
-// handful of outputs is enough to reconstruct its state and predict every
-// subsequent one. A tracking number is quoted in emails and appears in URLs, so
-// a guessable one would let somebody enumerate other people's shipments.
-//
-// rand.Int over a big.Int bound rather than `randomByte % len(alphabet)`:
-// neither 62 nor 32 divides 256 evenly for the general case, and the modulo
-// would favour the first symbols of the alphabet. crypto/rand.Int performs
-// rejection sampling internally, so the draw is uniform.
+// CONTRACT: crypto/rand, NEVER math/rand — a deterministic PRNG's state is
+// reconstructable from a handful of outputs, and a guessable tracking number
+// lets somebody enumerate other people's shipments. rand.Int over a big.Int
+// bound, not modulo: neither 62 nor 32 divides 256, so modulo favours the
+// alphabet's first symbols. See [[nano-id]]
 func randomString(alphabet string, n int) (string, error) {
 	bound := big.NewInt(int64(len(alphabet)))
 	var builder strings.Builder

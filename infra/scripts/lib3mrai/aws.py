@@ -1,12 +1,9 @@
 """boto3 client factory pointed at Floci (or real AWS) via the environment.
 
-Mirrors the defaulting the bash scripts did with exported AWS_* vars, so a
-script works standalone as well as when the Makefile has already exported them.
-
-An explicitly EMPTY AWS_ENDPOINT_URL means "use normal AWS endpoint
-resolution" — that is how the Terraform provisioners signal real AWS, and it is
-distinct from the variable being unset (which falls back to Floci's local
-endpoint, the common case for these scripts).
+CONTRACT: An explicitly EMPTY AWS_ENDPOINT_URL means "use normal AWS endpoint
+resolution" — how the Terraform provisioners signal real AWS — and is distinct
+from the variable being UNSET, which falls back to Floci. Collapsing the two
+sends local runs at real AWS, or the reverse. See [[ADR-0017-floci-local]]
 """
 
 import os

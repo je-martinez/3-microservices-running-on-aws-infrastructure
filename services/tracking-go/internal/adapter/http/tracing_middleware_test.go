@@ -24,44 +24,21 @@ import (
 
 // The INBOUND half of trace correlation.
 //
-// Three of this service's tracing surfaces were already wired and tested — the
-// workflow spans, the outbound otelgrpc client, the hand-instrumented SQS
-// producer. The inbound one was not: otelgin was absent from go.mod entirely
-// while tracing.GinFilter sat defined, documented and referenced by nothing.
-//
-// # WHY THESE TESTS COUNT DISTINCT TRACE IDS RATHER THAN ASSERTING "A SPAN EXISTS"
-//
-// Because the bug this file exists to catch PRODUCES SPANS. With no inbound
-// extraction, the workflow spans still open, still export, and still look
-// correct in isolation — they simply start as fresh ROOTS instead of hanging off
-// the caller's trace. The result of a propagation failure is therefore TWO
-// COMPLETE, DISCONNECTED TRACES rather than one visibly broken one, and every
-// "is it traced?" assertion passes on both. Only counting distinct trace ids
-// tells them apart.
-//
-// That is the same shape as the closing gate's cross-service check
-// (gateway -> Go -> Users must be ONE trace id), moved down to a unit test so it
-// fails at the commit that breaks it rather than in a wave-3 E2E.
+// CONTRACT: These tests count DISTINCT TRACE IDS, never "a span exists". The bug
+// they catch PRODUCES SPANS — without inbound extraction the workflow spans open
+// and export as fresh ROOTS, so a propagation failure is two whole disconnected
+// traces. See [[ADR-0019-distributed-tracing-opentelemetry]]
 
-// traceRecorder installs an in-memory exporter as the package tracer provider
-// and returns the spans collected so far.
+// traceRecorder installs an in-memory exporter as both the global provider
+// (otelgin's) and the tracing package's own, so one request's server and
+// workflow spans land in one place.
 //
-// It points BOTH the global provider (otelgin resolves through
-// otel.GetTracerProvider) and the tracing package's own provider (WorkflowSpan
-// reads that one) at the same recorder, so a single request's server span and
-// workflow span land in one place and can be compared.
-//
-// IT ALSO INSTALLS THE W3C PROPAGATOR, and that is not test scaffolding for its
-// own sake — it reproduces what SetupTracing does in the process. OTel's DEFAULT
-// global propagator is a NO-OP whose Fields() is empty: it extracts nothing and
-// injects nothing, silently. So a test that skipped this would see every inbound
-// traceparent ignored and would blame the middleware.
-//
-// The same fact is a production constraint, pinned by
-// TestOtelginSnapshotsTheGlobalsAtConstruction below: otelgin.Middleware()
-// resolves the provider and the propagator ONCE, when it is constructed. Calling
-// NewAppRouter before SetupTracing would therefore capture the no-op propagator
-// for the life of the process, and no later SetTextMapPropagator would fix it.
+// CONTRACT: It also installs the W3C propagator, reproducing SetupTracing.
+// OTel's default global propagator is a NO-OP that extracts nothing silently, so
+// a test skipping this sees every inbound traceparent ignored and blames the
+// middleware. That is also a production constraint, pinned by
+// TestOtelginSnapshotsTheGlobalsAtConstruction.
+// See [[ADR-0019-distributed-tracing-opentelemetry]]
 func traceRecorder(t *testing.T) func() []sdktrace.ReadOnlySpan {
 	t.Helper()
 
@@ -175,13 +152,10 @@ func TestInboundTraceparentIsAdopted(t *testing.T) {
 	}
 }
 
-// TestOneRequestProducesExactlyOneTraceID is the counting assertion.
-//
-// A server span AND a workflow span, in ONE trace. With otelgin absent the
-// workflow span still exists and still exports — it is simply a root of its own,
-// so this count comes back as 1 for the wrong reason. Hence the companion
-// assertion that BOTH kinds of span were actually produced: counting alone is
-// satisfiable by a service that traces nothing at all.
+// TestOneRequestProducesExactlyOneTraceID asserts a server span AND a workflow
+// span in ONE trace. Without otelgin the workflow span is a root of its own and
+// the count returns 1 for the wrong reason — hence the companion assertion that
+// both kinds were produced, since counting alone is satisfied by tracing nothing.
 func TestOneRequestProducesExactlyOneTraceID(t *testing.T) {
 	spansOf := traceRecorder(t)
 	router := tracingRouter(t, &bytes.Buffer{})
@@ -345,17 +319,11 @@ func TestANonHealthRouteIsStillTraced(t *testing.T) {
 
 // ─── The chain ORDER, observed through the request line ──────────────────────
 
-// TestTheRequestLineCarriesTheTraceID is the ORDERING test.
-//
-// LogContextMiddleware emits `request completed` from a DEFERRED position, after
-// c.Next() returns. otelgin sets the span onto c.Request before calling
-// c.Next() and RESTORES the saved context in its own deferred function — so if
-// otelgin is registered INSIDE LogContextMiddleware, the span is already gone
-// from c.Request.Context() by the time the request line is written, and the line
-// carries no trace_id at all. Which is the same silent failure as the original
-// gap, relocated: a log line nothing can join to a trace.
-//
-// Registering otelgin OUTSIDE LogContextMiddleware is what makes this pass.
+// CONTRACT: Register otelgin OUTSIDE LogContextMiddleware. LogContextMiddleware
+// emits `request completed` from a deferred position, and otelgin RESTORES the
+// saved context in its own deferred function — registered inside, the span is
+// gone by the time the request line is written and it carries no trace_id.
+// See [[logging-context]]
 func TestTheRequestLineCarriesTheTraceID(t *testing.T) {
 	traceRecorder(t)
 
@@ -453,33 +421,18 @@ func findLogLine(t *testing.T, raw []byte, msg string) map[string]any {
 
 // ─── The construction-order constraint ───────────────────────────────────────
 
-// TestOtelginSnapshotsTheGlobalsAtConstruction pins a production ordering
-// requirement that is otherwise invisible.
-//
-// otelgin.Middleware() resolves otel.GetTracerProvider() and
-// otel.GetTextMapPropagator() ONCE, at construction, and closes over the result
-// for the life of the handler. OTel's default global propagator is a NO-OP whose
-// Fields() is empty — it extracts nothing at all.
-//
-// So NewAppRouter MUST be called AFTER SetupTracing. Inverted, the router would
-// capture the no-op propagator permanently, every inbound traceparent would be
-// discarded, and no later otel.SetTextMapPropagator would repair it. cmd/server
-// gets this right (SetupTracing runs long before the router is built), but
-// nothing enforced it, and the symptom would be indistinguishable from the gap
-// this file exists to close.
-//
-// This test demonstrates the failure directly: build the router while the
-// globals are still the defaults, install the real propagator afterwards, and
-// watch the inbound trace id be ignored anyway.
+// CONTRACT: Call NewAppRouter AFTER SetupTracing. otelgin.Middleware() resolves
+// the global provider and propagator ONCE at construction and closes over them,
+// and OTel's default propagator extracts nothing — inverted, the router captures
+// the no-op permanently, every inbound traceparent is discarded, and no later
+// SetTextMapPropagator repairs it. This test demonstrates that failure directly.
+// See [[ADR-0019-distributed-tracing-opentelemetry]]
 func TestOtelginSnapshotsTheGlobalsAtConstruction(t *testing.T) {
-	// Deliberately NOT traceRecorder: the point is to construct the router while
-	// the global propagator extracts nothing, which is OTel's default state.
-	//
-	// An EMPTY composite rather than otel.SetTextMapPropagator(nil): passing nil
-	// actually stores nil and the middleware then nil-dereferences on the first
-	// request, which is a property of this test's setup and not of anything the
-	// service does. The empty composite reproduces the real default — Extract is
-	// a no-op and Fields() is empty — without the crash.
+	// CONTRACT: NOT traceRecorder, and an EMPTY composite rather than
+	// SetTextMapPropagator(nil). The router must be built while the propagator
+	// extracts nothing, OTel's default; nil actually stores nil and the
+	// middleware nil-dereferences, which is this setup's property, not the
+	// service's.
 	previousPropagator := otel.GetTextMapPropagator()
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator())
 

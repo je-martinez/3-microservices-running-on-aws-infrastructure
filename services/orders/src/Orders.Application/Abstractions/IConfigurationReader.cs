@@ -11,9 +11,8 @@ public interface IConfigurationReader
     /// The flat delivery charge applied to an order, in CENTS (key <c>shipping_cents</c>).
     /// </summary>
     /// <remarks>
-    /// Returns <c>long</c>, not <c>decimal</c>: this is a money amount, and money is stored
-    /// and moved as integer cents in this service (see the stack notes). A decimal here
-    /// would reintroduce the rounding step the cents representation exists to avoid.
+    /// CONTRACT: Returns <c>long</c>, never <c>decimal</c> — a decimal reintroduces the
+    /// rounding step integer cents exist to avoid. See [[money-representation]]
     /// </remarks>
     Task<long> GetShippingCentsAsync(CancellationToken ct = default);
 }

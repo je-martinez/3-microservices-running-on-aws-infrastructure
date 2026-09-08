@@ -66,14 +66,10 @@ declare module "@fastify/awilix" {
     captureCognitoIdentityCommand: CaptureCognitoIdentityCommand;
   }
 
-  // `RequestCradle` holds per-request registrations (see `registerRequestScope` in
-  // routes.ts, registered via `request.diScope.register(...)` in an `onRequest` hook).
-  // `currentActor` is the identity from the API Gateway authorizer's `x-user-id` header.
-  // It's kept here for handlers that need it directly (e.g. resolving "me"), but audit
-  // stamping itself reads the actor from AsyncLocalStorage (see
-  // `shared/audit/actor-context.ts`) since the Prisma client is a singleton and its
-  // query extension can't reach into a per-request Awilix scope. `routes.ts` populates
-  // both from the same header in the same `onRequest` hook.
+  // Per-request registrations, made in routes.ts's `onRequest` hook. `currentActor` is
+  // the identity from the authorizer's `x-user-id` header, kept here for handlers that
+  // need it directly; audit stamping reads the actor from AsyncLocalStorage instead,
+  // because the singleton Prisma client cannot reach a per-request Awilix scope.
   interface RequestCradle {
     currentActor: string | undefined;
     currentUser: import("../auth/current-user.ts").CurrentUser;
@@ -133,17 +129,12 @@ export function registerSingletons(): void {
         }),
       { lifetime: Lifetime.SINGLETON },
     ),
-    // Stateless wrapper over `cloudwatchClient` — SINGLETON alongside the client
-    // it holds, like the other infra collaborators here.
-    //
-    // asFunction, NOT asClass, and that distinction is load-bearing: PROXY
-    // injection hands the constructor the whole cradle and resolves each
-    // destructured name as a cradle KEY. This constructor takes `{ client }`,
-    // and there is no `client` registration — so asClass here throws
-    // `AwilixResolutionError: Could not resolve 'client'` at RESOLUTION time,
-    // which is startup, not import. No unit test catches it (they construct the
-    // class directly with a double), and the service died on boot with the
-    // container healthy. Map the cradle key to the parameter name explicitly.
+    // CONTRACT: asFunction, NOT asClass. PROXY injection resolves each destructured
+    // constructor name as a cradle KEY, and this constructor takes `{ client }` with no
+    // `client` registered — asClass throws `AwilixResolutionError` at RESOLUTION time,
+    // which is startup, not import, so no unit test catches it and the service dies on
+    // boot. Map the cradle key to the parameter name explicitly.
+    // See [[dependency-injection]]
     metricsPublisher: asFunction(
       ({ cloudwatchClient }: { cloudwatchClient: CloudWatchClient }) =>
         new MetricsPublisher({ client: cloudwatchClient }),
@@ -165,14 +156,10 @@ export function registerSingletons(): void {
     // Stateless wrapper over `redis`, so it costs nothing to share and there is
     // no per-request state to keep apart — SINGLETON alongside its client.
     resetCodeStore: asClass(ResetCodeStore, { lifetime: Lifetime.SINGLETON }),
-    // Stateless over the SINGLETON `redis` client — SINGLETON alongside it, the
-    // same reasoning as resetCodeStore. It opens no connection of its own; a
-    // second ioredis client would mean a second TCP socket and a second
-    // reconnect state machine for no gain.
-    //
-    // asClass is correct here (unlike metricsPublisher above): every name this
-    // constructor destructures — redis, metricsPublisher, env — IS a registered
-    // cradle key, so PROXY injection resolves all three. The DI test proves it.
+    // SINGLETON over the singleton `redis` client: it opens no connection of its own,
+    // and a second ioredis client means a second socket and reconnect state machine.
+    // asClass is correct here, unlike metricsPublisher above — every name this
+    // constructor destructures IS a registered cradle key.
     cacheGateway: asClass(CacheGateway, { lifetime: Lifetime.SINGLETON }),
   });
 }

@@ -1,29 +1,22 @@
 # ─── Local naming ───────────────────────────────────────────────────────────────
-# Both implementations (native resources and the Floci fallback) derive their
-# identifiers from these, so the two paths CANNOT drift. The cluster identifier
-# in particular is a hard contract: Floci names the backing mongo container
-# `floci-docdb-<cluster_identifier>`, and that container name is the only way
-# anything on 3mrai-network reaches Mongo (27017 is not published to the host,
-# and the reported IP changes on every recreation). See
-# docs/lessons/floci-sqs-lambda-docdb-support.md.
+# CONTRACT: Both paths (native resources and the Floci fallback) derive their
+# identifiers here so they cannot drift. Floci names the backing container
+# `floci-docdb-<cluster_identifier>`, and that name is the only route to Mongo on
+# 3mrai-network — 27017 is not published and the reported IP changes on every
+# recreation. See [[floci-sqs-lambda-docdb-support]]
 locals {
   cluster_identifier  = "${var.context.id}-docdb"
   instance_identifier = "${var.context.id}-docdb-instance"
 
-  # Where the fallback writes / reads the created cluster's JSON descriptor.
-  # path.root (the ROOT module's working directory), never path.module — module
-  # source may be shared and read-only. Same shape as modules/cognito.
+  # CONTRACT: path.root, never path.module — module source may be read-only.
   state_file = "${var.local_state_dir != "" ? var.local_state_dir : "${path.root}/.terraform-docdb"}/${local.cluster_identifier}.json"
 }
 
 # ─── DocumentDB Subnet Group ────────────────────────────────────────────────────
-# Optional: Floci's DocumentDB subnet-group creation fails outright with
-# "InvalidClientTokenId: The security token included in the request is
-# invalid" (verified 2026-08-03, `make bootstrap`) — unlike rds-aurora's
-# quirk, this isn't a tag-read side effect, the create call itself never
-# succeeds. Local Floci sets create_subnet_group = false and points the
-# cluster at Floci's pre-existing "default" subnet group instead (see
-# subnet_group_name below), mirroring the rds-aurora module's toggle.
+# WORKAROUND(local): Do NOT create a subnet group against Floci — the create call
+# itself fails with "InvalidClientTokenId". Local sets create_subnet_group =
+# false and points the cluster at Floci's pre-existing "default" group.
+# See [[awscli-fallback-for-floci]]
 resource "aws_docdb_subnet_group" "this" {
   count = var.create_subnet_group ? 1 : 0
 
@@ -34,21 +27,12 @@ resource "aws_docdb_subnet_group" "this" {
 }
 
 # ─── DocumentDB Cluster ──────────────────────────────────────────────────────────
-# THE PRODUCTION PATH. Kept exactly as it was — real AWS needs it, and nothing
-# below replaces it there.
-#
-# var.manage_cluster_via_provider gates which implementation creates the cluster:
-# - true (default, prod): these native resources.
-# - false (Floci local only): the awscli fallback further down. The native
-#   resource ABORTS the apply against Floci with
-#   "creating DocumentDB Cluster (db-3mrai-local-events-docdb):
-#    InvalidClientTokenId: The security token included in the request is invalid.
-#    status code: 403", while the identical CreateDBCluster call through the
-#   AWS CLI / boto3 succeeds against the same live Floci — so Floci implements
-#   DocumentDB fine and it is the pinned provider (`= 5.31.0`, pinned because
-#   newer versions break aws_cognito_user_pool_client) that signs the request in
-#   a way Floci's docdb handler rejects. Same class of failure the subnet group
-#   already hit one resource earlier; see var.create_subnet_group above.
+# CONTRACT: This is the production path — do NOT delete it; nothing below
+# replaces it on real AWS.
+# WORKAROUND(local): manage_cluster_via_provider = false. The native resource
+# aborts the apply against Floci with a 403 InvalidClientTokenId while the
+# identical boto3 CreateDBCluster succeeds, so the fallback below runs instead.
+# See [[awscli-fallback-for-floci]]
 resource "aws_docdb_cluster" "this" {
   count = var.manage_cluster_via_provider ? 1 : 0
 
@@ -65,10 +49,9 @@ resource "aws_docdb_cluster" "this" {
 }
 
 # ─── DocumentDB Instance ─────────────────────────────────────────────────────────
-# Floci backs this with a single standalone mongo:7.0 container (no replica set —
-# see docs/lessons/floci-sqs-lambda-docdb-support.md, Finding 1: no multi-document
-# transactions locally). Real AWS scales this to multiple instances; local stays
-# at one, matching what Floci actually emulates.
+# WORKAROUND(local): Floci backs this with one standalone mongo:7.0 container, no
+# replica set — do NOT rely on multi-document transactions locally.
+# See [[floci-sqs-lambda-docdb-support]]
 resource "aws_docdb_cluster_instance" "this" {
   count = var.manage_cluster_via_provider ? 1 : 0
 
@@ -81,23 +64,17 @@ resource "aws_docdb_cluster_instance" "this" {
 }
 
 # ─── DocumentDB Cluster — Floci fallback (bypasses the aws provider) ─────────────
-# Only created when var.manage_cluster_via_provider = false. Creates the cluster
-# and its instance with a plain boto3 call, outside Terraform's resource
-# lifecycle, so the provider's request signing never enters the picture. The
-# script is idempotent (lookup-then-create, and treats *AlreadyExistsFault as
-# success) because `make bootstrap` rebuilds this stack routinely and
-# terraform_data re-runs the provisioner whenever `input` changes. The resulting
-# endpoint/port are written to a JSON descriptor under the root module's working
-# directory that `data.local_file.cluster_via_cli` reads back into the outputs.
-# See scripts/create_docdb_cluster.py and
-# docs/shared/patterns/awscli-fallback-for-floci.md.
+# WORKAROUND(local): Creates the cluster with a plain boto3 call outside
+# Terraform's resource lifecycle, so the provider's request signing never runs.
+# CONTRACT: The script must stay idempotent (lookup-then-create, *AlreadyExists
+# treated as success) — `make bootstrap` rebuilds this routinely and
+# terraform_data re-runs the provisioner whenever `input` changes.
+# See [[awscli-fallback-for-floci]]
 resource "terraform_data" "cluster_via_cli" {
   count = var.manage_cluster_via_provider ? 0 : 1
 
-  # Everything the script would need to re-run for: a changed identifier,
-  # credentials, engine version, instance class, or placement. terraform_data
-  # replaces when `input` changes, so any of these re-runs the provisioner —
-  # and the subnet-group entry additionally makes this resource DEPEND on
+  # CONTRACT: Everything the script must re-run for. terraform_data replaces when
+  # `input` changes, and the subnet-group entry also makes this depend on
   # aws_docdb_subnet_group when that one is managed here.
   input = {
     cluster_identifier  = local.cluster_identifier
@@ -117,9 +94,8 @@ resource "terraform_data" "cluster_via_cli" {
       CLUSTER_IDENTIFIER  = self.input.cluster_identifier
       INSTANCE_IDENTIFIER = self.input.instance_identifier
       MASTER_USERNAME     = self.input.master_username
-      # Not in `input`: terraform_data.input lands in state in plaintext, and a
-      # rotated password must not be the thing that decides whether the cluster
-      # is recreated either. The script only ever uses it on the create path.
+      # WARNING: Keep the password OUT of `input` — terraform_data.input lands in
+      # state in plaintext, and a rotation must not trigger a cluster recreation.
       MASTER_PASSWORD    = var.master_password
       ENGINE_VERSION     = self.input.engine_version
       INSTANCE_CLASS     = self.input.instance_class
@@ -128,9 +104,8 @@ resource "terraform_data" "cluster_via_cli" {
       STATE_FILE         = self.input.state_file
       ENDPOINT_URL       = var.aws_cli_endpoint_url
       AWS_REGION         = var.region
-      # Traceability only — the script always runs, whatever this records. Empty
-      # (the variable's default) means "record nothing", which the script treats
-      # as a legitimate state rather than an error.
+      # WHY: Traceability only — the script always runs. Empty (the default) means
+      # "record nothing", which the script treats as legitimate, not an error.
       EXECUTION_LOG_TABLE = var.execution_log_table
     }
   }
@@ -150,21 +125,8 @@ data "local_file" "cluster_via_cli" {
 }
 
 # ─── No Parameter Store entries ───────────────────────────────────────────────────
-# This module deliberately publishes NOTHING to Parameter Store. It briefly did,
-# citing ADR-0007, and both `aws_ssm_parameter` resources failed against Floci
-# with `UnrecognizedClientException: The security token included in the request
-# is invalid` — the same provider-signing failure that already forced the
-# awscli-fallback for the cluster itself (the CLI/boto3 call succeeds against the
-# same live Floci).
-#
-# They were removed rather than gated or faked, because nothing read them. This
-# repo has no other `aws_ssm_parameter` anywhere — a fact its own env generator
-# records (`scripts/generate_env_files.py`: "as of today this repo has ZERO
-# aws_ssm_parameter resources") — and every consumer takes host/port from
-# `terraform output` instead. ADR-0007 states the intent for production secrets;
-# it does not describe what is wired today. Keeping two parameters that only ever
-# fail, for readers that do not exist, is cost with no benefit.
-#
-# If production ever needs them, add them behind the same kind of gate the
-# cluster uses (`manage_cluster_via_provider`), so the local path stays clear of
-# the provider bug.
+# CONTRACT: Do NOT add `aws_ssm_parameter` here ungated. They fail against Floci
+# with `UnrecognizedClientException` — the same provider-signing failure that
+# forced the awscli-fallback above — and nothing reads them: every consumer takes
+# host/port from `terraform output`. If production needs them, gate them the way
+# the cluster is gated. See [[awscli-fallback-for-floci]]

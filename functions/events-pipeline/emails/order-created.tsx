@@ -5,35 +5,22 @@ import { Button } from "./components/button.tsx";
 import { theme } from "./theme.ts";
 import { emailAssets } from "./assets.ts";
 
-// Ported from the "Order Created Email" frame of `assets/email/emails.pen`: a
-// success circle, "Order Confirmed!", a greeting, an ITEM/QTY/PRICE line-items
-// table, a totals block, a "SHIPPING TO" panel, the tracking CTA and a help
-// line.
-//
-// Two things the `.pen` hardcodes come from PROPS here, not from the mockup:
-// the three fixed products (this iterates `items`) and every money figure
-// (formatted from cents). The mockup is a picture of one order; the template
-// has to render any order.
+// Ported from the "Order Created Email" `.pen` frame. The mockup is a picture of
+// ONE order: the products and every money figure come from props here.
 
-// One receipt line, as #handlers/order-created maps it off the wire
-// (`unit_price_cents` -> `unitPriceCents`). There is deliberately no per-line
-// total: the template multiplies quantity by unit price, and a second figure
-// on the props could contradict the two it was derived from.
+// CONTRACT: No per-line total on the props — the template multiplies quantity by
+// unit price, and a second figure can contradict the two it came from.
+// See [[money-representation]]
 export interface OrderCreatedEmailItem {
   name: string;
   quantity: number;
   unitPriceCents: number;
 }
 
-// `shippingAddress` is optional and never null: the producer omits the key
-// entirely when the buyer has no address on file (see the handler's schema
-// comment), so a template branches on ONE absence marker rather than two. It is
-// typed as a permissive record because the column is a point-in-time snapshot
-// whose shape is owned by Users' `Address` message.
-//
-// `createdAt` is the ISO-8601 string the producer serialized, not a Date — it
-// crossed a JSON boundary, and typing it as a Date would be a lie the renderer
-// would eventually trip over.
+// CONTRACT: `shippingAddress` is optional and NEVER null — the producer omits
+// the key, so a template branches on one absence marker. It stays a permissive
+// record because the snapshot's shape is owned by Users. `createdAt` is the
+// producer's ISO-8601 STRING, not a Date: it crossed a JSON boundary.
 export interface OrderCreatedEmailProps {
   orderId: string;
   totalCents: number;
@@ -55,58 +42,32 @@ function formatCents(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-// ICONS: the mockup's two lucide glyphs (`package-check` in the header circle,
-// `package-search` on the CTA) are served as REMOTE PNGs from the assets bucket
-// (`emails/assets.ts`).
-//
-// Two alternatives remain dead ends: an icon font needs @font-face (a <style>
-// block, which Gmail and Outlook strip), and inline <svg> has 40.48% support and
-// renders in NO version of Outlook on Windows (caniemail.com/features/html-svg).
-// The third — a remote <img> — is the one that works: 100% client support, and
-// Gmail has displayed remote images by default since 2013. This REPLACES the
-// base64 `data:` URIs this file used to embed, whose 80.95% support left ~19% of
-// readers with no icon at all. Full argument in `emails/assets.ts`.
-//
-// THE SUCCESS-TINTED CIRCLE IS NO LONGER A CSS SHAPE — it is baked into
-// `package-check.png`, which is why that image is displayed at the full 64px
-// rather than scaled down inside a disc (a nested-disc arrangement that shrank
-// the visible glyph to 22% of the circle; measurements in `emails/assets.ts`).
-//
-// A reader may still turn images off, and the design still reads: with the
-// header image blocked the heading "Order Confirmed!" states the subject in
-// text and the reserved 64x64 box keeps it in place, while the CTA's label
-// ("Track Your Order") carries the button on its own. Both icons are an
-// enhancement layered on a design that is complete without them, and each
-// <Img> carries a meaningful `alt`.
+// CONTRACT: Icons are REMOTE PNGs, and the success-tinted circle is baked into
+// the artwork — do NOT add a CSS disc around it, which nests two circles and
+// shrinks the glyph. An icon font needs @font-face and inline <svg> renders in
+// no Outlook on Windows, so a remote <img> is the only option that works.
+// Every icon is an ENHANCEMENT: with images blocked the heading and the button
+// label still carry the design, and each <Img> needs a meaningful `alt`.
+// See [[email-templates]]
 
-// The `.pen` sizes the right-hand QTY/PRICE columns by flex `gap`, which email
-// clients do not support. Fixed pixel widths inside the table are the portable
-// equivalent, and they are what makes the money column line up: every price
-// cell is the same width and right-aligned, so the decimal points stack.
+// CONTRACT: Fixed pixel widths, not the `.pen`'s flex `gap` — email clients do
+// not support it, and equal right-aligned cells are what stacks the decimals.
 const QTY_COLUMN_WIDTH = "56px";
 const PRICE_COLUMN_WIDTH = "88px";
 
-// The `.pen`'s "Order Items" panel background — a one-off tint (#F9FAFB) rather
-// than a named variable, so it is not in `theme.ts`.
+// A one-off panel tint in the `.pen`, so it is not in `theme.ts`.
 const ITEMS_PANEL_BG = "#F9FAFB";
 
-// The repeated cell recipes, now as class strings instead of style objects.
-// Composed by interpolation at the call sites that need a variant (a different
-// weight or colour), which is the `className` equivalent of the old object
-// spread — Tailwind resolves the LAST conflicting utility, so an appended
-// `text-text-secondary` beats the `text-text-primary` in the base string.
+// The repeated cell recipes. Variants append to the base string: Tailwind
+// resolves the LAST conflicting utility, so an appended colour wins.
 const CELL = "m-0 font-body text-[14px] font-normal text-text-primary";
 const HEADER_CELL = "m-0 font-body text-[12px] font-semibold tracking-[1px] text-text-muted";
 
-// A hairline rule matching the `.pen`'s 1px `$border-color` divider frames.
-//
-// STOP POINT — the border stays an inline `style`. `Hr` emits its own default
-// ("border:none;border-top:1px solid #eaeaea") AFTER the styles compiled from
-// `className`, so a `border-line` class loses the cascade and the rule renders
-// grey instead of the brand line colour. Nothing fails loudly when that happens,
-// which is exactly why it is called out here. `margin` is also a runtime prop
-// (callers pass "0", "8px 0", "24px 0"), so it could not be a static class
-// anyway.
+// A hairline rule matching the `.pen`'s 1px divider frames.
+// CONTRACT: The border stays an inline `style`. `Hr` emits its own default
+// border shorthand AFTER the classes Tailwind compiled, so a `border-line` class
+// loses the cascade and the rule renders grey — and nothing fails loudly.
+// See [[email-templates]]
 function Divider({ margin }: { margin: string }) {
   return <Hr style={{ borderColor: theme.borderColor, borderTopWidth: "1px", margin }} />;
 }
@@ -205,27 +166,16 @@ export default function OrderCreatedEmail({
 
   return (
     <EmailLayout>
-      {/* "Icon Circle": the 64px success-tinted disc AND the `package-check`
-          glyph are ONE PNG, shown at its full 64px.
+      {/* CONTRACT: The disc AND the glyph are ONE PNG at full size — do NOT add
+          a CSS circle back, which nests two identical discs and shrinks the
+          visible glyph to a fraction of the box.
+          See [[email-templates]] */}
 
-          THE CSS CIRCLE IS GONE ON PURPOSE — DO NOT PUT IT BACK. The file
-          already carries a rgb(236,253,245) disc, the exact tint the removed
-          `bg-success-bg` emitted, so drawing both nested two identical discs and
-          left only the glyph visible, shrunk to the image's display size (14px
-          inside 64px — 22%, measured on a screenshot). At full size the glyph
-          lands at the 39% the artwork was drawn at. Full reasoning and the pixel
-          measurements are in `emails/assets.ts`.
-
-          `width`/`height` stay HTML ATTRIBUTES spread from the asset entry:
-          Outlook sizes images from the attributes and ignores CSS dimensions,
-          and they are also what reserves the 64x64 box when a client blocks the
-          image — the heading below does not jump up. The `alt` carries the
-          meaning; "Order Confirmed!" states it in text either way.
-
-          The `Row`/`Column` wrapper remains because it is what CENTRES the
-          image. The inner `Row` is `width="auto"` because `Row` defaults to
-          `width="100%"`, which would stretch this shrink-to-fit wrapper;
-          `align="center"` is already `Row`'s default. */}
+      {/* CONTRACT: `width`/`height` stay HTML ATTRIBUTES — Outlook sizes images
+          from those and ignores CSS, and they reserve the box so the heading
+          does not jump when a client blocks the image. The `alt` carries the
+          meaning. The `Row`/`Column` wrapper CENTRES the image; the inner
+          `Row` is `width="auto"` because `Row` defaults to full width. */}
       <Section>
         <Row>
           <Column align="center">
@@ -321,15 +271,11 @@ export default function OrderCreatedEmail({
         </Section>
       ) : null}
 
-      {/* "Track Button" — info-blue in this frame, not brand orange. It now
-          carries the `.pen`'s 16px `package-search` icon, in white so it reads
-          against the filled button (see DESIGN.md § CTA Button: "optional 16x16
-          icon + 15px bold white text").
-          The icon is an ENHANCEMENT: with images blocked the button still reads
-          "Track Your Order" and loses nothing but the glyph. `align="middle"`
-          plus the 6px right margin is what keeps it on the label's baseline —
-          an <Img> defaults to `vertical-align: baseline`, which drops it below
-          the text in several clients. */}
+      {/* "Track Button" — info-blue in this frame, not brand orange, carrying a
+          white 16px icon. CONTRACT: `align="middle"` keeps the icon on the
+          label's baseline; an <Img> defaults to `vertical-align: baseline`,
+          which drops it below the text in several clients. The icon is an
+          ENHANCEMENT — with images blocked the label still carries the button. */}
       <Section className="mt-[24px] mb-0 mx-0">
         <Row>
           <Column align="center">

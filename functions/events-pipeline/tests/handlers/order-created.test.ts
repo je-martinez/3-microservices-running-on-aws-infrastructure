@@ -1,12 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// #shared/config/env parses process.env at MODULE LOAD (ADR-0014). This file
-// imports #handlers/index, which now (since the realtime fan-out landed in
-// tracking-status-changed.ts) transitively pulls in
-// #shared/realtime/websocket-publisher -> #shared/logging/app-logger ->
-// #shared/config/env, so the schema must be satisfied even though this
-// suite never exercises tracking-status-changed itself. Mirrors
-// tests/handler.test.ts.
+// #shared/config/env parses process.env at MODULE LOAD (ADR-0014), and
+// #handlers/index reaches it transitively through the realtime fan-out, so the
+// schema must be satisfied even though this suite never exercises it.
 vi.stubEnv("DOCDB_HOST", "docdb-test");
 vi.stubEnv("DOCDB_USERNAME", "root");
 vi.stubEnv("DOCDB_PASSWORD", "secret");
@@ -46,11 +42,10 @@ function envelope(payload: Record<string, unknown>, event_id = "evt_order_1"): E
   };
 }
 
-// The shape SqsEventPublisher actually puts on the wire — the receipt the
-// confirmation email renders, not just the acknowledgement it used to be.
-// Figures balance: 2×1200 + 1×599 = 2999 subtotal, +240 tax +1500 shipping =
-// 4739. A fixture whose arithmetic did not add up would let a handler that
-// crossed two of the four figures pass.
+// The shape SqsEventPublisher puts on the wire — the receipt the confirmation
+// email renders. CONTRACT: The figures must BALANCE (2×1200 + 599 = 2999,
+// +240 tax +1500 shipping = 4739). A fixture whose arithmetic does not add up
+// lets a handler that crossed two of the four money figures pass.
 const validPayload = {
   order_id: "ord_1",
   user_id: "usr_1",

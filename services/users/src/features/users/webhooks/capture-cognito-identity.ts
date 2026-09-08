@@ -53,13 +53,10 @@ function isMessageIdConflict(err: unknown): boolean {
   return false;
 }
 
-// Thrown when no `users` row matches the payload's email. Both real flows
-// guarantee the user already exists before capture runs (local: register.ts
-// creates the user before calling this command; prod: Cognito's
-// PostConfirmation trigger fires only after the users service already
-// persisted the user during registration). This is therefore an unexpected
-// condition, not a routine outcome — the route maps it to an error response,
-// and in prod Cognito retries the trigger, so a transient race self-heals.
+// Thrown when no `users` row matches the payload's email. Both real flows create the
+// user before capture runs, so this is an unexpected condition rather than a routine
+// outcome: the route maps it to an error response, and Cognito retries the trigger in
+// prod, so a transient race self-heals.
 export class NoMatchingUserError extends Error {
   constructor(email: string) {
     super(`No users row found for email ${email}`);
@@ -102,14 +99,10 @@ export class CaptureCognitoIdentityCommand {
     const { sub, email } = payload.request.userAttributes;
     const messageId = deriveMessageId(sub, payload.triggerSource);
 
-    // Logged from INSIDE the span, unlike the route's old no-match line, which
-    // fired after execute() had already returned and the span had closed — so
-    // it carried a different span_id and "View logs" on the span found nothing.
-    // A webhook is an inbound call from a system we do not control: which sub
-    // arrived, from which trigger, and whether it matched is exactly what an
-    // operator reconstructs a retried or duplicated delivery from. The email
-    // reaches the line only as a hash, and the raw payload — persisted in full
-    // — never does: it is a request body.
+    // CONTRACT: Log from INSIDE the span — a line emitted after execute() returns
+    // carries a different span_id and "View logs" on the span finds nothing.
+    // WARNING: The email reaches this line only as a hash, and the raw payload never
+    // does — it is a request body. See [[logging-context]]
     appLogger.info(
       {
         app_event: "cognito_webhook_started",
@@ -156,15 +149,10 @@ export class CaptureCognitoIdentityCommand {
         throw new NoMatchingUserError(email);
       }
 
-      // One nested write: usersCognitoData.upsert with the event nested via
-      // events: { create: [...] } in BOTH branches. Prisma runs this as a
-      // single transaction (nested writes have transactional guarantees —
-      // rollback on any failure), inserting the parent snapshot before the
-      // child event, so the NOT NULL FK on
-      // users_cognito_events.cognito_sub is satisfied by construction.
-      // Verified live against Floci Postgres on both the first-delivery
-      // (create) and retry (update) paths — spec "Persistence: a single
-      // nested write".
+      // CONTRACT: One nested write — the event nested under the upsert in BOTH
+      // branches. Prisma runs a nested write as a single transaction and inserts the
+      // parent before the child, which is what satisfies the NOT NULL FK on
+      // users_cognito_events.cognito_sub. Splitting it breaks that ordering.
       try {
         await this.db.usersCognitoData.upsert({
           where: { cognitoSub: sub },

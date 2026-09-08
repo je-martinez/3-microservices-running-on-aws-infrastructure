@@ -11,10 +11,10 @@ import { withClientSpan } from "#shared/observability/client-span";
  * Hook the E2E email store hangs off. Absent in production, where nothing
  * wires it.
  *
- * A CALLBACK rather than an import of the store, deliberately: this module is a
- * pure transport with a lazy SES client and no database concept, and giving it
- * a Mongo dependency would make it untestable without a Db and would put the
- * fixture collection in the import graph of every deployed environment.
+ * CONTRACT: A callback, not an import of the store — importing it would give
+ * this transport a Mongo dependency and put the fixture collection in every
+ * deployed environment's import graph.
+ * See [[testing]]
  */
 export type RecordEmailFn = (params: {
   to: string;
@@ -33,21 +33,17 @@ export interface SendEmailParams {
   /**
    * The plaintext OTP or reset code, when this template carries one.
    *
-   * Passed through to `recordEmail` ONLY — never logged, never attached to SES
-   * metadata, and never reaching the persisted event document, which redacts it
-   * on purpose (see #domain/redact-payload).
+   * WARNING: Passed to `recordEmail` ONLY — never logged, never on SES
+   * metadata, never on the persisted document (#domain/redact-payload strips it).
    */
   code?: string;
   /** Optional E2E recorder. Undefined in production. */
   recordEmail?: RecordEmailFn;
 }
 
-// Module-scope singleton, created LAZILY — same shape and same reasons as
-// #shared/db/client's Mongo client: reused across warm invocations, but not
-// constructed at import time. Constructing it eagerly would read `env` (and so
-// require the full env) merely to IMPORT this module, which breaks unit tests
-// that only want the type, and would move a config failure out of the handler's
-// error handling and into module evaluation.
+// CONTRACT: Lazy, not import-time. Constructing eagerly reads `env` just to
+// IMPORT the module, breaking unit tests that only want the type and moving a
+// config failure out of the handler's error handling into module evaluation.
 let client: SESClient | undefined;
 
 function getClient(): SESClient {
@@ -62,65 +58,35 @@ function getClient(): SESClient {
   return client;
 }
 
-// SES is transport only — the HTML is already rendered by #email/renderer (see
-// the milestone design spec's "Rendering decision": no SES native templates).
-//
-// EVERY failure here is classified TRANSIENT: SES being unreachable, throttled
-// or timing out is exactly the case that must be retried through
-// batchItemFailures. The alternative (letting it fall through unclassified)
-// would still be transient by isTransient()'s safe default, but making it
-// explicit is what keeps a future refactor from turning a send failure into a
-// silently-consumed message — i.e. a user's email lost with no trace.
+// SES is transport only — #email/renderer produces the HTML; no SES templates.
+// CONTRACT: Every failure here is explicitly TRANSIENT so it retries through
+// batchItemFailures. Leaving it unclassified relies on isTransient()'s default
+// and lets a refactor silently consume a message — a user's email lost.
 export async function sendEmail(params: SendEmailParams): Promise<void> {
-  // The recipient reaches the log only as a NON-REVERSIBLE hash. Plaintext
-  // email is never logged (docs/shared/conventions/logging-context.md); the
-  // hash is the cross-service key that still lets an operator trace every
-  // failed send to one recipient. The envelope context (event_id, type, ...)
-  // rides along automatically from the ALS store the handler opened.
+  // CONTRACT: The recipient reaches the log only as a non-reversible hash —
+  // never plaintext. The envelope context rides along from the ALS store.
+  // See [[logging-context]]
   const email_hash = hashEmail(params.to);
   const startedAt = Date.now();
 
   try {
-    // Manual CLIENT span around the transport ONLY. The AWS SDK is inlined into
-    // the esbuild bundle, so auto-instrumentation cannot patch it (see
-    // #shared/observability/client-span) and this send would otherwise be an
-    // unexplained gap inside `process_record` — which is precisely where the
-    // latency lives when SES is slow.
-    //
-    // Scoped to the send, not to the whole function: the outcome logging and
-    // metric publishing below are this process's own work, and folding them in
-    // would attribute their time to SES. The one line that IS inside (see
-    // below) precedes the call rather than wrapping it, and is there to make
-    // the span answerable by "View logs" — its rationale is at the call site.
-    //
-    // `email_hash`, never the recipient — the same rule the log line obeys, for
-    // the same reason. A span attribute is as readable as a log field.
+    // CONTRACT: The span wraps the SEND only. Widening it attributes this
+    // process's own logging and metric work to SES. Manual because esbuild
+    // inlines the AWS SDK and nothing auto-instruments it. `email_hash` on the
+    // attribute, never the recipient — a span attribute reads like a log field.
+    // See [[logging-context]]
     await withClientSpan(
       "ses SendEmail",
       SpanKind.CLIENT,
       { "messaging.system": "ses", "rpc.method": "SendEmail", email_hash },
       () => {
-        // The ONE line that belongs to this span rather than to the record.
-        //
-        // WHY IT EXISTS: OpenObserve's "View logs" on a span filters by
-        // `trace_id` AND `span_id`, with no fallback to the trace — so a span
-        // with no log line of its OWN answers it with an empty result, however
-        // many lines the surrounding trace has. `ses SendEmail` is the only
-        // span we own that was in that state.
-        //
-        // WHY IT DOES NOT CORRUPT THE MEASUREMENT: it is emitted BEFORE the
-        // send is issued, not around it. pino's default destination is a
-        // synchronous stdout write of a few hundred bytes — microseconds,
-        // ahead of a network round trip to SES — and, being before the call,
-        // it cannot sit between the request and its response. The span still
-        // brackets the same SES call it always did; that is why the
-        // succeeded/failed lines below stay OUTSIDE, where they describe the
-        // RECORD's work and remain findable from `process_record`.
-        //
-        // WHY THIS CONTENT: it is the only place `template_key` and
-        // `email_hash` appear together — "which email went to whom" — which
-        // no other line in this service answers. `email_hash`, never the
-        // plaintext recipient, exactly as the span attribute above.
+        // CONTRACT: Keep this line inside the span and BEFORE the send.
+        // OpenObserve's "View logs" filters on `trace_id` AND `span_id` with no
+        // fallback, so a span owning no line answers it empty; emitting it
+        // before the call keeps it out of the measured round trip. It is also
+        // the only line pairing `template_key` with `email_hash` — which email
+        // went to whom. Never the plaintext recipient.
+        // See [[logging-context]]
         appLogger.info(
           { app_event: "ses_send_requested", template_key: params.templateKey, email_hash },
           "requesting SES send",
@@ -137,26 +103,20 @@ export async function sendEmail(params: SendEmailParams): Promise<void> {
           }),
         );
       },
-      // The SDK's message is safe here (endpoint, status, throttling reason) —
-      // established in the catch below, and it never contains the recipient,
-      // which this function holds separately in `params.to` and never
-      // interpolates.
+      // The SDK message is safe (endpoint, status, throttling reason) and never
+      // contains the recipient, which lives separately in `params.to`.
       (err) => (err instanceof Error ? err.message : String(err)),
     );
   } catch (err) {
-    // The SDK's message is safe to surface (endpoint, status, throttling
-    // reason) but the RECIPIENT is not — never interpolate params.to here: this
-    // string is persisted on the FAILED document and logged as `reason`, and a
-    // plaintext email address is precisely the PII the logging convention
-    // forbids. The recipient is already recoverable from the event's payload.
+    // CONTRACT: Never interpolate `params.to` into this string — it is
+    // persisted on the FAILED document and logged as `reason`, and a plaintext
+    // address is the PII the convention forbids.
+    // See [[logging-context]]
     const message = err instanceof Error ? err.message : String(err);
 
-    // Logged HERE, not only at the handler level: without this line a failed
-    // send leaves no trace of its own — the entrypoint reports the record as
-    // failed, but nothing says the email was the thing that failed, nor to
-    // whom. `reason` carries the SDK message (already established as safe
-    // above); `err` is deliberately not passed, so nothing else of the error
-    // reaches the record.
+    // WHY: Without this line a failed send leaves no trace of its own — the
+    // entrypoint only reports the RECORD as failed. `err` is deliberately not
+    // passed, so nothing beyond the safe `reason` reaches the log.
     appLogger.error(
       {
         app_event: "email_send_failed",
@@ -167,14 +127,11 @@ export async function sendEmail(params: SendEmailParams): Promise<void> {
       "SES send failed",
     );
 
-    // Every SES failure is transient — this catch only ever sees SES errors, and
-    // the throw below is unconditionally TransientError. A permanent failure
-    // comes from the RENDERER (a missing template), never from here, which is
-    // why the permanent counter lives there: counting both in one place would
-    // label every failure transient and destroy the split the metric exists for.
-    //
-    // Emitted BEFORE the throw, and awaited: publishEmailMetric never throws, so
-    // it cannot mask or replace the TransientError.
+    // CONTRACT: Only transient failures are counted here. Permanent ones come
+    // from the RENDERER (missing template) and are counted there — counting both
+    // in one place labels every failure transient and destroys the split.
+    // Awaited before the throw; publishEmailMetric never throws, so it cannot
+    // mask the TransientError.
     await publishEmailMetric("emails_failed_total", params.templateKey, {
       FailureKind: "transient",
     });
@@ -195,20 +152,11 @@ export async function sendEmail(params: SendEmailParams): Promise<void> {
 
   await publishEmailMetric("emails_sent_total", params.templateKey);
 
-  // AFTER the send, and swallowing its own failures — both parts deliberate.
-  //
-  // After, because this store answers "what was DELIVERED". Recording before
-  // the send would make it answer "what was attempted", and a spec reading it
-  // during a SES outage would see mail that never left.
-  //
-  // Swallowing, because a failure here is a broken TEST FIXTURE, and a broken
-  // fixture must never turn into a failed email: the record has already been
-  // sent by this point, so throwing would report a transient failure for an
-  // email that actually went out and get the whole thing redelivered.
-  //
-  // WARN not ERROR: nothing user-facing degraded, but a silently missing
-  // fixture would later read as "the pipeline never sent it", which is exactly
-  // the wrong conclusion.
+  // CONTRACT: Record AFTER the send and swallow failures here. Recording first
+  // makes the store answer "what was attempted", so a spec reading it during an
+  // SES outage sees mail that never left; throwing fails a record whose email
+  // already went out and gets it redelivered. WARN, not ERROR — nothing
+  // user-facing degraded, but a missing fixture must not read as a missing send.
   if (params.recordEmail) {
     try {
       await params.recordEmail({

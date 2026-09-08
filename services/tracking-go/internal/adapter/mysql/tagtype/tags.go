@@ -16,11 +16,9 @@ type Tags []string
 
 // Value marshals the tags to a JSON array.
 //
-// A nil or empty Tags marshals to `[]`, NEVER to NULL. The column is NOT NULL
-// with a DEFAULT (JSON_ARRAY()), and a NULL would give "no tags" two spellings —
-// worse, JSON_CONTAINS(NULL, ...) evaluates to NULL rather than FALSE, so a NULL
-// row is silently excluded from the e2e-cleanup predicate for a reason that
-// reads like an accident.
+// CONTRACT: A nil or empty Tags marshals to `[]`, NEVER to NULL. The column is
+// NOT NULL, and JSON_CONTAINS(NULL, ...) evaluates to NULL rather than FALSE, so
+// a NULL row is silently excluded from the e2e-cleanup predicate.
 func (t Tags) Value() (driver.Value, error) {
 	if t == nil {
 		return []byte("[]"), nil

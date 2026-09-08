@@ -7,33 +7,13 @@ using Orders.Infrastructure.Id;
 namespace Orders.Tests.Api;
 
 /// <summary>
-/// The property no other test in this task can establish: one caller is never served
-/// another caller's cached response, and one caller's write never blows away another's
-/// entry.
+/// One caller is never served another's cached response, and one caller's write never blows
+/// away another's entry.
+/// CONTRACT: Use two callers the directory actually RESOLVES — an unresolvable one caches
+/// nothing, so the isolation assertion passes because caching was SKIPPED and keeps passing
+/// if the keys stop carrying identity. Keep this on <c>OrdersApiFactory</c>, the only host
+/// with a live cache. See [[x-cache-response-header]]
 /// </summary>
-/// <remarks>
-/// <para>
-/// Every other cache test could pass while the cache still served user A's cart to user B
-/// — the only way that surfaces is by asking two DIFFERENT callers for the same route and
-/// comparing the bodies.
-/// </para>
-/// <para>
-/// <b>It needs two callers the directory actually resolves.</b> A second caller the stub
-/// does not know reaches the handler with a null <c>ResolvedInternalUserId</c>, so the key
-/// builder declines and nothing is cached for them at all — the isolation assertion would
-/// then pass because caching was SKIPPED, not because the keys were scoped, and it would
-/// keep passing if the keys stopped carrying identity entirely. <c>OrdersApiFactory</c>
-/// grew an <c>OtherCognitoSub</c> for exactly this.
-/// </para>
-/// <para>
-/// <b>Not <c>OrdersE2eApiFactory</c>, despite it already having two identities.</b> That
-/// host runs with <c>CACHE_ENABLED=false</c> and owns no Redis container — deliberately,
-/// so a regression that made the service require Redis unconditionally fails there. With
-/// the kill switch off no <c>ICacheGateway</c> is registered, the filter skips itself, and
-/// no <c>X-Cache</c> header is emitted at all, so every assertion here would read null.
-/// This factory is the only one in the suite with a live cache.
-/// </para>
-/// </remarks>
 [Collection(OrdersApiCollection.Name)]
 public class CacheCrossUserTests
 {

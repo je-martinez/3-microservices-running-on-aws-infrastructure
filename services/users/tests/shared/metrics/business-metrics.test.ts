@@ -60,7 +60,7 @@ describe("BusinessMetricsPoller", () => {
 
   // The tick fires from a setInterval, with no request span around it. Without
   // an explicit span the Prisma and CloudWatch spans it produces come out as
-  // their own ROOT traces, and Jaeger fills with anonymous
+  // their own ROOT traces, and the trace list fills with anonymous
   // `prisma:client:operation` fragments nobody can attribute to a process.
   it("wraps the tick in an INTERNAL span named metrics-tick", async () => {
     const d = makeDeps({ password: 2, passwordless: 1 });
@@ -193,16 +193,11 @@ describe("BusinessMetricsPoller logging", () => {
     );
   });
 
-  // The cache counters are emitted only from a cached read, so on a service
-  // that has just booted — or during a quiet window on a dashboard's time
-  // range — the series does not exist and OpenObserve renders "Error Loading
-  // Data". The reasoning is spelled out in business-metrics.ts for the error
-  // and business counters; the cache counters have exactly the same shape and
-  // need exactly the same seeding.
-  //
-  // hit/miss/bypass are seeded, but NOT cache_operation_duration_ms: that one
-  // is a duration, and a seeded 0ms would drag every average and percentile
-  // toward zero — the panel would read "fast" precisely when nothing ran.
+  // CONTRACT: Seed hit/miss/bypass but NOT cache_operation_duration_ms. The counters
+  // are emitted only from a cached read, so a freshly booted service or a quiet time
+  // range has no series and OpenObserve renders "Error Loading Data". A seeded 0ms
+  // duration instead drags every average and percentile toward zero, so the panel
+  // reads "fast" precisely when nothing ran.
   it("seeds cache_requests_total at zero for every Result value", async () => {
     const d = makeDeps({ password: 1, passwordless: 1 });
     const poller = new BusinessMetricsPoller(d as any);

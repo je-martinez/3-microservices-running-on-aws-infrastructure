@@ -3,17 +3,14 @@ import { apiClient } from "../support/api-client.js";
 import { makeUser } from "../support/chance-factory.js";
 import { waitForEmailTo, getMessage } from "../support/mailpit-client.js";
 
-// The self-owned password-reset flow, driven against the users service
-// DIRECTLY (port 3000), with `x-user-id` standing in for the gateway
-// authorizer's output. The gateway layer is covered separately in
+// The self-owned password-reset flow against Users directly (port 3000), with
+// `x-user-id` standing in for the authorizer's output; the gateway layer lives in
 // tests/gateway/password-reset-flow.spec.ts.
 //
-// What this layer is for: proving the flow works against the REAL Redis store.
-// The unit tests exercise `ResetCodeStore` against an in-memory fake, so they
-// cannot catch a wrong `EX` argument, a client that never connects, or a
-// REDIS_HOST that resolves to the container itself — the exact failure the env
-// comment warns about. Only a request that mints a code and a second request
-// that verifies it proves the round trip through Redis.
+// CONTRACT: This layer must mint a code and verify it in a second request — that round
+// trip is what proves the REAL Redis store works. The unit tests use an in-memory fake
+// and cannot catch a wrong `EX` argument, a client that never connects, or a REDIS_HOST
+// resolving to the container itself. See [[testing]]
 
 //: The subject the events-pipeline's password-reset handler sends under. Used
 // to tell the reset mail apart from the welcome email that registration also

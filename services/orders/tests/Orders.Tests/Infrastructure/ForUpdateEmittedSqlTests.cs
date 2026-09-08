@@ -7,22 +7,12 @@ using Xunit;
 
 namespace Orders.Tests.Infrastructure;
 
-// End-to-end proof that a tagged LINQ query really executes with FOR UPDATE
-// against MySQL — catches a desynced tag or an EF comment-format change (the
-// silent-no-lock risk from the design). The capturing interceptor records the
-// FINAL CommandText EF hands to the driver, so it must observe the text AFTER
-// ForUpdateInterceptor has rewritten it.
-//
-// Interceptor ordering (verified empirically against EF Core 9 + Pomelo): EF
-// invokes interceptors in registration order, and interceptors supplied to the
-// options builder run BEFORE those added inside the context's OnConfiguring.
-// So the options-supplied capture would see the PRE-rewrite SQL if it relied on
-// OnConfiguring's ForUpdateInterceptor. To make the capture observe the rewritten
-// text we register a ForUpdateInterceptor on the options FIRST, then the capture
-// immediately AFTER it — the capture now sees the rewrite. OnConfiguring later
-// adds its own ForUpdateInterceptor, which is a harmless no-op here because the
-// SQL already contains FOR UPDATE (ApplyForUpdate's idempotency guard). This test
-// therefore exercises the exact production rewrite and proves it reaches MySQL.
+// Proves a tagged LINQ query really reaches MySQL with FOR UPDATE, catching a desynced tag
+// or an EF comment-format change — the silent no-lock risk.
+// CONTRACT: Register a ForUpdateInterceptor on the OPTIONS first, then the capture right
+// after it. EF invokes interceptors in registration order and options-supplied ones run
+// before OnConfiguring's, so a capture relying on OnConfiguring's interceptor observes the
+// PRE-rewrite SQL and the test passes while proving nothing.
 public class ForUpdateEmittedSqlTests : IAsyncLifetime
 {
     private readonly MySqlContainer _mysql =

@@ -7,21 +7,10 @@ namespace Orders.Tests.Api;
 /// time rather than in parallel.
 /// </summary>
 /// <remarks>
-/// <para>
-/// The reason is <c>RequestLogTests</c>, which captures Serilog output by swapping
-/// <see cref="System.Console.Out"/> for a StringWriter around its request. Console.Out
-/// is process-global: while that swap is in place it also captures whatever any other
-/// test writes, and those tests' log lines land in its capture. That made the suite fail
-/// intermittently depending on timing — the same test passed alone and failed in a full
-/// run, which is the signature of a shared-state race rather than a broken assertion.
-/// </para>
-/// <para>
-/// Serialising the collection is the fix rather than making the assertions cleverer,
-/// because the conflict is over a process-wide resource that no assertion can partition.
-/// The cost is a slower suite for these classes; they share one
-/// <c>OrdersApiFactory</c> (and its Testcontainers MySQL) anyway, so they were never
-/// running fully independently.
-/// </para>
+/// CONTRACT: Keep these serialised. <c>RequestLogTests</c> captures Serilog by swapping the
+/// process-global <see cref="System.Console.Out"/>, so in parallel it captures whatever any
+/// other test writes and the suite fails intermittently — passing alone, failing in a full
+/// run. No assertion can partition a process-wide resource. See [[testing]]
 /// </remarks>
 [CollectionDefinition(Name)]
 public class OrdersApiCollection : ICollectionFixture<OrdersApiFactory>

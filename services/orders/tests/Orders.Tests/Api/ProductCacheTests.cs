@@ -5,13 +5,10 @@ using Orders.Application.Orders;
 namespace Orders.Tests.Api;
 
 /// <summary>
-/// <c>GET /v1/products</c> through the real HTTP surface, against a real Redis.
+/// <c>GET /v1/products</c> through the real HTTP surface, against a real Redis. The
+/// catalogue belongs to no user, so it needs no key index and cannot leak across callers —
+/// which makes it the right place to pin the <c>X-Cache</c> contract itself.
 /// </summary>
-/// <remarks>
-/// The catalogue is the simplest cached endpoint in the service — it belongs to no user,
-/// so it needs no key index and cannot leak across callers — which makes it the right
-/// place to pin the <c>X-Cache</c> contract itself.
-/// </remarks>
 [Collection(OrdersApiCollection.Name)]
 public class ProductCacheTests
 {

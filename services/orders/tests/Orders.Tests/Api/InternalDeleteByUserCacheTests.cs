@@ -9,31 +9,12 @@ namespace Orders.Tests.Api;
 /// <summary>
 /// <c>DELETE /v1/orders/by-user</c> — the account-deletion cascade — must forget every
 /// cache entry belonging to the erased user.
+/// CONTRACT: Every test here WARMS before it deletes. Against a cold cache these pass with
+/// a no-op invalidator, asserting only that a missing key is missing.
+/// CONTRACT: Keep them on <c>OrdersApiFactory</c>, the only host with a live cache — under
+/// <c>CACHE_ENABLED=false</c> no <c>X-Cache</c> header is emitted and every assertion reads
+/// null. See [[x-cache-response-header]]
 /// </summary>
-/// <remarks>
-/// <para>
-/// The cascade runs four <c>ExecuteUpdateAsync</c>/<c>SaveChanges</c> statements across
-/// three tables and nothing else in the request would tell the cache those rows are gone.
-/// Left alone, a deleted user's cart and orders keep being served from Redis for their
-/// full TTL, and — worse — their identity mapping keeps resolving a sub that no longer
-/// belongs to anybody for up to an HOUR, the longest-lived entry in the service.
-/// </para>
-/// <para>
-/// <b>Why this class exists separately from <c>InternalDeleteByUserTests</c>.</b> That
-/// class runs on <c>OrdersE2eApiFactory</c>, which owns no Redis container and runs with
-/// <c>CACHE_ENABLED=false</c>. With the kill switch off no <c>ICacheGateway</c> is
-/// registered, the filter skips itself, and no <c>X-Cache</c> header is emitted at all,
-/// so every assertion here would read null there. <c>OrdersApiFactory</c> is the only
-/// host in the suite with a live cache.
-/// </para>
-/// <para>
-/// <b>Every test here WARMS before it deletes.</b> A test that deleted against a cold
-/// cache would pass against a no-op invalidator — asserting only that a missing key is
-/// missing — which is the precise shape of a cache assertion that cannot fail. The
-/// <c>MISS -&gt; HIT</c> pair before each cascade is what makes the final <c>MISS</c>
-/// mean something.
-/// </para>
-/// </remarks>
 [Collection(OrdersApiCollection.Name)]
 public class InternalDeleteByUserCacheTests
 {
@@ -107,41 +88,28 @@ public class InternalDeleteByUserCacheTests
         const string sub = "sub-cascade-cache-identity";
         var key = CacheKeys.Identity(sub);
 
-        // Seeded DIRECTLY rather than warmed through a request, and that is a statement
-        // about this host rather than a shortcut. Both factories replace IUserDirectory
-        // wholesale with a stub, which removes the CachedUserDirectory decorator that
-        // writes this key in production — so no amount of HTTP traffic here would create
-        // it, and a test that warmed it "through the API" would be asserting against a
-        // key that never existed. Writing it by hand reproduces exactly what the real
-        // decorator stores: the internal usr_ id, under the same key, with the same TTL.
+        // CONTRACT: Seed this key DIRECTLY. Both factories replace IUserDirectory with a
+        // stub, removing the CachedUserDirectory decorator that writes it, so warming it
+        // "through the API" would assert against a key that never existed.
         await _factory.SetCacheKeyAsync(key, "\"usr_cascade_cache\"", CacheKeys.IdentityTtl);
         Assert.True(await _factory.CacheKeyExistsAsync(key));
 
         var response = await CascadeAsync(sub, "usr_cascade_cache");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        // The entry NOT in the per-user index. Sweeping the index alone leaves this
-        // behind, still resolving a sub whose account no longer exists, for the rest of
-        // its 1h TTL — far longer than any response entry the sweep removes.
+        // CONTRACT: The one entry NOT in the per-user index — sweeping the index alone
+        // leaves it resolving a deleted account's sub for the rest of its 1h TTL.
         Assert.False(await _factory.CacheKeyExistsAsync(key));
     }
 
     [Fact]
     public async Task Cascade_invalidates_entries_keyed_by_the_users_internal_id()
     {
-        // THE LEAK THIS CLASS EXISTS FOR. Cache keys are built from whatever the client
-        // put in x-user-id — CallerContextMiddleware stores that header verbatim as the
-        // "sub" without normalizing it — and Users' gRPC GetUserById resolves either a
-        // usr_ id or a Cognito sub, so a caller sending their usr_ id is a supported,
-        // routinely-exercised shape (the E2E suite's direct path does exactly this).
-        // Their live keys are then orders:index:v1:usr_… and orders:my-orders:v1:usr_…
-        //
-        // The cascade, however, is called by Users with the CANONICAL pair, so its sub is
-        // one this user's keys were never filed under. Passing only that sub deleted an
-        // index that had never existed and left every real entry in place: a re-read
-        // returned X-Cache: HIT with the deleted account's orders for up to 2 minutes.
-        // Every other test in this class warms and deletes under the SAME identifier, so
-        // none of them can fail on this — which is why it shipped.
+        // CONTRACT: Warm under a usr_ id and cascade with the canonical pair. Keys are filed
+        // under whatever the client sent in x-user-id, but Users calls the cascade with the
+        // canonical sub, so sweeping that alone leaves the real entries serving a deleted
+        // account's orders on a HIT. Every other test here warms and deletes under the SAME
+        // identifier and so cannot catch this. See [[x-cache-response-header]]
         await _factory.FlushCacheAsync();
 
         var client = Client(OrdersApiFactory.SelfResolvingUserId);

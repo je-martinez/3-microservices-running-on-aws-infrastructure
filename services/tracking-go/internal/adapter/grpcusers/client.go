@@ -1,28 +1,14 @@
-// Package grpcusers is the OUTBOUND gRPC client to the Users service.
+// Package grpcusers is the OUTBOUND gRPC client to Users, existing for one
+// question: which internal usr_ id belongs to this identifier? This service
+// serves no gRPC of its own.
 //
-// It exists for exactly one question — "which internal usr_ id belongs to this
-// identifier?" — because the gateway only ever hands this service a Cognito sub
-// while a persisted tracking.user_id is a usr_ id. Everything here points one
-// way: outward, calling users.v1.Users. This service serves no gRPC.
+// CONTRACT: NotFound becomes ErrUnknownUser; EVERY other status propagates with
+// its gRPC status intact. A caller must never read an outage as "this user does
+// not exist" and write a row attributing the shipment to nobody.
+// See [[ADR-0003-grpc-inter-service]]
 //
-// # NOT_FOUND is an answer, not an error
-//
-// Users answers NotFound for an identifier it has never seen. That is a
-// perfectly ordinary outcome — a token minted for a Cognito user whose record was
-// never created, or was deleted — and it becomes ErrUnknownUser here rather than
-// leaking a transport error into handlers that have no business knowing this
-// service talks gRPC at all.
-//
-// EVERY OTHER STATUS PROPAGATES, deliberately: Unavailable, DeadlineExceeded,
-// Unauthenticated and the rest keep their gRPC status so the HTTP layer maps them
-// to 500. A caller must never treat an outage as "this user doesn't exist" and,
-// say, write a row attributing the shipment to nobody.
-//
-// # Never log a UserResponse
-//
-// The response carries the user's address and email — PII. Nothing here logs the
-// message, and nothing that receives a ResolvedUser should either; log email_hash
-// instead.
+// WARNING: Never log a UserResponse — it carries the user's address and email.
+// Log email_hash instead. See [[logging-context]]
 package grpcusers
 
 import (
@@ -58,28 +44,22 @@ const DefaultTimeout = 2 * time.Second
 // 404 unknown_user; everything else maps to 500.
 var ErrUnknownUser = errors.New("grpcusers: no such user")
 
-// ResolvedUser is the subset of users.v1.UserResponse this service has a use for.
+// ResolvedUser is the subset of users.v1.UserResponse this service uses — a
+// domain value, not the proto message, so nothing downstream imports the
+// generated package.
 //
-// A domain value, not the proto message, so nothing downstream imports the
-// generated package or holds a reference into gRPC's object graph.
-//
-// Deliberately NOT carrying the ADDRESS, even though UserResponse.address exists:
-// no caller in this service needs it, and pulling it through would carry PII
-// around for nothing. The REST creation endpoint takes shipping_address in the
-// request body.
+// CONTRACT: Do NOT add the address. No caller needs it, and pulling it through
+// carries PII for nothing. See [[logging-context]]
 type ResolvedUser struct {
 	// InternalID is the usr_ id — what tracking.user_id stores.
 	InternalID string
 	// CognitoSub is the sub Users has on file. Echoed back for the caller to
 	// sanity check; the RPC accepts either identifier.
 	CognitoSub string
-	// Email is PII, consumed ONLY by the events publisher to address the
-	// notification. Never logged, never returned over REST.
-	//
-	// "" means ABSENT (proto3 has no null). The publisher checks for it and
-	// aborts before building anything, because the pipeline's handler rejects a
-	// payload without an email as a PERMANENT error — the record is consumed and
-	// the mail is never sent.
+	// WARNING: PII. Consumed ONLY by the events publisher, never logged and
+	// never returned over REST. "" means ABSENT (proto3 has no null), and the
+	// publisher aborts on it — the pipeline rejects an email-less payload as a
+	// PermanentError, consuming the record and never sending the mail.
 	Email string
 	// FullName is PII too, and its "" is KEPT AS-IS rather than normalized —
 	// deliberately different from Email. The two are different kinds of missing:
@@ -139,14 +119,9 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
-// Resolve looks up a user by Cognito sub OR internal usr_ id.
-//
-// GetUserById accepts BOTH identifiers — the .proto says so and Users' handler
-// implements it — so the parameter takes the neutral name `identifier` rather
-// than pretending it must be one or the other.
-//
-// Only NotFound becomes ErrUnknownUser; every other status propagates with its
-// gRPC status intact.
+// Resolve looks up a user by Cognito sub OR internal usr_ id — GetUserById
+// accepts both, hence the neutral `identifier`. Only NotFound becomes
+// ErrUnknownUser; every other status propagates intact.
 func (c *Client) Resolve(ctx context.Context, identifier string) (ResolvedUser, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
@@ -170,22 +145,15 @@ func (c *Client) Resolve(ctx context.Context, identifier string) (ResolvedUser, 
 	}, nil
 }
 
-// callMetadata builds what every outbound call carries.
+// callMetadata builds what every outbound call carries. The api key travels
+// PER-CALL, so the channel stays plain and the credential appears where it is
+// used; x-request-id comes off the ambient log context rather than Resolve's
+// signature.
 //
-// The api key travels PER-CALL rather than baked into channel credentials, so the
-// channel stays a plain, inspectable object and the credential appears at exactly
-// the place it is used.
-//
-// x-request-id is read from the ambient log context rather than threaded through
-// Resolve's signature: the context is already how this service carries per-request
-// identity into depth, and adding a correlation argument to every caller of a
-// lookup would be a signature change per hop for a value none of them care about.
-//
-// The entry is OMITTED, not sent empty, when the context has no id — that happens
-// outside a request (the TestMode progression's goroutine, a CLI or startup call),
-// and an x-request-id: "" on the wire would be a correlation value that correlates
-// nothing, indistinguishable in Users' logs from a real one until someone tried to
-// search for it.
+// CONTRACT: OMIT x-request-id when the context has no id, never send it empty.
+// That happens outside a request (the progression goroutine, a startup call),
+// and "" is a correlation value that correlates nothing while being
+// indistinguishable from a real one in Users' logs. See [[logging-context]]
 func (c *Client) callMetadata(ctx context.Context) metadata.MD {
 	md := metadata.Pairs(apiKeyMetadataKey, c.apiKey)
 	for _, field := range logging.LogFields(ctx) {

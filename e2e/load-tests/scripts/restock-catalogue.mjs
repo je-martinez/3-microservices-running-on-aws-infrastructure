@@ -1,41 +1,15 @@
 #!/usr/bin/env node
-// Restores the Orders catalogue to its seeded stock BEFORE a Gatling run.
-//
-// ## Why the load suite needs this MORE than the Playwright suite does
-//
-// Load simulations deliberately send neither `x-e2e-source` nor `x-test-mode` (see
-// e2e/CLAUDE.md §4), so their data persists like real traffic. That has a
-// consequence which is easy to miss: nothing tags their orders, so nothing ever
-// cleans them up — and every order they place decrements product stock permanently.
-// The Playwright suite at least restocks in its teardown; a load run has no
-// teardown at all and simply drains the catalogue, run after run, until order
-// creation starts failing for want of stock and the run measures error handling
-// instead of the flow it was written to measure.
-//
-// Restocking at SETUP fixes both that and the Playwright case (a suite killed by
-// Ctrl-C or a timeout never reaches its teardown): the invariant becomes "the
-// catalogue is full when a run starts" rather than "the catalogue was left full by
-// whoever ran last".
-//
-// ## Why a pre-run script and not a step inside the simulation
-//
-// Two reasons, both structural rather than stylistic:
-//   1. A simulation runs in GraalVM, not Node — `process` does not exist there, and
-//      config comes from `getEnvironmentVariable`. More importantly, anything placed
-//      in a scenario executes PER VIRTUAL USER, so a restock would fire hundreds of
-//      times mid-run, repeatedly refilling stock while the run is trying to observe
-//      what sustained traffic does to it. A `before`-style hook that runs exactly
-//      once is not part of the JS SDK's surface.
-//   2. The restock must not appear in the report. It is setup, not traffic; a row
-//      for it would sit in the same percentile tables as the endpoints under test.
-//
-// So it runs here, in ordinary Node, before the CLI is invoked — wired into the
-// `pnpm` scripts so every simulation gets it, and therefore into the Makefile
-// targets that call them.
-//
-// JS rather than the repo's Python-first default because this task already lives in
-// the Node ecosystem: it is a pnpm script inside the load-tests package, in the same
-// spirit as scripts/*.mjs. See docs/shared/conventions/scripting-language.md.
+// Restores the Orders catalogue to its seeded stock BEFORE a Gatling run. Load
+// simulations send neither `x-e2e-source` nor `x-test-mode`, so nothing tags their
+// orders and nothing cleans them up, while every order permanently decrements stock —
+// a load run simply drains the catalogue until creation fails for want of it.
+
+// CONTRACT: Keep this a pre-run Node script, NOT a step inside a simulation. A
+// simulation runs in GraalVM where `process` does not exist, and anything in a
+// scenario executes PER VIRTUAL USER — a restock would fire hundreds of times mid-run,
+// refilling stock while the run tries to observe what traffic does to it. It would
+// also earn a row in the percentile tables beside the endpoints under test.
+// See [[scripting-language]]
 
 const ordersBaseUrl = process.env.ORDERS_BASE_URL ?? "http://localhost:3001";
 const url = `${ordersBaseUrl}/v1/orders/e2e-cleanup`;

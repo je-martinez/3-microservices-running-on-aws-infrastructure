@@ -4,51 +4,30 @@ import { MongoEventsRepository, ensureIndexes, DuplicateEventError } from "#shar
 import { PermanentError, isTransient } from "#pipeline/errors";
 import type { EventDocument } from "#domain/event";
 
-// Layer 2 — real persistence against Floci's DocumentDB (a standalone
-// mongo:7.0 container), NOT a mock. Mocked persistence hides real
-// schema/driver bugs: a fake collection happily accepts a document the real
-// driver rejects, and a fake cannot enforce a unique index at all. The
-// duplicate-key path this file covers only exists because the SERVER raises
-// code 11000 — there is nothing to test without a server.
-//
-// Connectivity (see functions/events-pipeline/CLAUDE.md §3b): port 27017 is
-// NOT published to the host and Floci reassigns the container IP on every
-// recreation, so this test connects by the backing container NAME
-// (floci-docdb-<db-cluster-identifier>) over 3mrai-network, and therefore must
-// run from INSIDE that network (e.g. `docker compose exec`).
-//
-// Env is read directly rather than through #shared/config/env because that
-// module also requires SES_FROM_ADDRESS, which has nothing to do with the
-// database and would make this test fail for an unrelated reason.
+// CONTRACT: Layer 2 runs against a REAL DocumentDB, never a mock. A fake
+// collection accepts documents the driver rejects and cannot enforce a unique
+// index at all, so the duplicate-key path here has nothing to test without a
+// server. Connect by the backing CONTAINER NAME over 3mrai-network — port 27017
+// is not published and Floci reassigns the IP on every recreation — so this must
+// run from inside that network. Env is read directly, not through
+// #shared/config/env, which also demands SES_FROM_ADDRESS.
+// See [[testing]]
 const DOCDB_HOST = process.env.DOCDB_HOST;
 const DOCDB_PORT = process.env.DOCDB_PORT ?? "27017";
 const DOCDB_USERNAME = process.env.DOCDB_USERNAME;
 const DOCDB_PASSWORD = process.env.DOCDB_PASSWORD;
 const DOCDB_DATABASE = process.env.DOCDB_DATABASE ?? "events";
-// Floci's DocumentDB authenticates the master user against the target database,
-// but a stock mongo:7.0 with MONGO_INITDB_ROOT_* creates the root user in
-// `admin`. Overridable so the same suite runs against either substrate.
+// Overridable so one suite serves both substrates: real DocumentDB authenticates
+// against the target database, a stock mongo:7.0 against `admin`.
 const DOCDB_AUTH_SOURCE = process.env.DOCDB_AUTH_SOURCE;
 
-// How this suite decides between skipping and failing.
-//
-// Absent DOCDB env → SKIP, and the skip explains itself (see the message
-// below). That is the honest answer for Layer 1: `make test-unit` is the
-// no-stack layer, so on a clean machine "you have no Docker running" must not
-// look like "something is broken" — a red that everyone learns to ignore costs
-// more than the false green it prevents.
-//
-// The strictness belongs where the integration tests are actually EXPECTED to
-// run. Set EVENTS_PIPELINE_REQUIRE_INTEGRATION=1 there (the `docker run` inside
-// 3mrai_3mrai-network, or a future `make test-integration`) and it means "I
-// expect DocumentDB to be reachable" — a missing or broken env then FAILS
-// loudly instead of quietly proving nothing. That is the real hazard now that
-// DocumentDB is live: a broken env file reporting green in the one context
-// built to catch it.
-//
-// Both branches are READ here, not merely described. An earlier version of this
-// comment documented a variable that no code consumed, so the only actual
-// behaviour was the silent skip the comment claimed to forbid.
+// CONTRACT: Absent DOCDB env SKIPS, with a self-explaining message — `make
+// test-unit` is the no-stack layer, and a red everyone learns to ignore costs
+// more than the false green it prevents. Strictness is opt-in where the
+// integration tests are EXPECTED to run: EVENTS_PIPELINE_REQUIRE_INTEGRATION=1
+// turns a missing or broken env into a loud failure instead of a skip that
+// quietly proves nothing.
+// See [[testing]]
 const REQUIRE_INTEGRATION = process.env.EVENTS_PIPELINE_REQUIRE_INTEGRATION === "1";
 const missingEnv = !DOCDB_HOST || !DOCDB_USERNAME || !DOCDB_PASSWORD;
 
@@ -244,7 +223,7 @@ describe.skipIf(missingEnv)("MongoEventsRepository (integration, real DocumentDB
   it("accepts a second insert with a DIFFERENT event_id (only event_id is unique)", async () => {
     // The complement of the test above: nothing else on the document is
     // constrained, so an otherwise-identical event with its own idempotency key
-    // must persist. This is what previously would have collided on friendlyId.
+    // must persist.
     await expect(
       repo.insertStarted(makeDoc({ event_id: "evt_producer_e2e_task8_c" })),
     ).resolves.toBeUndefined();

@@ -5,24 +5,17 @@ using Orders.Infrastructure.Id;
 
 namespace Orders.Infrastructure.Persistence;
 
-// Seeds a fixed catalogue when empty. Prices are in integer cents.
-//
-// The catalogue mirrors the web-app design (assets/web-app/web-app.pen): the same
-// eight products, prices, categories and photographs the cards render.
-//
-// Image dimensions and blurhashes describe the OPTIMISED objects sync_assets.py
-// uploads, NOT the masters under assets/products/ — the script caps the long edge at
-// 1080px, so a 1080x1620 master is served as 720x1080. ProductSeedManifestTests
-// cross-checks these values against assets/assets.manifest.json and fails if they
-// drift, which is what makes hardcoding them here safe.
+// Seeds a fixed catalogue when empty, mirroring the web-app design. Prices in integer cents.
+// CONTRACT: Dimensions and blurhashes describe the OPTIMISED objects sync_assets.py uploads,
+// NOT the masters under assets/products/ — the script caps the long edge at 1080px.
+// ProductSeedManifestTests cross-checks them against assets.manifest.json.
 public static class ProductSeed
 {
     /// <summary>One catalogue entry: the seed's single source of truth per product.</summary>
     /// <remarks>
-    /// Name, price, stock, categories and artwork live on ONE row so a product cannot be
-    /// half-defined. The previous shape kept names+quantities in SeedStock and repeated
-    /// them in the insert, cross-referencing by string — where a typo threw at runtime
-    /// instead of failing to compile.
+    /// CONTRACT: Name, price, stock, categories and artwork stay on ONE row so a product
+    /// cannot be half-defined. Split across lists cross-referenced by name, a typo throws at
+    /// runtime instead of failing to compile.
     /// </remarks>
     private sealed record SeedProduct(
         string Name,
@@ -70,16 +63,11 @@ public static class ProductSeed
     ];
 
     /// <summary>
-    /// The catalogue's starting stock, by product name — the single source of truth for
-    /// "how many units should exist in a fresh database".
+    /// The catalogue's starting stock, by product name.
+    /// CONTRACT: DERIVE this from <c>Catalogue</c>, never maintain it separately, or the
+    /// seed and the E2E restore drift apart. The tuple shape is load-bearing —
+    /// E2eEndpoints destructures it. See [[testing]]
     /// </summary>
-    /// <remarks>
-    /// Exposed because the E2E cleanup restores stock to these values after a run
-    /// (orders decrement stock permanently, and <see cref="RunAsync"/> below only plants
-    /// rows when the table is empty, so nothing else ever replenishes them). DERIVED from
-    /// <c>Catalogue</c> rather than maintained separately, so the seed and the restore
-    /// cannot drift apart. The tuple shape is load-bearing: E2eEndpoints destructures it.
-    /// </remarks>
     public static readonly IReadOnlyList<(string Name, uint Units)> SeedStock =
         [.. Catalogue.Select(p => (p.Name, p.Units))];
 

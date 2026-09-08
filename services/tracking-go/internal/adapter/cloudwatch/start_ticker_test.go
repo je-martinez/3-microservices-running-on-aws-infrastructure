@@ -49,17 +49,11 @@ func TestStartTickerReturnsNilWhenDisabled(t *testing.T) {
 	}
 }
 
-// TestStartTickerRunsForTheLifetimeOfItsContext is the one that catches the
-// highest-risk mis-wire in this file.
-//
-// A goroutine that outlives a request MUST NOT inherit that request's context —
-// it is cancelled the instant the response is sent, so a ticker wired to one dies
-// on the first request and the dashboards go quiet with no error anywhere. Handed
-// a LIVE context, the loop must keep publishing tick after tick.
-//
-// Asserted across SEVERAL intervals rather than one: a loop that dies after its
-// first tick still publishes once, so a single-tick assertion cannot tell a
-// working ticker from a dead one.
+// TestStartTickerRunsForTheLifetimeOfItsContext catches the highest-risk
+// mis-wire here: a goroutine outliving a request must not inherit that request's
+// context, which is cancelled when the response is sent, or the dashboards go
+// quiet with no error. Asserted across SEVERAL intervals — a loop dying after
+// its first tick still publishes once.
 func TestStartTickerRunsForTheLifetimeOfItsContext(t *testing.T) {
 	publisher := &startStubPublisher{}
 

@@ -36,10 +36,9 @@ export async function handler(
   return wsTracer.startActiveSpan("ws_authorize", { kind: SpanKind.SERVER }, async (span) => {
     try {
       const result = await authorizeInternal(event);
-      // A Deny is this authorizer working, not failing — it is the designed
-      // answer to a bad or absent token. The outcome is recorded as an
-      // attribute so a denial is still findable in Jaeger, while ERROR stays
-      // reserved for the authorizer itself breaking.
+      // A Deny is this authorizer working, not failing. The outcome rides on an
+      // attribute so a denial stays findable, while ERROR is reserved for the
+      // authorizer itself breaking.
       span.setAttribute(
         "ws.authorization.effect",
         result.policyDocument.Statement[0].Effect,

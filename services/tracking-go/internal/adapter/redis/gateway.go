@@ -14,17 +14,14 @@ import (
 	tracing "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/otel"
 )
 
-// The cache result vocabulary. The lowercase forms are the metric dimension and
-// span attribute values; the uppercase ones are the X-Cache header, exactly as
-// it appears on the wire.
+// The cache result vocabulary: lowercase for the metric dimension and span
+// attribute, uppercase for the X-Cache header on the wire.
 //
-// THREE values, not two, and that is the point. A MISS means "Redis answered,
-// and had nothing"; a BYPASS means "Redis did not answer". Collapsing them would
-// make an outage read as a poor hit rate on the dashboard, which is the one
-// reading that would send an operator to look at the wrong system.
-//
-// When the cache is DISABLED no header is emitted at all — not MISS, not BYPASS.
-// That distinction lives in the route, which reads the flag; see nullGateway.
+// CONTRACT: THREE values, not two. MISS means "Redis answered with nothing",
+// BYPASS means "Redis did not answer", and collapsing them makes an outage read
+// as a poor hit rate — the one reading that sends an operator to the wrong
+// system. A DISABLED cache emits no header at all; the route decides that.
+// See [[x-cache-response-header]]
 const (
 	ResultHit    = "hit"
 	ResultMiss   = "miss"
@@ -118,17 +115,13 @@ type gateway struct {
 	log     *slog.Logger
 }
 
-// NewGateway builds the real gateway.
+// NewGateway builds the real gateway. Its spans are hand-written because
+// cache.result and cache.ttl_remaining are business facts no instrumentation
+// package can know.
 //
-// The spans below are hand-written rather than taken from an instrumentation
-// package, and deliberately: cache.result and cache.ttl_remaining are BUSINESS
-// facts, not transport facts, and no instrumentation can know them.
-//
-// The full key never leaves this file. Every response key embeds cognito_sub and
-// user_id; a span attribute, a metric dimension and a log field are all export
-// destinations, so all three receive PrefixOf(key) and nothing more. The rule is
-// enforced by there being exactly one place — this file — holding both the key
-// and a telemetry call.
+// CONTRACT: The FULL KEY never leaves this file. Response keys embed cognito_sub
+// and user_id, and spans, metrics and logs are all export destinations, so each
+// receives PrefixOf(key) and nothing more. See [[logging-context]]
 func NewGateway(client RedisLike, metrics Metrics, log *slog.Logger) Gateway {
 	if log == nil {
 		log = slog.Default()
@@ -245,12 +238,11 @@ func (g *gateway) Invalidate(ctx context.Context, keys ...string) {
 	}
 }
 
-// InvalidateIndex deletes every key the index names, then the index itself.
+// InvalidateIndex deletes every key the index names, then the index itself —
+// the answer to a list key embedding a hash nothing can reconstruct.
 //
-// This is the answer to "the list key embeds a hash I cannot reconstruct".
-// KEYS/SCAN would be the other answer and is the wrong one: both are O(N) over
-// the ENTIRE keyspace, KEYS blocks the server for the duration of the sweep, and
-// neither is acceptable on a write path — every carrier callback would pay for
+// CONTRACT: Do NOT reach for KEYS or SCAN instead. Both are O(N) over the entire
+// keyspace and KEYS blocks the server, so every carrier callback would pay for
 // the size of the whole cache.
 func (g *gateway) InvalidateIndex(ctx context.Context, indexKey string) {
 	prefix := PrefixOf(indexKey)
@@ -309,13 +301,10 @@ func (g *gateway) warnUnavailable(ctx context.Context, operation, prefix string)
 	)
 }
 
-// record publishes the two metrics for one operation. The port's contract is
-// that Publish never fails, so there is no error handling here.
-//
-// An empty result means "this operation has no hit/miss/bypass outcome" (a write
-// or an invalidation), and then only the duration is published — a Result
-// dimension with an empty value would be a real, queryable series meaning
-// nothing.
+// record publishes the two metrics for one operation; Publish never fails by
+// contract, so nothing is handled here. An empty result means the operation has
+// no hit/miss/bypass outcome and only the duration is published — an empty
+// Result dimension would be a real, queryable series meaning nothing.
 func (g *gateway) record(ctx context.Context, result, prefix, operation string, started time.Time) {
 	if result != "" {
 		g.metrics.Publish(ctx, MetricCacheRequests, 1, [][2]string{
@@ -332,14 +321,10 @@ func (g *gateway) record(ctx context.Context, result, prefix, operation string, 
 		})
 }
 
-// nullGateway is the binding used when CACHE_ENABLED=false.
-//
-// NOT a gateway with a flag inside it: a null object means the routes have
-// exactly one code path, and "the cache is off" is expressed by which object is
-// bound rather than by a branch in every handler. Its Get returns a plain MISS
-// with Bypassed=false, and the routes read the flag to decide whether to emit a
-// header at all — so a disabled cache emits NO X-Cache header, never MISS and
-// never BYPASS.
+// nullGateway is the binding used when CACHE_ENABLED=false — a null object, not
+// a gateway with a flag inside, so the routes keep one code path. Its Get
+// returns a plain MISS with Bypassed=false, and the routes read the flag to
+// decide whether to emit a header at all. See [[x-cache-response-header]]
 type nullGateway struct{}
 
 // NewNullGateway returns the no-op gateway.

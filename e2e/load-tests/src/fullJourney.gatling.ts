@@ -46,14 +46,9 @@ import {
 
 /**
  * The whole system under load: users, orders, products and tracking.
- *
- *   npx gatling run --typescript --simulation fullJourney
  *   npx gatling run --typescript --simulation fullJourney usersPerSec=5 duration=600
- *
- * Three populations run together rather than one uniform journey, because real
- * traffic is not uniform: most sessions browse, fewer buy, and deliveries are
- * driven by a carrier on its own schedule. A single averaged scenario would
- * produce a flat, unrealistic shape in every panel.
+ * Three populations rather than one uniform journey: most sessions browse, fewer buy,
+ * and deliveries follow a carrier's own schedule.
  */
 const authHeader = (session: { get: (k: string) => unknown }) =>
   `Bearer ${session.get("token")}`;
@@ -90,21 +85,14 @@ export default simulation((setUp) => {
     )
     .pause(1)
     .exec(listMyOrders)
-    // Everything below needs an order id, and a create that lost the stock race
-    // (409) never set one. Guarding here keeps ONE contention event from
-    // cascading into five derived failures that would misreport the run —
-    // the 409 itself is already visible in the report and in http_errors_total.
-    // `!= null`, NOT `!== undefined`. Gatling's Session.get returns **null** for an
-    // unset attribute (its own typing says so: "the value if it exists, null
-    // otherwise"), and `null !== undefined` is true — so the strict check never
-    // blocked and this guard was inert from the day it was written.
-    //
-    // The cost was invisible because the derived steps tolerate 404: every 409'd
-    // create still ran readOrder against the literal string "null", giving
-    // `GET /v1/orders/null` → a correct 404 that read as a service failure and broke
-    // the run's success gate. It also sent ~595 requests to `/v1/trackings/null`,
-    // which never failed anything (those steps accept 404) but inflated the tracking
-    // panels with meaningless traffic. Loose `!=` catches null and undefined both.
+    // CONTRACT: Use loose `!= null`, NEVER `!== undefined`. Gatling's Session.get
+    // returns **null** for an unset attribute, and `null !== undefined` is true, so a
+    // strict check makes this guard inert. The damage is quiet: every 409'd create then
+    // runs readOrder against the literal string "null", so `GET /v1/orders/null` 404s
+    // and breaks the run's success gate, plus ~595 meaningless requests inflate the
+    // tracking panels. The guard exists so ONE stock-race 409 cannot cascade into five
+    // derived failures — the 409 is already visible in http_errors_total.
+    // See [[testing]]
     .doIf((session) => session.get("orderId") != null)
     .then(
       exec(readOrder)

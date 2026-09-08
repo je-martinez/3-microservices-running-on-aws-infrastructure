@@ -25,64 +25,37 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
     private readonly MySqlContainer _mysql =
         new MySqlBuilder("mysql:8.0").WithDatabase("orders").Build();
 
-    // A REAL Redis, not a fake: the response cache is exercised end to end through the
-    // HTTP surface here, so the thing under test is the gateway talking to an actual
-    // server (TTL bookkeeping, expiry, byte-for-byte replay) rather than a dictionary
-    // that agrees with our assumptions about it.
+    // WHY: A real Redis, not a fake — the tests exercise TTL bookkeeping, expiry and
+    // byte-for-byte replay, which a dictionary would only agree with.
     private readonly RedisContainer _redis = new RedisBuilder("redis:7-alpine").Build();
 
     public const string KnownCognitoSub = "sub-known";
     public const string KnownUserId = "usr_known";
 
-    // A SECOND resolvable identity. Cross-user cache isolation cannot be tested with only
-    // one: a second caller the stub does not resolve reaches the handler with a null
-    // ResolvedInternalUserId, so the key builder declines and nothing is cached for them
-    // at all — the isolation assertion would then pass because caching was SKIPPED, not
-    // because the keys were scoped. That test would prove nothing and would keep passing
-    // if the keys stopped carrying identity entirely.
-    //
-    // It lives here rather than on OrdersE2eApiFactory (which already has two identities)
-    // because that host runs with CACHE_ENABLED=false and owns no Redis container, so it
-    // emits no X-Cache header at all — deliberately, to keep the kill switch honest. This
-    // factory is the only one with a real cache, so the second identity has to be here.
+    // CONTRACT: Keep a second RESOLVABLE identity here. An unresolvable caller reaches the
+    // handler with a null ResolvedInternalUserId, so nothing is cached for them and the
+    // isolation assertion passes because caching was SKIPPED — it would keep passing if the
+    // keys stopped carrying identity at all. This is the only factory with a real cache.
     public const string OtherCognitoSub = "sub-other";
     public const string OtherUserId = "usr_other";
 
-    // A THIRD caller that authenticates with its internal usr_ id rather than a sub, and
-    // resolves to itself. Not an artificial shape: Users' gRPC GetUserById accepts EITHER
-    // a usr_ id or a Cognito sub, CallerContextMiddleware stores the raw x-user-id header
-    // verbatim as the "sub", and the E2E suite's direct path (e2e/support/api-client.ts)
-    // sends exactly this. Cache keys are therefore filed under a usr_ id for a real,
-    // routinely-exercised class of caller — which is the half the account-deletion cascade
-    // used to miss entirely, since it swept only the canonical sub it got from Users.
+    // CONTRACT: A caller authenticating with its internal usr_ id, not a sub, resolving to
+    // itself. Not artificial — GetUserById accepts either identifier and the E2E direct path
+    // sends exactly this, so cache keys really are filed under a usr_ id. Dropping it hides
+    // the half of the account-deletion cascade that sweeps by sub only.
     public const string SelfResolvingUserId = "usr_selfref";
-    // Users returns an email on the same GetUserById response as the id; ORDER_CREATED
-    // carries it to the pipeline, so the stub must supply one.
+    // WHY: Rides on the GetUserById response; ORDER_CREATED carries it to the pipeline.
     public const string KnownEmail = "known@example.com";
-    // Rides on the same GetUserById response as the email; ORDER_CREATED carries it so the
-    // confirmation email can greet the buyer by name.
+    // WHY: Same response as the email; the confirmation mail greets the buyer by name.
     public const string KnownFullName = "Known Buyer";
     public string SeededProductId { get; private set; } = string.Empty;
 
     /// <summary>
-    /// The trackings the stubbed <see cref="ITrackingReader"/> will report, keyed by order id.
+    /// The trackings the stubbed <see cref="ITrackingReader"/> reports, keyed by order id.
+    /// CONTRACT: A test that sets this MUST clear it again (<see cref="ClearTrackings"/>) —
+    /// the factory is a collection fixture, so an entry left behind leaks into every later
+    /// class. See [[testing]]
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Empty by default, which is FAITHFUL rather than convenient: the real
-    /// <c>TrackingHttpClient</c> here points at a placeholder base address nothing is
-    /// listening on, and its port reports every failure as "no tracking" — so an unstubbed
-    /// host already answers <c>tracking: null</c> for every order. The stub makes that state
-    /// explicit and, crucially, makes its OPPOSITE reachable: without it there is no way to
-    /// exercise "the tracking has now appeared", and a test for the async-tracking window
-    /// could only ever assert the null half.
-    /// </para>
-    /// <para>
-    /// Mutable and shared, because this factory is a COLLECTION fixture. A test that sets it
-    /// must clear it again — <see cref="ClearTrackings"/> — or it leaks into every later
-    /// class in the collection.
-    /// </para>
-    /// </remarks>
     public Dictionary<string, TrackingDto> StubTrackings { get; } = new();
 
     /// <summary>Builds a minimal well-formed tracking for <paramref name="orderId"/>.</summary>
@@ -119,8 +92,8 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
         });
         await db.SaveChangesAsync();
 
-        // Tax rate now lives in the configuration table (was ORDERS_TAX_RATE);
-        // CreateOrderService reads it per-request, so it must exist for the DB.
+        // WHY: CreateOrderService reads the tax rate per-request from the configuration
+        // table, so the row must exist before any order is created.
         await ConfigurationSeed.ApplyAsync(db);
     }
 
@@ -133,15 +106,9 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
 
     /// <summary>
     /// Empties the cache so a test can assert on a first-read MISS deterministically.
+    /// CONTRACT: Keep <c>allowAdmin=true</c> — FLUSHDB is an admin command the client
+    /// otherwise refuses. See [[testing]]
     /// </summary>
-    /// <remarks>
-    /// This factory is a COLLECTION fixture shared by every test class in the collection,
-    /// so the cache survives across classes: without a flush, "the first read is a MISS"
-    /// would pass or fail depending on whether some earlier class had already warmed the
-    /// key. Ordering is not something a test may assume, so the state is reset instead.
-    /// <c>allowAdmin=true</c> is required — FLUSHDB is an admin command and the client
-    /// refuses it otherwise.
-    /// </remarks>
     public async Task FlushCacheAsync()
     {
         await using var mux = await ConnectionMultiplexer.ConnectAsync(
@@ -150,17 +117,10 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
     }
 
     /// <summary>
-    /// Whether <paramref name="key"/> is present in Redis right now.
+    /// Whether <paramref name="key"/> is present in Redis right now, for entries with no
+    /// HTTP surface. The identity mapping is read behind every route and never reaches an
+    /// <c>X-Cache</c> header, so the header alone says nothing about it.
     /// </summary>
-    /// <remarks>
-    /// For the entries that have NO HTTP surface to infer their presence from. The
-    /// identity mapping (<c>identity:sub-to-user:v1:*</c>) is the case that forced this:
-    /// it is read by <c>CachedUserDirectory</c> BEHIND every route, never returned to a
-    /// client and never reflected in an <c>X-Cache</c> header, so "was it invalidated?"
-    /// is unanswerable through the API. A test that settled for the header alone would
-    /// assert nothing about the very entry most likely to be forgotten, since it is the
-    /// one key that is not in the per-user index.
-    /// </remarks>
     public async Task<bool> CacheKeyExistsAsync(string key)
     {
         await using var mux = await ConnectionMultiplexer.ConnectAsync(
@@ -169,22 +129,12 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
     }
 
     /// <summary>
-    /// Writes <paramref name="value"/> at <paramref name="key"/> directly, bypassing the
-    /// service.
+    /// Writes raw JSON at <paramref name="key"/>, bypassing the service.
+    /// CONTRACT: A test proving the identity mapping is invalidated must seed it here —
+    /// <c>ConfigureTestServices</c> discards the <c>CachedUserDirectory</c> decorator that
+    /// writes that key, so the alternative asserts an absent key is absent, which passes
+    /// against an invalidator that does nothing. See [[testing]]
     /// </summary>
-    /// <remarks>
-    /// For entries no request on THIS host can create. The identity mapping is the case:
-    /// <c>ConfigureTestServices</c> replaces <c>IUserDirectory</c> wholesale with a stub,
-    /// which discards the <c>CachedUserDirectory</c> decorator that writes that key in
-    /// production — so it is unreachable through the API here no matter what is called.
-    /// A test needing to prove that key gets INVALIDATED must therefore put it there
-    /// itself; the alternative is asserting that an absent key is absent, which passes
-    /// against an invalidator that does nothing at all.
-    /// <para>
-    /// <paramref name="value"/> is raw JSON, matching what <c>CacheGateway.SetAsync</c>
-    /// serializes — a bare string entry is stored quoted.
-    /// </para>
-    /// </remarks>
     public async Task SetCacheKeyAsync(string key, string value, TimeSpan ttl)
     {
         await using var mux = await ConnectionMultiplexer.ConnectAsync(
@@ -192,9 +142,8 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
         await mux.GetDatabase().StringSetAsync(key, value, ttl);
     }
 
-    // A fresh write context over the same container, for tests that need to exercise
-    // EF/MySQL behaviour directly (e.g. the generated-column unique indexes) rather than
-    // through the HTTP surface. Mirrors the construction InitializeAsync already does.
+    // WHY: A fresh write context over the same container, for tests exercising EF/MySQL
+    // behaviour directly (the generated-column unique indexes) rather than over HTTP.
     public OrdersWriteDbContext NewWriteContext()
     {
         var cs = _mysql.GetConnectionString();
@@ -206,9 +155,8 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
     {
         var cs = _mysql.GetConnectionString();
 
-        // Program reads these from configuration; supply valid values so the
-        // host builds. USERS_GRPC_URL is a well-formed placeholder — the stub
-        // IUserDirectory below replaces the real client, so no channel is dialed.
+        // WHY: Program reads these from configuration, so the host needs valid values.
+        // USERS_GRPC_URL is a placeholder — the stub below replaces the real client.
         builder.UseSetting("DATABASE_READER_URL", cs);
         builder.UseSetting("DATABASE_WRITER_URL", cs);
         builder.UseSetting("USERS_GRPC_URL", "http://localhost:50051");
@@ -223,9 +171,8 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
         // fixed placeholder: these tests assert on the composed shape, not on a
         // reachable object, and nothing fetches the URL.
         builder.UseSetting("ASSETS_BASE_URL", "http://localhost:4566/test-assets");
-        // The response cache runs for real in these tests, against the Redis container
-        // above. CACHE_ENABLED is set explicitly rather than left to its default so the
-        // intent is visible at the one place a reader looks for this factory's config.
+        // WHY: The response cache runs for real against the container above; CACHE_ENABLED
+        // is explicit so this factory's intent is visible where a reader looks for it.
         builder.UseSetting("REDIS_HOST", _redis.Hostname);
         builder.UseSetting("REDIS_PORT", _redis.GetMappedPublicPort(6379).ToString());
         builder.UseSetting("CACHE_ENABLED", "true");
@@ -236,21 +183,15 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
             services.Remove(directory);
             services.AddScoped<IUserDirectory>(_ => new StubDirectory());
 
-            // These tests must not emit: swap the real SQS publisher for the Noop, which
-            // exists for exactly this. Without it, every order created here would attempt
+            // CONTRACT: Keep the Noop publisher — otherwise every order created here attempts
             // a real SendMessage against a queue that does not exist.
             var events = services.Single(d => d.ServiceType == typeof(IEventPublisher));
             services.Remove(events);
             services.AddScoped<IEventPublisher, NoopEventPublisher>();
 
-            // Same reason as the publisher above: the OrdersMetricsPublisher hosted
-            // service ticks while these tests run, and the real client would attempt a
-            // PutMetricData against a CloudWatch that is not there.
-            // The tracking READ port, stubbed off StubTrackings above. The real typed
-            // client would attempt an HTTP call to a placeholder address on every
-            // includeTracking=true read; it degrades to null rather than throwing, so
-            // leaving it in place would work — but only for the null half of the
-            // behaviour, and slowly (a per-read connection failure).
+            // WHY: The tracking READ port, stubbed off StubTrackings above. The real client
+            // reaches a placeholder address on every includeTracking=true read — it degrades
+            // to null, so only the null half of the behaviour would ever be reachable.
             var trackingReader = services.SingleOrDefault(
                 d => d.ServiceType == typeof(ITrackingReader));
             if (trackingReader is not null)
@@ -270,13 +211,10 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
     }
 
     /// <summary>
-    /// Reports whatever <see cref="StubTrackings"/> currently holds for the requested ids.
+    /// Reports whatever <see cref="StubTrackings"/> currently holds, read at CALL time so a
+    /// test can flip the state mid-test — the async-tracking window is a transition from
+    /// absent to present between two reads on one order.
     /// </summary>
-    /// <remarks>
-    /// Reads the dictionary at CALL time, not at construction, so a test can flip the state
-    /// mid-test — which is the entire point: the async-tracking window is a transition from
-    /// "absent" to "present" between two reads on one order.
-    /// </remarks>
     private sealed class StubTrackingReader : ITrackingReader
     {
         private readonly OrdersApiFactory _factory;
@@ -297,14 +235,14 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
 
     private sealed class StubDirectory : IUserDirectory
     {
-        // Any OTHER sub still resolves to null, which is what keeps the
-        // "unresolvable caller is never cached" case reachable.
+        // WHY: Any other sub resolves to null, keeping "an unresolvable caller is never
+        // cached" reachable.
         private static string? IdFor(string sub) => sub switch
         {
             KnownCognitoSub => KnownUserId,
             OtherCognitoSub => OtherUserId,
-            // Resolves to ITSELF, mirroring the real GetUserById, which looks a caller up
-            // by either identifier and returns the same user either way.
+            // WHY: Resolves to ITSELF, mirroring GetUserById, which accepts either
+            // identifier and returns the same user.
             SelfResolvingUserId => SelfResolvingUserId,
             _ => null,
         };
@@ -312,8 +250,8 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
         public Task<string?> ResolveInternalUserIdAsync(string cognitoSub, CancellationToken ct = default)
             => Task.FromResult(IdFor(cognitoSub));
 
-        // A populated address, so endpoint tests exercise the snapshot path rather
-        // than the "user has none on file" branch.
+        // WHY: A populated address, so tests exercise the snapshot path rather than the
+        // "no address on file" branch.
         public Task<CallerProfile?> ResolveCallerAsync(string cognitoSub, CancellationToken ct = default)
         {
             var id = IdFor(cognitoSub);
@@ -321,9 +259,8 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
                 ? null
                 : new CallerProfile(
                     id,
-                    // The known user keeps its fixed email/name: existing tests assert on
-                    // those exact constants in the ORDER_CREATED envelope. The second user
-                    // derives its own from its id so the two stay distinguishable.
+                    // CONTRACT: The known user keeps its fixed email/name — tests assert on
+                    // those exact constants in the ORDER_CREATED envelope.
                     id == KnownUserId ? KnownEmail : $"{id}@example.com",
                     id == KnownUserId ? KnownFullName : $"Test {id}",
                     new CallerAddress("1 Test St", null, "Testville", null, "Testland", null)));

@@ -6,14 +6,11 @@ namespace Orders.Tests.Api;
 
 /// <summary>
 /// <c>GET /v1/cart</c> and the invalidation every cart write owes it.
+/// CONTRACT: Assert on the BODY as well as the <c>X-Cache</c> header — a header alone cannot
+/// distinguish "invalidated correctly" from "never cached at all". Correctness here comes
+/// entirely from the explicit invalidation, not the 60s TTL.
+/// See [[x-cache-response-header]]
 /// </summary>
-/// <remarks>
-/// The cart is the endpoint where staleness is most visible to a user: they change it and
-/// immediately read it back. A 60s TTL is nowhere near tight enough to cover that, so the
-/// correctness here comes entirely from the explicit invalidation — which is why every
-/// fact below asserts on the BODY as well as on the <c>X-Cache</c> header. A header alone
-/// cannot distinguish "invalidated correctly" from "never cached at all".
-/// </remarks>
 [Collection(OrdersApiCollection.Name)]
 public class CartCacheTests
 {

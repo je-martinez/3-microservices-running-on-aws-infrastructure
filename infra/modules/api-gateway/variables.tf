@@ -29,14 +29,11 @@ variable "cognito_audience" {
 
 # ─── nginx integration target ─────────────────────────────────────────────────
 #
-# Local mode: Terraform creates one per-route integration with the path baked into
-# the URI using the stable Docker-DNS alias (nginx-stable). The alias is attached
-# to the nginx ECS container by bootstrap.sh, so the integration URI stays constant
-# across terraform apply runs. The nginx_base_uri variable provides the base URI
-# (scheme + host, no path).
-#
-# Prod mode (local_gateway = false): uses this variable as a single shared
-# integration URI. The default is prod-only and should not be used locally.
+# WORKAROUND(local): One per-route integration with the path baked into the URI,
+# pointed at the stable Docker-DNS alias bootstrap.py attaches — Floci drops the
+# request path, and the container's name and IP change on every apply. Prod
+# (local_gateway = false) uses this as a single shared integration URI.
+# See [[ADR-0016-local-apigw-nginx-ecs]]
 variable "nginx_integration_uri" {
   description = <<-EOT
     HTTP URI for the API Gateway → nginx integration (prod only).

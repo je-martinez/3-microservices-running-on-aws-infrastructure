@@ -100,17 +100,10 @@ public class CartPricingTests
         Assert.False(totals.CanCheckout);
     }
 
-    // The cart's whole purpose is to show what checkout will charge, so its tax must
-    // equal what CreateOrderService computes for the same lines — to the cent.
-    //
-    // This case is the one that catches the difference. Three lines of 333 cents at
-    // 0.08: rounding PER LINE gives round(26.64) = 27 each → 81, while rounding once
-    // over the 999-cent subtotal gives round(79.92) = 80. The cart showed 80 and the
-    // order charged 81 until this was fixed.
-    //
-    // Asserted against OrderPricing.PriceLine directly, not a hardcoded 81, so the two
-    // cannot drift apart later: if order pricing changes, this fails rather than
-    // silently going back to disagreeing.
+    // CONTRACT: Assert against OrderPricing.PriceLine directly, never a hardcoded 81, so the
+    // two cannot drift. The cart must charge to the cent what checkout does, and this case is
+    // what catches the difference: three lines of 333 at 0.08 give 81 rounded per line but 80
+    // rounded once over the subtotal. See [[money-representation]]
     [Fact]
     public void Cart_tax_matches_what_the_order_will_charge_for_the_same_lines()
     {

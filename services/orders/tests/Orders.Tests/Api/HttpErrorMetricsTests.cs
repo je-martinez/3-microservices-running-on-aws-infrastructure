@@ -8,15 +8,11 @@ using Xunit;
 
 namespace Orders.Tests.Api;
 
-// HttpErrorMetricsMiddleware sits immediately after UseSerilogRequestLogging, so it
-// observes the FINAL status of the completed response — including the 401 that
-// CallerContextMiddleware short-circuits with, which never reaches an endpoint and
-// which an endpoint filter would therefore miss.
-//
-// Uses its own host (WithWebHostBuilder) rather than the shared client so the recording
-// publisher replaces the NoopMetricsPublisher the collection fixture installs. The
-// OrdersMetricsPublisher hosted service also ticks against the same IMetricsPublisher,
-// so the assertions filter on the metric NAME rather than counting every publication.
+// Pins that the middleware observes the FINAL status, including the 401 short-circuited
+// before routing, which an endpoint filter would miss.
+// CONTRACT: Filter assertions on the metric NAME rather than counting publications — the
+// OrdersMetricsPublisher hosted service ticks against the same IMetricsPublisher. Its own
+// host, so the recording publisher replaces the fixture's Noop.
 [Collection(OrdersApiCollection.Name)]
 public class HttpErrorMetricsTests
 {

@@ -126,10 +126,9 @@ public class InternalDeleteByUserTests : IClassFixture<OrdersE2eApiFactory>
         Assert.Equal(0, body!.Deleted);
     }
 
-    // The cognito_sub guard: a real failure branch that used to return with no log
-    // line and no reason at all. Whitespace and null are covered separately because
-    // the check is IsNullOrWhiteSpace — a blank string is the case a plain null check
-    // would let through into a query that soft-deletes on `CognitoSub == "  "`.
+    // CONTRACT: Cover whitespace AND null separately — the check is IsNullOrWhiteSpace, and
+    // a blank string is exactly what a plain null check lets through into a query that
+    // soft-deletes on `CognitoSub == "  "`.
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -162,13 +161,10 @@ public class InternalDeleteByUserTests : IClassFixture<OrdersE2eApiFactory>
         Assert.Equal("user_id_required", body!.Error);
     }
 
-    // THE DANGEROUS CASE, and the reason both guards are load-bearing rather than
-    // defensive. `cognito_sub` and `user_id` are both NOT NULL varchar in MySQL, which
-    // still permits the EMPTY STRING — so an empty identity reaching either side of the
-    // handler's OR would match every row whose column was left blank, i.e. erase data
-    // belonging to someone else entirely. The assertion is not merely "returns 400": it
-    // is that a row carrying an empty column SURVIVES the rejected call. A guard that
-    // returned 400 after running the query would pass a status-only test.
+    // CONTRACT: Assert the row SURVIVES, not merely that the call returns 400 — a guard
+    // that answered 400 after running the query would pass a status-only test. Both columns
+    // are NOT NULL varchar, which permits the empty string, so an empty identity in the OR
+    // matches every blank row and erases someone else's data.
     [Theory]
     [InlineData("", "usr_whatever")]
     [InlineData("sub-whatever", "")]
@@ -284,22 +280,12 @@ public class InternalDeleteByUserTests : IClassFixture<OrdersE2eApiFactory>
             .FirstAsync(o => o.Id == theirs)).DeletedAt);
     }
 
-    // ---------------------------------------------------------------------------
-    // CASE SENSITIVITY — the data-loss defect this block exists for.
-    //
-    // The ownership columns are utf8mb4_0900_ai_ci (case-INSENSITIVE) while the ids
-    // they hold are MIXED-CASE (NanoIdConfig.Alphabet is A-Za-z0-9) and are minted by
-    // Users' Postgres, which compares case-SENSITIVELY. Postgres can therefore issue
-    // `usr_AbC…` and `usr_abc…` as two DIFFERENT people that MySQL reads as one, so an
-    // erasure keyed on either would sweep the other's orders, lines and cart — and
-    // report success while doing it. The handler pins utf8mb4_bin on every ownership
-    // predicate in the cascade to stop that.
-    //
-    // Fixture ids below are built to CONTAIN LETTERS on purpose: `swapcase()` on an
-    // all-digit or all-punctuation id is a no-op, and a test seeded that way passes
-    // whether or not the collation is there. That trap already bit the equivalent test
-    // in Tracking.
-    // ---------------------------------------------------------------------------
+    // ─── Case sensitivity ───────────────────────────────────────────────────────
+    // CONTRACT: Fixture ids below MUST contain letters. `swapcase()` on an all-digit id is a
+    // no-op, so a test seeded that way passes whether or not the collation is there.
+    // The columns are case-INSENSITIVE while the ids are mixed-case and minted
+    // case-SENSITIVELY by Users' Postgres, so `usr_AbC…` and `usr_abc…` are two people MySQL
+    // reads as one and an erasure sweeps the other's data. See [[soft-delete]]
 
     // A mixed-case pair, so inverting the case genuinely produces a DIFFERENT string.
     private const string MixedSub = "SuB-CaSe-SeNsItIvE-AbCdEf";

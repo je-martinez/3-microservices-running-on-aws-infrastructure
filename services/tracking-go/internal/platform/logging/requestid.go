@@ -20,13 +20,9 @@ const (
 	nanoAlphabet    = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 )
 
-// requestIDPattern is anchored at both ends. The length is EXACT rather than a
-// bound, because this pattern is the only thing standing between an untrusted
-// header and every log line the request produces.
-//
-// \A and \z rather than ^ and $: Go's $ matches before a trailing newline is
-// not the issue (that is Ruby/PCRE), but being explicit about "end of TEXT"
-// documents that a newline-injected value must never fullmatch.
+// CONTRACT: Keep this anchored with \A and \z and the length EXACT, not a
+// bound. It is the only thing between an untrusted header and every log line the
+// request produces, and a newline-injected value must never fullmatch.
 var requestIDPattern = regexp.MustCompile(`\Areq_[A-Za-z0-9]{24}\z`)
 
 // GenerateRequestID mints a fresh id, e.g. req_7gK3mP1vXz9wLq2bN8rRt4Yc.
@@ -52,19 +48,14 @@ func GenerateRequestID() string {
 // ResolveRequestID returns the caller's id when it is one of ours, else a fresh
 // one.
 //
-// WHY VALIDATE. x-request-id is attacker-controlled input on any public
-// endpoint, and by design its value is copied onto EVERY log line of the
-// resulting flow and forwarded downstream over gRPC and SQS. So an unbounded
-// string, a control character or an injected newline does not contaminate one
-// field on one line — it contaminates a whole flow's records at once, in a field
-// that log queries, dashboards and alerting rules all assume is well-formed.
+// CONTRACT: Validate before use. x-request-id is attacker-controlled and its
+// value is copied onto every log line of the flow and forwarded over gRPC and
+// SQS, so an injected newline contaminates a whole flow's records at once.
 //
-// WHY DISCARD SILENTLY RATHER THAN ANSWER 400. A correlation header is a
-// convenience, never a contract the caller must satisfy to be served. The
-// senders of a malformed value are misconfigured clients, header-mangling
-// proxies and curious testers, none of whom asked for anything illegitimate;
-// failing their otherwise valid request would turn an observability aid into an
-// outage. The flow stays correlated end to end — just not with the caller's id.
+// CONTRACT: Discard a bad value SILENTLY, never 400. A correlation header is a
+// convenience, and failing an otherwise valid request turns an observability aid
+// into an outage. The flow stays correlated, just not with the caller's id.
+// See [[logging-context]]
 func ResolveRequestID(headerValue string) string {
 	if requestIDPattern.MatchString(headerValue) {
 		return headerValue

@@ -18,18 +18,12 @@ func SetResolvedUserID(c *gin.Context, userID string) {
 
 // ResolvedUserID returns the internal usr_ id, or "" when nothing resolved one.
 //
-// # "" IS A NORMAL ANSWER, NOT AN ERROR
-//
-// Resolution happens over gRPC to Users and is allowed to fail: enriching a log
-// line or a cache key must never fail a request. So a fully authenticated caller
-// can reach a handler with no user_id, and every consumer here treats that as
-// "this request cannot be keyed" — it is served from the database and cached
-// neither on the way in nor on the way out. Formatting an empty segment into a
-// key would produce a key that LIES about what it is scoped by, and the per-user
-// index built on the same empty value would collapse several users onto one
-// entry.
-//
-// It is NEVER used as an ownership filter. Ownership is cognito_sub only.
+// CONTRACT: "" is a NORMAL answer — gRPC resolution to Users may fail, and
+// enriching a log line or cache key must never fail a request. Such a request is
+// served from the database and cached on neither leg: an empty segment makes a
+// key that LIES about its scope, and the per-user index collapses several users
+// onto one entry. Never an ownership filter; ownership is cognito_sub only.
+// See [[user-id-vs-cognito-sub-ownership-key]]
 func ResolvedUserID(c *gin.Context) string {
 	value, _ := c.Get(resolvedUserIDKey)
 	userID, _ := value.(string)

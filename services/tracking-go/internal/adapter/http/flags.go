@@ -65,26 +65,13 @@ func ValidRunID(candidate string) string {
 	return ""
 }
 
-// E2ESourceMiddleware decides whether this request's row should be tagged as an
-// E2E fixture.
+// E2ESourceMiddleware decides whether this request's row is tagged as an E2E
+// fixture. An unrecognized value means "not an E2E row", never a 400.
 //
-// # The flag is half of the condition, and it is the security half
-//
-//	e2e_source = headerSaysTrue AND E2E_TESTING_ENABLED
-//
-// Without the conjunction, any client anywhere could tag its own rows by sending
-// one header — and while a tag is harmless on its own, it is the exact predicate
-// a mass soft-delete endpoint selects on. In an environment where the flag is on
-// but the caller is untrusted, self-tagging would let a client enlist its rows
-// for deletion by somebody else's teardown.
-//
-// BOTH HALVES ARE EVALUATED HERE, in the middleware, so a handler cannot tag a
-// row on the header alone and a second endpoint that ever wants the tag cannot
-// acquire the header check without the flag check that makes it safe.
-//
-// Never returns an error: an unrecognized value means "not an E2E row", never a
-// 400, because failing the creation of a real shipment over a malformed
-// test-harness header would be the worse trade.
+// CONTRACT: The tag requires the header AND E2E_TESTING_ENABLED, and both halves
+// are evaluated HERE. The tag is the exact predicate a mass soft-delete selects
+// on, so on the header alone any client could enlist its own rows for somebody
+// else's teardown to delete. See [[testing]]
 func E2ESourceMiddleware(e2eEnabled bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Set(e2eSourceKey, headerIsTrue(c.GetHeader(E2ESourceHeader)) && e2eEnabled)
@@ -125,15 +112,9 @@ func IsE2ESource(c *gin.Context) bool {
 
 // TestModeMiddleware parses x-test-mode.
 //
-// # No E2E_TESTING_ENABLED guard in THIS service
-//
-// Orders guards its equivalent header with that flag. This middleware
-// deliberately does not, and the reason is that the guard is not implemented here
-// to be dropped: Tracking has never had the setting on this path, and adding one
-// is a change to the generated env files and therefore to infra/**, outside this
-// task. Recording it rather than silently doing nothing — the flag remains a
-// KNOWN OPEN ITEM. Do not "fix" it during the migration; that would be a
-// behavioural change the equivalence gate would flag.
+// WARNING: Unlike Orders, this path carries no E2E_TESTING_ENABLED guard — a
+// known open item, not an omission to patch here. Adding one changes the
+// generated env files and therefore infra/**. See [[env-files]]
 func TestModeMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Set(testModeKey, headerIsTrue(c.GetHeader(TestModeHeader)))

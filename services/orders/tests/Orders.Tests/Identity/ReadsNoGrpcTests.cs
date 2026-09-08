@@ -9,19 +9,11 @@ using Orders.Tests.Api;
 
 namespace Orders.Tests.Identity;
 
-// Reads (my-orders, by-id) filter by cognito_sub and need no internal usr_ id to
-// do their work — but they now resolve one anyway, ONCE per request in
-// CallerContextMiddleware, so every log line of the request carries user_id.
-//
-// That reverses what this file used to assert. Reads previously made no gRPC call
-// at all, which was deliberate; the reversal is equally deliberate, because log
-// lines carrying only a sub cannot be joined to Users or Tracking, both of which
-// key by user_id. The trade — one Users call per read — was accepted explicitly.
-//
-// The class name is kept: git history is easier to follow when the file that
-// asserted "no gRPC on reads" is the same file that now asserts what replaced it.
-// These tests replace the factory's stub IUserDirectory with a Mock so the call
-// count is verifiable rather than assumed.
+// CONTRACT: Reads resolve user_id via gRPC, exactly once per request. Without it, log lines
+// join only by cognito_sub, which Users and Tracking do not key on.
+// WHY: The class name predates gRPC on reads. These tests swap the factory's stub
+// IUserDirectory for a Mock so the call count is verified rather than assumed.
+// See [[logging-context]]
 [Collection(Orders.Tests.Api.OrdersApiCollection.Name)]
 public class ReadsNoGrpcTests
 {
@@ -68,18 +60,9 @@ public class ReadsNoGrpcTests
         var resp = await client.SendAsync(req);
 
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
-        // Resolved EXACTLY once, by the middleware, for log enrichment.
-        //
-        // This assertion used to be VerifyNoOtherCalls: reads scope by cognito_sub
-        // and genuinely need no usr_ id, so they made no gRPC call at all. That was
-        // deliberate and is now deliberately reversed — read log lines carried only
-        // a sub and could not be joined to Users or Tracking, which key by user_id.
-        // The cost was accepted explicitly: one Users call per read.
-        //
-        // Times.Once is the part worth keeping strict. CurrentCaller memoizes the
-        // resolution, so a second call would mean the cache broke — and since the
-        // enricher reads the resolved id on EVERY log event, a cache regression
-        // would turn one call per request into one per log line.
+        // CONTRACT: Keep Times.Once strict. CurrentCaller memoizes the resolution, and the
+        // enricher reads the id on EVERY log event, so a broken cache turns one call per
+        // request into one per log line. See [[logging-context]]
         mock.Verify(
             d => d.ResolveInternalUserIdAsync(
                 OrdersApiFactory.KnownCognitoSub, It.IsAny<CancellationToken>()),

@@ -2,30 +2,19 @@ import { exec, jsonPath, StringBody } from "@gatling.io/core";
 import { http, status } from "@gatling.io/http";
 
 /**
- * The Orders journey: browse the catalogue → create an order → read it back.
- *
- * Shapes come from services/orders/openapi.yaml: CreateOrderRequest is
- * `{ lines: [{ productId, quantity }] }`. Guessing here would produce 400s that
- * read as a service defect in the dashboards.
- *
- * Every request needs the caller's token, so these steps assume a session that
- * already ran the Users login — the journeys compose rather than each
- * registering their own user.
+ * The Orders journey: browse the catalogue → create an order → read it back. Shapes
+ * come from services/orders/openapi.yaml (`{ lines: [{ productId, quantity }] }`);
+ * guessing produces 400s that read as a service defect in the dashboards. Steps assume
+ * a session that already ran the Users login — the journeys compose.
  */
 
 const authHeader = (session: { get: (k: string) => unknown }) =>
   `Bearer ${session.get("token")}`;
 
 /**
- * List the catalogue and keep a RANDOM product id.
- *
- * Random rather than `[0]`, and this was measured rather than assumed: pinning
- * every virtual user to the first product drained its stock and produced a
- * `409 insufficient_stock` under a load this small. Spreading across the
- * catalogue both models real shopping and keeps the failure out of the results.
- *
- * `.random()` on the jsonPath check is what does it — the SDK picks one match
- * per virtual user rather than always the first.
+ * CONTRACT: Keep a RANDOM product id, never `[0]`. Pinning every virtual user to the
+ * first product drains its stock and yields `409 insufficient_stock` under even a small
+ * load. `.random()` on the jsonPath check is what spreads them across the catalogue.
  */
 export const listProducts = exec(
   http("GET /v1/products")
@@ -43,19 +32,10 @@ export const listProducts = exec(
 );
 
 /**
- * Create an order for one unit of that product.
- *
- * Accepts 201 **or 409**, and that is a deliberate modelling decision rather
- * than a loosened assertion. Order creation locks each product row `FOR UPDATE`
- * to decrement stock, so concurrent buyers picking the same product genuinely
- * contend — under load a share of them lose the race and get
- * `409 insufficient_stock`. Measured here: with the catalogue holding 20-98
- * units per item, roughly 1% of creates 409 at only 0.5 users/sec.
- *
- * Asserting 201 only would paint the run red for the system behaving exactly as
- * designed, and would hide a real regression behind an expected failure. The
- * 409s remain visible in the report and in `http_errors_total`, which is where
- * a rising contention rate should be read.
+ * CONTRACT: Accept 201 OR 409 — modelling, not a loosened assertion. Creation locks
+ * each product row `FOR UPDATE`, so concurrent buyers contend and ~1% of creates 409
+ * at only 0.5 users/sec. Asserting 201 only paints the run red for the system working
+ * as designed; the 409s stay visible in `http_errors_total`.
  */
 export const createOrder = exec(
   http("POST /v1/orders")
@@ -77,16 +57,10 @@ export const createOrder = exec(
 );
 
 /**
- * A basket: three different products, varying quantities.
- *
- * Worth exercising separately from the single-line order, because it is a
- * genuinely different path — order creation locks EVERY line's product row
- * `FOR UPDATE` inside one transaction, so a three-line order holds three locks
- * at once and touches the pricing/subtotal arithmetic a one-line order never
- * stresses. It is also what a real basket looks like.
- *
- * Accepts 409 for the same reason the single-line order does, and more so:
- * three locks means three chances to lose a stock race.
+ * A basket: three different products, varying quantities. A genuinely different path —
+ * creation locks EVERY line's product row `FOR UPDATE` in one transaction, so this
+ * holds three locks at once and exercises subtotal arithmetic a one-line order never
+ * does. Accepts 409 for the same reason, and more so: three chances to lose the race.
  */
 export const createMultiLineOrder = exec(
   http("POST /v1/orders (multi-line)")

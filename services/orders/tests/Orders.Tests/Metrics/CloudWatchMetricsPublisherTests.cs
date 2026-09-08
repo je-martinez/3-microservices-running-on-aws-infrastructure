@@ -10,9 +10,9 @@ namespace Orders.Tests.Metrics;
 /// Pins the exact <see cref="PutMetricDataRequest"/> the publisher puts on the wire.
 /// </summary>
 /// <remarks>
-/// The dimension set is asserted literally because Floci does not aggregate across
-/// dimensions: a collector query naming a different set returns an EMPTY result with
-/// StatusCode "Complete" — a silent no-data, not an error.
+/// CONTRACT: Assert the dimension set literally. Floci does not aggregate across dimensions,
+/// so a query naming a different set returns an EMPTY result with StatusCode "Complete" — a
+/// silent no-data, not an error. See [[ADR-0017-floci-local]]
 /// </remarks>
 public class CloudWatchMetricsPublisherTests
 {

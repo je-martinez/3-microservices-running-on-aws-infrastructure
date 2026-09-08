@@ -206,13 +206,9 @@ public class E2eTagsAndCleanupTests
     [Fact]
     public async Task Cleanup_restores_catalogue_stock_to_the_seed_quantities()
     {
-        // Orders permanently decrement stock and a soft-delete does not give it back, so
-        // without this the catalogue drains a little on every run until the suite fails
-        // with "no product with stock in the catalogue".
-        //
-        // Uses the SEED's product names, not the fixture's own product: the restore is
-        // keyed by name off ProductSeed.SeedStock, so a product the seed does not know
-        // about is deliberately left alone.
+        // CONTRACT: Assert against the SEED's product names, not the fixture's own product —
+        // the restore is keyed by name off ProductSeed.SeedStock, so a product the seed does
+        // not know is deliberately left alone.
         var (seedName, seedUnits) = ProductSeed.SeedStock[0];
         // Tracked by ID, not by name: this row is left behind for the rest of the class,
         // and the seeded catalogue may hold another product of the same name. Asserting

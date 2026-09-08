@@ -1,14 +1,8 @@
-// Semantic actor stamped into createdBy/updatedBy (and deletedBy) by the audit
-// query extension (see `shared/db/prisma-extensions.ts` and
-// `shared/audit/actor-context.ts`). Value format: `<source>:<action>`.
-//
-// All current write paths originate from the Users API itself (self-service
-// endpoints and internal maintenance — not an admin console), so the source is
-// uniformly `users_api`; the action distinguishes what produced the row. This
-// replaces the previous practice of stamping a bare id/string, so the audit
-// columns are self-describing and greppable (e.g. `users_api:register`) instead
-// of opaque. Add members (and, if ever needed, new sources) when new callers
-// appear — never widen it speculatively (YAGNI).
+// CONTRACT: Stamp a semantic `<source>:<action>` value, never a bare id — that is
+// what makes the audit columns greppable (`users_api:register`) rather than opaque.
+// Every current write path is the Users API itself, so the source is uniformly
+// `users_api`. Add members when new callers appear, never speculatively.
+// See [[audit-fields]]
 export enum AuditActor {
   Register = "users_api:register",
   RegisterPasswordless = "users_api:register_passwordless",

@@ -1,19 +1,12 @@
 import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 
-// Manual server-side span for gRPC handlers.
-//
-// WHY THIS EXISTS: @opentelemetry/instrumentation-grpc is loaded and does
-// instrument the CLIENT side, but produces no SERVER span here. The server is
-// built as `new grpc.Server({ interceptors: [...] })`, and `ServerInterceptingCall`
-// consumes the metadata — the `call` the handler receives carries none at all
-// (verified: the metadata map arrives empty). So the instrumentation had nothing
-// to read, and the failure was silent: Orders emitted a traceparent, Users
-// ignored it, and a cross-service trace ended at the boundary with no error.
-//
-// The PARENT context is extracted in the api-key interceptor, the only place
-// that still sees the metadata. By the time this runs it is already the active
-// context, so startActiveSpan picks it up and this span becomes a child of the
-// caller's span.
+// CONTRACT: The gRPC SERVER span is manual. @opentelemetry/instrumentation-grpc
+// instruments only the client side here — `ServerInterceptingCall` consumes the
+// metadata, so the handler's `call` arrives with an empty map and the instrumentation
+// has nothing to read. The failure is silent: a caller's traceparent is ignored and
+// the cross-service trace ends at the boundary with no error. The parent context is
+// extracted in the api-key interceptor and is already active by the time this runs.
+// See [[ADR-0003-grpc-inter-service]]
 const tracer = trace.getTracer("users-grpc");
 
 /**

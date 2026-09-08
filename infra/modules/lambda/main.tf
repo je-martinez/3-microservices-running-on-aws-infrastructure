@@ -131,37 +131,15 @@ resource "aws_lambda_function" "this" {
   memory_size      = var.memory_size
 
   environment {
-    # Silence the AWS SDK v3 maintenance notice at the SOURCE, merged UNDER the
-    # caller's variables so a consumer can still override it explicitly.
-    #
-    # The SDK warns that releases after early 2027 will require node >= 22, and
-    # emits it through process.emitWarning — which the Lambda runtime writes to
-    # stderr, and CloudWatch tags every stderr line ERROR. So a purely
-    # informational notice reaches OpenObserve at the same severity as a real
-    # failure, once per cold start, carrying no service_name and severity 0. It
-    # therefore lands in the `unclassified` stream and fails
-    # e2e/tests/observability/unclassified-logs.spec.ts, which is right to
-    # demand the PRODUCER be fixed.
-    #
-    # THE NAME AND THE VALUE BOTH MATTER. The emitter is the authority:
-    # @aws-sdk/core/dist-es/submodules/client/emitWarningIfUnsupportedVersion.js
-    # returns early only on
-    # `AWS_SDK_JS_NODE_VERSION_SUPPORT_WARNING_DISABLED === "true"` — the STRING
-    # "true", not "1". The similarly-named
-    # AWS_SDK_JS_SUPPRESS_MAINTENANCE_MODE_MESSAGE is a real AWS variable for a
-    # DIFFERENT message (the SDK v2 maintenance notice), so setting it is
-    # accepted silently and suppresses nothing — measured: it reached the
-    # deployed functions and the warning kept flowing. `--no-deprecation` does
-    # not work either; the notice is not a DeprecationWarning.
-    #
-    # The same fix sits on the WebSocket functions in
-    # modules/api-gateway-ws/main.tf; this extends it to every consumer of this
-    # module, which is where the loudest producer (the events pipeline) lives.
-    #
-    # Bumping the runtime to nodejs22.x would ALSO fix it and is the real
-    # migration, but it is blocked here: the AWS provider is pinned to = 5.31.0
-    # (see infra/CLAUDE.md), whose runtime validation tops out at nodejs20.x and
-    # rejects nodejs22.x at plan time. Verified by trying it.
+    # CONTRACT: This exact name and the STRING "true" — the SDK's emitter returns
+    # early only on that pair. AWS_SDK_JS_SUPPRESS_MAINTENANCE_MODE_MESSAGE is a
+    # real variable for a DIFFERENT notice and suppresses nothing here;
+    # `--no-deprecation` does not work either. Without it the SDK's node-version
+    # warning goes to stderr, CloudWatch tags it ERROR, and it reaches
+    # OpenObserve's `unclassified` stream once per cold start. Merged UNDER the
+    # caller's variables so a consumer can still override it. Bumping to
+    # nodejs22.x would also fix it, but provider 5.31.0 rejects that runtime.
+    # See [[logging-context]]
     variables = merge(
       { AWS_SDK_JS_NODE_VERSION_SUPPORT_WARNING_DISABLED = "true" },
       var.environment_variables,
@@ -174,43 +152,16 @@ resource "aws_lambda_function" "this" {
 }
 
 # ─── SQS event source mapping ──────────────────────────────────────────────────────
-# `function_response_types = ["ReportBatchItemFailures"]` MUST be set here, at
-# CREATE time. Floci silently drops FunctionResponseTypes on
-# `update-event-source-mapping` — the call returns success and the field comes
-# back as `[]` — while `create-event-source-mapping` persists it correctly
-# (verified 2026-08-03 against Floci v1.5.28; see
-# docs/lessons/floci-sqs-lambda-docdb-support.md, Finding 3).
-#
-# Consequence: if this field is ever added to an ALREADY-EXISTING mapping,
-# RECREATE the mapping (`terraform taint` / `-replace`) instead of letting
-# Terraform update it in place. An in-place update LOOKS like it worked and
-# silently stops partial batch responses from being honored, so every single
-# failed record retries the entire batch. Verify with:
-#   aws lambda get-event-source-mapping --uuid <uuid> --query FunctionResponseTypes
-# and expect ["ReportBatchItemFailures"].
-# `count`, and it is a LOCAL-EMULATOR concession that costs production nothing.
-#
-# Real Lambda scales one mapping out to many concurrent invocations on its own,
-# so `mapping_count = 1` (the default, and what every deployed environment uses)
-# is correct there and a second mapping would only duplicate polling.
-#
-# Floci does not scale that way. Measured on this stack: it keeps ONE invocation
-# in flight PER MAPPING, and the next poll starts about a second after the
-# previous batch ENDS — so throughput is batch_size / (handler_duration + ~1s),
-# which is also why a larger batch_size measured WORSE (one slow batch delays
-# the next poll). `ScalingConfig.MaximumConcurrency` is stored by the API and
-# then ignored.
-#
-# Each mapping does get its own independent poller, and they overlap. Same
-# stack, same 80 events, only this variable changed:
-#
-#   mapping_count = 1  ->  79s, 1.02 ev/s
-#   mapping_count = 4  ->  24s, 3.37 ev/s
-#
-# Verified safe rather than assumed: the four pollers split the work (20/20/20/80
-# records across four containers), with zero failures, zero duplicate-event
-# errors against the unique index on event_id, and an empty DLQ. SQS hands each
-# message to exactly one receiver, so extra pollers add readers, not copies.
+# WORKAROUND(local): function_response_types MUST be set at CREATE time. Floci
+# silently drops FunctionResponseTypes on `update-event-source-mapping` — the
+# call returns success, the field comes back `[]`, partial batch responses stop
+# being honored, and one failed record retries the whole batch. Adding it to an
+# EXISTING mapping means RECREATING it (`-replace`), never an in-place update.
+# WORKAROUND(local): mapping_count is the concurrency knob because Floci keeps
+# one invocation in flight per mapping and ignores ScalingConfig. Leave it at 1
+# in deployed environments — real Lambda scales one mapping out itself. Extra
+# pollers add readers, not copies: SQS hands each message to one receiver.
+# See [[floci-sqs-lambda-docdb-support]]
 resource "aws_lambda_event_source_mapping" "sqs_trigger" {
   count                   = var.mapping_count
   event_source_arn        = var.queue_arn
@@ -220,19 +171,12 @@ resource "aws_lambda_event_source_mapping" "sqs_trigger" {
 }
 
 # ─── Function URL (optional) ──────────────────────────────────────────────────
-# Count-gated so no environment gets a public URL unless it asks for one.
-#
-# `authorization_type = "NONE"` is acceptable HERE, and only here, because the
-# handler authenticates every request itself: it answers 404 unless
-# E2E_TESTING_ENABLED is true AND E2E_QUERY_TOKEN is set AND the request presents
-# that token in `x-e2e-token`, compared in constant time (see
-# functions/events-pipeline/src/e2e/http-query.ts). The URL is not the security
-# boundary; the token is.
-#
-# Do NOT "harden" this to AWS_IAM. Floci's Function URLs are reached by a plain
-# fetch from the Playwright suite, which holds no SigV4 signer, so switching the
-# auth type does not tighten the route — it breaks the only consumer while
-# leaving the token check that actually guards it untouched.
+# WARNING: authorization_type NONE is acceptable only because the handler
+# authenticates every request itself — 404 unless E2E_TESTING_ENABLED and a
+# constant-time match on x-e2e-token. The token is the boundary, not the URL.
+# CONTRACT: Do NOT "harden" this to AWS_IAM. The Playwright suite reaches these
+# URLs with a plain fetch and holds no SigV4 signer, so the switch breaks the
+# only consumer and leaves the token check untouched. See [[testing]]
 resource "aws_lambda_function_url" "this" {
   count              = var.enable_function_url ? 1 : 0
   function_name      = aws_lambda_function.this.function_name

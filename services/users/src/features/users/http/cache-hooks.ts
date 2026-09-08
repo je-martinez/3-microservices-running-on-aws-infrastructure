@@ -26,15 +26,10 @@ function isCacheableRequest(req: FastifyRequest): boolean {
   return req.method === "GET" && (req.routeOptions?.url ?? req.url) === ME_ROUTE;
 }
 
-// Resolution itself can throw: `tests/features/users/http/routes.test.ts` builds
-// containers that register no `cacheGateway`, and an AwilixResolutionError raised
-// inside a hook becomes a request error on a route that has nothing to do with
-// caching. Same stance as the `onResponse` hook's `metricsPublisher` guard in
-// routes.ts — an observation of a request must never become an error of its own.
-//
-// Exported because the WRITE path needs the identical guard: the PATCH handlers
-// in routes.ts invalidate through this, and a container without a cacheGateway
-// must turn a profile update into a 200, not a 500.
+// CONTRACT: Keep this guarded. Resolution throws for a container that registers no
+// `cacheGateway`, and an AwilixResolutionError inside a hook becomes a request error
+// on a route with nothing to do with caching. The WRITE path needs the identical
+// guard, which is why this is exported: a profile update must be a 200, not a 500.
 export function resolveGateway(req: FastifyRequest): CacheGateway | undefined {
   try {
     return req.diScope.cradle.cacheGateway;
@@ -46,10 +41,10 @@ export function resolveGateway(req: FastifyRequest): CacheGateway | undefined {
 /**
  * Drops the cached profile for one caller, AFTER their write has persisted.
  *
- * `cognitoSub` is the raw x-user-id the read path built its key from and
- * `userId` the resolved id; both halves must match or this deletes nothing.
- * A no-op when either half is missing (an unauthenticated or unresolved
- * caller has no cached entry) or when no gateway is registered.
+ * CONTRACT: Both key halves must match the read path exactly — `cognitoSub` is the
+ * raw x-user-id it built its key from, `userId` the resolved id — or this deletes
+ * nothing. A no-op when either is missing or no gateway is registered.
+ * See [[users-service-design]]
  */
 export async function invalidateMeCache(
   req: FastifyRequest,
@@ -71,17 +66,13 @@ export function registerMeCacheHooks(app: FastifyInstance): void {
     const { currentActor, currentUser } = req.diScope.cradle;
     if (currentActor === undefined) return;
 
-    // ==== THE KEY CANNOT EXIST BEFORE THIS AWAIT ====
-    // `currentActor` is the raw x-user-id, which may be a Cognito sub OR a
-    // usr_ id (see CurrentUser's doc comment). The key needs the RESOLVED
-    // user_id, and resolve() is the only place it becomes known. resolve()
-    // caches its promise, so the handler on a MISS reuses this same lookup —
-    // this await costs one query per request, not two.
+    // CONTRACT: The key cannot be built before this await. `currentActor` is the raw
+    // x-user-id, which may be a Cognito sub OR a usr_ id; the key needs the RESOLVED
+    // user_id. resolve() caches its promise, so a MISS reuses this lookup.
     const row = await currentUser.resolve();
     if (!row?.id) {
-      // A valid token whose user no longer exists. There is no key to build,
-      // so this request bypasses the cache silently and the handler answers
-      // its 404 — which is never cached anyway.
+      // A valid token whose user no longer exists: no key to build, so this bypasses
+      // the cache and the handler answers its 404, which is never cached anyway.
       return;
     }
 
@@ -98,12 +89,9 @@ export function registerMeCacheHooks(app: FastifyInstance): void {
     setLogContext({ cache_result: result });
 
     if (outcome.hit) {
-      // Short-circuit: `reply.send` from a preHandler means the handler never
-      // executes, which is the whole point of the interceptor.
-      //
-      // The cached value is the SERIALIZED body (see the onSend hook), so it
-      // is sent as-is. `type("application/json")` + a pre-serialized payload
-      // keeps Fastify's Zod response serializer out of the path — it would
+      // Short-circuit: `reply.send` from a preHandler skips the handler entirely.
+      // CONTRACT: Send the cached SERIALIZED body as-is with `type("application/json")`
+      // — that keeps Fastify's Zod response serializer out of the path, which would
       // otherwise re-validate an already-serialized object.
       return reply
         .header("X-Cache", "HIT")
@@ -134,29 +122,20 @@ export function registerMeCacheHooks(app: FastifyInstance): void {
       const cacheGateway = resolveGateway(req);
       if (cacheGateway === undefined) return payload;
 
-      // ==== WHY withHttpServerSpan AND NOT trace.getActiveSpan() ====
-      // @fastify/otel NULLS `request.opentelemetry().span` inside onSend,
-      // which runs BEFORE onResponse (request-span.ts). So the active span
-      // here is the hook's own span or nothing at all, and a `cache.set` span
-      // parented to it silently vanishes from the waterfall — no error, no
-      // warning, just a missing bar. withHttpServerSpan resolves the request's
-      // real HTTP SERVER span through RPC metadata on the request's context,
-      // which survives the nulling.
-      //
-      // NOT awaited: onSend sits on the response path, and holding the
-      // response open for a Redis round trip would hand back the latency this
-      // cache exists to remove. `set` swallows its own failures by contract,
-      // so there is no unhandled rejection.
-      //
-      // `payload` is the ALREADY-SERIALIZED response body — the exact bytes
-      // Fastify is about to write. Storing THIS, rather than the domain
-      // entity, is what makes a HIT byte-identical to a MISS: serializeUser
-      // converts createdAt/updatedAt/deletedAt to ISO strings (routes.ts), and
-      // a cached entity would come back through JSON.parse as values the Zod
-      // response serializer never saw — a different body for the same user.
-      // It is stored PARSED so `get` returns an object via a symmetric
-      // JSON.parse; the hit path re-serializes with JSON.stringify, which
-      // preserves key order and therefore the byte-identical body.
+      // CONTRACT: Use withHttpServerSpan, NOT trace.getActiveSpan(). @fastify/otel
+      // nulls `request.opentelemetry().span` inside onSend, so a `cache.set` span
+      // parented to the ambient span vanishes from the waterfall with no error at all.
+      // See [[logging-context]]
+
+      // CONTRACT: Do NOT await. onSend is on the response path, and holding it open
+      // for a Redis round trip hands back the latency this cache exists to remove.
+      // `set` swallows its own failures, so nothing goes unhandled.
+
+      // CONTRACT: Store `payload`, the ALREADY-SERIALIZED body, not the domain entity.
+      // That is what makes a HIT byte-identical to a MISS — serializeUser converts the
+      // dates to ISO strings, and a cached entity returns values the Zod response
+      // serializer never saw. Stored parsed so the hit path's JSON.stringify preserves
+      // key order.
       void withHttpServerSpan(req, () =>
         CacheGateway.withCacheSpan("cache.set", () =>
           cacheGateway.set(state.key, ME_KEY_PREFIX, JSON.parse(payload), ME_CACHE_TTL_SECONDS),

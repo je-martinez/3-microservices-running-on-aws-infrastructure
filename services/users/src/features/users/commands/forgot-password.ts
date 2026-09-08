@@ -13,18 +13,10 @@ export interface ForgotPasswordInput {
   email: string;
 }
 
-// Constructor-injected from the Awilix cradle (PROXY injection mode).
-//
-// Step 1 of the SELF-OWNED password reset. Cognito's own ForgotPassword is not
-// used anywhere in this flow: it emails a code it never reveals to the caller,
-// its CustomMessage trigger does not fire on this substrate, and it accepts only
-// its own code at ConfirmForgotPassword. So this service mints, stores, verifies
-// and applies the change itself, and accepts the tradeoff that it now custodies
-// a short-lived credential — which is why the code is stored HASHED (see
-// `shared/auth/reset-code.ts`) and never logged.
-//
-// The code lives in REDIS, not in Postgres: it is a ten-minute secret that must
-// expire on its own, which Redis does natively (`EX`). See `ResetCodeStore`.
+// Step 1 of the SELF-OWNED password reset — Cognito's ForgotPassword is not used
+// anywhere in this flow (it emails a code it never reveals and accepts only its own).
+// WARNING: This service therefore custodies a live credential. The code is stored
+// HASHED and is never logged; it lives in Redis, not Postgres, so it expires natively.
 export class ForgotPasswordCommand {
   private readonly db: Db;
   private readonly events: EventPublisher;
@@ -44,14 +36,11 @@ export class ForgotPasswordCommand {
     this.resetCodeStore = resetCodeStore;
   }
 
-  // NEVER put the minted `code` on a span attribute — it is the same live
-  // credential the log lines below refuse to carry, and a span goes to a
-  // backend just as a log line does. `email_hash`, never the email itself.
-  //
-  // The unknown-email branch is marked on the span the way it is in the log: as
-  // a SUCCESS with `reason: unknown_email`, not an error. Anything else would
-  // rebuild the enumeration oracle this flow exists to avoid, only in the trace
-  // backend instead of the response.
+  // WARNING: Never put the minted `code` on a span attribute — a span reaches a
+  // backend exactly as a log line does. Use `email_hash`, never the email.
+  // CONTRACT: The unknown-email branch is marked a SUCCESS with
+  // `reason: unknown_email`, not an error — anything else rebuilds the enumeration
+  // oracle in the trace backend instead of the response. See [[logging-context]]
   async execute(input: ForgotPasswordInput): Promise<void> {
     return withWorkflowSpan(
       "password_reset_requested",
@@ -72,18 +61,12 @@ export class ForgotPasswordCommand {
 
     const user = await this.db.user.findFirst({ where: { email: input.email } });
 
-    // ==== NO USER ENUMERATION — DO NOT "FIX" THIS INTO A 404 ====
-    //
-    // An unknown email returns here and the route answers exactly as it does for
-    // a known one: same status, same body, no timing-visible extra work worth
-    // measuring. This is a SECURITY PROPERTY, not an oversight or a missing
-    // error case. Turning it into a 404 (or any distinguishable response) hands
-    // an attacker a free oracle for "does this person have an account here",
-    // which is precisely what the whole endpoint is otherwise careful not to
-    // leak. The absence is recorded in the LOGS, where only operators see it.
-    //
-    // The same reasoning governs POST /v1/users/password/confirm: an unknown
-    // email and a wrong code are both `invalid_reset_code`.
+    // CONTRACT: Do NOT turn this into a 404. An unknown email must answer with the
+    // same status and body as a known one; any distinguishable response is a free
+    // oracle for "does this person have an account here". The absence is recorded in
+    // the logs, where only operators see it. The same rule governs
+    // /v1/users/password/confirm, where an unknown email and a wrong code are both
+    // `invalid_reset_code`.
     if (!user) {
       appLogger.info(
         {
@@ -104,38 +87,18 @@ export class ForgotPasswordCommand {
 
     const code = generateResetCode();
 
-    // Only the HASH is stored (inside `store`). The plaintext code exists in
-    // memory for the length of this method and travels exactly once, to the
-    // email pipeline.
-    //
-    // One key per email, so this SET necessarily replaces any code still
-    // outstanding — a second request invalidates the first, and two codes can
-    // never be live at once multiplying the guessing surface. In the Postgres
-    // version that took an explicit "consume the old rows" write; here it falls
-    // out of the key space, with no way to forget it.
-    //
-    // Redis expires the key itself after RESET_CODE_TTL_SECONDS, which is the
-    // whole reason this is not a table: no `expires_at` comparison at read time
-    // and no cleanup job. There is also no audit actor wrapped around this call
-    // — `runAsActor` stamps Prisma's audit columns, and this write never reaches
-    // Postgres.
+    // CONTRACT: Only the HASH is stored. The plaintext code lives in memory for this
+    // method and travels exactly once, to the email pipeline. One key per email, so
+    // this SET replaces any outstanding code and two can never be live at once. No
+    // `runAsActor` here — it stamps Prisma's audit columns, and this write never
+    // reaches Postgres.
     await this.resetCodeStore.store(input.email, code);
 
-    // Best-effort, exactly like USER_CREATED: a queue outage costs the user
-    // their email rather than turning a stored code into an HTTP error.
-    //
-    // The try/catch is NOT redundant with the publisher's own swallow-and-log.
-    // The publisher handles the SQS send failing; this handles the publish call
-    // failing for ANY reason (a serialization throw, a credentials error raised
-    // before the send, a future publisher that forgets the convention). The
-    // guarantee that matters here is a SECURITY one, not a reliability one: a
-    // publish error surfacing as a 500 could only ever happen for an email that
-    // EXISTS, which turns this endpoint back into the enumeration oracle the
-    // whole flow is built to avoid. So the swallow is enforced at the boundary
-    // that owns the property, not delegated to a collaborator's good behaviour.
-    //
-    // `ttlSeconds` is passed rather than recomputed downstream so the number the
-    // email prints and the TTL Redis actually enforces come from one value.
+    // CONTRACT: Keep this try/catch — it is NOT redundant with the publisher's own
+    // swallow. That one covers the SQS send; this covers the publish call failing for
+    // ANY reason. The guarantee is a SECURITY one: a publish error surfacing as a 500
+    // can only happen for an email that EXISTS, rebuilding the enumeration oracle.
+    // `ttlSeconds` is passed, not recomputed, so the email and Redis agree.
     try {
       await this.events.publishPasswordResetRequested({
         userId: user.id,

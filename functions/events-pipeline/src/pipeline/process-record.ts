@@ -7,29 +7,24 @@ import { redactPayload } from "#domain/redact-payload";
 import { isTransient } from "#pipeline/errors";
 import { appLogger } from "#shared/logging/app-logger";
 
-// Actor stamped on `updated_by` (and on the repository's transition writes) —
-// this pipeline is what PROCESSES the event, so it owns every mutation after the
-// insert. It is NOT what created the row: see the audit split on the document
-// below. See docs/shared/conventions/audit-fields.md.
+// CONTRACT: This actor stamps `updated_by` only. Do NOT stamp it on `created_by`
+// — that field names what ORIGINATED the event, and overwriting it makes every
+// row claim the pipeline as its cause.
+// See [[audit-fields]]
 const PIPELINE_ACTOR = "events-pipeline";
 
-// Port the state machine depends on — implemented by Task 8's
-// MongoEventsRepository. Deliberately NOT the AWS/Mongo SDK type: this file
-// must not import any AWS SDK, which is what makes it unit-testable without
-// the emulator.
+// CONTRACT: Do NOT widen this port to an AWS/Mongo SDK type. This file importing
+// an SDK makes the state machine untestable without the emulator.
 export interface EventsRepositoryPort {
   insertStarted(doc: EventDocument): Promise<void>;
   transition(event_id: string, status: EventStatus, patch?: { error?: string }): Promise<void>;
 }
 
-// The CQRS dispatch table: event `type` → handler (e.g. ORDER_CREATED →
-// OrderCreatedHandler). Populated by Task 10's src/handlers/index.ts.
 /**
  * Extra collaborators a handler may use. Empty in production.
  *
- * Threaded as a parameter rather than imported by each handler so the E2E store
- * stays out of the production import graph, and so a handler remains callable in
- * a unit test with no fixture wiring at all.
+ * WHY: Threaded as a parameter, not imported per handler, so the E2E store stays
+ * out of the production import graph.
  */
 export type HandlerDeps = { recordEmail?: RecordEmailFn };
 
@@ -41,41 +36,14 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-// The document's status transitions, at INFO. These are deliberately NOT a
-// duplicate of the entrypoint's `event_processing_*` flow logs, which sit one
-// layer above and answer a different question:
-//
-//   event_processing_*    the CODE ran (the handler was invoked, returned, threw)
-//   event_status_changed  the WRITE to DocumentDB is PERSISTED
-//
-// The two can disagree, and that gap is the whole point: a record can be
-// processed successfully and still fail to persist its transition, in which case
-// the flow log says `succeeded` while the document is stale. `IN_PROGRESS` has
-// no equivalent at all upstairs — it is the only line that separates "the
-// handler started" from "the handler finished but the result never landed".
-//
-// The cost is real and accepted: a healthy record goes from 2 lifecycle lines to
-// ~5, on a Lambda whose logs are already amplified downstream (JE-177). They are
-// INFO rather than DEBUG because the question they answer ("did the write
-// land?") is one asked of PRODUCTION traffic, and DEBUG is off there — the lines
-// existed at DEBUG and emitted zero times in the running Lambda, which is the
-// same as not existing.
-//
-// `event_status`, not `status`: `status` is not in the shared log schema and
-// would collide with the HTTP status other services log under that name.
-// The envelope's event_id/type/... come from the ambient context, so nothing is
-// spread here — and the payload, which this function holds in `doc`, is never
-// touched by a log line.
-//
-// `reason` is carried on FAILED only, and only when known: a failure line
-// without a motive forces a join against another line to be useful at all. The
-// string is the same one persisted on the document — PERMANENT/TransientError
-// messages built by the handlers, which are PII-free BY CONSTRUCTION for exactly
-// this purpose (see the comment in #handlers/user-created and `outcome.reason`
-// in src/handler.ts, which already logs this very string). Raw driver and Zod
-// messages never reach here: the handlers reduce them to field paths and error
-// names before throwing, because a Mongo error's message embeds the rejected
-// document.
+// CONTRACT: This reports the PERSISTED write, not that the handler ran — the
+// entrypoint's `event_processing_*` answers that, and the two disagree when a
+// transition fails to land. Keep the key `event_status`: `status` is not in the
+// shared schema and collides with the HTTP status other services log. Keep it at
+// INFO; at DEBUG it emits zero times in the running Lambda. `reason` carries the
+// handlers' already-sanitized string — never a raw driver or Zod message, whose
+// text embeds the rejected document.
+// See [[logging-context]]
 function logStatus(status: EventStatus, reason?: string): void {
   appLogger.info(
     { app_event: "event_status_changed", event_status: status, ...(reason ? { reason } : {}) },
@@ -83,48 +51,22 @@ function logStatus(status: EventStatus, reason?: string): void {
   );
 }
 
-// A milestone on the ACTIVE span, as a span event.
-//
-// These are SECONDARY detail, not the way the phases are made visible — that job
-// belongs to `withPhaseSpan` below. The distinction was learned the hard way:
-// span events are the semantically correct OTel primitive for an instant, and
-// this file originally relied on them alone for exactly that reason. In practice
-// NEITHER viewer used here renders them in the waterfall — Jaeger hides them
-// behind expanding the span and opening a tab, and OpenObserve's trace view does
-// not surface them at all. A marker that takes two clicks to find marks nothing.
-//
-// They are kept because they cost nothing and they ARE queryable where it counts:
-// OpenObserve stores them in a first-class `events` column, so
-// `WHERE events LIKE '%handler_failed%'` finds every record that took a given
-// path — something the waterfall cannot answer. Verified against the running
-// stack.
-//
-// No PII, by the same rule the log lines follow: only the event's own lifecycle
-// vocabulary, never the payload. `reason` is admitted on failure for the same
-// reason logStatus admits it, and carries the same already-sanitized string.
+// CONTRACT: A milestone, not a phase. Do NOT rely on these to make a phase
+// visible — OpenObserve's waterfall does not render span events, so a phase
+// marked only here draws no bar; `withPhaseSpan` below is what draws it. They
+// stay because they are queryable (`WHERE events LIKE '%handler_failed%'`).
+// Lifecycle vocabulary only, never the payload; `reason` carries the same
+// already-sanitized string logStatus takes.
+// See [[logging-context]]
 function markPhase(name: string, reason?: string): void {
   trace.getActiveSpan()?.addEvent(name, reason ? { reason } : undefined);
 }
 
-// One lifecycle PHASE of a record, as a real span with a real duration.
-//
-// This is what makes the phases visible. A phase span groups the work between two
-// milestones into a bar the waterfall actually draws, in both viewers, without
-// anyone expanding anything: `persist` covers getting the record into DocumentDB,
-// `dispatch` covers handing it to its CQRS handler and everything that handler
-// does (the template render and the SES call live inside it).
-//
-// INTERNAL, and deliberately thin: a phase owns no I/O of its own. Its children
-// are the spans that already existed, so the added nesting level buys grouping and
-// costs no duplicated measurement — a phase's duration is its children's span plus
-// the code between them, which is exactly the number "where did the time go?"
-// needs.
-//
-// Errors are recorded and RETHROWN: a phase that swallowed would break the state
-// machine below, which decides FAILED vs retry from the exception. The message is
-// the caller's already-sanitized `describeError` output, never `err.message` —
-// same PII rule as the DocumentDB spans, since a Mongo error embeds the rejected
-// document.
+// CONTRACT: A phase span RETHROWS. Swallowing here breaks the state machine
+// below, which decides FAILED vs retry from the exception. The span message is
+// the caller's `describeError` output, never `err.message` — a Mongo error's
+// message embeds the rejected document.
+// See [[logging-context]]
 async function withPhaseSpan<T>(
   name: string,
   fn: () => Promise<T>,
@@ -145,15 +87,11 @@ async function withPhaseSpan<T>(
 }
 
 // One record's full lifecycle: STARTED -> IN_PROGRESS -> COMPLETED | FAILED.
-// The document is persisted BEFORE dispatch (insertStarted first) so an event
-// with an unknown type or an invalid payload is still recorded as FAILED rather
-// than silently dropped — see the milestone design spec's "Ordering decision".
-// The audit trail must capture failures too.
-//
-// `status_history` is append-only: this function seeds it with the STARTED entry
-// on insert and never touches the array again. Every later status is handed to
-// the repository as its own `transition` call, which appends ($push) rather than
-// overwriting.
+// CONTRACT: Persist BEFORE dispatch. Reordering drops an event with an unknown
+// type or invalid payload without any FAILED row. `status_history` is
+// append-only: seeded here on insert, and every later status goes through the
+// repository's `transition` ($push), never an overwrite.
+// See [[events-pipeline-design]]
 export async function processRecord(
   envelope: Envelope,
   deps: { repository: EventsRepositoryPort; handlers: HandlerMap; handlerDeps?: HandlerDeps },
@@ -165,66 +103,50 @@ export async function processRecord(
     user_id: envelope.user_id,
     type: envelope.type,
     source: envelope.source,
-    // The ONLY place redaction happens: this is the copy that reaches
-    // DocumentDB. `envelope` itself is untouched, so the handler dispatched
-    // below still receives the real payload (an OTP handler cannot email a
-    // code it was never given). A no-op for every type without an entry in
-    // #domain/redact-payload.
+    // CONTRACT: The only redaction point, and it copies — do NOT redact
+    // `envelope` in place, or the OTP handler loses the code it must email.
     payload: redactPayload(envelope.type, envelope.payload),
     status: "STARTED",
     error: null,
     status_history: [{ status: "STARTED", timestamp: now }],
-    // The audit split, and it is deliberate:
-    //   created_by = what ORIGINATED the row — the producer's semantic actor,
-    //     carried over from the envelope (e.g. `users_api:register`,
-    //     `tracking_api:carrier_status_update`). Stamping PIPELINE_ACTOR here
-    //     made every event claim the pipeline as its cause, which is only ever
-    //     true of the row, never of the event.
-    //   updated_by = what PROCESSED it — this pipeline, which performs the later
-    //     STARTED -> IN_PROGRESS -> COMPLETED/FAILED transitions (the repository
-    //     stamps the same actor on each of them).
+    // CONTRACT: `created_by` is the producer's actor (what ORIGINATED the event,
+    // e.g. `tracking_api:carrier_status_update`); `updated_by` is this pipeline
+    // (what PROCESSED it). Do NOT collapse them — every event would then claim
+    // the pipeline as its cause.
+    // See [[audit-fields]]
     created_by: envelope.author.actor,
     created_at: now,
     updated_by: PIPELINE_ACTOR,
     updated_at: now,
     deleted_by: null,
     deleted_at: null,
-    // Required by docs/shared/conventions/audit-fields.md — materialized on
-    // write (this repository is hand-written, so nothing derives it on read).
-    // A newly created event is never deleted.
+    // CONTRACT: Materialized on write — this repository is hand-written and
+    // nothing derives it on read.
+    // See [[audit-fields]]
     is_deleted: false,
   };
 
-  // The first milestone, before any I/O: it timestamps the moment this record
-  // entered the state machine, so the gap between it and the insert span below is
-  // readable as the cost of building the document (redaction included) rather
-  // than being folded into the insert's own duration.
+  // WHY: Before any I/O, so the gap to the insert span reads as document-build
+  // cost instead of being folded into the insert's duration.
   markPhase("message_received");
 
   try {
-    // Phase 1 of 2. Wraps the insert rather than just being it: the phase's
-    // duration also covers building and redacting the document above the call, so
-    // "getting this record persisted" is one bar instead of an insert span with
-    // unattributed time in front of it.
+    // WHY: The phase wraps more than the insert, so document-build time is
+    // inside the bar rather than unattributed in front of it.
     await withPhaseSpan(
       "phase persist",
       async () => {
         await deps.repository.insertStarted(doc);
       },
-      // Error CLASS only — a Mongo write error's message embeds the rejected
-      // document, i.e. the payload. Same rule the insert span itself applies.
+      // CONTRACT: Error CLASS only. A Mongo write error's message embeds the
+      // rejected document, i.e. the payload.
       (err) => (err instanceof Error ? err.name : "persist_failed"),
     );
     logStatus("STARTED");
   } catch (err) {
-    // Nothing was persisted, so there is no document to mark FAILED. Report the
-    // failure upward and let SQS decide (transient → retried, then DLQ).
-    //
-    // Marked explicitly: this is the one exit where the record leaves NO trace in
-    // DocumentDB at all, so without a milestone the span would end with a failed
-    // insert child and nothing saying the lifecycle stopped there rather than
-    // continuing. The insert span already carries the sanitized error class; this
-    // event names the outcome, not the cause.
+    // Nothing was persisted, so there is no document to mark FAILED — report
+    // upward and let SQS decide (transient → retried, then DLQ). The milestone
+    // is the only trace this exit leaves anywhere.
     markPhase("persist_failed_record_dropped");
     return { ok: false, transient: isTransient(err) };
   }
@@ -246,29 +168,22 @@ export async function processRecord(
   await deps.repository.transition(envelope.event_id, "IN_PROGRESS");
   logStatus("IN_PROGRESS");
 
-  // The handoff to the CQRS handler. This is the boundary that matters most in
-  // the waterfall: everything after it and before `handler_returned` is the
-  // handler's own work (for ORDER_CREATED, the SES call that dominates the
-  // record's duration), and everything outside the pair is this state machine's
-  // overhead. Without the pair, a slow record cannot be attributed to either.
+  // WHY: Paired with `handler_returned`, this splits the handler's own work
+  // from the state machine's overhead in the waterfall.
   markPhase("handler_dispatched");
 
   try {
-    // Phase 2 of 2, and the one that matters most in a waterfall: everything the
-    // CQRS handler does nests under this bar — the template render and the SES
-    // call for an email event, the WebSocket publish for a tracking one. Time
-    // inside it is the handler's; time outside it is this state machine's
-    // overhead. Without the phase those children hang directly off
-    // `process_record` and there is nothing separating "the pipeline was slow"
-    // from "the handler was slow".
+    // WHY: Everything the CQRS handler does nests under this bar — the render,
+    // the SES call, the WebSocket publish. Without it those children hang off
+    // `process_record` and "the pipeline was slow" cannot be told apart from
+    // "the handler was slow".
     await withPhaseSpan(
       "phase dispatch",
       async () => {
         await handler(envelope, deps.handlerDeps ?? {});
       },
-      // The handlers already reduce driver/Zod errors to PII-free strings before
-      // throwing (see #handlers/user-created), which is the same string persisted
-      // on the document and logged as `reason`.
+      // CONTRACT: Handlers reduce driver/Zod errors to PII-free strings before
+      // throwing; this is the same string persisted and logged as `reason`.
       errorMessage,
     );
   } catch (err) {

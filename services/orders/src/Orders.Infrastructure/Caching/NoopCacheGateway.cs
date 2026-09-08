@@ -2,13 +2,10 @@ namespace Orders.Infrastructure.Caching;
 
 /// <summary>
 /// No-op binding for suites that must not reach Redis.
+/// CONTRACT: Every lookup answers <see cref="CacheOutcome{T}.Bypass"/> — the answer a real
+/// gateway gives when Redis is unreachable — so a consumer wired to this behaves as it does
+/// during an outage. See [[x-cache-response-header]]
 /// </summary>
-/// <remarks>
-/// Mirrors <c>NoopMetricsPublisher</c>/<c>NoopEventPublisher</c>. Every lookup answers
-/// <see cref="CacheOutcome{T}.Bypass"/> — the same answer a real gateway gives when Redis
-/// is unreachable — so a consumer wired to this behaves exactly as it does during an
-/// outage, which is the behaviour worth exercising by default.
-/// </remarks>
 public class NoopCacheGateway : ICacheGateway
 {
     public Task<CacheOutcome<T>> GetAsync<T>(string key, CancellationToken ct) =>

@@ -1,12 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// #shared/config/env parses process.env at MODULE LOAD (ADR-0014). This file
-// imports #handlers/index, which now (since the realtime fan-out landed in
-// tracking-status-changed.ts) transitively pulls in
-// #shared/realtime/websocket-publisher -> #shared/logging/app-logger ->
-// #shared/config/env, so the schema must be satisfied even though this
-// suite never exercises tracking-status-changed itself. Mirrors
-// tests/handler.test.ts.
+// #shared/config/env parses process.env at MODULE LOAD (ADR-0014), and
+// #handlers/index reaches it transitively through the realtime fan-out, so the
+// schema must be satisfied even though this suite never exercises it.
 vi.stubEnv("DOCDB_HOST", "docdb-test");
 vi.stubEnv("DOCDB_USERNAME", "root");
 vi.stubEnv("DOCDB_PASSWORD", "secret");
@@ -34,14 +30,9 @@ import type { Envelope } from "#domain/envelope";
 const { authOtpRequestedHandler } = await import("#handlers/auth-otp-requested");
 const { handlers } = await import("#handlers/index");
 
-// The payload EXACTLY as `infra/modules/cognito/otp-challenge-lambda/index.mjs`
-// puts it on the wire: `{ email, full_name, code, ttlSeconds }` — `full_name` in
-// the producer's snake_case spelling next to camelCase `ttlSeconds`, because that
-// is literally what is published (see the handler's schema comment).
-//
-// `full_name` defaults to a real name here so the ordinary cases read naturally;
-// the `""` case Cognito actually produces today has its own test below.
-//
+// The payload exactly as the OTP challenge Lambda puts it on the wire, mixed
+// casing included. `full_name` defaults to a real name so the ordinary cases
+// read naturally; the "" case Cognito actually produces has its own test below.
 // A factory with defaults so each test overrides only the field it is about.
 function validPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {

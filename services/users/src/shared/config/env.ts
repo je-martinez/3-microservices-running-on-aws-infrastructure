@@ -28,16 +28,11 @@ const schema = z.object({
   // be deployed unguarded by omission.
   GRPC_PORT: z.coerce.number().int().positive().default(50051),
   GRPC_API_KEY: z.string().min(1),
-  // The account-deletion cascade's two downstream services. Users had no plain
-  // HTTP dependency before this — every other outbound call is gRPC, an AWS SDK
-  // client, or Redis — so these are the first of their kind here. Named to match
-  // Orders' existing TRACKING_BASE_URL, so one convention covers every
-  // service-to-service HTTP base in the repo.
-  //
-  // REQUIRED, with no default: a missing value must fail at boot with a named Zod
-  // error rather than let DELETE /v1/users/me reach a half-configured cascade and
-  // report success for orders it never deleted ([[ADR-0014-env-validation-zod]]).
-  // Both routes they point at are internal and absent from the API Gateway.
+  // CONTRACT: Required with no default — a missing value must fail at boot with a
+  // named Zod error, or DELETE /v1/users/me reaches a half-configured cascade and
+  // reports success for orders it never deleted. Named to match Orders'
+  // TRACKING_BASE_URL; both routes are internal and absent from the API Gateway.
+  // See [[ADR-0014-env-validation-zod]]
   ORDERS_BASE_URL: z.string().url(),
   TRACKING_BASE_URL: z.string().url(),
   // Shared events queue consumed by the events-pipeline Lambda. Required in
@@ -45,19 +40,11 @@ const schema = z.object({
   // .env.local.users from the Terraform output, because Floci remints the queue
   // URL on every apply (see [[env-files]]).
   EVENTS_QUEUE_URL: z.string().url(),
-  // ElastiCache Redis, the store for password-reset codes. Both are REQUIRED
-  // (no default host): a missing value must fail at boot with a named Zod error
-  // rather than silently defaulting to "localhost" and producing ECONNREFUSED
-  // on the first password-reset request — see [[ADR-0014-env-validation-zod]].
-  //
-  // ==== REDIS_HOST IS THE BACKING CONTAINER NAME, NEVER "localhost" ====
-  // Locally, Floci backs the replication group with a real `valkey/valkey:8`
-  // container on the compose network, and the endpoint the ElastiCache API
-  // reports is literally "localhost" — which, resolved from inside the `users`
-  // container, is the `users` container itself (measured: ECONNREFUSED). So the
-  // value written into .env.local.users is the `floci-valkey-<id>` hostname,
-  // derived by `make env-file` from a Terraform output. Do not "fix" this to
-  // localhost. Same shape as the DOCDB_HOST quirk in the events-pipeline.
+  // CONTRACT: REDIS_HOST is the backing container name (`floci-valkey-<id>`), NEVER
+  // "localhost". The ElastiCache API reports "localhost", which from inside the
+  // `users` container resolves to that container itself — ECONNREFUSED on the first
+  // password-reset. Both vars are required with no default, so a missing value fails
+  // at boot with a named Zod error instead. See [[ADR-0014-env-validation-zod]]
   REDIS_HOST: z.string().min(1),
   REDIS_PORT: z.coerce.number().int().positive(),
   // Kill switch for the response cache. Defaults to true so a service that never

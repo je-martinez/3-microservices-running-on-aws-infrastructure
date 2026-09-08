@@ -3,16 +3,11 @@ import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import { withWorkflowSpan } from "#shared/observability/workflow-tracing";
 import { testSpanExporter } from "../../setup-tracing.ts";
 
-// A real tracer provider (registered in tests/setup-tracing.ts), not a mock.
-// The point of these tests is the SHAPE of the span that actually reaches an
-// exporter — kind, status, attributes, and above all that it was *ended*. A
-// mocked span object would happily report whatever we told it to and would not
-// catch the one failure this helper exists to prevent: a span left open, which
-// never reaches Jaeger and fails silently rather than erroring.
-//
-// The provider MUST be registered from a setup file. See that file's comment:
-// a module-scope `trace.getTracer()` (which this helper uses) resolves to a
-// no-op ProxyTracer if no provider is registered yet, and never upgrades.
+// CONTRACT: A real tracer provider, registered from a SETUP file, never a mock. These
+// pin the shape of the span that actually reaches an exporter — above all that it was
+// ended — and a mocked span reports whatever it is told, missing the one failure this
+// helper prevents. A module-scope `trace.getTracer()` resolves to a no-op ProxyTracer
+// if no provider is registered yet and never upgrades. See [[mocks-hide-schema-bugs]]
 const exporter = testSpanExporter;
 
 beforeEach(() => {
@@ -64,7 +59,7 @@ describe("withWorkflowSpan", () => {
     // The helper uses startActiveSpan, so anything traced inside `fn` — a Prisma
     // query, an SQS publish — must come out as a CHILD, not a sibling. That
     // parenting is what makes the workflow span the root of the flow's subtree
-    // in Jaeger instead of a decorative extra span beside it.
+    // instead of a decorative extra span beside it.
     await withWorkflowSpan("register", { app_event: "register_started" }, async () => {
       await withWorkflowSpan("inner", {}, async () => undefined);
     });

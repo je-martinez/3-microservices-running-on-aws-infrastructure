@@ -12,9 +12,8 @@ const tracer = trace.getTracer("users-metrics");
 /**
  * Publishes custom metrics to CloudWatch.
  *
- * Every failure is logged and swallowed. A metrics backend being unreachable must
- * never fail the registration, login or password reset that triggered the metric —
- * the same stance SqsEventPublisher takes for events.
+ * Every failure is logged and swallowed: an unreachable metrics backend must never
+ * fail the registration, login or password reset that triggered the metric.
  */
 export class MetricsPublisher {
   private readonly client: CloudWatchClient;
@@ -29,21 +28,12 @@ export class MetricsPublisher {
     dimensions: Record<string, string>,
     unit: "Count" | "Milliseconds" = "Count",
   ): Promise<void> {
-    // A span of OUR OWN, naming the metric, rather than relying on the AWS SDK
-    // auto-instrumentation. The auto span is called `CloudWatch.PutMetricData`
-    // and carries no metric name at all, so this service produced 3,698
-    // identical, unreadable bars — "something published something". A waterfall
-    // renders names, so the name is where the answer has to be.
-    //
-    // It wraps the SDK call, so the auto-instrumented span remains as its child.
-    // That extra level is accepted deliberately: suppressing it means
-    // configuring the SDK's instrumentation in code, which has silently broken
-    // telemetry three times in this repo (see the OTel env-var convention).
-    // A readable parent is worth one nested bar.
-    //
-    // NOT ended in a catch: `publish` swallows every failure by contract, so the
-    // span records the outcome of the CALL while the method still returns
-    // normally.
+    // CONTRACT: Name the span after the metric. The AWS SDK's auto span is called
+    // `CloudWatch.PutMetricData` with no metric name, producing thousands of identical
+    // unreadable bars. Do NOT suppress that child span — that means configuring the
+    // SDK's instrumentation in code, which has silently broken telemetry three times
+    // here. `publish` swallows every failure, so the span records the call's outcome
+    // while the method returns normally. See [[logging-context]]
     await tracer.startActiveSpan(
       `cloudwatch PutMetricData ${name}`,
       {

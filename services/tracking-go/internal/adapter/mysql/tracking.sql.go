@@ -51,10 +51,9 @@ type CreateTrackingParams struct {
 
 // The ONLY path that brings a tracking into existence.
 //
-// `datetime` and the audit timestamps are all passed in from ONE minted `now`,
-// never from several time.Now() calls: MySQL DATETIME here has fsp 0 and ROUNDS
-// fractional seconds rather than truncating, so two calls a millisecond apart
-// can land on different seconds.
+// CONTRACT: Pass `datetime` and the audit timestamps from ONE minted `now`,
+// never several time.Now() calls — DATETIME has fsp 0 and ROUNDS rather than
+// truncating, so two calls a millisecond apart land on different seconds.
 func (q *Queries) CreateTracking(ctx context.Context, arg CreateTrackingParams) error {
 	_, err := q.db.ExecContext(ctx, createTracking,
 		arg.ID,
@@ -103,9 +102,7 @@ type CreateTrackingHistoryParams struct {
 }
 
 // One row per transition. The composite PK (tracking_id, status) makes a
-// duplicate transition fail at INSERT — a second enforcement of the forward-only
-// state machine, independent of the application guard.
-//
+// duplicate fail at INSERT, a second enforcement of the forward-only machine.
 // No id, no tags, no shipping_address: all three omissions are deliberate.
 func (q *Queries) CreateTrackingHistory(ctx context.Context, arg CreateTrackingHistoryParams) error {
 	_, err := q.db.ExecContext(ctx, createTrackingHistory,
@@ -166,24 +163,15 @@ type GetTrackingByOrderIDRow struct {
 
 // Queries for the tracking and tracking_history tables.
 //
-// TWO RULES THAT APPLY TO EVERY QUERY IN THIS FILE:
+// CONTRACT: Backtick and alias `datetime` in every query — it is a MySQL type
+// keyword, so an unbackticked reference is a syntax error at an unhelpful spot.
 //
-//  1. `datetime` is BACKTICKED and ALIASED. It is also a MySQL type keyword, so
-//     an unbackticked reference is a syntax error reported at an unhelpful
-//     location. Every SELECT aliases it to occurred_at so the generated Go field
-//     is a legal, readable identifier.
-//
-//  2. sqlc.slice() GENERATES INVALID SQL FOR AN EMPTY SLICE. sqlc expands the
-//     placeholder once per element, so zero elements produces `IN ()`, which
-//     MySQL rejects outright. Every caller of a query using sqlc.slice MUST
-//     short-circuit to an empty result WITHOUT querying when the slice is empty.
-//     The Python does exactly this. See ListTrackingsByIDs below.
-//
-// Soft delete: every read filters `deleted_at IS NULL`. The application never
-// issues DELETE, and the database user has no DELETE grant.
-// UNSCOPED lookup, used by the internal/gRPC path. Deliberately a SEPARATE query
-// from the scoped one below rather than one query with an optional parameter:
-// Go's zero value for string is "", not nil, so an optional-parameter port
+// CONTRACT: Every caller of a sqlc.slice query MUST short-circuit on an empty
+// slice. sqlc expands the placeholder once per element, so zero elements renders
+// `IN ()`, which MySQL rejects. Every read filters `deleted_at IS NULL`; the
+// application never issues DELETE. See [[soft-delete]]
+// CONTRACT: UNSCOPED, and a SEPARATE query from the scoped one below rather than
+// one with an optional parameter — Go's zero string is "", so an optional port
 // silently converts "unscoped" into "scoped to the empty string".
 func (q *Queries) GetTrackingByOrderID(ctx context.Context, orderID string) (GetTrackingByOrderIDRow, error) {
 	row := q.db.QueryRowContext(ctx, getTrackingByOrderID, orderID)
@@ -256,11 +244,9 @@ type GetTrackingByOrderIDScopedRow struct {
 
 // OWNERSHIP-SCOPED lookup for the user-facing REST reads.
 //
-// Scoped by cognito_sub, NEVER by user_id. The gateway injects the JWT `sub` as
-// the x-user-id header; user_id holds the internal usr_ id Orders resolved
-// through Users. Comparing a sub against a usr_ id never matches, so scoping by
-// user_id would answer 404 for every read — including the caller's own tracking —
-// while looking perfectly implemented.
+// CONTRACT: Scope by cognito_sub, NEVER by user_id. x-user-id carries the JWT
+// sub while user_id holds the internal usr_ id, so a user_id predicate 404s
+// every read including the caller's own while looking implemented.
 func (q *Queries) GetTrackingByOrderIDScoped(ctx context.Context, arg GetTrackingByOrderIDScopedParams) (GetTrackingByOrderIDScopedRow, error) {
 	row := q.db.QueryRowContext(ctx, getTrackingByOrderIDScoped, arg.OrderID, arg.CognitoSub)
 	var i GetTrackingByOrderIDScopedRow
@@ -291,15 +277,12 @@ WHERE JSON_CONTAINS(tags, CAST(? AS JSON))
   AND deleted_at IS NULL
 `
 
-// DO NOT USE. Superseded by internal/adapter/mysql/soft_delete.go, which uses
-// JSON_CONTAINS(tags, JSON_QUOTE(?)) -- the membership test verified against
-// MySQL 8.0.46. CAST(? AS JSON) is not the same predicate.
-// The e2e-cleanup selector. JSON_CONTAINS is how a MySQL JSON array is queried
-// for membership (verified against MySQL 8.0.46).
+// CONTRACT: DO NOT USE. soft_delete.go uses JSON_CONTAINS(tags, JSON_QUOTE(?));
+// CAST(? AS JSON) is not the same predicate. See [[soft-delete]]
+// The e2e-cleanup selector; JSON_CONTAINS is MySQL's array membership test.
 //
-// The tag argument must be the EXACT literal "E2E Source" — space, capitals and
-// all. Users' teardown selects on the same string; a near-miss would clean up
-// nothing while looking correct.
+// CONTRACT: The tag argument is the EXACT literal "E2E Source" — space, capitals
+// and all. A near-miss cleans up nothing while looking correct.
 func (q *Queries) ListE2ETrackingIDs(ctx context.Context, dollar_1 json.RawMessage) ([]string, error) {
 	rows, err := q.db.QueryContext(ctx, listE2ETrackingIDs, dollar_1)
 	if err != nil {
@@ -362,12 +345,10 @@ type ListTrackingHistoryRow struct {
 
 // History for one tracking.
 //
-// ORDER BY datetime alone is NOT deterministic: DATETIME has fsp 0 (second
-// resolution) and one unit of work stamps every row it writes from a single
-// `now`, so ties are common. On a tie MySQL is free to return primary-key order,
-// which for (tracking_id, status) is ALPHABETICAL — DELIVERED first. The FIELD()
-// tiebreaker maps each status to its progression position; domain.SortHistory
-// applies the same rule in Go for any path that assembles history in memory.
+// CONTRACT: Keep the FIELD() tiebreaker. ORDER BY datetime alone is not
+// deterministic — fsp 0 and one `now` per unit of work make ties common, and on
+// a tie MySQL may use the (tracking_id, status) key, which sorts alphabetically
+// and puts DELIVERED first. domain.SortHistory repeats the rule in Go.
 func (q *Queries) ListTrackingHistory(ctx context.Context, trackingID string) ([]ListTrackingHistoryRow, error) {
 	rows, err := q.db.QueryContext(ctx, listTrackingHistory, trackingID)
 	if err != nil {
@@ -527,10 +508,9 @@ type ListTrackingsByIDsRow struct {
 
 // Batch fetch by primary key.
 //
-// !! THE CALLER MUST SHORT-CIRCUIT ON AN EMPTY ids SLICE !!
-// sqlc expands sqlc.slice('ids') once per element. With zero elements the
-// generated SQL is `IN ()`, which MySQL rejects with a syntax error. Return an
-// empty result WITHOUT calling this query when len(ids) == 0.
+// CONTRACT: The CALLER must short-circuit on an empty ids slice. sqlc expands
+// sqlc.slice once per element, so zero elements renders `IN ()`, which MySQL
+// rejects with a syntax error.
 func (q *Queries) ListTrackingsByIDs(ctx context.Context, ids []string) ([]ListTrackingsByIDsRow, error) {
 	query := listTrackingsByIDs
 	var queryParams []interface{}
@@ -594,11 +574,10 @@ type SoftDeleteTrackingHistoryByCognitoSubParams struct {
 	CognitoSub sql.NullString
 }
 
-// DO NOT USE. Superseded by internal/adapter/mysql/soft_delete.go. Besides the
-// two defects above, this one filters history by its OWN cognito_sub column
-// rather than by the parent's id through the FK, so history hanging off a row
-// with a NULL sub is never swept -- leaving live children under a deleted
-// parent, which is exactly what the children-first ordering exists to prevent.
+// CONTRACT: DO NOT USE. Beyond the two defects above, this filters history by
+// its OWN cognito_sub rather than the parent's id through the FK, so history
+// under a NULL-sub row is never swept — live children under a deleted parent.
+// See [[soft-delete]]
 // History side of the account-deletion cascade.
 func (q *Queries) SoftDeleteTrackingHistoryByCognitoSub(ctx context.Context, arg SoftDeleteTrackingHistoryByCognitoSubParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, softDeleteTrackingHistoryByCognitoSub, arg.DeletedAt, arg.DeletedBy, arg.CognitoSub)
@@ -622,17 +601,11 @@ type SoftDeleteTrackingsByCognitoSubParams struct {
 	CognitoSub sql.NullString
 }
 
-// DO NOT USE. Superseded by internal/adapter/mysql/soft_delete.go, which is the
-// only correct erasure path. This statement is kept because deleting it would
-// change the generated Querier interface, and it is wrong in two ways that a
-// future adopter would not notice:
-//  1. It matches cognito_sub ALONE. The account-deletion cascade must match
-//     cognito_sub OR user_id: a row whose sub is NULL (they predate migration
-//     b17f4c2e9a30) would survive erasure while the endpoint answered 200.
-//  2. It carries no COLLATE utf8mb4_bin pin. The column is case-INSENSITIVE and
-//     the ids are mixed-case, so this predicate was measured on this very server
-//     sweeping a DIFFERENT user's row.
-//
+// CONTRACT: DO NOT USE. soft_delete.go is the only correct erasure path; this
+// is kept only because removing it changes the generated Querier. It matches
+// cognito_sub ALONE, so a NULL-sub row survives erasure while the endpoint
+// answers 200, and it has no COLLATE utf8mb4_bin pin, so its case-insensitive
+// predicate sweeps a DIFFERENT user's row. See [[soft-delete]]
 // Account-deletion cascade. Soft delete only: stamps deleted_at/deleted_by and
 // never issues DELETE.
 func (q *Queries) SoftDeleteTrackingsByCognitoSub(ctx context.Context, arg SoftDeleteTrackingsByCognitoSubParams) (int64, error) {

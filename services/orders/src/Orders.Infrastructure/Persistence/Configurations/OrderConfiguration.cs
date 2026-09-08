@@ -10,14 +10,10 @@ namespace Orders.Infrastructure.Persistence.Configurations;
 
 public class OrderConfiguration : IEntityTypeConfiguration<Order>
 {
-    // Tags <-> MySQL `json`. MySQL 8 has no native array type (unlike Postgres, which
-    // is what Users uses), so the list is serialized to a JSON array string. Domain
-    // keeps a plain List<string> and never learns about the storage shape.
-    //
-    // Deliberately serialized here rather than with EF's OwnsMany/ToJson: this is a
-    // scalar column the cleanup query has to filter on with MySQL's JSON_CONTAINS
-    // (see E2eEndpoints), and a JSON-owned collection would model it as a nested
-    // entity type instead.
+    // CONTRACT: Serialize here, not with EF's OwnsMany/ToJson — the cleanup query filters
+    // this column with JSON_CONTAINS, and a JSON-owned collection becomes a nested entity
+    // type instead of the scalar column that needs. MySQL 8 has no native array type, so the
+    // list is a JSON array string and Domain keeps a plain List<string>.
     private static readonly ValueConverter<List<string>, string> TagsConverter = new(
         tags => JsonSerializer.Serialize(tags, (JsonSerializerOptions?)null),
         // Null/blank -> empty list, never null: Order.Tags is non-nullable, and rows

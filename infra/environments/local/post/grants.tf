@@ -1,14 +1,9 @@
-# Grant the MySQL identity this root's `mysql` provider connects as (the `test`
-# user, local.master) the two privileges it needs to create app-users at all:
-# CREATE USER ON *.* and SELECT ON mysql.*. Without them this apply fails 1227
-# on CREATE USER, then 1142 diffing the grants it just wrote. They used to be
-# issued by phase 1's create_mysql_database.py, only because that script happens
-# to run as root; they are phase-2 prerequisites and now live here.
-#
-# Independent of terraform_data.wait_for_db — the gate only pings the port and
-# needs no privileges, so the two run in PARALLEL and both gate the MySQL
-# app-user modules. Only created when the mysql engine is enabled: with
-# enabled_app_users = ["postgres"] there is no mysql provider to enable.
+# CONTRACT: The `mysql` provider's identity needs CREATE USER ON *.* and SELECT
+# ON mysql.* before any app-user can be created. Without them this apply fails
+# 1227 on CREATE USER, then 1142 diffing the grants it just wrote.
+# Independent of terraform_data.wait_for_db — the gate needs no privileges, so
+# the two run in parallel and both gate the MySQL app-user modules. Created only
+# when the mysql engine is enabled. See [[two-phase-terraform-apply]]
 resource "terraform_data" "mysql_provider_grants" {
   count = contains(var.enabled_app_users, "mysql") ? 1 : 0
 

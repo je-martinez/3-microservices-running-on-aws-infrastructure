@@ -14,16 +14,10 @@ import (
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/platform/logging"
 )
 
-// The composition root's LOG WIRING tests.
-//
-// internal/adapter/otel/loghandler_test.go already proves TraceHandler stamps
-// trace_id/span_id — by wrapping it by hand. It passed while the running process
-// emitted neither, because nothing ever applied the wrapper. A test that builds
-// its own subject can only prove the subject works; it can never prove anyone
-// uses it.
-//
-// So these run against installLogHandler — the exact function run() calls — and
-// assert on its OUTPUT, not on its collaborators.
+// CONTRACT: These run against installLogHandler — the exact function run()
+// calls — and assert on its OUTPUT, not its collaborators. A test that builds
+// its own subject proves the subject works and never that anyone uses it.
+// See [[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]]
 
 var (
 	wiringTraceIDHex = regexp.MustCompile(`^[0-9a-f]{32}$`)
@@ -128,13 +122,10 @@ func TestInstalledLoggerCarriesBothLayers(t *testing.T) {
 	}
 }
 
-// TestInstalledLoggerKeepsCallSiteAttributesWinning pins the WRAPPER ORDER.
-//
-// Both wrappers append their fields AFTER the record's own, and the JSON handler
-// keeps the FIRST occurrence of a key. So a call site that names its own
-// order_id or trace_id must still win through the full production stack. If the
-// order were inverted — a wrapper adding its fields before the record's — the
-// ambient value would silently take over and the line would lie.
+// TestInstalledLoggerKeepsCallSiteAttributesWinning pins the WRAPPER ORDER. Both
+// wrappers append after the record's own fields and the JSON handler keeps the
+// FIRST occurrence, so a call site naming its own order_id wins; inverted, the
+// ambient value takes over and the line lies.
 func TestInstalledLoggerKeepsCallSiteAttributesWinning(t *testing.T) {
 	tp := sdktrace.NewTracerProvider()
 	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
@@ -159,20 +150,12 @@ func TestInstalledLoggerKeepsCallSiteAttributesWinning(t *testing.T) {
 	}
 }
 
-// TestTheTwoEnrichersWriteDISJOINTKeys pins the premise that makes the wrapper
-// order safe.
-//
-// A mutation check found that SWAPPING the two wrappers changes only the ORDER
-// of the keys in the emitted JSON, never a value — because the seven keys the
-// log context may carry and the two the trace layer writes do not overlap, so
-// the "first occurrence wins" rule inside the JSON renderer never has to choose
-// between them. That is a property of today's allow-list, not a law.
-//
-// If someone adds trace_id to logging's allow-list, the two layers start
-// competing for the same key and the order becomes load-bearing: the outer
-// wrapper's value would land first and win. This test fails at that commit,
-// which is the moment the decision needs re-making — rather than silently
-// letting an ambient trace_id shadow the real span's.
+// TestTheTwoEnrichersWriteDisjointKeys pins the premise that makes the wrapper
+// order safe: the log context's keys and the trace layer's do not overlap, so
+// "first occurrence wins" never has to choose between them. That is a property
+// of today's allow-list, not a law — adding trace_id to it makes the two layers
+// compete and this test fails at that commit, which is when the decision needs
+// re-making rather than an ambient trace_id silently shadowing the real span's.
 func TestTheTwoEnrichersWriteDisjointKeys(t *testing.T) {
 	traceLayerKeys := []string{"trace_id", "span_id"}
 
@@ -190,12 +173,8 @@ func TestTheTwoEnrichersWriteDisjointKeys(t *testing.T) {
 }
 
 // TestInstallProcessLoggerSetsTheDefaultLogger covers the other half of what
-// run() calls: the enriched logger must also become slog.Default, so a package
-// that reaches for slog.InfoContext with no logger of its own is enriched too.
-//
-// This is the Go equivalent of the Python attaching both filters to the root
-// HANDLER rather than to individual loggers (src/shared/logging/config.py): the
-// enrichment must catch records from code that never asked for it.
+// run() calls: the enriched logger must also become slog.Default, so the
+// enrichment catches records from code that never asked for it.
 func TestInstallProcessLoggerSetsTheDefaultLogger(t *testing.T) {
 	tp := sdktrace.NewTracerProvider()
 	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })

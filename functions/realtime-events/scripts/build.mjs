@@ -1,22 +1,9 @@
-// Bundles each Lambda entrypoint into a self-contained dist/<name>.js.
-//
-// WHY A BUNDLER AND NOT PLAIN `tsc`:
-// Terraform's archive_file zips the CONTENTS of dist/ at the ZIP ROOT
-// (infra/modules/lambda/main.tf), so whatever is not inside dist/ does not
-// ship. Plain `tsc` would emit files that still contain `import ... from
-// "#shared/jwt"`, and Node resolves `#` subpath imports through the NEAREST
-// package.json — which dist/ does not have. The deployed function would
-// therefore die on its first invocation with ERR_PACKAGE_IMPORT_NOT_DEFINED,
-// before any handler code ran. `node_modules` would be missing too, so
-// `aws-jwt-verify` and the AWS SDK clients would be unresolvable as well.
-//
-// Bundling fixes both at once: esbuild resolves the `#` specifiers at build
-// time (it reads the real package.json `imports` map) and inlines the
-// dependencies, so each zip is one file with no resolution left to do at
-// runtime.
-//
-// Type checking is NOT lost: `pnpm run build` runs `tsc --noEmit` first (see
-// package.json). esbuild only strips types, it never checks them.
+// Bundles each Lambda entrypoint into a self-contained dist/<name>.js. Type
+// checking is not lost: `pnpm run build` runs `tsc --noEmit` first.
+// CONTRACT: Bundle, do NOT emit with plain `tsc`. archive_file zips the contents
+// of dist/ at the zip root, which carries no package.json and no node_modules,
+// so unresolved `#` subpath imports kill the function on its first invocation
+// with ERR_PACKAGE_IMPORT_NOT_DEFINED, before any handler code runs.
 import { build } from "esbuild";
 import { rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -26,11 +13,6 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 // Clean, so a stale file from a previous layout cannot linger in the zip.
 await rm(new URL("../dist", import.meta.url), { recursive: true, force: true });
 
-// esbuild, not tsc: tsc leaves the `#` subpath imports unresolved and dist/
-// has no package.json to resolve them against, so the first invocation dies
-// with ERR_PACKAGE_IMPORT_NOT_DEFINED. format: "cjs" is equally load-bearing:
-// an ESM bundle emitted as .js loads under Node 24 but fails under the
-// nodejs20.x runtime with ERR_REQUIRE_CYCLE_MODULE.
 await build({
   absWorkingDir: root,
   entryPoints: [
@@ -44,13 +26,10 @@ await build({
   platform: "node",
   // Matches infra/modules/lambda/variables.tf's runtime default (nodejs20.x).
   target: "node20",
-  // CommonJS, deliberately, even though the source is ESM ("type": "module").
-  // The zip root contains <name>.js and NO package.json, so the runtime has
-  // nothing telling it the file is ESM and falls back to CommonJS by
-  // extension. Verified empirically (events-pipeline): an ESM bundle emitted
-  // as .js loads under Node 24 (which sniffs module syntax) but FAILS under
-  // the nodejs20.x runtime this function targets, with
-  // ERR_REQUIRE_CYCLE_MODULE.
+  // CONTRACT: CJS, even though the source is ESM. The zip root has no
+  // package.json to mark the file as ESM, and an ESM bundle emitted as .js loads
+  // under local Node 24 but dies on nodejs20.x with ERR_REQUIRE_CYCLE_MODULE —
+  // so testing locally reports a false pass.
   format: "cjs",
   // Off deliberately — see events-pipeline/scripts/build.mjs for the size
   // rationale (the map is often larger than the bundle itself).

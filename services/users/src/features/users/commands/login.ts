@@ -45,18 +45,12 @@ export class LoginUserCommand {
       "Starting user login",
     );
 
-    // The passwordless guard. Cognito still holds a random, never-revealed
-    // password for a PASSWORDLESS user (register-passwordless.ts generates and
-    // discards it), so relying on "nobody knows it" alone would be cosmetic —
-    // this check makes the property structural by rejecting BEFORE any Cognito
-    // call. It costs one DB round-trip on every login; that is accepted.
-    //
-    // DO NOT "fix" this into a 403: the response is deliberately the SAME
-    // generic 401 invalid_credentials a wrong password gets. Per
-    // docs/domains/users/decisions/auth-error-mapping.md's anti-enumeration
-    // rule, a distinct status or code here would let a caller confirm an
-    // account exists AND learn it is passwordless from the response alone. The
-    // real cause is recorded ONLY in the log, as reason: "passwordless_user".
+    // CONTRACT: Do NOT turn this into a 403 — it answers the SAME generic 401
+    // invalid_credentials a wrong password gets, or a caller learns both that the
+    // account exists and that it is passwordless. The real cause goes only to the log
+    // as `reason: passwordless_user`. Rejecting BEFORE any Cognito call makes the
+    // property structural: Cognito still holds a random never-revealed password for
+    // these users. See [[auth-error-mapping]]
     const existing = await this.db.user.findUnique({ where: { email: input.email } });
     if (existing?.authType === "PASSWORDLESS") {
       appLogger.error(
@@ -77,8 +71,8 @@ export class LoginUserCommand {
 
     try {
       const tokens = await this.auth.login(input.email, input.password);
-      // NOTE: `tokens` is deliberately NOT logged — access and refresh tokens
-      // are credentials, exactly like the password.
+      // WARNING: Never log `tokens` — access and refresh tokens are credentials,
+      // exactly like the password.
       appLogger.info(
         { app_event: "login_succeeded", email: maskEmail(input.email) },
         "User login completed",

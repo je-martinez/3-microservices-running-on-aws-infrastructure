@@ -18,14 +18,12 @@ const (
 	StatusDelivered      Status = "DELIVERED"
 )
 
-// statusOrder is the allowed progression, in order. Position in this slice IS
-// the ordering every guard below compares against.
+// statusOrder is the allowed progression; position in this slice IS the ordering.
 //
-// NEVER order statuses by comparing the Status values directly. Status has
-// underlying type string, so `<` compiles and silently yields ALPHABETICAL
-// order, in which DELIVERED < PLACED — the terminal status sorting before the
-// initial one. That comparison would type-check, run, and be wrong. The index
-// lookup below is the only ordering in this package.
+// CONTRACT: NEVER compare Status values directly. The underlying type is string,
+// so `<` compiles and silently yields ALPHABETICAL order, in which DELIVERED <
+// PLACED — it type-checks, runs, and is wrong. The index lookup is the only
+// ordering in this package.
 var statusOrder = [...]Status{
 	StatusPlaced,
 	StatusProcessing,
@@ -44,11 +42,10 @@ const (
 
 // RejectionReason is the machine-readable reason a transition was rejected.
 //
-// Three distinct values on purpose. A single `requested > current` comparison
-// would satisfy all three guards at once and collapse them into one
-// indistinguishable failure. Keeping them separate gives the `reason` field the
-// logging convention requires on *_failed events, and lets each guard be tested
-// independently.
+// CONTRACT: Keep the three values distinct. One `requested > current` check
+// satisfies all three guards at once and collapses them into an
+// indistinguishable failure, losing the `reason` *_failed events carry.
+// See [[logging-context]]
 type RejectionReason string
 
 const (
@@ -92,14 +89,11 @@ func StatusIndex(s Status) (int, bool) {
 }
 
 // CheckTransition evaluates current -> requested against the three guards.
+// Skipping is ALLOWED — this is forward-only, not next-step-only.
 //
-// The guards run in this order and THE ORDER IS LOAD-BEARING. DELIVERED->PLACED
-// violates guards 1 and 2 simultaneously; DELIVERED->DELIVERED violates 1 and 3.
-// Terminality is the more specific fact about the tracking, so it is reported
-// first.
-//
-// Skipping is ALLOWED: PLACED -> DELIVERED is legal. This is a forward-only
-// machine, not a next-step-only one.
+// CONTRACT: The guard ORDER is load-bearing. DELIVERED->PLACED violates 1 and 2
+// at once and DELIVERED->DELIVERED violates 1 and 3, and terminality is the
+// more specific fact, so it is reported first.
 func CheckTransition(current, requested Status) TransitionCheck {
 	// Guard 1: terminal. Checked before the ordering guards so that a tracking
 	// already delivered reports already_delivered whatever is requested of it,

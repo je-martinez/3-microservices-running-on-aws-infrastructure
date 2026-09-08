@@ -8,33 +8,13 @@ import (
 	cache "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/redis"
 )
 
-// The CACHE's metrics port and the CLOUDWATCH publisher are two components that
-// were each correct, each tested, and NOT CONNECTED TO EACH OTHER.
-//
-// internal/adapter/redis computes cache_requests_total and
-// cache_operation_duration_ms on every single cache operation — hit, miss,
-// bypass, set, invalidate — and hands them to the narrow `cache.Metrics` port it
-// declares itself. The composition root passed `cache.NewNoopMetrics()` there
-// unconditionally, so every one of those datapoints was computed and then
-// discarded, even with METRICS_ENABLED=true.
-//
-// # WHY NO EXISTING TEST CAUGHT IT
-//
-// Because both halves pass in isolation, which is the whole shape of this class
-// of bug:
-//
-//   - gateway_test.go asserts the gateway publishes both metrics — through a spy
-//     it injects itself. It proves the gateway CAN publish, never that anything
-//     in the running process RECEIVES.
-//   - publisher_test.go asserts the CloudWatch publisher emits a correct datum —
-//     through a recording double it injects itself. It proves the publisher CAN
-//     emit, never that anything CALLS it with a cache metric.
-//
-// The seam between them lived in main(), which cannot be imported, so nothing
-// asserted on it at all. Two green suites, a dashboard permanently at "no data",
-// and no failing test anywhere.
-//
+// CONTRACT: These assert the SEAM between the cache's metrics port and the
+// CloudWatch publisher. Each half passes in isolation — gateway_test proves the
+// gateway CAN publish through its own spy, publisher_test proves the publisher
+// CAN emit through its own double — and neither can see that nothing connects
+// them, leaving a dashboard permanently at "no data" with no failing test.
 // selectCacheMetrics is that seam, extracted so it CAN be asserted on.
+// See [[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]]
 
 // TestCacheMetricsReachCloudWatchWhenMetricsAreEnabled is the production-path
 // assertion: with METRICS_ENABLED on, the object handed to the cache gateway must
@@ -78,13 +58,10 @@ func TestCacheMetricsAreDiscardedWhenMetricsAreDisabled(t *testing.T) {
 	}
 }
 
-// TestCacheMetricsToleratesAnAbsentPublisher pins the degraded wiring: when
-// METRICS_ENABLED is true but no publisher was constructed, the cache must get
-// the noop rather than a nil that panics on the first cache operation.
-//
-// The nil is passed as a TYPED nil interface value, which is exactly how the bug
-// would arrive: cloudwatch.Publisher is an interface, and a nil one reaching the
-// gateway would panic on the first request rather than at startup.
+// TestCacheMetricsToleratesAnAbsentPublisher pins the degraded wiring: with
+// METRICS_ENABLED on and no publisher constructed, the cache gets the noop, not
+// a nil that panics on the first cache operation. The nil is passed as a TYPED
+// nil interface value, exactly how the bug would arrive.
 func TestCacheMetricsToleratesAnAbsentPublisher(t *testing.T) {
 	defer func() {
 		if r := recover(); r != nil {

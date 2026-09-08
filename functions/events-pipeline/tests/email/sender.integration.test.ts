@@ -1,17 +1,12 @@
 import { describe, it, expect, beforeAll } from "vitest";
 
-// Layer 2 — a REAL email, through the real transport, asserted from the real
-// inbox: userCreatedHandler → render → SES SendEmail (Floci) → SMTP relay →
-// Mailpit, read back over Mailpit's HTTP API. Nothing here is mocked.
-//
-// Why this exists on top of the unit tests: those assert what the handler HANDS
-// to sendEmail. They cannot catch a wrong SES `Source`, an unverified sender, a
-// relay that drops the HTML body, or an endpoint pointing at nothing — every
-// failure mode that lives between our process and the inbox.
-//
-// Connectivity, UNLIKE the DocumentDB integration suite (which must run inside
-// 3mrai_3mrai-network): both Floci (:4566) and Mailpit (:8025) publish their
-// ports to the host, so this suite runs from the host with no container gymnastics.
+// CONTRACT: Layer 2 — a REAL email end to end, nothing mocked: handler → render
+// → SES (Floci) → SMTP relay → Mailpit, read back over Mailpit's API. The unit
+// tests only assert what the handler HANDS to sendEmail, so they cannot catch a
+// wrong SES `Source`, an unverified sender, a relay dropping the HTML body, or
+// an endpoint pointing at nothing. Both ports publish to the host, so unlike the
+// DocumentDB suite this one needs no container network.
+// See [[testing]]
 const FLOCI_ENDPOINT = process.env.AWS_ENDPOINT_URL ?? "http://localhost:4566";
 const MAILPIT_API = process.env.MAILPIT_API_URL ?? "http://localhost:8025/api/v1";
 
@@ -92,14 +87,11 @@ describe.skipIf(!reachable)("USER_CREATED email (integration: SES → Floci rela
     process.env.DOCDB_HOST ??= "unused-by-this-suite";
     process.env.DOCDB_USERNAME ??= "unused";
     process.env.DOCDB_PASSWORD ??= "unused";
-    // UNLIKE the DOCDB_* placeholders above, this default is the REAL local
-    // bucket URL, because this suite renders a template and the delivered
-    // message is then read back out of Mailpit. A dummy host would still pass
-    // every assertion here (none of them fetches an image), but the message a
-    // developer opens in Mailpit to eyeball would show broken icons — which is
-    // exactly the thing this suite exists to make visible. It mirrors
-    // .env.local.events-pipeline, and `??=` lets that file's real value win when
-    // the suite is run with the generated environment loaded.
+    // CONTRACT: The REAL local bucket URL, unlike the DOCDB_* placeholders
+    // above. A dummy host passes every assertion here (none fetches an image)
+    // while the message a developer opens in Mailpit shows broken icons — the
+    // exact thing this suite exists to make visible. `??=` lets the generated
+    // environment's value win.
     process.env.ASSETS_BASE_URL ??= "http://localhost:4566/post-3mrai-local-post-assets";
   });
 

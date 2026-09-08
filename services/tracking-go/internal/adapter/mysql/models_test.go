@@ -27,18 +27,10 @@ func TestTagsColumnUsesTheHandWrittenType(t *testing.T) {
 }
 
 func TestShippingAddressScansNullableJSON(t *testing.T) {
-	// Deliberately NOT a Go struct. The shape is owned by Orders/Users; this
-	// service only stores and returns it, so an additive upstream field must not
-	// become a tracking-creation outage.
-	//
-	// []byte and not json.RawMessage, and the difference is load-bearing rather
-	// than stylistic: json.RawMessage does not implement sql.Scanner, so a NULL
-	// in this nullable column fails AT RUNTIME with
-	//
-	//   unsupported Scan, storing driver.Value type <nil> into *json.RawMessage
-	//
-	// Most rows have no address, so that is the common path, not an edge case.
-	// []byte takes NULL as a nil slice. Verified against a real MySQL row.
+	// CONTRACT: []byte, not json.RawMessage and not a Go struct. RawMessage is no
+	// sql.Scanner, so a NULL in this nullable column fails at RUNTIME — and most
+	// rows have no address, so that is the common path. The shape stays opaque
+	// because Orders/Users own it.
 	field, ok := reflect.TypeOf(Tracking{}).FieldByName("ShippingAddress")
 	if !ok {
 		t.Fatal("Tracking has no ShippingAddress field")

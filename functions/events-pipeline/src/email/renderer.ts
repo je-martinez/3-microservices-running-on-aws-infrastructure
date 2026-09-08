@@ -5,13 +5,10 @@ import { PermanentError } from "#pipeline/errors";
 import { pipelineTracer } from "#shared/observability/tracing";
 import { publishEmailMetric } from "#shared/metrics/cloudwatch-metrics";
 
-// Renders a registered template to an HTML string. The renderer knows nothing
-// about individual templates — it only reads the catalog — so Tasks 11 and 12
-// add entries without touching this file.
-//
-// A missing template is PERMANENT, not transient: the key comes from our own
-// code, so a retry re-runs the same lookup and fails identically. Classifying
-// it transient would push the record into batchItemFailures and flood the DLQ.
+// Renders a registered template to an HTML string. The renderer reads only the
+// catalog, so a new template is an entry there, not a change here.
+// CONTRACT: A missing template is PERMANENT, never transient — the key is our
+// own code, so a retry fails identically and floods the DLQ.
 export async function renderTemplate(templateKey: string, props: unknown): Promise<string> {
   // Own-property lookup: a plain `catalog[key]` resolves inherited members like
   // "constructor" or "toString", and we would then try to call one as a
@@ -32,20 +29,10 @@ export async function renderTemplate(templateKey: string, props: unknown): Promi
     throw new PermanentError(`missing template: ${templateKey}`);
   }
 
-  // INTERNAL, not CLIENT: this is React rendering an HTML string in-process —
-  // no socket, no remote peer. `withClientSpan` would be the wrong helper and a
-  // CLIENT kind would make this look like a dependency call in every service map.
-  //
-  // It is instrumented because it turned out to DOMINATE the record. Once the
-  // DocumentDB transitions got their own spans, `process_record` still showed a
-  // ~167ms hole between `handler_dispatched` and `ses SendEmail` — measured on
-  // trace 049808878a72285defdd27deb58850e8. That hole is this call: rendering the
-  // order receipt costs multiples of the SES round trip it precedes, which is the
-  // opposite of what the waterfall implied while the render was invisible and SES
-  // was the only visible cost in the handler.
-  //
-  // Named by template so the four templates are comparable to each other rather
-  // than averaged into one figure.
+  // CONTRACT: INTERNAL, not CLIENT — React renders in-process, with no socket,
+  // and a CLIENT kind draws this as a dependency call in every service map.
+  // The span stays: this render DOMINATES the record, costing multiples of the
+  // SES round trip it precedes. Named per template so the four are comparable.
   return pipelineTracer.startActiveSpan(
     `email render ${templateKey}`,
     { kind: SpanKind.INTERNAL, attributes: { "email.template": templateKey } },

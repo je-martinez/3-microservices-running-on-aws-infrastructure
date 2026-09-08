@@ -5,24 +5,12 @@ import { sendEmail } from "#email/sender";
 import { PermanentError } from "#pipeline/errors";
 import type { HandlerDeps } from "#pipeline/process-record";
 
-// Payload contract — DELIBERATELY IDENTICAL to AUTH_OTP_REQUESTED's
-// (`{ email, full_name, code, ttlSeconds }`), including its mixed casing:
-// `full_name` in the producer's snake_case next to camelCase `ttlSeconds`. The
-// two events carry the same four facts, so a second spelling of the same shape
-// would be a difference with no meaning behind it — and this schema validates
-// the wire, not a preference.
-//
-// `full_name` is a plain `z.string()` — NOT `.min(1)`. Cognito has no `name`
-// attribute populated today (Users' AdminCreateUser writes only `email`,
-// `email_verified` and `custom:app_user_id`), so the producer falls back to `""`
-// and the EMPTY STRING IS THE NORMAL PATH, not an edge case. A `.min(1)` here
-// would reject the whole envelope and cost the user their reset code over a
-// missing greeting.
-//
-// `code` is Cognito's six-digit ForgotPassword code, kept as `z.string().min(1)`
-// rather than a six-digit pattern: a length rule here would turn a Cognito
-// format change into silently discarded reset emails, and the template already
-// renders codes of any length one box per character.
+// CONTRACT: Identical by design to AUTH_OTP_REQUESTED's schema, mixed casing
+// included — this validates the WIRE, and the two events carry the same four
+// facts. `full_name` is a plain `z.string()`, NOT `.min(1)`: Cognito populates
+// no `name` attribute, so "" is the normal path and `.min(1)` costs the user
+// their reset code. `code` stays `.min(1)` rather than a six-digit pattern — a
+// length rule turns a Cognito format change into silently discarded emails.
 const PasswordResetRequestedPayloadSchema = z.object({
   email: z.string().email(),
   full_name: z.string(),
@@ -30,27 +18,19 @@ const PasswordResetRequestedPayloadSchema = z.object({
   ttlSeconds: z.number().positive(),
 });
 
-// Same flow as authOtpRequestedHandler: validate payload (Zod) → render the
-// react-email template to HTML → SES SendEmail → COMPLETED.
-//
-// The code reaches this handler through the envelope's payload, exactly as
-// every other event type does. It is the PERSISTED copy of that payload that
-// never carries it (see #domain/redact-payload, applied in
-// #pipeline/process-record) — not this in-memory one, which has to hold the
-// real code in order to email it.
+// validate (Zod) → render → SES SendEmail.
+// CONTRACT: The in-memory payload holds the real code, because emailing it is
+// the point. It is the PERSISTED copy that never carries it — #domain/redact-
+// payload strips it in #pipeline/process-record.
 export async function passwordResetRequestedHandler(envelope: Envelope, deps: HandlerDeps = {}): Promise<void> {
   const result = PasswordResetRequestedPayloadSchema.safeParse(envelope.payload);
 
   if (!result.success) {
-    // PERMANENT: the payload will not become valid on a redelivery, so the
-    // message is consumed and the document recorded FAILED.
-    //
-    // Only the FIELD PATHS are reported, never Zod's own message — it echoes
-    // the offending input, which here would be the reset code itself, a live
-    // credential, on top of the plaintext email address. This string is
-    // persisted on the (already-redacted) event document and logged as
-    // `reason` (see src/handler.ts), so it must be credential- and PII-free by
-    // construction.
+    // PERMANENT: a redelivery cannot make this payload valid.
+    // CONTRACT: Report FIELD PATHS only, never Zod's message — it echoes the
+    // offending input, here a LIVE reset code alongside the plaintext email.
+    // This string is persisted and logged as `reason`.
+    // See [[logging-context]]
     const fields = result.error.issues.map((issue) => issue.path.join(".")).join(", ");
     throw new PermanentError(`invalid PASSWORD_RESET_REQUESTED payload: invalid fields: ${fields}`);
   }

@@ -15,18 +15,11 @@ namespace Orders.Tests.Messaging;
 /// Verifies the ORDER_CREATED message this publisher actually puts on the wire.
 /// </summary>
 /// <remarks>
-/// <para>
-/// Every assertion reads the <see cref="SendMessageRequest"/> the publisher BUILT, captured
-/// by a recording fake. None asserts a stub's configured behaviour back at itself: a test
-/// that checks "the throwing fake threw" or "the value I configured came back" passes
-/// against any implementation, including one that publishes nothing or leaks PII.
-/// </para>
-/// <para>
-/// The contract under test belongs to the CONSUMER —
-/// <c>functions/events-pipeline/src/domain/envelope.ts</c> and
-/// <c>src/handlers/order-created.ts</c> — and a mismatch fails silently in production
-/// (PermanentError → recorded FAILED → no email), which is exactly why it is pinned here.
-/// </para>
+/// CONTRACT: Every assertion reads the <see cref="SendMessageRequest"/> the publisher BUILT.
+/// Do NOT assert a stub's configured behaviour back at itself — that passes against any
+/// implementation, including one that publishes nothing or leaks PII. The contract belongs
+/// to the consumer's Zod schemas, and a mismatch fails silently in production
+/// (PermanentError, no email). See [[events-pipeline-design]]
 /// </remarks>
 public class SqsEventPublisherTests
 {
@@ -36,37 +29,33 @@ public class SqsEventPublisherTests
     private const string Email = "buyer@example.com";
     private const string FullName = "Ada Lovelace";
 
-    // A breakdown whose four figures are mutually DISTINCT and genuinely add up
-    // (2999 + 240 + 1500 = 4739). Distinct values are what make a publisher that wired
-    // subtotal into tax_cents — or derived one figure from another — fail here instead of
-    // coinciding; and a sum that balances is the arithmetic the receipt itself prints.
+    // CONTRACT: Keep the four figures mutually distinct and adding up (2999+240+1500=4739).
+    // Equal values let a publisher that crossed subtotal into tax_cents coincide into a pass.
     private const long SubtotalCents = 2999;
     private const long TaxCents = 240;
     private const long ShippingCents = 1500;
     private const long TotalCents = 4739;
 
-    // The address as it is persisted on the order: already JSON, which is why the payload
-    // must embed it as an object rather than as a string-of-JSON.
+    // WHY: Already JSON, as persisted on the order — the payload embeds it as an object.
     private const string ShippingAddressJson =
         """{"line1":"1 Ada Way","city":"San Juan","country":"PR","postal_code":"00901"}""";
 
-    // Two lines with different names, quantities and prices, so a publisher that emitted
-    // the same item twice, dropped one, or crossed quantity with price cannot pass.
+    // CONTRACT: Two lines differing in name, quantity and price, so emitting one twice,
+    // dropping one, or crossing quantity with price cannot pass.
     private static readonly IReadOnlyList<OrderCreatedItem> Items = new[]
     {
         new OrderCreatedItem("Mechanical Keyboard", 2, 1200),
         new OrderCreatedItem("USB-C Cable", 1, 599),
     };
 
-    // Deliberately unlike UserId: an implementation that put the internal id in
-    // author.cognito_sub (or vice versa) must fail rather than coincide.
+    // CONTRACT: Deliberately unlike UserId, so swapping the two identities fails here.
     private const string CognitoSub = "a1b2-c3d4";
 
     private static readonly DateTime CreatedAt =
         new(2026, 8, 3, 14, 30, 15, DateTimeKind.Utc);
 
-    // One place to build a full-fat publish call, so a future parameter is added once here
-    // instead of in every test — and so each test names ONLY the argument it is about.
+    // WHY: One place to build a full publish call, so each test names only the argument it
+    // is about.
     private static Task Publish(
         SqsEventPublisher publisher,
         string? cognitoSub = CognitoSub,
@@ -102,8 +91,7 @@ public class SqsEventPublisherTests
         await Publish(publisher);
 
         var request = Assert.Single(sqs.Requests);
-        // The queue URL is injected, never hardcoded — this pins that the injected value
-        // is the one actually used.
+        // WHY: Pins that the injected queue URL is the one actually used.
         Assert.Equal(QueueUrl, request.QueueUrl);
     }
 
@@ -457,15 +445,11 @@ public class SqsEventPublisherTests
         Assert.Equal(activity.TraceId.ToHexString(), traceparent.StringValue.Split('-')[1]);
     }
 
-    // The regression test for the span-hierarchy bug: the message's traceparent named the
-    // enclosing WORKFLOW span (create_order), not the send. The consumer parents its work
-    // to whatever it receives, so process_record came out a SIBLING of the publish instead
-    // of its child — expanding the send in the waterfall showed AWS SDK internals and none
-    // of the work it actually caused.
-    //
-    // Asserted against the SpanId the publisher's own activity REPORTED at runtime, not a
-    // re-derivation of the value under test: comparing the attribute to itself would pass
-    // against any implementation, including the broken one.
+    // CONTRACT: The traceparent must name the PUBLISH span, not the enclosing create_order
+    // workflow — the consumer parents its work to whatever it receives, so process_record
+    // comes out a sibling of the send and the waterfall shows only SDK internals. Assert
+    // against the SpanId the activity reported at runtime, never a re-derivation of the
+    // value under test.
     [Fact]
     public async Task Injects_the_publish_spans_traceparent_not_the_enclosing_workflows()
     {
@@ -543,15 +527,11 @@ public class SqsEventPublisherTests
         Assert.Equal(publishSpan.SpanId.ToHexString(), traceparent.Split('-')[2]);
     }
 
-    // The publish span was mute: it carried a traceparent but no log line of its own, so
-    // "View logs" on it in OpenObserve returned nothing at all. That button filters by
-    // trace_id AND span_id with no fallback to the trace, so only a line written while THIS
-    // activity is current can answer it.
-    //
-    // Asserted with SpanScopedLogger, which records Activity.Current AT LOG TIME: a line
-    // written after the publish activity was disposed renders identically and asserts its
-    // app_event identically, while carrying the workflow's span id — the exact bug this
-    // pins, and one only the ambient activity can detect.
+    // CONTRACT: The publish line must be written while the publish activity is current —
+    // OpenObserve's "View logs" filters by trace_id AND span_id, so a mute span returns
+    // nothing. Assert with SpanScopedLogger, which records Activity.Current AT LOG TIME: a
+    // line written after disposal renders identically while carrying the workflow's span id.
+    // See [[logging-context]]
     [Fact]
     public async Task Logs_the_publication_inside_the_publish_span_not_the_enclosing_workflow()
     {
@@ -562,8 +542,7 @@ public class SqsEventPublisherTests
         var logger = new SpanScopedLogger<SqsEventPublisher>();
         var publisher = new SqsEventPublisher(sqs.Object, QueueUrl, logger);
 
-        // Stands in for create_order, the workflow the publish runs inside — the span the
-        // line used to be attributed to.
+        // WHY: Stands in for create_order, the workflow the publish runs inside.
         using var workflow = source.StartActivity("create_order");
         Assert.NotNull(workflow);
 
@@ -620,10 +599,10 @@ public class SqsEventPublisherTests
         Assert.DoesNotContain("Ada Way", everything);
     }
 
-    // The failure line used to fall OUTSIDE the span: `using var activity` lived inside the
-    // try, so an exception disposed it on the way to the catch and the line was attributed
-    // to create_order. A red send is precisely when an operator clicks "View logs" on the
-    // publish span, so that was the worst case to leave mute.
+    // CONTRACT: The failure line must fall INSIDE the publish span. With `using var activity`
+    // inside the try, an exception disposes it on the way to the catch and the line is
+    // attributed to create_order — mute exactly when an operator clicks "View logs" on a red
+    // send.
     [Fact]
     public async Task Logs_a_failed_publish_inside_the_publish_span_and_marks_it_error()
     {
@@ -657,22 +636,13 @@ public class SqsEventPublisherTests
         Assert.Equal(ActivityStatusCode.Unset, workflow.Status);
     }
 
-    // A source name unique to this file so the listener below cannot pick up activities
-    // created by other tests running in parallel.
+    // WHY: Unique to this file, so the listener cannot pick up parallel tests' activities.
     private const string TestActivitySourceName = "orders-tests-sqs-publisher";
 
-    // Samples everything from that one source, which is what makes StartActivity return a
-    // real Activity instead of null. ActivityIdFormat.W3C is the .NET default here, so the
-    // resulting Id IS a W3C traceparent string.
-    // Listens to the test's own source AND to the publisher's, because the behaviour under
-    // test spans both: the caller's workflow activity and the publish activity the
-    // publisher creates inside it. Listening only to the test source would leave
-    // StartActivity returning null inside the publisher, and the traceparent would fall
-    // back to the workflow span — i.e. the bug would pass as if fixed.
-    //
-    // `started` records every activity the publisher starts, so the assertions can compare
-    // against the REAL SpanId of the publish span rather than re-deriving it from the value
-    // under test (which would be circular).
+    // CONTRACT: Listen to the test's source AND the publisher's. With only the test source,
+    // StartActivity returns null inside the publisher and the traceparent falls back to the
+    // workflow span — the bug passes as if fixed. `started` records the real SpanId so the
+    // assertions do not re-derive the value under test.
     private static ActivityListener ListenToEverything(List<Activity>? started = null)
     {
         var listener = new ActivityListener
@@ -743,13 +713,9 @@ public class SqsEventPublisherTests
         Assert.DoesNotContain("@", everything);
     }
 
-    // Captures the requests the publisher actually built. IAmazonSQS is far too wide to
-    // implement by hand, so Moq supplies the surface — but every assertion in this file
-    // reads `Requests`, i.e. the real SendMessageRequest the publisher constructed, never
-    // the stub's own configured return value.
-    //
-    // MockBehavior.Strict on purpose: any call other than SendMessageAsync throws instead
-    // of silently returning a default.
+    // CONTRACT: Assertions read `Requests` — the real SendMessageRequest the publisher
+    // built — never Moq's configured return value. MockBehavior.Strict so any call other
+    // than SendMessageAsync throws instead of returning a silent default.
     private sealed class RecordingSqs
     {
         public RecordingSqs(Exception? failure)

@@ -47,8 +47,8 @@ function makeDoc(overrides: Partial<EventDocument> = {}): EventDocument {
   };
 }
 
-// Minimal stand-in for the two driver calls the repository makes. Only used to
-// drive error branches and to capture the update document's shape.
+// Minimal stand-in for the two driver calls the repository makes: it drives the
+// error branches and captures the update document's shape.
 function fakeDb(behaviour: {
   insertOne?: () => Promise<unknown>;
   onUpdate?: (filter: unknown, update: unknown) => void;
@@ -250,10 +250,9 @@ describe("MongoEventsRepository — the manual DocumentDB span", () => {
   });
 
   it("records the error CLASS, never the driver message, when the write fails", async () => {
-    // A Mongo write error's message embeds the REJECTED DOCUMENT — the event
-    // payload, carrying the user's email. The handler already reduces those to
-    // err.name for that reason; Jaeger is not a lower-PII destination than
-    // CloudWatch, so the span obeys the same rule.
+    // CONTRACT: A Mongo write error's message embeds the REJECTED DOCUMENT —
+    // the payload, with the user's email. A span is no lower-PII a destination
+    // than a log line, so it records the error CLASS only.
     const driverError = Object.assign(
       new Error('E11000 duplicate key { payload: { email: "victim@example.com" } }'),
       { name: "MongoServerError" },

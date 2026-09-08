@@ -1,11 +1,7 @@
-// Key namespace for the response cache, sibling to reset-code-store.ts's
-// `password-reset:` prefix. Everything this service puts in Redis says what it
-// is up front, so a shared instance stays legible.
-//
-// `v1` is a MASS-INVALIDATION LEVER, not decoration: the cached value is the
-// serialized `UserSchema` body, so any change to that DTO's shape makes every
-// live entry wrong. Bumping to `v2` orphans the whole generation at once
-// (they expire on their own TTL) instead of requiring a flush.
+// CONTRACT: `v1` is a mass-invalidation lever, not decoration. The cached value is
+// the serialized `UserSchema` body, so any change to that DTO's shape makes every live
+// entry wrong — bump to `v2` and the whole generation is orphaned at once, expiring on
+// its own TTL instead of needing a flush.
 export const ME_KEY_PREFIX = "users:me:v1";
 
 // BOTH identity components, per [[x-cache-response-header]]. `cognito_sub`

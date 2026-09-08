@@ -4,13 +4,9 @@ using Xunit;
 
 namespace Orders.Tests.Logging;
 
-// Verifies request_id reaches the logger's REAL OUTPUT — not just the ambient
-// context — through the whole Program pipeline: CallerContextMiddleware seeds it,
-// LogContextEnricher stamps it onto the event, the formatter emits it.
-//
-// Uses the same Console-redirect capture as RequestLogTests: Serilog's Console
-// sink resolves Console.Out per write, so swapping it for a StringWriter around
-// the request captures the genuine pipeline without a bespoke test sink.
+// Verifies request_id reaches the logger's REAL OUTPUT, not just the ambient context, through
+// the whole pipeline. Uses the Console-redirect capture: Serilog's Console sink resolves
+// Console.Out per write, so a StringWriter captures the genuine pipeline with no test sink.
 [Collection(Orders.Tests.Api.OrdersApiCollection.Name)]
 public class RequestIdLogTests
 {

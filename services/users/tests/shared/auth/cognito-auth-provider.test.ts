@@ -1,13 +1,8 @@
-// Covers ONE thing: that the CUSTOM_AUTH challenge carries the caller's trace
-// context down to the Cognito trigger.
-//
-// Why this needs a test at all: the OTP email is published by the Cognito
-// trigger Lambda, NOT by this service, so none of the SQS-publisher tests reach
-// it. Cognito invokes that trigger itself, which means the trigger has no
-// ambient trace context and no OTel SDK to read one with — ClientMetadata is
-// the only caller-controlled channel Cognito forwards to it. Without the
-// injection asserted here, the OTP email's pipeline work lands in a trace of
-// its own, detached from the request that asked for the code (observed live).
+// Covers one thing: the CUSTOM_AUTH challenge carries the caller's trace context down
+// to the Cognito trigger. The OTP email is published by that trigger, not this
+// service, so no SQS-publisher test reaches it — and Cognito invokes the trigger
+// itself, leaving ClientMetadata as the only channel. Without this injection the OTP
+// email's pipeline work lands in a trace of its own.
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import { context, trace } from "@opentelemetry/api";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";

@@ -1,13 +1,10 @@
 // Package audit holds the semantic actors stamped into created_by / updated_by /
-// deleted_by.
+// deleted_by, formatted <source>:<action>.
 //
-// Format <source>:<action>, mirroring Orders' AuditActor and Users' enum: the
-// value records WHAT PRODUCED THE ROW, not which user id happened to be on the
-// request. That matters more here than elsewhere — two of Tracking's three write
-// paths have no user identity at all to stamp (the carrier webhook carries no
-// x-user-id, and TestMode progression runs on a timer with no request behind it).
-//
-// Add members when new write paths appear; never widen speculatively.
+// CONTRACT: The value records WHAT PRODUCED THE ROW, never a user id. Two of the
+// three write paths have no user identity to stamp at all — the carrier webhook
+// carries no x-user-id and TestMode runs on a timer. Add members when a write
+// path appears; never widen speculatively. See [[audit-fields]]
 package audit
 
 // Actor is what produced a row. Stamped by the repository on every write.

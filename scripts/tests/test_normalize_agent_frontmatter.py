@@ -1,11 +1,8 @@
 """Unit tests for the subagent frontmatter normalizer.
 
-Folds block scalars into single-line double-quoted strings so downstream
-consumers with limited YAML parsers read the value rather than the literal
-block indicator ('>-'). All nine of this repo's subagents use
-`description: >-`, so without folding, any consumer that can't parse block
-scalars would read an empty description. Normalizing at the boundary means
-we never depend on a downstream parser's block-scalar support.
+CONTRACT: These guard the folding of block scalars. Every subagent here uses
+`description: >-`, so without it a consumer that cannot parse block scalars
+reads an empty description.
 """
 import sys
 from pathlib import Path

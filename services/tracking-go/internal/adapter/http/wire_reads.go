@@ -11,20 +11,12 @@ import (
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/app"
 )
 
-// WireReads builds and mounts the two user-scoped reads.
+// WireReads builds and mounts the two user-scoped reads. A function rather than
+// inline wiring, so each feature costs the composition root one line and its
+// wiring sits beside the feature.
 //
-// # Why the composition of THESE routes lives in a function rather than inline
-// # in main
-//
-// Five endpoints are being ported in parallel and every one of them appends to
-// the same composition root. A one-line call per feature is what keeps that file
-// mergeable, and it keeps the wiring of a feature next to the feature — the
-// reader who wants to know which reader a read uses does not have to open main.
-//
-// The composition root still OWNS the decision: it passes the pool, the gateway
-// and the flag. Nothing is constructed here that a test could not construct
-// differently, which is why the handler's own constructor stays exported and the
-// tests use it directly rather than going through this.
+// The composition root still owns the decision — it passes the pool, gateway and
+// flag — and the handler's constructor stays exported so tests bypass this.
 func WireReads(
 	router gin.IRouter,
 	db *sql.DB,

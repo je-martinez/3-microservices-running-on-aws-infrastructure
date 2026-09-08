@@ -10,23 +10,13 @@ namespace Orders.Infrastructure.Caching;
 /// The fail-open Redis transport behind every cached read in this service.
 /// </summary>
 /// <remarks>
-/// <para>
-/// The load-bearing details: every public method wraps its Redis call in a try/catch; a GET
-/// reads value and TTL in ONE round trip; and metrics and spans are emitted but never
-/// allowed to throw or to block the caller. Nothing here may propagate a failure to the
-/// caller — see <see cref="ICacheGateway"/>.
-/// </para>
-/// <para>
-/// <b>The timeout is the multiplexer's, not a <c>WaitAsync</c> wrapper's.</b> No method on
-/// <c>IDatabaseAsync</c> accepts a <see cref="CancellationToken"/> (verified by reflection
-/// against 2.8.24: zero of them do), so a <c>CancellationTokenSource</c> could only ever
-/// abandon the AWAIT — the command stayed in flight against the multiplexer until its own
-/// <c>AsyncTimeout</c>, which was left at the 5000ms default while the gateway gave up
-/// after 50. Under concurrency those abandoned commands piled up and each new one queued
-/// behind them. The timeout now belongs to the library (<c>AsyncTimeout</c>/<c>SyncTimeout</c>
-/// in <c>Program.cs</c>), which is the only layer that can actually abort the operation, and
-/// it surfaces as <see cref="RedisTimeoutException"/> — caught below like any other failure.
-/// </para>
+/// CONTRACT: Nothing here may propagate a failure to the caller. Every method wraps its Redis
+/// call in a try/catch, a GET reads value and TTL in ONE round trip, and metrics and spans
+/// never throw or block.
+/// CONTRACT: The timeout belongs to the multiplexer (<c>AsyncTimeout</c> in <c>Program.cs</c>),
+/// NOT a <c>WaitAsync</c> wrapper. No <c>IDatabaseAsync</c> method takes a token, so a wrapper
+/// abandons only the await while the command stays in flight — under concurrency those pile up
+/// and each new one queues behind them. See [[x-cache-response-header]]
 /// </remarks>
 public class CacheGateway : ICacheGateway
 {
@@ -34,9 +24,9 @@ public class CacheGateway : ICacheGateway
     /// Registered on the tracer provider in <c>Program.cs</c>.
     /// </summary>
     /// <remarks>
-    /// An ActivitySource that is NOT added there produces spans that are created, cost
-    /// work, and are silently never exported — no error, no span in OpenObserve. Register
-    /// the source in the SAME change that creates one.
+    /// CONTRACT: Register the source in the SAME change that creates one. An unregistered
+    /// ActivitySource creates spans that cost work and are silently never exported.
+    /// See [[ADR-0019-distributed-tracing-opentelemetry]]
     /// </remarks>
     public const string ActivitySourceName = "orders-cache";
 
@@ -194,26 +184,12 @@ public class CacheGateway : ICacheGateway
 
     /// <summary>
     /// Emits this operation's metrics WITHOUT awaiting them.
+    /// CONTRACT: Do NOT await the publish — a real HTTP PutMetricData on a cached read's
+    /// critical path turns a 2ms hit into a multi-second response under concurrency.
+    /// CONTRACT: Do NOT forward the caller's token — the publish outlives its request, and
+    /// cancelling on disconnect drops exactly the slowest requests' metrics.
+    /// See [[logging-context]]
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Fire-and-forget on purpose, and this is the fix's centre of gravity.</b> The
-    /// CloudWatch publisher performs a real HTTP PutMetricData; awaiting it put that call
-    /// on the request's critical path, so a cached read paid TWO of them (a counter and a
-    /// duration) — and a cached endpoint pays for the identity lookup too, for four in
-    /// total. Measured against the local emulator: ~74ms each when idle, but ~1.9s at p50
-    /// under 50 concurrent calls, which is what turned a 2ms cache hit into a 14s response.
-    /// </para>
-    /// <para>
-    /// Telemetry may never be the slowest part of the thing it measures.
-    /// <c>IMetricsPublisher</c> already contracts never to throw, and its CloudWatch
-    /// implementation swallows and logs internally; the continuation below is a second belt
-    /// so that a future implementation which DOES throw cannot surface as an unobserved
-    /// task exception. The caller's <see cref="CancellationToken"/> is deliberately NOT
-    /// forwarded: the publish outlives the request it describes, and cancelling it on
-    /// client disconnect would drop exactly the metrics of the slowest requests.
-    /// </para>
-    /// </remarks>
     private void Record(
         string prefix,
         CacheResult result,

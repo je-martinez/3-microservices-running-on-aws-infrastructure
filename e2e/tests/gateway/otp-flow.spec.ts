@@ -8,24 +8,16 @@ import {
 } from "../../support/mailpit-client.js";
 import { describeRecordedEmails } from "../../support/email-store-client.js";
 
-// The passwordless email-OTP journey, through the gateway only, in the order a
-// real client walks it:
+// The passwordless email-OTP journey through the gateway: request a code → READ IT
+// OUT OF THE DELIVERED EMAIL → exchange it for tokens → use them on a protected route.
 //
-//   request a code → READ IT OUT OF THE DELIVERED EMAIL → exchange it for
-//   tokens → use those tokens on a protected route
-//
-// The load-bearing step is reading the code out of Mailpit. Every layer below
-// this one can pass while the flow is broken for a real user: the Lambda unit
-// tests assert what the triggers RETURN, and the service tests assert what
-// Users does with a session id. Neither proves that a code ever reached an
-// inbox, nor that the code sitting in that inbox is the one Cognito will
-// accept. Only fetching the mail and authenticating with what it contains
-// closes that gap — which is why this spec belongs at the gateway layer and
-// cannot be faked with a direct service call.
-//
-// Every request path is RELATIVE (no leading slash) — see gateway-client.ts: a
-// leading slash replaces the whole baseURL path under WHATWG URL joining, so
-// the request would land on Floci's S3 root instead of the gateway integration.
+// CONTRACT: Read the code from the real inbox — do NOT source it any other way. The
+// Lambda tests assert what the triggers RETURN and the service tests assert what Users
+// does with a session id; neither proves a code reached an inbox, nor that the code
+// there is the one Cognito accepts.
+// CONTRACT: Keep every request path RELATIVE (no leading slash). A leading slash
+// replaces the whole baseURL path under WHATWG URL joining and lands on Floci's S3
+// root instead of the gateway integration. See [[testing]]
 
 //: How long to wait for the OTP email. The pipeline (Cognito trigger → SQS →
 // Lambda → SES → Mailpit) was measured end-to-end at 0.5-1.8s locally, the
@@ -42,14 +34,11 @@ const OTP_SUBJECT = "Your one-time code";
 
 // Pulls the 6-digit code out of a delivered message.
 //
-// Reads the FULL message (`getMessage`), never the search summary: the summary
-// carries only `Snippet`, a truncated flattened preview, and a code that fell
-// outside it would fail here as "no code in the email" while the email was
-// delivered perfectly. Verified against the rendered template — the code
-// survives as a plain digit run in both the text and HTML parts.
-//
-// Prefers the plain-text part and falls back to HTML with tags stripped, so the
-// extraction does not depend on which alternative the mailer put first.
+// CONTRACT: Read the FULL message (`getMessage`), never the search summary. The
+// summary carries only `Snippet`, a truncated flattened preview, so a code falling
+// outside it fails here as "no code in the email" while the mail was delivered
+// perfectly. Plain text first, HTML with tags stripped as fallback, so extraction does
+// not depend on which alternative the mailer put first. See [[email-templates]]
 async function extractOtpCode(messageId: string): Promise<string> {
   const message = await getMessage(messageId);
 
@@ -143,14 +132,11 @@ test("a password user can obtain tokens with an emailed OTP code", async () => {
   expect((await me.json()).email).toBe(user.email);
 });
 
-// MANDATORY ANTI-FALSE-PASS GUARD #1.
-//
-// Without this test the suite cannot tell a working challenge from a bypassed
-// one: a flow that issued tokens for ANY input would satisfy the happy path
-// above completely. That is not hypothetical here — Cognito's native
-// USER_AUTH/EMAIL_OTP flow does exactly that on Floci (returns tokens with no
-// challenge issued at all), which is precisely why this design uses
-// CUSTOM_AUTH. This assertion is what proves the code is actually checked.
+// CONTRACT: Do NOT delete this anti-false-pass guard. Without it the suite cannot tell
+// a working challenge from a bypassed one — a flow issuing tokens for ANY input
+// satisfies the happy path completely. Not hypothetical: Cognito's native
+// USER_AUTH/EMAIL_OTP returns tokens with no challenge at all on Floci, which is why
+// this design uses CUSTOM_AUTH. See [[testing]]
 test("a wrong OTP code is rejected", async () => {
   // Same headroom as the happy path: this one waits on the real email too, so
   // it needs a budget larger than its own wait (see above).
@@ -210,18 +196,13 @@ test("a passwordless user registers and signs in entirely without a password", a
   expect((await verify.json()).accessToken).toBeTruthy();
 });
 
-// MANDATORY ANTI-FALSE-PASS GUARD #2.
-//
-// Cognito requires SOME password, so a passwordless account is created with a
-// random one that is never revealed. That leaves the password flow technically
-// available at the Cognito level — the guarantee is enforced in the SERVICE, and
-// this is the test that proves it rather than trusting it.
-//
-// The expected status is 401 `invalid_credentials`, NOT 403: per
-// docs/domains/users/decisions/auth-error-mapping.md, login failures stay
-// deliberately indistinguishable so an attacker cannot use them to discover
-// which accounts exist. A 403 here would confirm the account is real. The
-// actual cause is recorded only in the service log as reason=passwordless_user.
+// CONTRACT: Do NOT delete this anti-false-pass guard, and expect 401
+// `invalid_credentials`, never 403. Cognito requires SOME password, so a passwordless
+// account holds a random one and the password flow stays technically available at the
+// Cognito level — only the SERVICE enforces the guarantee, and this proves it. Login
+// failures stay indistinguishable so an attacker cannot discover which accounts exist;
+// a 403 would confirm the account is real. The cause is logged as
+// reason=passwordless_user. See [[logging-context]]
 test("login with a password is rejected for a passwordless user, indistinguishably", async () => {
   const api = await gatewayClient();
   const { email, fullName, password } = makeUser();

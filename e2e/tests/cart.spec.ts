@@ -2,22 +2,12 @@ import { test, expect } from "@playwright/test";
 import { apiClient, ordersClient } from "../support/api-client.js";
 import { makeUser } from "../support/chance-factory.js";
 
-// Drives the Orders service directly (localhost:3001, bypassing the gateway),
-// with a faked x-user-id standing in for the authorizer's output — the
-// internal counterpart to gateway/cart.spec.ts. Same registration trick as
-// orders.spec.ts: Orders resolves x-user-id as a Cognito sub via gRPC to
-// Users for any endpoint that needs the internal usr_ id, and Users' gRPC
-// GetUserById resolves by usr_ id OR Cognito sub, so the usr_ id returned by
-// POST /v1/users/register (via apiClient(), the Users service) works
-// directly as x-user-id against Orders.
-//
-// Wire format is camelCase throughout (productId, quantity, items, unitPrice,
-// unitsInStock, unavailableReason, canCheckout) — verified against
-// services/orders/openapi.yaml, not inferred from field-name guesses.
-//
-// This layer's value over the gateway spec: it is fast, and it exercises
-// cases the gateway spec should not spend time on — multiple 400 variants,
-// the unknown-product line shape, and cross-user isolation.
+// Drives Orders directly (localhost:3001), with a faked x-user-id standing in for the
+// authorizer's output — the internal counterpart to gateway/cart.spec.ts. Orders
+// resolves it as a Cognito sub over gRPC, and Users' `GetUserById` accepts either form.
+// Wire format is camelCase, taken from services/orders/openapi.yaml rather than
+// guessed. This layer carries the cases the gateway spec should not spend time on: the
+// 400 variants, the unknown-product line, cross-user isolation.
 
 async function registerCaller(): Promise<string> {
   const users = await apiClient();

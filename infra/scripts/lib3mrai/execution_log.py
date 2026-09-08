@@ -1,33 +1,20 @@
 """Traceability log for the awscli-fallback local-exec scripts.
 
-NOT a skip-on-record cache — see docs/shared/patterns/awscli-fallback-for-floci.md
-and the "DynamoDB execution log" section of
-docs/superpowers/specs/2026-07-30-post-infra-root-design.md for why: the four
-scripts this wraps are already idempotent on their own terms (CREATE ... IF NOT
-EXISTS, lookup-then-reuse, declarative UpdateUserPool), and `make clean` destroys
-and recreates the underlying resources routinely. A record that caused a skip
-would leave a recreated resource unprovisioned while looking "already done" —
-strictly worse than today. So `record_execution` NEVER skips; it always lets the
-wrapped block run, and only records the outcome.
-
-Key shape: partition key `script_name`, sort key `run_key` = "<resource_id>#<start
-timestamp, ISO 8601>" — the resource id keeps a recreated resource's history
-distinguishable from its predecessor's without needing to inspect record bodies.
-
-Record contents (per the design's "Record contents"): script name, content hash,
-start/end timestamps, exit code, stderr on failure, resource identity, status.
-Status starts at "running" and closes to "ok" or "failed": a row left permanently
-at "running" is legible evidence of an interrupted run (Ctrl-C, machine slept)
-rather than a mystery, which writing only the final record would erase entirely.
-
-Failure semantics:
-  - DynamoDB unreachable: warn to stderr (lib3mrai.console.no) and let the
-    wrapped block run anyway. A traceability aid must not make provisioning
-    newly fragile.
-  - The wrapped block raises: the record closes as "failed" with the exception's
-    string and re-raises unchanged — callers see the exact same failure they
-    would without this wrapper.
+CONTRACT: NOT a skip-on-record cache. `record_execution` NEVER skips — the
+wrapped scripts are already idempotent, and `make clean` recreates the underlying
+resources routinely, so a record that caused a skip would leave a recreated
+resource unprovisioned while looking "already done".
+CONTRACT: Fail open. DynamoDB unreachable warns to stderr and lets the block run
+anyway; a traceability aid must not make provisioning newly fragile. A raising
+block closes the record "failed" and re-raises unchanged.
+See [[awscli-fallback-for-floci]]
 """
+
+# Key shape: partition key `script_name`, sort key `run_key` =
+# "<resource_id>#<ISO start>", so a recreated resource's history stays
+# distinguishable from its predecessor's. Status opens at "running" and closes
+# to "ok"/"failed" — a row stuck at "running" is legible evidence of an
+# interrupted run rather than a mystery.
 
 from __future__ import annotations
 

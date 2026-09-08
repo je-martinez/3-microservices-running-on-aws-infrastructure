@@ -6,26 +6,13 @@ namespace Orders.Tests.Api;
 /// <c>DELETE /v1/orders/e2e-cleanup</c> must forget the product catalogue it restocked.
 /// </summary>
 /// <remarks>
-/// <para>
-/// The cleanup restocks with three <c>ExecuteUpdateAsync</c> calls, which issue raw SQL
-/// <c>UPDATE</c>s and BYPASS <c>SaveChanges</c> entirely — so no interceptor, no write
-/// service, and nothing else in the request would ever tell the cache the catalogue moved.
-/// Without an explicit invalidation the cached catalogue keeps reporting the drained stock
-/// for its full 10-minute TTL, which is longer than an E2E suite runs: the next run reads
-/// zeroes and fails on fixtures that merely need to place an order.
-/// </para>
-/// <para>
-/// <b>Why this class exists separately from <c>E2eTagsAndCleanupTests</c>.</b> That class
-/// runs on <c>OrdersE2eApiFactory</c>, which owns no Redis container and runs with
-/// <c>CACHE_ENABLED=false</c> — deliberately, so a regression that made the service
-/// require Redis unconditionally fails there. With the kill switch off no
-/// <c>ICacheGateway</c> is registered, the filter skips itself, and no <c>X-Cache</c>
-/// header is emitted at all, so this assertion is unmakeable on that host. Here the
-/// cache-bearing factory is re-hosted with <c>E2E_TESTING_ENABLED</c> flipped on, which is
-/// all that route needs to be mapped. The cleanup soft-deletes only orders tagged
-/// <c>"E2E Source"</c>, and no class in this collection creates one, so running it against
-/// the shared database removes nothing.
-/// </para>
+/// CONTRACT: The restock uses <c>ExecuteUpdateAsync</c>, which bypasses <c>SaveChanges</c>
+/// and every interceptor, so without an explicit invalidation the cached catalogue reports
+/// the drained stock for its full 10-minute TTL — longer than an E2E suite runs, so the next
+/// run reads zeroes and fails on fixtures that merely place an order.
+/// CONTRACT: Keep this separate from <c>E2eTagsAndCleanupTests</c>, which runs with
+/// <c>CACHE_ENABLED=false</c> and emits no <c>X-Cache</c> header at all — the assertion is
+/// unmakeable there. See [[x-cache-response-header]]
 /// </remarks>
 [Collection(OrdersApiCollection.Name)]
 public class E2eCleanupCacheTests

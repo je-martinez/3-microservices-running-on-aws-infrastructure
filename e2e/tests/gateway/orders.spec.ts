@@ -139,16 +139,12 @@ test("POST v1/orders with an over-stock quantity returns 409 insufficient_stock"
   expect(body.error).toBe("insufficient_stock");
 });
 
-// Method-mismatch guard: the gateway only declares `GET /v1/orders/{orderId}`
-// (see infra/modules/api-gateway/main.tf — no POST/PATCH/DELETE route key
-// exists for that path). API Gateway v2 route matching is exact on
-// method+path, so a method with no matching route key simply doesn't resolve
-// to ANY route (not even Orders' own 405 for an unmapped verb) — it fails at
-// the gateway itself before reaching nginx/the service. Verified live: the
-// gateway returns 404 `{"message":"Not Found"}` (its own body, not the
-// service's JSON error shape), not a 405. This guards the class of bug where
-// a route/method mismatch surfaces only at the gateway (see the {orderId}
-// path-param fix in orders-flow.spec.ts for the sibling GET-side bug).
+// CONTRACT: Expect the gateway's own 404 `{"message":"Not Found"}`, not a 405. The
+// gateway declares only `GET /v1/orders/{orderId}`, and API Gateway v2 matches exactly
+// on method+path — an undeclared verb resolves to NO route and fails at the gateway
+// before reaching nginx or the service, so Orders' own 405 never happens. This guards
+// the class of bug that surfaces only at the gateway.
+// See [[2026-08-25-route-works-in-process-but-404s-at-gateway]]
 test("POST v1/orders/{orderId} (method not declared on the param route) is gateway 404, not 405", async () => {
   const { token } = await getGatewayToken();
   const api = await gatewayClient(token);

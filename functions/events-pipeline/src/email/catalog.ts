@@ -9,14 +9,10 @@ import ForgotPasswordEmail, {
   type ForgotPasswordEmailProps,
 } from "../../emails/forgot-password.tsx";
 
-// The single registry: template key → component + sample props. Three consumers
-// read THIS object and nothing else — handlers (to render), the preview server
-// (to list), and tests (to snapshot every entry). One source of truth; adding a
-// template is one entry here and no change to the renderer or the dispatch
-// code. See the milestone design spec's "src/email/catalog.ts — the key piece".
-//
-// Task 11 adds `order-created` and Task 12 the `tracking-status-changed`
-// variants (one entry per status) the same way.
+// The single registry: template key → component + sample props. Handlers (to
+// render), the preview server (to list) and tests (to snapshot) read this object
+// and nothing else, so adding a template is one entry here.
+// See [[email-templates]]
 export interface EmailTemplateEntry<P> {
   component: (props: P) => ReactElement;
   // Rendered by the preview server and by the "every entry renders" test, so an
@@ -24,16 +20,11 @@ export interface EmailTemplateEntry<P> {
   sampleProps: P;
 }
 
-// `defineTemplate` is what keeps the map heterogeneous WITHOUT reaching for
-// `any`. Each call is checked against its own prop type — passing
-// `UserCreatedEmail` with props that don't match `UserCreatedEmailProps` is a
-// compile error — and the return type erases P to `unknown` so entries with
-// different prop shapes can live in one `Record`.
-//
-// A plain `Record<string, EmailTemplateEntry<any>>` (the shape the plan
-// sketched) would type-check the same registration but disable checking for
-// every future entry too, which is exactly the mistake that would surface as a
-// runtime "cannot read property of undefined" inside a template.
+// CONTRACT: Register through `defineTemplate`, not a
+// `Record<string, EmailTemplateEntry<any>>`. Each call is checked against its
+// own prop type and erases P to `unknown` only on the way out; `any` disables
+// checking for every future entry and surfaces as a runtime "cannot read
+// property of undefined" inside a template.
 export function defineTemplate<P>(entry: EmailTemplateEntry<P>): EmailTemplateEntry<unknown> {
   return entry as EmailTemplateEntry<unknown>;
 }
@@ -96,17 +87,11 @@ export const catalog: EmailCatalog = {
       createdAt: "2026-07-28T14:02:11Z",
     },
   }),
-  // Five entries, ONE component (TrackingStatusChangedEmail) — see
-  // #handlers/tracking-status-changed for where payload.status selects one of
-  // these keys. This is the mirror image of Task 11's claim: a new event type
-  // costs one dispatch entry, and one event type can fan out to several
-  // rendered variants without adding a second one.
-  //
-  // Each `previousStatus` sample is the status that ACTUALLY precedes it in
-  // the progression (PLACED -> PROCESSING -> SHIPPED -> OUT_FOR_DELIVERY ->
-  // DELIVERED), so a preview shows a transition the pipeline can really
-  // receive. PLACED is the initial status and therefore has no predecessor —
-  // it carries the "no previous status" marker.
+  // Five entries, ONE component — #handlers/tracking-status-changed picks the
+  // key from payload.status. Each `previousStatus` sample is the status that
+  // actually precedes it (PLACED -> PROCESSING -> SHIPPED -> OUT_FOR_DELIVERY
+  // -> DELIVERED), so a preview shows a transition the pipeline can receive.
+  // PLACED is initial and carries the "no previous status" marker.
   "tracking-status-changed-placed": defineTemplate<TrackingStatusChangedEmailProps>({
     component: TrackingStatusChangedEmail,
     sampleProps: {
@@ -175,31 +160,19 @@ export const catalog: EmailCatalog = {
       history: historyThrough("DELIVERED"),
     },
   }),
-  // `sampleProps.code` is a made-up constant, never a real credential: this
-  // object is rendered by the preview server and committed to a snapshot, so
-  // anything here is public by construction.
-  //
-  // `fullName` is "" on purpose — Cognito populates no name attribute today, so
-  // the empty greeting IS the production path and the preview should show what
-  // users actually receive rather than a name they will never see.
+  // WARNING: `sampleProps.code` must stay a made-up constant — this object is
+  // rendered by the preview server and committed to a snapshot, so anything here
+  // is public. `fullName` is "" because Cognito populates no name attribute, so
+  // the empty greeting IS the production path.
   "auth-otp": defineTemplate<AuthOtpEmailProps>({
     component: AuthOtpEmail,
     sampleProps: { code: "042817", ttlMinutes: 5, fullName: "" },
   }),
-  // Same shape as `auth-otp` and for the same reasons: `code` is a made-up
-  // constant (this object is rendered by the preview server and reachable from
-  // a committed snapshot, so anything here is public by construction), and
-  // `fullName` is "" because Cognito populates no name attribute today — the
-  // empty greeting IS the production path, and the preview should show what
-  // users actually receive.
-  //
-  // A DIFFERENT sample code from auth-otp's on purpose: a preview or a failing
-  // assertion that mentions "042817" then names exactly one template instead of
-  // two that render six digits in identical boxes.
-  //
-  // `ttlMinutes: 30` matches Cognito's own reset-code lifetime and the `.pen`
-  // frame. It is still a PROP end to end — the handler derives it from the
-  // payload's `ttlSeconds` — so this is a sample value, not a default.
+  // Same rules as `auth-otp` above: a made-up public `code`, and `fullName` ""
+  // because that is the production path. The code DIFFERS from auth-otp's on
+  // purpose, so a failing assertion naming it identifies one template rather
+  // than two that render six digits in identical boxes. `ttlMinutes` is a prop
+  // end to end — the handler derives it from `ttlSeconds`, so this is a sample.
   "forgot-password": defineTemplate<ForgotPasswordEmailProps>({
     component: ForgotPasswordEmail,
     sampleProps: { code: "720486", ttlMinutes: 10, fullName: "" },

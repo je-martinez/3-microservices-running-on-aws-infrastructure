@@ -1,22 +1,11 @@
-# Bucket for public image assets (email-template logos today; anything else a
-# rendered document must fetch over plain HTTP tomorrow).
+# Bucket for public image assets the email templates fetch over plain HTTP —
+# clients strip or refuse data: URIs at size, so the templates need a real URL.
 #
-# WHY A BUCKET AT ALL: email clients will not render a data: URI reliably —
-# Outlook and Gmail both strip or refuse them at size — so the templates need a
-# real URL. Base64-inlining a 1.4 MB master into every message is worse still.
-#
-# LOCAL vs PRODUCTION — the difference is expressed, not hidden:
-#   local: public_read = true. Floci emulates no CloudFront data plane, so
-#          reading the bucket directly is the only way to get a fetchable URL.
-#   prod:  public_read stays at its default false, and a later change adds
-#          CloudFront + OAC in front of the still-private bucket. That future
-#          change is additive; nothing here has to be undone first.
-# The full argument lives on var.public_read.
-#
-# Kept deliberately minimal, same as modules/tf-backend: no versioning,
-# encryption or lifecycle rules. These objects are derived artifacts that
-# `make assets-sync` can regenerate from assets/ at any time, so versioning
-# would only accumulate copies of a file that is already in git.
+# WORKAROUND(local): public_read = true only because Floci emulates no
+# CloudFront data plane, so reading the bucket directly is the only way to get a
+# fetchable URL. Prod keeps the default (false) behind CloudFront + OAC.
+# No versioning or lifecycle rules: these objects are derived artifacts that
+# `make assets-sync` regenerates. See [[ADR-0017-floci-local]]
 
 locals {
   bucket_name = coalesce(var.bucket_name, "${var.context.id}-assets")

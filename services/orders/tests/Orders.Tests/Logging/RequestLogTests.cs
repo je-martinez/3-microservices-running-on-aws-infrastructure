@@ -38,17 +38,14 @@ public class RequestLogTests
             Console.SetOut(originalOut);
         }
 
-        // A 401: this route needs x-user-id, which the bare client does not send.
-        // The status does not matter here — what matters is that a request that
-        // reached the pipeline produced exactly one schema-shaped log line.
+        // WHY: A 401 — this route needs x-user-id. The status is incidental; what matters
+        // is that a request reaching the pipeline produced one schema-shaped log line.
         Assert.Equal(System.Net.HttpStatusCode.Unauthorized, response.StatusCode);
 
-        // Skip lines that are not JSON rather than parsing every one. The capture is
-        // the shared console, so anything else writing there lands in it too —
-        // Testcontainers narrates container teardown, and one such line used to fail
-        // this test with a JsonReaderException that pointed at Docker output rather
-        // than at anything about logging. The assertions below still require a real
-        // "request completed" record, so a genuinely missing log line still fails.
+        // CONTRACT: Skip non-JSON lines rather than parsing every one. The capture is the
+        // shared console, so Testcontainers' teardown narration lands in it and fails this
+        // test with a JsonReaderException pointing at Docker output. The assertions below
+        // still require a real "request completed" record.
         var roots = capture.ToString()
             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Select(line =>
@@ -72,14 +69,10 @@ public class RequestLogTests
             r.TryGetProperty("message", out var msg) && msg.GetString() == "request completed");
 
         Assert.Equal("GET", root.GetProperty("http_request_method").GetString());
-        // Clean route template (from RouteEndpoint.RoutePattern.RawText), not Serilog's
-        // debug DisplayName (e.g. "HTTP: GET /v1/orders/{orderId}") — keeps http_route consistent
-        // with the Users service's dashboards.
-        //
-        // NOT /v1/health: a succeeding liveness probe is exempt from this log (see the
-        // health-check-logging convention), so asserting the schema against it would be
-        // asserting the exemption. This test used to request health and started failing
-        // when the exemption landed — correctly.
+        // CONTRACT: The clean route template, not Serilog's debug DisplayName, so http_route
+        // stays consistent with the Users dashboards. Do NOT assert this against /v1/health —
+        // a succeeding probe is exempt from the log, so that asserts the exemption.
+        // See [[health-check-logging]]
         Assert.Equal("/v1/orders/{orderId}", root.GetProperty("http_route").GetString());
 
         var statusProp = root.GetProperty("http_response_status_code");
@@ -93,17 +86,10 @@ public class RequestLogTests
         Assert.False(string.IsNullOrEmpty(root.GetProperty("trace_id").GetString()));
     }
 
-    // The liveness probe is exempt from the request log WHILE IT SUCCEEDS — see
-    // the health-check-logging convention. It runs forever at a fixed interval,
-    // so its successes are volume that scales with uptime rather than with usage
-    // (96% of one service's stream when this was measured), and a healthy
-    // container already conveys what a 200 here would.
-    //
-    // A FAILING probe still logs: the exemption is scoped by status, and
-    // GetLevel returns Error for 5xx. That branch is not asserted here because
-    // forcing this service's real health endpoint to fail would mean changing
-    // production code to suit a test; Tracking's suite covers the failing case
-    // directly, where the middleware could be driven with a purpose-built app.
+    // CONTRACT: The liveness probe is exempt WHILE IT SUCCEEDS — its successes scale with
+    // uptime, not usage. A FAILING probe still logs, the exemption being scoped by status;
+    // that branch is covered in Tracking's suite rather than by making this service's real
+    // health endpoint fail. See [[health-check-logging]]
     [Fact]
     public async Task Succeeding_health_check_is_not_logged()
     {

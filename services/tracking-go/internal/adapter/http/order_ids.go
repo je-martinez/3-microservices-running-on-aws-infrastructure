@@ -6,21 +6,13 @@ import "strings"
 // duplicates and blanks are a caller being sloppy, not a request to reject.
 const MaxBatchOrderIDs = 100
 
-// ParseOrderIDs splits the CSV query parameter.
+// ParseOrderIDs splits the CSV query parameter: trims parts, drops empties, and
+// de-duplicates preserving FIRST-SEEN order (the cache key builder sorts its own
+// copy). `?order_ids=a,,b` and `?order_ids=a,b,a` both yield [a b].
 //
-// Trims each part, drops empties, de-duplicates preserving first-seen order.
-// `?order_ids=a,,b` -> [a b]; `?order_ids=a,b,a` -> [a b]. The endpoint's whole
-// contract is "return the ones you own among these", which is well defined for
-// either, so neither case is an error worth failing on.
-//
-// FIRST-SEEN order, not sorted: the caller's ordering is the one thing this
-// function must not editorialise, and the cache key builder sorts its own copy
-// anyway.
-//
-// The result is always NON-NIL, including for input that yields nothing. It is
-// handed to the cache key builder and to the use case, and the caller
-// distinguishes "no ids" (200 with an empty list) from "no parameter at all"
-// (422) by the parameter's PRESENCE, never by this slice being nil.
+// CONTRACT: The result is always NON-NIL. The caller separates "no ids" (200,
+// empty list) from "no parameter" (422) by the parameter's PRESENCE, never by
+// this slice being nil. See [[openapi-specs]]
 func ParseOrderIDs(raw string) []string {
 	parts := strings.Split(raw, ",")
 	seen := make(map[string]struct{}, len(parts))

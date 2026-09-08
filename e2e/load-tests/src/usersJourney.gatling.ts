@@ -22,7 +22,6 @@ import {
  * Users traffic: register → login → read profile → update profile, plus a
  * deliberate 401.
  *
- *   npx gatling run --typescript --simulation usersJourney
  *   npx gatling run --typescript --simulation usersJourney usersPerSec=5 duration=300
  */
 export default simulation((setUp) => {

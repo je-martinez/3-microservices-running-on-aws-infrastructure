@@ -1,40 +1,13 @@
 #!/usr/bin/env python3
 """Attach a STABLE Docker-DNS alias to the nginx ECS container.
 
-WHY THIS EXISTS ────────────────────────────────────────────────────────────
-Floci launches the nginx ECS task as a Docker container whose name and IP
-change on every `terraform apply` (the task is recreated). Instead of patching
-the API Gateway integration URI with a volatile IP each run, we attach a
-CONSTANT network alias (`nginx-stable`) to whatever nginx container is running.
-The API GW's per-route integrations in main.tf point at
-http://nginx-stable/<route-path> (the path is baked in because Floci drops the
-request path), and `nginx-stable` never changes. So the integration URIs are
-correct at apply time, Terraform state never drifts, and re-running just
-re-points the same alias.
+WORKAROUND(local): Floci recreates this container on every apply with a new name
+and IP, and neither Route53 nor Cloud Map resolves there — the constant alias
+`nginx-stable` is the only address the API GW integrations can hold.
+CONTRACT: The health poll is ADVISORY. Failing on it aborts `make bootstrap`
+and skips every later step. See [[two-phase-terraform-apply]]
 
-Floci's Route53 is management-plane only (no resolution) and ECS tasks aren't
-registered in Cloud Map, so a Docker-native alias is the working approach —
-Docker's embedded DNS at 127.0.0.11 resolves it, including from Floci's API GW
-container.
-
-The API GW integration proxies to the REAL `users` service, whose health
-endpoint returns {"status":"ok"} at /v1/health. The verification step below
-polls exactly that, rather than trusting that the alias attached.
-
-That verification is ADVISORY: it warns but does not fail the script. Attaching
-the alias is this script's job and `attach_alias` already exits non-zero on its
-own if Docker refuses; the health poll only reports whether a *different*
-container is answering yet. Conflating the two is what made a passing
-precondition abort `make bootstrap` and skip every later step (JE-112).
-
-NOTE ON SCOPE: this script used to also create the least-privilege app DB users
-(Postgres `users_app` / MySQL `orders_app`). Those steps moved to the PHASE-2
-post-effects Terraform apply (`make infra-up-post`) — cleaner, secret-only, and
-idempotent. See docs/superpowers/specs/2026-07-15-two-phase-post-effects-design.md
-for that design and for why the MySQL app-user stays gated off on Floci.
-
-Idempotent: safe to run repeatedly. Run once after each `terraform apply`.
-
+Idempotent: run once after each `terraform apply`.
 Usage: .venv/bin/python infra/environments/local/bootstrap.py
 """
 
@@ -48,13 +21,10 @@ from lib3mrai.console import inf, no, ok
 NETWORK = "3mrai_3mrai-network"
 ALIAS = os.environ.get("NGINX_STABLE_ALIAS", "nginx-stable")
 
-# Empty by default: attach the alias only and let Docker assign the IP. The API
-# GW per-route integrations target http://nginx-stable/<path>, so a stable NAME
-# is all that is required; pinning an IP only adds a failure mode, because Floci
-# recreates its network with a different subnet across runs (observed
-# 192.168.155.0/24 -> 192.168.148.0/24), so any hardcoded address eventually
-# falls outside it and `docker network connect --ip` fails with
-# "no configured subnet contains ...". Set NGINX_STABLE_IP=<addr> to opt back in.
+# WORKAROUND(local): Do NOT pin an IP by default. Floci recreates its network on
+# a different subnet across runs, so a hardcoded address eventually falls outside
+# it and `docker network connect --ip` fails with "no configured subnet contains
+# ...". A stable NAME is all the integrations need. NGINX_STABLE_IP opts back in.
 FIXED_IP = os.environ.get("NGINX_STABLE_IP", "")
 
 HEALTH_PATH = "/v1/health"
@@ -129,22 +99,9 @@ def proxies_to_users(
 ) -> tuple[bool, str]:
     """Poll users' health endpoint through the alias. Returns (healthy, detail).
 
-    Same attempts/sleep_s budget as find_nginx_container above, and for the same
-    reason: both wait on a container someone else started asynchronously. This
-    one used to be a SINGLE probe behind a fixed one-second sleep, which is what
-    made JE-112 reproduce on every cold bootstrap — `users` has no compose
-    healthcheck, so the preceding `up -d --build users` returns when the
-    container starts, not when Node has validated COGNITO_* and bound :3000.
-    One second against a cold boot is a coin flip.
-
-    60s is a deliberate ceiling, not a round number: a service that has not
-    answered its own health endpoint a minute after starting is broken, not
-    slow, and waiting longer only delays the diagnosis.
-
-    stderr is kept rather than discarded — it is what distinguishes
-    "bad address 'nginx-stable'" (the alias genuinely does not resolve) from
-    "connection refused" (alias fine, users still booting). Both used to render
-    as an empty string, which told the operator nothing.
+    CONTRACT: Do NOT collapse this into a single probe behind a fixed sleep.
+    `users` has no compose healthcheck, so `up -d --build users` returns before
+    Node has bound :3000; one probe against a cold boot is a coin flip.
     """
     detail = ""
     for attempt in range(1, attempts + 1):
@@ -157,6 +114,9 @@ def proxies_to_users(
         )
         if HEALTHY_BODY in result.stdout:
             return True, result.stdout
+        # CONTRACT: Keep stderr here. It separates "bad address 'nginx-stable'"
+        # (alias does not resolve) from "connection refused" (alias fine, users
+        # still booting); dropping it leaves the operator an empty string.
         detail = (result.stdout or result.stderr).strip()[:160]
         if attempt < attempts:
             inf(f"waiting for {ALIAS}{HEALTH_PATH} (attempt {attempt}/{attempts})… {detail}")
@@ -182,22 +142,14 @@ def main() -> int:
 
     healthy, detail = proxies_to_users(nginx)
     if not healthy:
-        # NOT fatal, and that is the fix for JE-112.
-        #
-        # attach_alias() above already succeeded — it exits(1) itself when
-        # `docker network connect` fails — so by this point Docker has confirmed
-        # the alias IS attached and this script's own job is done. What just
-        # failed is a check on a DIFFERENT container: `users`, started by the
-        # previous make step, which has no compose healthcheck.
-        #
-        # Returning 1 here meant reporting someone else's readiness as this
-        # script's failure, and because `make` halts a chain on any non-zero
-        # exit, it skipped every later step — `orders`, `migrate-tracking`,
-        # `tracking`. That is how a passing precondition left Tracking's tables
-        # uncreated and produced "Table 'tracking.tracking' doesn't exist".
-        # The advice it printed ("re-run after it is up") could not be followed
-        # either: a re-run re-enters phase-1 apply, which Floci fails on
-        # UpdateTags (JE-113).
+        # CONTRACT: Do NOT return non-zero here. attach_alias already exited on
+        # its own if Docker refused, so this only reports that a DIFFERENT
+        # container (`users`, no compose healthcheck) is not answering yet. Make
+        # halts the chain on any non-zero exit, skipping `orders`,
+        # `migrate-tracking` and `tracking` — which is how Tracking's tables end
+        # up uncreated ("Table 'tracking.tracking' doesn't exist"). Re-running is
+        # no remedy either: it re-enters phase-1 apply, which Floci fails on
+        # UpdateTags. See [[floci-rds-apigw-limits]]
         no(f"alias attached, but {HEALTH_PATH} never returned {HEALTHY_BODY} (last: '{detail}')")
         inf("the alias itself is attached — this is users not answering yet, not a broken alias.")
         inf(f"  check: docker exec {nginx} wget -qO- http://{ALIAS}{HEALTH_PATH}")

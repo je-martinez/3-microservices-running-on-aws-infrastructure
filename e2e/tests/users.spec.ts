@@ -62,13 +62,10 @@ test("PATCH /v1/users/me updates the profile and the change is visible on a subs
   expect((await me.json()).fullName).toBe(newFullName);
 });
 
-// The caller-context refactor moved auth enforcement to the `onRequest` hook
-// (routes.ts): a missing `x-user-id` on a non-public route now short-circuits
-// with 401 `{ error: "unauthenticated" }` before any handler runs (see
-// shared/http/public-routes.ts — `/v1/users/me` is not in the public
-// allowlist). This replaces the old pre-refactor behavior, where the request
-// reached the `getMe` handler and fell through to a 404 because `currentActor`
-// was undefined. This test now legitimately covers that middleware auth gate.
+// CONTRACT: A missing `x-user-id` on a non-public route must short-circuit in the
+// `onRequest` hook with 401 `{ error: "unauthenticated" }`, before any handler runs.
+// A 404 here means the request reached `getMe` and fell through on an undefined
+// actor — the auth gate was bypassed, not merely renamed.
 test("GET /v1/users/me without x-user-id returns 401 (middleware auth gate)", async () => {
   const api = await apiClient();
   const res = await api.get("/v1/users/me");

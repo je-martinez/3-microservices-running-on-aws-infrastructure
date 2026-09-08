@@ -7,21 +7,16 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 )
 
-// NewClient builds the process-wide Redis client.
+// NewClient builds the process-wide Redis client. Both timeouts share one
+// budget: a connect slower than the operation's limit has already blown it.
 //
-// BOTH timeouts get the SAME budget: a connect that takes longer than the
-// operation is allowed to take has already blown it, so there is no reason to
-// give the two different numbers.
+// CONTRACT: MaxRetries stays -1, which is how go-redis spells "disabled" — 0
+// means its default of 3. A retry spends the budget TWICE, turning the fail-open
+// guarantee into double the latency on the path the cache exists to speed up.
 //
-// MaxRetries is -1, which is how go-redis spells "disabled" (0 means "use the
-// default of 3", which is the trap). That is load-bearing rather than a default
-// worth restating: a retry would spend the budget TWICE, turning the 50ms
-// fail-open guarantee into a 100ms one on exactly the path the cache exists to
-// speed up.
-//
-// Call this ONLY when CACHE_ENABLED is true. With the cache disabled, nothing
-// should build a client at all — bind NewNullGateway instead, so a service
-// running with CACHE_ENABLED=false needs no reachable Redis to start.
+// CONTRACT: Call this ONLY when CACHE_ENABLED is true; otherwise bind
+// NewNullGateway, so the service starts with no reachable Redis.
+// See [[x-cache-response-header]]
 func NewClient(host string, port, timeoutMS int) *goredis.Client {
 	budget := time.Duration(timeoutMS) * time.Millisecond
 	return goredis.NewClient(&goredis.Options{

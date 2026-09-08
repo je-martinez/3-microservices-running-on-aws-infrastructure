@@ -4,21 +4,16 @@ import { gatewayClient } from "../../support/gateway-client.js";
 import { makeUser } from "../../support/chance-factory.js";
 import { waitForEmailTo, getMessage } from "../../support/mailpit-client.js";
 
-// The password-reset flow through the GATEWAY — the URL a real client hits:
-// JWT authorizer → njs sub-extraction → nginx routing → service.
+// The password-reset flow through the GATEWAY — the URL a real client hits: JWT
+// authorizer → njs sub-extraction → nginx routing → service. Not redundant with the
+// internal spec, which fakes `x-user-id`: two of these routes are PUBLIC (a user who
+// forgot their password holds no token) and one is AUTHENTICATED, and a gateway that
+// got that split wrong would either lock users out or expose the password change to
+// anonymous callers. Only this layer can tell.
 //
-// Why this layer is not redundant with tests/password-reset.spec.ts: the
-// internal spec talks to the service directly and fakes `x-user-id`, so it
-// cannot catch a route missing from the gateway, a method the gateway does not
-// forward, or an authorizer misconfigured on the new paths. Two of these routes
-// are PUBLIC (a user who forgot their password holds no token) and one is
-// AUTHENTICATED — a gateway that got that split wrong would either lock users
-// out of the reset or expose the password change to anonymous callers, and only
-// this layer can tell.
-//
-// Every request path is RELATIVE (no leading slash) — see gateway-client.ts: a
-// leading slash replaces the whole baseURL path under WHATWG URL joining, so
-// the request would land on Floci's S3 root instead of the gateway integration.
+// CONTRACT: Keep every request path RELATIVE (no leading slash). A leading slash
+// replaces the whole baseURL path under WHATWG URL joining and lands on Floci's S3
+// root instead of the gateway integration. See [[testing]]
 
 //: The subject the events-pipeline's password-reset handler sends under. Tells
 // the reset mail apart from the welcome email registration also triggers.

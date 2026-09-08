@@ -16,20 +16,12 @@ import { ME_KEY_PREFIX, meCacheKey } from "#shared/cache/cache-keys";
 
 export type DeleteAccountResult = "deleted" | "not_found";
 
-// Deletes the caller's own account and everything that belongs to it.
-//
-// ## The ORDER is the safety argument
-//
-// Cascade FIRST, account LAST. The reverse order is unrecoverable: an account
-// deleted before a failing cascade leaves the user unable to authenticate, so
-// they cannot retry, and their orders are orphaned with no path to fix them.
-// With this order a failure leaves the account alive and the user simply retries.
-//
-// Both internal routes are idempotent (`deleted_at IS NULL` guards), so a retry
-// after a half-finished cascade re-runs the succeeded leg as a no-op. The
-// inconsistency is transient and self-healing, which is why no compensation
-// exists: an "undelete" primitive is absent from all three services and would be
-// more new surface than the feature itself.
+// CONTRACT: Cascade FIRST, account LAST. The reverse is unrecoverable — an account
+// deleted before a failing cascade leaves the user unable to authenticate, so they
+// cannot retry, and their orders are orphaned. In this order a failure leaves the
+// account alive and the user retries; both internal routes are idempotent, so the
+// succeeded leg re-runs as a no-op and the inconsistency self-heals. That is why no
+// compensating "undelete" exists in any of the three services.
 export class DeleteAccountCommand {
   private readonly db: Db;
   private readonly cascade: CascadeClient;
@@ -98,17 +90,11 @@ export class DeleteAccountCommand {
       "Starting account deletion",
     );
 
-    // `cognitoSub` is the ownership key BOTH downstream services filter by, and
-    // the column is nullable. Passing `?? ""` would send an empty string that
-    // Orders rejects with a 400 and Tracking matches against nothing — the
-    // deletion would fail with a downstream status code that says nothing about
-    // the real cause, and (before this branch existed) said it silently.
-    //
-    // Refused up front instead, with a reason that names the actual problem. A
-    // 502 is right even though nothing downstream was asked: from the caller's
-    // side this is the same fact as a leg not confirming — the deletion did not
-    // happen, the account is intact, and retrying is the correct response (it
-    // will keep failing until the row gets a sub, which is an operator fix).
+    // CONTRACT: Refuse a missing `cognitoSub` up front; do NOT pass `?? ""`. It is
+    // the ownership key both downstream services filter by, and an empty string is
+    // rejected by Orders with a 400 and matched against nothing by Tracking, failing
+    // the deletion with a status that says nothing about the cause. A 502 is right:
+    // the deletion did not happen, the account is intact, and retrying is correct.
     if (!target.cognitoSub) {
       appLogger.error(
         {
@@ -125,13 +111,9 @@ export class DeleteAccountCommand {
       throw new CascadeUnavailableError("missing_cognito_sub");
     }
 
-    // 1 & 2 — the cascades. A throw here propagates to the route as a 502 with
-    // the account still intact, which is exactly the recoverable state we want.
-    //
-    // Logged HERE rather than left to propagate silently: this is the failure a
-    // 502 sends the user away with, and without a line naming WHICH leg failed,
-    // the one question worth asking of the logs has no answer. The error carries
-    // the service; `reason` records it.
+    // 1 & 2 — the cascades. A throw propagates to the route as a 502 with the account
+    // still intact. Logged here so the line names WHICH leg failed; `reason` records
+    // the service.
     try {
       await this.cascade.deleteOrdersForUser(target.cognitoSub, target.id);
       await this.cascade.deleteTrackingsForUser(target.cognitoSub, target.id);
@@ -155,36 +137,20 @@ export class DeleteAccountCommand {
       this.db.user.delete({ where: { id: target.id } }),
     );
 
-    // 3b — drop the cached GET /v1/users/me body for this user.
-    //
-    // ==== WHY AFTER THE DELETE, NOT BEFORE ====
-    // Invalidating first leaves a window in which a concurrent read misses,
-    // queries a row that still exists, and re-populates the entry the delete
-    // was about to orphan — a profile for a deleted account, readable for the
-    // full 5-minute TTL. Running after the write means the worst case is a
-    // stale entry the TTL still clears, never a freshly-minted one.
-    //
-    // The key needs `cognitoSub` and `id`, and both are already in hand from
-    // `currentUser.resolve()` above (the `!target.cognitoSub` guard has also
-    // already proved the sub is non-null). No pre-read is needed here — unlike
-    // E2eCleanupCommand, which had to fetch its rows before deleting them
-    // because the soft-delete extension hides them from every later find*.
-    //
-    // FAIL-OPEN, exactly like the Cognito step below: Postgres has committed,
-    // so throwing on a Redis failure would report a deletion that did not
-    // happen when it did. `invalidate` already swallows its own failures
-    // (CacheGateway), so this catch is belt-and-braces for a gateway that
-    // rejects some other way.
+    // CONTRACT: Invalidate AFTER the delete, and FAIL-OPEN. Invalidating first lets a
+    // concurrent read repopulate the entry from a row that still exists, leaving a
+    // profile for a deleted account readable for the full TTL. Postgres has already
+    // committed here, so throwing on a Redis failure would report a deletion that did
+    // not happen.
     try {
       await this.cacheGateway?.invalidate(
         ME_KEY_PREFIX,
         meCacheKey(target.cognitoSub, target.id),
       );
     } catch (err) {
-      // WARN, not ERROR: nothing is broken for the user — the account IS gone,
-      // and the stale entry expires on its own. `reason` is machine-readable
-      // per [[logging-context]]. Only the key PREFIX is ever logged; the full
-      // key carries cognito_sub and user_id.
+      // WARN, not ERROR: the account IS gone and the stale entry expires on its own.
+      // WARNING: Log only the key PREFIX — the full key carries cognito_sub and
+      // user_id. See [[logging-context]]
       appLogger.warn(
         {
           err,
@@ -199,18 +165,15 @@ export class DeleteAccountCommand {
       );
     }
 
-    // 4 — Cognito: the point of no return, and what actually frees the email.
-    //
-    // Best-effort BY DESIGN. Postgres has already committed, so failing the
-    // request here would tell the user their deletion did not happen when it did.
-    // But this is the one failure in the flow that deserves an alert: it leaves an
-    // orphan in the pool that will block this person from ever registering again
-    // with this address — the precise outcome the feature exists to prevent.
+    // CONTRACT: Best-effort — Postgres has committed, so failing here would tell the
+    // user their deletion did not happen when it did. Alert on it anyway: this is the
+    // one failure that leaves an orphan in the pool and blocks the person from ever
+    // registering with this address again.
     try {
       await this.auth.deleteUser(target.email);
     } catch (err: any) {
-      // `err` rides along, not just its name: this is the alert-worthy branch,
-      // and a bare "Error" with no stack or AWS metadata is not enough to act on.
+      // `err` rides along, not just its name — a bare "Error" with no stack or AWS
+      // metadata is not enough to act on in the alert-worthy branch.
       appLogger.error(
         {
           err,

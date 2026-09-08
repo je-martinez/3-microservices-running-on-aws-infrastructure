@@ -1,25 +1,14 @@
-// Command server runs the Tracking HTTP service.
+// Command server runs the Tracking HTTP service. Dependencies are wired by hand
+// here: no container, no generation, no reflection.
 //
-// All dependencies are wired BY HAND here — no DI container, no code generation
-// for wiring, no reflection. The wiring is a function you can read top to bottom.
+// CONTRACT: Keep this file to what cannot be tested in-process — config, sockets,
+// the ticker, shutdown. Routes and middleware stay in adapterhttp.NewAppRouter,
+// which a test can import; main() cannot, so anything decided here is observable
+// only by starting a process.
 //
-// # What lives here, and what deliberately does not
-//
-// This file owns only what CANNOT be tested in-process: reading the environment,
-// opening sockets (two database pools, a Redis client, a gRPC channel, the AWS
-// clients), starting the background ticker, and shutting all of it down. The
-// route table and the middleware chain live in adapterhttp.NewAppRouter, which a
-// test can import — so a dropped Register* call fails a unit test at the commit
-// that dropped it rather than a gateway E2E hours later. main() cannot be
-// imported, so anything decided here is only observable by starting a process.
-//
-// # The FLAGS are decided here and nowhere else
-//
-// CACHE_ENABLED, METRICS_ENABLED and EVENTS_QUEUE_URL are each read exactly once,
-// in this file, and turned into a DEPENDENCY — a null gateway, a nil publisher, a
-// noop publisher. No use case and no middleware branches on a flag. The
-// composition root is the one place that decides whether a dependency exists at
-// all; everything downstream just uses what it was handed.
+// CONTRACT: CACHE_ENABLED, METRICS_ENABLED and EVENTS_QUEUE_URL are read here
+// once and turned into a dependency. No use case or middleware branches on a
+// flag. See [[screaming-architecture]]
 package main
 
 import (
@@ -77,59 +66,37 @@ func main() {
 
 // run wires every dependency and serves until a signal arrives.
 //
-// It is ONE long function on purpose. A composition root is a linear list of
-// constructions, and its ORDER is the single thing a reader comes here to check;
-// splitting it into helpers would hide that order and scatter each resource's
-// shutdown away from the line that opened it.
+// WHY: One long function on purpose — its ORDER is what a reader checks, and
+// helpers scatter each resource's shutdown away from the line that opened it.
 //
 //nolint:funlen,gocyclo // see above: the length IS the readable form here.
 func run() error {
-	// FIRST, before anything can log: structured JSON to stdout. Logs reach
-	// OpenObserve through Docker's fluentd driver, and a plain-text line is one
-	// no query can select on.
-	//
-	// DEPLOYMENT_ENVIRONMENT is read from the raw environment rather than through
-	// the validated Config, deliberately: failing to log is never a reason to
-	// fail to start, so logging must not depend on a fully-valid environment.
-	// Same default as Config's.
+	// CONTRACT: Structured JSON to stdout, before anything can log — OpenObserve
+	// ingests via the fluentd driver and cannot query a plain-text line.
+	// DEPLOYMENT_ENVIRONMENT comes off the raw environment, not the validated
+	// Config: logging must not depend on a fully-valid environment.
+	// See [[logging-context]]
 	deploymentEnvironment := os.Getenv("DEPLOYMENT_ENVIRONMENT")
 	if deploymentEnvironment == "" {
 		deploymentEnvironment = "local"
 	}
-	// installProcessLogger is where the two log enrichers meet, and the ONLY
-	// constructor that builds the complete one. internal/platform/logging cannot
-	// apply the trace layer (its package must not import the OTel adapter), so a
-	// logger built there carries the correlation fields but never
-	// trace_id/span_id — logs and traces travel different transports and nothing
-	// else joins them. See logging_wiring.go for the wrapper order and why it is
-	// that one.
-	//
-	// It runs BEFORE SetupTracing on purpose: TraceHandler reads the ambient span
-	// off the context at Handle time, not the provider at construction time, so a
-	// logger built now stamps ids correctly the moment spans start flowing — and
-	// the startup lines in between (including a tracing_setup_failed warning) are
-	// correctly emitted with the trace fields OMITTED rather than zeroed.
+	// CONTRACT: installProcessLogger is the only constructor that builds the
+	// complete logger. A logger built in internal/platform/logging carries the
+	// correlation fields but never trace_id/span_id, and nothing else joins the
+	// two transports. Calling it before SetupTracing is safe and intended:
+	// TraceHandler reads the ambient span at Handle time, so startup lines omit
+	// the trace fields rather than zeroing them. See [[logging-context]]
 	logger := installProcessLogger(os.Stdout, deploymentEnvironment)
 
-	// The DATABASE DRIVER's own package-level logger, redirected onto the one
-	// above. go-sql-driver/mysql writes plain text to stderr by default and never
-	// calls slog, so slog.SetDefault does not reach it: one measured line in 493
-	// escaped as
-	//
-	//	[mysql] ... closing bad idle connection: unexpected read from socket
-	//
-	// which the collector cannot classify and files under `unclassified`.
-	//
-	// BEFORE the pools open, and that order is load-bearing: ParseDSN copies the
-	// package-level logger into each connection's Config, so a pool opened first
-	// would keep the stderr logger for its whole life while this call appeared to
-	// have fixed it. See driver_logging.go.
+	// CONTRACT: Call this BEFORE the pools open. ParseDSN copies the package-level
+	// logger into each connection's Config, so a pool opened first keeps
+	// go-sql-driver's plain-stderr logger for life while this call looks like it
+	// fixed things — and those lines land in the collector as `unclassified`.
+	// See [[logging-context]]
 	installDriverLogging(logger)
 
-	// Config, and a LOUD failure on a missing required variable. Exactly four are
-	// required; every optional one has already fallen back to its default by the
-	// time Load returns, because refusing to boot over a mistyped feature flag is
-	// the worse trade in both directions.
+	// A loud failure on a missing required variable. Exactly four are required;
+	// every optional one has fallen back to its default by the time Load returns.
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -141,26 +108,20 @@ func run() error {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	// The PROCESS LIFETIME context. NotifyContext cancels it on SIGINT/SIGTERM;
-	// SIGTERM is what ECS sends when it drains a task, so handling it is what
-	// makes a deploy graceful rather than a burst of dropped connections.
-	//
-	// EVERY BACKGROUND GOROUTINE DERIVES FROM THIS ONE, never from a request's
-	// context: a request context is cancelled the instant its response is sent,
-	// which would kill the metrics ticker on the first request it happened to be
-	// started from.
+	// CONTRACT: Every background goroutine derives from this process-lifetime
+	// context, never a request's — a request context is cancelled the instant its
+	// response is sent, killing the metrics ticker on the first request it was
+	// started from. NotifyContext handles the SIGTERM ECS sends when draining.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	// ── OpenTelemetry ────────────────────────────────────────────────────────
 	//
-	// No endpoint, protocol or header is passed: the SDK reads them from the
-	// standard OTEL_EXPORTER_OTLP_* variables. Passing an option whose value came
-	// out empty LOSES to auto-detection with no error at all — three silent
-	// failures in this repo came from configuring the SDK in code.
-	//
-	// A failure here is logged and SWALLOWED. Tracing is an observation of the
-	// service; a collector that is down must not stop the service from serving.
+	// CONTRACT: Do NOT pass endpoint, protocol or headers here — the SDK reads
+	// the standard OTEL_EXPORTER_OTLP_* variables, and an option whose value came
+	// out empty loses to auto-detection with no error at all. A setup failure is
+	// logged and swallowed: a down collector must not stop the service serving.
+	// See [[ADR-0019-distributed-tracing-opentelemetry]]
 	shutdownTracing, err := tracing.SetupTracing(ctx)
 	if err != nil {
 		logger.Warn("tracing_setup_failed",
@@ -170,10 +131,9 @@ func run() error {
 		shutdownTracing = func(context.Context) error { return nil }
 	}
 	defer func() {
-		// A FRESH context: ctx is already cancelled by the time this runs, and a
-		// cancelled context would abandon the final batch of spans rather than
-		// flushing it — losing exactly the spans of the requests served during
-		// the drain.
+		// CONTRACT: A FRESH context — ctx is already cancelled here, and a
+		// cancelled one abandons the final batch, losing exactly the spans of
+		// the requests served during the drain.
 		flushCtx, cancel := context.WithTimeout(context.Background(), otelShutdownTimeout)
 		defer cancel()
 		if err := shutdownTracing(flushCtx); err != nil {
@@ -185,14 +145,12 @@ func run() error {
 
 	// ── The two database pools ───────────────────────────────────────────────
 	//
-	// SEPARATE pools for reads and writes (ADR-0006). Locally both DSNs point at
-	// the same Floci MySQL, but the split is honoured in code so the reader-only
-	// path is exercised here rather than for the first time in production.
-	//
-	// MySQLDSN always appends parseTime=true&loc=UTC, and both are non-negotiable:
-	// without parseTime every DATETIME comes back as []byte, and without loc=UTC
-	// the driver reads stored values in the PROCESS's local zone — making every
-	// timestamp wrong by the offset, silently, and only outside UTC.
+	// CONTRACT: Keep the reader/writer split in code even where both DSNs point
+	// at one local MySQL, so the reader-only path is not first exercised in
+	// production. MySQLDSN always appends parseTime=true&loc=UTC: without the
+	// first, DATETIME arrives as []byte; without the second the driver reads
+	// stored values in the process zone, silently wrong by the offset outside
+	// UTC. See [[ADR-0006-read-write-replicas]]
 	writerDB, err := openPool(cfg.DatabaseWriterURL)
 	if err != nil {
 		return err
@@ -207,16 +165,11 @@ func run() error {
 
 	// ── AWS clients ──────────────────────────────────────────────────────────
 	//
-	// One shared SDK config. AWS_ENDPOINT_URL is applied only when SET: locally it
-	// is Floci, and in a deployed environment it must be ABSENT so the SDK
-	// resolves the real endpoint itself. That is why config carries it as a
-	// *string — an empty-string default would point the SDK at nothing.
-	//
-	// This block sits BEFORE the cache gateway, and the order is load-bearing:
-	// the gateway's metrics port is bound below from cwPublisher, so the
-	// publisher must already exist. Built the other way round, the cache had
-	// nothing to publish through and got the noop unconditionally — which is
-	// exactly the bug selectCacheMetrics now pins.
+	// CONTRACT: Apply AWS_ENDPOINT_URL only when SET — deployed it must be absent
+	// so the SDK resolves the real endpoint, which is why config carries a
+	// *string. Keep this block BEFORE the cache gateway: the gateway binds its
+	// metrics port from cwPublisher, and the other order hands the cache the noop
+	// unconditionally. See [[local-dev]]
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(cfg.AWSRegion))
 	if err != nil {
 		return err
@@ -232,17 +185,10 @@ func run() error {
 
 	// ── Metrics: THE GATE LIVES HERE ─────────────────────────────────────────
 	//
-	// METRICS_ENABLED is read in this one place. Every consumer downstream takes
-	// an INJECTED publisher, so there is no flag inside the middleware, none
-	// inside the ticker, none inside the cache gateway and none in any use case.
-	// Off means the dependency is never constructed — not that a constructed
-	// publisher is skipped.
-	//
-	// cwPublisher stays nil when the flag is off, and each consumer below is
-	// given the shape that means "no metrics" in ITS OWN vocabulary: a nil
-	// interface for the HTTP middleware (which disables the metric at the call
-	// site), the noop object for the cache gateway (which calls straight through
-	// its port with no nil check), and no ticker goroutine at all.
+	// CONTRACT: METRICS_ENABLED is read here and nowhere else — no flag inside a
+	// middleware, ticker, gateway or use case. Off means the dependency is never
+	// constructed: a nil interface for the middleware, the noop for the cache
+	// gateway, no ticker goroutine at all. See [[logging-context]]
 	var cwPublisher cloudwatch.Publisher
 	if cfg.MetricsEnabled {
 		cwPublisher = cloudwatch.NewPublisher(awscw.NewFromConfig(awsCfg, cwOptions...))
@@ -250,25 +196,15 @@ func run() error {
 
 	// ── The cache gateway ────────────────────────────────────────────────────
 	//
-	// With CACHE_ENABLED false, NO REDIS CLIENT IS CONSTRUCTED AT ALL — not one
-	// that is built and left unused. A service running with the cache off then
-	// needs no reachable Redis to boot, which is what makes the flag a real
-	// kill switch rather than a request-path branch.
+	// CONTRACT: With CACHE_ENABLED false no Redis client is constructed, so the
+	// service boots with no reachable Redis. The client arrives as a factory so
+	// that is literal behaviour SelectGateway can count, and the null gateway is
+	// a null object so no caller downstream can forget the flag.
 	//
-	// The null gateway is a NULL OBJECT, not a nil plus a check: the read and
-	// invalidation paths downstream have exactly one shape, and no caller can
-	// forget the flag.
-	//
-	// The client arrives as a FACTORY so "not constructed" is the literal
-	// behaviour rather than a claim — SelectGateway is unit-tested by counting
-	// how many times this closure runs.
-	//
-	// THE METRICS PORT IS BOUND HERE, and it is a real binding rather than the
-	// noop it used to be. The gateway computes cache_requests_total and
-	// cache_operation_duration_ms on EVERY operation; passing the noop
-	// unconditionally meant both were computed and discarded even with
-	// METRICS_ENABLED=true, leaving two documented series permanently at "no
-	// data" while both halves' unit tests stayed green. See selectCacheMetrics.
+	// CONTRACT: Bind the real metrics port here. Passing the noop leaves
+	// cache_requests_total and cache_operation_duration_ms at "no data" even
+	// with METRICS_ENABLED=true, while both halves' unit tests stay green.
+	// See [[logging-context]]
 	gateway, closeCache := cache.SelectGateway(
 		cfg.CacheEnabled,
 		func() *goredis.Client {
@@ -283,12 +219,10 @@ func run() error {
 
 	// ── The outbound Users client ────────────────────────────────────────────
 	//
-	// One channel for the process. The channel IS a connection pool; building one
-	// per call would pay TCP + HTTP/2 setup on every request and leak sockets.
-	//
-	// A dial failure is logged and swallowed rather than fatal: grpc.NewClient is
-	// lazy, so the only errors it returns here are configuration ones, and the
-	// six routes that do not resolve a user must keep serving either way.
+	// One channel per process — the channel is the pool, so one per call would
+	// pay TCP + HTTP/2 setup per request and leak sockets. A dial failure is
+	// logged, not fatal: grpc.NewClient is lazy, so it only returns config
+	// errors here and the six routes that resolve no user must keep serving.
 	var userResolver *grpcusers.InternalIDResolver
 	usersClient, err := grpcusers.Dial(cfg.UsersGRPCURL, cfg.GRPCAPIKey)
 	if err != nil {
@@ -303,13 +237,10 @@ func run() error {
 
 	// ── The event publisher ──────────────────────────────────────────────────
 	//
-	// The NOOP when EVENTS_QUEUE_URL is empty, so a runtime with no queue
-	// configured still serves every route and simply emits nothing. A publisher
-	// that tried to send to "" would fail once per transition, forever, on a path
-	// that is best-effort by contract.
-	//
-	// It resolves the user ITSELF (through the same Users client) because the
-	// pipeline's handler requires an email and Tracking persists none.
+	// The noop when EVENTS_QUEUE_URL is empty, so a runtime with no queue serves
+	// every route and emits nothing; sending to "" would fail once per
+	// transition forever on a best-effort path. It resolves the user itself
+	// because the pipeline's handler requires an email Tracking never persists.
 	publisher := sqs.NewNoopPublisher()
 	switch {
 	case cfg.EventsQueueURL == "":
@@ -329,32 +260,22 @@ func run() error {
 		)
 	}
 
-	// ── Metrics: THE GATE LIVES HERE ─────────────────────────────────────────
+	// ── Metrics consumers: middleware and ticker ─────────────────────────────
 	//
-	// The publisher itself was constructed ABOVE, before the cache gateway, so
-	// the gateway could be bound to it. What remains here are the two consumers
-	// that need it in their own shape: the HTTP middleware and the ticker.
-	//
-	// adapterhttp.MetricPublisher is an INTERFACE, so this must stay a nil
-	// INTERFACE rather than a typed nil: a (*publisher)(nil) stored in an
-	// interface is non-nil to `== nil` and the middleware would call through it.
-	// cwPublisher is declared as the cloudwatch.Publisher INTERFACE and left at
-	// its zero value when the flag is off, which is a true nil interface — the
-	// assignment below therefore propagates nil-ness correctly.
+	// CONTRACT: Keep this a nil INTERFACE, never a typed nil. A (*publisher)(nil)
+	// stored in an interface is non-nil to `== nil`, and the middleware would
+	// call through it. cwPublisher is the cloudwatch.Publisher interface left at
+	// its zero value, so the assignment propagates nil-ness. See [[logging-context]]
 	var metrics adapterhttp.MetricPublisher
 	var tickerDone <-chan struct{}
 	if cwPublisher != nil {
 		metrics = cwPublisher
 
-		// ctx, the PROCESS LIFETIME context — NEVER a request's. This goroutine
-		// outlives every request, and a request context is cancelled the moment
-		// its response is sent, which would kill the ticker on the first request
-		// and do it silently: cancellation is the loop's normal exit, so nothing
-		// would be logged and the dashboards would simply go flat.
-		//
-		// The READER pool: this query runs forever on a timer and scans the whole
-		// live table, so it must not spend the write path's connections on an
-		// observation.
+		// CONTRACT: ctx, the process-lifetime context — never a request's. A
+		// request context is cancelled when its response is sent, killing the
+		// ticker silently (cancellation is the loop's normal exit, so nothing
+		// logs and the dashboards just go flat). Reader pool: this scans the
+		// whole live table forever and must not spend write connections.
 		tickerDone = cloudwatch.StartTicker(ctx, cfg.MetricsEnabled, cwPublisher,
 			adaptermysql.NewMetricsRepository(readerDB),
 			time.Duration(cfg.MetricsIntervalSeconds*float64(time.Second)),
@@ -363,22 +284,15 @@ func run() error {
 
 	// ── TestMode progression ─────────────────────────────────────────────────
 	//
-	// ctx, the PROCESS LIFETIME context — NEVER a request's, and this is the one
-	// place that decision is made. net/http cancels a request's context the
-	// instant its response is written, so a run that inherited one would die at
-	// its first tick — and the symptom would be indistinguishable from the
-	// ACCEPTED, DOCUMENTED restart limitation ("the tracking froze partway
-	// through"). The bug would disguise itself as a known limitation and nobody
-	// would investigate it. app.Progression.Start therefore takes no context at
-	// all; the only one it can use is the one handed in here.
+	// CONTRACT: Pass ctx, the PROCESS LIFETIME context — never a request's.
+	// net/http cancels a request context the instant its response is written, so
+	// an inherited one dies at the first tick and looks exactly like the accepted
+	// restart limitation ("froze partway through"), which nobody investigates.
+	// Start takes no context of its own precisely to keep this the only choice.
 	//
-	// The WRITER pool, and its OWN UpdateStatus: every tick both reads and
-	// writes, and the transitions must be the same ones the carrier PUT performs
-	// — same guards, same history row, same event, same invalidation. Only the
-	// actor differs, and the progression supplies it per call.
-	//
-	// KNOWN LIMITATION, ACCEPTED: a restart mid-run loses the goroutine and the
-	// tracking stays frozen. See app.Progression. Do NOT add a durable scheduler.
+	// CONTRACT: Do NOT add a durable scheduler — a restart mid-run loses the
+	// goroutine and the tracking stays frozen, and that is accepted.
+	// See [[testmode-in-process-no-durable-scheduler]]
 	progressionStatuses := adaptermysql.NewStatusRepository(writerDB)
 	progression := app.NewProgression(
 		ctx,
@@ -390,12 +304,12 @@ func run() error {
 			nil, // the production clock: UTC, truncated to the second
 		),
 		// From config, not the constant: the E2E suite pays this interval four
-		// times per delivery spec and three specs deep. NewProgression falls back
-		// to DefaultProgressionInterval on a non-positive value.
+		// times per delivery spec, three specs deep. NewProgression falls back to
+		// DefaultProgressionInterval on a non-positive value.
 		time.Duration(cfg.ProgressionIntervalSeconds * float64(time.Second)),
 		logger,
-		// The WORKFLOW tracer: the Python opens this span through workflow_span,
-		// and one query in OpenObserve must mean the same thing in both runtimes.
+		// CONTRACT: The WORKFLOW tracer — one OpenObserve query must resolve
+		// this span the same way across every service that opens it.
 		tracing.Tracer(tracing.TracerWorkflow),
 	)
 
@@ -454,14 +368,9 @@ func run() error {
 		}
 	})
 
-	// drainProgressions joins every in-flight TestMode run. ctx's cancellation is
-	// what ends them; this only waits, and LOGS if the budget runs out — the
-	// process must not exit leaving goroutines mid-flight without at least
-	// saying so.
-	//
-	// A FRESH context: ctx is already cancelled by the time this runs, so passing
-	// it would make Wait report an incomplete drain immediately, every time,
-	// whatever actually happened.
+	// drainProgressions joins every in-flight TestMode run and logs if the budget
+	// runs out. It takes a FRESH context: ctx is already cancelled here, so
+	// passing it makes Wait report an incomplete drain every time regardless.
 	drainProgressions := sync.OnceFunc(func() {
 		drainCtx, cancel := context.WithTimeout(context.Background(), shutdownGracePeriod)
 		defer cancel()
@@ -499,115 +408,56 @@ func run() error {
 
 // openPool converts a SQLAlchemy DSN and opens an INSTRUMENTED pool.
 //
-// otelsql.Open does NOT dial — like sql.Open it only validates the DSN — so a
-// database that is still starting does not prevent this process from coming up
-// and serving its liveness probe. That is deliberate: the health check answers
-// "is this process serving HTTP", and folding a connectivity check into startup
-// would make a transient database blip cycle otherwise-healthy tasks.
+// CONTRACT: This is the ONE place a pool is opened, so wrapping here instruments
+// every repository at once and leaves no uninstrumented way to open one. Do NOT
+// add a connectivity check: otelsql.Open only validates the DSN, so a database
+// still starting does not stop this process serving its liveness probe.
 //
-// # WHY THE otelsql WRAPPING LIVES HERE
-//
-// Go has no opentelemetry-instrument, so the SQL spans Python got for free must
-// be wired by hand. This is the ONE place a pool is opened, and every repository
-// takes a plain *sql.DB — which otelsql.Open returns — so wrapping here
-// instruments all four repositories at once, changes no adapter, and leaves no
-// second, uninstrumented way to open a pool.
-//
-// What it buys: a workflow span that spends 300ms shows WHICH query spent it,
-// instead of an opaque gap. The DB spans are CLIENT spans and hang off whatever
-// span is active on the context passed to ExecContext/QueryContext — which is
-// why every repository method taking a ctx (they all do) matters.
-//
-// THE QUERY TEXT IS SUPPRESSED, and that is the load-bearing option here.
-//
-// otelsql records db.query.text BY DEFAULT — verified, not assumed: an
-// instrumented UPDATE emitted
-//
-//	db.query.text = "UPDATE trackings SET shipping_address='221B Baker Street' ..."
-//
-// with no options set. This service's write paths carry exactly that column, and
-// shipping_address is named PII in the repo's logging rules; a span attribute
-// fans out to the collector and to OpenObserve just as a log line does, so the
-// same prohibition applies. DisableQuery is therefore ON.
-//
-// What is lost is nothing that was needed: the span name and the SQL method
-// still identify WHICH call was slow, which is the question these spans exist to
-// answer. Turning this off to "see the query" would leak a customer's address
-// into observability storage.
+// CONTRACT: DisableQuery stays ON. otelsql records db.query.text by default, and
+// this service's writes carry shipping_address — a span attribute reaches
+// OpenObserve exactly as a log line does, so the PII prohibition applies. The
+// span name and SQL method still identify which call was slow.
+// See [[logging-context]]
 func openPool(sqlAlchemyDSN string) (*sql.DB, error) {
 	dsn, err := config.MySQLDSN(sqlAlchemyDSN)
 	if err != nil {
 		return nil, err
 	}
-	// No tracer provider is passed: otelsql falls back to the global one, which
-	// SetupTracing installed above. Passing an option whose value came out empty
-	// LOSES to auto-detection with no error at all — the same trap the OTLP
-	// exporter's configuration avoids by reading its environment variables.
+	// CONTRACT: Do NOT pass a tracer provider — otelsql falls back to the global
+	// one SetupTracing installed, and an option whose value came out empty loses
+	// to auto-detection with no error at all.
 	return otelsql.Open("mysql", dsn, poolTracingOptions()...)
 }
 
 // poolTracingOptions is the ONE declaration of how database spans are shaped.
 //
-// Extracted so the PII guard (TestDatabaseSpansCarryNoQueryText) and the
-// ErrSkip guard (TestDatabaseSpansDoNotRecordErrSkip) can assert against the
-// very options production uses. Inlined, those tests had to restate them, and a
-// restated option set is one that can silently stop matching the real one —
-// leaving the leak guarded only in the test's own copy.
-//
-// Both defaults here work AGAINST us, in opposite directions: otelsql records
-// too much (the query text, which is PII) and treats too much as an error
-// (driver.ErrSkip, which is not one).
+// CONTRACT: Keep this extracted, so the PII and ErrSkip guards assert against
+// the options production uses. Inlined, a test restates them and can silently
+// stop matching, leaving the leak guarded only in the test's own copy.
+// See [[logging-context]]
 func poolTracingOptions() []otelsql.Option {
 	return []otelsql.Option{
-		// The semconv system attribute, so a span is attributable to MySQL
-		// rather than to "some database".
+		// The semconv system attribute, so a span names MySQL specifically.
 		otelsql.WithAttributes(semconv.DBSystemNameMySQL),
 		otelsql.WithSpanOptions(otelsql.SpanOptions{
-			// THE PII GUARD. See the block above openPool: otelsql records
-			// db.query.text BY DEFAULT, and this service's write statements
-			// carry shipping_address.
+			// CONTRACT: The PII guard — otelsql records db.query.text by
+			// default and the write statements carry shipping_address.
 			DisableQuery: true,
 
-			// driver.ErrSkip IS NOT AN ERROR. It is a database/sql SENTINEL:
-			// a driver returns it to say "I do not implement this optional
-			// fast path" (CheckNamedValue, ExecerContext, QueryerContext…),
-			// and database/sql then falls back to the generic path and the
-			// call succeeds. It is internal control flow, and it happens on
-			// the ORDINARY path here — go-sql-driver/mysql returns ErrSkip
-			// from Exec and query whenever a statement carries arguments and
-			// InterpolateParams is off, which is the default and therefore
-			// every parameterized statement this service runs. otelsql's own
-			// conn.go returns it as well, from each optional interface the
-			// wrapped driver lacks.
-			//
-			// Left at its default, otelsql calls span.RecordError and
-			// SetStatus(codes.Error) on it, and the traces fill with
-			// exception events reading
-			//
-			//	driver: skip fast-path; continue as if unimplemented
-			//
-			// for something that never went wrong. Two costs, and the first
-			// is the expensive one: it TRAINS whoever reads the waterfall to
-			// ignore errors on database spans, which is exactly the habit
-			// that scrolls past a real one. And the error status makes spans
-			// render as failed when the query succeeded.
-			//
-			// Suppressing it buys a trace where an error on a DB span means a
-			// database problem. Do NOT remove this thinking you are restoring
-			// error visibility: genuine driver errors still take
-			// recordSpanError's default branch and are recorded exactly as
-			// before — only the ErrSkip sentinel is filtered.
+			// CONTRACT: Do NOT remove this thinking it restores error
+			// visibility. driver.ErrSkip is a database/sql sentinel meaning
+			// "optional fast path unimplemented" — go-sql-driver returns it
+			// for every parameterized statement here. Left recorded, every
+			// database span carries a false exception, which trains readers
+			// to ignore errors on database spans. Genuine driver errors are
+			// still recorded; only the sentinel is filtered.
+			// See [[logging-context]]
 			DisableErrSkip: true,
 		}),
-		// The METRICS half of the same non-event: without it, ErrSkip is
-		// stamped as error.type="database/sql/driver.ErrSkip" on the
-		// db.client.operation.duration measurement — verified against v0.43.0,
-		// not assumed — so the dashboards count a fast-path fallback as a
-		// failed database call.
-		// Set TOGETHER with DisableErrSkip on purpose — suppressing it in
-		// spans while metrics still counted it would leave a dashboard and a
-		// trace disagreeing about the same non-event, which is a worse
-		// diagnostic position than either alone.
+		// CONTRACT: Set this TOGETHER with DisableErrSkip. Without it ErrSkip
+		// is stamped as error.type on db.client.operation.duration and the
+		// dashboards count a fast-path fallback as a failed database call,
+		// leaving trace and dashboard disagreeing about the same non-event.
 		otelsql.WithDisableSkipErrMeasurement(true),
 	}
 }

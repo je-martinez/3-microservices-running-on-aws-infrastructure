@@ -48,48 +48,35 @@ locals {
       refresh  = { key = "POST /v1/users/refresh", path = "/v1/users/refresh", auth = false }
       get_me   = { key = "GET /v1/users/me", path = "/v1/users/me", auth = true }
       patch_me = { key = "PATCH /v1/users/me", path = "/v1/users/me", auth = true }
-      # Account deletion. nginx needs no `location` block for it: /v1/users/me
-      # already falls under `location /`, which proxies to Users — only a new
-      # TOP-LEVEL path would need one (see /v1/cart and /v1/products).
-      #
-      # The two INTERNAL cascade routes this endpoint calls
-      # (DELETE /v1/orders/by-user, DELETE /v1/trackings/by-user) are deliberately
-      # absent from this map: they authenticate with the shared internal key and
-      # must not be reachable from outside the network.
+      # CONTRACT: Do NOT add the internal cascade routes this endpoint calls
+      # (DELETE /v1/orders/by-user, /v1/trackings/by-user) to this map — they
+      # authenticate with the shared internal key and must stay unreachable from
+      # outside the network. No nginx `location` needed: /v1/users/me falls
+      # under `location /`, which already proxies to Users.
       delete_me = { key = "DELETE /v1/users/me", path = "/v1/users/me", auth = true }
 
-      # Passwordless email-OTP auth. `auth = false` on all three for the same
-      # reason login and register carry it: these are the routes a caller uses to
-      # OBTAIN a token, so requiring one would make them unreachable.
-      #
-      # otp/verify returns the identical AuthTokens shape as login, so nothing
-      # downstream of the gateway (the JWT authorizer, the app_user_id claim)
-      # distinguishes a session started by password from one started by OTP.
-      #
-      # No path params here, so the camelCase rule documented on get_order below
-      # does not apply — but note it if these ever gain one.
+      # CONTRACT: Keep auth = false on all three — these are the routes a caller
+      # uses to OBTAIN a token, so requiring one makes them unreachable.
+      # otp/verify returns login's AuthTokens shape, so nothing downstream
+      # distinguishes an OTP session from a password one.
       otp_start             = { key = "POST /v1/users/otp/start", path = "/v1/users/otp/start", auth = false }
       otp_verify            = { key = "POST /v1/users/otp/verify", path = "/v1/users/otp/verify", auth = false }
       register_passwordless = { key = "POST /v1/users/register/passwordless", path = "/v1/users/register/passwordless", auth = false }
 
-      # Self-owned password reset. `auth = false` on both halves for the reason
-      # login/register/otp carry it: a user who has forgotten their password
-      # holds no token, so requiring one would make the flow unreachable.
-      #
-      # The forgot endpoint answers identically for a known and an unknown email
-      # (no user enumeration) — nothing at this layer changes that, but do not
-      # add a gateway-level response mapping that could.
+      # CONTRACT: Keep auth = false on both — a user who forgot their password
+      # holds no token. WARNING: Do NOT add a gateway-level response mapping
+      # here; forgot answers identically for known and unknown emails, and a
+      # mapping that differentiates them reintroduces user enumeration.
       password_forgot  = { key = "POST /v1/users/password/forgot", path = "/v1/users/password/forgot", auth = false }
       password_confirm = { key = "POST /v1/users/password/confirm", path = "/v1/users/password/confirm", auth = false }
 
-      # The AUTHENTICATED sibling — `auth = true`, unlike the two above. This is
-      # the dedicated change-password endpoint for a caller who already holds a
-      # token; the service also 401s it on a missing x-user-id, so the two layers
-      # agree.
+      # WHY: auth = true, unlike the two above — this is the change-password
+      # endpoint for a caller who already holds a token. The service also 401s
+      # on a missing x-user-id, so both layers agree.
       patch_me_password = { key = "PATCH /v1/users/me/password", path = "/v1/users/me/password", auth = true }
 
-      # Per-service health (replaces the bare GET /v1/health, which used to hit
-      # Users only). nginx rewrites each to the service's unprefixed /v1/health.
+      # WHY: Per-service health, prefixed. nginx rewrites each to the service's
+      # unprefixed /v1/health.
       users_health  = { key = "GET /v1/users/health", path = "/v1/users/health", auth = false }
       orders_health = { key = "GET /v1/orders/health", path = "/v1/orders/health", auth = false }
 
@@ -98,31 +85,21 @@ locals {
       # a literal must still be a valid URL — no unsubstituted {order_id}).
       create_order = { key = "POST /v1/orders", path = "/v1/orders", auth = true }
       my_orders    = { key = "GET /v1/orders/my-orders", path = "/v1/orders/my-orders", auth = true }
-      # {orderId} is an APIGW path param. It MUST appear in the integration `path`
-      # too: Floci substitutes `{orderId}` in the integration URI with the real
-      # request value (verified live — a request to /v1/orders/ord_X reaches nginx
-      # as /v1/orders/ord_X). Baking only /v1/orders here dropped the id, so nginx
-      # saw `GET /v1/orders` — which Orders only serves for POST (create) — and
-      # returned 405. Real AWS preserves the path natively, so this form works in
-      # both.
-      #
-      # camelCase, NOT snake_case: Floci builds a Java regex named-capturing
-      # group from the param name (`(?<orderId>[^/]+)`), and Java only allows
-      # [A-Za-z0-9] in group names — `{order_id}` produced
-      # `(?<order_id>...)` → PatternSyntaxException ("named capturing group is
-      # missing trailing '>'"), returning a Floci 500.
+      # CONTRACT: A path param MUST appear in the integration `path` too. Omit it
+      # and Floci drops the id, so nginx sees `GET /v1/orders` and returns 405.
+      # CONTRACT: camelCase, NOT snake_case. Floci builds a Java named-capturing
+      # group from the param name and Java allows only [A-Za-z0-9] there;
+      # `{order_id}` raises PatternSyntaxException and returns a Floci 500.
+      # See [[floci-rds-apigw-limits]]
       get_order = { key = "GET /v1/orders/{orderId}", path = "/v1/orders/{orderId}", auth = true }
 
       # Products catalog (read-only, authenticated). nginx prefix-matches
       # /v1/products and forwards to orders:8080 (see nginx.conf).
       list_products = { key = "GET /v1/products", path = "/v1/products", auth = true }
 
-      # Cart (per-user, single resource — no path param, so none of the
-      # camelCase/{orderId} caveats above apply). All three are auth = true:
-      # the cart is keyed off the caller's identity (x-user-id), so there is
-      # no anonymous cart to expose, unlike login/register which must stay
-      # reachable without a token. Deliberately absent from Orders'
-      # PublicRoutes.cs for the same reason.
+      # CONTRACT: Keep all three auth = true. The cart is keyed off the caller's
+      # x-user-id, so an anonymous cart has no owner; they are absent from
+      # Orders' PublicRoutes.cs for the same reason.
       get_cart    = { key = "GET /v1/cart", path = "/v1/cart", auth = true }
       put_cart    = { key = "PUT /v1/cart", path = "/v1/cart", auth = true }
       delete_cart = { key = "DELETE /v1/cart", path = "/v1/cart", auth = true }
@@ -133,52 +110,24 @@ locals {
 
     # ─── Tracking routes ──────────────────────────────────────────────────────
     #
-    # Gated behind var.enable_tracking_routes (default FALSE). The gate exists
-    # because creating these routes while nginx has no `tracking` upstream would
-    # publish gateway paths that resolve to the WRONG backend (nginx's default
-    # `location /` sends anything unmatched to users:3000) — worse than a 404,
-    # since a health probe would return Users' 200 and look green. Turn it on in
-    # the same change that adds the nginx upstream and a running service; the
-    # local environment already does (environments/local/main.tf).
-    #
-    # Note this module names no compose service: the routes are paths, and the
-    # backend is chosen downstream by nginx's `set $backend`. That is why the Go
-    # cutover needed no change here at all — `tracking` kept its name.
-    #
-    # This differs from enable_e2e_cleanup_route (default true) on purpose: that
-    # route's backend already exists and the service itself 404s when disabled,
-    # so it is safe to leave present. Here the backend is the thing that's
-    # missing, so the gate has to live at the infra level.
+    # CONTRACT: Do NOT enable these without nginx's `tracking` upstream in the
+    # same change. nginx's default `location /` sends anything unmatched to
+    # users:3000, so a health probe returns Users' 200 and looks green.
     var.enable_tracking_routes ? {
-      # Unauthenticated liveness probe, PREFIXED at the gateway like the other
-      # services (/v1/users/health, /v1/orders/health). The service still serves
-      # /v1/health unprefixed internally; nginx rewrites the prefixed path to the
-      # bare one, health-only. A bare /v1/health route here would be worse than
-      # wrong: nginx's default `location /` sends anything unmatched to
-      # users:3000, so the probe would return Users' 200 and look green.
+      # CONTRACT: Keep this path PREFIXED. A bare /v1/health route falls to
+      # nginx's default `location /` and reaches users:3000, so the probe
+      # returns Users' 200 and looks green. nginx rewrites the prefix away.
       tracking_health = { key = "GET /v1/tracking/health", path = "/v1/tracking/health", auth = false }
 
-      # User-scoped batch read. API Gateway route keys NEVER contain a query
-      # string, so the key is the bare path; `?order_ids=<csv>` is carried
-      # through by the HTTP_PROXY integration untouched.
+      # CONTRACT: Route keys never contain a query string, so the key is the bare
+      # path; `?order_ids=<csv>` passes through the integration untouched.
       list_trackings = { key = "GET /v1/trackings", path = "/v1/trackings", auth = true }
 
-      # Tracking creation. Tracking is REST-only and serves no gRPC, so this is
-      # the sole way a tracking record comes into existence. Body carries
-      # `order_id` + `shipping_address`;
-      # the caller's identity comes from the `x-user-id` header nginx injects
-      # from the JWT claims (ADR-0016), so nothing user-scoped is in the path.
-      # auth = true: the caller is Orders propagating the end user's JWT, so the
-      # request always carries a Cognito token and goes through the existing JWT
-      # authorizer — exactly like the read routes below.
-      #
-      # Static path, deliberately placed BEFORE get_tracking in this map for
-      # readability only (map order is irrelevant to APIGW matching). It cannot
-      # be shadowed by `GET /v1/trackings/{orderId}`: route keys include the
-      # method, and POST != GET, so the two keys never compete. If a GET on this
-      # same static path were ever added, APIGW v2 precedence would still favour
-      # the static segment over the `{orderId}` variable one — but that is a
-      # rule to rely on knowingly, not by accident.
+      # WHY: The sole way a tracking record is created — Tracking is REST-only.
+      # auth = true because the caller is Orders propagating the end user's JWT;
+      # identity arrives in the x-user-id header nginx injects from the claims.
+      # CONTRACT: This static key is not shadowed by GET /v1/trackings/{orderId}
+      # — route keys include the method and POST != GET.
       init_tracking = { key = "POST /v1/trackings/init-tracking", path = "/v1/trackings/init-tracking", auth = true }
 
       # User-scoped single read. camelCase path param, NOT snake_case: Floci

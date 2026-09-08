@@ -1,14 +1,10 @@
 """Tests for lib3mrai.execution_log — the three cases the design requires.
 
-No real DynamoDB is touched: `lib3mrai.execution_log.aws.client` is patched, so
-these run offline and cannot write to (or depend on) the live Floci table. The
-third case in particular — DynamoDB unreachable — is simulated by making the
-patched client's calls raise, which is the point: proving the fail-open behavior
-must not require actually breaking the local emulator.
-
-See docs/superpowers/specs/2026-07-30-post-infra-root-design.md ("Failure
-semantics") for why the unreachable case is the guarantee the whole design rests
-on.
+CONTRACT: Touch no real DynamoDB — `execution_log.aws.client` is patched, so
+these run offline and cannot write to or depend on the live Floci table. The
+unreachable case is simulated by making the patched client raise; proving
+fail-open must not require breaking the emulator.
+See [[two-phase-terraform-apply]]
 """
 
 from __future__ import annotations
@@ -41,10 +37,9 @@ def ddb():
 def _kwargs(mock_method):
     """The kwargs of a mocked method's single call.
 
-    Note `mock_method.kwargs` would silently return a child mock (every
-    attribute of a MagicMock is one), so assertions against it always pass
-    against a mock instead of the real value — `.call_args.kwargs` is the
-    accessor that actually reads the recorded call.
+    CONTRACT: Use `.call_args.kwargs`, never `mock_method.kwargs` — every
+    attribute of a MagicMock is a child mock, so assertions against the latter
+    pass against a mock instead of the recorded call.
     """
     return mock_method.call_args.kwargs
 

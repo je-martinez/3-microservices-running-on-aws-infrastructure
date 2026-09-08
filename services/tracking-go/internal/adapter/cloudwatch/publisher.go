@@ -1,24 +1,15 @@
-// Package cloudwatch publishes this service's custom business metrics.
+// Package cloudwatch publishes this service's custom business metrics: this file
+// turns a (name, value, dimensions) triple into one PutMetricData call, while
+// scheduling and queries live in ticker.go.
 //
-// ONE RESPONSIBILITY. This file turns a (name, value, dimensions) triple into one
-// PutMetricData call and nothing else; the SCHEDULING and the QUERIES live in
-// ticker.go. That split is what makes the publisher unit-testable with a
-// recording double and the loop testable with an injected interval.
+// CONTRACT: Publish never returns an error — an unreachable metrics backend must
+// not break the work it observes. Every failure is still an ERROR line carrying
+// app_event=metric_publish_failed. See [[logging-context]]
 //
-// FAILURE POLICY: LOG AND SWALLOW, deliberately. Publish never returns an error.
-// A metrics backend being unreachable may never break the request or the loop
-// that produced the metric — the metric is a secondary observation of work that
-// already happened. This is NOT silent: every failure is an ERROR line carrying
-// app_event=metric_publish_failed, which is what makes it alertable.
-//
-// THE NAMESPACE AND THE DIMENSIONS ARE A CONTRACT. Every 3MRAI metric, in every
-// service, is published under the single namespace 3MRAI. The dimension SET is
-// equally load-bearing: Floci does not aggregate across dimensions, so the
-// collector's GetMetricData query must name the exact same set the datum was
-// published with — a query that omits one returns Values: [] with
-// StatusCode: "Complete", a silent empty result rather than an error. Dimensions
-// are therefore low-cardinality labels only; never a user id, an email or an
-// order id.
+// CONTRACT: One namespace, 3MRAI, and the DIMENSION SET is part of it. Floci
+// does not aggregate across dimensions, so a GetMetricData query omitting one
+// returns Values: [] with StatusCode "Complete" — a silent empty result, not an
+// error. Dimensions are low-cardinality labels only, never a user id or email.
 package cloudwatch
 
 import (

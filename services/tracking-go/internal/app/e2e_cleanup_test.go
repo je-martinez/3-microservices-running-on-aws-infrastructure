@@ -96,15 +96,12 @@ func TestE2ECleanup(t *testing.T) {
 	})
 }
 
-// The scoping contract, which is the whole point of the change: a teardown must
-// delete ITS OWN run's fixtures and leave every other run's alive.
-//
-// Why it matters beyond tidiness: the unscoped sweep deletes every E2E-tagged
-// tracking on the machine, so with parallel workers one run's teardown lands
-// inside another's live TestMode progression. That progression's next tick reads
-// tracking_not_found and ABORTS, and its remaining statuses are never published
-// — the events never exist, which is why the failure looked like a lost message
-// for as long as it did.
+// CONTRACT: A teardown deletes ITS OWN run's fixtures and leaves every other
+// run's alive. The unscoped sweep deletes every E2E-tagged tracking on the
+// machine, so with parallel workers one teardown lands inside another's live
+// progression, whose next tick reads tracking_not_found and ABORTS — the
+// remaining statuses never publish, which reads as a lost message.
+// See [[2026-08-30-a-global-teardown-cannot-be-scoped]]
 func TestExecuteScopedPassesTheRunTagThrough(t *testing.T) {
 	deleter := &stubTagDeleter{count: 3}
 	uc := app.NewE2ECleanup(deleter, func() time.Time { return time.Unix(0, 0).UTC() })

@@ -28,16 +28,10 @@ import {
  *   pnpm run auth-codes
  *   pnpm exec gatling run --typescript --simulation authCodes usersPerSec=0.5 duration=120
  *
- * Kept SEPARATE from fullJourney on purpose. Every virtual user here waits for
- * an email to travel service → SQS → Lambda → SES → Mailpit, which takes
- * seconds. Mixed into the main simulation those seconds would inflate the whole
- * run's percentiles with latency that is not our services'. Here they are
- * isolated, and the polling request has its own row in the report so the wait is
- * visible rather than smeared across the service's own numbers.
- *
- * The rate defaults LOW for the same reason: this exercises the events-pipeline
- * end to end (one email per user), so it is a throughput test of the email path
- * rather than of the HTTP surface.
+ * CONTRACT: Keep this SEPARATE from fullJourney and keep the rate LOW. Every virtual
+ * user waits seconds for an email to cross service → SQS → Lambda → SES → Mailpit, so
+ * merging it inflates the whole run's percentiles with latency that is not ours. This
+ * is a throughput test of the email path, not of the HTTP surface. See [[testing]]
  */
 export default simulation((setUp) => {
   const usersPerSec = parseFloat(getParameter("usersPerSec", "0.3"));

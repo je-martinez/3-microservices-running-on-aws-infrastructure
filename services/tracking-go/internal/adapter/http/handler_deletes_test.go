@@ -283,14 +283,11 @@ func TestInternalDeleteByUser(t *testing.T) {
 		}
 	})
 
-	// The min-length is a SECURITY control: the downstream predicate is an OR, so
-	// an empty value could widen the match to any row carrying an empty string in
-	// that column.
-	//
-	// Each case asserts the 422 NAMES THE OFFENDING FIELD in loc. That is what
-	// pins the check to THIS boundary: the use case refuses empties too, but its
-	// refusal cannot say which field was at fault, so a generic 422 would pass
-	// while the boundary check had been deleted.
+	// CONTRACT: The min-length is a SECURITY control — the downstream predicate
+	// is an OR, so an empty value widens the match to any row with an empty
+	// string there. Each case asserts the 422 NAMES the offending field, which
+	// is what pins the check to THIS boundary: the use case refuses empties too
+	// but cannot say which field, so a generic 422 passes without it.
 	t.Run("an empty identity on either side is 422 naming the field", func(t *testing.T) {
 		for _, tc := range []struct {
 			body    string

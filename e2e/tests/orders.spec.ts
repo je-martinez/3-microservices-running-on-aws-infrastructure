@@ -2,16 +2,10 @@ import { test, expect } from "@playwright/test";
 import { apiClient, ordersClient } from "../support/api-client.js";
 import { makeUser } from "../support/chance-factory.js";
 
-// Drives the Orders service directly (localhost:3001, bypassing the gateway),
-// with a faked x-user-id standing in for the authorizer's output — the
-// internal counterpart to users.spec.ts. Orders resolves x-user-id as a
-// Cognito sub via gRPC to Users for any endpoint that needs the internal
-// usr_ id (order creation, ownership checks). Users' gRPC GetUserById
-// resolves by usr_ id OR Cognito sub, so the usr_ id returned by
-// POST /v1/users/register (via apiClient(), the Users service) works
-// directly as x-user-id against Orders — verified live against the running
-// stack. The gateway path (JWT authorizer, njs sub-extraction, real Cognito
-// tokens) is exercised separately by e2e/tests/gateway/orders*.spec.ts.
+// Drives Orders directly (localhost:3001), with a faked x-user-id standing in for the
+// authorizer's output. Orders resolves it as a Cognito sub over gRPC when it needs the
+// internal `usr_` id, and Users' `GetUserById` accepts either form, so register's id
+// works directly here. The gateway path is exercised by tests/gateway/orders*.spec.ts.
 
 async function registerCaller(): Promise<string> {
   const users = await apiClient();

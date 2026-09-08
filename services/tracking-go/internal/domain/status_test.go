@@ -6,13 +6,10 @@ import (
 )
 
 func TestStatusOrderIsProgressionNotAlphabetical(t *testing.T) {
-	// The guard rail for this entire file: if ordering ever came from comparing
-	// the string values, DELIVERED would sort before PLACED.
-	//
-	// Written as the negation of the alphabetical comparison on purpose: the
-	// point being asserted is "alphabetical order says DELIVERED < PLACED", and
-	// De Morgan-ing it into `StatusDelivered >= StatusPlaced` inverts the
-	// statement the reader is meant to check against the comment above.
+	// The guard rail for this file: ordering from string comparison would sort
+	// DELIVERED before PLACED. Written as the negation on purpose — the point
+	// asserted is "alphabetical order says DELIVERED < PLACED", and De
+	// Morgan-ing it inverts the statement the reader checks.
 	//nolint:staticcheck // QF1001: the un-simplified form documents the trap.
 	if !(StatusDelivered < StatusPlaced) {
 		t.Fatal("precondition changed: DELIVERED no longer sorts before PLACED as a string")

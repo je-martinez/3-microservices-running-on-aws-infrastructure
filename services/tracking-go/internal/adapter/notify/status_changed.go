@@ -1,11 +1,7 @@
 // Package notify adapts the post-commit side effects of a status transition —
-// the SQS event and the cache invalidation — to the narrow ports
-// internal/app declares for them.
-//
-// It is its own package rather than part of internal/adapter/http because
-// NEITHER side effect is a transport concern of the carrier webhook: TestMode
-// progression runs the same transition with no HTTP request behind it at all,
-// and would otherwise have to import the HTTP adapter to publish an event.
+// the SQS event and the cache invalidation — to the narrow ports internal/app
+// declares. Its own package because neither is a transport concern: TestMode
+// runs the same transition with no HTTP request behind it.
 package notify
 
 import (
@@ -18,14 +14,11 @@ import (
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/domain/audit"
 )
 
-// The two adapters below sit between the use case's narrow ports and the
-// concrete publisher and cache gateway.
-//
-// They live in the ADAPTER layer, never in internal/app: a port is declared by
-// its consumer and kept to what that consumer needs, so the use case must not
-// learn the shape of an SQS envelope or of a Redis gateway to be wired to them.
-// Both are also the reason app.EventPublisher and app.CacheInvalidator can stay
-// two-argument, error-free interfaces that a test satisfies in three lines.
+// CONTRACT: These adapters stay in the ADAPTER layer, never internal/app. A port
+// is declared by its consumer, so the use case must not learn the shape of an
+// SQS envelope or a Redis gateway — that is what keeps app.EventPublisher and
+// app.CacheInvalidator error-free interfaces a test satisfies in three lines.
+// See [[screaming-architecture]]
 
 // StatusEventPublisher adapts the SQS publisher to app.EventPublisher.
 //
@@ -74,14 +67,11 @@ func (p *StatusEventPublisher) PublishTrackingStatusChanged(
 		// The TRANSITION's own timestamp, not updated_at, which moves on any
 		// write.
 		ChangedAt: t.Tracking.Datetime,
-		// Forwarded BYTE-FOR-BYTE as the raw JSON the column holds. There is
-		// deliberately no conversion step here any more: the previous *string
-		// narrowing re-encoded the object as a JSON string, which the pipeline's
-		// `z.record(z.string(), z.unknown())` rejects as a PermanentError —
-		// consuming the record and losing the email and the WebSocket push while
-		// this service logged success. The publisher owns the omit-vs-null
-		// decision (sqs.omittableAddress); this adapter's job is only to not lose
-		// the shape on the way there.
+		// CONTRACT: Forward BYTE-FOR-BYTE, with no conversion here. Narrowing to
+		// *string re-encodes the object as a JSON string, which the pipeline's
+		// z.record rejects as a PermanentError — the record is consumed and the
+		// email and push are lost while this service logs success. The publisher
+		// owns the omit-vs-null decision. See [[events-pipeline-design]]
 		ShippingAddress: t.Tracking.ShippingAddress,
 		History:         history,
 		// Threaded down from the use case, never chosen here: this publisher

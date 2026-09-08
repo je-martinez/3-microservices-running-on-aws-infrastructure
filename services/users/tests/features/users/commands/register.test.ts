@@ -193,7 +193,7 @@ describe("RegisterUserCommand — Cognito identity capture (JE-38 Task 7)", () =
 // The workflow span for this flow. Asserted against a REAL exporter (registered
 // in tests/setup-tracing.ts), not a mock: the point is the shape of the span
 // that actually reaches a backend — its name, its status, and above all that it
-// was ended, since an unended span silently never reaches Jaeger at all.
+// was ended, since an unended span is silently never exported at all.
 describe("RegisterUserCommand tracing", () => {
   beforeEach(() => testSpanExporter.reset());
 

@@ -2,14 +2,9 @@
 // Idempotently import/update the OpenObserve dashboards under
 // observability/dashboards/*.dashboard.json.
 //
-// OpenObserve v0.91.1 (see observability/dashboards/README.md): dashboardId is
-// server-assigned on create, so idempotency keys on `title` — we list existing
-// dashboards, match by title, and PUT (with the current ?hash=) to update or
-// POST to create. Logs-only per ADR-0018; the panels are derived from the logs
-// stream. Local dev creds fall back to the runbook value.
-//
-// Node built-ins only (fs, path, fetch) — no dependencies. Run via
-// `make observability-dashboards` (which runs `nvm use` first).
+// CONTRACT: Key idempotency on `title`, not dashboardId — the server assigns
+// the id on create, so a re-import would otherwise duplicate every dashboard.
+// Node built-ins only, no dependencies. Run via `make observability-dashboards`.
 
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -29,21 +24,12 @@ function fail(msg) {
   process.exit(1);
 }
 
-// The org does not exist on a freshly created OpenObserve volume: it is created
-// by the FIRST INGESTION, not by this script, and its identifier is taken from
-// the ingest URL (ZO_CREATE_ORG_THROUGH_INGESTION). So after `make clean`, this
-// script used to run before any service had logged anything and die with
-// "Organization not found" — leaving every dashboard missing until someone
-// noticed and re-ran the import by hand.
-//
-// Seeding it with one throwaway log line is what creates it, deterministically
-// and with the identifier we want. POSTing to /api/organizations would NOT
-// work: that endpoint generates a RANDOM identifier and ignores any supplied in
-// the body, so the org would come out named something like 3HuXDuClKORq… and
-// every consumer of /api/3mrai would still 404.
-//
-// The record lands in a `_bootstrap` stream rather than `logs`, so it never
-// pollutes the stream the dashboards read.
+// CONTRACT: Seed the org with a throwaway log line; do NOT POST to
+// /api/organizations. The org is created by the first INGESTION and takes its
+// identifier from the ingest URL, while that endpoint generates a RANDOM
+// identifier and ignores the body — every consumer of /api/3mrai would still
+// 404. Without the seed, a run after `make clean` dies with "Organization not
+// found". The record lands in a `_bootstrap` stream, not the dashboards' one.
 async function seedOrg() {
   const res = await fetch(`${BASE}/api/${ORG}/_bootstrap/_json`, {
     method: "POST",

@@ -15,13 +15,10 @@ resource "terraform_data" "wait_for_db" {
     engine = each.key
   }
 
-  # abspath so the script resolves regardless of the local-exec working dir
-  # (path.module is "." at the root, which does not reliably resolve from the
-  # provisioner's cwd). The interpreter is the repo venv's python, passed in as
-  # var.python_bin rather than derived here: the Makefile already knows the
-  # absolute path, and hardcoding a relative depth from this module is exactly
-  # the kind of thing that breaks silently when a file moves. Never `python3`
-  # off PATH — a developer's shell may sit inside an unrelated venv.
+  # CONTRACT: abspath, and the repo venv's interpreter via var.python_bin —
+  # never plain `python3` off PATH, which may resolve into an unrelated venv.
+  # path.module is "." at the root and does not resolve from the provisioner's
+  # cwd. See [[scripting-language]]
   provisioner "local-exec" {
     command     = "${var.python_bin} ${abspath("${path.module}/scripts/wait_for_db.py")} ${self.input.host} ${self.input.port} ${self.input.engine}"
     interpreter = ["/usr/bin/env", "bash", "-c"]

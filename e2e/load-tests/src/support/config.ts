@@ -4,11 +4,9 @@ import Chance from "chance";
 const chance = new Chance();
 
 /**
- * Shared configuration for every simulation.
- *
- * Values come from the SDK's own accessors, never `process.env`: simulations run
- * in GraalVM rather than Node, so `process` is undefined at runtime even though
- * it type-checks when @types/node is present. See the gatling-js skill.
+ * CONTRACT: Read values through the SDK's accessors, NEVER `process.env`. Simulations
+ * run in GraalVM, so `process` is undefined at runtime even though it type-checks with
+ * @types/node present. See [[testing]]
  */
 
 /** Base URL every simulation targets. */
@@ -34,11 +32,9 @@ export const carrierApiKey = (): string =>
   getEnvironmentVariable("TRACKING_CARRIER_API_KEY", "");
 
 /**
- * Mailpit's HTTP API — the local inbox the OTP and reset codes land in.
- *
- * An ABSOLUTE url, because these requests do not go through the gateway: they
- * read a mailbox rather than call the product. Gatling's `baseUrl` still
- * applies to every relative path, so mixing the two in one simulation is fine.
+ * Mailpit's HTTP API — the local inbox the OTP and reset codes land in. ABSOLUTE,
+ * because these read a mailbox rather than call the product; `baseUrl` still applies
+ * to relative paths, so mixing the two in one simulation is fine.
  */
 export const mailpitBaseUrl = (): string =>
   getEnvironmentVariable("MAILPIT_API_URL", "http://localhost:8025/api/v1");
@@ -56,23 +52,11 @@ export const profile = {
 };
 
 /**
- * Run-scoped namespace for generated identities.
- *
- * Uniqueness here is load-bearing, and getting it wrong is expensive rather
- * than merely untidy: a duplicate email fails registration, the login that
- * follows then fails for lack of an account, and every authenticated step after
- * it returns 401. One collision produced **five** failures in a measured run —
- * so a weak namespace does not look like a data bug, it looks like the auth
- * chain is broken.
- *
- * Chance's own `chance.email()` is deliberately NOT used for this: it draws
- * from a finite pool and repeats. Chance IS used for every other field, where
- * repetition is harmless and realism is the point.
- *
- * The suffix combines three sources so that no single one has to be perfect:
- * wall-clock milliseconds (separates runs), a random component, and a
- * monotonic counter (guarantees uniqueness within a run, which is the only
- * part that must never fail).
+ * CONTRACT: Do NOT weaken this to `chance.email()` — it draws from a finite pool and
+ * repeats. A duplicate email 409s registration, the login then fails, and every step
+ * after it 401s: one collision produced FIVE failures in a run, reading as a broken
+ * auth chain rather than a data bug. The suffix combines wall-clock ms, a random
+ * component, and a per-user counter. See [[testing]]
  */
 const runId = `${Date.now().toString(36)}${chance.string({
   length: 8,
@@ -82,19 +66,9 @@ const runId = `${Date.now().toString(36)}${chance.string({
 })}`;
 
 /**
- * Realistic fake data, from Chance.js.
- *
- * Chance bundles into the simulation (verified — it is pure JS with no Node
- * built-ins, which is the thing to check before depending on a library here;
- * see the gatling-js skill). Real names, streets and cities beat synthetic
- * strings because they exercise the same validation, encoding and column widths
- * a real signup does — `Ünal O'Brien-Smith` finds bugs that `Load Test 42`
- * never will.
- *
- * The EMAIL is the one field not left to Chance: `chance.email()` draws from a
- * finite pool and repeats, and a repeat means 409 email_exists. The run-scoped
- * prefix plus the counter guarantees uniqueness, so registration failures mean
- * a real defect rather than a birthday collision.
+ * Realistic fake data from Chance.js (pure JS, no Node built-ins — the thing to check
+ * before depending on a library here). Real names and streets exercise the validation
+ * and column widths a real signup does. The EMAIL is the one field not left to Chance.
  */
 export const fakeUser = (
   userId: number,
@@ -105,14 +79,10 @@ export const fakeUser = (
   phoneNumber: string;
   address: { line1: string; city: string; country: string };
 } => {
-  // Gatling's own per-virtual-user id, not a module counter.
-  //
-  // This was measured the hard way: a module-level counter produced the SAME
-  // email five times in one run. Simulation modules are evaluated per
-  // execution context in GraalVM, so a counter in module scope is not the
-  // single shared sequence it appears to be — several users draw the same
-  // value. `session.userId()` is unique per virtual user by construction,
-  // which is the guarantee this needs.
+  // CONTRACT: Use Gatling's per-virtual-user id, NEVER a module-level counter.
+  // Simulation modules are evaluated per execution context in GraalVM, so module scope
+  // is not one shared sequence — a counter produced the SAME email five times in one
+  // run. `session.userId()` is unique per virtual user by construction.
   const suffix = `${runId}-${userId}`;
   return {
     email: `loadtest-${suffix}@example.com`,

@@ -39,11 +39,9 @@ func NewTrackingRepository(db *sql.DB) *TrackingRepository {
 // ExistsByOrderID reports whether the order already has a LIVE tracking or ANY
 // live history row.
 //
-// History is checked too, and that is not belt-and-braces. A soft-deleted
-// tracking leaves its history rows behind; re-creating over them would either
-// collide on tracking_history's composite primary key or attach a brand-new
-// tracking to somebody else's status trail. Checking both is what makes a retry
-// unable to duplicate a shipment.
+// CONTRACT: Check history too. A soft-deleted tracking leaves its history rows,
+// and re-creating over them either collides on tracking_history's composite key
+// or attaches a new tracking to someone else's status trail. See [[soft-delete]]
 func (r *TrackingRepository) ExistsByOrderID(ctx context.Context, orderID string) (bool, error) {
 	var exists bool
 	err := r.db.QueryRowContext(ctx, `
@@ -61,13 +59,10 @@ func (r *TrackingRepository) ExistsByOrderID(ctx context.Context, orderID string
 // Create writes the tracking and its opening history row in ONE transaction,
 // both stamped from the passed `now`.
 //
-// The id and the tracking number are MINTED HERE, not taken as inputs: they are
-// the row's identity, and a caller supplying either could collide two shipments
-// on purpose.
-//
-// A unique-index rejection becomes domain.ErrTrackingAlreadyExists — the SAME
-// error the use case's pre-check produces — so a lost race answers 409 and never
-// 500.
+// CONTRACT: Mint the id and tracking number here, never take them as inputs — a
+// caller supplying either can collide two shipments deliberately. A unique-index
+// rejection becomes ErrTrackingAlreadyExists, so a lost race answers 409, not
+// 500. See [[nano-id]]
 func (r *TrackingRepository) Create(
 	ctx context.Context, in domain.NewTracking, now time.Time,
 ) (result domain.TrackingWithHistory, err error) {

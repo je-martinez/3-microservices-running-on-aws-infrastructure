@@ -6,17 +6,12 @@ import { z } from "zod";
 // fixture data and is expected to disappear.
 export const E2E_EMAILS_COLLECTION = "e2e_emails";
 
-// One document per email the pipeline actually rendered and handed to SES.
-//
-// `code` is the plaintext OTP or reset code. It is redacted from the production
-// event document on purpose (see #domain/redact-payload) and that redaction is
-// NOT relaxed — this collection is written only when E2E_TESTING_ENABLED is on,
-// holds only TTL-bounded rows, and must never be enabled in a deployed
-// environment.
-//
-// Optional fields are OMITTED rather than null, matching the repo-wide logging
-// contract: an absent field means "did not apply", and null would force every
-// reader to handle a third state.
+// One document per email the pipeline rendered and handed to SES.
+// WARNING: `code` is the plaintext OTP or reset code. This does NOT relax
+// #domain/redact-payload's stripping of it from the production event document —
+// this collection is written only under E2E_TESTING_ENABLED, holds TTL-bounded
+// rows, and must never be enabled in a deployed environment. Optional fields are
+// OMITTED rather than null, as everywhere else.
 export const EmailRecordSchema = z.object({
   run_id: z.string().min(1),
   to: z.string().email(),

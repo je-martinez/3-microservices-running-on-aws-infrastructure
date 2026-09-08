@@ -3,26 +3,15 @@ import { http, status } from "@gatling.io/http";
 import { fakeUser, mailpitBaseUrl } from "../support/config.js";
 
 /**
- * The two flows whose second step needs a code that arrives by email:
- * passwordless OTP login, and password reset.
+ * The two flows whose second step needs a code that arrives by email: passwordless OTP
+ * login and password reset, both modelled END TO END by reading Mailpit's HTTP API.
  *
- * Both are modelled END TO END, which means the simulation reads the code out
- * of Mailpit's HTTP API the way a person reads their inbox.
- *
- * > [!warning] This deliberately puts email latency inside the measurement.
- * > The code travels service → SQS → Lambda → SES → Mailpit, which takes
- * > seconds. Those seconds land in these scenarios' percentiles, and Mailpit
- * > becomes part of the system under load.
- * >
- * > That is why the polling request is NAMED separately ("GET mailpit (wait for
- * > code)"): in the report it sits on its own row, so "waiting for an email" is
- * > never mistaken for "our service is slow". Read the service's own latency
- * > from the other rows.
- *
- * Verified against the running stack before being written: otp/start returns a
- * `session` that verify requires, and the six-digit code appears in Mailpit's
- * search `Snippet`, so one search call is enough — no second fetch for the full
- * message body.
+ * CONTRACT: Keep the polling request NAMED separately ("GET mailpit (wait for code)").
+ * This puts email latency inside the measurement — the code travels service → SQS →
+ * Lambda → SES → Mailpit, taking seconds — so without its own row "waiting for an
+ * email" is read as "our service is slow". The service's real latency is the other rows.
+ * otp/start returns a `session` verify requires, and the code appears in Mailpit's
+ * search `Snippet`, so one search call suffices. See [[testing]]
  */
 
 /** Seeds an identity for a passwordless account (no password is ever set). */
@@ -48,11 +37,9 @@ export const registerPasswordless = exec(
 );
 
 /**
- * Start the challenge.
- *
- * The response carries a `session` that `verify` must echo back — Cognito's
- * CUSTOM_AUTH challenge state. Dropping it makes verify fail in a way that
- * looks like a bad code.
+ * Start the challenge. CONTRACT: The response's `session` must be echoed back by
+ * `verify` — it is Cognito's CUSTOM_AUTH challenge state, and dropping it makes verify
+ * fail in a way that looks like a bad code.
  */
 export const otpStart = exec(
   http("POST /v1/users/otp/start")
@@ -63,15 +50,10 @@ export const otpStart = exec(
 );
 
 /**
- * Poll Mailpit until the code arrives.
- *
- * `.tryMax` retries the whole block, so a message that has not landed yet is
- * retried rather than failing the user — the email is asynchronous and its
- * timing is not something the service controls.
- *
- * The code is pulled from the search result's `Snippet` with a regex; Mailpit
- * puts enough of the body there that a second request for the full message is
- * unnecessary.
+ * Poll Mailpit until the code arrives. `.tryMax` retries the whole block, since the
+ * email is asynchronous and its timing is not something the service controls. The code
+ * comes out of the search result's `Snippet` — Mailpit puts enough of the body there
+ * that a second request for the full message is unnecessary.
  */
 const fetchCodeFromMailbox = (saveAs: string, subject: string) =>
   exec(

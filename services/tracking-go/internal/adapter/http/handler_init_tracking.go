@@ -97,18 +97,12 @@ func NewInitTrackingHandler(
 	return &InitTrackingHandler{uc: uc, hook: hook, log: log, tracer: tracer}
 }
 
-// RegisterInitTracking mounts POST /v1/trackings/init-tracking.
+// RegisterInitTracking mounts POST /v1/trackings/init-tracking beside its
+// handler. A POST literal is safe next to GET /v1/trackings/:order_id (one radix
+// tree per method); a GET literal here would PANIC AT STARTUP — see NewRouter.
 //
-// The literal path segment is registered here rather than inline in main so the
-// route and its handler stay in one file. Registering a POST literal is safe
-// beside GET /v1/trackings/:order_id because Gin keeps ONE radix tree PER METHOD
-// and the two live in different trees — but a GET literal under the same prefix
-// would collide with that wildcard and PANIC THE PROCESS AT STARTUP. See
-// NewRouter.
-//
-// The E2E-source and test-mode middlewares are applied by the router, not here:
-// several routes need them, and E2ESourceMiddleware also carries the
-// E2E_TESTING_ENABLED flag that only the composition root knows.
+// The E2E-source and test-mode middlewares are applied by the router, which is
+// where E2E_TESTING_ENABLED is known.
 func RegisterInitTracking(router gin.IRoutes, handler *InitTrackingHandler) {
 	router.POST("/v1/trackings/init-tracking", handler.Handle)
 }
@@ -268,13 +262,9 @@ func (h *InitTrackingHandler) decodeBody(c *gin.Context) (initTrackingRequest, b
 }
 
 // unknownField extracts the field name out of encoding/json's
-// `json: unknown field "x"` error, so the 422 can NAME it the way Pydantic does.
-//
-// A string match on a standard-library message is fragile by nature, which is why
-// the handler falls back to a generic 422 when it does not match: the status is
-// right either way, and only the field name is lost. The handler test asserts the
-// name is present, so a wording change in the standard library fails a test rather
-// than shipping a vaguer error.
+// `json: unknown field "x"` error so the 422 can name it. The handler falls back
+// to a generic 422 when this does not match: the status is right either way and
+// only the name is lost, and the handler test asserts the name.
 func unknownField(err error) (string, bool) {
 	const prefix = `json: unknown field `
 	msg := err.Error()

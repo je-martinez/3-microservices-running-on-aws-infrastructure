@@ -16,13 +16,9 @@ export const REQUEST_ID_HEADER = "x-request-id";
 const REQUEST_ID_PREFIX = NanoIdConfig.PREFIXES.Request;
 
 /**
- * `req_` followed by the shared nano-id alphabet and length.
- *
- * DERIVED from NanoIdConfig rather than written out, so it cannot drift from
- * what the generator produces — a hand-written pattern is how a service starts
- * rejecting its own ids after the format changes. Anchored at both ends with an
- * exact length: this is the only thing standing between an untrusted header and
- * every log line of the request.
+ * `req_` plus the shared nano-id alphabet and length, DERIVED from NanoIdConfig rather
+ * than written out — a hand-written pattern is how a service starts rejecting its own
+ * ids after the format changes.
  */
 const REQUEST_ID_PATTERN = NanoIdConfig.pattern(REQUEST_ID_PREFIX);
 
@@ -35,19 +31,13 @@ export function generateRequestId(): string {
  * The request id for an inbound request: the caller's if it is one of ours,
  * otherwise a fresh one.
  *
- * WHY VALIDATE AT ALL. The header is untrusted input — it arrives from the
- * gateway, another service, or a client typing curl — and whatever it says is
- * copied onto EVERY log line of the resulting flow and forwarded to every
- * downstream service. An unbounded value would bloat the log stream; control
- * characters would corrupt the JSON a dashboard parses; a value shaped like
- * another service's id would make a query correlate the wrong things. Accepting
- * only our own format keeps the field trustworthy for the one job it has.
- *
- * WHY NOT REJECT THE REQUEST. A malformed correlation header is not a reason to
- * fail an otherwise valid request: the caller asked for something legitimate and
- * a 400 would turn an observability nicety into an outage. Discarding silently
- * and generating a fresh id degrades exactly as far as it needs to — the flow is
- * still correlated end to end, just not with the caller's id.
+ * CONTRACT: Validate the header, and discard silently rather than rejecting the
+ * request. It is untrusted input copied onto EVERY log line of the flow and forwarded
+ * downstream, so an unbounded value bloats the stream, control characters corrupt the
+ * JSON a dashboard parses, and another service's id shape makes a query correlate the
+ * wrong things. A 400 would turn an observability nicety into an outage; a fresh id
+ * keeps the flow correlated end to end.
+ * See [[2026-08-15-request-id-correlation-design]]
  */
 export function resolveRequestId(headerValue: unknown): string {
   return typeof headerValue === "string" && REQUEST_ID_PATTERN.test(headerValue)

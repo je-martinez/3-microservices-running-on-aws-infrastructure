@@ -23,23 +23,14 @@ const callerSubKey = "caller_sub"
 // RequireCallerSub returns the caller's COGNITO SUB, or 401 when the gateway
 // injected none.
 //
-// # The header is named x-user-id but holds a Cognito SUB
+// CONTRACT: The header is named x-user-id but holds the JWT sub, NOT the
+// internal usr_ id tracking.user_id holds. Never pass this value where a usr_ id
+// is expected — a read scoped by the wrong one silently matches nothing.
 //
-// This is the single most misleading name on this surface. nginx sets it
-// literally as `proxy_set_header x-user-id $jwt_sub` — it is the JWT's sub claim,
-// NOT the internal usr_ id that tracking.user_id holds. The two are different
-// strings for the same person, and a read scoped by the wrong one silently
-// matches nothing. Never pass this value where an internal usr_ id is expected.
-//
-// # EMPTY IS MISSING
-//
-// nginx sets x-user-id to the EMPTY STRING when the token is missing or malformed
-// rather than omitting the header, so an empty value must be treated exactly like
-// an absent one. Accepting "" would scope a read to cognito_sub = ”, which
-// matches no row — a silent empty result instead of the 401 the caller deserves.
-//
-// 401, not 403: the request carries no usable credential at all, so this is a
-// failure to authenticate, not a permission denial on an identified caller.
+// CONTRACT: Treat EMPTY as missing. nginx sets x-user-id to "" for a missing or
+// malformed token rather than omitting it, and accepting "" scopes a read to
+// cognito_sub = "", which returns an empty result instead of a 401.
+// See [[user-id-vs-cognito-sub-ownership-key]]
 func RequireCallerSub() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sub := strings.TrimSpace(c.GetHeader(UserIDHeader))
@@ -62,20 +53,14 @@ func CallerSub(c *gin.Context) string {
 
 // RequireCarrierKey validates TRACKING_CARRIER_API_KEY on the carrier webhook.
 //
-// The caller is a third-party carrier, not an end user. Its gateway route is
-// declared auth = false, so the request never passes a Cognito authorizer and
-// carries no x-user-id: THIS SERVICE IS THE ONLY THING STANDING IN FRONT OF AN
-// ENDPOINT THAT MUTATES DELIVERY STATE.
+// WARNING: The gateway route is auth = false, so this guard is the ONLY thing in
+// front of an endpoint that mutates delivery state.
 //
-// # A DIFFERENT key from the internal one, deliberately
-//
-// TRACKING_CARRIER_API_KEY is an EXTERNAL credential handed to a vendor;
-// GRPC_API_KEY is the INTERNAL service-to-service secret. Reusing one as the
-// other would give an outside party a credential that authenticates as an
-// internal service against every internal surface — including the mass
-// soft-delete route below. This lives in its own function, beside its sibling but
-// never merged with it: one function per trust domain makes the wrong-key mistake
-// structurally harder than a shared helper with a key argument would.
+// CONTRACT: Do NOT merge this with RequireInternalKey. The carrier key is an
+// EXTERNAL credential handed to a vendor; GRPC_API_KEY is internal. Reusing one
+// as the other lets an outside party authenticate against every internal
+// surface, including the mass soft-delete below.
+// See [[two-api-keys-two-trust-domains]]
 func RequireCarrierKey(expected string, log *slog.Logger) gin.HandlerFunc {
 	return apiKeyGuard(expected, log, "carrier_status_update_failed")
 }
@@ -89,18 +74,13 @@ func RequireInternalKey(expected string, log *slog.Logger) gin.HandlerFunc {
 	return apiKeyGuard(expected, log, "internal_delete_by_user_failed")
 }
 
-// apiKeyGuard is the shared REJECTION path, never a shared secret. Both callers
-// pass their own key from their own trust domain; nothing here can mix them up
-// because neither key is reachable from this function except through its
-// argument.
+// apiKeyGuard is the shared REJECTION path, never a shared secret — each caller
+// passes its own key and neither is reachable here except through the argument.
 //
-// # 401, not 403
-//
-// A missing or wrong key is answered 401. 403 would mean "we know who you are and
-// you may not do this" — but a bad key identifies nobody, so there is no principal
-// to forbid. It also keeps the two failure modes indistinguishable: a caller
-// cannot tell a wrong key from an absent one, so the endpoint reveals nothing
-// about whether a key it was given is NEARLY right.
+// CONTRACT: Answer 401, not 403. A bad key identifies no principal to forbid,
+// and it keeps a wrong key indistinguishable from an absent one, so the endpoint
+// reveals nothing about a key that is NEARLY right.
+// See [[two-api-keys-two-trust-domains]]
 func apiKeyGuard(expected string, log *slog.Logger, appEvent string) gin.HandlerFunc {
 	if log == nil {
 		log = slog.Default()
@@ -128,18 +108,12 @@ func apiKeyGuard(expected string, log *slog.Logger, appEvent string) gin.Handler
 
 // apiKeyMatches compares in CONSTANT TIME.
 //
-// Never `==`: Go's string comparison short-circuits at the first differing byte,
-// so the time it takes leaks how long a shared prefix the attacker guessed —
-// enough to recover a key byte by byte given retries. subtle.ConstantTimeCompare
-// takes the same time regardless.
-//
-// A length mismatch is not hidden by any implementation (ConstantTimeCompare
-// returns 0 immediately for differing lengths, as does Node's timingSafeEqual
-// guard): the key's LENGTH leaks, its CONTENTS do not. That is the same trade
-// Users makes.
-//
-// An empty provided key returns false rather than erroring, so an absent header
-// and a wrong one take the same path.
+// CONTRACT: Never `==`. Go's string comparison short-circuits at the first
+// differing byte, leaking the length of a guessed prefix — enough to recover a
+// key byte by byte given retries. The key's LENGTH still leaks (no constant-time
+// primitive hides it), its contents do not. An empty provided key returns false
+// rather than erroring, so an absent header and a wrong one take one path.
+// See [[two-api-keys-two-trust-domains]]
 func apiKeyMatches(provided, expected string) bool {
 	return subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1
 }

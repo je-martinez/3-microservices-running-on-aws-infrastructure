@@ -11,18 +11,12 @@ import (
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/platform/logging"
 )
 
-// These tests exercise the PATH THE PROCESS ACTUALLY TAKES, not the pieces it is
-// built from.
-//
-// context_test.go already proves ContextHandler enriches a record, by wrapping
-// it by hand. That test passed for the entire time the running service emitted
-// not one line carrying request_id, cognito_sub or user_id: logging.New built the
-// base handler and wrapped nothing, so the wrapper the tests exercised was the
-// only place it existed. Assembling the collaborators inside the test asserts
-// that the parts fit together — never that anything assembled them.
-//
-// So the subject here is deliberately the CONSTRUCTOR the composition root calls
-// (logging.New, and Install on top of it), with nothing wrapped by the test.
+// CONTRACT: The subject here is the CONSTRUCTOR the composition root calls
+// (logging.New), with nothing wrapped by the test. Assembling the collaborators
+// inside a test proves the parts fit together and never that anything assembled
+// them — which is how the service emitted not one line carrying request_id while
+// context_test.go stayed green.
+// See [[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]]
 
 // TestNewEnrichesFromTheAmbientLogContext is the regression test for that gap.
 func TestNewEnrichesFromTheAmbientLogContext(t *testing.T) {
@@ -62,16 +56,10 @@ func TestNewEnrichesFromTheAmbientLogContext(t *testing.T) {
 	}
 }
 
-// TestNewEnrichesTheDEFAULTLogger covers the reach of the enrichment.
-//
-// The composition root points slog.Default at a logger built on top of New, so a
-// package that reaches for slog.InfoContext with no logger of its own is
-// enriched too. That is the whole reason the enrichment wraps the HANDLER rather
-// than a logger, and it is what the Python gets by attaching its filters to the
-// root HANDLER (src/shared/logging/config.py) instead of to individual loggers.
-//
-// The full process logger (New + the trace layer) is assembled and asserted in
-// cmd/server; this covers the half that this package owns.
+// TestNewEnrichesTheDefaultLogger covers the reach of the enrichment: the
+// composition root points slog.Default at a logger built on New, so code
+// reaching for slog.InfoContext with no logger of its own is enriched too. That
+// is why the enrichment wraps the HANDLER rather than a logger.
 func TestNewEnrichesTheDefaultLogger(t *testing.T) {
 	restore := slog.Default()
 	t.Cleanup(func() { slog.SetDefault(restore) })
@@ -124,12 +112,10 @@ func TestNewOmitsContextFieldsOutsideARequest(t *testing.T) {
 }
 
 // TestNewKeepsCallSiteAttributesWinning pins the precedence THROUGH the
-// production constructor.
-//
-// ContextHandler's own test asserts this against a hand-wrapped handler; if the
-// production path ever wrapped in the other order (context fields added BEFORE
-// the record's own), our JSON handler keeps the first occurrence and the ambient
-// value would silently win — making a line about one order claim another's id.
+// production constructor. ContextHandler's own test uses a hand-wrapped handler;
+// if the production path wrapped in the other order the JSON handler's
+// first-occurrence rule lets the ambient value win, making a line about one
+// order claim another's id.
 func TestNewKeepsCallSiteAttributesWinning(t *testing.T) {
 	var buf bytes.Buffer
 	log := logging.New(&buf, "tracking", "local")

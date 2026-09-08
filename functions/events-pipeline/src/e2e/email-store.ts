@@ -18,14 +18,11 @@ const DEFAULT_LIMIT = 50;
 // collection and stream it through a Lambda response body.
 const MAX_LIMIT = 200;
 
-// `expireAfterSeconds: 0` is the per-document form: MongoDB deletes the row at
-// the instant named by the indexed DATE FIELD, rather than N seconds after it.
-// That is what lets each record carry its own lifetime, and it is why
-// expires_at is computed at write time instead of being a fixed collection
-// policy.
-//
-// This runs ONLY under E2E_TESTING_ENABLED (see the caller in src/handler.ts):
-// a deployed environment creates neither index nor collection.
+// `expireAfterSeconds: 0` is the per-document form — MongoDB deletes the row at
+// the instant named by the indexed DATE field, which is why expires_at is
+// computed at write time.
+// CONTRACT: Runs ONLY under E2E_TESTING_ENABLED. A deployed environment creates
+// neither the index nor the collection; a TTL on `events` is scheduled data loss.
 export async function ensureE2eIndexes(db: Db): Promise<void> {
   const collection = db.collection(E2E_EMAILS_COLLECTION);
   await collection.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 });

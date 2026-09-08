@@ -1,20 +1,13 @@
-// The credential for `PUT /v1/trackings/{orderId}/status`, the one Tracking route
-// that is NOT behind the Cognito authorizer. Its gateway route is declared
-// `auth = false` (infra/modules/api-gateway/main.tf), so the request carries no
-// Bearer token and no `x-user-id` at all — the service itself validates this key,
-// in constant time, and answers 401 for a wrong OR absent one
-// (services/tracking/src/shared/http/carrier_auth.py).
+// The credential for `PUT /v1/trackings/{orderId}/status`, the one Tracking route not
+// behind the Cognito authorizer — its gateway route is `auth = false`, so the request
+// carries no Bearer token and no `x-user-id`, and the service validates this key
+// itself in constant time.
 //
-// Read from the environment, never hardcoded: the real value is generated into
-// `.env.local.tracking` by `make env-file`, and playwright.config.ts copies just
-// this one variable out of that file. A test that inlined the key would (a) commit
-// a credential and (b) keep passing after the generated key changed, by asserting
-// against its own stale copy rather than the service's actual expectation.
-//
-// Header name is `x-api-key` — the same spelling the internal gRPC key uses, with a
-// different value on a different transport (see CARRIER_API_KEY_HEADER in
-// carrier_auth.py). Do not substitute GRPC_API_KEY here: they are separate secrets
-// in separate trust domains (services/tracking/CLAUDE.md §5a).
+// CONTRACT: Read the key from the environment, NEVER hardcode it. An inlined key both
+// commits a credential and keeps passing after the generated one changes, asserting
+// against its own stale copy. `make env-file` writes the real value.
+// CONTRACT: Do NOT substitute GRPC_API_KEY. It shares the `x-api-key` header spelling
+// but is a separate secret in a separate trust domain. See [[env-files]]
 export function carrierApiKey(): string {
   const key = process.env.TRACKING_CARRIER_API_KEY;
   if (!key) {

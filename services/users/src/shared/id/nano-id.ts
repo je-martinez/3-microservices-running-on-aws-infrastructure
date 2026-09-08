@@ -1,16 +1,11 @@
 import { customAlphabet } from "nanoid";
 
 /**
- * EVERY prefix this service mints, entity and non-entity alike.
- *
- * One map rather than a constant per call site: a prefix that lives beside its
- * consumer is a prefix nobody can audit for collisions, and `req_` proved the
- * point — it sat in `shared/logging/request-id.ts` while the entity prefixes
- * lived here, so nothing could see both at once.
- *
- * MODEL keys are Prisma model names: the client extension looks a model up by
- * name to stamp `id` on create. NON-MODEL entries are ids minted outside the
- * ORM, so they carry a descriptive key instead.
+ * CONTRACT: EVERY prefix this service mints lives in this one map — a prefix kept
+ * beside its consumer cannot be audited for collisions. MODEL keys are Prisma model
+ * names (the client extension looks a model up by name to stamp `id`); non-model
+ * entries are minted outside the ORM and carry a descriptive key.
+ * See [[nano-id]]
  */
 const PREFIXES = {
   // Prisma models — looked up by model name by the client extension.
@@ -30,34 +25,19 @@ const PREFIX_LENGTH = 4;
 type PrefixKey = keyof typeof PREFIXES;
 
 /**
- * Forces one factory per prefix.
- *
- * This mapped type is the point: adding a key to PREFIXES without adding its
- * `new<Key>Id()` factory is a COMPILE ERROR, so the two can never drift. Without
- * it a new prefix would quietly have no factory and callers would go back to
- * passing raw strings — which is the thing this file exists to stop.
+ * Forces one factory per prefix: adding a key to PREFIXES without its
+ * `new<Key>Id()` factory is a compile error, so callers cannot fall back to
+ * passing raw prefix strings.
  */
 type IdFactories = { [K in PrefixKey as `new${K}Id`]: () => string };
 
 /**
- * The one place the id format is defined for this service — see [[nano-id]].
- *
- * ALPHABET is letters and digits only. nanoid's default adds `_` and `-`, and
- * those two characters are why this exists: an id is pasted into a shell, a URL,
- * a log grep and a CSV, and a leading `-` reads as a flag while `_` disappears
- * against an underscored column name. Restricting the alphabet costs nothing —
- * 62^24 is MORE entropy than the 64^21 it replaces, so collision risk goes down,
- * not up.
- *
- * LENGTH is the nanoid portion only. A stored id is PREFIX_LENGTH + LENGTH = 28
- * characters, which is what every id-bearing database column must be sized for.
- * Getting that wrong truncates silently in MySQL rather than erroring.
- *
- * The same three values are defined in Orders (`Orders.Infrastructure/Id/NanoId.cs`)
- * and Tracking (`shared/db/nano_id.py`). They are a CROSS-SERVICE CONTRACT: ids
- * cross service boundaries in headers, envelopes and foreign keys, so a service
- * that disagrees about the alphabet or the length produces ids the others reject.
- * Changing any of them means changing all three together.
+ * CONTRACT: ALPHABET, LENGTH and PREFIX_LENGTH are a CROSS-SERVICE contract, mirrored
+ * in Orders and Tracking. Ids cross boundaries in headers, envelopes and foreign
+ * keys, so changing any of the three means changing all three together. Letters and
+ * digits only (nanoid's default `_`/`-` break shell, URL and CSV pasting); a stored
+ * id is 28 characters, and an undersized column truncates silently in MySQL.
+ * See [[nano-id]]
  */
 export const NanoIdConfig = {
   /** Letters and digits only — no `_`, no `-`. */
@@ -71,9 +51,8 @@ export const NanoIdConfig = {
 
   /** Total stored width: what an id column must hold. */
   get TOTAL_LENGTH(): number {
-    // Reads the module-level constants rather than `this`: the `satisfies`
-    // clause below widens `this` inside a getter, so `this.LENGTH` would be
-    // `unknown` here.
+    // Reads the module-level constants: the `satisfies` clause below widens `this`
+    // inside a getter, so `this.LENGTH` would be `unknown`.
     return PREFIX_LENGTH + LENGTH;
   },
 
@@ -86,9 +65,8 @@ export const NanoIdConfig = {
   },
 
   // ─── One factory per prefix ────────────────────────────────────────────────
-  // Call sites say `NanoIdConfig.newUserId()` rather than repeating a raw
-  // `"usr_"` string, so a typo is a compile error instead of a row with an
-  // unrecognisable id. `satisfies IdFactories` is what enforces completeness.
+  // Call sites use these rather than a raw `"usr_"`, so a typo is a compile error
+  // instead of a row with an unrecognisable id.
   newUserId: () => mint(PREFIXES.User),
   newUsersCognitoDataId: () => mint(PREFIXES.UsersCognitoData),
   newUsersCognitoEventId: () => mint(PREFIXES.UsersCognitoEvent),
@@ -96,10 +74,7 @@ export const NanoIdConfig = {
   newEventId: () => mint(PREFIXES.Event),
 } as const satisfies IdFactories & Record<string, unknown>;
 
-/**
- * The raw generator. Created once at module load — `customAlphabet` builds a
- * closure, and rebuilding it per call would be pure overhead.
- */
+/** The raw generator, built once at module load — `customAlphabet` returns a closure. */
 const generate = customAlphabet(ALPHABET, LENGTH);
 
 function mint(prefix: string): string {
@@ -107,12 +82,10 @@ function mint(prefix: string): string {
 }
 
 /**
- * Prefix per Prisma MODEL, for the client extension, which resolves a prefix by
- * model name at runtime and so cannot use the typed factories above.
- *
- * Spelled out rather than derived from PREFIXES wholesale: that map also holds
- * non-model ids (`Request`, `Event`), and handing Prisma a key that is not a model
- * would be a silent no-op waiting for someone to name a model `Request`.
+ * CONTRACT: Spell out the MODEL prefixes; do NOT derive this from PREFIXES wholesale.
+ * That map also holds non-model ids (`Request`, `Event`), and handing Prisma a key
+ * that is not a model is a silent no-op the day someone names a model `Request`.
+ * See [[nano-id]]
  */
 export const MODEL_ID_PREFIXES: Record<string, string> = {
   User: PREFIXES.User,
@@ -121,11 +94,9 @@ export const MODEL_ID_PREFIXES: Record<string, string> = {
 };
 
 /**
- * A fresh `prefix_nanoid`, e.g. `usr_7gK3mP1vXz9wLq2bN8rRt4Yc`.
- *
- * Prefer the typed factories (`NanoIdConfig.newUserId()`) at call sites. This
- * stays exported for the Prisma extension, which only knows a prefix STRING
- * looked up by model name.
+ * A fresh `prefix_nanoid`, e.g. `usr_7gK3mP1vXz9wLq2bN8rRt4Yc`. Prefer the typed
+ * factories at call sites; this stays exported for the Prisma extension, which only
+ * knows a prefix string looked up by model name.
  */
 export function generateId(prefix: string): string {
   return mint(prefix);

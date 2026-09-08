@@ -17,14 +17,10 @@ public class CartConfiguration : IEntityTypeConfiguration<Cart>
 
     /// <summary>
     /// Name of the unique index enforcing one active cart per user.
+    /// CONTRACT: A constant, never a literal per site — the write path matches on this name
+    /// to recognise the concurrent-creation race, so a drifted spelling silently stops the
+    /// retry and the loser surfaces a raw 500. See [[orders-service-design]]
     /// </summary>
-    /// <remarks>
-    /// A constant rather than a literal at each site because the write path matches on it
-    /// to recognise the concurrent-creation race (see
-    /// <c>CartWriteService.IsActiveCartUniqueViolation</c>). If the two spellings drifted,
-    /// the retry would stop firing and the loser of the race would surface a raw 500 —
-    /// silently, since nothing else depends on the name.
-    /// </remarks>
     public const string ActiveUserIdIndexName = "uq_cart_active_user_id";
 
     public void Configure(EntityTypeBuilder<Cart> b)

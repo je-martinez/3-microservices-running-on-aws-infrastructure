@@ -6,17 +6,14 @@ using Orders.Domain.Entities;
 
 namespace Orders.Tests.Api;
 
-// The security half of the E2E tagging mechanism, on a host built WITHOUT
-// E2E_TESTING_ENABLED — which is what a production runtime is.
-//
-// x-e2e-source is a client-supplied header, so it only takes effect when the service
-// itself opts in. Without that double condition an external caller could tag its own
-// orders and hand itself rows that a cleanup would then delete.
-//
-// Uses its own host+container (OrdersDisabledE2eApiFactory) rather than the shared
-// OrdersApiFactory: that fixture seeds a fixed 5 units of stock which its existing
-// tests consume exactly, so an extra order placed against it fails an unrelated test
-// with a 409.
+// The security half of E2E tagging, on a host built WITHOUT E2E_TESTING_ENABLED — what a
+// production runtime is.
+// CONTRACT: x-e2e-source is client-supplied, so it takes effect ONLY when the service also
+// opts in. Without that double condition an external caller tags its own orders and hands
+// itself rows a cleanup then deletes.
+// CONTRACT: Its own host and container — the shared fixture's 5 units of stock are consumed
+// exactly by its own tests, so an extra order there 409s an unrelated test.
+// See [[testing]]
 public class E2eTagsDisabledTests : IClassFixture<OrdersDisabledE2eApiFactory>
 {
     private readonly OrdersDisabledE2eApiFactory _factory;
