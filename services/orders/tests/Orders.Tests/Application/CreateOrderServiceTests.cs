@@ -31,6 +31,10 @@ public class CreateOrderServiceTests : IAsyncLifetime
             .UseMySql(cs, ServerVersion.AutoDetect(cs)).Options);
     }
 
+    // Assets base URL the response's image URLs are composed against. Trailing slash on
+    // purpose: it also proves the service trims it instead of emitting a double slash.
+    private const string AssetsBaseUrl = "https://assets.test/";
+
     // The email a resolved caller carries unless a test overrides it. Distinctive on
     // purpose: the publisher-seam test asserts this exact value crossed the seam, so a
     // regression that dropped or substituted the email could not pass by coincidence.
@@ -163,12 +167,14 @@ public class CreateOrderServiceTests : IAsyncLifetime
         public Task<long> GetShippingCentsAsync(CancellationToken ct = default) => Task.FromResult(_shippingCents);
     }
 
-    private async Task<string> SeedProduct(uint stock, long priceCents)
+    /// <param name="image">Null seeds a product with NO artwork — the nullable branch.</param>
+    private async Task<string> SeedProduct(
+        uint stock, long priceCents, string name = "P", ProductImage? image = null)
     {
         await using var db = Ctx();
         await db.Database.MigrateAsync();
         var id = NanoId.NewId(NanoId.ProductPrefix);
-        db.Products.Add(new Product { Id = id, Name = "P", Description = "d", UnitPriceCents = priceCents, UnitsInStock = stock, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+        db.Products.Add(new Product { Id = id, Name = name, Description = "d", UnitPriceCents = priceCents, UnitsInStock = stock, Image = image, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
         await db.SaveChangesAsync();
         return id;
     }
@@ -178,7 +184,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
     {
         var productId = await SeedProduct(stock: 10, priceCents: 1000);
         await using var db = Ctx();
-        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), new WorkflowTracer(), new NoopCacheInvalidator(), NullLogger<CreateOrderService>.Instance);
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), new WorkflowTracer(), new NoopCacheInvalidator(), AssetsBaseUrl, NullLogger<CreateOrderService>.Instance);
 
         var dto = await svc.CreateAsync(
             new CreateOrderCommand(new[] { new CreateOrderLine(productId, 3) }), "sub-a");
@@ -234,7 +240,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
         // string, the user id, or the sub would all fail).
         var svc = new CreateOrderService(
             db, new FixedDirectory("usr_a", email: "distinct-buyer@example.com"), events,
-            new FixedConfig(0.10m), new SpyTracking(), new WorkflowTracer(), new NoopCacheInvalidator(), NullLogger<CreateOrderService>.Instance);
+            new FixedConfig(0.10m), new SpyTracking(), new WorkflowTracer(), new NoopCacheInvalidator(), AssetsBaseUrl, NullLogger<CreateOrderService>.Instance);
 
         var dto = await svc.CreateAsync(
             new CreateOrderCommand(new[] { new CreateOrderLine(productId, 3) }), "sub-a");
@@ -260,7 +266,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
     {
         var productId = await SeedProduct(stock: 10, priceCents: 1000);
         await using var db = Ctx();
-        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), new WorkflowTracer(), new NoopCacheInvalidator(), NullLogger<CreateOrderService>.Instance);
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), new WorkflowTracer(), new NoopCacheInvalidator(), AssetsBaseUrl, NullLogger<CreateOrderService>.Instance);
 
         // Two lines for the SAME product (qty 2 and 3) must consolidate into ONE
         // OrderDetail with Quantity 5, and stock must be decremented by 5 total —
@@ -302,7 +308,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
     {
         var productId = await SeedProduct(stock: 4, priceCents: 1000);
         await using var db = Ctx();
-        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), new WorkflowTracer(), new NoopCacheInvalidator(), NullLogger<CreateOrderService>.Instance);
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), new WorkflowTracer(), new NoopCacheInvalidator(), AssetsBaseUrl, NullLogger<CreateOrderService>.Instance);
 
         // Stock is 4; individually each line (2, then 3) would look fine against the
         // ORIGINAL stock, but the consolidated total (5) must be validated as a whole.
@@ -323,7 +329,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
     {
         var productId = await SeedProduct(stock: 2, priceCents: 1000);
         await using var db = Ctx();
-        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), new WorkflowTracer(), new NoopCacheInvalidator(), NullLogger<CreateOrderService>.Instance);
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), new WorkflowTracer(), new NoopCacheInvalidator(), AssetsBaseUrl, NullLogger<CreateOrderService>.Instance);
 
         await Assert.ThrowsAsync<InsufficientStockException>(() =>
             svc.CreateAsync(new CreateOrderCommand(new[] { new CreateOrderLine(productId, 5) }), "sub-a"));
@@ -338,7 +344,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
     {
         var productId = await SeedProduct(stock: 10, priceCents: 1000);
         await using var db = Ctx();
-        var svc = new CreateOrderService(db, new FixedDirectory(null), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), new WorkflowTracer(), new NoopCacheInvalidator(), NullLogger<CreateOrderService>.Instance);
+        var svc = new CreateOrderService(db, new FixedDirectory(null), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), new WorkflowTracer(), new NoopCacheInvalidator(), AssetsBaseUrl, NullLogger<CreateOrderService>.Instance);
 
         await Assert.ThrowsAsync<UnknownUserException>(() =>
             svc.CreateAsync(new CreateOrderCommand(new[] { new CreateOrderLine(productId, 1) }), "sub-x"));
@@ -367,7 +373,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
         }
 
         await using var db = Ctx();
-        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), new WorkflowTracer(), new NoopCacheInvalidator(), NullLogger<CreateOrderService>.Instance);
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), new WorkflowTracer(), new NoopCacheInvalidator(), AssetsBaseUrl, NullLogger<CreateOrderService>.Instance);
 
         // The soft-deleted product is not orderable: the FOR UPDATE lock returns null
         // (query filter hides it), so the service raises UnknownProductException —
@@ -381,5 +387,85 @@ public class CreateOrderServiceTests : IAsyncLifetime
         Assert.NotNull(product.DeletedAt);
         Assert.Equal(10u, product.UnitsInStock);         // unchanged
         Assert.False(await db.Orders.AnyAsync());        // no order persisted
+    }
+
+    [Fact]
+    public async Task Captures_the_product_name_and_image_on_the_line_at_purchase_time()
+    {
+        var image = new ProductImage("products/runner.jpg", 1080, 720, "LWMj?rRjD%of");
+        var productId = await SeedProduct(stock: 10, priceCents: 1000, name: "Runner Low Canvas", image: image);
+        await using var db = Ctx();
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), new WorkflowTracer(), new NoopCacheInvalidator(), AssetsBaseUrl, NullLogger<CreateOrderService>.Instance);
+
+        var dto = await svc.CreateAsync(
+            new CreateOrderCommand(new[] { new CreateOrderLine(productId, 3) }), "sub-a");
+
+        // The response carries the ABSOLUTE url, composed from AssetsBaseUrl. Asserted
+        // literally: a single slash proves the trailing one on the base was trimmed.
+        var line = Assert.Single(dto.Lines);
+        Assert.Equal("Runner Low Canvas", line.Name);
+        Assert.NotNull(line.Image);
+        Assert.Equal("https://assets.test/products/runner.jpg", line.Image!.Uri);
+        Assert.Equal(1080, line.Image.Width);
+        Assert.Equal(720, line.Image.Height);
+        Assert.Equal("LWMj?rRjD%of", line.Image.Blurhash);
+
+        // PERSISTED, not merely mapped into the response: re-read the row. The stored uri
+        // stays RELATIVE — persisting the absolute form would be dead data once the
+        // bucket is re-minted.
+        var order = await db.Orders.Include(o => o.Details).FirstAsync(o => o.Id == dto.Id);
+        var detail = Assert.Single(order.Details);
+        Assert.Equal("Runner Low Canvas", detail.ProductName);
+        Assert.NotNull(detail.ProductImage);
+        Assert.Equal("products/runner.jpg", detail.ProductImage!.Uri);
+        Assert.Equal(720, detail.ProductImage.Height);
+        Assert.Equal("LWMj?rRjD%of", detail.ProductImage.Blurhash);
+    }
+
+    [Fact]
+    public async Task A_product_with_no_image_yields_a_null_line_image_and_still_captures_the_name()
+    {
+        var productId = await SeedProduct(stock: 10, priceCents: 1000, name: "Linen Cap", image: null);
+        await using var db = Ctx();
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), new WorkflowTracer(), new NoopCacheInvalidator(), AssetsBaseUrl, NullLogger<CreateOrderService>.Instance);
+
+        var dto = await svc.CreateAsync(
+            new CreateOrderCommand(new[] { new CreateOrderLine(productId, 1) }), "sub-a");
+
+        // Null, not a throw and not a base-url-only string like "https://assets.test/":
+        // the client renders its own placeholder for an absent image.
+        var line = Assert.Single(dto.Lines);
+        Assert.Equal("Linen Cap", line.Name);
+        Assert.Null(line.Image);
+
+        var order = await db.Orders.Include(o => o.Details).FirstAsync(o => o.Id == dto.Id);
+        Assert.Null(Assert.Single(order.Details).ProductImage);
+    }
+
+    [Fact]
+    public async Task The_captured_snapshot_survives_a_later_rename_and_re_shoot_of_the_product()
+    {
+        var productId = await SeedProduct(
+            stock: 10, priceCents: 1000, name: "Original Name",
+            image: new ProductImage("products/original.jpg", 100, 200, "BLUR-A"));
+        await using var db = Ctx();
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), new WorkflowTracer(), new NoopCacheInvalidator(), AssetsBaseUrl, NullLogger<CreateOrderService>.Instance);
+        var dto = await svc.CreateAsync(
+            new CreateOrderCommand(new[] { new CreateOrderLine(productId, 1) }), "sub-a");
+
+        // Rename and re-shoot the catalogue product AFTER the order exists.
+        var product = await db.Products.FirstAsync(p => p.Id == productId);
+        product.Name = "Renamed Product";
+        product.Image = new ProductImage("products/renamed.jpg", 300, 400, "BLUR-B");
+        await db.SaveChangesAsync();
+
+        // The receipt still says what it said when it was issued. This is the whole point
+        // of persisting the snapshot rather than joining the live catalogue on read.
+        await using var fresh = Ctx();
+        var order = await fresh.Orders.Include(o => o.Details).AsNoTracking().FirstAsync(o => o.Id == dto.Id);
+        var detail = Assert.Single(order.Details);
+        Assert.Equal("Original Name", detail.ProductName);
+        Assert.Equal("products/original.jpg", detail.ProductImage!.Uri);
+        Assert.Equal("BLUR-A", detail.ProductImage.Blurhash);
     }
 }

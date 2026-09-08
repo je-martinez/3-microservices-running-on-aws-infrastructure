@@ -416,14 +416,20 @@ components:
     OrderLineDto:
       required:
         - productId
+        - name
         - quantity
         - subtotal
         - tax
         - total
+        - image
       type: object
       properties:
         productId:
           type: string
+        name:
+          type:
+            - 'null'
+            - string
         quantity:
           pattern: '^-?(?:0|[1-9]\d*)$'
           type:
@@ -436,6 +442,10 @@ components:
           $ref: '#/components/schemas/Money'
         total:
           $ref: '#/components/schemas/Money'
+        image:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/ProductImageDto'
     OrderWithTrackingDto:
       required:
         - order

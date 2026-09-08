@@ -2,7 +2,20 @@ using Orders.Domain;
 
 namespace Orders.Application.Orders;
 
-public record OrderLineDto(string ProductId, uint Quantity, Money Subtotal, Money Tax, Money Total);
+/// <param name="Name">Name AS PURCHASED; null on lines predating the capture.</param>
+/// <param name="Image">
+/// CONTRACT: Purchase-time artwork, ABSOLUTE Uri composed on read. Never re-read from
+/// the catalogue — an order is a receipt. Null when the product had none.
+/// See [[orders-service-design]]
+/// </param>
+public record OrderLineDto(
+    string ProductId,
+    string? Name,
+    uint Quantity,
+    Money Subtotal,
+    Money Tax,
+    Money Total,
+    ProductImageDto? Image);
 
 public record OrderDto(
     string Id,
