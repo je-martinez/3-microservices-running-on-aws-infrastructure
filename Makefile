@@ -681,6 +681,19 @@ bootstrap-converge: scripts-setup ## Phase 2 of bootstrap: migrations + services
 	@# build-then-migrate-then-build, and the `--build` here is the only build.
 	$(MAKE) migrate-tracking
 	$(COMPOSE) up -d --build tracking
+	@# The web app, which `bootstrap` used to leave down: a from-scratch run
+	@# brought the three BACKEND services up and nothing served :3004, so the
+	@# frontend was missing from a stack that reported itself complete.
+	@#
+	@# AFTER the services, not before. Its NG_APP_* values are inlined at BUILD
+	@# time (see the compose service's own comment), so this build is also what
+	@# picks up a changed flag — `restart` re-serves the same bundle and looks
+	@# like the flag being ignored.
+	@#
+	@# This is the CONTAINER (nginx serving the production bundle on :3004), not
+	@# `pnpm web:dev` on :4200. The E2E web specs target :4200 and still need that
+	@# dev server started separately — they are not part of this chain.
+	$(COMPOSE) up -d --build web
 	@# LAST, deliberately — see the ordering note at the top of this target.
 	@# It also benefits from running here: by now `users` has had the whole
 	@# orders/tracking build to finish booting, so its health poll succeeds on

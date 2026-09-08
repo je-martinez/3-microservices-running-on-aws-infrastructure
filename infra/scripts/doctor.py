@@ -128,7 +128,10 @@ def check_containers(report: Report) -> None:
         for line in result.stdout.strip().splitlines()
         if "\t" in line and line.split("\t")[1] == "running"
     }
-    for service in ("floci", "users", "orders", "tracking"):
+    # `web` is in this list because leaving it out is what let a from-scratch
+    # bootstrap report "all checks passed" with nothing serving :3004 — the
+    # frontend absent from a stack that called itself complete.
+    for service in ("floci", "users", "orders", "tracking", "web"):
         if service in running:
             report.passed(f"container '{service}' running")
         else:
