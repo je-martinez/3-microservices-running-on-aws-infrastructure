@@ -63,10 +63,10 @@ export EXECUTION_LOG_TABLE ?= 3mrai-local-tfstate-execution-log
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke cache-toggle load-test-cache-ab-on load-test-cache-ab-off backend-up infra-init infra-plan infra-up post-infra infra-down infra-output env-file migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean observability-up observability-down observability-dashboards observability-traces-schema redeploy-lambdas scripts-setup lint-comments lint-comments-diff install-comment-hook ai-sync ai-sync-check
+.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke cache-toggle load-test-cache-ab-on load-test-cache-ab-off backend-up infra-init infra-plan lambda-bundles infra-up post-infra infra-down infra-output env-file migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean observability-up observability-down observability-dashboards observability-traces-schema redeploy-lambdas scripts-setup lint-comments lint-comments-diff install-comment-hook ai-sync ai-sync-check
 
 help: ## List available targets
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| sort \
 		| awk 'BEGIN {FS = ":.*?## "} {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
@@ -137,7 +137,7 @@ ps: ## Show container status
 
 ## --- Tests (the three-layer convention: docs/shared/conventions/testing.md) ---
 
-test-unit: ## Layer 1 — unit/integration for orders (dotnet), users + both Lambdas + the Cognito trigger (vitest), tracking (go test) + e2e typecheck. Tracking needs the local DB.
+test-unit: ## Layer 1 — unit/integration for orders (dotnet), users + both Lambdas + the Cognito trigger + the web app (vitest), tracking (go test) + e2e typecheck. Tracking needs the local DB.
 	dotnet test services/orders/Orders.sln
 	pnpm --filter @3mrai/users test
 	# Safe in the no-stack layer: the events-pipeline suites that need real
@@ -158,6 +158,12 @@ test-unit: ## Layer 1 — unit/integration for orders (dotnet), users + both Lam
 	# infra/modules/cognito/main.tf).
 	pnpm --filter @3mrai/realtime-events test
 	pnpm --filter @3mrai/cognito-otp-challenge-lambda test
+	# The web app's specs are layer 1 too — its 31 spec files include the auth unit
+	# layer the testing convention requires — and this target ran every other
+	# workspace but that one, so 302 tests counted as coverage while nothing
+	# invoked them. Runs here, with the other vitest packages, because it needs no
+	# stack: the specs are component/unit level and stub their HTTP.
+	pnpm --filter @3mrai/web test
 	# Tracking's suite is `go test`, not vitest, and it needs the Go toolchain
 	# goenv pins in services/tracking-go/.go-version — `make test-db` verifies
 	# that before running anything.
@@ -276,10 +282,34 @@ backend-up: ## Create the remote-state bucket + lock table in Floci (idempotent;
 infra-init: ## terraform init (environments/local) into the S3 backend
 	$(TF) init -reconfigure -backend-config=backend.hcl
 
-infra-plan: ## terraform plan (environments/local)
+lambda-bundles: ## Build the esbuild bundles Terraform's archive_file data sources read at PLAN time
+	@# CONTRACT: This must run BEFORE any terraform plan or apply, on every path
+	@# that reaches one. Both bundled Lambdas are wired into environments/local/
+	@# main.tf through `archive_file`, which is a DATA SOURCE: Terraform evaluates
+	@# it during PLAN, before a single resource is touched. So a missing dist/ is
+	@# not a late deploy failure that leaves a half-built stack — it kills the run
+	@# up front with "could not archive missing directory", and NOTHING in the
+	@# chain has repaired it by then. Do NOT move this after the apply, and do NOT
+	@# rely on `redeploy-lambdas` (which builds the same two bundles) to cover it:
+	@# that target runs only after a stack already exists.
+	@#
+	@# This is exactly what a FRESH CLONE hits. Both dist/ directories are
+	@# gitignored, so they are absent until something builds them, and until this
+	@# target existed nothing in the bootstrap chain did — `make bootstrap` could
+	@# not succeed on a clean checkout at all.
+	@#
+	@# `pnpm install` first for the same reason: a fresh clone has no node_modules,
+	@# and no earlier target installs them (the services build inside Docker, and
+	@# the venv in scripts-setup is Python). --frozen-lockfile because the lockfile
+	@# is committed and a bootstrap must not silently resolve something new.
+	pnpm install --frozen-lockfile
+	pnpm --filter @3mrai/events-pipeline build
+	pnpm --filter @3mrai/realtime-events build
+
+infra-plan: lambda-bundles ## terraform plan (environments/local)
 	$(TF) plan
 
-infra-up: scripts-setup ## terraform apply -auto-approve (environments/local), then refresh .env
+infra-up: scripts-setup lambda-bundles ## terraform apply -auto-approve (environments/local), then refresh .env
 	@# RETRIED ONCE THROUGH `infra-reconcile`, because a bare apply is brittle here
 	@# in a way it would not be against real AWS. The state lives in a bucket
 	@# INSIDE Floci, so anything that restarts or half-destroys the emulator
@@ -382,14 +412,31 @@ migrate-tracking: ## Apply golang-migrate migrations (tracking) against Floci's 
 	@# Idempotent: `up` is a no-op once schema_migrations is at head, so bootstrap
 	@# and a manual re-run are both safe.
 	@#
-	@# STAMPED, NOT REPLAYED, on a database Alembic already built. The baseline
-	@# migration is a squash of the four Alembic revisions the Python service
-	@# arrived at (services/tracking-go/migrations/README.md), so running `up`
-	@# against an existing local database fails on CREATE TABLE. The recipe below
-	@# handles both cases: a database whose tables already exist gets
-	@# `force 1` (writes version=1 WITHOUT running any SQL), and a fresh one gets
-	@# a real `up`. That is why it probes for the `tracking` table first rather
-	@# than just running `up`.
+	@# THE BASELINE is stamped, not replayed, on a database Alembic already built.
+	@# The baseline migration is a squash of the four Alembic revisions the Python
+	@# service arrived at (services/tracking-go/migrations/README.md), so running
+	@# it against such a database fails on CREATE TABLE. That is why this probes
+	@# the schema before running anything: tables present but no version table
+	@# means Alembic built it, so `force 1` writes version=1 WITHOUT running any
+	@# SQL and `up` then applies 000002 onward. Every other shape — a fresh
+	@# database, or one golang-migrate already tracks — is a plain `up`.
+	@#
+	@# CONTRACT: The stamp is for ONE case only — tables present, `schema_migrations`
+	@# ABSENT, i.e. the database Alembic built. It is not the whole branch and it
+	@# never runs against a database golang-migrate already tracks. Both halves of
+	@# that were wrong here and both were measured:
+	@#   - Stamp as the whole branch: on ANY pre-existing database this wrote
+	@#     version=1 and stopped, so 000002_add_order_number never reached a local
+	@#     database while doctor, the service and the tests all reported healthy —
+	@#     the version table said 1 and nothing compares it to what migrations/
+	@#     holds.
+	@#   - Stamp on every existing-table run: `force 1` REWINDS a database already
+	@#     correctly at 2, and the `up` that follows then replays 000002 into a
+	@#     schema that has it, dying on `Error 1060: Duplicate column name` with
+	@#     the version left DIRTY. Recovery is `force <real version>`.
+	@# So: probe `schema_migrations` too, not just the `tracking` table, and let
+	@# `up` do everything else. `up` is a no-op at head, which is what makes this
+	@# target idempotent.
 	@#
 	@# CAVEAT, inherited from Alembic and unchanged in shape: "up to date" is
 	@# decided by the VERSION TABLE, not by the tables. A database whose
@@ -439,22 +486,25 @@ migrate-tracking: ## Apply golang-migrate migrations (tracking) against Floci's 
 	test -n "$$dsn" || { echo "ERROR: no DATABASE_WRITER_URL in .env.local.tracking — run 'make env-file'"; exit 1; }; \
 	creds="$${dsn%%@*}"; rest="$${dsn#*@}"; hostport="$${rest%%/*}"; dbname="$${rest#*/}"; \
 	migrate_dsn="mysql://$$creds@tcp($$hostport)/$$dbname"; \
-	existing="$$(docker run --rm --network 3mrai_3mrai-network mysql:8.0 \
+	probe="$$(docker run --rm --network 3mrai_3mrai-network mysql:8.0 \
 	     mysql --ssl-mode=DISABLED -h "$${hostport%%:*}" -P "$${hostport##*:}" \
 	           -u "$${creds%%:*}" -p"$${creds#*:}" -N -B \
-	           -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$$dbname' AND table_name='tracking'" \
+	           -e "SELECT (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$$dbname' AND table_name='tracking'), \
+	                      (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$$dbname' AND table_name='schema_migrations')" \
 	     2>/dev/null)" \
-	  || { echo "ERROR: could not reach MySQL at $$hostport to check whether tracking.tracking exists."; \
+	  || { echo "ERROR: could not reach MySQL at $$hostport to check the tracking schema."; \
 	       echo "       Refusing to guess: running 'up' against an existing schema leaves schema_migrations DIRTY."; exit 1; }; \
-	if [ "$$existing" = "1" ]; then \
-	  echo "tracking.tracking already exists — stamping baseline instead of replaying it."; \
+	tracking_tbl="$$(printf '%s' "$$probe" | cut -f1)"; version_tbl="$$(printf '%s' "$$probe" | cut -f2)"; \
+	if [ "$$tracking_tbl" = "1" ] && [ "$$version_tbl" != "1" ]; then \
+	  echo "Alembic-built database (tables, no schema_migrations) — stamping the baseline instead of replaying it."; \
 	  docker run --rm --network 3mrai_3mrai-network -v "$$PWD/services/tracking-go/migrations:/migrations" \
 	    migrate/migrate:v4.17.1 -path=/migrations -database "$$migrate_dsn" force 1; \
+	  echo "Baseline stamped — applying anything newer."; \
 	else \
-	  echo "Fresh database — applying migrations."; \
-	  docker run --rm --network 3mrai_3mrai-network -v "$$PWD/services/tracking-go/migrations:/migrations" \
-	    migrate/migrate:v4.17.1 -path=/migrations -database "$$migrate_dsn" up; \
-	fi
+	  echo "Applying migrations (no-op if already at head)."; \
+	fi; \
+	docker run --rm --network 3mrai_3mrai-network -v "$$PWD/services/tracking-go/migrations:/migrations" \
+	  migrate/migrate:v4.17.1 -path=/migrations -database "$$migrate_dsn" up
 	@echo "golang-migrate migrations applied (tracking)."
 
 post-infra: scripts-setup ## Harden a bootstrapped environment: MySQL provider grants + least-privilege DB app-users (phase 2)
@@ -850,6 +900,11 @@ redeploy-lambdas: scripts-setup ## Rebuild and redeploy every local Lambda from 
 	@# BUILD FIRST, then deploy. The two bundled functions are esbuild bundles;
 	@# uploading dist/ without rebuilding would deploy the previous bundle and
 	@# report success. The Cognito functions are bare .mjs with no build step.
+	@#
+	@# The same two builds also live in `lambda-bundles`, which the terraform
+	@# targets depend on. Deliberately not shared: this target runs after every
+	@# Lambda code edit, and lambda-bundles carries a `pnpm install` that only
+	@# earns its cost on a fresh clone about to plan.
 	@#
 	@# `terraform apply` would also redeploy these (archive_file's hash triggers
 	@# the update), but a second phase-1 apply fails against Floci on UpdateTags

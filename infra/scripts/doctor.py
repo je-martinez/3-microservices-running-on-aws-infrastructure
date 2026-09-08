@@ -19,6 +19,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -47,6 +48,14 @@ EXPECTED_TABLES = {
     "orders": {"order", "order_details", "product", "configuration"},
     "tracking": {"tracking", "tracking_history"},
 }
+
+# CONTRACT: Derive the expected migration head from these directories, never
+# from a hardcoded version. A pinned number passes forever after the next
+# migration lands, which is the exact failure this check exists to catch.
+TRACKING_MIGRATIONS_DIR = ROOT / "services" / "tracking-go" / "migrations"
+ORDERS_MIGRATIONS_DIR = (
+    ROOT / "services" / "orders" / "src" / "Orders.Infrastructure" / "Migrations"
+)
 
 # HOST ports, as published in docker-compose.yml — not the container-side ports,
 # which differ for two of the three ("3001:8080" for orders, "3002:8000" for
@@ -348,6 +357,103 @@ def check_databases_and_tables(report: Report) -> None:
                 "make migrate-tracking" if database == "tracking" else "check EF Core migrations",
             )
 
+    # Tables present is a weaker claim than schema current, so the version check
+    # runs after and independently of the names above.
+    check_migration_heads(report, port)
+
+
+def _tracking_expected_version() -> int | None:
+    """Highest `NNNNNN_` prefix under the tracking migrations directory."""
+    versions = set()
+    for path in TRACKING_MIGRATIONS_DIR.glob("*.up.sql"):
+        prefix = path.name.split("_", 1)[0]
+        if prefix.isdigit():
+            versions.add(int(prefix))
+    return max(versions) if versions else None
+
+
+def _orders_expected_ids() -> list[str]:
+    """Every EF migration id on disk, ordered by its timestamp prefix.
+
+    The migration classes are the `*.cs` files that are neither the generated
+    `*.Designer.cs` companions nor the single model snapshot.
+    """
+    return sorted(
+        path.stem
+        for path in ORDERS_MIGRATIONS_DIR.glob("*.cs")
+        if not path.name.endswith(".Designer.cs")
+        and not path.name.endswith("ModelSnapshot.cs")
+    )
+
+
+def check_migration_heads(report: Report, port: int) -> None:
+    """Assert each database is at the migration head, not merely populated.
+
+    CONTRACT: Compare VERSIONS, not table names. Every expected table can be
+    present while a column added by a later migration is not, and `make
+    migrate-tracking` stamps `force 1` on an existing database — later
+    migrations then never run and every table-name check still passes.
+    000002_add_order_number was missing locally while the doctor printed
+    "all checks passed". See [[2026-08-27-accumulated-local-state-degrades-the-stack-silently]]
+    """
+    expected = _tracking_expected_version()
+    if expected is None:
+        inf(f"    tracking: no migrations found in {TRACKING_MIGRATIONS_DIR} (skipped)")
+    else:
+        queried = _mysql(port, "SELECT version, dirty FROM tracking.schema_migrations;")
+        fields = queried.stdout.split()
+        if queried.returncode != 0 or len(fields) < 2:
+            report.failed(
+                "tracking has no readable schema_migrations row — golang-migrate "
+                "never ran against this database",
+                "make migrate-tracking",
+            )
+        elif fields[1] != "0":
+            # A dirty row means a migration died part-way: the schema is neither
+            # the old version nor the new one, and migrate refuses to continue.
+            report.failed(
+                f"tracking migrations are DIRTY at version {fields[0]} — a migration "
+                "failed part-way and the schema is in neither state",
+                f"migrate ... force {fields[0]} then re-run: make migrate-tracking",
+            )
+        elif int(fields[0]) != expected:
+            report.failed(
+                f"tracking is at migration {fields[0]} but the repo's head is "
+                f"{expected:06d} — columns from the later migration(s) are MISSING",
+                "make migrate-tracking",
+            )
+        else:
+            report.passed(f"tracking at migration head {expected:06d} (clean)")
+
+    expected_ids = _orders_expected_ids()
+    if not expected_ids:
+        inf(f"    orders: no migrations found in {ORDERS_MIGRATIONS_DIR} (skipped)")
+        return
+
+    queried = _mysql(
+        port, "SELECT MigrationId FROM orders.__EFMigrationsHistory ORDER BY MigrationId;"
+    )
+    applied = queried.stdout.split()
+    if queried.returncode != 0 or not applied:
+        report.failed(
+            "orders has no readable __EFMigrationsHistory — EF Core never migrated "
+            "this database",
+            "docker compose up -d --build orders  (it self-migrates)",
+        )
+        return
+
+    # Compared as a set, not by last-id: EF applies migrations in order, but a
+    # gap in the middle is a real state and reporting only the tail hides it.
+    missing = sorted(set(expected_ids) - set(applied))
+    if missing:
+        report.failed(
+            f"orders is missing {len(missing)} EF migration(s), latest "
+            f"'{missing[-1]}' — columns it adds are NOT in the database",
+            "docker compose up -d --build orders  (it self-migrates)",
+        )
+    else:
+        report.passed(f"orders at migration head '{expected_ids[-1]}'")
+
 
 def check_services(report: Report, attempts: int = 3, sleep_s: int = 2) -> None:
     """Probe each service's health endpoint, retrying briefly.
@@ -376,6 +482,142 @@ def check_services(report: Report, attempts: int = 3, sleep_s: int = 2) -> None:
                 f"{service} does not answer /v1/health on :{port} ({detail})",
                 f"docker compose logs {service} --tail 50",
             )
+
+
+def _env_values(name: str) -> dict[str, str]:
+    """Parse a generated env file into a dict, ignoring comments and blanks."""
+    path = ROOT / name
+    if not path.exists():
+        return {}
+    values = {}
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            values[key.strip()] = value.strip()
+    return values
+
+
+def check_service_dependencies(report: Report) -> None:
+    """Prove each service can actually reach its datastore.
+
+    CONTRACT: Do NOT deepen /v1/health to do this. That endpoint is shallow by
+    contract — it must not touch the database, so a blip cannot cycle otherwise
+    healthy tasks — which also means its 200 is NOT evidence that the service
+    can reach anything. Every read endpoint is authenticated, so the
+    dependencies are asserted directly, from the same env files the services
+    read, with the same credentials. See [[health-check-logging]]
+    """
+    probes = (
+        ("users", ".env.local.users", "postgres"),
+        ("orders", ".env.local.orders", "mysql"),
+        ("tracking", ".env.local.tracking", "mysql"),
+    )
+
+    for service, env_name, engine in probes:
+        values = _env_values(env_name)
+        url = values.get("DATABASE_WRITER_URL", "")
+        if not url:
+            inf(f"    {service}: no DATABASE_WRITER_URL in {env_name} (skipped)")
+            continue
+
+        credentials = _parse_database_url(url, engine)
+        if credentials is None:
+            inf(f"    {service}: could not parse DATABASE_WRITER_URL (skipped)")
+            continue
+
+        host, port, user, password, database = credentials
+        if engine == "postgres":
+            probe = subprocess.run(
+                ["docker", "run", "--rm", "--network", COMPOSE_NETWORK,
+                 "-e", f"PGPASSWORD={password}", "postgres:14.6-alpine",
+                 "psql", "-h", host, "-p", str(port), "-U", user,
+                 "-d", database, "-tAc", "SELECT 1"],
+                capture_output=True,
+                text=True,
+            )
+        else:
+            # --ssl-mode=DISABLED for the same reason as _mysql: Floci's proxy
+            # does not terminate TLS.
+            probe = subprocess.run(
+                ["docker", "run", "--rm", "--network", COMPOSE_NETWORK, "mysql:8",
+                 "mysql", "--ssl-mode=DISABLED", "-h", host, "-P", str(port),
+                 "-u", user, f"-p{password}", "-N", "-B", "-D", database,
+                 "-e", "SELECT 1"],
+                capture_output=True,
+                text=True,
+            )
+
+        if probe.returncode == 0 and probe.stdout.split():
+            report.passed(
+                f"{service} can reach its database ({database} on {host}:{port})"
+            )
+        else:
+            report.failed(
+                f"{service} answers /v1/health but its OWN credentials CANNOT "
+                f"query {database} on {host}:{port} "
+                f"({probe.stderr.strip().splitlines()[-1][:120] if probe.stderr.strip() else 'no rows'}) "
+                "— health is shallow by contract and does not cover this",
+                f"make env-file && docker compose up -d {service}",
+            )
+
+    # Redis is shared by all three services and read from the same key in each
+    # env file, so it is probed once rather than per service.
+    values = _env_values(".env.local.orders")
+    host = values.get("REDIS_HOST", "")
+    port = values.get("REDIS_PORT", "6379")
+    if not host:
+        inf("    Redis: no REDIS_HOST in .env.local.orders (skipped)")
+        return
+
+    pinged = subprocess.run(
+        ["docker", "run", "--rm", "--network", COMPOSE_NETWORK, "redis:7-alpine",
+         "redis-cli", "-h", host, "-p", str(port), "PING"],
+        capture_output=True,
+        text=True,
+    )
+    if "PONG" in pinged.stdout:
+        report.passed(f"Redis answers PING at {host}:{port}")
+    else:
+        report.failed(
+            f"Redis does NOT answer PING at {host}:{port} "
+            f"({pinged.stderr.strip()[:120] or pinged.stdout.strip()[:120]}) — the "
+            "services will fail on their first cache read, not at startup",
+            "make clean && make bootstrap",
+        )
+
+
+def _parse_database_url(url: str, engine: str) -> tuple[str, int, str, str, str] | None:
+    """Pull (host, port, user, password, database) out of a generated URL.
+
+    CONTRACT: Read the port from the env file, never hardcode it. Floci assigns
+    RDS-proxy ports by cluster creation order and reassigns them on every apply.
+    See [[floci-rds-apigw-limits]]
+
+    Two shapes reach here: a URI (users, tracking) and the ADO.NET keyword
+    string Orders uses (`Server=…;Port=…;Database=…;User=…;Password=…;`).
+    """
+    if "=" in url and ";" in url:
+        pairs = {}
+        for part in url.split(";"):
+            if "=" in part:
+                key, value = part.split("=", 1)
+                pairs[key.strip().lower()] = value.strip()
+        try:
+            return (
+                pairs["server"], int(pairs["port"]), pairs["user"],
+                pairs.get("password", ""), pairs["database"],
+            )
+        except (KeyError, ValueError):
+            return None
+
+    parsed = urllib.parse.urlparse(url)
+    if not parsed.hostname or not parsed.port or not parsed.username:
+        return None
+    return (
+        parsed.hostname, parsed.port, parsed.username,
+        parsed.password or "", parsed.path.lstrip("/").split("?")[0],
+    )
 
 
 def check_otel_collector(report: Report) -> None:
@@ -450,6 +692,9 @@ def main() -> int:
 
     print("\n== Service health ==")
     check_services(report)
+
+    print("\n== Service dependencies ==")
+    check_service_dependencies(report)
 
     print("\n== Tracing ==")
     check_otel_collector(report)
