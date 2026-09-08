@@ -19,6 +19,12 @@ export interface TrackingStatusChangedHistoryEntry {
 
 export interface TrackingStatusChangedEmailProps {
   orderId: string;
+  // The customer-facing label, both forms, or undefined when the order has none.
+  // Optional and NEVER null, like `shippingAddress`. Rendered VERBATIM — this
+  // template must not build the displayed form, or the five status emails and the
+  // confirmation drift into printing different numbers for one order.
+  // See [[friendly-order-number]]
+  orderNumber?: { raw: string; formatted: string };
   status: "PLACED" | "PROCESSING" | "SHIPPED" | "OUT_FOR_DELIVERY" | "DELIVERED";
   previousStatus: string;
   changedAt: string;
@@ -223,6 +229,7 @@ function StatusTimeline({
 
 export default function TrackingStatusChangedEmail({
   orderId,
+  orderNumber,
   status,
   previousStatus,
   fullName,
@@ -261,8 +268,8 @@ export default function TrackingStatusChangedEmail({
         {greeting(fullName)}
       </Text>
       <Text className="mt-[12px] mb-[24px] mx-0 font-body text-[14px] leading-[1.5] text-text-secondary">
-        {heading}: your order {orderId} {body} (previously: {statusLabel(previousStatus)}). Here&apos;s
-        the latest on your shipment:
+        {heading}: your order {orderNumber?.formatted ?? orderId} {body} (previously:{" "}
+        {statusLabel(previousStatus)}). Here&apos;s the latest on your shipment:
       </Text>
 
       <StatusTimeline status={status} history={history} />

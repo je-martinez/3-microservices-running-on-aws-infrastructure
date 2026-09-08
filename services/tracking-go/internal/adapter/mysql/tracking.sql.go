@@ -20,6 +20,7 @@ INSERT INTO tracking (
   id,
   user_id,
   order_id,
+  order_number,
   status,
   shipping_address,
   ` + "`" + `datetime` + "`" + `,
@@ -30,13 +31,14 @@ INSERT INTO tracking (
   cognito_sub,
   tags,
   tracking_number
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateTrackingParams struct {
 	ID              string
 	UserID          string
 	OrderID         string
+	OrderNumber     sql.NullString
 	Status          string
 	ShippingAddress []byte
 	Datetime        time.Time
@@ -59,6 +61,7 @@ func (q *Queries) CreateTracking(ctx context.Context, arg CreateTrackingParams) 
 		arg.ID,
 		arg.UserID,
 		arg.OrderID,
+		arg.OrderNumber,
 		arg.Status,
 		arg.ShippingAddress,
 		arg.Datetime,
@@ -126,6 +129,7 @@ SELECT
   id,
   user_id,
   order_id,
+  order_number,
   status,
   shipping_address,
   ` + "`" + `datetime` + "`" + ` AS occurred_at,
@@ -147,6 +151,7 @@ type GetTrackingByOrderIDRow struct {
 	ID              string
 	UserID          string
 	OrderID         string
+	OrderNumber     sql.NullString
 	Status          string
 	ShippingAddress []byte
 	OccurredAt      time.Time
@@ -180,6 +185,7 @@ func (q *Queries) GetTrackingByOrderID(ctx context.Context, orderID string) (Get
 		&i.ID,
 		&i.UserID,
 		&i.OrderID,
+		&i.OrderNumber,
 		&i.Status,
 		&i.ShippingAddress,
 		&i.OccurredAt,
@@ -201,6 +207,7 @@ SELECT
   id,
   user_id,
   order_id,
+  order_number,
   status,
   shipping_address,
   ` + "`" + `datetime` + "`" + ` AS occurred_at,
@@ -228,6 +235,7 @@ type GetTrackingByOrderIDScopedRow struct {
 	ID              string
 	UserID          string
 	OrderID         string
+	OrderNumber     sql.NullString
 	Status          string
 	ShippingAddress []byte
 	OccurredAt      time.Time
@@ -254,6 +262,7 @@ func (q *Queries) GetTrackingByOrderIDScoped(ctx context.Context, arg GetTrackin
 		&i.ID,
 		&i.UserID,
 		&i.OrderID,
+		&i.OrderNumber,
 		&i.Status,
 		&i.ShippingAddress,
 		&i.OccurredAt,
@@ -390,6 +399,7 @@ SELECT
   id,
   user_id,
   order_id,
+  order_number,
   status,
   shipping_address,
   ` + "`" + `datetime` + "`" + ` AS occurred_at,
@@ -412,6 +422,7 @@ type ListTrackingsByCognitoSubRow struct {
 	ID              string
 	UserID          string
 	OrderID         string
+	OrderNumber     sql.NullString
 	Status          string
 	ShippingAddress []byte
 	OccurredAt      time.Time
@@ -440,6 +451,7 @@ func (q *Queries) ListTrackingsByCognitoSub(ctx context.Context, cognitoSub sql.
 			&i.ID,
 			&i.UserID,
 			&i.OrderID,
+			&i.OrderNumber,
 			&i.Status,
 			&i.ShippingAddress,
 			&i.OccurredAt,
@@ -471,6 +483,7 @@ SELECT
   id,
   user_id,
   order_id,
+  order_number,
   status,
   shipping_address,
   ` + "`" + `datetime` + "`" + ` AS occurred_at,
@@ -492,6 +505,7 @@ type ListTrackingsByIDsRow struct {
 	ID              string
 	UserID          string
 	OrderID         string
+	OrderNumber     sql.NullString
 	Status          string
 	ShippingAddress []byte
 	OccurredAt      time.Time
@@ -534,6 +548,7 @@ func (q *Queries) ListTrackingsByIDs(ctx context.Context, ids []string) ([]ListT
 			&i.ID,
 			&i.UserID,
 			&i.OrderID,
+			&i.OrderNumber,
 			&i.Status,
 			&i.ShippingAddress,
 			&i.OccurredAt,

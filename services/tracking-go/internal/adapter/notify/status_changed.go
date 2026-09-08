@@ -58,6 +58,11 @@ func (p *StatusEventPublisher) PublishTrackingStatusChanged(
 
 	p.publisher.PublishTrackingStatusChanged(ctx, sqs.StatusChanged{
 		OrderID: t.Tracking.OrderID,
+		// The customer-facing label, mirrored from Orders onto our row so the
+		// status emails can print it — the pipeline cannot look it up. "" when the
+		// order has none, and the publisher then omits the key.
+		// See [[friendly-order-number]]
+		OrderNumber: t.Tracking.OrderNumber,
 		// The event's SUBJECT — the order's owner. Travels at the envelope root,
 		// never inside author.
 		UserID:         t.Tracking.UserID,

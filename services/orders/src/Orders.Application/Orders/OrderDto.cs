@@ -19,6 +19,10 @@ public record OrderLineDto(
 
 public record OrderDto(
     string Id,
+    // CONTRACT: The customer-facing label, null on rows predating the backfill. `Id` remains
+    // the identifier every other contract references — do NOT swap them, and do not build
+    // the displayed form client-side. See [[friendly-order-number]]
+    OrderNumberDto? OrderNumber,
     string UserId,
     string CognitoSub,
     Money Subtotal,

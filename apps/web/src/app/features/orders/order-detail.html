@@ -63,7 +63,7 @@
         <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
           <div class="flex h-fit w-fit shrink-0 flex-col items-start justify-start gap-[0.1875rem] md:gap-[0.375rem]">
             <h1 class="text-ink-primary text-xl font-bold tracking-[-0.03125rem] md:text-[1.75rem] md:tracking-[-0.04375rem]">
-              {{ entry.order.id }}
+              {{ entry.order.orderNumber?.formatted ?? entry.order.id }}
             </h1>
             <p class="text-ink-secondary text-[0.8125rem] md:text-[0.90625rem]">{{ placedLabel() }}</p>
           </div>
@@ -105,11 +105,23 @@
               <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4">
                 @for (line of lines(); track line.productId; let last = $last) {
                   <div class="flex h-fit w-full shrink-0 flex-row items-start justify-start gap-[0.875rem]">
-                    <div class="bg-surface-subtle h-[5.5rem] w-[4.75rem] shrink-0 rounded-lg"></div>
+                    <!-- WHY: The guard reads `image`, not `product`. The line's
+                         own snapshot is the source here, so a delisted product
+                         still shows the artwork it was bought with; an order
+                         predating the snapshot has null and keeps the surface. -->
+                    @if (line.image; as image) {
+                      <img
+                        [src]="image.uri"
+                        [alt]="lineName(line)"
+                        class="h-[5.5rem] w-[4.75rem] shrink-0 rounded-lg object-cover"
+                      />
+                    } @else {
+                      <div class="bg-surface-subtle h-[5.5rem] w-[4.75rem] shrink-0 rounded-lg"></div>
+                    }
                     <div class="flex h-[5.5rem] flex-1 flex-col items-start justify-between gap-2">
                       <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-[0.1875rem]">
                         <span class="text-ink-primary w-full text-[0.90625rem] font-semibold">
-                          {{ line.product ? line.product.name : 'Product no longer listed' }}
+                          {{ lineName(line) }}
                         </span>
                         <span class="text-ink-secondary text-[0.8125rem]">Qty {{ line.quantity }}</span>
                       </div>

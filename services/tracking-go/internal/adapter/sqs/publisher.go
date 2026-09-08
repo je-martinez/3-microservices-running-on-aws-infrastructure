@@ -28,6 +28,7 @@ import (
 
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/grpcusers"
 	tracing "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/otel"
+	"github.com/jemartinez/3mrai/services/tracking-go/internal/domain"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/platform/logging"
 )
 
@@ -206,6 +207,7 @@ func buildEnvelope(ctx context.Context, in StatusChanged, user grpcusers.Resolve
 			// ALWAYS present, "" when unknown.
 			FullName:       user.FullName,
 			OrderID:        in.OrderID,
+			OrderNumber:    omittableOrderNumber(in.OrderNumber),
 			TrackingNumber: in.TrackingNumber,
 			// Raw JSON forwarded byte-for-byte as an OBJECT, or omitted. Never a
 			// string, and never null — see omittableAddress.
@@ -222,6 +224,23 @@ func buildEnvelope(ctx context.Context, in StatusChanged, user grpcusers.Resolve
 		}
 	}
 	return env
+}
+
+// omittableOrderNumber returns both wire forms of the order number, or nil to
+// have omitempty drop the key entirely.
+//
+// CONTRACT: nil for "", never an object of empty strings. A present-but-blank
+// order number renders as an empty gap on a receipt, where an absent one makes
+// the template fall back to the order id — which is the intended degradation for
+// an order predating the backfill. See [[friendly-order-number]]
+func omittableOrderNumber(canonical string) *orderNumber {
+	if canonical == "" {
+		return nil
+	}
+	return &orderNumber{
+		Raw:       canonical,
+		Formatted: domain.FormatOrderNumber(canonical),
+	}
 }
 
 // omittableAddress returns the address bytes to place on the wire, or nil to have

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Envelope } from "#domain/envelope";
+import { OrderNumberSchema } from "#domain/order-number";
 import { renderTemplate } from "#email/renderer";
 import { sendEmail } from "#email/sender";
 import { PermanentError } from "#pipeline/errors";
@@ -17,6 +18,11 @@ const TrackingStatusChangedPayloadSchema = z.object({
   email: z.string().email(),
   full_name: z.string(),
   order_id: z.string().min(1),
+  // CONTRACT: OPTIONAL, like `request_id` on the envelope — a message published
+  // before this field existed can still be on the queue at deploy time, and a
+  // schema failure is a PermanentError whose email AND WebSocket push are lost.
+  // See [[friendly-order-number]]
+  order_number: OrderNumberSchema.optional(),
   tracking_number: z.string().min(1),
   shipping_address: z.record(z.string(), z.unknown()).optional(),
   history: z.array(
@@ -56,6 +62,10 @@ export async function trackingStatusChangedHandler(envelope: Envelope, deps: Han
   // Wire snake_case payload mapped to camelCase template props explicitly.
   const html = await renderTemplate(templateKey, {
     orderId: result.data.order_id,
+    // CONTRACT: Pass the object through; the template renders `formatted`
+    // verbatim and falls back to the id when absent. Do NOT build the displayed
+    // form here — the producer owns that rule.
+    orderNumber: result.data.order_number,
     status: result.data.status,
     previousStatus: result.data.previous_status,
     changedAt: result.data.changed_at,
@@ -71,7 +81,12 @@ export async function trackingStatusChangedHandler(envelope: Envelope, deps: Han
   // sendEmail classifies SES outages as TransientError for automatic SQS retry.
   await sendEmail({
     to: result.data.email,
-    subject: `Order ${envelope.order_id}: ${result.data.status.replace(/_/g, " ").toLowerCase()}`,
+    // CONTRACT: The FORMATTED number when there is one — the subject is the most
+    // visible surface of all, and `ord_RbVmVSLmbHj6DWQ6N4l0d7C8` in an inbox is
+    // exactly the problem this feature exists to fix. Falls back to the id for an
+    // order predating the backfill. `envelope.order_id` (not payload) stays the
+    // fallback so the subject is unchanged for those. See [[friendly-order-number]]
+    subject: `Order ${result.data.order_number?.formatted ?? envelope.order_id}: ${result.data.status.replace(/_/g, " ").toLowerCase()}`,
     html,
     // EmailType dimension uses variant template key to distinguish status variants.
     templateKey,

@@ -16,6 +16,7 @@ SELECT
   id,
   user_id,
   order_id,
+  order_number,
   status,
   shipping_address,
   `datetime` AS occurred_at,
@@ -42,6 +43,7 @@ SELECT
   id,
   user_id,
   order_id,
+  order_number,
   status,
   shipping_address,
   `datetime` AS occurred_at,
@@ -65,6 +67,7 @@ SELECT
   id,
   user_id,
   order_id,
+  order_number,
   status,
   shipping_address,
   `datetime` AS occurred_at,
@@ -92,6 +95,7 @@ SELECT
   id,
   user_id,
   order_id,
+  order_number,
   status,
   shipping_address,
   `datetime` AS occurred_at,
@@ -118,6 +122,7 @@ INSERT INTO tracking (
   id,
   user_id,
   order_id,
+  order_number,
   status,
   shipping_address,
   `datetime`,
@@ -128,7 +133,7 @@ INSERT INTO tracking (
   cognito_sub,
   tags,
   tracking_number
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: UpdateTrackingStatus :execrows
 -- Advance a tracking's status. Returns the affected-row count so the caller can

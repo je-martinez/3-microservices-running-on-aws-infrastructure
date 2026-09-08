@@ -382,6 +382,7 @@ components:
     OrderDto:
       required:
         - id
+        - orderNumber
         - userId
         - cognitoSub
         - subtotal
@@ -394,6 +395,10 @@ components:
       properties:
         id:
           type: string
+        orderNumber:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/OrderNumberDto'
         userId:
           type: string
         cognitoSub:
@@ -446,6 +451,16 @@ components:
           oneOf:
             - type: 'null'
             - $ref: '#/components/schemas/ProductImageDto'
+    OrderNumberDto:
+      required:
+        - raw
+        - formatted
+      type: object
+      properties:
+        raw:
+          type: string
+        formatted:
+          type: string
     OrderWithTrackingDto:
       required:
         - order

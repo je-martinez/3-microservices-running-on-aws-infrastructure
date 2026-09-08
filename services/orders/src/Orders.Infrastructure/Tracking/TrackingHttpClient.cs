@@ -53,6 +53,7 @@ public class TrackingHttpClient : ITrackingInitiator, ITrackingReader
 
     public async Task<TrackingInitResult> InitTrackingAsync(
         string orderId,
+        string? orderNumber,
         string? shippingAddressJson,
         string cognitoSub,
         bool testMode,
@@ -69,7 +70,8 @@ public class TrackingHttpClient : ITrackingInitiator, ITrackingReader
             // is "true", so an E2E run's rows are removable by tag on BOTH sides of the
             // seam. Tracking applies its own E2E_TESTING_ENABLED guard to it.
             .AddHeader("x-e2e-source", e2eSource ? "true" : "false")
-            .AddJsonBody(new InitTrackingRequest(orderId, ParseAddress(shippingAddressJson)))
+            .AddJsonBody(new InitTrackingRequest(
+                orderId, orderNumber, ParseAddress(shippingAddressJson)))
             .WithRequestId();
 
         // CONTRACT: ExecuteAsync, not PostAsync — the Execute* family reports failure on the
@@ -182,6 +184,10 @@ public class TrackingHttpClient : ITrackingInitiator, ITrackingReader
     // sees the field. Identity is deliberately absent — it rides in x-user-id.
     private sealed record InitTrackingRequest(
         [property: JsonPropertyName("order_id")] string OrderId,
+        // The customer-facing label, so Tracking's own status emails can print it. Emitted
+        // even when null, like shipping_address, so Tracking always sees the field.
+        // See [[friendly-order-number]]
+        [property: JsonPropertyName("order_number")] string? OrderNumber,
         [property: JsonPropertyName("shipping_address")] JsonElement? ShippingAddress);
 
     private static readonly IReadOnlyDictionary<string, TrackingDto> NoTrackings =

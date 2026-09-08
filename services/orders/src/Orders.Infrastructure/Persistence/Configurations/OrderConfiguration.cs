@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Orders.Domain;
 using Orders.Domain.Entities;
 using Orders.Infrastructure.Id;
 
@@ -10,6 +11,17 @@ namespace Orders.Infrastructure.Persistence.Configurations;
 
 public class OrderConfiguration : IEntityTypeConfiguration<Order>
 {
+    /// <summary>
+    /// The unique index behind the order number, named once and shared.
+    /// CONTRACT: The retry in <c>CreateOrderService</c> detects a collision by THIS NAME,
+    /// never by the bare MySQL error number — the number also fires on the order's other
+    /// constraints, where re-minting a number is the wrong response. If the two spellings
+    /// drift the retry silently stops firing and a collision surfaces as a 500.
+    /// See [[friendly-order-number]]
+    /// </summary>
+    public const string OrderNumberIndexName = "ux_order_order_number";
+
+
     // CONTRACT: Serialize here, not with EF's OwnsMany/ToJson — the cleanup query filters
     // this column with JSON_CONTAINS, and a JSON-owned collection becomes a nested entity
     // type instead of the scalar column that needs. MySQL 8 has no native array type, so the
@@ -35,6 +47,13 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         b.ToTable("order");
         b.HasKey(o => o.Id);
         b.Property(o => o.Id).HasColumnName("id").HasMaxLength(NanoIdConfig.TotalLength);
+        // The customer-facing label (see Order.OrderNumber). char(12), not varchar: every
+        // value is exactly this wide by construction, and a fixed width makes a truncation
+        // bug fail loudly at insert instead of silently shortening a number a customer
+        // already read off an email. Nullable ONLY for rows predating the backfill.
+        b.Property(o => o.OrderNumber)
+            .HasColumnName("order_number")
+            .HasColumnType($"char({OrderNumberConfig.TotalLength})");
         b.Property(o => o.UserId).HasColumnName("user_id").HasMaxLength(NanoIdConfig.TotalLength);
         b.Property(o => o.CognitoSub).HasColumnName("cognito_sub").HasMaxLength(255);
         b.Property(o => o.SubtotalCents).HasColumnName("subtotal_cents").HasColumnType("bigint");
@@ -69,6 +88,14 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         b.Ignore(o => o.Total);
         b.Ignore(o => o.IsDeleted);
         b.HasMany(o => o.Details).WithOne().HasForeignKey(d => d.OrderId);
+        // CONTRACT: A PLAIN unique index on the WHOLE column, never a MySQL prefix index
+        // (`order_number(6)`) — that would index only the date and make every order sharing
+        // a day collide, the exact opposite of what is wanted. Per-day uniqueness is a
+        // property of the VALUE (the date is part of it), not of the index, which is also
+        // why the random suffix can be six characters. MySQL ignores NULLs in a unique
+        // index, so rows predating the backfill do not collide with each other.
+        // See [[friendly-order-number]]
+        b.HasIndex(o => o.OrderNumber).IsUnique().HasDatabaseName(OrderNumberIndexName);
         b.HasIndex(o => o.UserId).HasDatabaseName("idx_order_user_id");
         b.HasIndex(o => o.CognitoSub).HasDatabaseName("idx_order_cognito_sub");
         b.HasIndex(o => o.DeletedAt).HasDatabaseName("idx_order_deleted_at");

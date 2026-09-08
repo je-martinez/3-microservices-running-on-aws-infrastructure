@@ -68,6 +68,58 @@ const validPayload = {
   created_at: "2026-08-03T12:00:00.000Z",
 };
 
+describe("the customer-facing order number", () => {
+  beforeEach(() => vi.mocked(sendEmail).mockClear());
+
+  const withNumber = {
+    ...validPayload,
+    order_number: { raw: "2609078KJ4M2", formatted: "260907-8KJ4M2" },
+  };
+
+  it("renders the FORMATTED number in the receipt, verbatim", async () => {
+    await orderCreatedHandler(envelope(withNumber));
+
+    const { html } = vi.mocked(sendEmail).mock.calls[0][0];
+    expect(html).toContain("260907-8KJ4M2");
+  });
+
+  // CONTRACT: The template renders what the producer sent and builds nothing.
+  // With each consumer inserting its own separator, the six templates drift and a
+  // customer reads out a number support cannot find.
+  it("does not print the canonical form a human never sees", async () => {
+    await orderCreatedHandler(envelope(withNumber));
+
+    const { html } = vi.mocked(sendEmail).mock.calls[0][0];
+    expect(html).not.toContain("2609078KJ4M2");
+  });
+
+  // CONTRACT: This is the backward-compatibility case, and it is the one that
+  // matters most. A message published before the field existed can still be on
+  // the queue at deploy time; a schema that REQUIRED order_number would make it a
+  // PermanentError — the record is consumed, no email is ever sent, and nothing
+  // upstream notices. See [[events-pipeline-design]]
+  it("still sends the email for a payload with no order number at all", async () => {
+    await orderCreatedHandler(envelope(validPayload));
+
+    expect(vi.mocked(sendEmail)).toHaveBeenCalledTimes(1);
+    const { html } = vi.mocked(sendEmail).mock.calls[0][0];
+    // Falls back to the id rather than rendering a blank.
+    expect(html).toContain("ord_1");
+  });
+
+  // An object that is present but blank is worse for a display layer than an
+  // absent one: it renders an empty gap where the number should be. `.min(1)`
+  // rejects it, and rejecting is correct — it is a producer bug, not a shape the
+  // templates should learn to tolerate.
+  it("rejects a blank order number rather than rendering an empty gap", async () => {
+    await expect(
+      orderCreatedHandler(envelope({ ...validPayload, order_number: { raw: "", formatted: "" } })),
+    ).rejects.toBeInstanceOf(PermanentError);
+
+    expect(vi.mocked(sendEmail)).not.toHaveBeenCalled();
+  });
+});
+
 describe("orderCreatedHandler", () => {
   beforeEach(() => {
     vi.mocked(sendEmail).mockReset();

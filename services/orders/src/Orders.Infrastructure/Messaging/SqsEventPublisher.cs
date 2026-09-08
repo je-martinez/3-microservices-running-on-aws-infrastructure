@@ -62,6 +62,7 @@ public class SqsEventPublisher : IEventPublisher
 
     public async Task PublishOrderCreatedAsync(
         string orderId,
+        string? orderNumber,
         string userId,
         string email,
         string fullName,
@@ -96,6 +97,14 @@ public class SqsEventPublisher : IEventPublisher
                 CognitoSub: string.IsNullOrWhiteSpace(cognitoSub) ? null : cognitoSub),
             Payload: new OrderCreatedPayload(
                 OrderId: orderId,
+                // CONTRACT: Send BOTH forms and let the template render `formatted`
+                // verbatim. The separator rule lives on the server — six templates each
+                // inserting their own hyphen is six copies that drift, and a customer then
+                // reads out a number support cannot find. Omitted (not null) for an order
+                // predating the backfill. See [[friendly-order-number]]
+                OrderNumber: string.IsNullOrWhiteSpace(orderNumber)
+                    ? null
+                    : new OrderNumberPayload(orderNumber, Domain.OrderNumber.Format(orderNumber)),
                 UserId: userId,
                 Email: email,
                 FullName: fullName,
@@ -242,6 +251,7 @@ public class SqsEventPublisher : IEventPublisher
     // omitted, never null; every other key is always present.
     private sealed record OrderCreatedPayload(
         [property: JsonPropertyName("order_id")] string OrderId,
+        [property: JsonPropertyName("order_number")] OrderNumberPayload? OrderNumber,
         [property: JsonPropertyName("user_id")] string UserId,
         [property: JsonPropertyName("email")] string Email,
         [property: JsonPropertyName("full_name")] string FullName,
@@ -258,6 +268,15 @@ public class SqsEventPublisher : IEventPublisher
     // them lets a rename in Application silently change what the pipeline accepts. Carries
     // the product NAME (an id on a receipt is not a receipt) and no line total, which the
     // template derives. See [[events-pipeline-design]]
+    // CONTRACT: Both forms travel. `raw` is the canonical value a consumer would send back;
+    // `formatted` is what a template prints, verbatim. The consumer's schema must keep the
+    // whole object OPTIONAL — messages published before this field existed can still be on
+    // the queue at deploy time, and a schema failure is a PermanentError whose email is
+    // never sent. See [[events-pipeline-design]]
+    private sealed record OrderNumberPayload(
+        [property: JsonPropertyName("raw")] string Raw,
+        [property: JsonPropertyName("formatted")] string Formatted);
+
     private sealed record OrderCreatedItemPayload(
         [property: JsonPropertyName("name")] string Name,
         [property: JsonPropertyName("quantity")] uint Quantity,

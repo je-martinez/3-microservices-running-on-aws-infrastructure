@@ -42,6 +42,10 @@ type HistoryEntry struct {
 // because the carrier webhook carries no caller identity at all.
 type StatusChanged struct {
 	OrderID string
+	// OrderNumber is the canonical customer-facing label, off the PERSISTED ROW.
+	// "" when the order has none, in which case the key is omitted entirely and
+	// the templates fall back to the order id. See [[friendly-order-number]]
+	OrderNumber string
 	// UserID is the event's SUBJECT (the order's owner) and travels at the
 	// envelope ROOT — never inside author.
 	UserID string
@@ -108,9 +112,16 @@ type payload struct {
 	// ShippingAddress. An absent address means the notification cannot be
 	// delivered at all; an absent name is cosmetic, the mail still sends, and the
 	// template interpolates a plain string.
-	FullName       string `json:"full_name"`
-	OrderID        string `json:"order_id"`
-	TrackingNumber string `json:"tracking_number"`
+	FullName string `json:"full_name"`
+	OrderID  string `json:"order_id"`
+	// CONTRACT: A POINTER with omitempty, so an order without a number omits the
+	// key rather than sending an object of empty strings. The consumer's schema is
+	// .optional(), not .nullable(), so a null would be a PermanentError — the
+	// record is consumed and the email and push are lost. Same shape Orders sends
+	// on ORDER_CREATED, so one Zod schema validates both.
+	// See [[friendly-order-number]]
+	OrderNumber    *orderNumber `json:"order_number,omitempty"`
+	TrackingNumber string       `json:"tracking_number"`
 	// CONTRACT: Do NOT rely on omitempty alone. It drops nil and zero-length
 	// bytes, but a JSON column can hold the literal document `null`, whose
 	// non-empty bytes marshal through as "shipping_address": null — a rejection
@@ -118,6 +129,15 @@ type payload struct {
 	// normalizes those bytes to nil first. See [[events-pipeline-design]]
 	ShippingAddress json.RawMessage `json:"shipping_address,omitempty"`
 	History         []historyEntry  `json:"history"`
+}
+
+// orderNumber carries BOTH forms, exactly as Orders does. The producer owns the
+// display rule; templates render `formatted` verbatim rather than inserting their
+// own separator, or the six of them drift and a customer reads out a number
+// support cannot find. See [[friendly-order-number]]
+type orderNumber struct {
+	Raw       string `json:"raw"`
+	Formatted string `json:"formatted"`
 }
 
 type historyEntry struct {

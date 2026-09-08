@@ -155,3 +155,132 @@ test("POST v1/orders/{orderId} (method not declared on the param route) is gatew
   // service's `{ error: "..." }` contract — confirming this never reached nginx.
   expect(body).toEqual({ message: "Not Found" });
 });
+
+// The customer-facing order number, over the URL a user actually hits.
+//
+// CONTRACT: This is the layer that catches what the other two cannot. The
+// in-process tests build the DTO directly and the internal E2E fakes the
+// authorizer, so neither proves the field survives the gateway's serialization
+// on the routes a browser reads. See [[testing]]
+
+/** Both forms, exactly as services/orders/openapi.yaml declares OrderNumberDto. */
+function expectWellFormedOrderNumber(orderNumber: unknown): { raw: string; formatted: string } {
+  expect(
+    orderNumber,
+    "the order carries no orderNumber — a freshly created order must always have one, so " +
+      "either CreateOrderService stopped minting it or the DTO stopped serializing it",
+  ).toBeTruthy();
+
+  const { raw, formatted } = orderNumber as { raw: string; formatted: string };
+
+  // Canonical: 6 date digits + 6 Crockford base32, no separator, no I/L/O/U.
+  expect(raw, `raw "${raw}" is not the canonical 12-character form`).toMatch(
+    /^[0-9]{6}[0-9ABCDEFGHJKMNPQRSTVWXYZ]{6}$/,
+  );
+  // Displayed: one hyphen, in one place. The server owns this rule.
+  expect(formatted, `formatted "${formatted}" is not YYMMDD-XXXXXX`).toBe(
+    `${raw.slice(0, 6)}-${raw.slice(6)}`,
+  );
+
+  return { raw, formatted };
+}
+
+test("a created order carries its customer-facing number through the gateway", async () => {
+  const { token } = await getGatewayToken();
+  const api = await gatewayClient(token);
+
+  const products = await api.get("v1/products");
+  const list = await products.json();
+  const product = list.find((p: { unitsInStock: number }) => p.unitsInStock > 0);
+  expect(product).toBeTruthy();
+
+  const created = await api.post("v1/orders", {
+    data: { lines: [{ productId: product.id, quantity: 1 }] },
+  });
+  expect(created.status()).toBe(201);
+  const order = await created.json();
+
+  const { raw } = expectWellFormedOrderNumber(order.orderNumber);
+
+  // CONTRACT: The number is a LABEL and the id stays the identifier. A response
+  // that returned the number as `id` would still look plausible here, so the two
+  // are asserted to differ and `id` is asserted to keep its prefix.
+  expect(order.id).toMatch(/^ord_/);
+  expect(order.id).not.toBe(raw);
+
+  // The date half is derived from the order's own creation instant, in UTC. A
+  // generator reading the host's local zone drifts by a day either side of
+  // midnight, which is invisible for most of the day and wrong for the rest.
+  const createdAt = new Date(order.createdAt);
+  const expectedPrefix =
+    String(createdAt.getUTCFullYear() % 100).padStart(2, "0") +
+    String(createdAt.getUTCMonth() + 1).padStart(2, "0") +
+    String(createdAt.getUTCDate()).padStart(2, "0");
+  expect(
+    raw.slice(0, 6),
+    `the number's date half is ${raw.slice(0, 6)} but the order was created at ` +
+      `${order.createdAt} (UTC ${expectedPrefix}) — the prefix is being derived from the ` +
+      "host's local zone rather than UTC",
+  ).toBe(expectedPrefix);
+});
+
+test("the same order number comes back on both read routes", async () => {
+  const { token } = await getGatewayToken();
+  const api = await gatewayClient(token);
+
+  const products = await api.get("v1/products");
+  const list = await products.json();
+  const product = list.find((p: { unitsInStock: number }) => p.unitsInStock > 0);
+  const created = await api.post("v1/orders", {
+    data: { lines: [{ productId: product.id, quantity: 1 }] },
+  });
+  expect(created.status()).toBe(201);
+  const order = await created.json();
+  const minted = expectWellFormedOrderNumber(order.orderNumber);
+
+  // CONTRACT: Creation maps the in-memory order and the reads map a re-queried
+  // row, through two SEPARATE mappers that can silently diverge. The visible
+  // symptom is a customer quoting a number the detail page does not show.
+  const detail = await api.get(`v1/orders/${order.id}?includeTracking=true`);
+  expect(detail.status()).toBe(200);
+  const detailNumber = expectWellFormedOrderNumber((await detail.json()).order.orderNumber);
+  expect(
+    detailNumber.raw,
+    "the detail read returned a DIFFERENT order number than creation did — the two mappers " +
+      "have diverged, or the number is being re-minted on read instead of persisted",
+  ).toBe(minted.raw);
+
+  const mine = await api.get("v1/orders/my-orders");
+  expect(mine.status()).toBe(200);
+  const listed = (await mine.json()).find((o: { id: string }) => o.id === order.id);
+  expect(listed).toBeTruthy();
+  expect(expectWellFormedOrderNumber(listed.orderNumber).raw).toBe(minted.raw);
+});
+
+test("two orders placed on the same day get different numbers", async () => {
+  const { token } = await getGatewayToken();
+  const api = await gatewayClient(token);
+
+  const products = await api.get("v1/products");
+  const list = await products.json();
+  const product = list.find((p: { unitsInStock: number }) => p.unitsInStock > 1);
+  expect(product).toBeTruthy();
+
+  const numbers: string[] = [];
+  for (let i = 0; i < 2; i++) {
+    const created = await api.post("v1/orders", {
+      data: { lines: [{ productId: product.id, quantity: 1 }] },
+    });
+    expect(created.status()).toBe(201);
+    numbers.push(expectWellFormedOrderNumber((await created.json()).orderNumber).raw);
+  }
+
+  // They share a date prefix (same day) and must differ in the random half. Equal
+  // numbers would mean the suffix is not random — the unique index would then be
+  // rejecting real orders rather than the rare collision it exists for.
+  expect(numbers[0].slice(0, 6)).toBe(numbers[1].slice(0, 6));
+  expect(
+    numbers[0],
+    `two orders on the same day both got ${numbers[0]} — the random suffix is not random`,
+  ).not.toBe(numbers[1]);
+});

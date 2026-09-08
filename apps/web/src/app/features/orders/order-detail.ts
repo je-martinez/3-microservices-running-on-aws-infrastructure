@@ -11,6 +11,7 @@ import {
   TRACKING_STATUSES,
   type OrderWithTracking,
   type Product,
+  type ResolvedOrderLine,
   type Tracking,
   type TrackingStatus,
 } from '../../core/api/types';
@@ -82,8 +83,8 @@ export class OrderDetailPage {
       return;
     }
     try {
-      // WHY: the catalogue rides along because OrderLineDto carries only
-      // productId — a line has no name or image to render without it.
+      // WHY: the catalogue rides along to name a line placed before the order
+      // snapshot existed; those carry `name: null` and nothing else supplies it.
       const [entry, catalogue] = await Promise.all([
         firstValueFrom(this.ordersApi.getOrder(orderId)),
         firstValueFrom(this.catalogueApi.listProducts()),
@@ -105,6 +106,16 @@ export class OrderDetailPage {
     const current = this.entry();
     return current ? current.order.lines.map((line) => joinOrderLine(line, this.catalogue())) : [];
   });
+
+  /**
+   * CONTRACT: The line's own snapshot wins over the catalogue. It is what the
+   * buyer paid for, so a product renamed since must still show its old name
+   * here. The join is the fallback only for an order placed before the
+   * snapshot existed, which carries `name: null`.
+   */
+  protected lineName(line: ResolvedOrderLine): string {
+    return line.name ?? line.product?.name ?? 'Product no longer listed';
+  }
 
   /**
    * Shared with `OrderCard`, which renders the identical line — see

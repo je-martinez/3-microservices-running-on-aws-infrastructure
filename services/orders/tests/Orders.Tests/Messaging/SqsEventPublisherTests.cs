@@ -25,6 +25,9 @@ public class SqsEventPublisherTests
 {
     private const string QueueUrl = "http://localhost:4566/000000000000/3mrai-local-events";
     private const string OrderId = "ord_abc123";
+    // The canonical (stored) form; the publisher derives the displayed one.
+    private const string OrderNumberCanonical = "2609078KJ4M2";
+    private const string OrderNumberFormatted = "260907-8KJ4M2";
     private const string UserId = "usr_xyz789";
     private const string Email = "buyer@example.com";
     private const string FullName = "Ada Lovelace";
@@ -60,9 +63,10 @@ public class SqsEventPublisherTests
         SqsEventPublisher publisher,
         string? cognitoSub = CognitoSub,
         string? shippingAddress = ShippingAddressJson,
-        IReadOnlyList<OrderCreatedItem>? items = null)
+        IReadOnlyList<OrderCreatedItem>? items = null,
+        string? orderNumber = OrderNumberCanonical)
         => publisher.PublishOrderCreatedAsync(
-            OrderId, UserId, Email, FullName,
+            OrderId, orderNumber, UserId, Email, FullName,
             SubtotalCents, TaxCents, ShippingCents, TotalCents,
             shippingAddress, items ?? Items, CreatedAt, cognitoSub);
 
@@ -81,6 +85,44 @@ public class SqsEventPublisherTests
     {
         await Publish(publisher, shippingAddress: shippingAddress);
         return JsonDocument.Parse(sqs.Requests.Single().MessageBody).RootElement;
+    }
+
+    /// <summary>
+    /// CONTRACT: The payload carries BOTH forms, and the server owns the separator rule.
+    /// Six templates each inserting their own hyphen is six copies that drift, and a customer
+    /// then reads out a number support cannot find. See [[friendly-order-number]]
+    /// </summary>
+    [Fact]
+    public async Task Payload_carries_both_forms_of_the_order_number()
+    {
+        var (publisher, sqs, _) = Build();
+
+        var payload = (await PublishAndReadBody(sqs, publisher)).GetProperty("payload");
+
+        var number = payload.GetProperty("order_number");
+        Assert.Equal(OrderNumberCanonical, number.GetProperty("raw").GetString());
+        Assert.Equal(OrderNumberFormatted, number.GetProperty("formatted").GetString());
+
+        // The label never replaces the identifier: order_id stays the `ord_` nano id.
+        Assert.Equal(OrderId, payload.GetProperty("order_id").GetString());
+    }
+
+    /// <summary>
+    /// CONTRACT: OMITTED, never null — the rule `cognito_sub` follows. A schema failure is a
+    /// PermanentError whose email is never sent. See [[events-pipeline-design]]
+    /// </summary>
+    [Fact]
+    public async Task An_order_without_a_number_omits_the_key_rather_than_sending_null()
+    {
+        var (publisher, sqs, _) = Build();
+
+        await Publish(publisher, orderNumber: null);
+
+        var payload = JsonDocument.Parse(sqs.Requests.Single().MessageBody)
+            .RootElement.GetProperty("payload");
+        Assert.False(
+            payload.TryGetProperty("order_number", out _),
+            "order_number was serialized for an order that has none — it must be omitted");
     }
 
     [Fact]
@@ -161,17 +203,16 @@ public class SqsEventPublisherTests
         var body = await PublishAndReadBody(sqs, publisher);
         var payload = body.GetProperty("payload");
 
-        // Every field OrderCreatedPayloadSchema requires — exactly, and snake_case. The
-        // payload grew from a bare confirmation into a RECEIPT: the consumer holds no
-        // connection to the Orders database, so the greeting, the money breakdown and the
-        // line items all have to travel here or the email cannot print them.
-        // `email` is the one the original plan omitted: without it every ORDER_CREATED
-        // would be rejected as a PermanentError and no confirmation email ever sent.
+        // CONTRACT: Every field OrderCreatedPayloadSchema requires, exactly, in snake_case.
+        // The consumer holds no connection to the Orders database, so the whole receipt
+        // travels here. `order_number` is sent but OPTIONAL there, like `request_id`.
+        // See [[friendly-order-number]]
         Assert.Equal(
             new[]
             {
-                "created_at", "email", "full_name", "items", "order_id", "shipping_address",
-                "shipping_cents", "subtotal_cents", "tax_cents", "total_cents", "user_id",
+                "created_at", "email", "full_name", "items", "order_id", "order_number",
+                "shipping_address", "shipping_cents", "subtotal_cents", "tax_cents",
+                "total_cents", "user_id",
             },
             payload.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
 

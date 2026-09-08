@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Envelope } from "#domain/envelope";
+import { OrderNumberSchema } from "#domain/order-number";
 import { renderTemplate } from "#email/renderer";
 import { sendEmail } from "#email/sender";
 import { PermanentError } from "#pipeline/errors";
@@ -22,6 +23,11 @@ import type { HandlerDeps } from "#pipeline/process-record";
 // event document by design but must never be logged.
 const OrderCreatedPayloadSchema = z.object({
   order_id: z.string().min(1),
+  // CONTRACT: OPTIONAL, for the same reason `request_id` is — a message published
+  // before this field existed can still be on the queue at deploy time, and a
+  // schema failure is a PermanentError whose email is never sent.
+  // See [[friendly-order-number]]
+  order_number: OrderNumberSchema.optional(),
   user_id: z.string().min(1),
   email: z.string().email(),
   full_name: z.string().min(1),
@@ -67,6 +73,10 @@ export async function orderCreatedHandler(envelope: Envelope, deps: HandlerDeps 
   // undefined, so a template branches on one absence marker.
   const html = await renderTemplate("order-created", {
     orderId: result.data.order_id,
+    // CONTRACT: Pass the whole object through; the template renders `formatted`
+    // verbatim and falls back to the id when it is absent. Do NOT build the
+    // displayed form here — the server owns that rule.
+    orderNumber: result.data.order_number,
     fullName: result.data.full_name,
     subtotalCents: result.data.subtotal_cents,
     taxCents: result.data.tax_cents,

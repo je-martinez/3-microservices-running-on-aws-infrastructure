@@ -71,6 +71,7 @@ const realisticAddressJSON = `{"city": "Austin", "line1": "1 Test St", "state": 
 func fullInput() sqs.StatusChanged {
 	return sqs.StatusChanged{
 		OrderID:         "ord_abc",
+		OrderNumber:     "2609078KJ4M2",
 		UserID:          "usr_abc",
 		Status:          "IN_TRANSIT",
 		PreviousStatus:  "PLACED",
@@ -96,6 +97,58 @@ func decodeEnvelope(t *testing.T, in *awssqs.SendMessageInput) map[string]any {
 		t.Fatalf("body is not JSON: %v\n%s", err, *in.MessageBody)
 	}
 	return envelope
+}
+
+// CONTRACT: The payload carries BOTH forms, and this producer owns the display
+// rule — the templates render `formatted` verbatim. Six templates each inserting
+// their own hyphen is six copies that drift, and a customer then reads out a
+// number support cannot find. The shape matches what Orders sends on
+// ORDER_CREATED, so ONE Zod schema validates both. See [[friendly-order-number]]
+func TestEnvelopeCarriesBothFormsOfTheOrderNumber(t *testing.T) {
+	client := &fakeSQS{}
+	resolver := stubResolver{user: grpcusers.ResolvedUser{
+		InternalID: "usr_abc", Email: "person@example.com", FullName: "Ada Lovelace"}}
+	p := sqs.NewPublisher(client, "https://sqs/queue", resolver, quietLog())
+
+	p.PublishTrackingStatusChanged(t.Context(), fullInput())
+
+	envelope := decodeEnvelope(t, client.last())
+	payload, _ := envelope["payload"].(map[string]any)
+	number, ok := payload["order_number"].(map[string]any)
+	if !ok {
+		t.Fatalf("payload.order_number is not an object: %v", payload["order_number"])
+	}
+	if number["raw"] != "2609078KJ4M2" {
+		t.Errorf("payload.order_number.raw = %v", number["raw"])
+	}
+	if number["formatted"] != "260907-8KJ4M2" {
+		t.Errorf("payload.order_number.formatted = %v", number["formatted"])
+	}
+	// The label never replaces the identifier.
+	if payload["order_id"] != "ord_abc" {
+		t.Errorf("payload.order_id = %v", payload["order_id"])
+	}
+}
+
+// CONTRACT: OMITTED, never null and never an object of empty strings. The
+// consumer's schema is .optional() and not .nullable(), so a null is a
+// PermanentError — the record is consumed and the email and the WebSocket push
+// are lost while this producer logs success. See [[events-pipeline-design]]
+func TestAnOrderWithoutANumberOmitsTheKey(t *testing.T) {
+	client := &fakeSQS{}
+	resolver := stubResolver{user: grpcusers.ResolvedUser{
+		InternalID: "usr_abc", Email: "person@example.com", FullName: "Ada Lovelace"}}
+	p := sqs.NewPublisher(client, "https://sqs/queue", resolver, quietLog())
+
+	in := fullInput()
+	in.OrderNumber = ""
+	p.PublishTrackingStatusChanged(t.Context(), in)
+
+	envelope := decodeEnvelope(t, client.last())
+	payload, _ := envelope["payload"].(map[string]any)
+	if _, present := payload["order_number"]; present {
+		t.Errorf("order_number must be OMITTED when the order has none, got %v", payload["order_number"])
+	}
 }
 
 func TestEnvelopeShape(t *testing.T) {

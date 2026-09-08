@@ -57,6 +57,13 @@ type Tracking struct {
 	// duplicate creation cannot race past a pre-check.
 	OrderID string
 
+	// OrderNumber is the customer-facing label, MIRRORED from Orders in canonical
+	// form ("2609078KJ4M2"). "" when the order has none.
+	//
+	// CONTRACT: Tracking NEVER mints one, and nothing keys off it — OrderID stays
+	// the identifier. See [[friendly-order-number]]
+	OrderNumber string
+
 	// TrackingNumber is the customer-facing 3MRAI-XXXX-XXXX-XXXX number. OURS,
 	// not a carrier's: the row exists from PLACED onward, long before anything
 	// is handed to a shipper.
@@ -148,6 +155,11 @@ var (
 // an id or a status of its own choosing.
 type NewTracking struct {
 	OrderID string
+
+	// OrderNumber is the canonical customer-facing label supplied by Orders, or ""
+	// when the order has none. Stored as NULL in that case, never as "".
+	// See [[friendly-order-number]]
+	OrderNumber string
 
 	// UserID is the internal usr_ id, already resolved from the caller's sub.
 	UserID string

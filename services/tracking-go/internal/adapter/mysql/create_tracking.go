@@ -107,10 +107,16 @@ func (r *TrackingRepository) Create(
 		address = json.RawMessage(in.ShippingAddress)
 	}
 
+	// "" means the order has no number; store NULL, never the empty string — a
+	// blank char(12) would render as an empty order number on a receipt instead
+	// of falling back to the id.
+	orderNumber := sql.NullString{String: in.OrderNumber, Valid: in.OrderNumber != ""}
+
 	if err = queries.CreateTracking(ctx, CreateTrackingParams{
 		ID:              trackingID,
 		UserID:          in.UserID,
 		OrderID:         in.OrderID,
+		OrderNumber:     orderNumber,
 		Status:          string(domain.InitialStatus),
 		ShippingAddress: address,
 		Datetime:        now,
@@ -169,6 +175,7 @@ func (r *TrackingRepository) Create(
 		UserID:          in.UserID,
 		CognitoSub:      in.CognitoSub,
 		OrderID:         in.OrderID,
+		OrderNumber:     in.OrderNumber,
 		TrackingNumber:  trackingNumber,
 		Status:          domain.InitialStatus,
 		ShippingAddress: in.ShippingAddress,

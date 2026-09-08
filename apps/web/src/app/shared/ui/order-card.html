@@ -4,7 +4,7 @@
   <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
     <div class="flex h-fit w-fit shrink-0 flex-col items-start justify-start gap-[0.1875rem] md:gap-1">
       <div class="text-ink-primary text-[0.9375rem] font-semibold whitespace-nowrap md:text-[0.96875rem]">
-        {{ entry().order.id }}
+        {{ entry().order.orderNumber?.formatted ?? entry().order.id }}
       </div>
       <div class="text-ink-secondary text-[0.8125rem] whitespace-nowrap md:text-[0.84375rem]">
         {{ placedLabel() }}
@@ -40,7 +40,19 @@
   <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
     <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-2">
       @for (line of lines(); track line.productId) {
-        <div class="bg-surface-subtle h-[2.875rem] w-[2.875rem] shrink-0 rounded-lg md:h-[3.25rem] md:w-[3.25rem]"></div>
+        <!-- WHY: The guard reads `image`, not `name`. An order placed before the
+             line snapshot existed carries null for both and was not backfilled,
+             so an unguarded `[src]` would render a broken image on every such
+             row. `object-cover` keeps a 720x1080 asset inside the square. -->
+        @if (line.image; as image) {
+          <img
+            [src]="image.uri"
+            [alt]="line.name ?? ''"
+            class="h-[2.875rem] w-[2.875rem] shrink-0 rounded-lg object-cover md:h-[3.25rem] md:w-[3.25rem]"
+          />
+        } @else {
+          <div class="bg-surface-subtle h-[2.875rem] w-[2.875rem] shrink-0 rounded-lg md:h-[3.25rem] md:w-[3.25rem]"></div>
+        }
       }
     </div>
     <button

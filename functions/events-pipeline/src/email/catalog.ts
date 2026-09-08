@@ -34,6 +34,10 @@ export type EmailCatalog = Record<string, EmailTemplateEntry<unknown>>;
 // The sample shipment every tracking variant renders against. Declared once so
 // the five entries below cannot drift into describing five different parcels.
 const SAMPLE_TRACKING_NUMBER = "3MRAI-7K2P-9WQX-4M8B";
+// Both forms, as the producers send them. The preview is what a human checks the
+// wording against, so it must show the FORMATTED number a customer would read
+// aloud — not the canonical one. See [[friendly-order-number]]
+const SAMPLE_ORDER_NUMBER = { raw: "2609078KJ4M2", formatted: "260907-8KJ4M2" };
 const SAMPLE_ADDRESS = {
   line1: "1 Ada Way",
   city: "San Juan",
@@ -74,6 +78,7 @@ export const catalog: EmailCatalog = {
     component: OrderCreatedEmail,
     sampleProps: {
       orderId: "ord_sample1",
+      orderNumber: SAMPLE_ORDER_NUMBER,
       fullName: "Ada Lovelace",
       subtotalCents: 2999,
       taxCents: 240,
@@ -96,6 +101,7 @@ export const catalog: EmailCatalog = {
     component: TrackingStatusChangedEmail,
     sampleProps: {
       orderId: "ord_sample1",
+      orderNumber: SAMPLE_ORDER_NUMBER,
       status: "PLACED",
       previousStatus: "null",
       changedAt: "2026-07-28T14:02:11Z",
@@ -109,6 +115,7 @@ export const catalog: EmailCatalog = {
     component: TrackingStatusChangedEmail,
     sampleProps: {
       orderId: "ord_sample1",
+      orderNumber: SAMPLE_ORDER_NUMBER,
       status: "PROCESSING",
       previousStatus: "PLACED",
       changedAt: "2026-07-29T09:15:40Z",
@@ -122,6 +129,7 @@ export const catalog: EmailCatalog = {
     component: TrackingStatusChangedEmail,
     sampleProps: {
       orderId: "ord_sample1",
+      orderNumber: SAMPLE_ORDER_NUMBER,
       status: "SHIPPED",
       previousStatus: "PROCESSING",
       changedAt: "2026-08-01T17:48:03Z",
@@ -135,6 +143,7 @@ export const catalog: EmailCatalog = {
     component: TrackingStatusChangedEmail,
     sampleProps: {
       orderId: "ord_sample1",
+      orderNumber: SAMPLE_ORDER_NUMBER,
       status: "OUT_FOR_DELIVERY",
       previousStatus: "SHIPPED",
       changedAt: "2026-08-05T07:22:19Z",
@@ -152,6 +161,7 @@ export const catalog: EmailCatalog = {
     component: TrackingStatusChangedEmail,
     sampleProps: {
       orderId: "ord_sample1",
+      orderNumber: SAMPLE_ORDER_NUMBER,
       status: "DELIVERED",
       previousStatus: "OUT_FOR_DELIVERY",
       changedAt: "2026-08-05T15:31:55Z",

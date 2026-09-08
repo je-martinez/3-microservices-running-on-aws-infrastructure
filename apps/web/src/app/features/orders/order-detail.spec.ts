@@ -9,7 +9,14 @@ import { of } from 'rxjs';
 import { OrderDetailPage } from './order-detail';
 import { SessionStore } from '../../core/auth/session-store';
 import { settle, textOf, USER } from '../auth/testing';
-import { awaitPath, ORDER_WITH_TRACKING, PRODUCT, SCREEN_TEST_PROVIDERS } from '../../shared/testing/fixtures';
+import {
+  awaitPath,
+  ORDER_WITHOUT_SNAPSHOT,
+  ORDER_WITH_TRACKING,
+  PRODUCT,
+  PRODUCT_IMAGE,
+  SCREEN_TEST_PROVIDERS,
+} from '../../shared/testing/fixtures';
 
 const ORDER_URL = '/v1/orders/ord_3kLpQx8vRn';
 const PRODUCTS_URL = '/v1/products';
@@ -73,6 +80,30 @@ describe('OrderDetailPage', () => {
     await settle(fixture);
   });
 
+  /**
+   * CONTRACT: The <h1> is the FORMATTED order number, rendered verbatim — this
+   * heading is the largest text on the page and the thing a customer quotes to
+   * support, which is the whole reason the number exists. The page must not
+   * build the displayed form itself. See [[friendly-order-number]]
+   */
+  it('titles the page with the formatted order number', async () => {
+    await loadOrder();
+
+    const heading = (fixture.nativeElement as HTMLElement).querySelector('h1');
+    expect(heading?.textContent?.trim()).toBe('260815-8KJ4M2');
+  });
+
+  /** An order predating the backfill still needs a heading — the id. */
+  it('titles the page with the id when the order has no number', async () => {
+    await loadOrder({
+      ...ORDER_WITH_TRACKING,
+      order: { ...ORDER_WITH_TRACKING.order, orderNumber: null },
+    });
+
+    const heading = (fixture.nativeElement as HTMLElement).querySelector('h1');
+    expect(heading?.textContent?.trim()).toBe('ord_3kLpQx8vRn');
+  });
+
   it('renders every Money field as the server formatted it', async () => {
     await loadOrder();
 
@@ -101,8 +132,52 @@ describe('OrderDetailPage', () => {
     expect(fixture.nativeElement.textContent).toContain('Field Tote 18L');
   });
 
-  it('names a delisted line rather than dropping it', async () => {
+  /**
+   * CONTRACT: The image comes off the LINE, never the catalogue. `PRODUCT.image`
+   * is null in the fixtures, so a page reading the joined product instead would
+   * show the placeholder here and this assertion would fail.
+   */
+  it('renders the line thumbnail from the order snapshot', async () => {
+    await loadOrder();
+    const image = (fixture.nativeElement as HTMLElement).querySelector('img');
+
+    expect(image?.getAttribute('src')).toBe(PRODUCT_IMAGE.uri);
+    expect(image?.className).toContain('object-cover');
+  });
+
+  it('keeps the placeholder for a line placed before the snapshot', async () => {
+    await loadOrder({ order: ORDER_WITHOUT_SNAPSHOT, tracking: null });
+    const root = fixture.nativeElement as HTMLElement;
+
+    expect(root.querySelector('img')).toBeNull();
+    // The catalogue still names it, which is the only reason it rides along.
+    expect(root.textContent).toContain('Field Tote 18L');
+  });
+
+  /**
+   * CONTRACT: An order is a receipt. The snapshot on the line wins over the
+   * catalogue, so a product renamed after purchase still shows its old name.
+   */
+  it('prefers the snapshot name over a product renamed since', async () => {
     (await awaitPath(fixture, controller, ORDER_URL)).flush(ORDER_WITH_TRACKING);
+    (await awaitPath(fixture, controller, PRODUCTS_URL)).flush([
+      { ...PRODUCT, name: 'Field Tote 18L (2027 Edition)' },
+    ]);
+    await settle(fixture);
+
+    expect(fixture.nativeElement.textContent).toContain('Field Tote 18L');
+    expect(fixture.nativeElement.textContent).not.toContain('2027 Edition');
+  });
+
+  /**
+   * Only a line with NO snapshot can reach the fallback: a snapshotted line
+   * names itself even for a product long gone from the catalogue.
+   */
+  it('names a delisted line rather than dropping it', async () => {
+    (await awaitPath(fixture, controller, ORDER_URL)).flush({
+      order: ORDER_WITHOUT_SNAPSHOT,
+      tracking: null,
+    });
     (await awaitPath(fixture, controller, PRODUCTS_URL)).flush([]);
     await settle(fixture);
 

@@ -7,8 +7,8 @@ import { StatusBadge } from './status-badge';
 /**
  * Design: `Order Card` (`l6TyrG`) and `Mobile Order Card` (`tWTSZ`) as ONE
  * responsive component (spec D8) — same node structure, `md:` carries the
- * spacing and thumb-size deltas. `OrderLineDto` carries only `productId`, so the
- * thumbnail strip renders one token placeholder per line rather than artwork.
+ * spacing and thumb-size deltas. The thumbnail strip renders one image per line,
+ * sized 46 square on mobile and 52 on desktop as in `Orders — List` (`rGwBO`).
  *
  * CONTRACT: `OrderWithTracking.tracking` is nullable, and `StatusBadge` needs a
  * non-null `TrackingStatus` — skip the badge and its chevron for such an order
@@ -24,9 +24,9 @@ export class OrderCard {
   readonly entry = input.required<OrderWithTracking>();
 
   /**
-   * WHY: the strip is one placeholder per line, so it needs no catalogue join.
-   * The card never shows a product name or image, and fetching the catalogue
-   * here would put a second request behind every row of the orders list.
+   * WHY: the strip reads the image off the line itself, so it needs no
+   * catalogue join — the order carries its own snapshot, and fetching the
+   * catalogue here would put a second request behind every row of the list.
    */
   protected readonly lines = computed(() => this.entry().order.lines);
 

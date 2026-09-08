@@ -248,12 +248,22 @@ test("the full journey through the gateway: user → order → tracking → DELI
   expect(welcomeBody.HTML).toContain(email);
 
   // 2. ORDER_CREATED → the confirmation, which must name THIS order.
+  //
+  // CONTRACT: By the customer-facing NUMBER, not the id. The receipt is read by a
+  // person, so it prints `order.orderNumber.formatted` — asserting on `order.id`
+  // here would fail against a correct email and pass against one that regressed to
+  // printing the raw id. Falls back to the id only for an order predating the
+  // backfill, which a freshly created one never is. See [[friendly-order-number]]
   const confirmation = findBySubject(inbox, "Order confirmed");
   expect(confirmation, `no order confirmation among: ${subjectsOf(inbox)}`).toBeTruthy();
   expect(
+    order.orderNumber?.formatted,
+    "the created order carries no orderNumber, so the email cannot name it",
+  ).toBeTruthy();
+  expect(
     confirmation?.Snippet,
     "the order email does not name this order — rendered from sample props?",
-  ).toContain(order.id);
+  ).toContain(order.orderNumber!.formatted);
 
   // 3. TRACKING_STATUS_CHANGED → at least the DELIVERED transition.
   //

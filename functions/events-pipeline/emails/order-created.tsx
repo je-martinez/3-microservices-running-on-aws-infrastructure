@@ -23,6 +23,11 @@ export interface OrderCreatedEmailItem {
 // producer's ISO-8601 STRING, not a Date: it crossed a JSON boundary.
 export interface OrderCreatedEmailProps {
   orderId: string;
+  // The customer-facing label, both forms, or undefined for an order predating
+  // the backfill. Optional and NEVER null, like `shippingAddress` — the producer
+  // omits the key, so this template branches on one absence marker.
+  // See [[friendly-order-number]]
+  orderNumber?: { raw: string; formatted: string };
   totalCents: number;
   fullName: string;
   subtotalCents: number;
@@ -149,6 +154,7 @@ function formatAddressLines(address: Record<string, unknown>): string[] {
 // preview and production render the identical component.
 export default function OrderCreatedEmail({
   orderId,
+  orderNumber,
   fullName,
   subtotalCents,
   taxCents,
@@ -204,8 +210,8 @@ export default function OrderCreatedEmail({
       </Text>
 
       <Text className="mt-[12px] mb-0 mx-0 font-body text-[14px] leading-[1.5] text-text-secondary">
-        Thank you for your order! We&apos;ve received your order {orderId} and it&apos;s being
-        prepared. Here&apos;s a summary of what you ordered:
+        Thank you for your order! We&apos;ve received your order {orderNumber?.formatted ?? orderId}{" "}
+        and it&apos;s being prepared. Here&apos;s a summary of what you ordered:
       </Text>
 
       {/* "Order Items": the ITEM/QTY/PRICE table. The `.pen` splits it with

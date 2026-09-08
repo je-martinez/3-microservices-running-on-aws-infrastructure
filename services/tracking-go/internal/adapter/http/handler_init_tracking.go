@@ -52,7 +52,7 @@ type NoopProgression struct{}
 // Start does nothing. See ProgressionHook.
 func (NoopProgression) Start(domain.TrackingWithHistory) {}
 
-// initTrackingRequest is the body — two fields, and deliberately NO identity.
+// initTrackingRequest is the body — three fields, and deliberately NO identity.
 //
 // A user_id or cognito_sub field here would be an unauthenticated string a client
 // chooses, so anyone could create a tracking attributed to anyone. The body is
@@ -60,6 +60,12 @@ func (NoopProgression) Start(domain.TrackingWithHistory) {}
 // verified JWT.
 type initTrackingRequest struct {
 	OrderID string `json:"order_id"`
+	// OrderNumber is the customer-facing label, canonical form, minted and owned
+	// by Orders — this service mirrors it so its own status emails can print a
+	// readable number. Unlike identity it is safe in the body: it is a label, not
+	// an ownership key, so a client that forged one could not reach anyone else's
+	// data. Absent or "" stores NULL. See [[friendly-order-number]]
+	OrderNumber string `json:"order_number"`
 	// json.RawMessage, not map[string]any: the address is stored byte-for-byte and
 	// never inspected, so round-tripping it through a Go map would reorder keys and
 	// re-encode numbers for no reason. nil means absent — the column stays NULL.
@@ -139,8 +145,9 @@ func (h *InitTrackingHandler) Handle(c *gin.Context) {
 	}
 
 	created, err := h.uc.Execute(ctx, app.CreateTrackingInput{
-		OrderID:    payload.OrderID,
-		CognitoSub: cognitoSub,
+		OrderID:     payload.OrderID,
+		OrderNumber: payload.OrderNumber,
+		CognitoSub:  cognitoSub,
 		// Free-form by design; never logged (PII).
 		ShippingAddress: payload.ShippingAddress,
 		// Already the AND of the header and E2E_TESTING_ENABLED — the middleware

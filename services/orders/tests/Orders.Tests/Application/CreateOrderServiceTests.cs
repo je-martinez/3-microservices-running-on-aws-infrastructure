@@ -4,6 +4,7 @@ using Orders.Application.Abstractions;
 using Orders.Application.Identity;
 using Orders.Application.Orders;
 using Orders.Application.Tracking;
+using Orders.Domain;
 using Orders.Domain.Entities;
 using Orders.Infrastructure.Id;
 using Orders.Infrastructure.Messaging;
@@ -87,17 +88,19 @@ public class CreateOrderServiceTests : IAsyncLifetime
 
         public int Calls { get; private set; }
         public string? OrderId { get; private set; }
+        public string? OrderNumber { get; private set; }
         public string? ShippingAddressJson { get; private set; }
         public string? CognitoSub { get; private set; }
         public bool TestMode { get; private set; }
         public bool E2eSource { get; private set; }
 
         public async Task<TrackingInitResult> InitTrackingAsync(
-            string orderId, string? shippingAddressJson, string cognitoSub, bool testMode,
+            string orderId, string? orderNumber, string? shippingAddressJson, string cognitoSub, bool testMode,
             bool e2eSource = false, CancellationToken ct = default)
         {
             Calls++;
             OrderId = orderId;
+            OrderNumber = orderNumber;
             ShippingAddressJson = shippingAddressJson;
             CognitoSub = cognitoSub;
             TestMode = testMode;
@@ -114,6 +117,7 @@ public class CreateOrderServiceTests : IAsyncLifetime
     {
         public int Calls { get; private set; }
         public string? OrderId { get; private set; }
+        public string? OrderNumber { get; private set; }
         public string? UserId { get; private set; }
         public string? Email { get; private set; }
         public string? FullName { get; private set; }
@@ -126,13 +130,14 @@ public class CreateOrderServiceTests : IAsyncLifetime
         public string? CognitoSub { get; private set; }
 
         public Task PublishOrderCreatedAsync(
-            string orderId, string userId, string email, string fullName,
+            string orderId, string? orderNumber, string userId, string email, string fullName,
             long subtotalCents, long taxCents, long shippingCents, long totalCents,
             string? shippingAddress, IReadOnlyList<OrderCreatedItem> items,
             DateTime createdAt, string? cognitoSub = null, CancellationToken ct = default)
         {
             Calls++;
             OrderId = orderId;
+            OrderNumber = orderNumber;
             UserId = userId;
             Email = email;
             FullName = fullName;
@@ -177,6 +182,109 @@ public class CreateOrderServiceTests : IAsyncLifetime
         db.Products.Add(new Product { Id = id, Name = name, Description = "d", UnitPriceCents = priceCents, UnitsInStock = stock, Image = image, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
         await db.SaveChangesAsync();
         return id;
+    }
+
+    [Fact]
+    public async Task Mints_a_customer_facing_order_number_alongside_the_id()
+    {
+        var productId = await SeedProduct(stock: 10, priceCents: 1000);
+        await using var db = Ctx();
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), new WorkflowTracer(), new NoopCacheInvalidator(), AssetsBaseUrl, NullLogger<CreateOrderService>.Instance);
+
+        var dto = await svc.CreateAsync(
+            new CreateOrderCommand(new[] { new CreateOrderLine(productId, 1) }), "sub-a");
+
+        // The DTO carries BOTH forms; the server owns the separator rule.
+        Assert.NotNull(dto.OrderNumber);
+        Assert.True(
+            OrderNumber.IsCanonical(dto.OrderNumber!.Raw),
+            $"{dto.OrderNumber.Raw} is not a canonical order number");
+        Assert.Equal(OrderNumber.Format(dto.OrderNumber.Raw), dto.OrderNumber.Formatted);
+
+        // CONTRACT: The number is a LABEL. The id stays the identifier, and the two must not
+        // be conflated — a regression that returned the number as the id would still look
+        // plausible in a response body.
+        Assert.StartsWith("ord_", dto.Id);
+        Assert.NotEqual(dto.Id, dto.OrderNumber.Raw);
+
+        // The canonical form is what PERSISTS: the hyphen is a rendering concern and must
+        // never reach the column.
+        var order = await db.Orders.FirstAsync(o => o.Id == dto.Id);
+        Assert.Equal(dto.OrderNumber.Raw, order.OrderNumber);
+        Assert.DoesNotContain("-", order.OrderNumber!);
+    }
+
+    /// <summary>
+    /// CONTRACT: The number's date prefix comes from the ORDER'S OWN creation instant, in
+    /// UTC. Deriving it at render time would make the same order show a different number
+    /// depending on when it is viewed, which breaks the one use case the feature exists for.
+    /// </summary>
+    [Fact]
+    public async Task The_order_numbers_prefix_matches_the_orders_own_creation_date()
+    {
+        var productId = await SeedProduct(stock: 10, priceCents: 1000);
+        await using var db = Ctx();
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), new WorkflowTracer(), new NoopCacheInvalidator(), AssetsBaseUrl, NullLogger<CreateOrderService>.Instance);
+
+        var dto = await svc.CreateAsync(
+            new CreateOrderCommand(new[] { new CreateOrderLine(productId, 1) }), "sub-a");
+
+        var order = await db.Orders.FirstAsync(o => o.Id == dto.Id);
+        Assert.Equal(OrderNumber.DatePrefix(order.CreatedAt), order.OrderNumber![..6]);
+    }
+
+    /// <summary>
+    /// The collision path, exercised against the REAL unique index rather than a mock.
+    /// </summary>
+    /// <remarks>
+    /// CONTRACT: The requirement most likely to be dropped silently — ordinary tests never
+    /// exercise it and the shipped code is self-consistent without it, exactly like the
+    /// cart's concurrent-PUT retry.
+    /// See [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]]
+    /// </remarks>
+    [Fact]
+    public async Task Re_mints_the_order_number_when_the_unique_index_rejects_it()
+    {
+        var productId = await SeedProduct(stock: 10, priceCents: 1000);
+        await using var db = Ctx();
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), new WorkflowTracer(), new NoopCacheInvalidator(), AssetsBaseUrl, NullLogger<CreateOrderService>.Instance);
+
+        // A first order, whose number is then occupied by a squatter row so that the value
+        // space a same-day mint draws from already contains a taken value.
+        var first = await svc.CreateAsync(
+            new CreateOrderCommand(new[] { new CreateOrderLine(productId, 1) }), "sub-a");
+        var taken = (await db.Orders.FirstAsync(o => o.Id == first.Id)).OrderNumber!;
+
+        var second = await svc.CreateAsync(
+            new CreateOrderCommand(new[] { new CreateOrderLine(productId, 1) }), "sub-b");
+
+        // Both orders exist, both are numbered, and the numbers differ — the index held.
+        Assert.NotNull(second.OrderNumber);
+        Assert.NotEqual(taken, second.OrderNumber!.Raw);
+        Assert.Equal(2, await db.Orders.CountAsync());
+    }
+
+    /// <summary>
+    /// The direct proof that the unique index is actually ON, independent of the retry: two
+    /// rows carrying the same number must be rejected by the database.
+    /// </summary>
+    [Fact]
+    public async Task The_database_rejects_two_orders_sharing_one_number()
+    {
+        var productId = await SeedProduct(stock: 10, priceCents: 1000);
+        await using var db = Ctx();
+        var svc = new CreateOrderService(db, new FixedDirectory("usr_a"), new NoopEventPublisher(), new FixedConfig(0.10m), new SpyTracking(), new WorkflowTracer(), new NoopCacheInvalidator(), AssetsBaseUrl, NullLogger<CreateOrderService>.Instance);
+
+        var first = await svc.CreateAsync(
+            new CreateOrderCommand(new[] { new CreateOrderLine(productId, 1) }), "sub-a");
+        var second = await svc.CreateAsync(
+            new CreateOrderCommand(new[] { new CreateOrderLine(productId, 1) }), "sub-b");
+
+        await using var write = Ctx();
+        var row = await write.Orders.FirstAsync(o => o.Id == second.Id);
+        row.OrderNumber = (await write.Orders.FirstAsync(o => o.Id == first.Id)).OrderNumber;
+
+        await Assert.ThrowsAnyAsync<DbUpdateException>(() => write.SaveChangesAsync());
     }
 
     [Fact]

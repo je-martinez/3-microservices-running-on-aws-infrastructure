@@ -77,10 +77,12 @@ func (r *StatusRepository) GetByOrderID(ctx context.Context, orderID string) (do
 	}
 
 	return domain.Tracking{
-		ID:             row.ID,
-		UserID:         row.UserID,
-		CognitoSub:     row.CognitoSub.String,
-		OrderID:        row.OrderID,
+		ID:         row.ID,
+		UserID:     row.UserID,
+		CognitoSub: row.CognitoSub.String,
+		OrderID:    row.OrderID,
+		// "" when NULL — the status emails then fall back to the order id.
+		OrderNumber:    row.OrderNumber.String,
 		TrackingNumber: row.TrackingNumber,
 		Status:         domain.Status(row.Status),
 		// nil when the column is NULL, never an empty non-nil slice: the

@@ -10,6 +10,13 @@ public class Order : AuditableEntity
     /// </summary>
     public const string E2eSourceTag = "E2E Source";
 
+    /// <summary>
+    /// Customer-facing order number, canonical form: <c>2609078KJ4M2</c>.
+    /// CONTRACT: A LABEL, not an identifier — never join on it or log it. Null only on rows
+    /// predating the backfill. See [[friendly-order-number]]
+    /// </summary>
+    public string? OrderNumber { get; set; }
+
     public string UserId { get; set; } = string.Empty;      // internal usr_ id
     public string CognitoSub { get; set; } = string.Empty;  // from the gateway
     public long SubtotalCents { get; set; }

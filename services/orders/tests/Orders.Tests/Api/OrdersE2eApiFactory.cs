@@ -175,7 +175,7 @@ public abstract class OrdersE2eApiFactoryBase : WebApplicationFactory<Program>, 
         public bool TestMode { get; private set; }
 
         public Task<TrackingInitResult> InitTrackingAsync(
-            string orderId, string? shippingAddressJson, string cognitoSub, bool testMode,
+            string orderId, string? orderNumber, string? shippingAddressJson, string cognitoSub, bool testMode,
             bool e2eSource = false, CancellationToken ct = default)
         {
             TestMode = testMode;

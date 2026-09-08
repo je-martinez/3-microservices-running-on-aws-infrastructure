@@ -12,6 +12,7 @@ using Orders.Infrastructure.Carts;
 using Orders.Infrastructure.Id;
 using Orders.Infrastructure.Observability;
 using Orders.Infrastructure.Persistence;
+using Orders.Infrastructure.Persistence.Configurations;
 
 namespace Orders.Infrastructure.Orders;
 
@@ -130,6 +131,11 @@ public class CreateOrderService
             var order = new Order
             {
                 Id = NanoId.NewId(NanoId.OrderPrefix),
+                // CONTRACT: Minted from the order's OWN creation instant, in UTC, so the
+                // number stays reproducible from created_at and does not depend on which
+                // host served the request. Re-minted on a unique-index collision below.
+                // See [[friendly-order-number]]
+                OrderNumber = OrderNumber.New(now),
                 UserId = userId,
                 CognitoSub = cognitoSub,
                 // WHY: Point-in-time snapshot — a later profile edit must not rewrite where
@@ -235,14 +241,14 @@ public class CreateOrderService
             // drift apart; no-ops when the caller had no cart. See [[soft-delete]]
             await CartWriteService.DeleteForUserAsync(_db, cognitoSub, ct);
 
-            await _db.SaveChangesAsync(ct);
+            await SaveWithOrderNumberRetryAsync(order, ct);
             // CONTRACT: The consumer has no access to this database, so everything the
             // receipt prints travels here — recipient, greeting, product names, and all four
             // money figures, which it must never derive from one another. The address is the
             // same serialization persisted above, not a third rendering.
             // See [[events-pipeline-design]]
             await _events.PublishOrderCreatedAsync(
-                order.Id, userId, caller.Email, caller.FullName,
+                order.Id, order.OrderNumber, userId, caller.Email, caller.FullName,
                 subtotal, tax, shippingCents, total,
                 shippingAddressJson, eventItems, now, cognitoSub, ct);
             await tx.CommitAsync(ct);
@@ -272,7 +278,7 @@ public class CreateOrderService
             // The outcome only affects the log stream; the 201 is identical either way.
             // See [[orders-service-design]]
             var trackingResult = await _tracking.InitTrackingAsync(
-                order.Id, shippingAddressJson, cognitoSub, testMode, e2eSource, ct);
+                order.Id, order.OrderNumber, shippingAddressJson, cognitoSub, testMode, e2eSource, ct);
 
             if (!trackingResult.IsTracked)
             {
@@ -287,11 +293,70 @@ public class CreateOrderService
             // CONTRACT: Keep this mapping in sync with OrderReadService.Map — it maps the
             // in-memory order rather than re-querying, so the two can silently diverge.
             return new OrderDto(
-                order.Id, order.UserId, order.CognitoSub,
+                order.Id, OrderNumberDto.FromCanonical(order.OrderNumber), order.UserId, order.CognitoSub,
                 Money.FromCents(order.SubtotalCents), Money.FromCents(order.TaxCents), Money.FromCents(order.ShippingCents), Money.FromCents(order.TotalCents),
                 order.CreatedAt,
                 order.Details.Select(d => OrderLineMapper.Map(d, _assetsBaseUrl)).ToList());
         });
+    }
+
+    /// <summary>
+    /// Saves the order, re-minting its order number if the unique index rejects it.
+    /// </summary>
+    /// <remarks>
+    /// CONTRACT: Detect by INDEX NAME (<see cref="OrderConfiguration.OrderNumberIndexName"/>),
+    /// never the bare MySQL error number — that also fires on the order's other constraints,
+    /// where re-minting hides a real bug.
+    /// CONTRACT: Bounded, and the last failure RETHROWS. An unbounded loop holds FOR UPDATE on
+    /// every product in the order and serializes the catalogue's checkout.
+    /// See [[friendly-order-number]]
+    /// </remarks>
+    private async Task SaveWithOrderNumberRetryAsync(Order order, CancellationToken ct)
+    {
+        const int maxAttempts = 3;
+
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await _db.SaveChangesAsync(ct);
+                return;
+            }
+            catch (DbUpdateException ex) when (IsOrderNumberCollision(ex) && attempt < maxAttempts)
+            {
+                // WHY: Log the ATTEMPT and the order id, never the colliding number — it is
+                // the customer-facing label and has no business in the log stream, which
+                // keys on order_id. See [[logging-context]]
+                _logger.LogWarning(
+                    "Order number collided; re-minting {app_event} {reason} {order_id} {attempt}",
+                    "create_order_number_retried", "order_number_collision", order.Id, attempt);
+
+                // CONTRACT: Re-mint from the SAME created_at, not from "now". A retry that
+                // crossed UTC midnight would otherwise place the order on the following day.
+                order.OrderNumber = OrderNumber.New(order.CreatedAt);
+            }
+        }
+    }
+
+    /// <summary>Whether this failure is the order-number unique index rejecting a duplicate.</summary>
+    /// <remarks>
+    /// WHY: Match on the index name anywhere in the exception chain — Pomelo surfaces the
+    /// constraint name inside the inner MySqlException's message, and the outer
+    /// DbUpdateException does not carry it.
+    /// </remarks>
+    private static bool IsOrderNumberCollision(DbUpdateException exception)
+    {
+        for (Exception? error = exception; error is not null; error = error.InnerException)
+        {
+            if (error.Message.Contains(
+                    OrderConfiguration.OrderNumberIndexName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // WHY: One reason per outcome that can actually reach this branch. Created and

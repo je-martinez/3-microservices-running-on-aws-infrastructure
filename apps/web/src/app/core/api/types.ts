@@ -108,25 +108,49 @@ export interface Cart {
 
 /**
  * services/orders/openapi.yaml — OrderLineDto.
- * Carries ONLY productId: no name, image, or unit price. Rendering a line
- * requires joining against the product catalogue (see joinOrderLine).
  *
- * CONTRACT: A line has NO `shipping` — only the order does. A line total is
- * therefore its own subtotal + tax, and summing the lines of an order yields
- * less than `order.total` by exactly the shipping. Do NOT reconcile the two by
- * inventing a per-line shipping share. See [[money-representation]]
+ * CONTRACT: `name` and `image` are a SNAPSHOT taken at order creation, and are
+ * null on orders predating it, which were not backfilled. Never "correct" a
+ * line from the current catalogue, and guard every read — an unguarded `[src]`
+ * renders a broken image on every historical row.
+ *
+ * CONTRACT: A line has NO `shipping` — only the order does, so summing the
+ * lines falls short of `order.total` by exactly that. Do NOT invent a per-line
+ * shipping share to reconcile them. See [[money-representation]]
  */
 export interface OrderLine {
   productId: string;
+  name: string | null;
   quantity: IntLike;
   subtotal: Money;
   tax: Money;
   total: Money;
+  image: ProductImage | null;
 }
 
 /** services/orders/openapi.yaml — OrderDto. No status field on the wire. */
+/**
+ * services/orders/openapi.yaml — OrderNumberDto. The customer-facing order label.
+ *
+ * CONTRACT: Render `formatted` verbatim. Do NOT insert the separator yourself —
+ * the server owns that rule, exactly as it owns `Money.formatted`. Six consumers
+ * each formatting their own copy is six copies that drift, and a customer then
+ * reads out a number support cannot find. `raw` is what you send BACK.
+ * See [[friendly-order-number]]
+ */
+export interface OrderNumber {
+  raw: string;
+  formatted: string;
+}
+
 export interface Order {
   id: string;
+  /**
+   * Null for an order predating the backfill — the whole object, never an object
+   * of empty strings, so a template branches on one absence marker. `id` remains
+   * the identifier the URL and every other contract use.
+   */
+  orderNumber: OrderNumber | null;
   userId: string;
   cognitoSub: string;
   subtotal: Money;

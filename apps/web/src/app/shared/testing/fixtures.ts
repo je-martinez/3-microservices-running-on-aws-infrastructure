@@ -27,8 +27,10 @@ import type {
   CartLine,
   Money,
   Order,
+  OrderLine,
   OrderWithTracking,
   Product,
+  ProductImage,
   Tracking,
   UnavailableReason,
 } from '../../core/api/types';
@@ -72,6 +74,14 @@ export function money(cents: number, formatted: string): Money {
   return { cents, amount: (cents / 100).toFixed(2), formatted, currency: 'USD' };
 }
 
+/** The wire shape of an image: `uri`, not `url`, and always absolute. */
+export const PRODUCT_IMAGE: ProductImage = {
+  uri: 'http://assets.test/products/field-tote-18l.jpg',
+  width: 720,
+  height: 1080,
+  blurhash: 'LUEy0r~CR49ENFM_xuxu9aE2o~R+',
+};
+
 export const PRODUCT: Product = {
   id: 'prd_V1StGXR8Z5',
   name: 'Field Tote 18L',
@@ -84,6 +94,11 @@ export const PRODUCT: Product = {
 
 export const ORDER: Order = {
   id: 'ord_3kLpQx8vRn',
+  // Both forms, as the server sends them. The prefix matches `createdAt` below
+  // (2026-08-15 → 260815), because that is how Orders derives it — a fixture
+  // whose date half disagreed with its own timestamp would model a row the
+  // service cannot produce. See [[friendly-order-number]]
+  orderNumber: { raw: '2608158KJ4M2', formatted: '260815-8KJ4M2' },
   userId: 'usr_qN7fD2xVwM',
   cognitoSub: 'a3c1e6d0-4f2b-4a9d-8e7c-1b6f0d2a9c44',
   subtotal: money(12800, '$128.00'),
@@ -95,13 +110,29 @@ export const ORDER: Order = {
   lines: [
     {
       productId: 'prd_V1StGXR8Z5',
+      name: 'Field Tote 18L',
       quantity: 1,
       subtotal: money(12800, '$128.00'),
       tax: money(1024, '$10.24'),
       total: money(13824, '$138.24'),
+      image: PRODUCT_IMAGE,
     },
   ],
 };
+
+/**
+ * A line as an order placed BEFORE the snapshot landed carries it: both
+ * `name` and `image` null, because those orders were deliberately not
+ * backfilled. This is the common shape in existing data, not an edge case.
+ */
+export const UNSNAPSHOTTED_LINE: OrderLine = {
+  ...ORDER.lines[0],
+  name: null,
+  image: null,
+};
+
+/** The same order, with its single line carrying no snapshot. */
+export const ORDER_WITHOUT_SNAPSHOT: Order = { ...ORDER, lines: [UNSNAPSHOTTED_LINE] };
 
 export const TRACKING: Tracking = {
   id: 'trk_2pXqNzB6vT',

@@ -67,11 +67,11 @@ func jsonKindOfZod(t *testing.T, field, decl string) string {
 	switch {
 	case strings.HasPrefix(decl, "z.record("), strings.HasPrefix(decl, "z.object("):
 		return "object"
-	// A named schema reference (EnvelopeSchema's `author: AuthorSchema`). Every
-	// z.object() in this contract is a JSON object; the referenced schema's own
-	// FIELDS are checked by this test's second case, which parses AuthorSchema
-	// directly.
-	case strings.HasSuffix(decl, "Schema"):
+	// A named schema reference, with or without a trailing .optional(). Every
+	// z.object() in this contract is a JSON object, and the referenced schema's own
+	// FIELDS are checked by the second case below. An .optional() reference reaches
+	// here only when the producer DID send the key, so the type must still match.
+	case strings.HasSuffix(decl, "Schema"), strings.HasSuffix(decl, "Schema.optional()"):
 		return "object"
 	case strings.HasPrefix(decl, "z.array("):
 		return "array"

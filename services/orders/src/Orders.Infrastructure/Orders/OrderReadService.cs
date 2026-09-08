@@ -71,8 +71,10 @@ public class OrderReadService
                 return (IReadOnlyList<OrderDto>)dtos;
             });
 
+    // CONTRACT: Keep this in sync with CreateOrderService's own mapping — that one maps the
+    // in-memory order rather than re-querying, so the two can silently diverge.
     private OrderDto Map(Domain.Entities.Order o) => new(
-        o.Id, o.UserId, o.CognitoSub,
+        o.Id, OrderNumberDto.FromCanonical(o.OrderNumber), o.UserId, o.CognitoSub,
         Money.FromCents(o.SubtotalCents), Money.FromCents(o.TaxCents), Money.FromCents(o.ShippingCents), Money.FromCents(o.TotalCents),
         o.CreatedAt,
         o.Details.Select(d => OrderLineMapper.Map(d, _assetsBaseUrl)).ToList());

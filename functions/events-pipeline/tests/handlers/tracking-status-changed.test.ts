@@ -80,6 +80,48 @@ function makeEnvelope(status: string, previousStatus: string, event_id?: string)
   };
 }
 
+describe("the customer-facing order number", () => {
+  beforeEach(() => vi.mocked(sendEmail).mockClear());
+
+  const ORDER_NUMBER = { raw: "2609078KJ4M2", formatted: "260907-8KJ4M2" };
+
+  function withNumber(status: string, previousStatus: string): Envelope {
+    const base = makeEnvelope(status, previousStatus);
+    return { ...base, payload: { ...base.payload, order_number: ORDER_NUMBER } };
+  }
+
+  it("renders the FORMATTED number in the body, verbatim", async () => {
+    await trackingStatusChangedHandler(withNumber("SHIPPED", "PROCESSING"));
+
+    const { html } = vi.mocked(sendEmail).mock.calls[0][0];
+    expect(html).toContain("260907-8KJ4M2");
+    // Never the canonical form, which no human is meant to read.
+    expect(html).not.toContain("2609078KJ4M2");
+  });
+
+  // CONTRACT: The subject is the most visible surface of all — an opaque
+  // `ord_RbVmVSLmbHj6DWQ6N4l0d7C8` sitting in an inbox is exactly the problem
+  // this feature exists to fix. See [[friendly-order-number]]
+  it("puts the formatted number in the subject line", async () => {
+    await trackingStatusChangedHandler(withNumber("DELIVERED", "OUT_FOR_DELIVERY"));
+
+    const { subject } = vi.mocked(sendEmail).mock.calls[0][0];
+    expect(subject).toBe("Order 260907-8KJ4M2: delivered");
+  });
+
+  // The backward-compatibility case: a message published before the field
+  // existed can still be on the queue at deploy time, and requiring the field
+  // would make it a PermanentError whose email AND WebSocket push are lost.
+  it("still sends, with the id, when the payload carries no number", async () => {
+    await trackingStatusChangedHandler(makeEnvelope("SHIPPED", "PROCESSING"));
+
+    expect(vi.mocked(sendEmail)).toHaveBeenCalledTimes(1);
+    const { subject, html } = vi.mocked(sendEmail).mock.calls[0][0];
+    expect(subject).toBe("Order ord_1: shipped");
+    expect(html).toContain("ord_1");
+  });
+});
+
 describe("trackingStatusChangedHandler", () => {
   beforeEach(() => {
     vi.mocked(sendEmail).mockReset();

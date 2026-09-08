@@ -50,8 +50,14 @@ type TrackingCreator interface {
 // body. A body field is a string the client picks, so anyone could create a
 // tracking attributed to anyone. See [[user-id-vs-cognito-sub-ownership-key]]
 type CreateTrackingInput struct {
-	OrderID    string
-	CognitoSub string
+	OrderID string
+	// OrderNumber is the canonical customer-facing label Orders supplies, or ""
+	// when the order has none. Unlike CognitoSub this DOES come from the body:
+	// Orders is the only caller of this endpoint and owns the value, and there is
+	// nothing to escalate — the number is a label, not an ownership key.
+	// See [[friendly-order-number]]
+	OrderNumber string
+	CognitoSub  string
 	// ShippingAddress is opaque JSON, forwarded byte-for-byte. The shape is owned
 	// by Orders/Users and this service only stores it; parsing it here would turn
 	// an additive upstream field into a creation outage. nil means "absent", and
@@ -141,6 +147,7 @@ func (uc *CreateTracking) Execute(ctx context.Context, in CreateTrackingInput) (
 	// Both paths must produce a 409, never a 500.
 	return uc.writer.Create(ctx, domain.NewTracking{
 		OrderID:         in.OrderID,
+		OrderNumber:     in.OrderNumber,
 		UserID:          userID,
 		CognitoSub:      in.CognitoSub,
 		ShippingAddress: in.ShippingAddress,

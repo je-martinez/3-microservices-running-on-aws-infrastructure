@@ -14,12 +14,15 @@ public interface ITrackingInitiator
     /// <c>Order.ShippingAddress</c>, not a typed address, so the two copies cannot diverge.
     /// It is PII and is never logged. <paramref name="cognitoSub"/> travels as a header, not
     /// in the body — Tracking resolves the internal id itself.
+    /// CONTRACT: <paramref name="orderNumber"/> is the CANONICAL form; Tracking stores it so
+    /// its own status emails can print it. See [[friendly-order-number]]
     /// CONTRACT: The CALLER owns the <c>E2E_TESTING_ENABLED</c> guard for
     /// <paramref name="testMode"/> and <paramref name="e2eSource"/>; this client only
     /// transmits them as <c>x-test-mode</c> and <c>x-e2e-source</c>. See [[testing]]
     /// </summary>
     Task<TrackingInitResult> InitTrackingAsync(
         string orderId,
+        string? orderNumber,
         string? shippingAddressJson,
         string cognitoSub,
         bool testMode,
