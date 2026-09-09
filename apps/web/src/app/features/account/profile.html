@@ -68,32 +68,85 @@
         </div>
 
         <div class="border-line bg-surface-white flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5 md:p-6">
-          <span class="text-ink-muted text-xs font-semibold tracking-[0.09375rem]">PERSONAL DETAILS</span>
+          <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
+            <span class="text-ink-muted text-xs font-semibold tracking-[0.09375rem]">PERSONAL DETAILS</span>
+            <app-dev-fill-button (filled)="devFillPersonal($event)" />
+          </div>
           <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 md:flex-row">
             <div class="w-full flex-1">
-              <app-field label="Full name" icon="user" [value]="user.fullName" />
+              <app-field
+                label="Full name"
+                icon="user"
+                [value]="fullName()"
+                (valueChange)="fullName.set($event)"
+              />
             </div>
             <div class="w-full flex-1">
-              <app-phone-field label="Phone number" icon="phone" [value]="user.phoneNumber ?? ''" [defaultCountry]="seedCountry()" />
+              <app-phone-field
+                label="Phone number"
+                icon="phone"
+                [value]="phoneInput()"
+                [defaultCountry]="seedCountry()"
+                (valueChange)="phoneInput.set($event)"
+              />
             </div>
           </div>
         </div>
 
         <div class="border-line bg-surface-white flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5 md:p-6">
-          <span class="text-ink-muted text-xs font-semibold tracking-[0.09375rem]">DELIVERY ADDRESS</span>
-          <app-field label="Address" icon="map-pin" [value]="addressLine()" help="Used as the default delivery address at checkout." />
+          <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
+            <span class="text-ink-muted text-xs font-semibold tracking-[0.09375rem]">DELIVERY ADDRESS</span>
+            <app-dev-fill-button (filled)="devFillAddress($event)" />
+          </div>
+          <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 md:flex-row">
+            <div class="w-full flex-1">
+              <app-field
+                label="Address"
+                icon="map-pin"
+                [value]="street()"
+                (valueChange)="street.set($event)"
+                help="Used as the default delivery address at checkout."
+              />
+            </div>
+            <div class="w-full flex-1">
+              <app-field
+                label="Apartment"
+                icon="building-2"
+                placeholder="Apt, suite, floor (optional)"
+                [value]="line2()"
+                (valueChange)="line2.set($event)"
+              />
+            </div>
+          </div>
+          <app-field label="City" icon="map" [value]="city()" (valueChange)="city.set($event)" />
+          <app-field label="State" icon="map" [value]="state()" (valueChange)="state.set($event)" />
+          <app-field
+            label="ZIP Code"
+            icon="map"
+            [value]="postalCode()"
+            (valueChange)="postalCode.set($event)"
+            help="Used as the default delivery address at checkout."
+          />
+
+          @if (saveError(); as message) {
+            <p role="alert" class="text-danger-red w-full shrink-0 text-body-sm">{{ message }}</p>
+          }
         </div>
 
         <div class="flex h-fit w-full shrink-0 flex-row items-center justify-end gap-3">
           <button
             type="button"
             class="h-field border-line-strong text-brand-navy flex w-35 shrink-0 flex-row items-center justify-center rounded-md border text-base font-semibold"
-            (click)="goTo('/')"
+            (click)="resetForm()"
           >
             Cancel
           </button>
           <div class="w-47.5">
-            <app-button-primary label="Save changes" />
+            <app-button-primary
+              [label]="saving() ? 'Saving…' : 'Save changes'"
+              [disabled]="!canSave()"
+              (clicked)="save()"
+            />
           </div>
         </div>
       }

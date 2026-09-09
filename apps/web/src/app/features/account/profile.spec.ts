@@ -7,7 +7,7 @@ import { provideRouter } from '@angular/router';
 
 import { ProfilePage } from './profile';
 import { SessionStore } from '../../core/auth/session-store';
-import { awaitRequest, settle, textOf, USER } from '../auth/testing';
+import { awaitRequest, fillField, settle, textOf, USER } from '../auth/testing';
 
 import { SCREEN_TEST_PROVIDERS } from '../../shared/testing/fixtures';
 
@@ -51,6 +51,10 @@ describe('ProfilePage', () => {
   });
 
   /** Every `app-field` input's value — where Field puts its content. */
+  function root(): HTMLElement {
+    return fixture.nativeElement as HTMLElement;
+  }
+
   function fieldValues(): string[] {
     const root = fixture.nativeElement as HTMLElement;
     return Array.from(root.querySelectorAll('app-field input')).map((i) => (i as HTMLInputElement).value);
@@ -86,6 +90,91 @@ describe('ProfilePage', () => {
     // never sees — asserting on text alone passes against an empty form.
     expect(fieldValues()).toContain('Morgan Reyes');
     expect(fieldValues().join(' ')).toContain('482 Birch Hollow Lane');
+  });
+
+  /**
+   * CONTRACT: One input per address field, minus `country` — the design gives it
+   * no frame. Seeding every field is what makes this a form, not a summary.
+   */
+  it('seeds every address field from the saved profile', async () => {
+    create();
+    (await awaitRequest(fixture, controller, ME)).flush(MORGAN);
+    await settle(fixture);
+
+    expect(fieldValues()).toEqual([
+      'Morgan Reyes',
+      '482 Birch Hollow Lane',
+      'Unit 3B',
+      'Portland',
+      'OR',
+      '97201',
+    ]);
+  });
+
+  it('saves every edited field to /v1/users/me', async () => {
+    create();
+    (await awaitRequest(fixture, controller, ME)).flush(MORGAN);
+    await settle(fixture);
+
+    fillField(fixture, 'City', 'Salem');
+    fillField(fixture, 'ZIP Code', '97301');
+    root().querySelector<HTMLButtonElement>('app-button-primary button')?.click();
+    await settle(fixture);
+
+    const patch = await awaitRequest(fixture, controller, ME);
+    expect(patch.request.method).toBe('PATCH');
+    expect(patch.request.body).toEqual({
+      fullName: 'Morgan Reyes',
+      phoneNumber: '+1-503-555-0142',
+      address: {
+        line1: '482 Birch Hollow Lane',
+        line2: 'Unit 3B',
+        city: 'Salem',
+        state: 'OR',
+        postalCode: '97301',
+        // CONTRACT: PRESERVED, never guessed. This form has no country input,
+        // so a saved country must survive an edit to any other field.
+        country: 'US',
+      },
+    });
+    patch.flush(MORGAN);
+    await settle(fixture);
+  });
+
+  /**
+   * CONTRACT: Orders drops an all-null address snapshot to NULL, so posting a
+   * blank address erases one the user never touched. No street, no address key.
+   */
+  it('omits the address entirely when the street is cleared', async () => {
+    create();
+    (await awaitRequest(fixture, controller, ME)).flush(MORGAN);
+    await settle(fixture);
+
+    fillField(fixture, 'Address', '');
+    root().querySelector<HTMLButtonElement>('app-button-primary button')?.click();
+    await settle(fixture);
+
+    const patch = await awaitRequest(fixture, controller, ME);
+    expect(patch.request.body).not.toHaveProperty('address');
+    patch.flush(MORGAN);
+    await settle(fixture);
+  });
+
+  it('discards edits when Cancel is pressed', async () => {
+    create();
+    (await awaitRequest(fixture, controller, ME)).flush(MORGAN);
+    await settle(fixture);
+
+    fillField(fixture, 'City', 'Salem');
+    expect(fieldValues()).toContain('Salem');
+
+    Array.from(root().querySelectorAll('button'))
+      .find((b) => b.textContent?.trim() === 'Cancel')
+      ?.click();
+    await settle(fixture);
+
+    expect(fieldValues()).toContain('Portland');
+    controller.verify();
   });
 
   /**
