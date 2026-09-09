@@ -82,6 +82,18 @@ export class CheckoutPaymentPage {
   protected readonly street = signal('');
   protected readonly cityAndPostalCode = signal('');
   protected readonly phoneInput = signal('');
+
+  /**
+   * The plain card form's fields.
+   *
+   * CONTRACT: Local state only — nothing submits these. There is no payment
+   * backend, and the Stripe path renders no fields at all because Stripe's own
+   * element would own them. They exist so the dev fill can populate a form a
+   * developer is looking at. See [[2026-09-07-dev-form-autofill]]
+   */
+  protected readonly cardNumber = signal('');
+  protected readonly cardExpiry = signal('');
+  protected readonly cardCvc = signal('');
   protected readonly savingAddress = signal(false);
   protected readonly addressError = signal<string | null>(null);
 
@@ -196,6 +208,11 @@ export class CheckoutPaymentPage {
     this.street.set(data.street);
     this.cityAndPostalCode.set(data.cityAndPostalCode);
     this.phoneInput.set(data.phoneNumber);
+    // The card fields render only on the plain path; setting them when Stripe
+    // is enabled is a harmless no-op rather than a branch to keep in sync.
+    this.cardNumber.set(data.cardNumber);
+    this.cardExpiry.set(data.cardExpiry);
+    this.cardCvc.set(data.cardCvc);
   }
 
   /**

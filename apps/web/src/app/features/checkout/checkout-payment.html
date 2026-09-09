@@ -287,7 +287,10 @@
                       <input
                         type="text"
                         placeholder="1234 1234 1234 1234"
+                        data-testid="card-number"
                         class="text-ink-primary placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
+                        [value]="cardNumber()"
+                        (input)="cardNumber.set($any($event.target).value)"
                       />
                     </span>
                   </label>
@@ -301,7 +304,10 @@
                         <input
                           type="text"
                           placeholder="MM / YY"
+                          data-testid="card-expiry"
                           class="text-ink-primary placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
+                          [value]="cardExpiry()"
+                          (input)="cardExpiry.set($any($event.target).value)"
                         />
                       </span>
                     </label>
@@ -313,7 +319,10 @@
                         <input
                           type="text"
                           placeholder="CVC"
+                          data-testid="card-cvc"
                           class="text-ink-muted placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
+                          [value]="cardCvc()"
+                          (input)="cardCvc.set($any($event.target).value)"
                         />
                       </span>
                     </label>

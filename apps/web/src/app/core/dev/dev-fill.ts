@@ -96,11 +96,29 @@ export async function devData(enabled: boolean): Promise<DevData | null> {
     phoneNumber: `+1809${String(chance.integer({ min: 2000000, max: 9999999 }))}`,
     street: chance.street(),
     cityAndPostalCode: cityAndPostalCode(chance),
-    cardNumber: chance.cc({ type: 'visa' }),
-    cardExpiry: chance.exp(),
+    cardNumber: STRIPE_TEST_CARD,
+    // Derived, never fixed: any FUTURE date is accepted, and a hardcoded year
+    // stops being one.
+    cardExpiry: futureExpiry(),
     cardCvc: String(chance.integer({ min: 100, max: 999 })),
     otpCode: String(chance.integer({ min: 100000, max: 999999 })),
   };
+}
+
+/**
+ * Stripe's canonical success card — see https://docs.stripe.com/testing
+ *
+ * CONTRACT: A REAL Stripe test number, never a generated one. `chance.cc()`
+ * yields a Luhn-valid Visa that Stripe REJECTS, failing at the one step this
+ * button exists to skip. See [[2026-09-07-dev-form-autofill]]
+ */
+const STRIPE_TEST_CARD = '4242424242424242';
+
+/** `MM / YY` two years out — Stripe accepts any future date. */
+function futureExpiry(): string {
+  const now = new Date();
+  const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+  return `${month} / ${String((now.getUTCFullYear() + 2) % 100).padStart(2, '0')}`;
 }
 
 /**

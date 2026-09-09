@@ -33,6 +33,33 @@ describe('devData', () => {
    * length check accepts, so a generated one that trips it would look like a
    * backend failure rather than bad test data.
    */
+  /**
+   * CONTRACT: A REAL Stripe test number. `chance.cc()` yields a Luhn-valid Visa
+   * that Stripe REJECTS. See [[2026-09-07-dev-form-autofill]]
+   */
+  it('generates a card number Stripe actually accepts in test mode', async () => {
+    const data = await devData(true);
+
+    expect(data!.cardNumber).toBe('4242424242424242');
+  });
+
+  /** Any FUTURE date is accepted; a hardcoded year stops being one. */
+  it('generates an expiry that is still in the future', async () => {
+    const data = await devData(true);
+
+    const [month, year] = data!.cardExpiry.split('/').map((part) => Number(part.trim()));
+    expect(month).toBeGreaterThanOrEqual(1);
+    expect(month).toBeLessThanOrEqual(12);
+    // Two digits, as the form renders them, and beyond the current year.
+    expect(year).toBeGreaterThan(new Date().getUTCFullYear() % 100);
+  });
+
+  it('generates a three-digit CVC', async () => {
+    const data = await devData(true);
+
+    expect(data!.cardCvc).toMatch(/^\d{3}$/);
+  });
+
   it('generates a password Cognito accepts', async () => {
     const password = (await devData(true))?.password ?? '';
 
