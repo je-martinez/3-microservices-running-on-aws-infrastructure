@@ -199,6 +199,24 @@
         "message": "L5548: length: block 18 lines exceeds hard max 12; move narrative to the vault"
       }
     ],
+    "apps/web/Dockerfile": [
+      {
+        "fingerprint": "63427be5eb37",
+        "message": "L1: length: block 15 lines exceeds hard max 12; move narrative to the vault"
+      },
+      {
+        "fingerprint": "d73309388e1e",
+        "message": "L17: length: block 17 lines exceeds hard max 12; move narrative to the vault"
+      },
+      {
+        "fingerprint": "5f47111591f8",
+        "message": "L95: length: block 9 lines (> 6) must carry a See [[vault-id]] reference"
+      },
+      {
+        "fingerprint": "4530e6ef648c",
+        "message": "density: 71% (83/117) exceeds 65% for dockerfile"
+      }
+    ],
     "apps/web/src/app/shared/date/format-date.ts": [
       {
         "fingerprint": "3d0df17162b5",
@@ -445,6 +463,20 @@
         "message": "L1: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
       }
     ],
+    "functions/events-pipeline/Dockerfile": [
+      {
+        "fingerprint": "f55f3d39c3ec",
+        "message": "L1: length: block 16 lines exceeds hard max 12; move narrative to the vault"
+      },
+      {
+        "fingerprint": "dd3f70f83cd2",
+        "message": "L31: length: block 17 lines exceeds hard max 12; move narrative to the vault"
+      },
+      {
+        "fingerprint": "c8e1c407a39c",
+        "message": "density: 73% (41/56) exceeds 65% for dockerfile"
+      }
+    ],
     "functions/events-pipeline/src/shared/config/env.ts": [
       {
         "fingerprint": "fba72a43e5ed",
@@ -467,10 +499,6 @@
       {
         "fingerprint": "cee19f9125e9",
         "message": "L1: length: block 10 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-      },
-      {
-        "fingerprint": "760c6a3667f4",
-        "message": "L46: narrative-marker: 'used to' narrates history; describe the current state and move the story to the vault"
       }
     ],
     "scripts/validate-vault.mjs": [
@@ -485,6 +513,46 @@
       {
         "fingerprint": "131a55feeff3",
         "message": "L66: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
+      }
+    ],
+    "services/tracking-go/Dockerfile": [
+      {
+        "fingerprint": "466f091de72d",
+        "message": "L1: length: block 20 lines exceeds hard max 12; move narrative to the vault"
+      },
+      {
+        "fingerprint": "1d6dc4cd7508",
+        "message": "L40: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
+      },
+      {
+        "fingerprint": "a4330ca80cdc",
+        "message": "L51: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
+      },
+      {
+        "fingerprint": "397ade7996fb",
+        "message": "L65: length: block 16 lines exceeds hard max 12; move narrative to the vault"
+      },
+      {
+        "fingerprint": "d265ebc27078",
+        "message": "density: 73% (69/94) exceeds 65% for dockerfile"
+      }
+    ],
+    "services/tracking-go/Makefile": [
+      {
+        "fingerprint": "b8b7d3e9197a",
+        "message": "L40: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
+      },
+      {
+        "fingerprint": "b8b7d3e9197a",
+        "message": "L41: narrative-marker: 'used to' narrates history; describe the current state and move the story to the vault"
+      },
+      {
+        "fingerprint": "d51d95055c14",
+        "message": "L53: length: block 21 lines exceeds hard max 12; move narrative to the vault"
+      },
+      {
+        "fingerprint": "fac8d1c5db19",
+        "message": "L109: length: block 14 lines exceeds hard max 12; move narrative to the vault"
       }
     ],
     "services/tracking-go/internal/adapter/grpcusers/gen/users.pb.go": [
@@ -521,6 +589,28 @@
       {
         "fingerprint": "a088b1b85c94",
         "message": "L38: narrative-marker: 'no longer' narrates history; describe the current state and move the story to the vault"
+      }
+    ],
+    "services/users/Dockerfile": [
+      {
+        "fingerprint": "8bc68b1f9596",
+        "message": "L1: length: block 22 lines exceeds hard max 12; move narrative to the vault"
+      },
+      {
+        "fingerprint": "8e67d057e880",
+        "message": "L57: length: block 14 lines exceeds hard max 12; move narrative to the vault"
+      },
+      {
+        "fingerprint": "2dba76f4a0a9",
+        "message": "L76: length: block 10 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
+      },
+      {
+        "fingerprint": "3e7858ae111d",
+        "message": "L106: length: block 12 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
+      },
+      {
+        "fingerprint": "afcd6d20cd44",
+        "message": "density: 71% (84/118) exceeds 65% for dockerfile"
       }
     ],
     "services/users/src/shared/db/sql-logging.ts": [

@@ -41,10 +41,10 @@ EXCLUDE_DIR_NAMES = frozenset(
     }
 )
 
-# spike/ is throwaway; .claude/skills/ is vendored skill content, not our source.
-# The Python Tracking service was replaced by services/tracking-go/ (#74), so the
-# migration exclusion it used to carry is gone and Go is linted like every language.
-EXCLUDE_PATH_PREFIXES = ("spike/", ".claude/skills/")
+# spike/ is throwaway; .claude/skills/ and its .agents/skills/ mirror are vendored
+# skill content, not our source. Go carries no exclusion — services/tracking-go/
+# is linted like every other language.
+EXCLUDE_PATH_PREFIXES = ("spike/", ".claude/skills/", ".agents/skills/")
 
 LANG_BY_SUFFIX = {
     ".tf": "hcl",
@@ -64,6 +64,18 @@ LANG_BY_SUFFIX = {
     ".yaml": "yaml",
 }
 
+# CONTRACT: extensionless files count too. classify() matched on suffix alone,
+# so `Makefile` and every `Dockerfile` — seven files, up to 74-line blocks —
+# were never opened, the same gap the YAML entries above were added to close.
+# Matching is on the STEM, case-insensitively, so the wild variants that carry
+# a qualifier (`Makefile.local`, `Dockerfile.dev`, lowercase `dockerfile`) are
+# linted like their canonical form.
+LANG_BY_STEM = {
+    "makefile": "makefile",
+    "dockerfile": "dockerfile",
+    "containerfile": "dockerfile",
+}
+
 # One p90 gate for every language: >12 lines is a hard error (see the Length
 # section of the convention). Density is an advisory ceiling per language.
 MAX_BLOCK_LINES = 12
@@ -76,6 +88,14 @@ THRESHOLDS = {
     "go": {"density_warn": 0.50, "density_min_lines": 60},
     # Config is declarative and legitimately needs more prose per line than code.
     "yaml": {"density_warn": 0.60, "density_min_lines": 80},
+    # Declarative like YAML, and each carries one extra source of legitimate
+    # prose. A Makefile line is a target or a one-shot shell directive whose
+    # purpose is invisible from the command itself, and `## help text` on the
+    # target line is the only interface most callers ever read. A Dockerfile
+    # line is a single build step whose ordering constraints (layer caching,
+    # which stage copies what) cannot be read off the instruction.
+    "makefile": {"density_warn": 0.60, "density_min_lines": 80},
+    "dockerfile": {"density_warn": 0.65, "density_min_lines": 40},
 }
 
 # Blocks in 7..12 lines are allowed only when load-bearing AND referenced.
@@ -194,7 +214,14 @@ def should_skip(path: Path, root: Path | None = None) -> bool:
 
 
 def classify(path: Path) -> str | None:
-    return LANG_BY_SUFFIX.get(path.suffix.lower())
+    """Map a file to a language by suffix, else by name (`Makefile`, `Dockerfile`)."""
+    lang = LANG_BY_SUFFIX.get(path.suffix.lower())
+    if lang is not None:
+        return lang
+    # `Dockerfile.dev` and `Makefile.local` reduce to the same stem as a bare
+    # `Dockerfile`/`Makefile`, so one entry covers every variant. The suffix
+    # lookup above still wins, which keeps a hypothetical `Makefile.py` Python.
+    return LANG_BY_STEM.get(path.name.split(".", 1)[0].lower())
 
 
 # ─── Comment scanning ───────────────────────────────────────────────────────
@@ -328,10 +355,15 @@ def _scan_python_comment(line: str, state: dict) -> str | None:
 
 def is_comment_line(line: str, lang: str, state: dict) -> bool:
     """Record the extracted comment body in state and report whether it exists."""
-    if lang == "yaml":
-        # YAML has only `#` line comments — no block or docstring form, so the
-        # Python scanner's triple-quote handling would misread a quoted value.
+    if lang in ("yaml", "dockerfile", "makefile"):
+        # CONTRACT: only a `#` that OPENS the line counts. These formats have no
+        # block or docstring form, and a trailing `#` in them is usually data —
+        # above all `target: ## help text`, the self-documenting-target shape
+        # `make help` greps, which would otherwise read as comment bloat.
         stripped = line.strip()
+        # WHY: a Makefile recipe comment is written `@#` so make does not echo it.
+        if lang == "makefile" and stripped.startswith("@#"):
+            stripped = stripped[1:]
         body = stripped[1:].strip() if stripped.startswith("#") else None
     elif lang == "python":
         body = _scan_python_comment(line, state)

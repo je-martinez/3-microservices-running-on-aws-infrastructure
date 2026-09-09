@@ -24,15 +24,11 @@ PY        := $(VENV)/bin/python
 # never hardcode 7001=Postgres / 7002=MySQL. Also imported by bootstrap.py.
 DISCOVER_DB_PORT := $(TF_LOCAL_DIR)/scripts/discover_db_port.py
 
-# Directories prepended to PATH for any recipe that shells out to Go.
-#
-# Two entries, both required: the goenv SHIM dir (what puts `go` on PATH at the
-# version .go-version pins) and the directory holding `goenv` itself, which the
-# shim re-execs. Resolved rather than hardcoded — goenv is a git checkout under
-# ~/.goenv for some installs and Homebrew for others, and pinning either spelling
-# breaks the other machine. `shell command -v` returns empty when goenv is absent,
-# which is harmless here: the service's own verify-toolchain target is what
-# reports the missing toolchain, with the command to fix it.
+# CONTRACT: Both entries are required — the goenv SHIM dir (which puts `go` on PATH
+# at the version .go-version pins) and the directory holding `goenv` itself, which the
+# shim re-execs. Resolved rather than hardcoded because goenv is a git checkout for
+# some installs and Homebrew for others. Empty when goenv is absent, which is
+# harmless: the service's own verify-toolchain target reports the missing toolchain.
 GOENV_ROOT := $(HOME)/.goenv
 GOENV_BIN  := $(dir $(shell command -v goenv 2>/dev/null))
 GOENV_PATH := $(GOENV_ROOT)/shims:$(GOENV_BIN)
@@ -44,21 +40,17 @@ export AWS_DEFAULT_REGION  ?= us-east-1
 export AWS_ACCESS_KEY_ID   ?= test
 export AWS_SECRET_ACCESS_KEY ?= test
 
-# DynamoDB table the provisioning scripts record their runs to, for traceability
-# only — never to skip a re-run (lib3mrai/execution_log.py explains why). Threaded
-# the same way AWS_ENDPOINT_URL is: exported here, inherited by terraform and by
-# every local-exec provisioner it spawns, and passed on explicitly by the two
-# cognito provisioners (which is a SHARED module, so it takes it as a variable).
+# WHY: The DynamoDB table the provisioning scripts record their runs to, for
+# traceability only — never to skip a re-run (lib3mrai/execution_log.py explains why).
+# Exported like AWS_ENDPOINT_URL so terraform and every local-exec it spawns inherit it.
 #
-# WHY A LITERAL, NOT A terraform_remote_state READ of environments/local/backend:
-# that root deliberately keeps LOCAL state (it creates the S3 bucket every other
-# root's backend points at), so reading it would mean a `backend = "local"` data
-# source hardcoding a relative path between two roots — a mechanism this repo
-# uses nowhere. The name is deterministic anyway: modules/tf-backend derives it
-# as "<context.id>-execution-log" and the backend root's label is
-# 3mrai-local-tfstate. An override still flows through: `?=` yields to an
-# environment value, and the table name is exposed as the backend root's
-# execution_log_table_name output for anyone who needs to confirm it.
+# CONTRACT: A literal, not a terraform_remote_state read of environments/local/backend.
+# That root deliberately keeps LOCAL state (it creates the bucket every other root's
+# backend points at), so reading it would need a `backend = "local"` data source
+# hardcoding a relative path between two roots — a mechanism used nowhere here. The name
+# is deterministic ("<context.id>-execution-log"), `?=` yields to an environment
+# override, and the backend root exposes execution_log_table_name to confirm it.
+# See [[terraform-remote-state-backend]]
 export EXECUTION_LOG_TABLE ?= 3mrai-local-tfstate-execution-log
 
 .DEFAULT_GOAL := help
@@ -146,44 +138,28 @@ test-unit: ## Layer 1 — unit/integration for orders (dotnet), users + both Lam
 	# why and how to run them for real. Set EVENTS_PIPELINE_REQUIRE_INTEGRATION=1
 	# where the stack IS expected to turn those skips into hard failures.
 	pnpm --filter @3mrai/events-pipeline test
-	# These three existed and NOTHING ran them. A suite nobody invokes is worse
-	# than no suite: it reads as coverage in a review and cannot fail, so the
-	# code it guards drifts freely. Found when a logging change to the Cognito
-	# trigger needed its tests and the only way to run them was borrowing another
-	# package's vitest by hand.
-	#
-	# realtime-events was simply never listed. The Cognito trigger additionally
-	# had no package.json — it is a workspace now for this reason alone, and
-	# archive_file excludes what that adds so the deployed zip is unchanged (see
-	# infra/modules/cognito/main.tf).
+	# CONTRACT: Keep realtime-events and cognito-otp-challenge-lambda listed here. Both
+	# have suites that nothing else invokes, and a suite nobody runs is worse than none:
+	# it reads as coverage in review and cannot fail. The Cognito trigger is a workspace
+	# for this reason alone; archive_file excludes what that adds so the deployed zip is
+	# unchanged (see infra/modules/cognito/main.tf).
 	pnpm --filter @3mrai/realtime-events test
 	pnpm --filter @3mrai/cognito-otp-challenge-lambda test
-	# The web app's specs are layer 1 too — its 31 spec files include the auth unit
-	# layer the testing convention requires — and this target ran every other
-	# workspace but that one, so 302 tests counted as coverage while nothing
-	# invoked them. Runs here, with the other vitest packages, because it needs no
-	# stack: the specs are component/unit level and stub their HTTP.
+	# CONTRACT: The web app's specs are layer 1 and belong in this target — they include
+	# the auth unit layer the testing convention requires, and they need no stack
+	# (component/unit level, HTTP stubbed).
 	pnpm --filter @3mrai/web test
-	# Tracking's suite is `go test`, not vitest, and it needs the Go toolchain
-	# goenv pins in services/tracking-go/.go-version — `make test-db` verifies
-	# that before running anything.
-	#
-	# test-db, NOT test. `make test` in that service FAILS without a database on
-	# purpose: internal/adapter/mysql's tests need a real MySQL, and without one
-	# they skip while the package still prints `ok`. That hollow green already
-	# cost the migration a debugging session, which is why the gate exists. So
-	# this layer runs the real thing against the shared local database — the same
-	# reason its pytest predecessor lived here: that database is part of the local
-	# stack anyone running tests already has. Without the stack up, use
+	# CONTRACT: `test-db`, NOT `test`. internal/adapter/mysql's tests need a real MySQL;
+	# without one they skip while the package still prints `ok`, and that hollow green
+	# already cost the migration a debugging session. Without the stack up, use
 	# `make -C services/tracking-go test-no-db`, which skips loudly.
 	#
-	# GOENV_PATH (top of this file) is prepended because goenv is activated by a
-	# shell rc file and make recipes run under a NON-interactive /bin/sh that
-	# never sources one — so a bare `go` here is `go: command not found` even on
-	# a machine whose terminal resolves it fine. It carries the SHIM directory
-	# (so .go-version stays the single source of truth for which Go) and goenv's
-	# OWN directory, because the shim re-execs `goenv` and fails with
-	# "exec: goenv: not found" without it.
+	# CONTRACT: Keep GOENV_PATH prepended. goenv is activated by a shell rc file and make
+	# recipes run under a NON-interactive /bin/sh that sources none, so a bare `go` here
+	# is `go: command not found` even where the terminal resolves it fine. It carries the
+	# SHIM dir (so .go-version stays the single source of truth) and goenv's OWN dir,
+	# because the shim re-execs `goenv` and fails with "exec: goenv: not found" without it.
+	# See [[testing]]
 	PATH="$(GOENV_PATH):$$PATH" $(MAKE) -C services/tracking-go test-db
 	pnpm --filter @3mrai/e2e typecheck
 
@@ -191,27 +167,18 @@ test-e2e: ## Layers 2+3 — Playwright internal + gateway for both services. REQ
 	pnpm --filter @3mrai/e2e test
 
 load-test: ## Gatling load simulation (fullJourney). REQUIRES `make bootstrap` up.
-	@# Exports what the simulations read from the generated env files, because
-	@# Gatling runs on GraalVM and does NOT inherit a .env: `getEnvironmentVariable`
-	@# reads the real process environment only. Without this the run dies at load
-	@# time with "API_GATEWAY_URL is not set" — before a single request is sent.
+	@# CONTRACT: Export these three explicitly, and keep API_GATEWAY_URL quoted through.
+	@# Gatling runs on GraalVM and does NOT inherit a .env, so without them the run dies
+	@# at load time with "API_GATEWAY_URL is not set"; the URL contains a literal
+	@# `$$default` stage segment, and an unquoted expansion silently yields
+	@# .../restapis/<id>//_user_request_ — a 404 that reads as a routing bug.
 	@#
-	@# The value is quoted through: API_GATEWAY_URL contains a literal `$$default`
-	@# stage segment, and an unquoted expansion silently turns the URL into
-	@# .../restapis/<id>//_user_request_ — a 404 that looks like a routing bug.
-	@#
-	@# TRACKING_CARRIER_API_KEY (not CARRIER_API_KEY — the simulation reads the
-	@# prefixed name) drives the carrier webhook that advances deliveries. Load
-	@# tests deliberately send NEITHER x-e2e-source NOR x-test-mode, so their data
-	@# persists like real traffic and tracking advances only through that webhook.
-	@#
-	@# GRPC_API_KEY is passed for the pre-run restock step (`pnpm run restock`,
-	@# wired into every simulation script): it calls Orders' e2e-cleanup route to
-	@# put catalogue stock back to the seed quantities BEFORE traffic starts.
-	@# Because load runs are never cleaned up, every order they place drains stock
-	@# permanently — without this the catalogue empties over successive runs and
-	@# order creation starts failing for want of stock rather than under genuine
-	@# contention. The step FAILS the target if it cannot reach the route.
+	@# WHY: TRACKING_CARRIER_API_KEY (the prefixed name the simulation reads) drives the
+	@# carrier webhook, because load tests send NEITHER x-e2e-source NOR x-test-mode and
+	@# their data persists like real traffic. GRPC_API_KEY drives the pre-run restock
+	@# step: load runs are never cleaned up, so without it the catalogue empties across
+	@# runs and orders fail for want of stock rather than under contention.
+	@# See [[testing]]
 	cd e2e/load-tests && \
 	  API_GATEWAY_URL="$$(grep '^API_GATEWAY_URL=' ../../.env.local.infra | cut -d= -f2-)" \
 	  TRACKING_CARRIER_API_KEY="$$(grep '^TRACKING_CARRIER_API_KEY=' ../../.env.local.tracking | cut -d= -f2-)" \
@@ -226,14 +193,13 @@ load-test-smoke: ## Short Gatling run (~20s) to check the simulation still works
 	  pnpm run smoke
 
 cache-toggle: ## Flip CACHE_ENABLED in all three env files + restart. Usage: make cache-toggle V=false
-	@# CACHE_ENABLED lives in the CUSTOM box of each generated env file, which
-	@# `make env-file` preserves verbatim — so this edit survives a regeneration.
-	@# Editing the AUTO box instead would be silently reverted on the next apply.
-	@#
-	@# `sed -i ''` is the BSD/macOS spelling this repo's tooling assumes
-	@# (Platform: darwin); on GNU sed it must be a bare `-i`. Shell rather than
-	@# Python only because a Make recipe IS shell by definition — the repo's
-	@# Python-first rule governs standalone scripts, and this is in-recipe glue.
+	@# CONTRACT: CACHE_ENABLED lives in the CUSTOM box of each generated env file, which
+	@# `make env-file` preserves verbatim. Editing the AUTO box instead is silently
+	@# reverted on the next apply. See [[env-files]]
+
+	@# WHY: `sed -i ''` is the BSD/macOS spelling this repo's tooling assumes; on GNU sed
+	@# it is a bare `-i`. Shell rather than Python because a Make recipe IS shell — the
+	@# Python-first rule governs standalone scripts, not in-recipe glue.
 	@test -n "$(V)" || { echo "Usage: make cache-toggle V=true|false"; exit 1; }
 	@for f in .env.local.orders .env.local.tracking .env.local.users; do \
 	  grep -q '^CACHE_ENABLED=' $$f || { echo "CACHE_ENABLED missing from $$f — is Task 1 merged?"; exit 1; }; \
@@ -283,25 +249,17 @@ infra-init: ## terraform init (environments/local) into the S3 backend
 	$(TF) init -reconfigure -backend-config=backend.hcl
 
 lambda-bundles: ## Build the esbuild bundles Terraform's archive_file data sources read at PLAN time
-	@# CONTRACT: This must run BEFORE any terraform plan or apply, on every path
-	@# that reaches one. Both bundled Lambdas are wired into environments/local/
-	@# main.tf through `archive_file`, which is a DATA SOURCE: Terraform evaluates
-	@# it during PLAN, before a single resource is touched. So a missing dist/ is
-	@# not a late deploy failure that leaves a half-built stack — it kills the run
-	@# up front with "could not archive missing directory", and NOTHING in the
-	@# chain has repaired it by then. Do NOT move this after the apply, and do NOT
-	@# rely on `redeploy-lambdas` (which builds the same two bundles) to cover it:
-	@# that target runs only after a stack already exists.
+	@# CONTRACT: This must run BEFORE any terraform plan or apply, on every path that
+	@# reaches one. Both bundled Lambdas are wired in through `archive_file`, a DATA
+	@# SOURCE Terraform evaluates at PLAN time, so a missing dist/ kills the run up front
+	@# with "could not archive missing directory". Do NOT move this after the apply and
+	@# do NOT rely on `redeploy-lambdas` to cover it — that target runs only once a stack
+	@# exists, while both dist/ directories are gitignored and absent on a fresh clone.
 	@#
-	@# This is exactly what a FRESH CLONE hits. Both dist/ directories are
-	@# gitignored, so they are absent until something builds them, and until this
-	@# target existed nothing in the bootstrap chain did — `make bootstrap` could
-	@# not succeed on a clean checkout at all.
-	@#
-	@# `pnpm install` first for the same reason: a fresh clone has no node_modules,
-	@# and no earlier target installs them (the services build inside Docker, and
-	@# the venv in scripts-setup is Python). --frozen-lockfile because the lockfile
-	@# is committed and a bootstrap must not silently resolve something new.
+	@# CONTRACT: Keep the `pnpm install --frozen-lockfile`. No earlier target installs
+	@# node_modules (the services build inside Docker, the venv is Python), and frozen
+	@# because a bootstrap must not silently resolve something new.
+	@# See [[2026-09-09-makefile-orchestration-invariants]]
 	pnpm install --frozen-lockfile
 	pnpm --filter @3mrai/events-pipeline build
 	pnpm --filter @3mrai/realtime-events build
@@ -310,22 +268,17 @@ infra-plan: lambda-bundles ## terraform plan (environments/local)
 	$(TF) plan
 
 infra-up: scripts-setup lambda-bundles ## terraform apply -auto-approve (environments/local), then refresh .env
-	@# RETRIED ONCE THROUGH `infra-reconcile`, because a bare apply is brittle here
-	@# in a way it would not be against real AWS. The state lives in a bucket
-	@# INSIDE Floci, so anything that restarts or half-destroys the emulator
-	@# leaves state and reality disagreeing, in BOTH directions:
+	@# WHY: Retried once through `infra-reconcile`, because state lives in a bucket
+	@# INSIDE Floci, so anything that restarts or half-destroys the emulator leaves state
+	@# and reality disagreeing in BOTH directions — "NotFoundException: Invalid API id"
+	@# (state has it, Floci does not) and "EntityAlreadyExists" (the reverse). A bare
+	@# apply reports the error and stops, so bootstrap fails naming a resource rather
+	@# than the problem, and the reader hand-edits state — which creates the second
+	@# failure mode from the first.
 	@#
-	@#   state has it, Floci does not -> "NotFoundException: Invalid API id"
-	@#   Floci has it, state does not -> "EntityAlreadyExists" / "ResourceAlreadyExists"
-	@#
-	@# Both were hit in one session. A plain `apply` reports the error and stops,
-	@# so `make bootstrap` fails with a message that names a resource rather than
-	@# the actual problem, and the reader is left hand-editing state — which is
-	@# how the second failure mode gets created from the first.
-	@#
-	@# The retry is bounded and it is NOT a loop: one apply, and if it fails,
-	@# reconcile the two directions and apply once more. A second failure is a
-	@# real error and is reported as one.
+	@# CONTRACT: The retry is bounded and is NOT a loop — one apply, reconcile, one more.
+	@# A second failure is a real error and is reported as one.
+	@# See [[2026-09-09-makefile-orchestration-invariants]]
 	@$(TF) apply -auto-approve || $(MAKE) infra-reconcile
 	$(MAKE) env-file
 
@@ -341,13 +294,11 @@ infra-reconcile: ## Re-sync Terraform state with what Floci actually has, then a
 	@# done by hand: removing a resource that DOES exist creates the opposite
 	@# failure on the next apply.
 	@$(TF) apply -refresh-only -auto-approve 2>/dev/null || true
-	@# The other direction — Floci holds an IAM role or log group that the state
-	@# has forgotten — cannot be fixed by refreshing, because there is nothing in
-	@# state to refresh. `import` would need one line per resource and a name for
-	@# each. Applying again after the refresh resolves the common case; if it
-	@# still fails, the state is far enough gone that `make clean && make
-	@# bootstrap` is both faster and more certain than surgery, and the message
-	@# says so instead of leaving the reader guessing.
+	@# CONTRACT: Do NOT hand-repair the other direction (Floci holds a resource the state
+	@# has forgotten) — a refresh cannot fix it, and removing an entry for a resource that
+	@# DOES exist produces the opposite error next run. Re-applying resolves the common
+	@# case; past that, the message says `make clean && make bootstrap`.
+	@# See [[2026-09-09-makefile-orchestration-invariants]]
 	@$(TF) apply -auto-approve || { 		echo ""; 		echo "  RECONCILE FAILED. Terraform state and Floci disagree in a way a refresh"; 		echo "  cannot repair — usually Floci holds a resource the state has forgotten"; 		echo "  (EntityAlreadyExists / ResourceAlreadyExists above)."; 		echo ""; 		echo "  Do NOT hand-edit the state: removing an entry for a resource that DOES"; 		echo "  exist produces the opposite error on the next run. Run:"; 		echo ""; 		echo "      make clean && make bootstrap"; 		echo ""; 		exit 1; 	}
 
 infra-down: ## terraform destroy -auto-approve (environments/local)
@@ -357,47 +308,32 @@ infra-output: ## Show terraform outputs (Cognito IDs, etc.)
 	$(TF) output
 
 env-file: scripts-setup ## Generate every env file from terraform outputs (CUSTOM sections preserved)
-	@# Floci mints a new user-pool/client id and api id on every apply, and
-	@# reassigns the RDS proxy ports by cluster creation order, so none of these
-	@# values can be hand-maintained. The generator writes five files, one per
-	@# consumer (root .env for compose interpolation, one per service for
-	@# `env_file:`, infra for the E2E suite, debug for a host SQL client) and
-	@# rewrites ONLY each file's AUTO-GENERATED box — anything under CUSTOM
-	@# survives. See docs/superpowers/specs/2026-07-20-env-file-generation-design.md
+	@# CONTRACT: No env file is hand-maintained — Floci mints a new user-pool/client id
+	@# and api id on every apply and reassigns the RDS proxy ports by cluster creation
+	@# order. The generator writes five files (root .env, one per service, infra for the
+	@# E2E suite, debug for a host SQL client) and rewrites ONLY each AUTO-GENERATED box;
+	@# anything under CUSTOM survives. See [[env-files]]
 	$(PY) $(TF_LOCAL_DIR)/scripts/generate_env_files.py
 
 ## --- Database migrations ---
 
 migrate: ## Apply Prisma migrations (users) against Floci's Postgres (idempotent)
-	@# `prisma migrate deploy` (never `migrate dev`: that one is interactive and
-	@# can reset data — unsuitable for bootstrap). It must run as the cluster
-	@# SUPERUSER (test/test), because migrations run DDL and users_app
-	@# deliberately has none (ADR-0004: soft-delete enforced at grant level).
+	@# CONTRACT: `prisma migrate deploy`, never `migrate dev` — that one is interactive
+	@# and can reset data, which is unusable in bootstrap.
 	@#
-	@# Note on "idempotent", by analogy with migrate-tracking below: Prisma also
-	@# decides what to apply from a bookkeeping table (`_prisma_migrations`), not
-	@# by introspecting whether the tables still exist. UNVERIFIED here, but the
-	@# same shape as Alembic's stamp check, so a database whose bookkeeping is
-	@# current but whose tables are gone would plausibly get the same silent
-	@# no-op. Users' tests do NOT drop the shared schema (they mock the Prisma
-	@# client), so nothing in this repo is known to produce that state — noted
-	@# so that a future live-database test suite for Users starts from the
-	@# lesson rather than rediscovering it.
-	@# It must ALSO be the same role the post-effects apply's ALTER DEFAULT
-	@# PRIVILEGES runs as, so users_app correctly inherits SELECT/INSERT/UPDATE
-	@# on the tables this step creates — do not change to a different DB user.
-	@#
-	@# Runs inside the compose network via the `deps` build stage (the users
-	@# Dockerfile already assembles it: workspace deps + prisma CLI + prisma/
-	@# for @3mrai/users). We reuse that stage instead of publishing Floci's
-	@# Postgres proxy port to the host — the port is Floci-internal and, per
-	@# Floci's RDS proxy range (7000-7099) assigned by creation order, not
-	@# guaranteed to stay 7001; staying in-network avoids depending on it as a
-	@# host contract. Inside the compose network the host is `floci` and the port
-	@# is the SAME proxy port describe-db-clusters reports, so we DISCOVER it
-	@# per-engine (never hardcode 7001) and interpolate it into the URL.
-	@# The users runtime image is production-only and has no prisma CLI/prisma/
-	@# dir, so it cannot run this itself (see services/users/Dockerfile).
+	@# CONTRACT: Run as the cluster SUPERUSER (test/test) and do NOT switch to another
+	@# DB user. Migrations run DDL, which users_app deliberately lacks (ADR-0004), and it
+	@# must be the same role the post-effects ALTER DEFAULT PRIVILEGES runs as or
+	@# users_app never inherits SELECT/INSERT/UPDATE on the tables created here.
+	@# WARNING: "idempotent" means Prisma consults `_prisma_migrations`, not the tables —
+	@# the same shape as the version-table caveat on migrate-tracking below, so current
+	@# bookkeeping over missing tables would plausibly no-op silently.
+	@# See [[2026-09-09-migration-version-tables-lie-about-schema]]
+
+	@# WHY: Uses the users Dockerfile's `deps` stage — the runtime image is
+	@# production-only and carries no prisma CLI. Staying in-network avoids depending on
+	@# Floci's proxy port as a host contract; it is DISCOVERED per-engine because Floci
+	@# assigns 7000-7099 by cluster creation order.
 	docker build --target deps -t 3mrai-users:deps -f services/users/Dockerfile .
 	@pgport="$$($(PY) $(DISCOVER_DB_PORT) postgres)"; \
 	docker run --rm --network 3mrai_3mrai-network \
@@ -408,80 +344,39 @@ migrate: ## Apply Prisma migrations (users) against Floci's Postgres (idempotent
 	@echo "Prisma migrations applied."
 
 migrate-tracking: ## Apply golang-migrate migrations (tracking) against Floci's MySQL (idempotent)
-	@# golang-migrate, NOT Alembic — Tracking is Go now (services/tracking-go).
-	@# Idempotent: `up` is a no-op once schema_migrations is at head, so bootstrap
-	@# and a manual re-run are both safe.
+	@# CONTRACT: The baseline is STAMPED, never replayed, and for ONE case only — the
+	@# `tracking` table present and `schema_migrations` ABSENT, i.e. the database Alembic
+	@# built. Both broader spellings were measured here: stamping as the whole branch left
+	@# 000002_add_order_number unapplied while doctor, the service and the tests all
+	@# reported healthy; stamping on every existing-table run REWINDS a database already
+	@# at 2, and the `up` that follows dies on `Error 1060: Duplicate column name` with
+	@# the version left DIRTY (recovery: `force <real version>`).
+	@# See [[2026-09-09-migration-version-tables-lie-about-schema]]
 	@#
-	@# THE BASELINE is stamped, not replayed, on a database Alembic already built.
-	@# The baseline migration is a squash of the four Alembic revisions the Python
-	@# service arrived at (services/tracking-go/migrations/README.md), so running
-	@# it against such a database fails on CREATE TABLE. That is why this probes
-	@# the schema before running anything: tables present but no version table
-	@# means Alembic built it, so `force 1` writes version=1 WITHOUT running any
-	@# SQL and `up` then applies 000002 onward. Every other shape — a fresh
-	@# database, or one golang-migrate already tracks — is a plain `up`.
+
+	@# WARNING: "up to date" is decided by the VERSION TABLE, not by the tables. A
+	@# database whose schema_migrations says 1 but whose tables are gone gets a silent
+	@# no-op, and the service then 500s with `Table 'tracking.tracking' doesn't exist`.
+	@# Recovery: `DROP TABLE tracking.schema_migrations`, then re-run. `make doctor`
+	@# cross-checks tables against databases so this surfaces before a request does.
+
+	@# CONTRACT: Probe `schema_migrations` too, not just `tracking`, and check the probe's
+	@# exit status SEPARATELY from its output. The obvious `if docker run ... | grep -q 1`
+	@# conflates "table absent" with "could not connect", which want opposite actions —
+	@# under the conflated form a TLS failure selected `up`, which died on `Error 1050:
+	@# Table 'tracking' already exists` AFTER golang-migrate wrote (version=1, dirty=1),
+	@# and a dirty flag makes every later invocation refuse outright.
+	@# See [[2026-09-09-migration-version-tables-lie-about-schema]]
 	@#
-	@# CONTRACT: The stamp is for ONE case only — tables present, `schema_migrations`
-	@# ABSENT, i.e. the database Alembic built. It is not the whole branch and it
-	@# never runs against a database golang-migrate already tracks. Both halves of
-	@# that were wrong here and both were measured:
-	@#   - Stamp as the whole branch: on ANY pre-existing database this wrote
-	@#     version=1 and stopped, so 000002_add_order_number never reached a local
-	@#     database while doctor, the service and the tests all reported healthy —
-	@#     the version table said 1 and nothing compares it to what migrations/
-	@#     holds.
-	@#   - Stamp on every existing-table run: `force 1` REWINDS a database already
-	@#     correctly at 2, and the `up` that follows then replays 000002 into a
-	@#     schema that has it, dying on `Error 1060: Duplicate column name` with
-	@#     the version left DIRTY. Recovery is `force <real version>`.
-	@# So: probe `schema_migrations` too, not just the `tracking` table, and let
-	@# `up` do everything else. `up` is a no-op at head, which is what makes this
-	@# target idempotent.
+
+	@# CONTRACT: Keep `--ssl-mode=DISABLED`. The mysql 8.0 client defaults to TLS and
+	@# Floci does not terminate it — without the flag the probe dies with `SSL connection
+	@# error: unexpected eof`. See [[floci-rds-apigw-limits]]
 	@#
-	@# CAVEAT, inherited from Alembic and unchanged in shape: "up to date" is
-	@# decided by the VERSION TABLE, not by the tables. A database whose
-	@# schema_migrations says 1 but whose tables are gone gets a silent no-op
-	@# here. Symptom: the service 500s with `Table 'tracking.tracking' doesn't
-	@# exist`. Recovery: `DROP TABLE tracking.schema_migrations` first, then
-	@# re-run this. `make doctor` cross-checks tables against the databases that
-	@# should hold them precisely so this surfaces before a request does.
-	@#
-	@# Runs in a ONE-OFF migrate/migrate container on the compose network, not on
-	@# the host and not in the service image. Three reasons:
-	@#   1. The service image is gcr.io/distroless/static-debian12 — it holds the
-	@#      server binary and nothing else. There is no `migrate` in it and no
-	@#      shell to invoke one, so the Python service's `compose run --entrypoint`
-	@#      trick has no analogue.
-	@#   2. The DB URL. `.env.local.tracking` holds the IN-NETWORK writer URL and
-	@#      `--network 3mrai_3mrai-network` is what makes the `floci` hostname in
-	@#      it resolve. A host-side run would have to rebuild the URL against
-	@#      localhost plus the discovered port — Floci reassigns those (7000-7099,
-	@#      by cluster creation order) on every apply, so that would be a second,
-	@#      drift-prone copy of a value the env file already resolved correctly.
-	@#   3. Credentials. Like `make migrate` (Users/Prisma), migrations run as the
-	@#      cluster SUPERUSER (test/test) because they execute DDL, and the
-	@#      least-privilege app user has no DDL grant by design (ADR-0004). The
-	@#      generated URL is already the superuser one.
-	@#
-	@# The DSN rewrite mirrors services/tracking-go/Makefile: the generated value
-	@# keeps the SQLAlchemy-flavoured `mysql+pymysql://` spelling (the Go service
-	@# parses it itself), and golang-migrate wants `mysql://user:pass@tcp(host:port)/db`.
-	@# The image is PINNED, like every other image in this repo — a `latest`
-	@# migrate could change its DSN parsing under a green bootstrap.
-	@# --ssl-mode=DISABLED on the probe is LOAD-BEARING, not tidiness. The mysql
-	@# 8.0 client defaults to TLS and Floci does not terminate it, so without the
-	@# flag the probe dies with `SSL connection error: unexpected eof`. That is
-	@# the same limitation infra/CLAUDE.md records for the mysql Terraform
-	@# provider (which is why the app users use mysql_native_password).
-	@#
-	@# The probe's exit status is CHECKED SEPARATELY from its output, because the
-	@# obvious `if docker run ... | grep -q 1` conflates "the table is absent"
-	@# with "the probe could not connect" — and those want opposite actions. Under
-	@# the conflated form a TLS failure silently selected the `up` branch, which
-	@# then died on `Error 1050: Table 'tracking' already exists` AFTER golang-
-	@# migrate had written (version=1, dirty=1). Measured here, first run. A dirty
-	@# flag makes every later invocation refuse outright, so the cost of guessing
-	@# wrong is a wedged database, not a retry.
+	@# WHY: A one-off pinned migrate/migrate container on the compose network — the
+	@# service image is distroless, `.env.local.tracking` already holds the in-network
+	@# superuser URL, and migrations need DDL the app user lacks (ADR-0004). The DSN
+	@# rewrite mirrors services/tracking-go/Makefile.
 	@dsn="$$(sed -n 's|^DATABASE_WRITER_URL=mysql+pymysql://||p' .env.local.tracking | sed 's|?.*||')"; \
 	test -n "$$dsn" || { echo "ERROR: no DATABASE_WRITER_URL in .env.local.tracking — run 'make env-file'"; exit 1; }; \
 	creds="$${dsn%%@*}"; rest="$${dsn#*@}"; hostport="$${rest%%/*}"; dbname="$${rest#*/}"; \
@@ -508,44 +403,32 @@ migrate-tracking: ## Apply golang-migrate migrations (tracking) against Floci's 
 	@echo "golang-migrate migrations applied (tracking)."
 
 post-infra: scripts-setup ## Harden a bootstrapped environment: MySQL provider grants + least-privilege DB app-users (phase 2)
-	@# REQUIRES a successful `make bootstrap` first — phase 2 reads phase-1's
-	@# state via terraform_remote_state; running this against a torn-down or
-	@# never-applied phase 1 fails at that read, before any provisioner runs.
-	@# See docs/superpowers/specs/2026-07-30-post-infra-root-design.md
-	@# ("What happens if post-infra runs before bootstrap").
+	@# CONTRACT: REQUIRES a successful `make bootstrap` first. Phase 2 is a SEPARATE
+	@# Terraform root with its own state that reads phase-1's through
+	@# terraform_remote_state; against a torn-down or never-applied phase 1 it fails at
+	@# that read, before any provisioner runs.
 	@#
-	@# Two-phase apply (see docs/superpowers/specs/2026-07-15-two-phase-post-effects-design.md
-	@# and environments/local/post/README.md): a SEPARATE Terraform root with its
-	@# own state that reads phase-1 outputs + the master secret by ARN, waits for
-	@# each DB via a healthcheck gate, and creates the least-privilege app-users
-	@# (SELECT/INSERT/UPDATE, no DELETE — ADR-0004). BOTH engines are enabled:
-	@# users_app on Postgres, plus orders_app and tracking_app on the shared MySQL
-	@# cluster. The mysql provider was re-verified against Floci on 2026-07-30 and
-	@# no longer hangs, so the old postgres-only gating is gone.
-	@# Runs host-side, reaching Floci's published RDS proxy ports (7000-7099).
-	@# DISCOVER both proxy ports per-engine and pass them as -var: Floci assigns
-	@# those ports by cluster creation order and they flip across applies, so the
-	@# variable defaults (7001/7002) are not reliable — a live check saw mysql on
-	@# 7001 and postgres on 7002, the reverse of the defaults.
+	@# CONTRACT: DISCOVER both RDS proxy ports per-engine and pass them as -var. Floci
+	@# assigns 7000-7099 by cluster creation order, so the variable defaults (7001/7002)
+	@# are not reliable — a live check saw mysql on 7001 and postgres on 7002.
+	@# See [[two-phase-terraform-apply]] and [[2026-07-30-post-infra-root-design]]
+	@#
+	@# WHY: It creates the least-privilege app-users (SELECT/INSERT/UPDATE, no DELETE —
+	@# ADR-0004) on both engines, host-side against Floci's published proxy ports.
 	pgport="$$($(PY) $(DISCOVER_DB_PORT) postgres)"; \
 	myport="$$($(PY) $(DISCOVER_DB_PORT) mysql)"; \
 	cd $(TF_LOCAL_DIR)/post && terraform init -reconfigure -backend-config=backend.hcl >/dev/null && terraform apply -auto-approve -var pg_port=$$pgport -var mysql_port=$$myport -var python_bin=$(PY)
 
 assets-sync: scripts-setup ## Re-optimise and re-upload assets/ to the assets bucket (NO terraform apply)
-	@# The day-to-day entry point for asset changes: swap a logo, run this, done.
-	@# It touches NO infrastructure — no plan, no apply, no teardown — so it is
-	@# safe against an already-running stack and safely re-runnable. The script
-	@# fully overwrites every object and the manifest on each run, so re-running
-	@# is the repair mechanism rather than something to avoid.
+	@# WHY: The day-to-day entry point for asset changes — it touches NO infrastructure
+	@# (no plan, no apply, no teardown), fully overwrites every object and the manifest,
+	@# so re-running IS the repair mechanism.
 	@#
-	@# The bucket lives in the phase-2 (post) root, so its name and public base
-	@# URL are DISCOVERED from that root's outputs rather than hardcoded here —
-	@# the same reason `post-infra` discovers RDS proxy ports instead of trusting
-	@# a default. `terraform output` is a state read, not an apply.
-	@#
-	@# REQUIRES `make post-infra` to have run once (that is what creates the
-	@# bucket). Against a root that has never been applied the output read fails
-	@# with a clear message, before anything is uploaded.
+	@# CONTRACT: REQUIRES `make post-infra` to have run once — that phase-2 root creates
+	@# the bucket, and its name and public base URL are read from that root's outputs
+	@# rather than hardcoded. Against a never-applied root the output read fails with a
+	@# clear message before anything uploads. `terraform output` is a state read.
+	@# See [[two-phase-terraform-apply]]
 	@bucket="$$(cd $(TF_LOCAL_DIR)/post && terraform output -raw assets_bucket_name)"; \
 	base_url="$$(cd $(TF_LOCAL_DIR)/post && terraform output -raw assets_base_url)"; \
 	$(PY) infra/modules/assets-bucket/scripts/sync_assets.py --bucket "$$bucket" --base-url "$$base_url"
@@ -561,24 +444,20 @@ doctor: scripts-setup ## Diagnose the local stack: what ran, what did not, and h
 ## --- Orchestration ---
 
 bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in dependency order (includes phase 2)
-	@# Order matters. The services cannot start before the infra exists: `users`
-	@# validates COGNITO_* with Zod at boot, and those IDs only exist after apply.
-	@# So: Floci first, then terraform, then .env, then migrations (DB needs
-	@# tables before it's usable), then the services.
-	@#
-	@# Split in two halves: `bootstrap-provision` (Floci + terraform + env files)
-	@# and `bootstrap-converge` (migrations + services + alias). Only the first
-	@# is un-re-runnable, because a second phase-1 apply fails on Floci's
-	@# UpdateTags (JE-113). So when a run dies partway, `make bootstrap-converge`
-	@# resumes it without re-entering the apply that cannot succeed.
-	@#
-	@# bootstrap.py (the nginx alias) runs LAST, not before the services. The
-	@# alias is what the API Gateway routes THROUGH; no service reads it — grep
-	@# for nginx-stable under services/ and compose and you get nothing. Running
-	@# it mid-chain meant a failure there skipped `orders`, `migrate-tracking`
-	@# and `tracking`, which is how a cold bootstrap ended up with Tracking's
-	@# database created but its tables missing (JE-112). Placed last, its
-	@# blast radius is itself.
+	@# CONTRACT: Order is load-bearing — Floci, then terraform, then .env, then
+	@# migrations, then the services. `users` validates COGNITO_* with Zod at boot and
+	@# those IDs exist only after the apply.
+
+	@# CONTRACT: bootstrap.py (the nginx alias) runs LAST, inside bootstrap-converge. No
+	@# service reads the alias — the API Gateway routes THROUGH it — so run mid-chain a
+	@# failure there skips `orders`, `migrate-tracking` and `tracking`, which is how a
+	@# cold bootstrap produced Tracking's database with none of its tables (JE-112).
+	@# See [[2026-09-09-makefile-orchestration-invariants]]
+
+	@# WHY: Split into `bootstrap-provision` (un-re-runnable: a second phase-1 apply
+	@# fails on Floci's UpdateTags, JE-113) and `bootstrap-converge`, so a run that dies
+	@# partway resumes without re-entering the apply that cannot succeed.
+	@# See [[2026-09-09-makefile-orchestration-invariants]]
 	$(COMPOSE) up -d floci
 	@echo "Waiting for Floci at $(FLOCI_URL) ..."
 	@for i in $$(seq 1 30); do \
@@ -588,33 +467,18 @@ bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in depe
 	done
 	$(MAKE) backend-up
 	$(MAKE) infra-init
-	@# Observability BEFORE the terraform apply, and it is no longer opt-in.
+	@# CONTRACT: observability-up runs BEFORE `infra-up`, and is not opt-in. Every OTLP
+	@# producer builds its exporter in code against otel-collector:4318, so with the
+	@# collector absent every export writes a full `getaddrinfo ENOTFOUND otel-collector`
+	@# stack trace — 8 in 2 minutes in Users alone on an IDLE stack — and Lambda stderr
+	@# arrives via CloudWatch tagged ERROR, failing unclassified-logs.spec.ts.
 	@#
-	@# Every OTLP producer here — the three services AND the Lambdas — is
-	@# configured with OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 and
-	@# builds its exporter in code (Node's `new OTLPTraceExporter()`, .NET's
-	@# `AddOtlpExporter()`, Go's `otlptracehttp.New`). With the collector absent
-	@# that hostname does not resolve and every export writes a full `getaddrinfo
-	@# ENOTFOUND otel-collector` stack trace — measured at 8 in 2 minutes in Users
-	@# alone on an IDLE stack, one per metrics tick, 24/7. Lambda stderr is
-	@# CloudWatch's, and CloudWatch tags it ERROR, so those also arrive
-	@# unclassified and fail e2e/tests/observability/unclassified-logs.spec.ts.
-	@#
-	@# Silencing the exporters by env var does NOT work and was measured: an
-	@# explicitly-constructed SDK exporter beats OTEL_TRACES_EXPORTER, and paired
-	@# control/treatment runs reproduced the identical ENOTFOUND. Fixing it in code
-	@# would contradict the env-vars-not-code rule this repo paid for three times.
-	@# Making the hostname RESOLVE removes the error at its source.
-	@#
-	@# BEFORE `infra-up`, not after: the apply INVOKES Lambdas (Cognito triggers,
-	@# the events function), and a Lambda that runs while the collector is still
-	@# missing logs exactly that error. Placing this in bootstrap-converge alone
-	@# left a 46-SECOND window — measured: the error at 04:19:58, the collector up
-	@# at 04:20:44 — which is one unclassified record and one red spec.
-	@#
-	@# Measured cost: 616MB RAM (collector 378 + OpenObserve 238) and 0 bytes
-	@# written in 30s while idle. It buys back a tracing path that was silently
-	@# dead on every default bootstrap.
+	@# CONTRACT: Do NOT move it after the apply, and do NOT silence the exporters by env
+	@# var instead. The apply INVOKES Lambdas, so a later start leaves a measured
+	@# 46-second window worth one red spec; an explicitly-constructed SDK exporter beats
+	@# OTEL_TRACES_EXPORTER, reproducing the identical ENOTFOUND. Making the hostname
+	@# RESOLVE is the fix. See [[2026-09-09-makefile-orchestration-invariants]] and
+	@# [[ADR-0019-distributed-tracing-opentelemetry]]
 	$(MAKE) observability-up
 	@# infra-up ends by calling env-file, so every generated env file exists
 	@# BEFORE any service starts. That ordering is load-bearing now that the
@@ -625,29 +489,17 @@ bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in depe
 	@# repeated there rather than factored out because a prerequisite would run
 	@# it in the wrong order relative to the terraform steps above.
 	$(MAKE) bootstrap-converge
-	@# Phase 2, LAST. The 2026-07-30 design deliberately split this out so that
-	@# `bootstrap` ended "usable" and a hardening failure could be diagnosed
-	@# against a known-good stack. That split held for the DB app-users it was
-	@# written about — but phase 2 later grew the ASSETS BUCKET the email
-	@# templates load their images from (environments/local/post/assets.tf), and
-	@# a stack whose emails render as broken-image placeholders is not usable in
-	@# the sense that decision claimed. The gap was silent: everything reports
-	@# healthy, every service answers, and the defect only appears in a delivered
-	@# email. So `bootstrap` is once again the single command that produces a
-	@# complete environment.
+	@# CONTRACT: post-infra runs LAST inside `bootstrap`, and `bootstrap` must keep
+	@# calling it. Phase 2 owns the ASSETS BUCKET the email templates load images from,
+	@# and a stack without it reports healthy everywhere — the defect appears only as
+	@# broken-image placeholders in a delivered email.
 	@#
-	@# What the original split bought is NOT given back up: post-infra is still
-	@# its own target with its own state, still re-runnable on its own, and still
-	@# fails against a torn-down phase 1 at the remote-state read before any
-	@# provisioner runs. It is only also CALLED here, at the very end, where its
-	@# blast radius is itself — the same placement argument that puts
-	@# bootstrap.py last inside bootstrap-converge.
-	@#
-	@# It is NOT in `bootstrap-converge`: that target is the resume path for a
-	@# run that died partway, and every step in it is idempotent by design.
-	@# post-infra is idempotent too, but it reads phase-1 state that a partial
-	@# run may not have written yet, so folding it in would make the resume path
-	@# fail for a reason unrelated to what it is resuming.
+	@# CONTRACT: Do NOT fold post-infra into `bootstrap-converge`. That target is the
+	@# resume path; post-infra reads phase-1 state a partial run may not have written.
+	@# It stays its own target with its own state, still re-runnable, still failing at
+	@# the remote-state read against a torn-down phase 1.
+	@# See [[2026-07-30-post-infra-root-design]] and
+	@# [[2026-09-09-makefile-orchestration-invariants]]
 	$(MAKE) post-infra
 
 bootstrap-provision: scripts-setup ## Phase 1 of bootstrap: Floci + terraform + env files (NOT re-runnable — see below)
@@ -666,23 +518,17 @@ bootstrap-provision: scripts-setup ## Phase 1 of bootstrap: Floci + terraform + 
 	$(MAKE) infra-up
 
 bootstrap-converge: scripts-setup ## Phase 2 of bootstrap: migrations + services + nginx alias. SAFE to re-run.
-	@# The resume path for a `bootstrap` that died partway. Every step here is
-	@# idempotent — Prisma and golang-migrate are no-ops on an up-to-date database,
-	@# `compose up -d` reconciles rather than duplicates, and bootstrap.py
-	@# returns early when the alias already resolves — so re-running costs time
-	@# and nothing else.
+	@# CONTRACT: Every step here stays idempotent — this is the resume path for a
+	@# `bootstrap` that died partway, and a non-idempotent step would make a resume fail
+	@# on work already done. Prisma and golang-migrate no-op at head, `compose up -d`
+	@# reconciles, and bootstrap.py returns early when the alias resolves.
 	@#
-	@# Starts with `env-file` because it is the one thing `infra-up` did that
-	@# this half depends on: `migrate-tracking` reads DATABASE_WRITER_URL from
-	@# .env.local.tracking, and the services read their own files via compose
-	@# `env_file:`. Regenerating is cheap and reads existing terraform outputs —
-	@# it does NOT apply, so it is safe against JE-113.
-	@#
-	@# On a full `make bootstrap` this runs twice (infra-up ends by calling it
-	@# too). Intentional, not an oversight: the second call is a sub-second
-	@# no-op, and dropping it would make this target depend on having been
-	@# entered through bootstrap — exactly the assumption that would stop it
-	@# working as a standalone resume path.
+	@# CONTRACT: Start with `env-file`, and do NOT drop it because `infra-up` already
+	@# called it. `migrate-tracking` reads DATABASE_WRITER_URL from .env.local.tracking
+	@# and the services read theirs via compose `env_file:`; on a full bootstrap the
+	@# second call is a sub-second no-op, and removing it would make this target work
+	@# only when entered through bootstrap. Regenerating reads outputs, never applies,
+	@# so it is safe against JE-113. See [[2026-09-09-makefile-orchestration-invariants]]
 	$(MAKE) env-file
 	$(MAKE) migrate
 	@# Idempotent, and here so this target works as a STANDALONE resume path: a
@@ -692,57 +538,35 @@ bootstrap-converge: scripts-setup ## Phase 2 of bootstrap: migrations + services
 	@# the services open their exporters at boot.
 	$(MAKE) observability-up
 	$(COMPOSE) up -d --build users
-	@# Phase 2 is deliberately NOT called here — but it IS called at the end of
-	@# `bootstrap`. The distinction is the point of this target: this is the
-	@# RESUME path for a run that died partway, and every step in it is
-	@# idempotent. post-infra reads phase-1 state through terraform_remote_state,
-	@# which a partial run may never have written, so calling it here would make
-	@# a resume fail for a reason that has nothing to do with what it is
-	@# resuming. Run `make post-infra` yourself after a resume.
-	@# See docs/superpowers/specs/2026-07-30-post-infra-root-design.md.
-	@# Orders migrates + seeds ITSELF on startup (SEED_ON_STARTUP=true in
-	@# compose): the Api applies EF Core migrations then ProductSeed against
-	@# Floci's MySQL before serving. This differs from Users (Prisma via `make
-	@# migrate`) because no Aurora-MySQL cluster is provisioned in infra yet, so
-	@# there is no standalone migrate target to run — the service owns its schema
-	@# locally. Bring it up after users so the Users gRPC gate (users:50051) is
-	@# reachable for POST /v1/orders.
+	@# CONTRACT: Do NOT call `post-infra` from this target (only from `bootstrap`). This
+	@# is the RESUME path for a partial run and every step in it is idempotent; post-infra
+	@# reads phase-1 state through terraform_remote_state, which a partial run may never
+	@# have written, so a resume would fail for a reason unrelated to what it resumes.
+	@# Run `make post-infra` yourself after a resume.
+	@# See [[2026-07-30-post-infra-root-design]]
+	@#
+	@# WHY: Orders migrates and seeds ITSELF on startup (SEED_ON_STARTUP=true) because no
+	@# Aurora-MySQL cluster is provisioned for it in infra, so it owns its schema locally.
+	@# It comes up after users so the Users gRPC gate (users:50051) answers POST /v1/orders.
 	$(COMPOSE) up -d --build orders
-	@# Tracking, LAST in the chain, and unlike Orders it does NOT self-migrate: it
-	@# has real golang-migrate migrations that nothing invokes on boot, so the
-	@# migration is an explicit step here (the Orders comment above explains why
-	@# that service owns its schema instead).
+	@# CONTRACT: Tracking does NOT self-migrate (unlike Orders), so `migrate-tracking`
+	@# is an explicit step here. Only two things gate it: its MySQL cluster and the
+	@# `tracking` database (created by phase-1 `infra-up`), and `.env.local.tracking`
+	@# (written by `infra-up` via `env-file`), which is where it reads
+	@# DATABASE_WRITER_URL.
 	@#
-	@# Placement. Only two things actually gate it:
-	@#   - Its MySQL cluster and the `tracking` database must exist — both are created by
-	@#     phase-1 `infra-up` (terraform_data.tracking_database), far above.
-	@#   - `.env.local.tracking` must exist, because `migrate-tracking` reads
-	@#     DATABASE_WRITER_URL from it — also written by `infra-up` via `env-file`.
-	@# It does NOT need `users` running: Tracking's only gRPC is an OUTBOUND client to
-	@# Users, dialed lazily per REQUEST on POST /v1/trackings/init-tracking — nothing at
-	@# boot. That is the same reasoning that keeps its compose `depends_on` at `floci`
-	@# alone, and this ordering must not contradict it: Tracking is placed here for
-	@# readability (services grouped at the end), NOT because it depends on users/orders.
-	@#
-	@# migrate-tracking does NOT build the Tracking image any more, and no longer
-	@# needs to: it runs golang-migrate in its own pinned container rather than
-	@# `compose run` inside the service image (which is distroless and holds no
-	@# migration tool). So the order below is migrate-then-build rather than
-	@# build-then-migrate-then-build, and the `--build` here is the only build.
+	@# CONTRACT: Do NOT read this placement as a dependency on users/orders. Tracking's
+	@# only gRPC is an OUTBOUND client dialed lazily per request, which is why its
+	@# compose `depends_on` is `floci` alone; it sits last for readability only, and an
+	@# ordering change that contradicts that compose file is the bug.
+	@# See [[2026-09-09-makefile-orchestration-invariants]]
 	$(MAKE) migrate-tracking
 	$(COMPOSE) up -d --build tracking
-	@# The web app, which `bootstrap` used to leave down: a from-scratch run
-	@# brought the three BACKEND services up and nothing served :3004, so the
-	@# frontend was missing from a stack that reported itself complete.
-	@#
-	@# AFTER the services, not before. Its NG_APP_* values are inlined at BUILD
-	@# time (see the compose service's own comment), so this build is also what
-	@# picks up a changed flag — `restart` re-serves the same bundle and looks
-	@# like the flag being ignored.
-	@#
-	@# This is the CONTAINER (nginx serving the production bundle on :3004), not
-	@# `pnpm web:dev` on :4200. The E2E web specs target :4200 and still need that
-	@# dev server started separately — they are not part of this chain.
+	@# CONTRACT: Build the web app AFTER the services and with `--build`, never
+	@# `restart`. Its NG_APP_* values are inlined at BUILD time, so a restart re-serves
+	@# the same bundle and a changed flag looks ignored.
+	@# WHY: This is the CONTAINER on :3004 (nginx serving the production bundle), not
+	@# `pnpm web:dev` on :4200 — the E2E web specs target :4200 and start it separately.
 	$(COMPOSE) up -d --build web
 	@# LAST, deliberately — see the ordering note at the top of this target.
 	@# It also benefits from running here: by now `users` has had the whole
@@ -751,79 +575,22 @@ bootstrap-converge: scripts-setup ## Phase 2 of bootstrap: migrations + services
 	$(PY) $(TF_LOCAL_DIR)/bootstrap.py
 
 clean: ## Tear down infra + compose, including the emulator state volume
-	@# `down -v` — the -v is load-bearing, not a convenience. It removes the
-	@# `floci-state` volume holding what resources Floci BELIEVES exist, and that
-	@# has to die in the same breath as the containers backing them.
-	@#
-	@# This used to ask before deleting ./data, DEFAULTING TO KEEPING IT, which
-	@# made a from-scratch teardown non-deterministic: the containers went away
-	@# and the state claiming they existed stayed. The next apply then read
-	@# `available` from that stale state and skipped creating DocumentDB and
-	@# ElastiCache, leaving clusters with no container behind them — a failure
-	@# that surfaced only later, as `getaddrinfo ENOTFOUND floci-docdb-…` inside
-	@# a Lambda. No prompt now: clean means clean.
-	@#
-	@# (RDS survived that same teardown because Floci relaunches ITS containers
-	@# from persisted state at boot; DocumentDB and ElastiCache have no such
-	@# reconciler. That asymmetry is what made it look intermittent.)
-	@# --profile is load-bearing here for the same reason -v is. `down` SKIPS
-	@# services behind a profile, so openobserve/otel-collector survived
-	@# every `make clean` — still running, still holding `3mrai_openobserve-data`
-	@# and keeping the network alive so it could not be removed either. A
-	@# "from-scratch" rebuild therefore inherited the previous run's metric
-	@# series, which is how rows written under an OLD schema kept colliding with
-	@# new ones long after the change that caused it.
-	@# The volume sweep below is the third thing that turned out to be
-	@# load-bearing, alongside -v and --profile, and it fails in the same shape:
-	@# something survives a "from-scratch" teardown and the next run silently
-	@# inherits it.
-	@#
-	@# `down -v` removes only the volumes the CURRENT compose file DECLARES. A
-	@# volume compose itself created under an earlier version of this file is not
-	@# in that list any more, so it outlives every clean with no warning — it is
-	@# not dangling (a container may still mount it) and not orphaned in the sense
-	@# --remove-orphans handles (that flag is about containers, not volumes).
-	@#
-	@# Found exactly that: `3mrai_otelcol-storage`, carrying the CloudWatch
-	@# receiver's checkpoint file, created 2026-08-14 by a compose revision that
-	@# was never committed. Nothing writes it today — the config declares no
-	@# file_storage extension, so the receiver keeps its checkpoint in memory —
-	@# yet it sat there holding a stale read position for every log group.
-	@#
-	@# Filtering on compose's own project label is what makes this safe: it is
-	@# exactly the set compose would have removed had it still known about these
-	@# volumes, so it can never reach another project's data. `docker volume prune`
-	@# was the alternative and is strictly worse — it is scoped to the whole
-	@# daemon, not to this project.
-	@#
-	@# Runs AFTER `down -v` so the declared volumes are already gone and this only
-	@# catches the leftovers. `|| true`: an empty list is the healthy case, and a
-	@# volume still held by a container from another project must not fail clean.
-	@# NO `terraform destroy` HERE, DELIBERATELY. It was the single largest source
-	@# of trouble in this target, and it was never necessary.
-	@#
-	@# Every resource Terraform manages locally IS a Docker container or volume
-	@# inside Floci, and the state describing them lives in a bucket inside Floci
-	@# too. Removing the containers and volumes therefore destroys the resources
-	@# AND the state in the same stroke — there is nothing left on either side to
-	@# disagree, which is exactly what a teardown wants.
-	@#
-	@# What destroy actually bought was three problems:
-	@#   - it HANGS: 26 minutes on one CloudWatch log group in one session, and
-	@#     still going at 8 in another, because Floci stops answering that delete;
-	@#   - killing the hang leaves state HALF-DESTROYED, which is what produced
-	@#     "NotFoundException: Invalid API id" on the next bootstrap;
-	@#   - hand-repairing that state produced the OPPOSITE failure
-	@#     ("EntityAlreadyExists"), because entries were removed for resources that
-	@#     did still exist.
-	@#
-	@# All three vanish when the teardown is done at the Docker layer, which also
-	@# takes seconds instead of minutes and cannot partially succeed.
-	@#
-	@# The one piece of state that does NOT live inside Floci is the bootstrap
-	@# backend (infra/environments/local/backend/*.tfstate, 4 resources: the bucket
-	@# and lock table that hold everything else). It has to go too, or the next
-	@# bootstrap reads a state describing a bucket that no longer exists.
+	@# CONTRACT: Four things make this a true teardown, and each was found by a
+	@# "from-scratch" run silently inheriting the previous one. Do NOT drop any of them.
+	@#   - `-v`: removes the `floci-state` volume recording what Floci BELIEVES exists.
+	@#     Kept, the next apply reads `available` for DocumentDB/ElastiCache and skips
+	@#     creating them, surfacing later as `getaddrinfo ENOTFOUND floci-docdb-…`.
+	@#   - `--profile`: `down` SKIPS profiled services, so openobserve/otel-collector
+	@#     survive every clean, hold their data volume, and keep the network alive.
+	@#   - the compose-labelled volume sweep: `down -v` removes only volumes the CURRENT
+	@#     file declares, so one created under an older revision outlives every clean.
+	@#   - the floci=true volume sweep, below.
+	@# See [[floci-recreate-destroys-backing-containers]] and
+	@# [[2026-09-09-makefile-orchestration-invariants]]
+
+	@# CONTRACT: The bootstrap backend state and the cached .terraform config must go
+	@# too — they describe a bucket that dies with Floci, and `init` otherwise reuses a
+	@# pointer to it and fails before reaching the reconcile path.
 	@echo "Removing the bootstrap backend state (it describes a bucket that dies with Floci)…"
 	@rm -f infra/environments/local/backend/terraform.tfstate \
 		infra/environments/local/backend/terraform.tfstate.backup 2>/dev/null || true
@@ -836,145 +603,90 @@ clean: ## Tear down infra + compose, including the emulator state volume
 	@echo "Removing compose volumes this project still owns but no longer declares…"
 	@docker volume ls -q --filter label=com.docker.compose.project=3mrai \
 		| xargs -r docker volume rm 2>/dev/null || true
-	@# Floci's OWN containers — the same leak, one layer up.
-	@#
-	@# Floci launches ECS tasks (and the RDS/DocDB/valkey backers) through the
-	@# mounted docker socket, so they are NOT compose services: they carry no
-	@# com.docker.compose.project label, `down` never sees them, and
-	@# --remove-orphans does not apply (it only removes containers compose itself
-	@# started for this project). They therefore outlive every teardown.
-	@#
-	@# Two consequences, both observed here rather than theorised: a nginx task
-	@# from a FOUR-HOUR-OLD run was still up after a full clean, and because it
-	@# held the network, `down` could not remove it either — "Network
-	@# 3mrai_3mrai-network Resource is still in use". The next bootstrap then
-	@# builds on a network it did not create, with a stale gateway task on it.
-	@#
-	@# Matched on the `floci-` name prefix, which Floci derives from the resource
-	@# identifier — the same naming the doctor check and DOCDB_HOST rely on.
-	@# Removing the network afterwards is what makes the next `up` recreate it
-	@# clean; `|| true` throughout because "nothing to remove" is the healthy case.
+	@# CONTRACT: Remove the floci- prefixed containers explicitly. Floci launches ECS
+	@# tasks and the RDS/DocDB/valkey backers through the mounted docker socket, so they
+	@# carry no compose project label: `down` never sees them and --remove-orphans does
+	@# not apply. A stale gateway task then survives the teardown AND holds the network,
+	@# so `down` reports "Network 3mrai_3mrai-network Resource is still in use" and the
+	@# next bootstrap builds on a network it did not create.
+	@# See [[2026-09-09-makefile-orchestration-invariants]]
 	@echo "Removing Floci-launched containers (not compose services, so down misses them)…"
 	@docker ps -aq --filter "name=^floci-" | xargs -r docker rm -f 2>/dev/null || true
-	@# The FOURTH thing that survived a "from-scratch" teardown, same shape as the
-	@# three above. Floci creates its own volumes for the databases it launches
-	@# (floci-rds-cluster-*, DocumentDB, ElastiCache) and labels them `floci=true`
-	@# — NOT `com.docker.compose.project=3mrai`, so the compose-labelled sweep two
-	@# lines up walks straight past them. Removing the container without its
-	@# volume is precisely the split-brain this target exists to prevent.
-	@#
-	@# Measured on 2026-08-30: six of these had accumulated across bootstraps,
-	@# holding 870MB, of which only two belonged to the live stack.
+	@# CONTRACT: Sweep the floci=true volumes too. Floci labels the volumes for the
+	@# databases it launches `floci=true`, NOT `com.docker.compose.project=3mrai`, so
+	@# the compose-labelled sweep above walks straight past them and removing a
+	@# container without its volume recreates the split-brain this target prevents.
 	@echo "Removing Floci-created volumes (labelled floci=true, not compose)…"
 	@docker volume ls -q --filter label=floci=true \
 		| xargs -r docker volume rm -f 2>/dev/null || true
 	@docker network rm 3mrai_3mrai-network 2>/dev/null || true
-	@# Build cache and dangling images. Neither is state, so neither breaks
-	@# anything by going — but both grow without bound across the rebuild loop
-	@# this project runs on (`compose up --build` per service change), and nothing
-	@# else ever reclaims them. Measured the same day: 6.4GB of build cache and
-	@# 2.2GB of dangling images, i.e. more than the containers and volumes put
-	@# together.
-	@#
-	@# BOTH are machine-wide, not project-scoped, and that is worth knowing before
-	@# running this on a machine hosting other work: `image prune` removes every
-	@# DANGLING image (untagged, unreferenced — no project loses a tagged image),
-	@# and the builder cache has no project filter at all. Both are caches: the
-	@# cost of dropping them is one slower rebuild, never lost state.
+	@# WARNING: Both prunes are machine-wide, not project-scoped — `image prune` removes
+	@# every DANGLING image (untagged, unreferenced, so no project loses a tagged image)
+	@# and the builder cache has no project filter at all. Worth knowing before running
+	@# this on a machine hosting other work. Neither is state: the cost of dropping them
+	@# is one slower rebuild. They grow without bound across this project's rebuild loop
+	@# and nothing else reclaims them (measured: 6.4GB cache, 2.2GB dangling images).
 	@echo "Reclaiming dangling images and build cache…"
 	@docker image prune -f 2>/dev/null || true
 	@docker builder prune -af 2>/dev/null || true
 
 redeploy-lambdas: scripts-setup ## Rebuild and redeploy every local Lambda from the current source
-	@# A Lambda does NOT rebuild with `docker compose`. The services do, so the
-	@# habit the rest of this Makefile teaches is wrong for exactly these seven
-	@# functions — and the failure is SILENT: the source is correct, its tests
-	@# pass, and the deployed function keeps running whatever it ran before.
+	@# CONTRACT: Do NOT expect `docker compose` to redeploy a Lambda. The services
+	@# rebuild that way and these seven functions do not, and the failure is SILENT —
+	@# source correct, tests green, deployed function still running the old zip. It
+	@# shipped a real bug: otp_challenge_rejected kept arriving at severity 0 for days
+	@# after the fix that set severity_text landed.
 	@#
-	@# That shipped a real bug. The Cognito trigger was fixed to emit
-	@# severity_text/severity_number instead of a hardcoded `level: "info"`, and
-	@# days later every otp_challenge_rejected — a wrong one-time code — was
-	@# still arriving at severity 0, because the deployed zip predated the fix.
-	@# Nothing reported it; only reading the deployed code revealed it.
-	@#
-	@# BUILD FIRST, then deploy. The two bundled functions are esbuild bundles;
-	@# uploading dist/ without rebuilding would deploy the previous bundle and
-	@# report success. The Cognito functions are bare .mjs with no build step.
-	@#
-	@# The same two builds also live in `lambda-bundles`, which the terraform
-	@# targets depend on. Deliberately not shared: this target runs after every
-	@# Lambda code edit, and lambda-bundles carries a `pnpm install` that only
-	@# earns its cost on a fresh clone about to plan.
-	@#
-	@# `terraform apply` would also redeploy these (archive_file's hash triggers
-	@# the update), but a second phase-1 apply fails against Floci on UpdateTags
-	@# — see docs/lessons/floci-rds-apigw-limits.md — so it is not the loop to
-	@# reach for after a code edit.
+	@# WHY: `terraform apply` would also redeploy these, but a second phase-1 apply
+	@# fails on Floci's UpdateTags. See [[floci-rds-apigw-limits]]
+	@# CONTRACT: Build BEFORE deploying, and keep these duplicated from `lambda-bundles`
+	@# rather than shared — that target carries a `pnpm install` that only earns its cost
+	@# on a fresh clone. Uploading dist/ unrebuilt deploys the previous bundle and reports
+	@# success. The Cognito functions are bare .mjs with no build step.
 	pnpm --filter @3mrai/events-pipeline build
 	pnpm --filter @3mrai/realtime-events build
 	$(PY) infra/scripts/redeploy_lambdas.py
 
 
 observability-up: ## Start OpenObserve + the OTel collector (opt-in; ~512MB-1.5GB RAM)
-	# --force-recreate, scoped to just these services: they sit outside the main
-	# up/down cycle, so a recreated stack network can leave them stranded on a dead
-	# network (exit 128, "network ... not found"). Recreating them re-attaches to the
-	# current network. Naming the services keeps --force-recreate from bouncing the
-	# whole app stack.
+	# CONTRACT: Name EVERY service in the observability profile here. The profile alone
+	# does not start anything, so a service omitted from this list NEVER STARTS — that
+	# is how the whole tracing path once sat dead with a profiled service in no target.
+	# Symptom: the collector logs "no children to pick from" then "Exporting failed.
+	# Dropping data.", and the UI is empty with no other clue. Add to the profile, add
+	# here. See [[2026-09-09-makefile-orchestration-invariants]]
 	#
-	# EVERY service in the profile must be named here. Naming services is what
-	# makes --force-recreate surgical, but it also means a service the list forgets
-	# NEVER STARTS — the profile alone does not start it. That is exactly how
-	# jaeger (since removed) sat in `profiles: [observability]` and in no target,
-	# leaving the entire tracing path dead. Add to the profile, add here.
-	#
-	# The failure is quiet and loud only in the collector's own log: the exporter
-	# retries "no children to pick from" (gRPC for: the target resolved to no
-	# address) and after the retry budget logs "Exporting failed. Dropping data."
-	# Traces and logs both go to OpenObserve now, so a missing collector means an
-	# empty UI on a port with nothing listening and no other clue.
+	# WHY: --force-recreate, scoped by name. These sit outside the main up/down cycle,
+	# so a recreated stack network strands them (exit 128, "network ... not found");
+	# naming the services keeps the flag from bouncing the whole app stack.
 	$(COMPOSE) --profile observability up -d --force-recreate openobserve otel-collector
-	@# The dashboards live in the `openobserve-data` volume, which `make clean`
-	@# now deletes (that is the point of the -v). Nothing recreated them: this
-	@# target started the stack and `observability-dashboards` existed but was
-	@# invoked by NOTHING — not bootstrap, not here — so every from-scratch
-	@# rebuild left OpenObserve running with no dashboards at all, and the only
-	@# way back was remembering an undocumented manual command.
+	@# CONTRACT: Do NOT invoke the dashboard and schema seeds from bootstrap instead of
+	@# here. They live in the `openobserve-data` volume that `make clean` deletes, and
+	@# this is the target that creates it — chained anywhere else, a from-scratch
+	@# rebuild leaves OpenObserve running with no dashboards. Both importers are
+	@# idempotent (they key on title / probe the schema), so every run is a no-op when
+	@# current. See [[2026-09-09-makefile-orchestration-invariants]]
 	@#
-	@# Chained here rather than in bootstrap because this is the target that
-	@# creates the thing they live in. The importer keys on dashboard TITLE and
-	@# PUTs when one already exists, so running it on every up is a no-op when
-	@# they are current.
-	@#
-	@# The wait is not cosmetic: openobserve declares no healthcheck, so
-	@# `up -d` returns as soon as the container is created, well before it
-	@# accepts HTTP. Polling rather than sleeping a fixed guess — a sleep long
-	@# enough to be safe is mostly wasted, and one short enough to feel quick
-	@# fails on a cold start.
+	@# WHY: Poll rather than sleep — openobserve declares no healthcheck, so `up -d`
+	@# returns well before it accepts HTTP.
 	@printf 'Waiting for OpenObserve to accept requests'
 	@for i in $$(seq 1 60); do \
 		if curl -sf -o /dev/null http://localhost:5080/healthz 2>/dev/null; then break; fi; \
 		printf '.'; sleep 1; \
 	done; echo
-	@# Declares the gen_ai_* columns on the traces stream. Without them
-	@# OpenObserve's trace waterfall 400s on EVERY trace, because its
-	@# /traces/{id}/dag endpoint SELECTs gen_ai_operation_name unconditionally and
-	@# nothing here emits it. Not a version bug — v0.92.2 was tested side by side
-	@# and fails identically; see the script's docstring.
-	@#
-	@# Chained here for the same reason observability-dashboards is: the schema
-	@# lives in the openobserve-data volume that `make clean` deletes, so a
-	@# hand-run seed survives only until the next from-scratch rebuild. Idempotent
-	@# — it checks the schema first and re-running is a no-op.
+	@# CONTRACT: Keep both seeds chained here. The traces schema declares the gen_ai_*
+	@# columns OpenObserve's /traces/{id}/dag endpoint SELECTs unconditionally; without
+	@# them the trace waterfall 400s on EVERY trace. Not a version bug — v0.92.2 fails
+	@# identically. Both live in the openobserve-data volume `make clean` deletes, so a
+	@# hand-run seed survives only until the next rebuild. Both are idempotent.
+	@# See [[ADR-0019-distributed-tracing-opentelemetry]]
 	@$(MAKE) --no-print-directory observability-traces-schema
 	@$(MAKE) --no-print-directory observability-dashboards
 	@echo "OpenObserve UI on http://localhost:5080 once it's healthy (~5s)."
 	@echo "Login: admin@3mrai.local / Complexpass#123"
-	@# This target is now also called BY `bootstrap-converge`, before the services
-	@# start — it is no longer opt-in. Running it by hand stays valid and is a
-	@# no-op when the containers are already up; what it is NOT is the only thing
-	@# standing between the services and a resolvable `otel-collector` hostname.
-	@# See the note in bootstrap-converge for why that became mandatory.
+	@# WHY: `bootstrap-converge` also calls this, before the services start, so it is
+	@# mandatory rather than opt-in. Running it by hand stays valid and no-ops when the
+	@# containers are up. See the CONTRACT in bootstrap-converge.
 
 observability-down: ## Stop the observability stack (leaves the rest running)
 	@# Every service in the profile, for the same reason observability-up names
@@ -982,14 +694,13 @@ observability-down: ## Stop the observability stack (leaves the rest running)
 	$(COMPOSE) stop openobserve otel-collector
 
 observability-traces-schema: ## Declare the gen_ai_* fields OpenObserve's trace waterfall requires (idempotent)
-	@# O2_ORG must match the collector's, exactly as for the dashboards below —
-	@# and O2_TRACES_STREAM must match the collector's `stream-name` header for
-	@# traces (app_traces). Seeding the wrong stream returns 200 and fixes
-	@# nothing: the columns land where no one reads them.
-	@#
-	@# Plain python3, not .venv/bin/python: this is standard-library only and
-	@# deliberately has no venv dependency, so it runs before scripts-setup has
-	@# ever executed on a fresh clone.
+	@# CONTRACT: O2_ORG must match the collector's and O2_TRACES_STREAM must match its
+	@# `stream-name` header for traces (app_traces). Seeding the wrong stream returns 200
+	@# and fixes nothing — the columns land where no one reads them.
+	@# See [[ADR-0019-distributed-tracing-opentelemetry]]
+
+	@# WHY: Plain python3, not .venv/bin/python — stdlib only and deliberately venv-free,
+	@# so it runs before scripts-setup has ever executed on a fresh clone.
 	O2_ORG=$${O2_ORG:-3mrai} python3 scripts/seed_traces_schema.py
 
 observability-dashboards: ## Import/update OpenObserve dashboards from observability/dashboards/*.dashboard.json (idempotent)
@@ -1008,21 +719,16 @@ observability-dashboards: ## Import/update OpenObserve dashboards from observabi
 LNAI_VERSION := 0.6.92
 
 ai-sync: ## Propagate agent config from .claude/ to the other AI providers
-	@# .claude/ is the source of truth; .ai/ is derived. Distilling universal
-	@# rules from Claude-specific ones needs judgment, so it runs through the
-	@# ai-config-sync subagent — this target is the deterministic half only.
-	@# The checksum bracket is the guard: a sync must never alter the source.
+	@# CONTRACT: .claude/ is the source of truth and .ai/ is derived — the checksum
+	@# bracket below fails the run if a sync alters CLAUDE.md. Distilling universal
+	@# rules from Claude-specific ones needs judgment, so that half runs through the
+	@# ai-config-sync subagent; this target is the deterministic half only.
 	@#
-	@# ENTRIES UNDER .agents/skills/ THAT MIRROR .ai/skills/ MUST BE SYMLINKS.
-	@# Four of them (golang-concurrency, -context, -database, -error-handling)
-	@# were committed as REAL DIRECTORIES holding a byte-identical copy. lnai
-	@# rewrites those on every run, so each sync deleted 21 tracked files and
-	@# re-created them untracked — `ai-sync-check` then failed for a reason that
-	@# reads as corruption and was really a format mismatch. Converted to symlinks
-	@# on 2026-08-31 (verified identical first); two consecutive syncs are now a
-	@# no-op. Note the five WITHOUT a .ai/skills/ counterpart (golang-code-style,
-	@# -naming, -observability, -project-layout, -testing) are legitimately real
-	@# directories — they own their content. Add a mirrored skill as a symlink.
+	@# CONTRACT: An entry under .agents/skills/ that mirrors one in .ai/skills/ MUST be
+	@# a symlink. lnai rewrites a real directory on every run, deleting its tracked
+	@# files and re-creating them untracked, so ai-sync-check fails looking like
+	@# corruption. The five without a .ai/skills/ counterpart own their content and are
+	@# legitimately real directories. See [[2026-09-09-makefile-orchestration-invariants]]
 	@before=$$(shasum CLAUDE.md | cut -d' ' -f1); \
 	npx -y lnai@$(LNAI_VERSION) sync; \
 	after=$$(shasum CLAUDE.md | cut -d' ' -f1); \
