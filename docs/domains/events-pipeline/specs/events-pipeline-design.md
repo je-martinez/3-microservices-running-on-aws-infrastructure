@@ -4,9 +4,10 @@ type: spec
 area: events-pipeline
 status: accepted
 created: 2026-06-26
-updated: 2026-08-29
+updated: 2026-09-09
 tags: [type/spec, area/events-pipeline, status/accepted, issue/JE-180, issue/JE-181]
 related:
+  - "[[2026-09-09-a-rejected-message-is-not-a-retried-one]]"
   - "[[2026-08-29-e2e-email-support-store]]"
   - "[[2026-08-29-the-emulator-was-the-ceiling-not-the-code]]"
   - "[[2026-08-15-request-id-correlation-design]]"
@@ -177,7 +178,13 @@ transient outage from silently dropping an event:
 - **`PermanentError`** — invalid payload, unknown event type, or a missing email template.
   Recorded `FAILED` and the SQS message is **consumed** (not reported as a batch item failure) —
   retrying a permanently invalid message can never make it valid, so retrying it would only
-  waste attempts until it lands in the DLQ for the wrong reason.
+  waste attempts until it lands in the DLQ for the wrong reason. **Consumed is not the same as
+  auditable, and until `d7a4499` it silently was treated as if it were.** Excluding a record
+  from `batchItemFailures` makes SQS delete it, and because that is not retry exhaustion, the
+  redrive policy never sees it either — of the paths below, two (malformed envelope, initial
+  insert failing) reached this state with **no** `FAILED` document to show for it. See
+  [Quarantine — the two paths a `FAILED` document cannot cover](#quarantine--the-two-paths-a-failed-document-cannot-cover)
+  below and [[2026-09-09-a-rejected-message-is-not-a-retried-one]].
 - **`TransientError`** — DocumentDB or SES unreachable (network failure, timeout). The record's
   message id is returned in `batchItemFailures`, so SQS retries **only that record**, and it
   eventually lands in the DLQ if retries are exhausted (`maxReceiveCount = 3`).
@@ -224,17 +231,85 @@ Each event document moves through four states. Transitions are recorded as entri
 ```
 SQS message received
        │
+       ├──── malformed envelope ────► (no document — never reaches STARTED)
+       │                                 └─► quarantined: raw body copied to DLQ, then consumed
        ▼
-  [STARTED] ──── unknown type ────► [FAILED] (permanent, consumed)
+  [STARTED] ──── unknown type ────► [FAILED] (permanent, consumed, auditable)
        │
+       ├──── insert itself fails, permanently ────► (no document persisted)
+       │                                               └─► quarantined: raw body copied to DLQ, then consumed
        ▼
- [IN_PROGRESS] ── PermanentError ──► [FAILED] (consumed)
+ [IN_PROGRESS] ── PermanentError ──► [FAILED] (consumed, auditable)
        │
-       └──────── TransientError ───► [FAILED] (batchItemFailures → SQS retry → DLQ)
+       └──────── TransientError ───► [FAILED] (batchItemFailures → SQS retry → DLQ via redrive)
        │
        ▼
   [COMPLETED]
 ```
+
+The two branches marked "no document" are not a hypothetical edge case — they are the two paths
+that lose a message with **zero** trace in `events`, and quarantine (below) exists specifically
+because SQS's own deletion of a refused message looks identical to its deletion of a successfully
+processed one; see
+[Quarantine — the two paths a `FAILED` document cannot cover](#quarantine--the-two-paths-a-failed-document-cannot-cover).
+
+### Quarantine — the two paths a `FAILED` document cannot cover
+
+> [!important] Fixed 2026-09-09 (`d7a4499`) — see [[2026-09-09-a-rejected-message-is-not-a-retried-one]]
+> Until this commit, a message the consumer refused was excluded from `batchItemFailures`, so SQS
+> **deleted** it. Because that is not retry exhaustion, the redrive policy never saw it either —
+> the message vanished with the DLQ still at 0, and the only trace was one log line in an opt-in
+> observability stack. Proved live with a probe message; re-verified after a full clean +
+> bootstrap, where a malformed envelope now lands in the DLQ within 10 seconds, body intact,
+> tagged `invalid_envelope` with its original message id.
+
+Every permanent failure that reaches [Status Machine](#status-machine) above (unknown event
+type, a `PermanentError` thrown by a handler) writes a `FAILED` document first and is fully
+auditable. Exactly **two** paths bypass that document entirely, because there is nothing yet to
+write it against:
+
+1. **A malformed envelope.** `EnvelopeSchema.parse(JSON.parse(record.body))` throws in
+   `processRecordSafely` (`functions/events-pipeline/src/handler.ts`, in the `catch` around the
+   parse). There is no `event_id` — parsing is what would have produced it — so no document can
+   be marked `FAILED`. This is why the state diagram above shows this branch **before**
+   `[STARTED]`: the record never reaches the status machine at all.
+2. **The initial insert failing permanently.** `deps.repository.create(...)` throws in
+   `processRecord` (`functions/events-pipeline/src/pipeline/process-record.ts`,
+   `markPhase("persist_failed_record_dropped")`) and the error is not transient. Nothing was
+   persisted — there is no row to update to `FAILED`, only a row that was never created.
+
+`ProcessRecordResult` (`process-record.ts`) carries a `persisted: boolean` specifically to let
+the caller tell these two apart from an ordinary auditable permanent failure: `persisted: false`
+only on the insert-failure path above; `persisted: true` on every other terminal outcome
+(`ok: true`, unknown-type `FAILED`, handler-`PermanentError` `FAILED`).
+
+**Before ACKing either path, the consumer copies the raw SQS body to the dead-letter queue** via
+`quarantine()` (`functions/events-pipeline/src/pipeline/quarantine.ts`), tagged with a
+`quarantine_reason` message **attribute** (`invalid_envelope` or `persist_failed`) rather than
+folding it into the body. Contracts, all load-bearing:
+
+- **The body travels byte for byte, unwrapped.** An operator redriving the message needs exactly
+  what the producer sent; a body re-wrapped in an envelope of this pipeline's own would be
+  rejected by the consumer itself on the way back in. The reason rides as an attribute for the
+  same reason — it is droppable metadata, not part of the contract the body represents.
+- **Quarantine never fails the record.** Every failure inside `quarantine()` — the DLQ being
+  unreachable, `SendMessageCommand` erroring — is swallowed and logged (`WARN`/`ERROR`, never
+  rethrown). A DLQ that is down must not turn a message already decided to be dropped into a
+  retry; that would resurrect exactly the loop the ACK exists to prevent.
+- **`EVENTS_DLQ_URL` is optional** in the env schema
+  (`functions/events-pipeline/src/shared/config/env.ts`). Its absence degrades to "no copy,
+  logged at `WARN`" rather than failing Lambda boot — an environment that has not provisioned a
+  DLQ still processes traffic, it just loses the safety net this section describes.
+- **The IAM grant is 0-or-1 and never falls back to the main queue's ARN.** `infra/modules/lambda/main.tf`'s
+  `SqsQuarantine` statement grants `sqs:SendMessage` on `var.dlq_arn` only when it is non-empty
+  (`infra/modules/lambda/variables.tf`, default `""`); it is never satisfied by the main queue's
+  ARN. Granting `SendMessage` on the queue the message just failed on would let it be written
+  straight back onto that queue, looping through the consumer as ordinary traffic instead of
+  landing anywhere an operator can see it.
+- **This is not the redrive path and does not replace it.** Redrive still handles retry
+  exhaustion for transient failures, unchanged, at `maxReceiveCount = 3`. Quarantine only ever
+  fires for the two permanent, undocumented paths above — a transient failure is retried and, if
+  exhausted, reaches the DLQ through redrive on its own; copying it here too would duplicate it.
 
 ## Data Model
 
@@ -968,6 +1043,9 @@ flushed are lost or arrive late on the next cold invocation, attributed to the w
 
 ## Related
 
+- [[2026-09-09-a-rejected-message-is-not-a-retried-one]] — the lesson behind the
+  [Quarantine](#quarantine--the-two-paths-a-failed-document-cannot-cover) section above: a DLQ
+  only catches what the consumer keeps failing at, not what it successfully refuses.
 - [[2026-08-29-e2e-email-support-store]] — the implementation plan for the
   [E2E email-support store](#e2e-email-support-store) section above: the `e2e_emails` collection,
   the TTL index, the Function URL query route, and the design decisions behind each.
