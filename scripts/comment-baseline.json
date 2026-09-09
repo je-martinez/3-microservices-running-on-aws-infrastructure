@@ -447,8 +447,8 @@
     ],
     "functions/events-pipeline/src/shared/config/env.ts": [
       {
-        "fingerprint": "cf1811b8bed1",
-        "message": "density: 54% (48/89) exceeds 50% for typescript"
+        "fingerprint": "fba72a43e5ed",
+        "message": "density: 54% (50/93) exceeds 50% for typescript"
       }
     ],
     "functions/events-pipeline/src/shared/logging/log-context.ts": [

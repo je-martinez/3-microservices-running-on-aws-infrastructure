@@ -108,7 +108,7 @@ describe("processRecord", () => {
 
     const result = await processRecord(envelope, { repository, handlers });
 
-    expect(result).toEqual({ ok: false, transient: false });
+    expect(result).toEqual({ ok: false, transient: false, persisted: true });
     expect(handler).not.toHaveBeenCalled();
     expect(repository.transition).toHaveBeenCalledWith("evt_test1", "FAILED", {
       error: "Unknown event type",
@@ -125,7 +125,7 @@ describe("processRecord", () => {
 
     const result = await processRecord(envelope, { repository, handlers: {} });
 
-    expect(result).toEqual({ ok: false, transient: false });
+    expect(result).toEqual({ ok: false, transient: false, persisted: true });
     expect(repository.transition).toHaveBeenCalledWith("evt_test1", "FAILED", {
       error: "Unknown event type",
     });
@@ -141,7 +141,7 @@ describe("processRecord", () => {
 
     const result = await processRecord(makeEnvelope(), { repository, handlers });
 
-    expect(result).toEqual({ ok: false, transient: false });
+    expect(result).toEqual({ ok: false, transient: false, persisted: true });
     expect(repository.transition).toHaveBeenCalledWith("evt_test1", "FAILED", {
       error: "invalid payload",
     });
@@ -157,7 +157,7 @@ describe("processRecord", () => {
 
     const result = await processRecord(makeEnvelope(), { repository, handlers });
 
-    expect(result).toEqual({ ok: false, transient: true });
+    expect(result).toEqual({ ok: false, transient: true, persisted: true });
     expect(repository.transition).toHaveBeenCalledWith("evt_test1", "FAILED", {
       error: "SES unreachable",
     });
@@ -173,7 +173,7 @@ describe("processRecord", () => {
 
     const result = await processRecord(makeEnvelope(), { repository, handlers });
 
-    expect(result).toEqual({ ok: false, transient: true });
+    expect(result).toEqual({ ok: false, transient: true, persisted: true });
   });
 
   it("a non-Error thrown value is stringified into the FAILED error", async () => {
@@ -186,7 +186,7 @@ describe("processRecord", () => {
 
     const result = await processRecord(makeEnvelope(), { repository, handlers });
 
-    expect(result).toEqual({ ok: false, transient: true });
+    expect(result).toEqual({ ok: false, transient: true, persisted: true });
     expect(repository.transition).toHaveBeenCalledWith("evt_test1", "FAILED", {
       error: "a string was thrown",
     });
@@ -440,7 +440,7 @@ describe("processRecord", () => {
 
     const result = await processRecord(makeEnvelope(), { repository, handlers });
 
-    expect(result).toEqual({ ok: false, transient: true });
+    expect(result).toEqual({ ok: false, transient: true, persisted: false });
     expect(handler).not.toHaveBeenCalled();
   });
 });

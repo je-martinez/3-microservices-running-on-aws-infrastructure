@@ -30,7 +30,18 @@ export type HandlerDeps = { recordEmail?: RecordEmailFn };
 
 export type HandlerMap = Record<string, (envelope: Envelope, deps: HandlerDeps) => Promise<void>>;
 
-export type ProcessRecordResult = { ok: true } | { ok: false; transient: boolean };
+/**
+ * `persisted` answers one question the caller cannot otherwise ask: is there a
+ * document recording this failure?
+ *
+ * CONTRACT: A permanent failure that persisted is auditable via its FAILED
+ * document; one that did not leaves nothing, and the caller must quarantine the
+ * raw body. Collapsing the two hides a lost message.
+ * See [[events-pipeline-design]]
+ */
+export type ProcessRecordResult =
+  | { ok: true }
+  | { ok: false; transient: boolean; persisted: boolean };
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -148,7 +159,7 @@ export async function processRecord(
     // upward and let SQS decide (transient → retried, then DLQ). The milestone
     // is the only trace this exit leaves anywhere.
     markPhase("persist_failed_record_dropped");
-    return { ok: false, transient: isTransient(err) };
+    return { ok: false, transient: isTransient(err), persisted: false };
   }
 
   // Own-property lookup: a plain `handlers[type]` would resolve inherited
@@ -162,7 +173,7 @@ export async function processRecord(
     markPhase("no_handler_for_type", "Unknown event type");
     await deps.repository.transition(envelope.event_id, "FAILED", { error: "Unknown event type" });
     logStatus("FAILED", "Unknown event type");
-    return { ok: false, transient: false };
+    return { ok: false, transient: false, persisted: true };
   }
 
   await deps.repository.transition(envelope.event_id, "IN_PROGRESS");
@@ -191,7 +202,7 @@ export async function processRecord(
     markPhase("handler_failed", reason);
     await deps.repository.transition(envelope.event_id, "FAILED", { error: reason });
     logStatus("FAILED", reason);
-    return { ok: false, transient: isTransient(err) };
+    return { ok: false, transient: isTransient(err), persisted: true };
   }
 
   markPhase("handler_returned");

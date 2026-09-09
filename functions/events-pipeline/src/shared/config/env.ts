@@ -56,6 +56,10 @@ const EnvSchema = z.object({
   // not holding login codes overnight.
   E2E_EMAIL_TTL_SECONDS: z.coerce.number().positive().default(3600),
 
+  // CONTRACT: Optional — absence degrades to no DLQ copy, never a boot failure.
+  // See [[events-pipeline-design]]
+  EVENTS_DLQ_URL: z.string().url().optional(),
+
   // Shared secret for the query route. Optional here so a stack without E2E
   // starts normally, but the route REFUSES to serve when it is unset rather
   // than serving unauthenticated — see #e2e/http-query.

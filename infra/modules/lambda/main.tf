@@ -38,54 +38,67 @@ resource "aws_iam_role_policy" "lambda_exec" {
     # conditional Resource: an IAM statement with an empty Resource is invalid,
     # so the statement has to be absent rather than neutered when the consumer
     # does not fan out to WebSocket clients.
-    Statement = concat([
-      {
-        Sid    = "SqsConsume"
-        Effect = "Allow"
-        Action = [
-          "sqs:ReceiveMessage",
-          "sqs:DeleteMessage",
-          "sqs:GetQueueAttributes",
-        ]
-        Resource = var.queue_arn
-      },
-      {
-        Sid      = "SesSend"
-        Effect   = "Allow"
-        Action   = ["ses:SendEmail", "ses:SendRawEmail"]
-        Resource = "*"
-      },
-      {
-        Sid    = "CloudWatchPutMetricData"
-        Effect = "Allow"
-        # Custom business metrics (emails_sent_total / emails_failed_total).
-        #
-        # `Resource = "*"` is the ONLY valid value here, not a shortcut taken for
-        # convenience: PutMetricData supports no resource-level permissions at
-        # all. Access is narrowed with the `cloudwatch:namespace` condition key
-        # instead, which is what confines this function to our own namespace.
-        Action   = ["cloudwatch:PutMetricData"]
-        Resource = "*"
-        Condition = {
-          StringEquals = {
-            "cloudwatch:namespace" = "3MRAI"
+    # CONTRACT: SqsQuarantine is 0-or-1, never falling back to `queue_arn` —
+    # SendMessage on the MAIN queue would let a rejected message be written back
+    # onto the queue it just failed on. See [[events-pipeline-design]]
+    Statement = concat(
+      var.dlq_arn == "" ? [] : [
+        {
+          Sid    = "SqsQuarantine"
+          Effect = "Allow"
+          # SendMessage only: the consumer writes a rejected message to the DLQ
+          # and never reads or deletes from it. Redrive is an operator action.
+          Action   = ["sqs:SendMessage"]
+          Resource = var.dlq_arn
+        },
+        ], [
+        {
+          Sid    = "SqsConsume"
+          Effect = "Allow"
+          Action = [
+            "sqs:ReceiveMessage",
+            "sqs:DeleteMessage",
+            "sqs:GetQueueAttributes",
+          ]
+          Resource = var.queue_arn
+        },
+        {
+          Sid      = "SesSend"
+          Effect   = "Allow"
+          Action   = ["ses:SendEmail", "ses:SendRawEmail"]
+          Resource = "*"
+        },
+        {
+          Sid    = "CloudWatchPutMetricData"
+          Effect = "Allow"
+          # Custom business metrics (emails_sent_total / emails_failed_total).
+          #
+          # `Resource = "*"` is the ONLY valid value here, not a shortcut taken for
+          # convenience: PutMetricData supports no resource-level permissions at
+          # all. Access is narrowed with the `cloudwatch:namespace` condition key
+          # instead, which is what confines this function to our own namespace.
+          Action   = ["cloudwatch:PutMetricData"]
+          Resource = "*"
+          Condition = {
+            StringEquals = {
+              "cloudwatch:namespace" = "3MRAI"
+            }
           }
-        }
-      },
-      {
-        # Scoped to THIS function's log group only. `logs:CreateLogGroup` is
-        # deliberately absent: the group is created explicitly below, so the
-        # runtime never needs to create it. The `:*` suffix covers the log
-        # STREAMS within the group. Self-referential, so no account id or
-        # region is hardcoded.
-        Sid    = "Logs"
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogStream",
-          "logs:PutLogEvents",
-        ]
-        Resource = "${aws_cloudwatch_log_group.this.arn}:*"
-      },
+        },
+        {
+          # Scoped to THIS function's log group only. `logs:CreateLogGroup` is
+          # deliberately absent: the group is created explicitly below, so the
+          # runtime never needs to create it. The `:*` suffix covers the log
+          # STREAMS within the group. Self-referential, so no account id or
+          # region is hardcoded.
+          Sid    = "Logs"
+          Effect = "Allow"
+          Action = [
+            "logs:CreateLogStream",
+            "logs:PutLogEvents",
+          ]
+          Resource = "${aws_cloudwatch_log_group.this.arn}:*"
+        },
       ],
       # Read the connection registry and prune dead rows. Query needs the INDEX
       # ARN (the by-cognito-sub GSI), which is a distinct resource from the

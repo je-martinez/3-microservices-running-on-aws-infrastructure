@@ -344,6 +344,7 @@ module "lambda_events_pipeline" {
   source     = "../../modules/lambda"
   context    = { id = module.label_events.id, tags = module.label_events.tags }
   queue_arn  = module.messaging.queue_arn
+  dlq_arn    = module.messaging.dlq_arn
   source_dir = "${path.module}/../../../functions/events-pipeline/dist"
 
   # WHY: Realtime fan-out grants — Query on the by-cognito-sub GSI, DeleteItem for
@@ -391,6 +392,10 @@ module "lambda_events_pipeline" {
     # .env.local.events-pipeline only serves local tests.
     METRICS_ENABLED  = "true"
     SES_FROM_ADDRESS = var.ses_from_address
+    # WHY: Where the handler writes a message it rejects as UNPROCESSABLE. Such a
+    # message is deleted on return and never reaches the redrive path, so without
+    # this it is gone with no copy anywhere — see #pipeline/quarantine.
+    EVENTS_DLQ_URL = module.messaging.dlq_url
     # CONTRACT: A host-resolvable URL (localhost, NOT floci) — the reader's mail
     # client fetches these icons, the Lambda never does. Templates render remote
     # <img> tags, so a wrong host is a broken icon in every email.
