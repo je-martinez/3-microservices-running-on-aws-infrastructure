@@ -29,10 +29,32 @@ describe('devData', () => {
   });
 
   /**
-   * WHY: Cognito's pool policy rejects a password this app's own client-side
-   * length check accepts, so a generated one that trips it would look like a
-   * backend failure rather than bad test data.
+   * CONTRACT: The province VARIES. A constant is what a hardcoded literal looks
+   * like from the outside — the field appears filled and never exercises a
+   * second value, so nothing downstream is tested against a different one.
    */
+  it('generates a province that is not always the same', async () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 60; i++) {
+      resetDevData();
+      seen.add((await devData(true))!.state);
+    }
+
+    expect(
+      seen.size,
+      `every call returned ${[...seen].join(', ')} — the province is a constant`,
+    ).toBeGreaterThan(1);
+  });
+
+  /** Dominican provinces, matching the +1 809 phone and 5-digit postal code. */
+  it('generates a Dominican province, not a US state', async () => {
+    resetDevData();
+    const data = await devData(true);
+
+    expect(data!.state).not.toMatch(/^(California|Texas|New York|Oregon)$/);
+    expect(data!.state.length).toBeGreaterThan(2);
+  });
+
   /**
    * CONTRACT: A REAL Stripe test number. `chance.cc()` yields a Luhn-valid Visa
    * that Stripe REJECTS. See [[2026-09-07-dev-form-autofill]]
@@ -60,6 +82,11 @@ describe('devData', () => {
     expect(data!.cardCvc).toMatch(/^\d{3}$/);
   });
 
+  /**
+   * WHY: Cognito's pool policy rejects a password this app's own client-side
+   * length check accepts, so a generated one that trips it would look like a
+   * backend failure rather than bad test data.
+   */
   it('generates a password Cognito accepts', async () => {
     const password = (await devData(true))?.password ?? '';
 

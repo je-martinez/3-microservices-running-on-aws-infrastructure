@@ -71,6 +71,15 @@ function password(chance: ChanceLike): string {
  * `+1 809` placeholder assume. A postal code is emitted in the 5-digit form
  * Santo Domingo uses, matching what `parseAddress()` expects to find last.
  */
+// CONTRACT: Real Dominican provinces, drawn PER CALL. `chance.state()` gives US
+// states, contradicting the +1 809 phone beside it. See [[2026-09-07-dev-form-autofill]]
+const PROVINCES = ['Distrito Nacional', 'Santo Domingo', 'Santiago', 'La Altagracia',
+  'Puerto Plata', 'La Vega', 'San Cristóbal', 'Duarte'];
+
+function province(chance: ChanceLike): string {
+  return PROVINCES[chance.integer({ min: 0, max: PROVINCES.length - 1 })];
+}
+
 function cityAndPostalCode(chance: ChanceLike): string {
   return `${chance.city()}, ${String(chance.integer({ min: 10100, max: 11999 }))}`;
 }
@@ -98,8 +107,7 @@ export async function devData(enabled: boolean): Promise<DevData | null> {
     phoneNumber: `+1809${String(chance.integer({ min: 2000000, max: 9999999 }))}`,
     street: chance.street(),
     apartment: `Apto ${chance.integer({ min: 1, max: 40 })}${'ABCD'[chance.integer({ min: 0, max: 3 })]}`,
-    // The province Santo Domingo sits in, matching the city the generator picks.
-    state: 'Distrito Nacional',
+    state: province(chance),
     cityAndPostalCode: cityAndPostalCode(chance),
     cardNumber: STRIPE_TEST_CARD,
     // Derived, never fixed: any FUTURE date is accepted, and a hardcoded year
