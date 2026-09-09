@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal, type WritableSignal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import {
@@ -79,8 +79,15 @@ export class CheckoutPaymentPage {
   protected readonly fullName = computed(() => this.session.user()?.fullName ?? '');
 
   /** Form state for the no-address branch, in the design's three fields. */
+  /**
+   * One signal per field of the address contract — see ShippingAddressSnapshot
+   * in services/orders. `country` has NO input: it is DERIVED, never typed.
+   */
   protected readonly street = signal('');
-  protected readonly cityAndPostalCode = signal('');
+  protected readonly line2 = signal('');
+  protected readonly city = signal('');
+  protected readonly state = signal('');
+  protected readonly postalCode = signal('');
   protected readonly phoneInput = signal('');
 
   /**
@@ -143,24 +150,22 @@ export class CheckoutPaymentPage {
   });
 
   /**
-   * CONTRACT: The address a suggestion resolved, held APART from the visible
-   * fields. Round-tripping it through `cityAndPostalCode` hands it back to the
-   * heuristic parse, which has nowhere to put `state` and drops the province
-   * from every autocompleted address. Null while the buyer types freehand.
+   * CONTRACT: What a suggestion resolved, kept so `country` survives — it is the
+   * one contract field with no input, and the visible fields cannot carry it.
+   * Null while the buyer types freehand, which is why `country` is then ''.
    */
   protected readonly resolvedAddress = signal<Address | null>(null);
 
   /**
-   * The flag's pre-typing default only. Once a digit is typed the NUMBER
-   * decides the country, so this never overrides what the buyer entered — and
-   * it matches the `country` parseAddress() writes.
+   * The phone flag's pre-typing default only. Once a digit is typed the NUMBER
+   * decides the country, so this never overrides what the buyer entered.
    */
   protected readonly seedCountry = computed(() => this.address()?.country ?? 'DO');
 
   protected readonly canSaveAddress = computed(
     () =>
       this.street().trim() !== '' &&
-      this.cityAndPostalCode().trim() !== '' &&
+      this.city().trim() !== '' &&
       !this.savingAddress(),
   );
 
@@ -206,7 +211,11 @@ export class CheckoutPaymentPage {
    */
   protected devFill(data: DevData): void {
     this.street.set(data.street);
-    this.cityAndPostalCode.set(data.cityAndPostalCode);
+    const [devCity, devPostal] = data.cityAndPostalCode.split(',').map((part) => part.trim());
+    this.line2.set(data.apartment);
+    this.city.set(devCity ?? '');
+    this.state.set(data.state);
+    this.postalCode.set(devPostal ?? '');
     this.phoneInput.set(data.phoneNumber);
     // The card fields render only on the plain path; setting them when Stripe
     // is enabled is a harmless no-op rather than a branch to keep in sync.
@@ -228,9 +237,10 @@ export class CheckoutPaymentPage {
     this.resolvedAddress.set(null);
     this.addressError.set(null);
     this.street.set(saved.line1);
-    this.cityAndPostalCode.set(
-      [saved.city, saved.postalCode].filter((part) => part !== '').join(', '),
-    );
+    this.line2.set(saved.line2 ?? '');
+    this.city.set(saved.city);
+    this.state.set(saved.state);
+    this.postalCode.set(saved.postalCode);
     this.phoneInput.set(this.phoneNumber() ?? '');
     this.editingAddress.set(true);
   }
@@ -281,9 +291,9 @@ export class CheckoutPaymentPage {
   protected onAddressSuggested(address: Address): void {
     this.resolvedAddress.set(address);
     this.street.set(address.line1);
-    this.cityAndPostalCode.set(
-      [address.city, address.postalCode].filter((part) => part !== '').join(', '),
-    );
+    this.city.set(address.city);
+    this.state.set(address.state);
+    this.postalCode.set(address.postalCode);
   }
 
   /**
@@ -298,13 +308,13 @@ export class CheckoutPaymentPage {
   }
 
   /**
-   * CONTRACT: Editing city/postal code by hand DROPS the resolution and returns
-   * to the heuristic parse. Keeping it would save the suggestion's city while
-   * the buyer looks at the one they just corrected.
+   * CONTRACT: Hand-editing any field a suggestion resolved DROPS the resolution.
+   * Keeping it saves the suggestion's value while the buyer looks at the one
+   * they just corrected, and keeps its `country` for a different address.
    */
-  protected onCityAndPostalCodeTyped(value: string): void {
+  protected onResolvedFieldTyped(field: WritableSignal<string>, value: string): void {
     this.resolvedAddress.set(null);
-    this.cityAndPostalCode.set(value);
+    field.set(value);
   }
 
   /**
@@ -319,19 +329,16 @@ export class CheckoutPaymentPage {
     // the suggestion has no data for.
     if (resolved) return { ...resolved, line1: this.street().trim() };
 
-    const parts = this.cityAndPostalCode()
-      .split(',')
-      .map((part) => part.trim())
-      .filter((part) => part !== '');
-    const last = parts.length > 1 ? parts[parts.length - 1] : '';
-    const isPostalCode = last !== '' && /^[\w -]{3,10}$/.test(last);
+    // CONTRACT: `country` is '' when no suggestion resolved one, NEVER a guess.
+    // A default of 'DO' stores every hand-typed foreign address as Dominican.
+    // The form has no country input by design: the autocomplete knows it.
     return {
       line1: this.street().trim(),
-      line2: null,
-      city: (isPostalCode ? parts.slice(0, -1).join(', ') : parts.join(', ')) || '',
-      state: '',
-      postalCode: isPostalCode ? last : '',
-      country: 'DO',
+      line2: this.line2().trim() || null,
+      city: this.city().trim(),
+      state: this.state().trim(),
+      postalCode: this.postalCode().trim(),
+      country: '',
     };
   }
 

@@ -189,11 +189,32 @@
                   (addressSelected)="onAddressSuggested($event)"
                 />
                 <app-field
-                  label="City and postal code"
+                  label="Apartment"
                   icon="building-2"
-                  placeholder="Santo Domingo, 10604"
-                  [value]="cityAndPostalCode()"
-                  (valueChange)="onCityAndPostalCodeTyped($event)"
+                  placeholder="Apt, suite, floor (optional)"
+                  [value]="line2()"
+                  (valueChange)="line2.set($event)"
+                />
+                <app-field
+                  label="City"
+                  icon="map"
+                  placeholder="Santo Domingo"
+                  [value]="city()"
+                  (valueChange)="onResolvedFieldTyped(city, $event)"
+                />
+                <app-field
+                  label="State"
+                  icon="map"
+                  placeholder="Distrito Nacional"
+                  [value]="state()"
+                  (valueChange)="onResolvedFieldTyped(state, $event)"
+                />
+                <app-field
+                  label="ZIP Code"
+                  icon="map"
+                  placeholder="10604"
+                  [value]="postalCode()"
+                  (valueChange)="onResolvedFieldTyped(postalCode, $event)"
                 />
                 <app-phone-field
                   label="Phone number"

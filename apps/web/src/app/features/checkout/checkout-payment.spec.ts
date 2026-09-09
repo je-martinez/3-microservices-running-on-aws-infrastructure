@@ -10,6 +10,7 @@ import {
   LucideCheck,
   LucideChevronLeft,
   LucideCreditCard,
+  LucideMap,
   LucideMapPin,
   LucidePhone,
   LucideRefreshCw,
@@ -49,6 +50,7 @@ describe('CheckoutPaymentPage', () => {
           LucideCheck,
           LucideChevronLeft,
           LucideCreditCard,
+          LucideMap,
           LucideMapPin,
           LucidePhone,
           LucideRefreshCw,
@@ -70,10 +72,10 @@ describe('CheckoutPaymentPage', () => {
 
   /** The saved address the signed-in profile carries by default. */
   const ADDRESS: Address = {
-    line1: 'Av. Rómulo Betancourt 1204, Apto 5B',
-    line2: null,
+    line1: 'Av. Rómulo Betancourt 1204',
+    line2: 'Apto 5B',
     city: 'Santo Domingo',
-    state: '',
+    state: 'Distrito Nacional',
     postalCode: '10604',
     country: 'DO',
   };
@@ -292,10 +294,10 @@ describe('CheckoutPaymentPage', () => {
     await settle(fixture);
 
     expect(root().textContent).toContain('Add a delivery address');
-    // The design's three fields: street (autocomplete variant), city+postal
-    // code, phone. No fourth input — nothing in the `.pen` has a frame for one.
+    // One input per field of the address contract, minus `country` — which the
+    // design deliberately has no frame for, because the autocomplete knows it.
     expect(root().querySelectorAll('app-street-autocomplete')).toHaveLength(1);
-    expect(root().querySelectorAll('app-field')).toHaveLength(1);
+    expect(root().querySelectorAll('app-field')).toHaveLength(4);
     expect(root().querySelectorAll('app-phone-field')).toHaveLength(1);
   });
 
@@ -330,7 +332,8 @@ describe('CheckoutPaymentPage', () => {
     await settle(fixture);
 
     fillField(fixture, 'Street address', 'Calle Duarte 87');
-    fillField(fixture, 'City and postal code', 'Santiago, 51000');
+    fillField(fixture, 'City', 'Santiago');
+    fillField(fixture, 'ZIP Code', '51000');
     fillField(fixture, 'Phone number', '+1 809 555 0142');
 
     root().querySelector<HTMLButtonElement>('[data-testid="checkout-save-address"]')?.click();
@@ -345,7 +348,10 @@ describe('CheckoutPaymentPage', () => {
         city: 'Santiago',
         state: '',
         postalCode: '51000',
-        country: 'DO',
+        // CONTRACT: '' for a hand-typed address, never a guess. It defaulted to
+        // 'DO', which stored every foreign address as Dominican; the form has no
+        // country input by design, so only a suggestion can supply one.
+        country: '',
       },
       phoneNumber: '+1 809 555 0142',
     });
@@ -363,9 +369,8 @@ describe('CheckoutPaymentPage', () => {
 
   /**
    * CONTRACT: A chosen suggestion's city/state/postal code are KNOWN and go to
-   * the service verbatim — the heuristic parse of the city field never touches
-   * them. It has nowhere to put `state`, so routing a suggestion through it
-   * silently drops the province on every autocompleted address.
+   * the service verbatim, each into its own field. `country` rides along too —
+   * it is the one contract field the form has no input for.
    */
   it('sends a chosen suggestion structurally, keeping the typed house number', async () => {
     signIn(null);
@@ -388,9 +393,13 @@ describe('CheckoutPaymentPage', () => {
     expect(root().querySelector<HTMLInputElement>('app-street-autocomplete input')?.value).toBe(
       'Avenida Winston Churchill',
     );
-    expect(root().querySelector<HTMLInputElement>('app-field input')?.value).toBe(
-      'Santo Domingo, 10148',
-    );
+    const fieldValue = (label: string) =>
+      Array.from(root().querySelectorAll('app-field')).find((f) =>
+        f.textContent?.includes(label),
+      )?.querySelector('input')?.value;
+    expect(fieldValue('City')).toBe('Santo Domingo');
+    expect(fieldValue('State')).toBe('Distrito Nacional');
+    expect(fieldValue('ZIP Code')).toBe('10148');
 
     // Adding the house number keeps the resolution — the whole point of a
     // STREET autocomplete against a dataset with no house numbers.
@@ -414,8 +423,13 @@ describe('CheckoutPaymentPage', () => {
     await settle(fixture);
   });
 
-  /** Correcting the city by hand returns to the heuristic parse, dropping `state`. */
-  it('falls back to the heuristic parse once the city field is edited', async () => {
+  /**
+   * CONTRACT: Hand-editing a resolved field drops the resolution, so `country`
+   * goes back to '': the address is a different one, and guessing its country
+   * stores foreign addresses as Dominican. Every OTHER field keeps what the
+   * buyer sees, `state` included.
+   */
+  it('drops the resolution when a resolved field is edited by hand', async () => {
     signIn(null);
     render();
     (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
@@ -432,7 +446,8 @@ describe('CheckoutPaymentPage', () => {
     } satisfies Address);
     await settle(fixture);
 
-    fillField(fixture, 'City and postal code', 'Santiago, 51000');
+    fillField(fixture, 'City', 'Santiago');
+    fillField(fixture, 'ZIP Code', '51000');
 
     root().querySelector<HTMLButtonElement>('[data-testid="checkout-save-address"]')?.click();
     await settle(fixture);
@@ -442,10 +457,12 @@ describe('CheckoutPaymentPage', () => {
       address: {
         line1: 'Avenida Winston Churchill',
         line2: null,
+        // The province the buyer can still see stays; only `country` is lost,
+        // because only `country` had no input to survive in.
         city: 'Santiago',
-        state: '',
+        state: 'Distrito Nacional',
         postalCode: '51000',
-        country: 'DO',
+        country: '',
       },
     });
     patch.flush({ ...USER, address: ADDRESS });
@@ -479,7 +496,8 @@ describe('CheckoutPaymentPage', () => {
     await settle(fixture);
 
     fillField(fixture, 'Street address', 'Calle Duarte 87');
-    fillField(fixture, 'City and postal code', 'Santiago, 51000');
+    fillField(fixture, 'City', 'Santiago');
+    fillField(fixture, 'ZIP Code', '51000');
     root().querySelector<HTMLButtonElement>('[data-testid="checkout-save-address"]')?.click();
     await settle(fixture);
 
@@ -550,11 +568,12 @@ describe('CheckoutPaymentPage', () => {
     await settle(fixture);
 
     expect(root().querySelector<HTMLInputElement>('app-street-autocomplete input')?.value).toBe(
-      'Av. Rómulo Betancourt 1204, Apto 5B',
+      'Av. Rómulo Betancourt 1204',
     );
-    expect(root().querySelector<HTMLInputElement>('app-field input')?.value).toBe(
-      'Santo Domingo, 10604',
+    const seeded = Array.from(root().querySelectorAll('app-field')).map(
+      (f) => f.querySelector('input')?.value,
     );
+    expect(seeded).toEqual(['Apto 5B', 'Santo Domingo', 'Distrito Nacional', '10604']);
     expect(root().querySelector<HTMLInputElement>('app-phone-field input')?.value).toBe(
       '+1 809 555 0142',
     );
@@ -575,7 +594,8 @@ describe('CheckoutPaymentPage', () => {
     await settle(fixture);
 
     fillField(fixture, 'Street address', 'Calle Duarte 87');
-    fillField(fixture, 'City and postal code', 'Santiago, 51000');
+    fillField(fixture, 'City', 'Santiago');
+    fillField(fixture, 'ZIP Code', '51000');
     root().querySelector<HTMLButtonElement>('[data-testid="checkout-save-address"]')?.click();
     await settle(fixture);
 
@@ -584,11 +604,16 @@ describe('CheckoutPaymentPage', () => {
     expect(patch.request.body).toEqual({
       address: {
         line1: 'Calle Duarte 87',
-        line2: null,
+        // CONTRACT: The fields the buyer did NOT touch keep their saved values.
+        // Without an input to hold them, editing any field erases `line2` and
+        // `state` — dropping the apartment and the province on every save.
+        line2: 'Apto 5B',
         city: 'Santiago',
-        state: '',
+        state: 'Distrito Nacional',
         postalCode: '51000',
-        country: 'DO',
+        // '' for a hand-typed address, never a guess — only a suggestion knows
+        // the country, and this address is a different one.
+        country: '',
       },
     });
 

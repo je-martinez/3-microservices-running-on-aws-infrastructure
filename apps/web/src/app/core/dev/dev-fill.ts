@@ -28,6 +28,8 @@ export interface DevData {
   readonly password: string;
   readonly phoneNumber: string;
   readonly street: string;
+  readonly apartment: string;
+  readonly state: string;
   readonly cityAndPostalCode: string;
   readonly cardNumber: string;
   readonly cardExpiry: string;
@@ -95,6 +97,9 @@ export async function devData(enabled: boolean): Promise<DevData | null> {
     password: password(chance),
     phoneNumber: `+1809${String(chance.integer({ min: 2000000, max: 9999999 }))}`,
     street: chance.street(),
+    apartment: `Apto ${chance.integer({ min: 1, max: 40 })}${'ABCD'[chance.integer({ min: 0, max: 3 })]}`,
+    // The province Santo Domingo sits in, matching the city the generator picks.
+    state: 'Distrito Nacional',
     cityAndPostalCode: cityAndPostalCode(chance),
     cardNumber: STRIPE_TEST_CARD,
     // Derived, never fixed: any FUTURE date is accepted, and a hardcoded year
