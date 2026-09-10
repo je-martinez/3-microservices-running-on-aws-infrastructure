@@ -1,14 +1,8 @@
 """Tests for lib3mrai.envfile's CUSTOM-box handling.
 
-The AUTO box is rewritten wholesale on every run and needs no defending. The
-CUSTOM box does: it is the one part of a generated env file a developer edits by
-hand, and the rule "never overwrite what the developer changed" is the whole
-reason the two-box format exists.
-
-These cover the per-key seeding behaviour specifically, because the earlier
-all-or-nothing version had a silent failure mode: a NEW default added to a
-service whose CUSTOM box already had content was skipped for every existing
-checkout, and only a fresh clone ever saw it (JE-195).
+CONTRACT: These guard per-key seeding. All-or-nothing seeding silently skips a
+newly added default for every checkout whose CUSTOM box already has content,
+and only a fresh clone ever sees it. See [[env-files]]
 """
 
 from pathlib import Path

@@ -32,7 +32,7 @@
               "budgets": [
                 {
                   "type": "initial",
-                  "maximumWarning": "500kB",
+                  "maximumWarning": "600kB",
                   "maximumError": "1MB"
                 },
                 {
@@ -53,6 +53,9 @@
         },
         "serve": {
           "builder": "@ngx-env/builder:dev-server",
+          "options": {
+            "proxyConfig": "proxy.conf.mjs"
+          },
           "configurations": {
             "production": {
               "buildTarget": "web:build:production"
@@ -64,7 +67,10 @@
           "defaultConfiguration": "development"
         },
         "test": {
-          "builder": "@ngx-env/builder:unit-test"
+          "builder": "@ngx-env/builder:unit-test",
+          "options": {
+            "setupFiles": ["src/test-setup.ts"]
+          }
         },
         "lint": {
           "builder": "@angular-eslint/builder:lint",

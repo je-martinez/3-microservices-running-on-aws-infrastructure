@@ -8,25 +8,12 @@ using RestSharp;
 
 namespace Orders.Infrastructure.Tracking;
 
-// Typed HTTP client for Tracking, covering both directions of the seam:
-//   POST {TRACKING_BASE_URL}/v1/trackings/init-tracking   (creation)
-//   GET  {TRACKING_BASE_URL}/v1/trackings?order_ids=<csv> (batch read)
-//
-// Lives in Infrastructure (not Application) because it touches HttpClient —
-// same split as IUserDirectory / UserDirectoryGrpcClient.
-//
-// Contract (docs/domains/tracking/specs/tracking-service-design.md):
-//   body    { order_id, shipping_address }  — snake_case, NO identity in the body
-//   header  x-user-id    the caller's Cognito sub, FORWARDED from what Orders
-//                        received at the gateway; Tracking resolves the internal
-//                        usr_ id itself
-//   header  x-test-mode  "true" activates TestMode; anything else is false
-//   2xx  created · 409 already tracked · 404 caller unresolvable · 401 header missing
-//
-// The read returns Tracking's JSON verbatim: no DTO, no mapping, no validation,
-// so a field Tracking adds reaches the client without a change here. Both
-// operations degrade instead of throwing — see TrackingInitOutcome and
-// ITrackingReader for why the outcome is returned rather than raised.
+// Typed HTTP client for Tracking, covering both directions of the seam: init-tracking
+// (creation) and the batch read.
+// CONTRACT: Identity travels in the x-user-id HEADER, never in the body — Tracking resolves
+// the internal usr_ id itself. The body is snake_case { order_id, shipping_address }, and
+// 2xx/409/404/401 mean created / already tracked / caller unresolvable / header missing.
+// Both operations degrade instead of throwing. See [[tracking-service-design]]
 public class TrackingHttpClient : ITrackingInitiator, ITrackingReader
 {
     // Relative on purpose: the base address (TRACKING_BASE_URL) is configured on
@@ -66,6 +53,7 @@ public class TrackingHttpClient : ITrackingInitiator, ITrackingReader
 
     public async Task<TrackingInitResult> InitTrackingAsync(
         string orderId,
+        string? orderNumber,
         string? shippingAddressJson,
         string cognitoSub,
         bool testMode,
@@ -82,31 +70,22 @@ public class TrackingHttpClient : ITrackingInitiator, ITrackingReader
             // is "true", so an E2E run's rows are removable by tag on BOTH sides of the
             // seam. Tracking applies its own E2E_TESTING_ENABLED guard to it.
             .AddHeader("x-e2e-source", e2eSource ? "true" : "false")
-            .AddJsonBody(new InitTrackingRequest(orderId, ParseAddress(shippingAddressJson)))
+            .AddJsonBody(new InitTrackingRequest(
+                orderId, orderNumber, ParseAddress(shippingAddressJson)))
             .WithRequestId();
 
-        // ExecuteAsync, not PostAsync: the Execute* family reports failure on the
-        // response rather than throwing, which keeps every outcome — 2xx, 4xx, and no
-        // response at all — flowing through the same Classify call below.
+        // CONTRACT: ExecuteAsync, not PostAsync — the Execute* family reports failure on the
+        // response rather than throwing, so every outcome flows through one Classify call.
         var response = await _rest.ExecuteAsync(request, ct);
 
-        // Branch on whether a status code came back at all, which is the only thing
-        // that actually separates "the server answered" from "nothing answered".
-        //
-        // Two RestSharp details make the more obvious properties wrong here, and both
-        // cost a round of failing tests to find. ErrorException is populated for
-        // server-side error statuses too, so keying off it classified every 404 and
-        // 409 as unreachable. ResponseStatus is no better: it is Error for 4xx/5xx
-        // (404 excepted), which is the same conflation. But a transport failure has
-        // no HTTP status to report — RestSharp leaves StatusCode at 0 — while a 409
-        // has one. That is the real signal.
-        // RestSharp CATCHES cancellation and reports it on the response, where
-        // HttpClient threw it. That difference matters: a caller who gave up is not a
-        // Tracking failure, and reporting it as Unreachable would make an abandoned
-        // request look like an outage in the logs. Rethrow before the degrade path so
-        // genuine cancellation still propagates untouched.
+        // CONTRACT: Rethrow cancellation BEFORE the degrade path. RestSharp catches it and
+        // reports it on the response, so without this a caller who gave up is classified
+        // Unreachable and an abandoned request reads as a Tracking outage.
         ct.ThrowIfCancellationRequested();
 
+        // CONTRACT: Branch on whether a StatusCode came back at all. Do NOT use
+        // ErrorException or ResponseStatus — RestSharp populates both for ordinary 4xx/5xx
+        // responses, so either classifies every 404 and 409 as "unreachable".
         if (response.StatusCode == default)
         {
             // The reason, never the exception body — a request dump could carry the
@@ -205,6 +184,10 @@ public class TrackingHttpClient : ITrackingInitiator, ITrackingReader
     // sees the field. Identity is deliberately absent — it rides in x-user-id.
     private sealed record InitTrackingRequest(
         [property: JsonPropertyName("order_id")] string OrderId,
+        // The customer-facing label, so Tracking's own status emails can print it. Emitted
+        // even when null, like shipping_address, so Tracking always sees the field.
+        // See [[friendly-order-number]]
+        [property: JsonPropertyName("order_number")] string? OrderNumber,
         [property: JsonPropertyName("shipping_address")] JsonElement? ShippingAddress);
 
     private static readonly IReadOnlyDictionary<string, TrackingDto> NoTrackings =

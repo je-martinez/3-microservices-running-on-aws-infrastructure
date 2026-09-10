@@ -4,38 +4,14 @@ import { header, http, status } from "@gatling.io/http";
 /**
  * Cache-focused read steps for the A/B simulation.
  *
- * Each cached endpoint is read TWICE per virtual user, under two DIFFERENT
- * request names — `(cold)` and `(warm)`. That split is the whole measurement:
- * Gatling reports percentiles per request name, so `(warm)` is the row that
- * carries the cache's actual effect, while a single averaged row would blend a
- * database read and a Redis read into one meaningless number.
- *
- * The X-Cache header is captured with `header("X-Cache")` — verified present in
- * the installed SDK at `@gatling.io/http/target/checks.d.ts:48`
- * (`export declare const header: HeaderFunction`), NOT in `@gatling.io/core`
- * where `jsonPath` lives. The chain `header(...).optional().saveAs(...)` is
- * likewise verified against the type definitions: `optional()` is declared on
- * `CheckBuilderValidate` (core/target/checks/validate.d.ts:125) and returns a
- * `CheckBuilderFinal`, which is where `saveAs` lives
- * (core/target/checks/final.d.ts:29).
- *
- * `.optional()` matters twice over: on the `CACHE_ENABLED=false` leg of the A/B
- * there is no header at all, and on the ON leg a BYPASS is a legitimate (if
- * unwanted) outcome. A REQUIRED check would fail the entire run for precisely
- * the condition being measured — which would make the control leg unrunnable
- * and destroy the comparison.
- *
- * Header NAME is sent as `X-Cache` here, and the lookup is case-insensitive on
- * Gatling's side. Worth stating because the services genuinely disagree on the
- * spelling they emit — Orders sends `X-Cache`, Users and Tracking send
- * `x-cache` — so anything doing its own case-sensitive comparison would silently
- * capture half the traffic.
- *
- * ## Deliberately NO x-e2e-source and NO x-test-mode
- *
- * Per e2e/CLAUDE.md §4: this data persists like real data (nothing cleans it
- * up — reset with `make clean && make bootstrap`), and a tracking only advances
- * through the carrier webhook, the way a real carrier moves one.
+ * CONTRACT: Read each cached endpoint TWICE under DIFFERENT request names, `(cold)` and
+ * `(warm)`. Gatling reports percentiles per request name, so `(warm)` carries the
+ * cache's effect; one averaged row blends a database read and a Redis read together.
+ * CONTRACT: Keep the X-Cache check `.optional()`. The `CACHE_ENABLED=false` leg sends no
+ * header and a BYPASS is legitimate on the ON leg, so a REQUIRED check fails the run for
+ * exactly the condition being measured and makes the control leg unrunnable.
+ * CONTRACT: Send neither `x-e2e-source` nor `x-test-mode` — this data persists like real
+ * data and a tracking advances only through the carrier webhook. See [[testing]]
  */
 
 const authHeader = (session: { get: (k: string) => unknown }) =>
@@ -106,12 +82,10 @@ export const readMyOrdersWarm = exec(
 );
 
 /**
- * my-orders, t1 — a SEPARATE cache key and a different body.
- *
- * Kept as its own request pair rather than folded into the t0 rows: it fans out
- * to Tracking's batch endpoint on a miss, so its cold cost is structurally
- * higher and averaging the two variants would understate exactly the saving
- * this simulation exists to measure.
+ * my-orders, t1 — a SEPARATE cache key and a different body. Kept as its own request
+ * pair: it fans out to Tracking's batch endpoint on a miss, so its cold cost is
+ * structurally higher and averaging the variants would understate the very saving this
+ * simulation measures.
  */
 export const readMyOrdersWithTrackingCold = exec(
   http("GET /v1/orders/my-orders?includeTracking=true (cold)")
@@ -145,17 +119,10 @@ export const readOrderWarm = exec(
 );
 
 /**
- * One tracking by order id — 60s TTL.
- *
- * Accepts 200 OR 404: Orders calls init-tracking asynchronously after its
- * transaction commits, so under load a read can legitimately arrive first.
- * Asserting 200 only would paint the run red for a race that is by design.
- *
- * > **Note:** a 404 is never cached and carries NO `X-Cache` header, so the 404s
- * > in this row contribute nothing to its hit-rate — the denominator is the 200s.
- * > Separately, a caller whose `cognito_sub` Users cannot resolve gets no cache
- * > key at all (by design), and reads MISS forever. These virtual users register
- * > through the normal flow, so they are always resolvable.
+ * One tracking by order id — 60s TTL. Accepts 200 OR 404, because Orders calls
+ * init-tracking asynchronously after its transaction commits and a read can
+ * legitimately arrive first. A 404 is never cached and carries no `X-Cache`, so it
+ * contributes nothing to the hit-rate; the denominator is the 200s.
  */
 export const readTrackingCold = exec(
   http("GET /v1/trackings/{orderId} (cold)")

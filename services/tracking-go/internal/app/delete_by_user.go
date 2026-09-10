@@ -10,16 +10,10 @@ import (
 
 // ErrEmptyIdentity guards the row-selection point.
 //
-// The HTTP boundary already rejects empties with a 422, but this use case is
-// exported and a future caller reaching it another way must not be able to widen
-// the blast radius: the predicate is an OR, so an empty value on either side
-// matches every row carrying an empty string in that column — someone else's
-// trackings. Two guards for one rule, deliberately, because only one of them sits
-// on the line that actually decides which rows die.
-//
-// Declared beside the type that produces it rather than in a shared errors
-// package, so the adapter maps it at the boundary and this layer stays unaware of
-// HTTP.
+// CONTRACT: A second guard beside the HTTP boundary's 422, deliberately. This
+// use case is exported, and the predicate is an OR: one empty value matches
+// every row with an empty string in that column — someone else's trackings.
+// See [[soft-delete]]
 var ErrEmptyIdentity = errors.New("soft delete by user requires both identities to be non-empty")
 
 // UserSoftDeleter is the account-deletion cascade's write port, declared here by
@@ -85,15 +79,12 @@ func (uc *DeleteByUser) Execute(ctx context.Context, cognitoSub, userID string) 
 	return deleted, nil
 }
 
-// invalidateQuietly runs the eviction so that nothing it does can fail the
-// response.
+// invalidateQuietly runs the eviction so nothing it does can fail the response.
 //
-// This is load-bearing rather than merely tidy. The deletion has already
-// COMMITTED, so a Redis outage that propagated out of here would tell Users the
-// cascade did not happen when it did, and fail the whole account deletion for the
-// person. The recover is the last line of that defence: the invalidator's
-// contract already forbids returning an error, and this makes a violation of that
-// contract non-fatal too.
+// CONTRACT: The deletion has already COMMITTED, so a Redis outage escaping here
+// tells Users the cascade did not happen when it did and fails the whole account
+// deletion. The recover makes even a violation of the invalidator's no-error
+// contract non-fatal.
 func (uc *DeleteByUser) invalidateQuietly(ctx context.Context, cognitoSub, userID string) {
 	defer func() {
 		_ = recover()

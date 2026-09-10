@@ -1,17 +1,12 @@
 # Public asset hosting for the email templates: a bucket, plus the sync that
-# optimises assets/ into it and writes the manifest the templates will read.
+# optimises assets/ into it and writes the manifest the templates read.
 #
-# WHY PHASE 2 AND NOT PHASE 1: the sync is a post-effect in exactly the sense
-# this root exists for — it runs a script against resources Terraform has just
-# created, and it must be re-runnable. Phase 1 cannot be applied twice at all
-# (Floci's UpdateTags breaks for API GW v2 stages and RDS clusters, see
-# docs/lessons/floci-rds-apigw-limits.md), so putting anything here that a
-# developer needs to re-run would force a full teardown to change a logo.
-# Phase 2 has its own state and re-applies cleanly.
-#
-# Day-to-day the standalone `make assets-sync` is the one to use — it skips
-# Terraform entirely and just re-uploads. This wiring exists so that a freshly
-# provisioned environment already has its assets, without a second command.
+# CONTRACT: This belongs in phase 2, NOT phase 1. Phase 1 cannot be applied
+# twice at all (Floci's UpdateTags breaks for API GW v2 stages and RDS
+# clusters), so anything re-runnable placed there forces a full teardown to
+# change a logo. Phase 2 has its own state and re-applies cleanly. Day to day,
+# `make assets-sync` re-uploads without Terraform.
+# See [[floci-rds-apigw-limits]]
 
 module "assets_bucket" {
   source = "../../../modules/assets-bucket"
@@ -33,11 +28,9 @@ module "assets_bucket" {
 
 # Optimise + upload + write assets/assets.manifest.json.
 #
-# Same terraform_data + local-exec + idempotent-script pattern as grants.tf and
-# gate.tf: the work is a script run against a live endpoint, not a resource with
-# a lifecycle Terraform can track. The script is a full overwrite on every run
-# (resize -> put_object -> rewrite the manifest), so a re-apply converges rather
-# than accumulating.
+# CONTRACT: The script must stay a full overwrite (resize -> put_object ->
+# rewrite the manifest) so a re-apply converges rather than accumulating.
+# See [[awscli-fallback-for-floci]]
 resource "terraform_data" "assets_sync" {
   # Re-run when the target changes. The `triggers_replace` shape (rather than
   # `input`) because there is nothing downstream that reads a value from here —

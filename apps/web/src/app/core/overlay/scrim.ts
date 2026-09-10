@@ -1,4 +1,4 @@
-import { Component, output } from '@angular/core';
+import { Component, output, ChangeDetectionStrategy } from '@angular/core';
 
 /**
  * A transparent click-catcher over the page while the cart is open.
@@ -10,9 +10,8 @@ import { Component, output } from '@angular/core';
  */
 @Component({
   selector: 'app-scrim',
-  template: `
-    <div class="fixed inset-0 z-40" role="presentation" (click)="dismiss.emit()"></div>
-  `,
+  template: ` <div class="fixed inset-0 z-40" role="presentation" (click)="dismiss.emit()"></div> `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
 })
 export class Scrim {

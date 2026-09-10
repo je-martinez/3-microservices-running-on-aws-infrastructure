@@ -1,23 +1,14 @@
 package openapi
 
 // The prose the document carries, held apart from the structure so paths() stays
-// readable enough to audit against the route table.
+// auditable against the route table.
 //
-// # Reproduced VERBATIM from the Python contract, Python idioms included
-//
-// Two of these descriptions name things this runtime does not have: `async def`
-// versus a plain `def`, pymysql being a blocking driver, a generator dependency
-// owning the commit. Rewriting them to talk about Go would be an honest-looking
-// change and a WRONG one. This document is the contract consumers already import,
-// a reworded description is a diff every one of them sees, and the equivalence
-// gate would have to absorb it into the allowlist to stay green -- which is
-// exactly the kind of entry that turns a closed list into a growing one.
-//
-// The prose describes how the SERVICE behaves at its edge, and that is identical;
-// only the internal mechanics it cites are Python's, and those were never the
-// contract. Refreshing this prose once the Python implementation is retired is a
-// deliberate contract change with its own diff, not a side effect of the
-// migration.
+// CONTRACT: Reproduced VERBATIM from the pinned contract, foreign idioms
+// included — two descriptions name mechanics this runtime does not have.
+// Rewriting them looks honest and is wrong: consumers already import this
+// document, so every reword is a diff the allowlist must absorb, which is what
+// turns a closed list into a growing one. Refreshing this prose is a deliberate
+// contract change with its own diff. See [[openapi-specs]]
 
 const healthDescription = "Return `200 {\"status\": \"ok\"}`.\n" +
 	"\n" +

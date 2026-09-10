@@ -14,37 +14,28 @@ import (
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/domain/audit"
 )
 
-// DefaultProgressionInterval is the design's cadence: t=10s PROCESSING, t=20s
-// SHIPPED, t=30s OUT_FOR_DELIVERY, t=40s DELIVERED.
-//
-// Tests inject ~0 rather than patching this, so the suite runs in milliseconds
-// while production keeps the real cadence — a test that actually waited 40
-// seconds would be skipped or deleted, and either way the feature would stop
-// being covered.
+// DefaultProgressionInterval is the design's cadence: PROCESSING at 10s through
+// DELIVERED at 40s. Tests inject ~0 rather than patching it, so the suite runs
+// in milliseconds while production keeps the real cadence.
 const DefaultProgressionInterval = 10 * time.Second
 
-// UnscopedTrackingReader is the progression's read port, and it is EXPLICITLY
-// unscoped: there is no caller to scope by, and the order id came from a
-// tracking this process just created rather than from a request.
+// UnscopedTrackingReader is the progression's EXPLICITLY unscoped read port —
+// there is no caller to scope by, and the order id came from a tracking this
+// process just created.
 //
-// A SEPARATE METHOD from the reads' GetByOrderIDScoped — never the same method
-// with an empty argument. Go's zero value for string is "", not nil, so an
-// optional-scope parameter left unset would silently mean "scoped to the empty
-// string" rather than "unscoped", and the progression would read nothing, every
-// time, while looking correctly implemented. The method below takes no identity
-// parameter at all, so that mistake has nowhere to happen.
+// CONTRACT: A SEPARATE method from GetByOrderIDScoped, never the same one with
+// an empty argument. Go's zero string is "", so an unset optional scope means
+// "scoped to the empty string" and the progression reads nothing, every time,
+// while looking implemented. See [[user-id-vs-cognito-sub-ownership-key]]
 type UnscopedTrackingReader interface {
 	GetByOrderID(ctx context.Context, orderID string) (domain.Tracking, error)
 }
 
-// Transitioner is UpdateStatus, consumed as an interface so every live-row
-// transition still uses the carrier's one persistence path.
-//
-// The state machine's guards, the history row, the datetime bump, the history
-// re-read, the event and the invalidation all live in UpdateStatus. The second
-// method is deliberately narrower: once E2E cleanup has already tombstoned the
-// fixture, only its remaining notifications continue; it cannot write a second
-// history path or resurrect the row.
+// Transitioner is UpdateStatus as an interface, so every live-row transition
+// uses the carrier's one persistence path — guards, history row, datetime bump,
+// re-read, event and invalidation all live there. The second method is narrower
+// on purpose: after cleanup tombstones the fixture only its notifications
+// continue, and it can neither write history nor resurrect the row.
 type Transitioner interface {
 	Execute(ctx context.Context, orderID string, requested domain.Status, actor audit.Actor) (domain.TrackingWithHistory, error)
 
@@ -58,25 +49,15 @@ type Transitioner interface {
 	) (domain.TrackingWithHistory, error)
 }
 
-// Progression drives TestMode runs: one status every interval, from PLACED to
+// Progression drives TestMode runs: one status every interval, PLACED to
 // DELIVERED.
 //
-// !! KNOWN LIMITATION, EXPLICITLY ACCEPTED — DO NOT "FIX" !!
-//
-// These are in-process goroutines, chosen deliberately over a durable scheduler.
-// If the process restarts mid-run — a rebuild, a redeploy, a crash, a container
-// reschedule — the goroutine is LOST and the tracking stays frozen at whatever
-// status it reached, forever. Nothing retries it, nothing resumes it, and no
-// error is reported anywhere. A tracking stuck at PROCESSING after a rebuild is
-// EXPECTED, not a bug to investigate; recover by creating a new TestMode
-// tracking or by driving the remaining transitions through
-// PUT /v1/trackings/{orderId}/status.
-//
-// This is acceptable because TestMode is a 40-second E2E fixture: nothing
-// downstream depends on it completing, and real carrier updates arrive through
-// the PUT endpoint, which is persistent. Paying for a durable scheduler — a new
-// dependency, a new table, a poller, its own failure modes — to make a
-// 40-second test fixture restart-proof is not a trade this service wants.
+// CONTRACT: Do NOT add a durable scheduler. These are in-process goroutines, and
+// a restart mid-run LOSES the goroutine: the tracking stays frozen forever with
+// nothing retrying, resuming or reporting it. A tracking stuck at PROCESSING
+// after a rebuild is EXPECTED — recover by creating a new TestMode tracking or
+// driving the rest through PUT /v1/trackings/{orderId}/status.
+// See [[testmode-in-process-no-durable-scheduler]]
 type Progression struct {
 	// base is the PROCESS LIFETIME context, never a request's. See Start.
 	base         context.Context //nolint:containedctx // deliberate: see Start.
@@ -122,23 +103,15 @@ func NewProgression(
 
 // Start launches a run for tracking and returns immediately.
 //
-// # THE CONTEXT IS THE WHOLE POINT OF THIS METHOD, AND OF ITS SIGNATURE
+// CONTRACT: Start takes NO context — the goroutine derives from p.base, the
+// process-lifetime context, and no parameter lets a handler hand over the
+// request's. net/http cancels a request context when the response is written, so
+// an inherited one dies at the first tick and looks exactly like the accepted
+// restart limitation. See [[testmode-in-process-no-durable-scheduler]]
 //
-// Start takes NO context. The goroutine derives its context from p.base — the
-// PROCESS lifetime context — and there is deliberately no parameter through
-// which a handler could hand over the request's.
-//
-// net/http cancels a request's context the instant the response is written, so
-// a goroutine that inherited it would die at its first tick. And the symptom
-// would be indistinguishable from the accepted restart limitation documented on
-// the type: "the tracking froze partway through". The bug would disguise itself
-// as a known limitation, and nobody would investigate it.
-//
-// The caller invokes this only AFTER the creating transaction has committed and
-// the response has been written. The committed snapshot is the fallback when a
-// concurrent E2E cleanup hides the row before the first tick; a request payload
-// or an entity assembled before commit would not be authoritative enough to
-// publish from.
+// Call this only after the creating transaction has committed and the response
+// is written. The committed snapshot is the fallback when a concurrent cleanup
+// hides the row before the first tick.
 func (p *Progression) Start(tracking domain.TrackingWithHistory) {
 	p.wg.Add(1)
 	go func() {
@@ -147,16 +120,12 @@ func (p *Progression) Start(tracking domain.TrackingWithHistory) {
 	}()
 }
 
-// Wait blocks until every in-flight run has ended, or until ctx is done.
+// Wait blocks until every in-flight run has ended, or until ctx is done. It
+// cancels nothing — cancelling the base context is the composition root's job —
+// and a drain out of budget is reported with a machine-readable reason.
 //
-// Called from graceful shutdown so the process does not exit leaving goroutines
-// mid-flight WITHOUT AT LEAST LOGGING IT. It does not cancel anything itself:
-// cancelling the base context is the composition root's job, and Wait only
-// joins. A drain that runs out of budget is reported with a machine-readable
-// reason rather than passing silently.
-// The DEADLINE IS THE CALLER'S. Wait adds none of its own: the composition root
-// already bounds the whole drain, and a second timer here would either duplicate
-// that budget or silently shorten it.
+// CONTRACT: The DEADLINE IS THE CALLER'S. A second timer here would duplicate
+// the composition root's budget or silently shorten it.
 func (p *Progression) Wait(ctx context.Context) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -180,13 +149,11 @@ func (p *Progression) Wait(ctx context.Context) {
 	}
 }
 
-// Run executes the whole progression. Exported so tests drive it synchronously,
-// without a goroutine and without sleeping.
+// Run executes the whole progression, exported so tests drive it synchronously.
 //
-// NOTHING ESCAPES. Every ending is explicit and logged, panics included: a
-// background goroutine that returned an error nobody reads would surface as
-// nothing at all, detached from the request that caused it — and a panic would
-// take the whole process down over a 40-second test fixture.
+// CONTRACT: NOTHING escapes — every ending is explicit and logged, panics
+// included. A background goroutine's returned error surfaces as nothing at all,
+// and a panic takes the process down over a 40-second test fixture.
 func (p *Progression) Run(ctx context.Context, orderID string) {
 	tracking, err := p.reader.GetByOrderID(ctx, orderID)
 	if err != nil {
@@ -225,16 +192,11 @@ func (p *Progression) runWithoutSnapshot(ctx context.Context, orderID string, er
 
 func (p *Progression) run(ctx context.Context, current domain.TrackingWithHistory) {
 	orderID := current.Tracking.OrderID
-	// ONE span for the whole run, not one per tick, and opened INSIDE the
-	// goroutine. A span opened around the spawn would end the moment Start
-	// returned — long before the first tick — recording a 40-second workflow as
-	// a microsecond of scheduling.
-	//
-	// WithNewRoot, because the creating request's span is already closed by the
-	// time a background run starts. That is correct: the progression is a
-	// fixture with its own lifetime, not a part of the POST that scheduled it.
-	// Parenting it to a finished span would nest a 40-second child under a
-	// millisecond parent.
+	// CONTRACT: ONE span for the whole run, opened INSIDE the goroutine. Around
+	// the spawn it ends when Start returns, recording a 40-second workflow as a
+	// microsecond of scheduling. WithNewRoot because the creating request's span
+	// is already closed, and parenting to it nests a 40-second child under a
+	// millisecond parent. See [[ADR-0019-distributed-tracing-opentelemetry]]
 	ctx, span := p.startSpan(ctx)
 	defer span.End()
 	span.SetAttributes(

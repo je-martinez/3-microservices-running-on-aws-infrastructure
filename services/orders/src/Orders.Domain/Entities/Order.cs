@@ -3,17 +3,19 @@ namespace Orders.Domain.Entities;
 public class Order : AuditableEntity
 {
     /// <summary>
-    /// The tag stamped on orders created by an end-to-end test run, and the one the
-    /// cleanup endpoint selects on.
+    /// The tag stamped on orders from an E2E run, and the one cleanup selects on.
+    /// CONTRACT: Byte-identical to the value Users writes — the space and capitalization
+    /// included. A drift leaves rows behind after a teardown that reported success.
+    /// See [[testing]]
     /// </summary>
-    /// <remarks>
-    /// Byte-identical to the value the Users service writes — the space and the
-    /// capitalization are part of the contract. Each service's cleanup looks for this
-    /// same literal, so a drift here would leave Orders rows behind after a teardown
-    /// that reported success. Lives on the entity that owns the column, so the write
-    /// path (Infrastructure) and the cleanup (Api) cannot disagree about its value.
-    /// </remarks>
     public const string E2eSourceTag = "E2E Source";
+
+    /// <summary>
+    /// Customer-facing order number, canonical form: <c>2609078KJ4M2</c>.
+    /// CONTRACT: A LABEL, not an identifier — never join on it or log it. Null only on rows
+    /// predating the backfill. See [[friendly-order-number]]
+    /// </summary>
+    public string? OrderNumber { get; set; }
 
     public string UserId { get; set; } = string.Empty;      // internal usr_ id
     public string CognitoSub { get; set; } = string.Empty;  // from the gateway
@@ -21,71 +23,30 @@ public class Order : AuditableEntity
     public long TaxCents { get; set; }
 
     /// <summary>
-    /// The delivery cost charged on this order, in cents. Part of
-    /// <see cref="TotalCents"/> (<c>subtotal + tax + shipping</c>).
+    /// The delivery cost on this order, in cents; part of <see cref="TotalCents"/>.
+    /// CONTRACT: An ORDER-level cost, charged once per shipment. Keep it out of
+    /// <c>OrderDetail</c> and <c>OrderPricing.PriceLine</c> — spread across lines, a line's
+    /// total stops being explainable from its unit price and quantity.
+    /// See [[money-representation]]
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// An ORDER-level cost, not a per-line one: it is charged once for the shipment,
-    /// not once per product. Deliberately absent from <c>OrderDetail</c> and from
-    /// <c>OrderPricing.PriceLine</c> — spreading it across the lines would make each
-    /// line's own total unexplainable from its unit price and quantity.
-    /// </para>
-    /// <para>
-    /// Point-in-time, like <see cref="ShippingAddress"/>: the rate is read from the
-    /// <c>configuration</c> table (key <c>shipping_cents</c>) when the order is created
-    /// and then frozen onto the row, so a later rate change never rewrites what a past
-    /// order actually cost.
-    /// </para>
-    /// </remarks>
     public long ShippingCents { get; set; }
 
     public long TotalCents { get; set; }
 
     /// <summary>
-    /// Point-in-time snapshot of the delivery address, as raw JSON, resolved from
-    /// Users at order-creation time.
+    /// Point-in-time snapshot of the delivery address, as raw JSON.
+    /// CONTRACT: Do NOT "clean this up" into a live reference to the profile address — a
+    /// later edit would silently rewrite where past shipments were sent. PII: never log it,
+    /// and never let a request/response dump carry it. See [[logging-context]]
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Deliberately a snapshot, NOT a live reference to the user's profile address.
-    /// If the user later edits their address, this order must still show where the
-    /// shipment was actually sent — that is only possible if the order keeps its own
-    /// copy taken at the moment it was created. A future reader should not "clean
-    /// this up" into a shared reference: that would silently rewrite delivery
-    /// history. Tracking keeps its own copy for the same reason.
-    /// </para>
-    /// <para>
-    /// Nullable because a user may have no address on file.
-    /// </para>
-    /// <para>
-    /// PII — never log it, and never let it reach a log line through a request/response
-    /// dump. See the logging-context convention.
-    /// </para>
-    /// <para>
-    /// Held as a JSON string rather than a typed object so Domain keeps its
-    /// zero-dependency rule; the column is a real MySQL <c>json</c> column.
-    /// </para>
-    /// </remarks>
     public string? ShippingAddress { get; set; }
 
     /// <summary>
-    /// Free-form labels on the order. Currently only ever holds the E2E marker
-    /// (<c>"E2E Source"</c>), stamped when the order is created by an end-to-end
-    /// test run so the cleanup endpoint can find exactly those rows.
+    /// Free-form labels; today only the E2E marker, so cleanup can find those rows.
+    /// CONTRACT: Never null — an empty list, so a reader never distinguishes "no tags" from
+    /// "unknown". A MySQL <c>json</c> array mapped by a converter in
+    /// <c>OrderConfiguration</c>. See [[testing]]
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Never null — an order with no labels carries an empty list, so a reader never
-    /// has to distinguish "no tags" from "unknown". The column is a real MySQL
-    /// <c>json</c> array (MySQL 8 has no native array type the way Postgres does),
-    /// mapped by a value converter in <c>OrderConfiguration</c>.
-    /// </para>
-    /// <para>
-    /// Mirrors the Users service's <c>tags</c> column, including the literal tag value,
-    /// so cleanup works identically across services.
-    /// </para>
-    /// </remarks>
     public List<string> Tags { get; set; } = new();
 
     public List<OrderDetail> Details { get; set; } = new();

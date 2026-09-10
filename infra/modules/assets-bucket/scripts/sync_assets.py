@@ -1,34 +1,19 @@
 #!/usr/bin/env python
 """Optimise the images under assets/ and upload them to the assets bucket.
 
-Two entry points, both landing here:
-  - `make assets-sync` — the day-to-day one. Re-uploads without touching
-    infrastructure, against an already-running stack.
-  - the post-effects root (environments/local/post/assets.tf), so a freshly
-    provisioned environment has its assets in place without a second command.
-
-Idempotent by construction: every step (resize, put_object, manifest write) is a
-full overwrite of a deterministic output, so running it twice leaves exactly the
-same bucket and the same manifest. There is no "already uploaded" bookkeeping to
-get out of sync — re-running is the repair mechanism.
-
-Output is a manifest JSON in assets/ mapping each logical asset name to its
-public URL plus the dimensions and a BlurHash placeholder, so a consumer (the
-email templates; the Orders product seed) reads a URL instead of reconstructing
-one from a bucket name and an endpoint style.
-
-WHY NO WEBP. Deliberately not generated, and this comment is here so nobody adds
-it later "for performance". WebP is not usable in email: Outlook on Windows (the
-Word rendering engine) and Apple Mail do not support it, and Gmail converts it
-to JPG on the way through. It would be a third variant to generate, upload and
-keep in the manifest, whose only readers are clients that render the PNG just as
-well. The saving is real on the web and zero here.
-
-SVG passes through untouched: the ones in this repo are already smaller than the
-raster derivatives, and a minifier would add a dependency to shave bytes off a
-file that is not the problem. GIF likewise — re-encoding animation frames is a
-different job from resizing a still.
+CONTRACT: Every step (resize, put_object, manifest write) must stay a full
+overwrite of a deterministic output — re-running is the repair mechanism, and
+"already uploaded" bookkeeping would get out of sync instead.
+CONTRACT: Do NOT add WebP "for performance" — it is unusable in email (Outlook
+on Windows and Apple Mail do not support it, Gmail converts it to JPG), so it
+is a third variant whose only readers already render the PNG.
+See [[events-pipeline-design]]
 """
+
+# SVG and GIF pass through untouched: the SVGs are already smaller than the
+# raster derivatives, and re-encoding animation frames is a different job.
+# The manifest maps each asset name to its public URL, dimensions and a
+# BlurHash, so consumers read a URL rather than rebuilding one.
 
 from __future__ import annotations
 
@@ -74,11 +59,9 @@ CACHE_CONTROL = "public, max-age=31536000"
 
 # Per-asset resize targets, keyed by the path relative to assets/.
 #
-# Both logos are 1000px+ display masters (1254x1254 and 1024x1024). The email
-# header renders the mark at 42x42 CSS px and the footer at 32x32 (see
-# assets/email/DESIGN.md), so 168px is 4x the largest use — beyond any retina
-# density an email client will ask for, and still an order of magnitude smaller
-# than the master. Anything not listed here is uploaded at its original size.
+# WHY: 168px is 4x the largest use (the email header renders the mark at 42x42
+# CSS px), beyond any retina density a client asks for and far smaller than the
+# 1000px+ masters. Anything unlisted uploads at its original size.
 RESIZE_TARGETS = {
     "img/standalone-logo.png": 168,
     "img/logo.png": 168,

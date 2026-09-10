@@ -10,17 +10,10 @@ namespace Orders.Infrastructure.Persistence;
 /// Value converters for the product table's two JSON columns.
 /// </summary>
 /// <remarks>
-/// <para>
-/// Deliberately hand-written converters rather than EF's <c>OwnsOne().ToJson()</c>: this
-/// service already stores JSON this way for <c>Order.Tags</c> and
-/// <c>Order.ShippingAddress</c>, and a JSON-owned type would model these as nested entity
-/// types instead of the scalar columns they are.
-/// </para>
-/// <para>
-/// The wire shape is snake_case with EXPLICIT <see cref="JsonPropertyName"/> literals,
-/// following ShippingAddressSnapshot's reasoning: this JSON is persisted data, so its
-/// field names are a contract. Renaming a C# property must not silently rewrite rows.
-/// </para>
+/// CONTRACT: Declare the snake_case names with EXPLICIT <see cref="JsonPropertyName"/>
+/// literals — this JSON is persisted data, so renaming a C# property must not silently
+/// rewrite rows. Hand-written converters rather than <c>OwnsOne().ToJson()</c>, which would
+/// model these scalar columns as nested entity types. See [[db-naming]]
 /// </remarks>
 internal static class ProductJsonConverters
 {

@@ -12,13 +12,10 @@ import {
   InvalidResetCodeError,
 } from "#shared/auth/auth-errors";
 
-// Full-shaped fixture matching the domain `User` type (see domain/user.ts):
-// once routes carry a response schema, Fastify's Zod serializer strict-
-// validates the handler's return value, so mocks must return every declared
-// field, not just the ones a given test asserts on. `createdAt`/`updatedAt`
-// are real `Date` objects here (as the domain type + real commands/queries
-// return) — `routes.ts`'s `serializeUser` converts them to ISO strings at
-// the HTTP boundary, matching `UserSchema`'s `z.string()` wire contract.
+// CONTRACT: A full-shaped fixture. Fastify's Zod serializer strict-validates the
+// handler's return value, so a mock must return every declared field, not only the
+// ones a test asserts on. `createdAt`/`updatedAt` are real `Date`s, as the domain type
+// returns; `serializeUser` converts them to ISO strings at the HTTP boundary.
 const FIXED_DATE = new Date("2026-01-01T00:00:00.000Z");
 
 function fakeUser(overrides: Record<string, unknown> = {}) {
@@ -423,11 +420,10 @@ describe("routes", () => {
       expect(observed.request_id).toMatch(/^req_[A-Za-z0-9]{24}$/);
     });
 
-    // The regression this guards: `user_id` used to be set ONLY by the register
-    // command, so an authenticated request logged its Cognito sub but never the
-    // internal `usr_` id. These two use the REAL UserQueryService over a stubbed
-    // db, because a mocked `getMe` would skip `CurrentUser.resolve()` — the very
-    // place the enrichment happens.
+    // CONTRACT: `user_id` must reach EVERY line of an authenticated request, not only
+    // register's — otherwise a request logs its Cognito sub and never the internal
+    // `usr_` id. These use the REAL UserQueryService over a stubbed db: a mocked
+    // `getMe` skips `CurrentUser.resolve()`, where the enrichment happens.
     it("emits user_id on EVERY log line of an authenticated request, not just register", async () => {
       const lines: string[] = [];
       const row = fakeUser({ id: "usr_from_db", cognitoSub: "sub-abc" });
@@ -1012,13 +1008,10 @@ describe("POST /v1/webhooks/cognito", () => {
     expect(res.statusCode).toBe(500);
     expect(res.json()).toEqual({ error: "no_matching_user" });
 
-    // The `cognito_webhook_no_match` line is NOT emitted here any more: this
-    // point sits outside the `cognito_webhook` span, which has already ended by
-    // the time the error surfaces, so a line logged here carried a different
-    // span_id and was invisible from the span in OpenObserve. The command owns
-    // it now — capture-cognito-identity.test.ts asserts both its fields and
-    // that it lands inside the span. Asserting its ABSENCE here is what keeps
-    // the failure from being double-logged if it is ever re-added.
+    // CONTRACT: The route must NOT emit `cognito_webhook_no_match` — this point sits
+    // outside the already-ended `cognito_webhook` span, so the line lands under a
+    // different span_id. The command owns it; asserting its absence here is what stops
+    // the failure being double-logged.
     const routeLine = lines
       .map((l) => JSON.parse(l))
       .find((entry) => entry.app_event === "cognito_webhook_no_match");

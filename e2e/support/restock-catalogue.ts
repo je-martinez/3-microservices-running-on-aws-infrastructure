@@ -1,26 +1,13 @@
-// Restores the Orders catalogue to its seeded stock BEFORE a run, by calling the
-// same flag-guarded route the global teardown calls afterwards.
+// Restores the Orders catalogue to its seeded stock BEFORE a run, calling the same
+// flag-guarded route the global teardown calls afterwards.
 //
-// ## Why a SETUP step exists when teardown already restocks
-//
-// `DELETE /v1/orders/e2e-cleanup` soft-deletes the tagged orders and resets every
-// product to `ProductSeed.SeedStock`. That already fixed the original failure: a
-// soft-delete does not give back the stock an order consumed, so the catalogue
-// drained a little every run until all three products hit 0 and the suite began
-// failing with "no product with stock in the catalogue" — including specs about
-// ownership and carrier auth whose fixtures merely need to place an order first.
-//
-// The hole it leaves is the EXIT PATH. Teardown only runs when a run finishes
-// cleanly; a suite killed by Ctrl-C, a timeout, or an early hard failure never
-// reaches it, and the NEXT run then starts against a drained catalogue and fails
-// in specs that have nothing to do with stock. Restocking at setup makes the
-// previous run's exit path irrelevant — the invariant becomes "the catalogue is
-// full when a run starts" rather than "the catalogue was left full by whoever ran
-// last".
-//
-// It is idempotent and therefore cheap to run unconditionally: the endpoint's
-// restock predicate is `WHERE UnitsInStock < seedUnits`, so on an already-full
-// catalogue it matches no rows and reports `restocked: 0`.
+// CONTRACT: Keep this at SETUP even though teardown restocks too. Teardown only runs
+// on a clean finish, so a suite killed by Ctrl-C or an early hard failure leaves the
+// NEXT run against a drained catalogue, failing specs that have nothing to do with
+// stock ("no product with stock in the catalogue"). The invariant must be "the
+// catalogue is full when a run starts", not "whoever ran last left it full". Cheap to
+// run unconditionally: the restock predicate is `WHERE UnitsInStock < seedUnits`, so a
+// full catalogue matches no rows and reports `restocked: 0`. See [[testing]]
 
 /** The shape `DELETE /v1/orders/e2e-cleanup` answers with. */
 export type OrdersCleanupResult = {
@@ -35,19 +22,12 @@ export const ordersCleanupUrl = (): string =>
 /**
  * Calls the Orders E2E cleanup route to restore seed stock.
  *
- * ## This THROWS rather than warning — deliberately, and unlike the teardown
- *
- * The teardown swallows its failures because by then the run's verdict is already
- * decided and leftover local rows are untidy rather than harmful. Setup is the
- * opposite: everything after it depends on the catalogue having stock, so a
- * cleanup that did not happen turns into confusing 409/"no product with stock"
- * failures several specs later, attributed to the wrong code.
- *
- * A setup step that quietly skips is the failure mode this repo has been bitten by
- * repeatedly — see the TRACKING_DATABASE_URL trap in services/tracking-go/CLAUDE.md
- * §6, where eleven tests skipped silently while the package reported ok. So an
- * unreachable service, a 404/405 (E2E_TESTING_ENABLED off), or any non-2xx all
- * fail loudly and name both what was attempted and why it matters.
+ * CONTRACT: THROW here, unlike the teardown, which swallows. Everything after this
+ * depends on the catalogue having stock, so a cleanup that silently did not happen
+ * surfaces as confusing 409 / "no product with stock" failures several specs later,
+ * attributed to the wrong code. An unreachable service, a 404/405 (E2E_TESTING_ENABLED
+ * off) and any non-2xx all fail loudly, naming what was attempted and why it matters.
+ * See [[testing]]
  */
 export async function restockCatalogue(): Promise<OrdersCleanupResult> {
   const url = ordersCleanupUrl();

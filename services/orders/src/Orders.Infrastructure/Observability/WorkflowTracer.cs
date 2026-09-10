@@ -5,12 +5,9 @@ namespace Orders.Infrastructure.Observability;
 /// <inheritdoc />
 public class WorkflowTracer : IWorkflowTracer
 {
-    // A distinct name from AspNetCore/HttpClient/EFCore's own ActivitySources
-    // (Program.cs registers those separately) — this is the ONE source for
-    // manually-created workflow spans, and Program.cs's AddSource(...) call must
-    // name this exact string or the spans are created but never exported,
-    // silently. Same failure class as an unregistered instrumentation: no error,
-    // no span in Jaeger.
+    // CONTRACT: Program.cs's AddSource(...) must name this EXACT string. Otherwise the
+    // spans are created, cost work, and are silently never exported — no error, no span.
+    // See [[ADR-0019-distributed-tracing-opentelemetry]]
     public const string ActivitySourceName = "orders-workflow";
 
     private static readonly ActivitySource Source = new(ActivitySourceName);
@@ -45,12 +42,8 @@ public class WorkflowTracer : IWorkflowTracer
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
             throw;
         }
-        // No explicit `finally { activity?.Stop(); }` needed: `using` on an
-        // Activity calls Dispose(), which calls Stop() — the .NET equivalent of
-        // the mandatory span.end() in a finally this design requires everywhere
-        // else, and it covers the exception path above too. An activity left
-        // running never reaches Jaeger, with no error to show for it.
-        // Documented here so nobody "simplifies" this away.
+        // CONTRACT: Keep the `using` — Dispose() calls Stop(), covering the exception path
+        // above. An activity left running is never exported, with no error to show for it.
     }
 
     public void SetAttribute(string key, object? value) =>

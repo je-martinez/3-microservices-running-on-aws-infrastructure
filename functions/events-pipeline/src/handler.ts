@@ -13,6 +13,7 @@ import {
 } from "@opentelemetry/api";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";
 import { EnvelopeSchema, type Envelope } from "#domain/envelope";
+import { quarantine } from "#pipeline/quarantine";
 import { processRecord, type EventsRepositoryPort } from "#pipeline/process-record";
 import type { EventDocument, EventStatus } from "#domain/event";
 import { getMongoClient } from "#shared/db/client";
@@ -318,6 +319,12 @@ async function processBatch(event: SqsEvent): Promise<BatchResponse> {
         },
         "rejected malformed event body",
       );
+      // CONTRACT: Copy to the DLQ BEFORE returning. `false` excludes this record
+      // from batchItemFailures, so SQS deletes it and redrive never sees it —
+      // without this the message is gone with the DLQ still at zero. There is no
+      // event_id here to persist a FAILED document against, so the raw body IS
+      // the only recoverable artifact. See #pipeline/quarantine
+      await quarantine({ body: record.body, messageId: record.messageId, reason: "invalid_envelope" });
       return false;
     }
 
@@ -334,7 +341,13 @@ async function processBatch(event: SqsEvent): Promise<BatchResponse> {
       (recordSpan) =>
         runWithLogContext(envelopeContext(envelope, record.messageId), async () => {
           try {
-            const failed = await processOneRecord(envelope, repository, recordEmailFor(db, envelope));
+            const failed = await processOneRecord(
+              envelope,
+              repository,
+              record.body,
+              record.messageId,
+              recordEmailFor(db, envelope),
+            );
             recordSpan.setStatus({
               code: failed ? SpanStatusCode.ERROR : SpanStatusCode.OK,
             });
@@ -376,6 +389,10 @@ function recordEmailFor(db: Db, envelope: Envelope): RecordEmailFn | undefined {
 async function processOneRecord(
   envelope: Envelope,
   repository: EventsRepositoryPort,
+  // WHY: The raw body and id travel down here ONLY so a permanent failure that
+  // persisted nothing can be quarantined. Neither is logged.
+  rawBody: string,
+  messageId: string,
   recordEmail?: RecordEmailFn,
 ): Promise<boolean> {
   const startedAt = Date.now();
@@ -430,6 +447,15 @@ async function processOneRecord(
     },
     "failed to process event",
   );
+
+  // CONTRACT: Quarantine only the PERMANENT failure that persisted NOTHING. A
+  // permanent failure with a FAILED document is already auditable, and copying
+  // it too would fill the DLQ with messages that need no recovery. A TRANSIENT
+  // failure must not be copied at all: it is retried and reaches redrive on its
+  // own, so a copy here would duplicate it. See #pipeline/quarantine
+  if (!result.transient && !result.persisted) {
+    await quarantine({ body: rawBody, messageId, reason: "persist_failed" });
+  }
 
   return result.transient;
 }

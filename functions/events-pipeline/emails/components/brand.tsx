@@ -2,34 +2,20 @@ import { Tailwind, pixelBasedPreset, type TailwindConfig } from "@react-email/co
 import type { ReactNode } from "react";
 import { theme } from "../theme.ts";
 
-// The Tailwind provider for every transactional email. `EmailLayout` composes it
-// above the whole tree, so NO template imports `<Tailwind>` or configures it —
-// there is exactly one config in the service and templates only write classes.
-//
-// WHY TAILWIND AT ALL, GIVEN EMAIL'S CONSTRAINTS:
-// `<Tailwind>` is not a runtime stylesheet. It COMPILES each class to an inline
-// `style` attribute while rendering, so the HTML that reaches the mail client is
-// still fully inlined — byte-for-byte the same delivery mechanism the
-// hand-written style objects used, and the only one that survives Gmail/Outlook.
-// No <style> block is emitted and no `class` attribute is left behind (verified
-// against the rendered output; see the snapshot). NOTHING about email
-// compatibility changes here.
-//
-// What changes is AUTHORSHIP: the brand's hex values and font stacks used to be
-// repeated across five files as `theme.foo` interpolations inside style objects.
-// Now they are declared once, below, and every template refers to them by name
-// (`bg-brand-navy`, `text-text-muted`). A token changes in one place.
-//
-// `theme.ts` REMAINS the source of truth for the VALUES — this config consumes
-// it rather than restating it, so no hex string is duplicated and the manual
-// `.pen` <-> code mirroring documented in `theme.ts` stays single-sourced.
+// CONTRACT: The one Tailwind config in the service. `EmailLayout` composes it
+// above the whole tree, so NO template imports `<Tailwind>` or configures its
+// own — templates only write classes. This is not a runtime stylesheet: it
+// COMPILES each class to an inline `style` during render, emitting no <style>
+// block and no `class` attribute, which is the only delivery Gmail and Outlook
+// survive. `theme.ts` stays the source of truth for the VALUES; this config
+// consumes them rather than restating any hex.
+// See [[email-templates]]
 
-// `pixelBasedPreset` is REQUIRED, not optional. Tailwind v4's default scale is
-// expressed in `rem` (`text-sm` -> 0.875rem, `p-4` -> 1rem), and several mail
-// clients handle rem badly — Outlook's Word engine in particular resolves it
-// against the wrong root, which silently rescales the whole email. The preset
-// re-expresses the spacing and font-size scales in `px`. Omitting it is the
-// single most likely way to degrade rendering without any test failing.
+// CONTRACT: `pixelBasedPreset` is REQUIRED. Tailwind v4's default scale is in
+// `rem`, and Outlook's Word engine resolves rem against the wrong root and
+// silently rescales the whole email. Omitting it degrades rendering with no test
+// failing.
+// See [[email-templates]]
 const config: TailwindConfig = {
   presets: [pixelBasedPreset],
   theme: {

@@ -18,52 +18,35 @@ import {
   waitForMyOrdersTrackingReadable,
 } from "../support/tracking-readiness.js";
 
-// Internal E2E for the response cache: two consecutive GETs must produce
-// MISS then HIT, and an intervening write must return the next read to MISS.
-// Direct service ports, `x-user-id` faked — the gateway path is covered
-// separately by tests/gateway/cache.spec.ts, which exists for one specific
-// reason the internal layer structurally cannot see: a gateway or an nginx
-// location block can silently strip an unknown RESPONSE header, and from the
-// service port that failure is invisible.
-//
-// ## Why every test registers its OWN caller
-//
-// Six of the seven cache keys carry `{sub}:{user_id}`
-// (docs/shared/conventions/x-cache-response-header.md). A shared caller would
-// let one test's warm cache satisfy another test's "cold read" assertion, and
-// that contamination is order-dependent — the suite would pass alone and fail
-// in a full run. A fresh caller per test makes every first read genuinely cold
-// by construction. `orders:products:v1` is the one shared, ownerless key, and
-// it is handled explicitly below rather than pretended otherwise.
-//
-// ## Speed is a CORRECTNESS property here, not a nicety
-//
-// TTLs are short — 60s for the cart and both tracking keys. A MISS/HIT pair
-// separated by more than the TTL fails INTERMITTENTLY, and the failure reads as
-// a cache bug rather than a test bug, which is the expensive kind of flake.
-// Therefore:
-//   - the two reads of a pair are ISSUED BACK TO BACK, with nothing between
-//     them (no registration, no product lookup, no polling);
-//   - everything a pair needs — caller, product, order, tracking — is set up
-//     BEFORE the first read;
-//   - there is NO `waitForTimeout` anywhere in this file. Sleeping to "let the
-//     cache settle" is precisely what pushes a pair over a 60s boundary. The
-//     cache is populated synchronously by the MISS response before that
-//     response is returned, so there is nothing to wait for.
-// TTL EXPIRY is deliberately NOT tested at this layer: the only honest way to
-// test it is to wait out a real TTL, which would add minutes to the suite. It
-// is covered in layer 1 (unit/integration) with a clock the tests control.
+// Internal E2E for the response cache: two consecutive GETs must produce MISS then
+// HIT, and an intervening write must return the next read to MISS. The gateway copy
+// (tests/gateway/cache.spec.ts) covers what this layer structurally cannot see — a
+// gateway or nginx location block silently stripping the response header. TTL expiry
+// is not tested here (it needs a real wait); layer 1 owns it with a fake clock.
 
-// Configured TTLs, in seconds, from the spec's key table. Used as the UPPER
-// bound on X-Cache-TTL — a larger value means the wrong TTL was written.
+// CONTRACT: Every test registers its OWN caller. Six of the seven keys carry
+// `{sub}:{user_id}`, so a shared caller lets one test's warm cache satisfy another's
+// cold-read assertion — order-dependent contamination that passes alone and fails in
+// a full run. `orders:products:v1` is the one ownerless key, handled explicitly below.
+// CONTRACT: Issue each MISS/HIT pair BACK TO BACK, all setup before the first read,
+// and NO `waitForTimeout` anywhere in this file. TTLs are 60s for the cart and both
+// tracking keys, so a sleep pushes a pair past the boundary and the flake reads as a
+// cache bug. The MISS response populates the cache synchronously — nothing to wait for.
+// See [[x-cache-response-header]]
+
+// Configured TTLs in seconds, from the spec's key table, one per cache key:
+// orders:products:v1, orders:cart:v1, orders:my-orders:v1:…:t{0|1},
+// orders:order:v1:…:t{0|1}, tracking:order:v1, tracking:list:v1, users:me:v1.
+// Used as the UPPER bound on X-Cache-TTL — a larger value means the wrong TTL
+// was written. See [[x-cache-response-header]]
 const TTL = {
-  products: 600, // orders:products:v1              — 10 min
-  cart: 60, //     orders:cart:v1:{sub}:{user_id}   — 60 s
-  myOrders: 120, // orders:my-orders:v1:...:t{0|1}  — 2 min
-  order: 120, //    orders:order:v1:...:t{0|1}      — 2 min
-  tracking: 60, //  tracking:order:v1:...           — 60 s
-  trackingList: 60, // tracking:list:v1:...         — 60 s
-  me: 300, //       users:me:v1:{sub}:{user_id}     — 5 min
+  products: 600,
+  cart: 60,
+  myOrders: 120,
+  order: 120,
+  tracking: 60,
+  trackingList: 60,
+  me: 300,
 } as const;
 
 // Registers a throwaway caller against Users and returns its `usr_` id, used
@@ -98,24 +81,14 @@ async function firstProductWithStock(
 
 // ---------------------------------------------------------------- products
 
-// `orders:products:v1` is the ONE key with no owner in it — a shared catalogue
-// entry, 10-minute TTL. That makes it the only endpoint here where a previous
-// test (or a previous RUN) may legitimately have left the entry warm, so the
-// first read cannot be asserted as a MISS. The honest assertion is the pair
-// relationship: whatever the first read reports, the second must be a HIT.
-//
-// ## Why this one test retries
-//
-// Being ownerless also means EVERY other test's `POST /v1/orders` invalidates
-// it — order creation decrements stock. So a foreign order landing between this
-// test's two reads legitimately turns the second into a MISS, and that is this
-// test assuming exclusivity it does not have rather than a cache defect. The
-// same hazard bit the gateway copy of this test in a full-project run.
-//
-// The retry is BOUNDED and the assertion is NOT weakened: every attempt still
-// demands a genuine HIT with a valid TTL, and running out of attempts fails.
-// Accepting "MISS then MISS" would be the weakening — it would pass against a
-// cache that stores nothing at all.
+// CONTRACT: Do NOT assert the first read here is a MISS, and do NOT relax the retry
+// into accepting MISS/MISS. `orders:products:v1` is the one ownerless key, so a prior
+// test or RUN may legitimately have left it warm, and every other test's
+// `POST /v1/orders` invalidates it (creation decrements stock) — a foreign order
+// between the two reads turns the second into a MISS. The retry is bounded, every
+// attempt still demands a genuine HIT with a valid TTL, and exhausting them fails;
+// accepting MISS/MISS would pass against a cache that stores nothing.
+// See [[x-cache-response-header]]
 test("GET /v1/products: the catalogue is cached — a second read is a HIT", async () => {
   const api = await ordersClient();
   const userId = await registerCaller();
@@ -363,18 +336,11 @@ test("GET /v1/cart: user B never gets a HIT on user A's warm cart", async () => 
 
 // --------------------------------------------------------------- my-orders
 
-// ## The includeTracking trap, and why both variants get their own pair
-//
-// `?includeTracking=true` and `=false` are DIFFERENT cache keys —
-// `orders:my-orders:v1:{sub}:{user_id}:t1` and `...:t0` — returning DIFFERENT
-// response shapes. Verified live against the running service: the t0 body is a
-// list of orders (keys id/userId/lines/total/…), while the t1 body is a list of
-// `{order, tracking}` envelopes. A spec that warmed one variant and then
-// asserted a HIT on the other would be asserting a BUG: it would only pass if
-// the key ignored the parameter, which is exactly the defect the `t{0|1}`
-// segment exists to prevent. So each variant is warmed and asserted
-// independently, and one extra assertion proves they are genuinely separate
-// entries rather than one shared entry that happens to look right.
+// CONTRACT: Warm and assert each includeTracking variant independently. `t0` and `t1`
+// are different keys returning different shapes (a list of orders vs. a list of
+// `{order, tracking}` envelopes), so warming one and asserting a HIT on the other
+// passes only if the key ignores the parameter — the exact defect the `t{0|1}` segment
+// exists to prevent. See [[x-cache-response-header]]
 test("GET /v1/orders/my-orders: MISS then HIT, per includeTracking variant", async () => {
   // Above the 30s default: unlike its siblings this test waits for an
   // asynchronously created tracking to become readable through Orders, and may
@@ -394,26 +360,13 @@ test("GET /v1/orders/my-orders: MISS then HIT, per includeTracking variant", asy
     `order creation failed: ${await created.text()}`,
   ).toBe(201);
 
-  // ## The tracking window, and why the setup ends with a WRITE
-  //
-  // Orders declines to STORE a `t1` list whose orders do not all carry a tracking
-  // (TrackingCacheRules.AllOrdersHaveTracking) — a tracking is created
-  // asynchronously, and freezing its momentary absence into a 2-minute entry would
-  // pin the one order the user is actually watching at `tracking: null`. Correct,
-  // and it means a `t1` pair taken inside that window MISSes TWICE: the first read
-  // stored nothing for the second to hit.
-  //
-  // So the window is left first. But the wait's own final read is a MISS that DOES
-  // store — leaving `t1` warm, which would turn the pair below into HIT/HIT and
-  // make `expectMiss` fail for a new reason. Verified against the running service:
-  // poll until ready (MISS, stores) → next two reads HIT, HIT.
-  //
-  // A `PUT /v1/cart` fixes that without weakening anything. It sweeps the caller's
-  // whole key index — `InvalidateCartAsync` is broader than its name and removes
-  // every my-orders variant too (see CacheInvalidator) — so BOTH variants return to
-  // genuinely cold while the order and its now-readable tracking are untouched.
-  // The alternative, relaxing `expectMiss`, would pass against a cache that stores
-  // nothing at all.
+  // CONTRACT: End this setup with a `PUT /v1/cart`, and do NOT relax `expectMiss`
+  // instead. Orders declines to store a `t1` list whose orders lack a tracking, so a
+  // pair taken inside that async window MISSes twice; but the wait's own final read
+  // stores, leaving `t1` warm and turning the pair into HIT/HIT. The cart write sweeps
+  // the caller's whole key index (`InvalidateCartAsync` removes every my-orders
+  // variant too) so both variants go genuinely cold with the order untouched.
+  // See [[x-cache-response-header]]
   await waitForMyOrdersTrackingReadable(
     api,
     "/v1/orders/my-orders?includeTracking=true",
@@ -454,25 +407,14 @@ test("GET /v1/orders/my-orders: MISS then HIT, per includeTracking variant", asy
     TTL.myOrders,
   );
 
-  // Variant t1 — a DIFFERENT key. Its first read must be a MISS even though t0
-  // is now warm; a HIT here would mean the parameter is not part of the key.
-  //
-  // ## Why this pair retries, and why the assertion is NOT weakened
-  //
-  // Storing a `t1` entry requires Orders to actually HAVE the tracking, and it
-  // fetches that from Tracking under a hard 2s budget
-  // (`TrackingHttpClient.ReadTimeout`), degrading to `tracking: null` on overrun —
-  // which the cache then correctly declines to store, so the pair MISSes twice.
-  // Tracking serves this batch route from a SINGLE uvicorn dev worker: measured
-  // during a full run of this file, p50 1546ms but p90 4792ms (max 6726ms), with 11
-  // of 29 reads overrunning the budget purely because the rest of the suite keeps
-  // that worker busy. In isolation the same pair was MISS→HIT 5 times out of 5.
-  //
-  // Same hazard and same remedy as the `/v1/products` test at the top of this file.
-  // Every attempt re-sweeps for a genuinely cold key and still demands a REAL MISS
-  // followed by a REAL HIT; only a run of slow reads is retried, and exhausting the
-  // attempts FAILS. Accepting "MISS then MISS" would be the weakening — it would
-  // pass against a cache that stores nothing at all.
+  // Variant t1 is a DIFFERENT key: its first read must MISS even though t0 is warm,
+  // and a HIT would mean the parameter is not part of the key.
+  // CONTRACT: Do NOT relax this retry into accepting MISS/MISS. Storing a `t1` entry
+  // needs Orders to actually have the tracking, fetched under a hard 2s budget that
+  // degrades to `tracking: null` on overrun — measured p90 4792ms under full-suite
+  // load (11 of 29 reads overran), MISS→HIT 5/5 in isolation. Every attempt re-sweeps
+  // and demands a real MISS then a real HIT; exhausting them FAILS.
+  // See [[x-cache-response-header]]
   const t1Attempts = 4;
   let t1Second: Awaited<ReturnType<typeof api.get>> | undefined;
   let t1SecondHeader: string | undefined;
@@ -681,29 +623,12 @@ async function createTracking(
   return orderId;
 }
 
-// ## Tracking cache specs MUST use a user that Users can resolve
-//
-// The one trap in this section, and it is not obvious from the assertions. A
-// response key here is `tracking:{order|list}:v1:{sub}:{user_id}:…`, so the
-// handler needs the caller's INTERNAL `usr_` id — resolved from the
-// `cognito_sub` through Users over gRPC. When Users does not know that sub the
-// resolve returns None, `CacheKeys` correctly DECLINES to build a key, and the
-// read is served uncached: `X-Cache: MISS`, forever, no matter how healthy the
-// cache is. That is the designed "skip caching when unresolved" behaviour, not
-// a defect.
-//
-// So a spec that reuses a pre-seeded tracking row — the local DB has one owned
-// by `11111111-1111-4111-8111-111111111111`, a sub Users has never heard of —
-// would sit at MISS/MISS and read as a broken cache. Every test below therefore
-// calls `registerCaller()`, which registers through the normal flow and returns
-// a `usr_` id Users resolves by construction, and creates its OWN tracking.
-// Do not swap that for a fixed id.
-//
-// (History, so it is not re-diagnosed: these specs were briefly `fixme`d for a
-// real defect — an identity-cache HIT skipped the loader that populated
-// `CurrentCaller._resolved`, so the key collapsed to None even for a resolvable
-// caller. Fixed by `seed_resolved_internal_user_id()`; verified live MISS→HIT
-// on both routes.)
+// CONTRACT: Every test below must call `registerCaller()` and create its OWN tracking
+// — do NOT substitute a fixed id or the pre-seeded row. The key is
+// `tracking:{order|list}:v1:{sub}:{user_id}:…`, so an unresolvable sub makes CacheKeys
+// decline to build a key by design and the read is served uncached: `X-Cache: MISS`
+// forever, which reads as a broken cache rather than an unknown user.
+// See [[x-cache-response-header]]
 test("GET /v1/trackings/{order_id}: MISS then HIT", async () => {
   const api = await trackingClient();
   const userId = await registerCaller();

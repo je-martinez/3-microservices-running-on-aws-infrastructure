@@ -1,18 +1,12 @@
-// Package logging renders every log line as one JSON object with a field schema
-// shared across all four 3MRAI services, so a single dashboard query spans them.
+// Package logging renders every log line as one JSON object on the field schema
+// all four 3MRAI services share, so one dashboard query spans them.
 //
-// slog.JSONHandler cannot produce this shape: it emits time/level/msg under
-// fixed names and renders zero values rather than dropping them. The rules that
-// forced a hand-written handler:
-//
-//   - severity_text is the OTel name (WARN, FATAL), never Go's or Python's
-//     (WARNING, CRITICAL). Both spellings reaching the backend at once made
-//     every dashboard filter silently return half the matches.
-//   - nil and empty-string values are DROPPED, never emitted as null or "". An
-//     emitted null reads as "resolved, and it was null" rather than "not known
-//     at this point in the request".
-//   - a value JSON cannot encode is STRINGIFIED, never dropped: losing a field
-//     silently is how a diagnostic disappears exactly when it is needed.
+// CONTRACT: severity_text is the OTel name (WARN, FATAL), never Go's or
+// Python's — two spellings in the backend make every dashboard filter return
+// half its matches. nil and empty values are DROPPED, never null or "". A value
+// JSON cannot encode is STRINGIFIED, never dropped. slog.JSONHandler satisfies
+// none of these, which is why the handler is hand-written.
+// See [[logging-context]]
 package logging
 
 import (
@@ -80,25 +74,17 @@ func NewHandler(w io.Writer, serviceName, deploymentEnvironment string, level sl
 	}
 }
 
-// New builds a *slog.Logger at INFO over NewHandler, ALREADY WRAPPED in
-// NewContextHandler.
+// New builds a *slog.Logger at INFO over NewHandler, already wrapped in
+// NewContextHandler. NewHandler stays reachable for tests asserting the
+// rendering rules alone.
 //
-// The enrichment belongs in the DEFAULT constructor, not in an opt-in one beside
-// it, because the failure mode is SILENCE. A logger built without the wrapper
-// emits perfectly valid JSON that simply carries no request_id, cognito_sub or
-// order_id — nothing errors, no test that does not look for those fields fails,
-// and the loss shows up only as an empty dashboard weeks later. That is exactly
-// how this service ran with the wrapper defined, tested, and used nowhere: New
-// built the base handler and wrapped nothing.
+// CONTRACT: The enrichment belongs in this DEFAULT constructor. A logger built
+// without the wrapper emits valid JSON carrying no request_id, cognito_sub or
+// order_id — nothing errors and the loss surfaces as an empty dashboard.
 //
-// The base handler stays reachable as NewHandler for the tests that assert the
-// RENDERING rules in isolation; every path that builds a logger for the service
-// goes through here or through Install.
-//
-// It does NOT wrap the trace handler: that one lives in internal/adapter/otel
-// and this package must not import it (a platform package depending on the OTel
-// SDK would make every consumer of the log schema depend on it too). The
-// composition root applies it on the outside — see cmd/server/main.go.
+// CONTRACT: Do NOT wrap the trace handler here. It lives in adapter/otel, and a
+// platform package importing the OTel SDK drags it into everything that logs;
+// the composition root applies it outside. See [[logging-context]]
 func New(w io.Writer, serviceName, deploymentEnvironment string) *slog.Logger {
 	return slog.New(NewContextHandler(
 		NewHandler(w, serviceName, deploymentEnvironment, slog.LevelInfo)))

@@ -1,34 +1,22 @@
-// Partial masking for the auth flows. Register and login are the only places
-// that log an email at all (no user_id exists yet, so it is the sole diagnostic
-// key) — this keeps them useful for support without putting a full address in
-// OpenObserve, CloudWatch, and every backup.
-//
-//   john.doe@gmail.com  ->  jo*****e@gmail.com
-//
-// The DOMAIN is kept fully visible on purpose: it is the part with real
-// operational value (telling a corporate customer from a consumer signup at a
-// glance) and it identifies no one on its own. The local part — the part that
-// names a person — is what gets masked.
-//
-// Enough to recognize an address you already know, not enough to harvest one
-// you don't. The exact-match key stays `email_hash`, which is unaffected.
+// CONTRACT: Auth flows log the MASKED email, never the plaintext one —
+// `john.doe@gmail.com` -> `jo*****e@gmail.com`. Register and login are the only
+// places that log an email at all, because no user_id exists yet. The domain stays
+// visible (operationally useful, identifies no one); the local part is masked. Every
+// other surface uses `email_hash`. See [[logging-context]]
 
 const VISIBLE_PREFIX = 2;
 const VISIBLE_SUFFIX = 1;
 
 /**
- * Mask the local part, keeping the first two characters and the last one.
- *
- * Short inputs are handled deliberately: a 2-character local part would be
- * revealed whole by a naive "keep the first two" rule, and one short enough
- * that prefix+suffix covers it would pass through unmasked. Both collapse to
- * one visible character plus a star.
+ * Mask the local part, keeping the first two characters and the last one. Short
+ * inputs are special-cased: a naive "keep the first two" reveals a 2-character local
+ * part whole, and prefix+suffix alone leaves a short one unmasked.
  */
 function maskLocal(local: string): string {
   if (local.length === 0) return local;
 
-  // 1-2 chars: one visible character, padded so the result never equals the
-  // input and never reveals whether it was 1 or 2 characters long.
+  // 1-2 chars: one visible character, padded so the result never equals the input
+  // nor reveals whether it was 1 or 2 characters long.
   if (local.length <= 2) return `${local[0]}*`;
 
   // 3-4 chars: prefix + suffix would leave nothing masked, so mask the tail
@@ -44,9 +32,10 @@ function maskLocal(local: string): string {
 /**
  * Partially mask an email for logging: `john.doe@gmail.com` → `jo*****e@gmail.com`.
  *
- * Anything that does not look like an email is masked wholesale rather than
- * passed through, so a malformed body can never leak a raw value into the log
- * stream — this runs on unvalidated request bodies.
+ * CONTRACT: Anything not email-shaped is masked wholesale, never passed through —
+ * this runs on unvalidated request bodies, so a malformed one would otherwise leak a
+ * raw value into the log stream.
+ * See [[logging-context]]
  */
 export function maskEmail(email: string): string {
   const trimmed = email.trim();

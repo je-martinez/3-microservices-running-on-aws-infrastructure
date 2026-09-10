@@ -1,15 +1,11 @@
 import { Redis } from "ioredis";
 import { appLogger } from "#shared/logging/app-logger";
 
-// The Redis connection used by this service. It exists for ONE thing today:
-// short-lived password-reset codes (see `reset-code-store.ts`). That is also why
-// Redis is here at all rather than a Postgres table — a reset code is a
-// ten-minute secret that must disappear on its own, and Redis's native `EX`
-// expiry is exactly that, with no sweeper job to write, schedule, or forget.
-//
-// Registered as a SINGLETON in the Awilix container ([[dependency-injection]]):
-// ioredis holds a real TCP connection with its own reconnect state machine, so a
-// per-request instance would open a socket per request and leak them.
+// CONTRACT: Register as a SINGLETON — ioredis holds a real TCP connection with its
+// own reconnect state machine, so a per-request instance opens and leaks a socket per
+// request. It exists for one thing: short-lived password-reset codes, which need
+// Redis's native `EX` expiry rather than a Postgres table and a sweeper job.
+// See [[dependency-injection]]
 export type RedisClient = Redis;
 
 // `lazyConnect: false` (the default) is what we want: the socket is opened as
@@ -35,13 +31,10 @@ export function createRedisClient(options: { host: string; port: number }): Redi
     retryStrategy: (times: number) => Math.min(times * 200, 2000),
   });
 
-  // ioredis emits `error` on every failed reconnect attempt. An `error` event
-  // with NO listener is an unhandled 'error' event, which crashes the process —
-  // so this listener is not optional decoration, it is what keeps a transient
-  // Redis blip from taking the whole service down.
-  //
-  // Logged, never thrown: the callers (password reset) each decide what a Redis
-  // failure means for their own flow.
+  // CONTRACT: Keep this listener. ioredis emits `error` on every failed reconnect,
+  // and an `error` event with no listener is an unhandled 'error' that crashes the
+  // process — a transient Redis blip would take the whole service down. Logged, never
+  // thrown: each caller decides what a Redis failure means for its flow.
   client.on("error", (err: Error) => {
     appLogger.error(
       { err, app_event: "redis_connection_failed", reason: "redis_error" },

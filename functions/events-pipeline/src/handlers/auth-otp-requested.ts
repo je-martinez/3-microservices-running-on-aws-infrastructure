@@ -5,21 +5,12 @@ import { sendEmail } from "#email/sender";
 import { PermanentError } from "#pipeline/errors";
 import type { HandlerDeps } from "#pipeline/process-record";
 
-// Payload contract — camelCase (`ttlSeconds`), like USER_CREATED and unlike the
-// two snake_case payloads. `full_name` joins it in the producer's own snake_case
-// spelling: that is literally what
-// `infra/modules/cognito/otp-challenge-lambda/index.mjs` puts on the wire
-// (`payload: { email, full_name: fullName, code, ttlSeconds }`), and this schema
-// validates the wire, not a preference. Renaming it here would reject every OTP
-// envelope.
-//
-// `full_name` is a plain `z.string()` — NOT `.min(1)`. Cognito has no `name`
-// attribute populated today (Users' AdminCreateUser writes only `email`,
-// `email_verified` and `custom:app_user_id`), so the producer falls back to `""`
-// and the EMPTY STRING IS THE NORMAL PATH, not an edge case. A `.min(1)` here
-// would reject the whole envelope and cost the user their login code over a
-// missing greeting — the exact failure the producer's `?? ""` fallback exists to
-// avoid.
+// CONTRACT: This schema validates the WIRE. `full_name` is the producer's
+// snake_case spelling next to camelCase `ttlSeconds`; renaming it here rejects
+// every OTP envelope. And `full_name` is a plain `z.string()`, NOT `.min(1)` —
+// Cognito populates no `name` attribute, so the producer sends "" and the EMPTY
+// STRING IS THE NORMAL PATH. A `.min(1)` costs the user their login code over a
+// missing greeting.
 const AuthOtpRequestedPayloadSchema = z.object({
   email: z.string().email(),
   full_name: z.string(),
@@ -27,27 +18,19 @@ const AuthOtpRequestedPayloadSchema = z.object({
   ttlSeconds: z.number().positive(),
 });
 
-// Same flow as userCreatedHandler: validate payload (Zod) → render the
-// react-email template to HTML → SES SendEmail → COMPLETED.
-//
-// The code reaches this handler through the envelope's payload, exactly as
-// every other event type does. It is the PERSISTED copy of that payload that
-// never carries it (see #domain/redact-payload, applied in
-// #pipeline/process-record) — not this in-memory one, which has to hold the
-// real code in order to email it.
+// validate (Zod) → render → SES SendEmail.
+// CONTRACT: The in-memory payload holds the real code, because emailing it is
+// the point. It is the PERSISTED copy that never carries it — #domain/redact-
+// payload strips it in #pipeline/process-record.
 export async function authOtpRequestedHandler(envelope: Envelope, deps: HandlerDeps = {}): Promise<void> {
   const result = AuthOtpRequestedPayloadSchema.safeParse(envelope.payload);
 
   if (!result.success) {
-    // PERMANENT: the payload will not become valid on a redelivery, so the
-    // message is consumed and the document recorded FAILED.
-    //
-    // Only the FIELD PATHS are reported, never Zod's own message — it echoes
-    // the offending input, which here would be the OTP code itself, a live
-    // credential, on top of the plaintext email address. This string is
-    // persisted on the (already-redacted) event document and logged as
-    // `reason` (see src/handler.ts), so it must be credential- and PII-free by
-    // construction.
+    // PERMANENT: a redelivery cannot make this payload valid.
+    // CONTRACT: Report FIELD PATHS only, never Zod's message — it echoes the
+    // offending input, here a LIVE OTP code alongside the plaintext email. This
+    // string is persisted and logged as `reason`.
+    // See [[logging-context]]
     const fields = result.error.issues.map((issue) => issue.path.join(".")).join(", ");
     throw new PermanentError(`invalid AUTH_OTP_REQUESTED payload: invalid fields: ${fields}`);
   }

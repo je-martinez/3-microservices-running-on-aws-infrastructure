@@ -1,187 +1,462 @@
 <div class="bg-surface-white flex w-full flex-1 flex-col items-start justify-start gap-0">
-  <div class="bg-surface-body flex w-full flex-1 flex-col items-center justify-start gap-0 p-5 md:p-9">
+  <div
+    class="bg-surface-body flex w-full flex-1 flex-col items-center justify-start gap-0 p-5 md:p-9"
+  >
     <div class="flex h-fit w-full max-w-260 flex-col items-start justify-start gap-4xl">
       <a class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-sm" routerLink="/">
         <svg lucideChevronLeft class="text-ink-secondary h-4 w-4"></svg>
         <span class="text-ink-secondary text-sm">Back to cart</span>
       </a>
 
-      <div class="flex h-fit w-full shrink-0 flex-col items-center justify-between gap-4 md:flex-row md:items-center">
+      <div
+        class="flex h-fit w-full shrink-0 flex-col items-center justify-between gap-4 md:flex-row md:items-center"
+      >
         <div class="flex h-fit w-fit shrink-0 flex-col items-start justify-start gap-1">
-          <h1 class="text-ink-primary text-2xl font-bold tracking-[-0.8px] md:text-3xl">Checkout</h1>
-          <p class="text-ink-secondary text-sm">{{ itemCount() }} items · {{ total() }} total</p>
+          <h1 class="text-ink-primary text-2xl font-bold tracking-[-0.05rem] md:text-3xl">
+            Checkout
+          </h1>
+          <p class="text-ink-secondary text-sm">
+            <!-- WHY: `isEmpty` is checked BEFORE the total. An empty cart still
+                 reports $15.00 shipping, so a branch that only tests for a cart
+                 announces "0 items · $15.00 total" as if it were owed. -->
+            @if (cart.loading()) {
+              Loading your cart…
+            } @else if (cart.error()) {
+              Cart unavailable
+            } @else if (cart.isEmpty()) {
+              Nothing to check out
+            } @else if (totals(); as summary) {
+              {{ itemCount() }} items · {{ summary.total }} total
+            }
+          </p>
         </div>
-        <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-md">
-          @for (label of ['Cart', 'Address']; track label) {
-            <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-2">
-              <span class="bg-brand-navy flex h-icon-lg w-icon-lg shrink-0 flex-row items-center justify-center rounded-full">
-                <svg lucideCheck class="text-surface-white h-3 w-3"></svg>
+        <!-- WHY: Driven by `steps()`, never hardcoded. A fixed "Cart ✓ Address ✓"
+             claims a saved address while the form below is still asking for one,
+             telling the buyer they are done when they are not. -->
+        <ol
+          data-testid="checkout-steps"
+          class="flex h-fit w-fit shrink-0 list-none flex-row items-center justify-start gap-md"
+        >
+          @for (step of steps(); track step.label; let last = $last) {
+            <li
+              class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-2"
+              [attr.data-step]="step.label"
+              [attr.data-state]="step.state"
+              [attr.aria-current]="step.state === 'current' ? 'step' : null"
+            >
+              <span
+                class="flex h-icon-lg w-icon-lg shrink-0 flex-row items-center justify-center rounded-full"
+                [class.bg-brand-navy]="step.state === 'complete'"
+                [class.bg-brand-orange]="step.state === 'current'"
+                [class.bg-line-strong]="step.state === 'upcoming'"
+              >
+                <svg
+                  [lucideIcon]="step.icon"
+                  class="text-surface-white h-3 w-3"
+                  aria-hidden="true"
+                ></svg>
               </span>
-              <span class="text-ink-secondary text-body">{{ label }}</span>
-            </div>
-            <div class="bg-line-strong h-px w-5 shrink-0"></div>
+              <span
+                class="text-body"
+                [class.text-ink-secondary]="step.state === 'complete'"
+                [class.text-ink-primary]="step.state === 'current'"
+                [class.font-semibold]="step.state === 'current'"
+                [class.text-ink-muted]="step.state === 'upcoming'"
+                >{{ step.label }}</span
+              >
+            </li>
+            @if (!last) {
+              <li aria-hidden="true" class="bg-line-strong h-px w-5 shrink-0"></li>
+            }
           }
-          <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-2">
-            <span class="bg-brand-orange flex h-icon-lg w-icon-lg shrink-0 flex-row items-center justify-center rounded-full">
-              <svg lucideCreditCard class="text-surface-white h-3 w-3"></svg>
-            </span>
-            <span class="text-ink-primary text-body font-semibold">Payment</span>
-          </div>
-        </div>
+        </ol>
       </div>
 
-      <div class="flex w-full flex-col items-start justify-start gap-6 md:flex-row">
-        <div class="flex h-fit flex-1 flex-col items-start justify-start gap-5">
-          <div class="bg-surface-white border-line flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5">
-            <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
-              <span class="text-ink-muted text-xs font-semibold tracking-overline">DELIVERY ADDRESS</span>
-              <span class="text-brand-navy text-sm font-semibold">Change</span>
-            </div>
-            <span class="text-ink-primary text-body-lg font-semibold">Jose Martinez</span>
-            <p class="text-ink-secondary w-full text-body leading-body">
-              Av. Rómulo Betancourt 1204, Apto 5B<br />
-              Santo Domingo 10604, DO · +1 809 555 0142
-            </p>
-          </div>
+      <!-- WHY: Outside the branches below. A failed checkout re-reads the cart,
+           and an error rendered inside them is unmounted by the reload it
+           triggers — the buyer sees the payment silently not happen. -->
+      @if (checkoutError(); as message) {
+        <p role="alert" class="text-danger-red w-full shrink-0 text-body-sm">{{ message }}</p>
+      }
 
-          @if (stripeEnabled()) {
-            <div data-testid="checkout-stripe" class="bg-surface-white border-line flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5">
-              <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
-                <span class="text-ink-muted text-xs font-semibold tracking-overline">PAYMENT</span>
-                <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-xs">
-                  <svg lucideLock class="text-ink-muted h-3 w-3"></svg>
-                  <span class="text-ink-muted text-caption">Encrypted</span>
-                </div>
-              </div>
-              <p class="text-ink-secondary w-full text-sm">
-                Payment is completed in the cart — open the cart to pay with Stripe.
-              </p>
-              <div class="text-ink-muted flex h-fit w-full shrink-0 flex-row items-center justify-center gap-2xs text-xs">
-                Powered by <span class="text-ink-secondary font-bold tracking-[-0.3px]">Stripe</span>
-              </div>
-            </div>
-          } @else {
-            <div data-testid="checkout-plain" class="bg-surface-white border-line flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5">
-              <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
-                <span class="text-ink-muted text-xs font-semibold tracking-overline">PAYMENT</span>
-                <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-xs">
-                  <svg lucideLock class="text-ink-muted h-icon-xs w-icon-xs"></svg>
-                  <span class="text-ink-muted text-caption">Encrypted</span>
-                </div>
-              </div>
-
-              <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-2xl">
-                <div class="border-brand-orange bg-brand-orange-light flex h-15 w-full shrink-0 flex-row items-center justify-center gap-xs rounded-md border-[1.5px]">
-                  <svg lucideCreditCard class="text-brand-orange-text h-icon-md w-icon-md"></svg>
-                  <span class="text-ink-primary text-caption font-semibold">Card</span>
-                </div>
-
-                <label class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-xs">
-                  <span class="text-ink-primary text-body-sm font-medium">Card number</span>
-                  <span class="border-line bg-surface-white flex h-control-lg w-full items-center gap-md rounded-md border px-3">
-                    <svg lucideCreditCard class="text-ink-muted h-icon w-icon shrink-0"></svg>
-                    <input
-                      type="text"
-                      placeholder="1234 1234 1234 1234"
-                      class="text-ink-primary placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
-                    />
-                  </span>
-                </label>
-
-                <div class="flex h-fit w-full shrink-0 flex-row items-start justify-start gap-3">
-                  <label class="flex h-fit flex-1 flex-col items-start justify-start gap-xs">
-                    <span class="text-ink-primary text-body-sm font-medium">Expiration date</span>
-                    <span class="border-line bg-surface-white flex h-control-lg w-full items-center gap-md rounded-md border px-3">
-                      <input
-                        type="text"
-                        placeholder="MM / YY"
-                        class="text-ink-primary placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
-                      />
-                    </span>
-                  </label>
-                  <label class="flex h-fit flex-1 flex-col items-start justify-start gap-xs">
-                    <span class="text-ink-primary text-body-sm font-medium">Security code</span>
-                    <span class="border-line bg-surface-white flex h-control-lg w-full items-center gap-md rounded-md border px-3">
-                      <input
-                        type="text"
-                        placeholder="CVC"
-                        class="text-ink-muted placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
-                      />
-                    </span>
-                  </label>
-                </div>
-
-                <div class="flex h-fit w-full shrink-0 flex-row items-start justify-start gap-3">
-                  <label class="flex h-fit flex-1 flex-col items-start justify-start gap-xs">
-                    <span class="text-ink-primary text-body-sm font-medium">Country or region</span>
-                    <span class="border-line bg-surface-white flex h-control-lg w-full items-center gap-md rounded-md border px-3">
-                      <input
-                        type="text"
-                        value="Dominican Republic"
-                        class="text-ink-primary w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
-                      />
-                    </span>
-                  </label>
-                  <label class="flex h-fit flex-1 flex-col items-start justify-start gap-xs">
-                    <span class="text-ink-primary text-body-sm font-medium">ZIP</span>
-                    <span class="border-line bg-surface-white flex h-control-lg w-full items-center gap-md rounded-md border px-3">
-                      <input
-                        type="text"
-                        value="10604"
-                        class="text-ink-primary w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
-                      />
-                    </span>
-                  </label>
-                </div>
-              </div>
-
-              <div class="border-line h-px w-full shrink-0"></div>
-              <div class="text-ink-muted flex h-fit w-full shrink-0 flex-row items-center justify-center gap-2xs text-xs">
-                Powered by <span class="text-ink-secondary font-bold tracking-[-0.3px]">Stripe</span>
-              </div>
-            </div>
+      @if (cart.loading()) {
+        <div
+          class="bg-surface-white border-line flex w-full animate-pulse flex-col gap-4 rounded-xl border p-5"
+          aria-busy="true"
+        >
+          @for (placeholder of [0, 1, 2]; track placeholder) {
+            <div class="bg-surface-subtle h-4 w-full shrink-0 rounded-full"></div>
           }
-
+        </div>
+      } @else if (cart.error(); as message) {
+        <div
+          role="alert"
+          class="bg-surface-white border-line flex h-fit w-full shrink-0 flex-col items-center justify-center gap-lg rounded-xl border p-9"
+        >
+          <svg lucideTriangleAlert class="text-danger-red h-icon-lg w-icon-lg"></svg>
+          <p class="text-ink-primary text-label font-semibold">We could not load your cart.</p>
+          <p class="text-ink-secondary max-w-125 text-center text-body">{{ message }}</p>
           <button
             type="button"
-            class="bg-brand-orange text-surface-white flex h-control-2xl w-full shrink-0 flex-row items-center justify-center gap-md rounded-md text-base font-semibold"
+            class="border-line-strong text-brand-navy flex h-control w-fit shrink-0 flex-row items-center justify-start gap-sm rounded-lg border px-2xl text-body font-semibold"
+            (click)="cart.load()"
           >
-            Pay {{ total() }}
-            <svg lucideLock class="h-icon-md w-icon-md"></svg>
+            <svg lucideRefreshCw class="h-icon-sm w-icon-sm"></svg>
+            Try again
           </button>
-
-          <div class="flex h-fit w-full shrink-0 flex-row items-center justify-center gap-2">
-            <svg lucideShieldCheck class="text-ink-muted h-3.5 w-3.5"></svg>
-            <span class="text-ink-muted text-caption">You'll be charged {{ total() }}. Free returns within 30 days.</span>
-          </div>
         </div>
+      } @else if (cart.isEmpty()) {
+        <!-- WHY: The whole payment form is withheld, not just the lines. An
+             empty cart still reports shipping and a non-zero `total`, and a Pay
+             button beside that figure offers to charge for nothing. -->
+        <div
+          class="bg-surface-white border-line flex h-fit w-full shrink-0 flex-col items-center justify-center gap-lg rounded-xl border p-9"
+        >
+          <svg lucideShoppingBag class="text-ink-muted h-icon-lg w-icon-lg"></svg>
+          <p class="text-ink-primary text-label font-semibold">Your cart is empty.</p>
+          <p class="text-ink-secondary text-body">There is nothing here to pay for yet.</p>
+          <a
+            class="border-line-strong text-brand-navy flex h-control w-fit shrink-0 flex-row items-center justify-start rounded-lg border px-2xl text-body font-semibold"
+            routerLink="/"
+            >Browse products</a
+          >
+        </div>
+      } @else if (totals(); as summary) {
+        <div class="flex w-full flex-col items-start justify-start gap-6 md:flex-row">
+          <div class="flex h-fit flex-1 flex-col items-start justify-start gap-5">
+            <div
+              data-testid="checkout-address"
+              class="bg-surface-white border-line flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5"
+            >
+              <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
+                <span class="text-ink-muted text-xs font-semibold tracking-overline"
+                  >DELIVERY ADDRESS</span
+                >
+                <!-- WHY: Users holds ONE address per profile, so this reveals the
+                     same form over the same field — never an "add another". -->
+                @if (address() !== null && !editingAddress()) {
+                  <button
+                    type="button"
+                    data-testid="checkout-edit-address"
+                    class="text-brand-orange-text text-body-sm font-semibold"
+                    (click)="startEditingAddress()"
+                  >
+                    Edit
+                  </button>
+                }
+              </div>
 
-        <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-5 md:w-85">
-          <div class="bg-surface-white border-line flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5">
-            <span class="text-ink-muted text-xs font-semibold tracking-overline">ORDER SUMMARY</span>
-            @for (product of cartItems; track product.id) {
-              <app-cart-line [product]="product" />
+              @if (savedAddressOnShow(); as deliveryAddress) {
+                <span class="text-ink-primary text-body-lg font-semibold">{{ fullName() }}</span>
+                <p class="text-ink-secondary w-full text-body leading-body">
+                  {{ deliveryAddress.line1
+                  }}{{ deliveryAddress.line2 ? ', ' + deliveryAddress.line2 : '' }}<br />
+                  {{ deliveryAddress.city }} {{ deliveryAddress.postalCode }},
+                  {{ deliveryAddress.country }}{{ phoneNumber() ? ' · ' + phoneNumber() : '' }}
+                </p>
+              } @else {
+                <!-- WHY: The form lives here, not in the cart drawer. The order
+                     is placed on this page, so the address it needs is
+                     collected on the surface that cannot proceed without it. -->
+                <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-1">
+                  @if (editingAddress()) {
+                    <h2 class="text-ink-primary text-label font-semibold">
+                      Edit your delivery address
+                    </h2>
+                    <p class="text-ink-secondary w-full text-body-sm leading-body-sm">
+                      Saving replaces the address on your profile.
+                    </p>
+                  } @else {
+                    <h2 class="text-ink-primary text-label font-semibold">Add a delivery address</h2>
+                    <p class="text-ink-secondary w-full text-body-sm leading-body-sm">
+                      We need it once — we'll save it to your profile.
+                    </p>
+                  }
+                  <app-dev-fill-button (filled)="devFill($event)" />
+                </div>
+
+                <!-- WHY: The help sits on line 1 rather than line 2, where the
+                     design frame draws it: it describes what searching does,
+                     and a hint under the field it does not govern reads as
+                     belonging to that one. -->
+                <app-street-autocomplete
+                  label="Address Line 1"
+                  icon="map-pin"
+                  placeholder="Rómulo Betancourt"
+                  help="Search your street and pick a suggestion — we'll fill in City, State and ZIP Code."
+                  [formField]="addressForm.street"
+                  (valueChange)="onStreetTyped($event)"
+                  (addressSelected)="onAddressSuggested($event)"
+                />
+                <app-field
+                  label="Address Line 2"
+                  icon="building-2"
+                  placeholder="Apartment, suite, floor (optional)"
+                  [formField]="addressForm.line2"
+                />
+                <app-field
+                  label="City"
+                  icon="map"
+                  placeholder="Santo Domingo"
+                  [formField]="addressForm.city"
+                  (valueChange)="onResolvedFieldTyped()"
+                />
+                <app-field
+                  label="State"
+                  icon="map"
+                  placeholder="Distrito Nacional"
+                  [formField]="addressForm.state"
+                  (valueChange)="onResolvedFieldTyped()"
+                />
+                <app-field
+                  label="ZIP Code"
+                  type="numeric"
+                  autocomplete="postal-code"
+                  icon="map"
+                  placeholder="10604"
+                  [formField]="addressForm.postalCode"
+                  (valueChange)="onResolvedFieldTyped()"
+                />
+                <app-phone-field
+                  label="Phone number"
+                  icon="phone"
+                  placeholder="+1 809 000 0000"
+                  [defaultCountry]="seedCountry()"
+                  [formField]="addressForm.phoneNumber"
+                />
+
+                @if (addressError(); as message) {
+                  <p role="alert" class="text-danger-red w-full shrink-0 text-body-sm">
+                    {{ message }}
+                  </p>
+                }
+
+                <div class="flex h-fit w-full shrink-0 flex-row items-center justify-start gap-3">
+                  <button
+                    type="button"
+                    data-testid="checkout-save-address"
+                    class="bg-brand-navy text-surface-white flex h-control-2xl flex-1 shrink-0 flex-row items-center justify-center gap-md rounded-md text-base font-semibold disabled:opacity-50"
+                    [disabled]="!canSaveAddress()"
+                    (click)="saveAddress()"
+                  >
+                    {{ savingAddress() ? 'Saving…' : 'Save address' }}
+                  </button>
+                  @if (editingAddress()) {
+                    <button
+                      type="button"
+                      data-testid="checkout-cancel-edit-address"
+                      class="border-line-strong text-brand-navy flex h-control-2xl w-fit shrink-0 flex-row items-center justify-center rounded-md border px-2xl text-base font-semibold disabled:opacity-50"
+                      [disabled]="savingAddress()"
+                      (click)="cancelEditingAddress()"
+                    >
+                      Cancel
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+
+            @if (stripeEnabled()) {
+              <div
+                data-testid="checkout-stripe"
+                class="bg-surface-white border-line flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5"
+              >
+                <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
+                  <span class="text-ink-muted text-xs font-semibold tracking-overline">PAYMENT</span>
+                  <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-xs">
+                    <svg lucideLock class="text-ink-muted h-3 w-3"></svg>
+                    <span class="text-ink-muted text-caption">Encrypted</span>
+                  </div>
+                </div>
+                <p class="text-ink-secondary w-full text-sm">
+                  Pay securely with Stripe. Your card details never touch our servers.
+                </p>
+                <div
+                  class="text-ink-muted flex h-fit w-full shrink-0 flex-row items-center justify-center gap-2xs text-xs"
+                >
+                  Powered by
+                  <span class="text-ink-secondary font-bold tracking-[-0.01875rem]">Stripe</span>
+                </div>
+              </div>
+            } @else {
+              <div
+                data-testid="checkout-plain"
+                class="bg-surface-white border-line flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5"
+              >
+                <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
+                  <span class="text-ink-muted text-xs font-semibold tracking-overline">PAYMENT</span>
+                  <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-md">
+                    <app-dev-fill-button (filled)="devFill($event)" />
+                    <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-xs">
+                      <svg lucideLock class="text-ink-muted h-icon-xs w-icon-xs"></svg>
+                      <span class="text-ink-muted text-caption">Encrypted</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-2xl">
+                  <div
+                    class="border-brand-orange bg-brand-orange-light flex h-15 w-full shrink-0 flex-row items-center justify-center gap-xs rounded-md border-[1.5px]"
+                  >
+                    <svg lucideCreditCard class="text-brand-orange-text h-icon-md w-icon-md"></svg>
+                    <span class="text-ink-primary text-caption font-semibold">Card</span>
+                  </div>
+
+                  <label class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-xs">
+                    <span class="text-ink-primary text-body-sm font-medium">Card number</span>
+                    <span
+                      class="border-line bg-surface-white flex h-control-lg w-full items-center gap-md rounded-md border px-3"
+                    >
+                      <svg lucideCreditCard class="text-ink-muted h-icon w-icon shrink-0"></svg>
+                      <input
+                        type="text"
+                        inputmode="numeric"
+                        autocomplete="cc-number"
+                        maxlength="23"
+                        placeholder="1234 1234 1234 1234"
+                        data-testid="card-number"
+                        class="text-ink-primary placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
+                        [value]="cardForm.cardNumber().value()"
+                        (input)="onCardNumberInput($any($event.target))"
+                      />
+                    </span>
+                  </label>
+
+                  <div class="flex h-fit w-full shrink-0 flex-row items-start justify-start gap-3">
+                    <label class="flex h-fit flex-1 flex-col items-start justify-start gap-xs">
+                      <span class="text-ink-primary text-body-sm font-medium">Expiration date</span>
+                      <span
+                        class="border-line bg-surface-white flex h-control-lg w-full items-center gap-md rounded-md border px-3"
+                      >
+                        <input
+                          type="text"
+                          inputmode="numeric"
+                          autocomplete="cc-exp"
+                          maxlength="7"
+                          placeholder="MM / YY"
+                          data-testid="card-expiry"
+                          class="text-ink-primary placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
+                          [value]="cardForm.cardExpiry().value()"
+                          (input)="onCardExpiryInput($any($event.target))"
+                        />
+                      </span>
+                    </label>
+                    <label class="flex h-fit flex-1 flex-col items-start justify-start gap-xs">
+                      <span class="text-ink-primary text-body-sm font-medium">Security code</span>
+                      <span
+                        class="border-line bg-surface-white flex h-control-lg w-full items-center gap-md rounded-md border px-3"
+                      >
+                        <input
+                          type="text"
+                          inputmode="numeric"
+                          autocomplete="cc-csc"
+                          maxlength="4"
+                          placeholder="CVC"
+                          data-testid="card-cvc"
+                          class="text-ink-muted placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
+                          [value]="cardForm.cardCvc().value()"
+                          (input)="onCardCvcInput($any($event.target))"
+                        />
+                      </span>
+                    </label>
+                  </div>
+
+                  <label class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-xs">
+                    <span class="text-ink-primary text-body-sm font-medium">Cardholder name</span>
+                    <span
+                      class="border-line bg-surface-white flex h-control-lg w-full items-center gap-md rounded-md border px-3"
+                    >
+                      <input
+                        type="text"
+                        autocomplete="cc-name"
+                        placeholder="Name on card"
+                        data-testid="card-holder"
+                        class="text-ink-primary placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
+                        [value]="cardForm.cardHolder().value()"
+                        (input)="onCardHolderInput($any($event.target))"
+                      />
+                    </span>
+                  </label>
+
+                </div>
+
+                <div class="border-line h-px w-full shrink-0"></div>
+                <div
+                  class="text-ink-muted flex h-fit w-full shrink-0 flex-row items-center justify-center gap-2xs text-xs"
+                >
+                  Powered by
+                  <span class="text-ink-secondary font-bold tracking-[-0.01875rem]">Stripe</span>
+                </div>
+              </div>
             }
-            <div class="border-line h-px w-full shrink-0"></div>
-            <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
-              <span class="text-ink-secondary text-sm">Subtotal</span>
-              <span class="text-ink-primary text-sm font-semibold">{{ total() }}</span>
+
+            <!-- WHY: A disabled Pay button with no explanation reads as a broken
+                 page. The address is the one blocker the buyer can clear here,
+                 so it is named rather than left to be inferred. -->
+            @if (address() === null) {
+              <p
+                data-testid="checkout-address-required"
+                class="text-warn-ink bg-warn-bg w-full shrink-0 rounded-md p-3 text-body-sm"
+              >
+                Add a delivery address above before paying — we need somewhere to send your order.
+              </p>
+            }
+
+            <button
+              type="button"
+              data-testid="checkout-pay"
+              class="bg-brand-orange text-surface-white flex h-control-2xl w-full shrink-0 flex-row items-center justify-center gap-md rounded-md text-base font-semibold disabled:opacity-50"
+              [disabled]="!canPay()"
+              (click)="pay()"
+            >
+              {{ placing() ? 'Placing your order…' : 'Pay ' + summary.total }}
+              <svg lucideLock class="h-icon-md w-icon-md"></svg>
+            </button>
+
+            <div class="flex h-fit w-full shrink-0 flex-row items-center justify-center gap-2">
+              <svg lucideShieldCheck class="text-ink-muted h-3.5 w-3.5"></svg>
+              <span class="text-ink-muted text-caption"
+                >You'll be charged {{ summary.total }}. Free returns within 30 days.</span
+              >
             </div>
-            <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
-              <span class="text-ink-secondary text-sm">Shipping</span>
-              <span class="text-ink-primary text-sm font-semibold">Free</span>
-            </div>
-            <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
-              <span class="text-ink-secondary text-sm">Taxes</span>
-              <span class="text-ink-primary text-sm font-semibold">$0.00</span>
-            </div>
-            <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
-              <span class="text-ink-primary text-label-lg font-bold">Total</span>
-              <span class="text-ink-primary text-lg font-bold tracking-[-0.3px]">{{ total() }}</span>
+          </div>
+
+          <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-5 md:w-85">
+            <div
+              class="bg-surface-white border-line flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5"
+            >
+              <span class="text-ink-muted text-xs font-semibold tracking-overline"
+                >ORDER SUMMARY</span
+              >
+              <!-- WHY: `readonlyQuantity` — the drawer owns the steppers. Two
+                   surfaces mutating the same cart give the buyer two places to
+                   change one number, and each write replaces the whole cart. -->
+              @for (line of cart.lines(); track line.productId) {
+                <app-cart-line [line]="line" [readonlyQuantity]="true" />
+              }
+              <div class="border-line h-px w-full shrink-0"></div>
+              <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
+                <span class="text-ink-secondary text-sm">Subtotal</span>
+                <span class="text-ink-primary text-sm font-semibold">{{ summary.subtotal }}</span>
+              </div>
+              <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
+                <span class="text-ink-secondary text-sm">Shipping</span>
+                <span class="text-ink-primary text-sm font-semibold">{{ summary.shipping }}</span>
+              </div>
+              <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
+                <span class="text-ink-secondary text-sm">Taxes</span>
+                <span class="text-ink-primary text-sm font-semibold">{{ summary.tax }}</span>
+              </div>
+              <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
+                <span class="text-ink-primary text-label-lg font-bold">Total</span>
+                <span class="text-ink-primary text-lg font-bold tracking-[-0.01875rem]">{{
+                  summary.total
+                }}</span>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      }
     </div>
   </div>
 </div>

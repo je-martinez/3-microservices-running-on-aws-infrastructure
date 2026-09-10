@@ -9,8 +9,9 @@
 // exposes a clock that ran while nothing was painted.
 // See [[angular-component-authoring]]
 
-import { chromium, expect, test, type Browser, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Browser, type Locator, type Page } from "@playwright/test";
 import { launchWebBrowser } from "../../support/web-browser";
+import { signInAsNewUser } from "../../support/web-session";
 
 const VIEWPORT = { width: 1440, height: 900 };
 
@@ -87,9 +88,11 @@ test("the cart drawer's first open animates without skipping a frame", async ({ 
   const page = await browser.newPage({ viewport: VIEWPORT, baseURL });
 
   try {
-    await page.goto("/");
-    // `goto` resolves before Angular renders; sampling an unrendered page never
-    // sees the drawer at all and the assertion below passes on an empty series.
+    // `/` sits behind authGuard: an anonymous visit renders the login form and
+    // the drawer never mounts. Sign-in lands on home, but resolves before
+    // Angular renders it — sampling there sees no drawer at all and the
+    // assertion below passes on an empty series, so wait for the content.
+    await signInAsNewUser(page, baseURL!);
     await expect(page.getByRole("heading", { level: 1, name: /new arrivals/i })).toBeVisible();
     await page.waitForTimeout(500);
 

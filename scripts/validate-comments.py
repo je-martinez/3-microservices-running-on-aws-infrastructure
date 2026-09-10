@@ -38,13 +38,17 @@ EXCLUDE_DIR_NAMES = frozenset(
         "playwright-report",
         "test-results",
         "generated",
+        # Vite's prebundled dependencies — vendored library code, regenerated on
+        # demand and gitignored. Scanning it reports thousands of violations in
+        # files nobody here writes, which is how a gate stops being run at all.
+        ".angular",
     }
 )
 
-# spike/ is throwaway; .claude/skills/ is vendored skill content, not our source.
-# The Python Tracking service was replaced by services/tracking-go/ (#74), so the
-# migration exclusion it used to carry is gone and Go is linted like every language.
-EXCLUDE_PATH_PREFIXES = ("spike/", ".claude/skills/")
+# spike/ is throwaway; .claude/skills/ and its .agents/skills/ mirror are vendored
+# skill content, not our source. Go carries no exclusion — services/tracking-go/
+# is linted like every other language.
+EXCLUDE_PATH_PREFIXES = ("spike/", ".claude/skills/", ".agents/skills/")
 
 LANG_BY_SUFFIX = {
     ".tf": "hcl",
@@ -57,6 +61,28 @@ LANG_BY_SUFFIX = {
     ".jsx": "typescript",
     ".py": "python",
     ".go": "go",
+    # CONTRACT: YAML counts. docker-compose.yml carried 25-line comment blocks
+    # for months because no suffix mapped here, so the gate never opened the
+    # file — a budget nothing measures is not a budget.
+    ".yml": "yaml",
+    ".yaml": "yaml",
+    # CONTRACT: Angular templates count. `.html` mapped to nothing, so every
+    # `<!-- -->` in apps/web was held to the convention by review alone — and
+    # review let a narrative block through. Same gap the YAML and Makefile
+    # entries were added to close.
+    ".html": "html",
+}
+
+# CONTRACT: extensionless files count too. classify() matched on suffix alone,
+# so `Makefile` and every `Dockerfile` — seven files, up to 74-line blocks —
+# were never opened, the same gap the YAML entries above were added to close.
+# Matching is on the STEM, case-insensitively, so the wild variants that carry
+# a qualifier (`Makefile.local`, `Dockerfile.dev`, lowercase `dockerfile`) are
+# linted like their canonical form.
+LANG_BY_STEM = {
+    "makefile": "makefile",
+    "dockerfile": "dockerfile",
+    "containerfile": "dockerfile",
 }
 
 # One p90 gate for every language: >12 lines is a hard error (see the Length
@@ -69,6 +95,20 @@ THRESHOLDS = {
     "typescript": {"density_warn": 0.50, "density_min_lines": 60},
     "python": {"density_warn": 0.45, "density_min_lines": 80},
     "go": {"density_warn": 0.50, "density_min_lines": 60},
+    # Config is declarative and legitimately needs more prose per line than code.
+    "yaml": {"density_warn": 0.60, "density_min_lines": 80},
+    # A template is mostly markup, so a comment earns its place less often than
+    # in code — the tag it sits above usually says what it does. The tag budget
+    # and the >12-line hard error apply unchanged.
+    "html": {"density_warn": 0.40, "density_min_lines": 60},
+    # Declarative like YAML, and each carries one extra source of legitimate
+    # prose. A Makefile line is a target or a one-shot shell directive whose
+    # purpose is invisible from the command itself, and `## help text` on the
+    # target line is the only interface most callers ever read. A Dockerfile
+    # line is a single build step whose ordering constraints (layer caching,
+    # which stage copies what) cannot be read off the instruction.
+    "makefile": {"density_warn": 0.60, "density_min_lines": 80},
+    "dockerfile": {"density_warn": 0.65, "density_min_lines": 40},
 }
 
 # Blocks in 7..12 lines are allowed only when load-bearing AND referenced.
@@ -91,7 +131,14 @@ LEGACY_REFERENCE_RE = re.compile(r"See\s+(?:@vault\s+)?docs/[^\s)\]]+")
 NARRATIVE_MARKER_RE = re.compile(
     r"\b("
     r"used\s+to|previously|no\s+longer|tried|did\s+not\s+work|turned\s+out|"
-    r"originally|initially|instead\s+we|eventually|the\s+fix\s+was|now\s+we"
+    r"originally|initially|instead\s+we|eventually|the\s+fix\s+was|now\s+we|"
+    # Past-transition verbs: the shape a rewrite takes when it narrates what a
+    # value or behaviour changed FROM. Each measured at 0 hits across the repo's
+    # existing comments, so they cost no baseline churn.
+    r"became|has\s+since|this\s+fix(?:es|ed)|after\s+the\s+fix|reverted|"
+    r"we\s+(?:changed|moved|renamed|removed|switched|replaced)|"
+    r"(?:was|were)\s+broken|"
+    r"stopped\s+(?:being|working)"
     r")\b",
     re.IGNORECASE,
 )
@@ -118,7 +165,13 @@ RUNTIME_NARRATIVE_WHITELIST_RE = re.compile(
     r"hardcoded\s+address\s+eventually|somebody\s+eventually\s+mounts)|"
     r"used\s+to\s+(?:build|distinguish|resolve|skip|tell)|"
     r"(?:be\s+tried|tried\s+block)|"
-    r"\b(?:is|be|are)\s+retried\b"
+    r"\b(?:is|be|are)\s+retried\b|"
+    # Hypothetical, not history: "fails as if the backend were broken".
+    r"as\s+if\s+(?:the|it|they|that)\s+\w*\s*(?:was|were)\s+broken|"
+    # Lifecycle position, not chronology: "branches at first render".
+    r"at\s+first\s+(?:render|paint|load|run|call|use)|"
+    # Present-tense consequence: "is silently reverted on the next apply".
+    r"(?:is|are|gets?)\s+(?:\w+\s+)?reverted"
     r")",
     re.IGNORECASE,
 )
@@ -187,7 +240,14 @@ def should_skip(path: Path, root: Path | None = None) -> bool:
 
 
 def classify(path: Path) -> str | None:
-    return LANG_BY_SUFFIX.get(path.suffix.lower())
+    """Map a file to a language by suffix, else by name (`Makefile`, `Dockerfile`)."""
+    lang = LANG_BY_SUFFIX.get(path.suffix.lower())
+    if lang is not None:
+        return lang
+    # `Dockerfile.dev` and `Makefile.local` reduce to the same stem as a bare
+    # `Dockerfile`/`Makefile`, so one entry covers every variant. The suffix
+    # lookup above still wins, which keeps a hypothetical `Makefile.py` Python.
+    return LANG_BY_STEM.get(path.name.split(".", 1)[0].lower())
 
 
 # ─── Comment scanning ───────────────────────────────────────────────────────
@@ -259,6 +319,39 @@ def _scan_c_like_comment(line: str, lang: str, state: dict) -> str | None:
     return " ".join(body for body in bodies if body) if saw_comment else None
 
 
+def _scan_html_comment(line: str, state: dict) -> str | None:
+    """Extract `<!-- -->` comments, which are the only comment form in a template."""
+    bodies: list[str] = []
+    cursor = 0
+    saw_comment = False
+
+    if state.get("in_block"):
+        saw_comment = True
+        close = line.find("-->")
+        if close == -1:
+            return line.strip()
+        bodies.append(line[:close].strip())
+        state["in_block"] = False
+        cursor = close + 3
+
+    while True:
+        open_at = line.find("<!--", cursor)
+        if open_at == -1:
+            break
+        saw_comment = True
+        close = line.find("-->", open_at + 4)
+        if close == -1:
+            state["in_block"] = True
+            bodies.append(line[open_at + 4 :].strip())
+            break
+        bodies.append(line[open_at + 4 : close].strip())
+        cursor = close + 3
+
+    if not saw_comment:
+        return None
+    return " ".join(part for part in bodies if part)
+
+
 def _scan_python_comment(line: str, state: dict) -> str | None:
     """Extract Python comments and leading docstrings without parsing code."""
     if state.get("python_docstring"):
@@ -321,7 +414,19 @@ def _scan_python_comment(line: str, state: dict) -> str | None:
 
 def is_comment_line(line: str, lang: str, state: dict) -> bool:
     """Record the extracted comment body in state and report whether it exists."""
-    if lang == "python":
+    if lang in ("yaml", "dockerfile", "makefile"):
+        # CONTRACT: only a `#` that OPENS the line counts. These formats have no
+        # block or docstring form, and a trailing `#` in them is usually data —
+        # above all `target: ## help text`, the self-documenting-target shape
+        # `make help` greps, which would otherwise read as comment bloat.
+        stripped = line.strip()
+        # WHY: a Makefile recipe comment is written `@#` so make does not echo it.
+        if lang == "makefile" and stripped.startswith("@#"):
+            stripped = stripped[1:]
+        body = stripped[1:].strip() if stripped.startswith("#") else None
+    elif lang == "html":
+        body = _scan_html_comment(line, state)
+    elif lang == "python":
         body = _scan_python_comment(line, state)
     elif lang in ("hcl", "typescript", "csharp", "go"):
         body = _scan_c_like_comment(line, lang, state)
@@ -564,7 +669,15 @@ def check_narrative(block: CommentBlock) -> list[str]:
     for offset, body in enumerate(block.bodies):
         if not body:
             continue
-        context = " ".join(block.bodies[offset : offset + 2])
+        # CONTRACT: The window reaches one line BACK as well as forward. A
+        # wrapped comment splits a whitelisted phrase across the join, and a
+        # marker opening its line has its qualifier on the previous one.
+        # `body_at` maps a position in `body` onto the joined context, or the
+        # whitelist spans would be compared against the wrong offsets.
+        first = max(0, offset - 1)
+        prefix = " ".join(block.bodies[first:offset])
+        body_at = len(prefix) + 1 if prefix else 0
+        context = " ".join(block.bodies[first : offset + 2])
         whitelist_spans = [
             match.span() for match in RUNTIME_NARRATIVE_WHITELIST_RE.finditer(context)
         ]
@@ -572,8 +685,8 @@ def check_narrative(block: CommentBlock) -> list[str]:
             match
             for match in NARRATIVE_MARKER_RE.finditer(body)
             if not any(
-                start <= match.start() and match.end() <= end
-                for start, end in whitelist_spans
+                span_start <= body_at + match.start() and body_at + match.end() <= span_end
+                for span_start, span_end in whitelist_spans
             )
         ]
         if not matches:

@@ -1,0 +1,40 @@
+<label class="flex h-fit w-full flex-col gap-2">
+  <span class="text-ink-primary text-sm font-semibold">{{ label() }}</span>
+  <span
+    class="h-field border-line bg-surface-white flex w-full items-center gap-xl rounded-md border px-3xl"
+  >
+    @if (country(); as countryCode) {
+      <!-- The ISO code sits BESIDE the flag on purpose: Windows ships no flag
+           glyphs and renders the bare letters, so the code is what stays
+           legible there. -->
+      <span
+        class="text-ink-secondary flex shrink-0 items-center gap-2xs"
+        [attr.data-country]="countryCode"
+        [attr.aria-label]="'Country ' + countryCode"
+      >
+        <span aria-hidden="true" class="text-title leading-none">{{ flag() }}</span>
+        <span class="text-body-sm font-semibold">{{ countryCode }}</span>
+      </span>
+    } @else if (icon(); as iconName) {
+      <svg [lucideIcon]="iconName" class="text-ink-muted shrink-0 text-title"></svg>
+    }
+    <input
+      type="tel"
+      inputmode="tel"
+      autocomplete="tel"
+      class="text-ink-primary placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-base outline-none"
+      [placeholder]="placeholder()"
+      [value]="value()"
+      [attr.aria-invalid]="incomplete() ? 'true' : null"
+      (input)="onInput($any($event.target))"
+    />
+  </span>
+  @if (incomplete()) {
+    <span role="status" data-testid="phone-invalid" class="text-warn-ink text-body-sm">
+      This number looks incomplete — you can still save it.
+    </span>
+  }
+  @if (help(); as helpText) {
+    <span class="text-ink-secondary text-body-sm">{{ helpText }}</span>
+  }
+</label>

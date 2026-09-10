@@ -12,17 +12,9 @@ namespace Orders.Infrastructure.Carts;
 
 /// <summary>
 /// Reads the caller's active cart and renders it fully calculated.
+/// CONTRACT: Enforce ownership IN the query (WHERE cognito_sub = caller), as
+/// OrderReadService does — someone else's cart must simply not be found.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Ownership is enforced IN the query (WHERE cognito_sub = caller), the same way
-/// OrderReadService does it — a cart belonging to someone else simply is not found.
-/// </para>
-/// <para>
-/// Lives in Infrastructure because it depends on OrdersReadDbContext; Application must
-/// not reference EF Core.
-/// </para>
-/// </remarks>
 public class CartReadService
 {
     private readonly OrdersReadDbContext _db;
@@ -42,18 +34,15 @@ public class CartReadService
         _config = config;
         _tracer = tracer;
         _logger = logger;
-        // Trimmed once here so composing a URL below is a plain concatenation and can
-        // never produce a double slash — same treatment as ProductReadService.
+        // WHY: Trimmed once, so composing a URL below cannot produce a double slash.
         _assetsBaseUrl = assetsBaseUrl.TrimEnd('/');
     }
 
     /// <summary>The caller's cart, or an EMPTY cart when they have none.</summary>
     /// <remarks>
-    /// Wrapped in the read_cart workflow span, mirroring OrderReadService.GetMyOrdersAsync.
-    /// The instrumentation lives HERE and not in <see cref="BuildAsync"/> on purpose: the
-    /// write path calls BuildAsync to render its own response, so instrumenting there would
-    /// emit a spurious nested "read" span inside every update_cart, and a read_cart_succeeded
-    /// line for a request that was not a read.
+    /// CONTRACT: Instrument HERE, not in <see cref="BuildAsync"/> — the write path calls
+    /// BuildAsync to render its own response, so a span there emits a spurious nested read
+    /// inside every update_cart. See [[logging-context]]
     /// </remarks>
     public async Task<CartDto> GetMyCartAsync(string callerSub, CancellationToken ct = default) =>
         await _tracer.TraceWorkflowAsync(
@@ -69,24 +58,14 @@ public class CartReadService
 
                 var dto = await BuildAsync(cart, ct);
 
-                // Set from inside so it reflects what was actually returned.
+                // WHY: Set from inside, so it reflects what was actually returned.
                 _tracer.SetAttribute("item_count", dto.Items.Count);
 
-                // ONE line, and only a _succeeded one — no _started twin, and no _failed
-                // branch. Same reasoning as OrderReadService.GetMyOrdersAsync: this is a
-                // read with no intermediate step at which a _started line could be the last
-                // thing seen, and it has no failure of its own to name — a DB fault throws
-                // straight out of TraceWorkflowAsync, which already records it on the span.
-                // Inventing a `reason` for a branch the code does not have is exactly what
-                // the convention asks us not to do.
-                //
-                // Emitted INSIDE the activity, so it carries this span's span_id and a
-                // span-scoped log lookup resolves to it — the outer `request completed`
-                // line cannot serve that purpose, being written under the AspNetCore span.
-                //
-                // item_count only: cognito_sub and user_id already ride on every line via
-                // LogContextEnricher, and re-passing them here is how a PII-adjacent field
-                // ends up duplicated somewhere nobody audits.
+                // CONTRACT: One _succeeded line, no _started twin and no _failed branch — a
+                // read has no intermediate step and names no failure of its own. Emit it
+                // INSIDE the activity so it carries this span's span_id, and pass item_count
+                // only: LogContextEnricher already puts the identity on every line.
+                // See [[logging-context]]
                 _logger.LogInformation(
                     "Read the caller's cart {app_event} {item_count}",
                     "read_cart_succeeded", dto.Items.Count);
@@ -95,12 +74,9 @@ public class CartReadService
             });
 
     /// <summary>
-    /// Renders a cart entity (or null, for "no cart") into its fully-calculated DTO.
+    /// Renders a cart entity (or null, for "no cart") into its fully-calculated DTO. Public
+    /// so the write path renders its response from the entity it just saved.
     /// </summary>
-    /// <remarks>
-    /// Public so the write path can render its own response from the entity it just
-    /// saved, instead of issuing a second read for state it already holds.
-    /// </remarks>
     public async Task<CartDto> BuildAsync(Cart? cart, CancellationToken ct = default)
     {
         var taxRate = await _config.GetTaxRateAsync(ct);

@@ -1,18 +1,13 @@
 // One Lambda serving all three CUSTOM_AUTH challenge triggers, dispatched on
-// event.triggerSource, mirroring the repo's only other Cognito trigger Lambda
-// (../pre-token-lambda/index.mjs — plain ESM, zero deps). No new DB table: the
-// code lives entirely in Cognito's challenge session (privateChallengeParameters),
-// which never leaves the service and dies with the session.
+// event.triggerSource. The code lives in Cognito's challenge session
+// (privateChallengeParameters) and dies with it — no DB table.
 //
-// ZERO DEPENDENCIES, including the AWS SDK. `@aws-sdk/client-sqs` ships inside
-// the Lambda runtime image at /var/runtime/node_modules, but a bare ESM import
-// of it resolves ONLY when NODE_PATH=/var/runtime/node_modules is set in the
-// execution environment — verified against public.ecr.aws/lambda/nodejs:20,
-// where the image itself leaves NODE_PATH empty. Real AWS sets it; whether
-// Floci's Lambda containers do is not something this function should bet on, so
-// SendMessage is issued as a plain signed HTTPS request built from node:crypto
-// and the global fetch. That also keeps the deployment package a single file,
-// exactly like pre-token-lambda (no npm install, no node_modules in the zip).
+// CONTRACT: ZERO dependencies, the AWS SDK included. A bare ESM import of
+// `@aws-sdk/client-sqs` resolves only when NODE_PATH=/var/runtime/node_modules
+// is set, which the runtime image leaves empty and Floci may not set — so
+// SendMessage is a plain signed HTTPS request built from node:crypto and fetch.
+// That also keeps the deployment package a single file, no node_modules in the
+// zip. See [[cognito-pre-token-lambda]]
 import { createHmac, createHash, randomInt, timingSafeEqual } from "node:crypto";
 
 const CODE_LENGTH = Number(process.env.OTP_CODE_LENGTH ?? "6");
@@ -178,28 +173,18 @@ function hashEmail(email) {
   return createHash("sha256").update(String(email).trim().toLowerCase()).digest("hex");
 }
 
-// OTel severity numbers (logs data model), identical to every other producer's
-// table so a line from this Lambda and a line from a service are
-// indistinguishable downstream.
+// CONTRACT: OTel severity numbers, identical to every other producer's table so
+// a line from this Lambda and one from a service are indistinguishable.
 const SEVERITY_NUMBER = { DEBUG: 5, INFO: 9, WARN: 13, ERROR: 17, FATAL: 21 };
 
-// Structured log matching the repo's logging conventions: `app_event` naming,
-// unknown fields OMITTED rather than null. The OTP code is NEVER a field here —
-// not masked, not hashed, not truncated. A 6-digit code has only 1,000,000
-// possibilities, so no partial reveal of it is safe; `challenge_id` is the
-// correlator instead.
-//
-// Emits `severity_text`/`severity_number`, NOT the `level: "info"` this used to
-// hardcode. Two things were wrong with that: the field name is not the one the
-// shared schema uses, so the collector never promoted it and every line from
-// this Lambda reached OpenObserve at severity 0 (UNSPECIFIED); and the value was
-// a CONSTANT, so a failure logged as loudly as a success. `severity` is a
-// parameter now, defaulting to INFO — the level has to be a decision at the call
-// site, which is the only place that knows whether something went wrong.
-//
-// `service_name` is stamped here rather than at each call site: it is the field
-// dashboards group by, and this Lambda emitted none at all, so its records could
-// not be attributed to anything.
+// WARNING: The OTP code is NEVER a field here — not masked, not hashed, not
+// truncated. A 6-digit code has 1,000,000 possibilities, so no partial reveal is
+// safe; `challenge_id` is the correlator.
+// CONTRACT: Emit `severity_text`/`severity_number`, not `level` — the collector
+// promotes only the shared schema's field names, and anything else reaches
+// OpenObserve at severity 0 (UNSPECIFIED). Severity is a call-site decision, and
+// `service_name` is stamped here because dashboards group by it.
+// See [[logging-context]]
 function log(fields, severity = "INFO") {
   const line = {
     severity_text: severity,
@@ -220,24 +205,16 @@ async function publishOtpRequested(event, code, challengeId) {
   const sub = event.request.userAttributes.sub;
   const safeRunId = safeRunIdFrom(event);
 
-  // Cognito's standard `name` attribute is the only one that could carry a full
-  // name here: the Users service's AdminCreateUser sets email, email_verified
-  // and custom:app_user_id only (services/users/src/shared/auth/
-  // cognito-auth-provider.ts), and the pool declares no given_name/family_name
-  // population. So `name` is read, and its ABSENCE is the normal case today.
-  //
-  // Absent → "" rather than undefined or an omitted key. The payload's fields
-  // are all REQUIRED by the pipeline's schema: an omitted key (or an undefined
-  // one, which JSON.stringify drops) would make the consumer reject the whole
-  // envelope, so a missing name would cost the user their login code rather
-  // than just the greeting. An empty string degrades to a nameless greeting.
+  // CONTRACT: Fall back to "", never undefined or an omitted key. The pipeline's
+  // schema requires every payload field, and JSON.stringify drops undefined — a
+  // missing name would get the whole envelope rejected and cost the user their
+  // login code, not just the greeting. Absence is the normal case: the pool
+  // populates no name attribute today.
   const fullName = event.request.userAttributes.name ?? "";
 
-  // snake_case throughout — this is the wire contract validated by the
-  // pipeline's EnvelopeSchema (functions/events-pipeline/src/domain/envelope.ts).
-  // `order_id` is NULLABLE, not optional, there: the key must be PRESENT with a
-  // null value or the envelope is rejected. `user_id` is required with min
-  // length 1.
+  // CONTRACT: snake_case throughout — the wire contract the pipeline's
+  // EnvelopeSchema validates. `order_id` is NULLABLE, not optional: the key must
+  // be present with a null value or the envelope is rejected.
   const envelope = {
     event_id: `evt_${challengeId}`,
     type: EVENT_TYPE,
@@ -248,21 +225,13 @@ async function publishOtpRequested(event, code, challengeId) {
     // are the same person (the user requesting their own code), so the ids are
     // filled; they are omitted, never null, when that is not the case.
     author: { actor: EVENT_ACTOR, user_id: sub, cognito_sub: sub },
-    // `code` travels ONLY here, inside the SQS message body the events pipeline
-    // consumes to render the email. It is NEVER logged, and the pipeline
-    // redacts it before persisting this payload as its audit trail.
-    // `full_name` lets the OTP login email greet the user by name; it is always
-    // PRESENT (possibly empty) — see the fallback above.
+    // WARNING: `code` travels only here, in the SQS body. It is NEVER logged,
+    // and the pipeline redacts it before persisting this payload.
     payload: { email, full_name: fullName, code, ttlSeconds: CODE_TTL_SECONDS },
-    // E2E ONLY, and ABSENT in production traffic. Rides the same ClientMetadata
-    // seam as `traceparent` above, for the same reason: Cognito invokes this
-    // trigger, so the originating request's context reaches it by no other path.
-    //
-    // Spread-or-nothing, never null or "": the pipeline's EnvelopeSchema
-    // declares `run_id` optional with `.min(1)`, so either would fail validation
-    // as a PermanentError — the record dropped and the user's login code never
-    // sent. An unattributed email is a lost fixture; a rejected envelope is a
-    // lost login.
+    // CONTRACT: Spread-or-nothing, never null or "". EnvelopeSchema declares
+    // run_id optional with `.min(1)`, so either fails validation as a
+    // PermanentError — the record dropped and the login code never sent.
+    // E2E only; absent in production traffic.
     ...(safeRunId ? { run_id: safeRunId } : {}),
   };
 
@@ -285,35 +254,18 @@ async function publishOtpRequested(event, code, challengeId) {
 
 // The W3C traceparent this trigger forwards onto the SQS message, or undefined.
 //
-// WHY IT ARRIVES IN ClientMetadata AND NOT FROM AN SDK: the other three
-// publishers (Users, Orders, Tracking) read an ACTIVE span and let OTel inject
-// the header. This function has neither — Cognito invokes it on its own, so the
-// caller's request context does not reach it, and it ships zero dependencies by
-// design (see the header note), so there is no propagator here to read one with.
-// ClientMetadata is the only channel a caller controls that Cognito forwards to
-// the trigger verbatim, so the Users service puts its traceparent there on
-// AdminInitiateAuth and this copies it across.
-//
-// Shape-checked, not merely truthy. An unparseable value would yield nothing at
-// the consumer anyway (its propagator extracts from ROOT_CONTEXT and returns
-// nothing on a bad header), so forwarding one would only put a broken header on
-// the wire that LOOKS like real context. The check mirrors the W3C format:
-// version "00", a 32-hex trace id, a 16-hex span id, 2-hex flags — and rejects
-// the all-zero ids the spec declares invalid.
+// CONTRACT: It arrives in ClientMetadata, not from an SDK — Cognito invokes this
+// trigger so no request context reaches it, and it carries no propagator.
+// CONTRACT: Shape-check it, do NOT merely test for truthiness. A bad header
+// yields nothing at the consumer anyway, so forwarding one only puts something
+// on the wire that LOOKS like real context. See [[logging-context]]
 const TRACEPARENT_RE = /^00-(?![0]{32}$)[0-9a-f]{32}-(?![0]{16}$)[0-9a-f]{16}-[0-9a-f]{2}$/;
 
-// The E2E run id, shape-checked for the same reason traceparent is: it arrives
-// in a caller-controlled field and, unlike traceparent, it LANDS IN A DATABASE
-// DOCUMENT as the key the fixture collection is queried by. An arbitrary string
-// would let a caller write whatever it liked into that key.
-//
-// Bounded at 64 characters and rejected — never truncated — when longer. A
-// truncated id would still be a VALID-LOOKING id that silently matches nothing,
-// which is worse than an absent one: the emails would be recorded under a key no
-// spec ever queries, and the failure would read as "the pipeline never sent it".
-//
-// The suite's own ids (`run_<ISO timestamp>_<8 hex>`, minted in
-// e2e/support/global-setup.ts) fit this pattern comfortably.
+// WARNING: Shape-check this — it arrives in a caller-controlled field and lands
+// in a database document as the key the fixture collection is queried by.
+// CONTRACT: Reject an over-long id, never truncate it. A truncated id is a
+// valid-LOOKING id that silently matches nothing, so the emails land under a key
+// no spec queries and the failure reads as "the pipeline never sent it".
 const RUN_ID_RE = /^run_[A-Za-z0-9_:.-]{1,64}$/;
 
 function safeRunIdFrom(event) {

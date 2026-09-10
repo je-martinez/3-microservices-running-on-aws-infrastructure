@@ -8,44 +8,29 @@ import (
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/domain/audit"
 )
 
-// StatusWriter is this use case's own narrow port, declared here by its consumer
-// rather than in a shared repository interface.
+// StatusWriter is this use case's own narrow port, declared here by its consumer.
 //
-// # GetByOrderID is the UNSCOPED read, and that is structural
-//
-// It is a DIFFERENT METHOD from the reads' GetByOrderIDScoped, never the same
-// method with an empty scope argument. This endpoint has no caller identity to
-// scope by: its gateway route carries no Cognito authorizer, so no x-user-id ever
-// reaches the service, and the carrier is a third party with no account here.
-// Reusing the reads' ownership filter would compare a Cognito sub that was never
-// sent against every row and 404 EVERY carrier call — the endpoint would look
-// implemented and never once work.
-//
-// The optional-parameter shape is barred for a second reason: Go's zero value for
-// string is "", not nil, so `GetByOrderID(ctx, orderID, sub)` called with no sub
-// would silently mean "scoped to the empty string" rather than "unscoped". Two
-// methods cannot be confused this way.
+// CONTRACT: GetByOrderID is UNSCOPED and a DIFFERENT method from the reads'
+// GetByOrderIDScoped, never one method with an empty scope argument. This
+// endpoint has no caller identity — the gateway route carries no authorizer — so
+// the ownership filter would 404 every carrier call. And Go's zero string is "",
+// so an optional argument silently means "scoped to the empty string".
+// See [[user-id-vs-cognito-sub-ownership-key]]
 type StatusWriter interface {
 	GetByOrderID(ctx context.Context, orderID string) (domain.Tracking, error)
 
-	// ApplyTransition updates the parent, appends the history row, and RE-READS
-	// the history — all in one transaction, all stamped from `now`.
-	//
-	// The re-read is part of THIS method's contract rather than a caller's
-	// responsibility, because a caller holding a pre-append slice has no way to
-	// know it is stale. The value returned is the one that is both rendered as
-	// the 200 body and embedded in the published event.
+	// CONTRACT: ApplyTransition updates the parent, appends the history row and
+	// RE-READS the history in one transaction, stamped from `now`. The re-read
+	// is this method's job, not the caller's — a caller holding a pre-append
+	// slice cannot know it is stale, and the returned value is both the 200 body
+	// and the published event.
 	ApplyTransition(ctx context.Context, t domain.Tracking, to domain.Status, actor audit.Actor, now time.Time) (domain.TrackingWithHistory, error)
 }
 
-// EventPublisher is best-effort by CONTRACT, not by accident: it returns no error
-// at all, so a notification failure is structurally incapable of failing a write
-// that has already committed.
-//
-// The actor is a PARAMETER rather than a constant chosen inside the publisher.
-// This use case serves both the carrier webhook and TestMode progression, and a
-// hardcoded actor would relabel every automatic progression as a real carrier
-// update in the envelope the pipeline receives.
+// CONTRACT: EventPublisher returns no error, so a notification failure cannot
+// fail a committed write. The actor is a PARAMETER, never a constant inside the
+// publisher — a hardcoded one relabels automatic progressions as carrier
+// updates. See [[audit-fields]]
 type EventPublisher interface {
 	PublishTrackingStatusChanged(ctx context.Context, t domain.TrackingWithHistory, previousStatus string, actor audit.Actor)
 }
@@ -89,27 +74,14 @@ func NewUpdateStatus(
 }
 
 // Execute advances a tracking to `requested`, appending the transition to its
-// history.
+// history. `actor` is the ONLY difference between its two callers; everything
+// else is shared so the two cannot disagree on what a transition means.
 //
-// `actor` is the ONLY thing that differs between this function's two callers: the
-// carrier PUT passes the zero value and takes the default below, and TestMode
-// progression passes audit.TestModeProgression so an automatic run stays
-// identifiable from tracking_history.created_by after the fact. Everything else —
-// the lookup, the guards, the persistence, the emission, the invalidation — is
-// deliberately shared. A second implementation for the automatic path is how the
-// two would start disagreeing about what a transition means.
-//
-// The order is load-bearing:
-//
-//  1. Find the tracking, UNSCOPED, by order_id alone. Missing -> ErrTrackingNotFound.
-//  2. Guard the transition. A rejection carries its machine-readable reason and
-//     NOTHING is written.
-//  3. Persist: update the parent and append the history row in one unit of work,
-//     both stamped from one `now`, then RE-READ the history.
-//  4. Only AFTER the commit: publish, then invalidate.
-//
-// Steps 1 and 2 are separate so a rejected transition on an existing tracking is
-// never confused with a missing one — different causes, different status codes.
+// CONTRACT: The step order is load-bearing. 1) Find UNSCOPED by order_id.
+// 2) Guard; a rejection writes NOTHING and carries its reason. 3) Persist parent
+// and history in one unit of work, then RE-READ. 4) Only after the commit,
+// publish then invalidate. Steps 1 and 2 stay separate so a rejection is never
+// confused with a missing tracking. See [[tracking-service-design]]
 func (uc *UpdateStatus) Execute(
 	ctx context.Context, orderID string, requested domain.Status, actor audit.Actor,
 ) (domain.TrackingWithHistory, error) {
@@ -142,16 +114,11 @@ func (uc *UpdateStatus) Execute(
 		return domain.TrackingWithHistory{}, err
 	}
 
-	// Everything below is AFTER the commit and cannot fail the request.
-	//
-	// Both read their identities off the PERSISTED ROW: the carrier sends no
-	// caller identity at all, so the row is the only possible source. And both
-	// must run after the commit — clearing the cache first opens the window where
-	// a concurrent read misses, sees the pre-update row (its transaction cannot
-	// see an uncommitted change), and writes that stale body back under the key
-	// just cleared, serving a superseded status for a full 60s TTL. Invalidating
-	// before the write lands is worse than not invalidating, because it looks
-	// correct.
+	// CONTRACT: Both of these run AFTER the commit and cannot fail the request.
+	// Invalidating first opens a window where a concurrent read misses, sees the
+	// pre-update row, and writes that stale body back under the key just
+	// cleared — serving a superseded status for a full TTL. Identities come off
+	// the PERSISTED ROW; the carrier sends none. See [[x-cache-response-header]]
 	uc.publish(ctx, updated, string(previous), actor)
 	uc.invalidate(ctx, updated)
 
@@ -161,12 +128,10 @@ func (uc *UpdateStatus) Execute(
 // ContinueDeletedTestMode publishes one remaining TestMode transition after E2E
 // cleanup has soft-deleted the tracking mid-run.
 //
-// This is deliberately NOT a persistence path: the tombstone stays untouched,
-// no live history row is recreated after cleanup, and the carrier endpoint can
-// reach this method only by ceasing to use its own Execute seam. The input is the
-// last committed snapshot captured by the progression before cleanup. Advancing
-// that snapshot keeps the status-changed event chain complete for the E2E
-// fixture while preserving soft-delete semantics in MySQL.
+// CONTRACT: This is NOT a persistence path — the tombstone stays untouched and
+// no live history row is recreated. It advances the last committed snapshot the
+// progression captured, keeping the event chain complete for the fixture while
+// soft-delete semantics hold. See [[soft-delete]]
 func (uc *UpdateStatus) ContinueDeletedTestMode(
 	ctx context.Context,
 	current domain.TrackingWithHistory,
@@ -208,14 +173,12 @@ func (uc *UpdateStatus) ContinueDeletedTestMode(
 	return updated, nil
 }
 
-// publish is best-effort and swallows everything, panics included. A notification
-// must not break the write that caused it: the transition is already committed,
-// and a 500 would make the carrier retry a status change we actually recorded —
-// which the forward-only guard then rejects as a 400, so the carrier would see a
-// permanent-looking failure for something that succeeded.
+// publish is best-effort and swallows everything, panics included.
 //
-// The recover() guards the layer BENEATH the publisher's own reason-logged
-// failures: obtaining or calling it at all.
+// CONTRACT: A notification must not break the committed write it describes. A
+// 500 makes the carrier retry a change we recorded, which the forward-only
+// guard rejects as 400 — a permanent-looking failure for something that
+// succeeded. See [[events-pipeline-design]]
 func (uc *UpdateStatus) publish(
 	ctx context.Context, t domain.TrackingWithHistory, previous string, actor audit.Actor,
 ) {

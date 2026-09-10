@@ -21,13 +21,11 @@ export class VerifyOtpChallengeCommand {
     this.auth = auth;
   }
 
-  // NEVER put `input.code` (or `input.session`) on a span attribute — not
-  // masked, not hashed, not truncated, and never inside a `reason`. A span is
-  // exported to a tracing backend exactly like a log line is exported to a log
-  // backend, so the rule from the log call sites below applies unchanged: a
-  // 6-digit code has 1,000,000 possibilities and stays a live credential for
-  // its whole TTL, so no partial reveal is safe. Only `email_hash` and the
-  // flow's own app_event/reason go on this span.
+  // WARNING: Never put `input.code` or `input.session` on a span attribute — not
+  // masked, hashed, truncated, nor inside a `reason`. A span is exported exactly as a
+  // log line is, and a 6-digit code has only 1,000,000 possibilities while staying a
+  // live credential for its whole TTL, so no partial reveal is safe. Only `email_hash`
+  // and the flow's app_event/reason. See [[logging-context]]
   async execute(input: VerifyOtpChallengeInput): Promise<AuthTokens> {
     return withWorkflowSpan(
       "otp_verify",
@@ -54,8 +52,8 @@ export class VerifyOtpChallengeCommand {
         input.session,
         input.code,
       );
-      // NOTE: `tokens` is deliberately NOT logged — access and refresh tokens
-      // are credentials, exactly like the code that produced them.
+      // WARNING: Never log `tokens` — access and refresh tokens are credentials,
+      // exactly like the code that produced them.
       appLogger.info(
         { app_event: "otp_verify_succeeded", email: maskEmail(input.email) },
         "OTP verification completed",

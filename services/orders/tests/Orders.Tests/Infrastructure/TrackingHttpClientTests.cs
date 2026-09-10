@@ -14,6 +14,9 @@ namespace Orders.Tests.Infrastructure;
 // and a transport failure.
 public class TrackingHttpClientTests
 {
+    // The canonical (stored) order number; Tracking persists it for its own emails.
+    private const string OrderNumberCanonical = "2609078KJ4M2";
+
     private const string BaseAddress = "http://tracking:8000/";
 
     private static (TrackingHttpClient Client, StubHandler Handler) Build(
@@ -31,6 +34,7 @@ public class TrackingHttpClientTests
 
         var result = await client.InitTrackingAsync(
             "ord_abc",
+            OrderNumberCanonical,
             """{"street":"1 Main St","city":"Austin"}""",
             "sub-123",
             testMode: true,
@@ -52,9 +56,9 @@ public class TrackingHttpClientTests
         using var body = JsonDocument.Parse(handler.Body!);
         var root = body.RootElement;
 
-        // snake_case field names, and nothing beyond the two contract fields.
+        // snake_case field names, and nothing beyond the three contract fields.
         Assert.Equal(
-            new[] { "order_id", "shipping_address" },
+            new[] { "order_id", "order_number", "shipping_address" },
             root.EnumerateObject().Select(p => p.Name).ToArray());
         Assert.Equal("ord_abc", root.GetProperty("order_id").GetString());
 
@@ -69,7 +73,7 @@ public class TrackingHttpClientTests
     {
         var (client, handler) = Build();
 
-        await client.InitTrackingAsync("ord_abc", null, "sub-123", testMode: false);
+        await client.InitTrackingAsync("ord_abc", OrderNumberCanonical, null, "sub-123", testMode: false);
 
         Assert.Equal("false", handler.Request!.Headers.GetValues("x-test-mode").Single());
     }
@@ -79,7 +83,7 @@ public class TrackingHttpClientTests
     {
         var (client, handler) = Build();
 
-        await client.InitTrackingAsync("ord_abc", null, "sub-123", testMode: false);
+        await client.InitTrackingAsync("ord_abc", OrderNumberCanonical, null, "sub-123", testMode: false);
 
         // Explicit "false" rather than an omitted header, same convention as
         // x-test-mode: the header's meaning stays unambiguous in a traffic capture.
@@ -91,7 +95,7 @@ public class TrackingHttpClientTests
     {
         var (client, handler) = Build();
 
-        await client.InitTrackingAsync("ord_abc", null, "sub-123", testMode: false);
+        await client.InitTrackingAsync("ord_abc", OrderNumberCanonical, null, "sub-123", testMode: false);
 
         using var body = JsonDocument.Parse(handler.Body!);
         Assert.Equal(JsonValueKind.Null, body.RootElement.GetProperty("shipping_address").ValueKind);
@@ -105,7 +109,7 @@ public class TrackingHttpClientTests
     {
         var (client, _) = Build(status);
 
-        var result = await client.InitTrackingAsync("ord_abc", null, "sub-123", testMode: false);
+        var result = await client.InitTrackingAsync("ord_abc", OrderNumberCanonical, null, "sub-123", testMode: false);
 
         Assert.Equal(TrackingInitOutcome.Created, result.Outcome);
         Assert.Equal((int)status, result.StatusCode);
@@ -117,7 +121,7 @@ public class TrackingHttpClientTests
     {
         var (client, _) = Build(HttpStatusCode.Conflict);
 
-        var result = await client.InitTrackingAsync("ord_abc", null, "sub-123", testMode: false);
+        var result = await client.InitTrackingAsync("ord_abc", OrderNumberCanonical, null, "sub-123", testMode: false);
 
         // 409 is Tracking's idempotency guard — the desired end state holds, so
         // this must never be reported as a failure.
@@ -131,7 +135,7 @@ public class TrackingHttpClientTests
     {
         var (client, _) = Build(HttpStatusCode.NotFound);
 
-        var result = await client.InitTrackingAsync("ord_abc", null, "sub-nope", testMode: false);
+        var result = await client.InitTrackingAsync("ord_abc", OrderNumberCanonical, null, "sub-nope", testMode: false);
 
         Assert.Equal(TrackingInitOutcome.UnknownUser, result.Outcome);
         Assert.Equal(404, result.StatusCode);
@@ -143,7 +147,7 @@ public class TrackingHttpClientTests
     {
         var (client, _) = Build(HttpStatusCode.Unauthorized);
 
-        var result = await client.InitTrackingAsync("ord_abc", null, "", testMode: false);
+        var result = await client.InitTrackingAsync("ord_abc", OrderNumberCanonical, null, "", testMode: false);
 
         Assert.Equal(TrackingInitOutcome.Unauthorized, result.Outcome);
         Assert.Equal(401, result.StatusCode);
@@ -155,7 +159,7 @@ public class TrackingHttpClientTests
     {
         var (client, _) = Build(HttpStatusCode.InternalServerError);
 
-        var result = await client.InitTrackingAsync("ord_abc", null, "sub-123", testMode: false);
+        var result = await client.InitTrackingAsync("ord_abc", OrderNumberCanonical, null, "sub-123", testMode: false);
 
         Assert.Equal(TrackingInitOutcome.Failed, result.Outcome);
         Assert.Equal(500, result.StatusCode);
@@ -169,7 +173,7 @@ public class TrackingHttpClientTests
         var http = new HttpClient(handler) { BaseAddress = new Uri(BaseAddress) };
         var client = new TrackingHttpClient(http, NullLogger<TrackingHttpClient>.Instance);
 
-        var result = await client.InitTrackingAsync("ord_abc", null, "sub-123", testMode: false);
+        var result = await client.InitTrackingAsync("ord_abc", OrderNumberCanonical, null, "sub-123", testMode: false);
 
         // A downstream outage must surface as a value, never as an exception the
         // order-creation path would have to catch.
@@ -187,7 +191,7 @@ public class TrackingHttpClientTests
         var http = new HttpClient(handler) { BaseAddress = new Uri(BaseAddress) };
         var client = new TrackingHttpClient(http, NullLogger<TrackingHttpClient>.Instance);
 
-        var result = await client.InitTrackingAsync("ord_abc", null, "sub-123", testMode: false);
+        var result = await client.InitTrackingAsync("ord_abc", OrderNumberCanonical, null, "sub-123", testMode: false);
 
         Assert.Equal(TrackingInitOutcome.Unreachable, result.Outcome);
         Assert.Null(result.StatusCode);
@@ -206,7 +210,41 @@ public class TrackingHttpClientTests
         // Genuine cancellation is not a Tracking failure; it must not be swallowed
         // into an Unreachable result.
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => client.InitTrackingAsync("ord_abc", null, "sub-123", false, ct: cts.Token));
+            () => client.InitTrackingAsync("ord_abc", OrderNumberCanonical, null, "sub-123", false, ct: cts.Token));
+    }
+
+    /// <summary>
+    /// CONTRACT: The canonical form crosses the seam so Tracking can persist it — its own
+    /// status emails print the friendly number, and it holds no connection to the Orders
+    /// database to look one up. The DISPLAYED form never travels; Tracking formats on render.
+    /// See [[friendly-order-number]]
+    /// </summary>
+    [Fact]
+    public async Task Sends_the_canonical_order_number_so_tracking_can_persist_it()
+    {
+        var (client, handler) = Build();
+
+        await client.InitTrackingAsync("ord_abc", OrderNumberCanonical, null, "sub-123", testMode: false);
+
+        using var body = JsonDocument.Parse(handler.Body!);
+        Assert.Equal(OrderNumberCanonical, body.RootElement.GetProperty("order_number").GetString());
+    }
+
+    /// <summary>
+    /// The key is emitted even when null, like `shipping_address`, so Tracking always sees
+    /// the field rather than having to distinguish "absent" from "no number".
+    /// </summary>
+    [Fact]
+    public async Task An_order_without_a_number_still_sends_the_key_as_null()
+    {
+        var (client, handler) = Build();
+
+        await client.InitTrackingAsync("ord_abc", null, null, "sub-123", testMode: false);
+
+        using var body = JsonDocument.Parse(handler.Body!);
+        Assert.Equal(
+            JsonValueKind.Null,
+            body.RootElement.GetProperty("order_number").ValueKind);
     }
 
     [Fact]
@@ -214,7 +252,7 @@ public class TrackingHttpClientTests
     {
         var (client, handler) = Build();
 
-        var result = await client.InitTrackingAsync("ord_abc", "not json at all", "sub-123", false);
+        var result = await client.InitTrackingAsync("ord_abc", OrderNumberCanonical, "not json at all", "sub-123", false);
 
         Assert.Equal(TrackingInitOutcome.Created, result.Outcome);
         using var body = JsonDocument.Parse(handler.Body!);
@@ -233,7 +271,7 @@ public class TrackingHttpClientTests
         AmbientRequestId.Set(RequestIdValue);
         var (client, handler) = Build();
 
-        await client.InitTrackingAsync("ord_abc", null, "sub-123", testMode: false);
+        await client.InitTrackingAsync("ord_abc", OrderNumberCanonical, null, "sub-123", testMode: false);
 
         Assert.Equal(RequestIdValue, handler.Request!.Headers.GetValues("x-request-id").Single());
     }
@@ -260,7 +298,7 @@ public class TrackingHttpClientTests
         // though a correlation id existed and was blank.
         var (client, handler) = Build();
 
-        await client.InitTrackingAsync("ord_abc", null, "sub-123", testMode: false);
+        await client.InitTrackingAsync("ord_abc", OrderNumberCanonical, null, "sub-123", testMode: false);
 
         Assert.False(handler.Request!.Headers.Contains("x-request-id"));
     }

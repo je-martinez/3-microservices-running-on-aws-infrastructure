@@ -6,12 +6,9 @@ using Orders.Infrastructure.Caching;
 namespace Orders.Api.Caching;
 
 /// <summary>
-/// Builds the cache key for THIS request.
+/// Builds the cache key for THIS request. Returns null to skip caching — an unresolved
+/// <c>user_id</c>, say — yielding an uncached response rather than a cross-user one.
 /// </summary>
-/// <remarks>
-/// Returns null to skip caching (e.g. the caller's <c>user_id</c> could not be resolved),
-/// which yields a normal uncached response rather than a wrong or cross-user one.
-/// </remarks>
 public delegate Task<string?> CacheKeyBuilder(
     EndpointFilterInvocationContext ctx,
     ICurrentCaller caller);
@@ -20,48 +17,23 @@ public delegate Task<string?> CacheKeyBuilder(
 /// Decides whether THIS response is worth storing, given the value the handler produced.
 /// </summary>
 /// <remarks>
-/// <para>
-/// Returning <c>false</c> serves the response normally and stores nothing — the request
-/// still reports <c>MISS</c>, and the next read re-runs the handler.
-/// </para>
-/// <para>
-/// <b>Why a per-route predicate rather than a rule inside the filter.</b> The filter is
-/// deliberately blind to the response shape (see the class remarks): it matches the
-/// NON-generic <c>IValueHttpResult</c> so one instance can serve a route returning two
-/// different types. Teaching it to recognise <c>OrderWithTrackingDto</c> would spend
-/// exactly that generality, and would put knowledge of an Application DTO into the
-/// caching primitive. The route already knows its own shapes, so the route supplies the
-/// rule.
-/// </para>
+/// CONTRACT: Keep the rule per-route, not inside the filter. The filter matches the
+/// non-generic <c>IValueHttpResult</c> so one instance serves a route returning two types;
+/// teaching it to recognise <c>OrderWithTrackingDto</c> spends that generality and puts an
+/// Application DTO into the caching primitive. Returning false serves the response and
+/// stores nothing — still a <c>MISS</c>. See [[x-cache-response-header]]
 /// </remarks>
 public delegate bool CacheStorePredicate(object value);
 
 /// <summary>
 /// Serves a cacheable GET from Redis, reporting the outcome on <c>X-Cache</c>.
+/// CONTRACT: Do NOT make this generic. One route returns two result types, and a
+/// <c>CachedReadFilter&lt;T&gt;</c> matches only one — the other becomes a silent permanent
+/// MISS while every single-variant test still passes. Storing pre-serialized JSON also makes
+/// a HIT replay the exact bytes of the MISS.
+/// CONTRACT: Keep it a filter, not middleware — it must wrap only the handler and must NOT
+/// stamp a header on the 401 raised before routing. See [[x-cache-response-header]]
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>A filter, not middleware, and on purpose.</b> <c>HttpErrorMetricsMiddleware</c>
-/// documents that middleware was chosen there BECAUSE a filter misses short-circuited
-/// responses. That reasoning does not apply here — it argues FOR a filter: this cache must
-/// only ever wrap the handler, and must NOT stamp a header on the 401
-/// <c>CallerContextMiddleware</c> produces before routing. A filter runs inside the
-/// endpoint, which is exactly the scope wanted.
-/// </para>
-/// <para>
-/// <b>NOT generic, and it stores raw JSON.</b> <c>GET /v1/orders/my-orders</c> returns an
-/// <c>Ok&lt;IReadOnlyList&lt;OrderDto&gt;&gt;</c> when <c>includeTracking=false</c> and an
-/// <c>Ok&lt;OrderWithTrackingDto[]&gt;</c> when it is true — two different generic result
-/// types from ONE route. A <c>CachedReadFilter&lt;T&gt;</c> matching on
-/// <c>IValueHttpResult&lt;T&gt;</c> would match only one of them, so the other would never
-/// be cached: a silent permanent MISS, with every test that only checks one variant still
-/// passing. <c>IValueHttpResult&lt;T&gt;</c> is not covariant in <c>T</c>, so
-/// <c>T = object</c> does not rescue it either. Matching the NON-generic
-/// <c>IValueHttpResult</c> and storing pre-serialized JSON avoids the problem entirely,
-/// and has a second benefit: a HIT replays the exact bytes of the MISS, so the two
-/// responses cannot drift through a serializer difference.
-/// </para>
-/// </remarks>
 public sealed class CachedReadFilter : IEndpointFilter
 {
     private readonly CacheKeyBuilder _keyBuilder;
@@ -152,9 +124,9 @@ public sealed class CachedReadFilter : IEndpointFilter
     /// response, so a cached body is byte-identical to a freshly serialized one.
     /// </summary>
     /// <remarks>
-    /// Falls back to <see cref="JsonSerializerOptions.Web"/> — the framework's own default
-    /// — rather than <c>JsonSerializerOptions.Default</c>, so the casing still matches
-    /// even if the options service is somehow unavailable.
+    /// CONTRACT: Fall back to <see cref="JsonSerializerOptions.Web"/>, the framework's own
+    /// default — <c>JsonSerializerOptions.Default</c> would change the casing when the
+    /// options service is unavailable. See [[x-cache-response-header]]
     /// </remarks>
     private static JsonSerializerOptions ResolveJsonOptions(HttpContext http) =>
         http.RequestServices
@@ -169,9 +141,9 @@ public static class CachedReadFilterExtensions
     /// Serves this route from the response cache, keyed by <paramref name="keyBuilder"/>.
     /// </summary>
     /// <remarks>
-    /// Adds NO OpenAPI metadata: the route's documented request/response shape is
-    /// unchanged by caching, and <c>X-Cache</c> is an operational header rather than part
-    /// of the contract. <c>openapi.yaml</c> must come out of a rebuild with no diff.
+    /// CONTRACT: Add NO OpenAPI metadata — caching does not change the documented shape and
+    /// <c>X-Cache</c> is operational, so a rebuild must leave <c>openapi.yaml</c> with no
+    /// diff. See [[x-cache-response-header]]
     /// </remarks>
     /// <param name="shouldStore">
     /// Optional veto on storing a particular 200, for routes whose response can legitimately

@@ -7,27 +7,16 @@ import (
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
-// TraceHandler stamps the active span's ids onto every log record.
+// TraceHandler stamps the active span's ids onto every log record. Logs and
+// traces reach OpenObserve by different transports and nothing joins them
+// automatically, so trace_id on the line is the only join key.
 //
-// Logs and traces travel two different paths: stdout -> Docker's fluentd driver
-// -> OpenObserve for logs, OTLP -> the collector -> OpenObserve for traces.
-// Nothing joins them automatically. trace_id on the log line is the ONLY thing
-// that lets a dashboard answer "show me every line, in every service, for the
-// request that produced this slow span".
+// CONTRACT: LOWERCASE HEX, zero-padded to 32 and 16 characters — the join is
+// string equality, and any other rendering silently matches nothing.
 //
-// Measured before the Python equivalent existed: Tracking emitted 0 of 348 log
-// lines with a trace_id, while Users emitted 32/42 and Orders 53/64 — so a trace
-// that crossed into Tracking simply lost its logs at the boundary.
-//
-// THE TWO RULES THAT MATTER:
-//
-//  1. LOWERCASE HEX, zero-padded to 32 and 16 characters. Users and Orders emit
-//     that form, and a join is string equality — any other rendering silently
-//     matches nothing.
-//  2. OMITTED, NEVER ZEROED, when there is no valid span. Startup lines, the
-//     metrics ticker and background work have no span; writing
-//     trace_id: "000...0" would be worse than writing nothing, because it reads
-//     as a real id and 30 unrelated lines would appear to share a trace.
+// CONTRACT: OMITTED, never zeroed, with no valid span. Startup lines, the ticker
+// and background work have none, and trace_id "000…0" reads as a real id that
+// unrelated lines appear to share. See [[logging-context]]
 type TraceHandler struct{ inner slog.Handler }
 
 // NewTraceHandler wraps inner so records carry trace_id/span_id when a span is

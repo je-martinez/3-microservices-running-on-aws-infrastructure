@@ -10,11 +10,9 @@ interface DefaultEvent {
 
 /**
  * $default — the channel is server-to-client only.
- *
- * Declared rather than omitted deliberately: with no $default route an inbound
- * message vanishes silently, so a client that wrongly believes it can subscribe
- * gets no signal at all. This route mutates no connection state; it only tells
- * the caller its message went nowhere.
+ * CONTRACT: Declared, not omitted. Without a $default route an inbound message
+ * vanishes silently and a client that wrongly believes it can subscribe gets no
+ * signal. This route mutates no connection state.
  */
 export async function handler(
   event: DefaultEvent,

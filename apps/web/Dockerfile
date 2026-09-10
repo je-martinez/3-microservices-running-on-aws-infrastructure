@@ -32,6 +32,17 @@
 # the builder stage (an ARG's scope ends at the next FROM).
 # Default false, matching apps/web/.env.example.
 ARG NG_APP_STRIPE_ENABLED=false
+# CONTRACT: EVERY NG_APP_* the app reads needs an ARG here AND an ENV in the
+# builder stage. @ngx-env only inlines variables present at build time; one it
+# cannot see is left as a live `import.meta.env` lookup, which is undefined in a
+# browser and throws before Angular boots — a blank page, not a missing flag.
+# See [[2026-09-04-web-gateway-integration-design]]
+ARG NG_APP_API_GATEWAY_URL=/v1
+# A FLAG, never the key. The Geoapify key is server-side only (nginx appends it
+# in apps/web/nginx.conf); this only tells the app whether to offer the
+# autocomplete at all. Default false so an unconfigured checkout gets the plain
+# address input rather than a field that 503s on every keystroke.
+ARG NG_APP_GEOCODE_ENABLED=false
 
 FROM node:24-alpine AS base
 ENV PNPM_HOME="/pnpm"
@@ -62,6 +73,10 @@ FROM deps AS builder
 # explicit and matches the pattern in @ngx-env/builder's own Docker docs.
 ARG NG_APP_STRIPE_ENABLED
 ENV NG_APP_STRIPE_ENABLED=$NG_APP_STRIPE_ENABLED
+ARG NG_APP_API_GATEWAY_URL
+ENV NG_APP_API_GATEWAY_URL=$NG_APP_API_GATEWAY_URL
+ARG NG_APP_GEOCODE_ENABLED
+ENV NG_APP_GEOCODE_ENABLED=$NG_APP_GEOCODE_ENABLED
 # Source and build configuration. public/ holds favicon.ico (angular.json
 # `assets`), styles/tsconfig drive the compile. apps/web/design is NOT copied —
 # it is 2MB of static HTML design references for humans, excluded in
@@ -79,8 +94,20 @@ RUN pnpm exec ng build
 FROM nginx:1.27-alpine AS runtime
 # Server block only — the stock nginx.conf in this image includes conf.d/*.conf
 # from inside its http{} block. See apps/web/nginx.conf for the SPA fallback,
-# which is what makes a refresh on /orders work instead of 404ing.
-COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
+# which is what makes a refresh on /orders work instead of 404ing, and for the
+# /v1/ same-origin proxy that removes the need for CORS.
+#
+# CONTRACT: Land it under /etc/nginx/templates, NOT conf.d. The image's
+# 20-envsubst-on-templates.sh entrypoint renders *.template into conf.d at
+# start, which is how the per-apply gateway id reaches nginx. Copied straight
+# to conf.d it would ship with ${API_GATEWAY_*} unexpanded and fail to start.
+COPY apps/web/nginx.conf /etc/nginx/templates/default.conf.template
+# CONTRACT: Do NOT drop or broaden this filter. envsubst substitutes EVERY
+# exported variable it finds, so without it nginx's own $uri/$host/$request_uri
+# render empty and the SPA fallback silently serves nothing. Widen it only by
+# adding an ANCHORED prefix to the alternation — the entrypoint matches this as
+# an unanchored awk regex, so a bare name would match far more than intended.
+ENV NGINX_ENVSUBST_FILTER='^(API_GATEWAY_|GEOAPIFY_)'
 # The BROWSER subdirectory, not dist/web: the parent also holds
 # 3rdpartylicenses.txt and prerendered-routes.json, which are build metadata and
 # have no business being reachable over HTTP.

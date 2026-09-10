@@ -93,7 +93,7 @@ Every component is `standalone: true` and uses `input()`/`output()` signals, nev
 | `/` | `eK0x6` / `ffO4d` | `features/catalogue/home` |
 | `/checkout` | `DOtD2` / `P0lhqj` | `features/checkout/checkout-payment` |
 | `/orders` | `rGwBO` / `OoNex` | `features/orders/orders-list` |
-| `/orders/:orderId` | `x7ABM` / `eq3Tk` | `features/orders/order-detail` |
+| `/orders/:orderId` | `x7ABM` / `eq3Tk` (just-placed state: `Q4Yp0v` / `mr4Ho`) | `features/orders/order-detail` |
 | `/profile` | `hZ87b` / `nyVEI` | `features/account/profile` |
 | `**` | — | redirect to `/` |
 
@@ -111,6 +111,23 @@ Home — Cart Payment      [hed4V] -> frame:Page | rectangle:Scrim | ref:Cart Dr
 ```
 
 `Home — Products` and `Checkout — Payment` are `App Header` + `Body` — a real page. The four overlay frames instead wrap a bare `Page` plus an overlay (a `Scrim` rectangle for the cart, none for the menu/notifications panels). A frame whose first child is `Page` + an overlay is UI state layered over the catalogue route, not a destination of its own — so it gets no entry in `app.routes.ts`. `OverlayStore` (a single discriminated `active: OverlayKind` signal, not four booleans) models exactly this mutual exclusivity: the design never shows two overlays open at once.
+
+## State variants are not screens either
+
+`Orders — Detail (just placed)` (`Q4Yp0v` / `mr4Ho`) is the same screen as
+`Orders — Detail` (`x7ABM` / `eq3Tk`) with one extra element: an `Order Placed
+Banner` above the back link. It is a **state of an existing route**, not an
+eighteenth screen pair — so it gets no route and no component of its own, and
+the 11-routed + 7-overlay = 18 split above is unchanged.
+
+The banner renders only immediately after the checkout redirect, keyed off
+Angular navigation state (`{ state: { justPlaced: true } }` passed by
+`checkout-payment`), so a reload or a later visit to the same order shows the
+plain detail screen. Its copy names the signed-in user's email; the design's
+`jose@3mrai.com` is mock content, not a value to ship.
+
+Both `success-bg` and `success-text` already existed as design variables — this
+frame added no tokens.
 
 ## Assets
 

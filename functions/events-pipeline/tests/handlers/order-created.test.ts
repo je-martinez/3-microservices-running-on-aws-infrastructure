@@ -1,12 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// #shared/config/env parses process.env at MODULE LOAD (ADR-0014). This file
-// imports #handlers/index, which now (since the realtime fan-out landed in
-// tracking-status-changed.ts) transitively pulls in
-// #shared/realtime/websocket-publisher -> #shared/logging/app-logger ->
-// #shared/config/env, so the schema must be satisfied even though this
-// suite never exercises tracking-status-changed itself. Mirrors
-// tests/handler.test.ts.
+// #shared/config/env parses process.env at MODULE LOAD (ADR-0014), and
+// #handlers/index reaches it transitively through the realtime fan-out, so the
+// schema must be satisfied even though this suite never exercises it.
 vi.stubEnv("DOCDB_HOST", "docdb-test");
 vi.stubEnv("DOCDB_USERNAME", "root");
 vi.stubEnv("DOCDB_PASSWORD", "secret");
@@ -46,11 +42,10 @@ function envelope(payload: Record<string, unknown>, event_id = "evt_order_1"): E
   };
 }
 
-// The shape SqsEventPublisher actually puts on the wire — the receipt the
-// confirmation email renders, not just the acknowledgement it used to be.
-// Figures balance: 2×1200 + 1×599 = 2999 subtotal, +240 tax +1500 shipping =
-// 4739. A fixture whose arithmetic did not add up would let a handler that
-// crossed two of the four figures pass.
+// The shape SqsEventPublisher puts on the wire — the receipt the confirmation
+// email renders. CONTRACT: The figures must BALANCE (2×1200 + 599 = 2999,
+// +240 tax +1500 shipping = 4739). A fixture whose arithmetic does not add up
+// lets a handler that crossed two of the four money figures pass.
 const validPayload = {
   order_id: "ord_1",
   user_id: "usr_1",
@@ -72,6 +67,58 @@ const validPayload = {
   ],
   created_at: "2026-08-03T12:00:00.000Z",
 };
+
+describe("the customer-facing order number", () => {
+  beforeEach(() => vi.mocked(sendEmail).mockClear());
+
+  const withNumber = {
+    ...validPayload,
+    order_number: { raw: "2609078KJ4M2", formatted: "260907-8KJ4M2" },
+  };
+
+  it("renders the FORMATTED number in the receipt, verbatim", async () => {
+    await orderCreatedHandler(envelope(withNumber));
+
+    const { html } = vi.mocked(sendEmail).mock.calls[0][0];
+    expect(html).toContain("260907-8KJ4M2");
+  });
+
+  // CONTRACT: The template renders what the producer sent and builds nothing.
+  // With each consumer inserting its own separator, the six templates drift and a
+  // customer reads out a number support cannot find.
+  it("does not print the canonical form a human never sees", async () => {
+    await orderCreatedHandler(envelope(withNumber));
+
+    const { html } = vi.mocked(sendEmail).mock.calls[0][0];
+    expect(html).not.toContain("2609078KJ4M2");
+  });
+
+  // CONTRACT: This is the backward-compatibility case, and it is the one that
+  // matters most. A message published before the field existed can still be on
+  // the queue at deploy time; a schema that REQUIRED order_number would make it a
+  // PermanentError — the record is consumed, no email is ever sent, and nothing
+  // upstream notices. See [[events-pipeline-design]]
+  it("still sends the email for a payload with no order number at all", async () => {
+    await orderCreatedHandler(envelope(validPayload));
+
+    expect(vi.mocked(sendEmail)).toHaveBeenCalledTimes(1);
+    const { html } = vi.mocked(sendEmail).mock.calls[0][0];
+    // Falls back to the id rather than rendering a blank.
+    expect(html).toContain("ord_1");
+  });
+
+  // An object that is present but blank is worse for a display layer than an
+  // absent one: it renders an empty gap where the number should be. `.min(1)`
+  // rejects it, and rejecting is correct — it is a producer bug, not a shape the
+  // templates should learn to tolerate.
+  it("rejects a blank order number rather than rendering an empty gap", async () => {
+    await expect(
+      orderCreatedHandler(envelope({ ...validPayload, order_number: { raw: "", formatted: "" } })),
+    ).rejects.toBeInstanceOf(PermanentError);
+
+    expect(vi.mocked(sendEmail)).not.toHaveBeenCalled();
+  });
+});
 
 describe("orderCreatedHandler", () => {
   beforeEach(() => {

@@ -1,10 +1,11 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, computed, inject, ChangeDetectionStrategy } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
 import { LucideLogOut, LucidePackage, LucideUser } from '@lucide/angular';
+import { SessionStore } from '../../core/auth/session-store';
 import { OverlayStore } from '../../core/overlay/overlay-store';
-import { CURRENT_USER } from '../../fixtures/user.fixture';
+import { SignOut } from '../auth/sign-out';
 
 /**
  * Design: `Account Menu` (`B6fdc`) — one responsive component (spec D8) for the
@@ -37,8 +38,9 @@ import { CURRENT_USER } from '../../fixtures/user.fixture';
   selector: 'app-account-menu',
   imports: [LucideLogOut, LucidePackage, LucideUser],
   templateUrl: './account-menu.html',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
-    'class': 'block',
+    class: 'block',
     'animate.enter': 'popover-enter',
     'animate.leave': 'popover-leave',
   },
@@ -46,8 +48,14 @@ import { CURRENT_USER } from '../../fixtures/user.fixture';
 export class AccountMenu {
   protected readonly overlay = inject(OverlayStore);
   private readonly router = inject(Router);
+  private readonly signOutService = inject(SignOut);
 
-  protected readonly user = CURRENT_USER;
+  /**
+   * WHY: reads the store rather than fetching. Boot loads the profile once
+   * (see core/auth/profile-loader.ts), and an overlay that issued its own
+   * request would refetch on every open.
+   */
+  protected readonly user = inject(SessionStore).user;
 
   /**
    * WHY: Derived from the router rather than a static class in the template.
@@ -74,8 +82,7 @@ export class AccountMenu {
   }
 
   protected signOut(): void {
-    // Phase 1 has no auth session to tear down — closing the menu matches
-    // the design's affordance without a real sign-out flow behind it yet.
     this.overlay.close();
+    void this.signOutService.complete();
   }
 }

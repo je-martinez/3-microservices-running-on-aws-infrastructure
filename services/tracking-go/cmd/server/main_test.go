@@ -83,13 +83,11 @@ func TestRunFailsLoudlyOnAMissingRequiredVariable(t *testing.T) {
 	}
 }
 
-// TestRunServesHealthAndShutsDownGracefully is the end-to-end proof that the
-// wiring produces a SERVING process.
-//
-// It starts run() for real, hits /v1/health over a socket, then sends the process
-// the same SIGTERM ECS sends when it drains a task and requires run() to return
-// cleanly. Everything in between — config, both pools, the null gateway, the noop
-// publisher, the router — had to be constructed for this to pass.
+// TestRunServesHealthAndShutsDownGracefully proves the wiring produces a SERVING
+// process: it starts run() for real, hits /v1/health over a socket, then sends
+// the SIGTERM ECS sends when draining a task and requires a clean return.
+// Config, both pools, the gateway, the publisher and the router must all be
+// constructed for this to pass.
 func TestRunServesHealthAndShutsDownGracefully(t *testing.T) {
 	port := freePort(t)
 	minimalEnv(t, port)

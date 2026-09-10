@@ -5,29 +5,15 @@ import {
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
 
-// Shared harness standing in for `#shared/observability/tracing` in every test
-// that imports a handler.
-//
-// WHY THE REAL MODULE MUST NEVER LOAD HERE. It calls `sdk.start()` at import
-// time, which registers a global tracer provider and opens a real OTLP
-// exporter. In a unit test there is no collector listening, so the handler's
-// `await flushTraces()` sits on a connection to 127.0.0.1:4318 until Vitest's
-// 5s timeout kills the test. That is not hypothetical: it took out all 8
-// pre-existing handler tests the first time this was wired up, because only the
-// tracing tests installed the mock and the plain ones loaded the real module.
-//
-// So the mock is registered FILE-WIDE, via a hoisted `vi.mock` at the top of
-// each test file, never per-`describe`. The exporter and the spy below are
-// module state precisely so that hoisted factory has something stable to return
-// — a `vi.mock` factory runs before any test body, so it cannot close over a
-// value created inside one.
-//
-// The spy matters as much as the exporter: `flushTraces` must be ASSERTED, not
-// assumed. Each of the four bundles carries its own inlined copy of the call,
-// and forgetting one costs that Lambda every span it produces, silently.
-//
-// SimpleSpanProcessor, not Batch: the test needs the span in the exporter the
-// moment span.end() returns, with no flush and no timer.
+// Shared harness standing in for `#shared/observability/tracing`.
+// CONTRACT: The real module must NEVER load here — `sdk.start()` at import time
+// opens a real OTLP exporter, and with no collector listening the handler's
+// `await flushTraces()` hangs until Vitest's 5s timeout kills EVERY handler
+// test, not just the tracing ones. So register the mock FILE-WIDE via a hoisted
+// `vi.mock`, never per-`describe`, and keep the exporter and spy as module state
+// for that factory to return. `flushTraces` must be ASSERTED: each of the four
+// bundles carries its own copy, and a missing one loses its spans silently.
+// See [[testing]]
 export const spanExporter = new InMemorySpanExporter();
 
 const provider = new BasicTracerProvider({
@@ -39,14 +25,10 @@ export const wsTracer = provider.getTracer("realtime-events-test");
 export const flushTraces = vi.fn(async () => {});
 
 // Installs the file-wide mock. Call it at the TOP LEVEL of a test file.
-//
-// It wraps `vi.mock` instead of the test file calling `vi.mock` with an
-// imported factory, because `vi.mock` is HOISTED above every import: a factory
-// referenced by name from this module would be evaluated before this module is
-// initialized, which fails with "Cannot access '__vi_import_1__' before
-// initialization". Declaring the factory inline here — where `wsTracer` and
-// `flushTraces` are resolved lazily, at call time, inside the factory body —
-// sidesteps the hoisting entirely.
+// CONTRACT: The factory is declared INLINE here, not imported by the test file.
+// `vi.mock` is hoisted above every import, so a factory referenced by name is
+// evaluated before this module initializes and fails with "Cannot access
+// '__vi_import_1__' before initialization".
 export function mockTracingModule() {
   vi.mock("../src/shared/observability/tracing.js", () => ({
     wsTracer,

@@ -36,13 +36,10 @@ var deploymentEnvironment = builder.Configuration["DEPLOYMENT_ENVIRONMENT"] ?? "
 // Needed by LogContextEnricher to reach the request-scoped ICurrentCaller.
 builder.Services.AddHttpContextAccessor();
 
-// Distributed tracing. AddHttpClientInstrumentation is what makes the
-// Orders -> Users identity call a CHILD span of the incoming request rather
-// than an unrelated trace: .NET's gRPC client rides on HttpClient, so this
-// instrumentation injects the W3C traceparent header on every gRPC call.
-// (The dedicated GrpcNetClient package only ships as a prerelease; the stable
-// Http instrumentation covers the same path, so no beta is needed for the one
-// piece cross-service tracing actually depends on.)
+// CONTRACT: Keep AddHttpClientInstrumentation — .NET's gRPC client rides on HttpClient, so
+// this is what injects traceparent and makes the Orders -> Users call a CHILD span rather
+// than an unrelated trace. The dedicated GrpcNetClient package is prerelease and unneeded.
+// See [[ADR-0019-distributed-tracing-opentelemetry]]
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(resource => resource
         .AddService(serviceName: "orders")
@@ -91,13 +88,19 @@ builder.Host.UseSerilog((_, services, cfg) => cfg
 var readerCs = builder.Configuration["DATABASE_READER_URL"]!;
 builder.Services.AddDbContext<OrdersReadDbContext>(o =>
     o.UseMySql(readerCs, ServerVersion.AutoDetect(readerCs)));
-builder.Services.AddScoped<OrderReadService>();
 // WORKAROUND(local): Do NOT throw or use `!` on ASSETS_BASE_URL — GetDocument.Insider boots with no
 // env file and breaks `dotnet build`; a missing value on first request returns 500 on GET /v1/products.
 // Fall back to the derived local bucket URL.
 // See [[env-files]]
 var assetsBaseUrl = builder.Configuration["ASSETS_BASE_URL"]
     ?? "http://localhost:4566/post-3mrai-local-post-assets";
+// Registered here, not above with the other read services: it needs assetsBaseUrl, which
+// is only in scope from this point on.
+builder.Services.AddScoped(sp => new OrderReadService(
+    sp.GetRequiredService<OrdersReadDbContext>(),
+    sp.GetRequiredService<IWorkflowTracer>(),
+    assetsBaseUrl,
+    sp.GetRequiredService<ILogger<OrderReadService>>()));
 builder.Services.AddScoped(sp => new ProductReadService(
     sp.GetRequiredService<OrdersReadDbContext>(),
     assetsBaseUrl,
@@ -335,6 +338,7 @@ builder.Services.AddScoped(sp => new CreateOrderService(
     sp.GetRequiredService<ITrackingInitiator>(),
     sp.GetRequiredService<IWorkflowTracer>(),
     sp.GetRequiredService<ICacheInvalidator>(),
+    assetsBaseUrl,
     sp.GetRequiredService<ILogger<CreateOrderService>>()));
 
 var app = builder.Build();

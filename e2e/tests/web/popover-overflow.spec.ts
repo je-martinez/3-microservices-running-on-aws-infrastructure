@@ -7,8 +7,9 @@
 // passes against the exact bug. Measured unfixed on `/`: 1085 -> 1558 -> 1085.
 // See [[angular-component-authoring]]
 
-import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
+import { expect, test, type Browser, type Page } from "@playwright/test";
 import { launchWebBrowser } from "../../support/web-browser";
+import { signInAsNewUser } from "../../support/web-session";
 
 const VIEWPORT = { width: 1440, height: 900 };
 
@@ -67,6 +68,9 @@ for (const route of ROUTES) {
       const page = await browser.newPage({ viewport: VIEWPORT, baseURL });
 
       try {
+        // Every route here sits behind authGuard, so an anonymous visit renders
+        // the login form instead — which has no header and no panel to open.
+        await signInAsNewUser(page, baseURL!);
         await page.goto(route.path);
         // The route's own content first: `goto` resolves before Angular renders,
         // and an unrendered page is one empty viewport tall — a baseline taken

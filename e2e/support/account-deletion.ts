@@ -3,21 +3,13 @@ import { expect, type APIRequestContext } from "@playwright/test";
 /**
  * `DELETE /v1/users/me` expecting `204`, with a bounded retry on `502` only.
  *
- * Users maps every cascade-leg failure to `502` (`CascadeFailedError`). Under a
- * full parallel suite the Orders and Tracking containers accept many concurrent
- * internal `DELETE …/by-user` calls at once; a one-off `502` on an account with
- * no downstream rows was observed in cycle 3 of the clean+bootstrap+e2e matrix
- * (account-deletion.spec.ts:133) while the same test passed in isolation and in
- * the other eight cycles.
- *
- * This is NOT widened to accept `502` as success — each attempt still demands
- * `204`, and exhausting the attempts fails the test. Retrying only the status
- * Users documents as "a cascade leg did not confirm, account intact, caller may
- * retry" is the same contract the production client would use, not a weakened
- * assertion.
- *
- * Deliberately narrower than load-test `deleteAccount`, which accepts `204` ONLY
- * because a `502` there is the finding the simulation exists to surface.
+ * CONTRACT: Do NOT widen this to accept `502` as success. Users maps every cascade-leg
+ * failure to it, and under a full parallel suite a one-off `502` was observed on an
+ * account with no downstream rows while the same test passed in isolation. Each attempt
+ * still demands `204` and exhausting them fails — retrying the one status Users
+ * documents as "caller may retry" is the production client's contract, not a weakened
+ * assertion. Narrower than the load test's `deleteAccount`, where a 502 is the finding.
+ * See [[testing]]
  */
 export async function deleteMeExpect204(
   users: APIRequestContext,

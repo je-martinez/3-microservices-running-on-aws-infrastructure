@@ -1,41 +1,27 @@
 #!/usr/bin/env python3
 """Idempotent Cognito Pre-Token-Generation V2 trigger wiring via boto3.
 
-Used ONLY by modules/cognito/main.tf's terraform_data.pre_token_trigger, a
-Floci-only workaround (same pattern as terraform_data.client_via_cli /
-create_user_pool_client.py): the AWS provider is pinned to 5.31.0 (ADR-0016),
-whose aws_cognito_user_pool `lambda_config` block has no
-`pre_token_generation_config` sub-block, so the V2 trigger cannot be declared
-natively at that provider version. This script registers it directly, outside
-Terraform's resource lifecycle.
-
-Idempotent: UpdateUserPool is declarative, so re-running with the same
-USER_POOL_ID/LAMBDA_ARN yields the same pool state.
-
-SETTINGS-PRESERVING ─────────────────────────────────────────────────────────
-UpdateUserPool is a PUT, not a PATCH. A call that passes ONLY LambdaConfig
-would reset every OTHER top-level pool setting (password Policies,
-AutoVerifiedAttributes, AdminCreateUserConfig, …) to service defaults — which
-would silently re-tighten the intentionally relaxed local password policy and
-break E2E signups. So this reads the current pool, keeps the fields
-UpdateUserPool accepts, injects the V2 LambdaConfig, and re-applies the whole
-thing.
-
-Schema/custom attributes are NOT re-passable via UpdateUserPool (they are
-create-only plus add-custom-attributes) and are deliberately NOT touched here,
-so custom:app_user_id is safe.
-
-Required env vars (set by the calling local-exec provisioner):
-  USER_POOL_ID  - Cognito User Pool id to wire the trigger on
-  LAMBDA_ARN    - ARN of the Pre-Token-Generation V2 Lambda
-  ENDPOINT_URL  - optional endpoint override (empty = default resolution)
-  AWS_REGION    - AWS region
-
-Optional:
-  EXECUTION_LOG_TABLE - DynamoDB table recording this run for traceability
-                        (lib3mrai.execution_log). Unset = record nothing and
-                        behave exactly as before; the log never skips a run.
+WORKAROUND(local): Provider 5.31.0's aws_cognito_user_pool `lambda_config` has
+no `pre_token_generation_config` sub-block, so the V2 trigger cannot be declared
+natively. This registers it outside Terraform's resource lifecycle.
+CONTRACT: UpdateUserPool is a PUT, not a PATCH. Passing ONLY LambdaConfig resets
+every other pool setting to service defaults — re-tightening the relaxed local
+password policy and breaking E2E signups. The current pool is read back, the
+accepted fields kept, and the whole thing re-applied.
+See [[awscli-fallback-for-floci]]
 """
+
+# Schema and custom attributes are create-only on UpdateUserPool and are
+# deliberately not touched, so custom:app_user_id is safe.
+#
+# Env vars from the calling provisioner. Required: USER_POOL_ID, LAMBDA_ARN,
+# ENDPOINT_URL (empty = default resolution), AWS_REGION. Optional:
+# EXECUTION_LOG_TABLE; unset records nothing and never skips a run.
+
+# Env vars set by the calling local-exec provisioner. Required: USER_POOL_ID,
+# LAMBDA_ARN, ENDPOINT_URL (empty = default resolution), AWS_REGION. Optional:
+# EXECUTION_LOG_TABLE, a DynamoDB table recording this run; unset means record
+# nothing, and the log never skips a run.
 
 import os
 import sys
@@ -82,11 +68,9 @@ def require(name: str) -> str:
 class TriggerNotWired(RuntimeError):
     """The post-update verification found the trigger absent.
 
-    Exists so the execution log can observe a verification failure: that path
-    reported failure by RETURNING 1, which the wrapper cannot see (it detects
-    failure only from an exception) and would have recorded as "ok" — a
-    traceability log that says a run succeeded when it did not. main() catches
-    it and restores the original exit code 1.
+    CONTRACT: Raise, do NOT return 1. The execution-log wrapper detects failure
+    only from an exception, so a returned code is recorded as "ok" — a log
+    claiming a run succeeded when it did not. main() restores exit code 1.
     """
 
 

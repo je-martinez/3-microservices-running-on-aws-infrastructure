@@ -26,11 +26,10 @@ export async function handler(event: ConnectEvent): Promise<APIGatewayProxyResul
       span.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
       throw err;
     } finally {
-      // Both lines are load-bearing. A span not ended never reaches Jaeger, and
-      // it does not show up as an error — it silently vanishes. And the flush
-      // MUST be here, in THIS file: the four entry points compile into four
-      // standalone bundles with no shared runtime, so there is nowhere central
-      // to drain the batch before Lambda freezes the process.
+      // CONTRACT: Both lines are load-bearing. An unended span silently vanishes
+      // rather than erroring, and the flush must be in THIS file — the four
+      // entrypoints compile into four standalone bundles with no shared runtime
+      // to drain from before Lambda freezes the process.
       span.end();
       await flushTraces();
     }

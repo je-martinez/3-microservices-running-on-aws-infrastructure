@@ -123,17 +123,11 @@ public class CreateOrderEndpointTests
         Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
     }
 
-    // A malformed body must be a 400, not a 500. `lines` is a non-nullable
-    // reference type on CreateOrderRequest, but System.Text.Json does not enforce
-    // that — an absent key binds to null, and the first thing CreateAsync did with
-    // it was read `.Count`. That threw NullReferenceException out of the handler,
-    // so every one of these cases answered 500 while the caller's mistake was a
-    // plain bad request.
-    //
-    // Worth keeping as three cases rather than one: they enter through different
-    // paths. `{}` omits the key, `{"lines": null}` sends it explicitly null, and
-    // `{"items": […]}` is the realistic version — a caller using the wrong field
-    // name, which is exactly how this was found.
+    // CONTRACT: A malformed body is a 400, never a 500 — the non-nullable annotation on
+    // `lines` is compile-time only, so an absent key binds null and the first `.Count`
+    // downstream throws out of the handler. Keep all THREE cases: `{}` omits the key,
+    // `{"lines": null}` sends it explicitly, and `{"items": […]}` is the realistic wrong
+    // field name.
     [Fact]
     public async Task Post_without_lines_key_is_400()
     {

@@ -4,18 +4,13 @@ using System.Text;
 namespace Orders.Api.Identity;
 
 /// <summary>
-/// Validates the shared internal service-to-service key (ADR-0003) on inbound
-/// requests. Orders previously only ever PRESENTED this key outbound (to Users
-/// over gRPC); the account-deletion cascade is the first surface that has to
-/// verify it.
+/// Validates the shared internal service-to-service key on inbound requests.
+/// CONTRACT: Constant-time comparison, never <c>==</c> — string equality short-circuits at
+/// the first differing byte, so its timing leaks how long a prefix an attacker guessed.
+/// Mirrors Tracking's <c>hmac.compare_digest</c> and Users' <c>timingSafeEqual</c>; a length
+/// mismatch returns early in all three, so the key's LENGTH leaks, its CONTENTS do not.
+/// See [[ADR-0003-grpc-inter-service]]
 /// </summary>
-/// <remarks>
-/// Constant-time comparison, never <c>==</c>: string equality short-circuits at
-/// the first differing byte, so its timing leaks how long a prefix an attacker
-/// guessed. This mirrors Tracking's <c>hmac.compare_digest</c> and Users'
-/// <c>timingSafeEqual</c>. A length mismatch returns early in every
-/// implementation — the key's LENGTH leaks, its CONTENTS do not.
-/// </remarks>
 public static class InternalApiKey
 {
     public const string HeaderName = "x-api-key";

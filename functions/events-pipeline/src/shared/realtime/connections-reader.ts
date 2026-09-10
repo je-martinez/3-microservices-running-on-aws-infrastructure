@@ -1,16 +1,8 @@
-// EVERY function in this module THROWS on failure — deliberately, and this is
-// the one thing to know before calling it.
-//
-// The realtime push is contractually not allowed to fail an event (a
-// propagating error would make SQS retry the record and send the user a second
-// email for a transition they were already notified about). That guarantee is
-// NOT implemented here: it lives entirely in `websocket-publisher.ts`, whose
-// `publishToUser` wraps every call into this module in try/catch.
-//
-// So: reach this module THROUGH `publishToUser`. Calling `queryByCognitoSub` or
-// `deleteConnection` directly from a handler re-introduces a throw path into
-// the pipeline with nothing to catch it, and the failure would look like a
-// broken event rather than a failed notification.
+// CONTRACT: Every function here THROWS. Reach this module only through
+// `publishToUser`, which is where the never-fail-an-event guarantee lives.
+// Calling `queryByCognitoSub` or `deleteConnection` straight from a handler puts
+// an uncaught throw back in the pipeline, and SQS then retries the record and
+// sends a SECOND email for a transition the user was already notified about.
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
@@ -36,11 +28,9 @@ function client(): DynamoDBDocumentClient {
 
 /**
  * Every open connection for one user.
- *
- * Queries the `by-cognito-sub` GSI. The argument MUST be a Cognito `sub` — the
- * envelope's `user_id` is the internal `usr_` id and querying with it returns
- * an empty list with no error whatsoever, which reads exactly like "user has no
- * connections". See the user-id-vs-cognito-sub-ownership-key ADR.
+ * CONTRACT: The argument MUST be a Cognito `sub`, never the envelope's internal
+ * `usr_` id — querying with the wrong one returns an empty list and no error,
+ * which reads exactly like "the user has no connections".
  */
 export async function queryByCognitoSub(cognitoSub: string): Promise<string[]> {
   const result = await client().send(

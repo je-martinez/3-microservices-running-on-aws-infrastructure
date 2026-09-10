@@ -15,14 +15,10 @@ export interface ChangePasswordInput {
   newPassword: string;
 }
 
-// Constructor-injected from the Awilix cradle (PROXY injection mode).
-//
-// The dedicated change-password command behind PATCH /v1/users/me/password. It
-// does ONE thing: set the new password (and clear the forced-change flag it
-// satisfies). It is deliberately NOT part of UpdateProfileCommand — a
-// general-purpose profile update that also happened to accept a password would
-// let a request meant to change a phone number silently rewrite a credential,
-// and would make the audit trail unable to say which of the two a given call was.
+// CONTRACT: This command sets the password and clears the forced-change flag,
+// nothing else. Keep it out of UpdateProfileCommand — a profile update that also
+// accepted a password would let a request meant to change a phone number silently
+// rewrite a credential, and the audit trail could not tell the two apart.
 export class ChangePasswordCommand {
   private readonly db: Db;
   private readonly auth: AuthProvider;
@@ -32,17 +28,11 @@ export class ChangePasswordCommand {
     this.auth = auth;
   }
 
-  // Returns null when the caller's identity resolves to no user, so the route
-  // answers the same 404 `{ error: "not_found" }` the other /me routes do.
-  //
-  // The span opens BEFORE `currentUser.resolve()`, one step earlier than the
-  // `change_password_started` log line, which cannot fire until the email it
-  // masks is known. That is deliberate: the unresolved-caller 404 is a real
-  // outcome of this workflow and would otherwise be the one path with no span
-  // at all. It is marked with its own `reason` below rather than left blank.
-  //
-  // No PII on the span: `email_hash` is set once the user resolves; the new
-  // password never appears here, exactly as it never appears in a log line.
+  // Returns null when the caller resolves to no user, so the route answers the same
+  // 404 the other /me routes do. The span opens BEFORE `currentUser.resolve()` so the
+  // unresolved-caller 404 is not the one path with no span at all.
+  // WARNING: No PII on the span — `email_hash` only once the user resolves, and the
+  // new password never appears here. See [[logging-context]]
   async execute(currentUser: CurrentUser, input: ChangePasswordInput): Promise<User | null> {
     return withWorkflowSpan("change_password", { app_event: "change_password_started" }, () =>
       this.doExecute(currentUser, input),
@@ -59,15 +49,11 @@ export class ChangePasswordCommand {
     // the same standard every other /me route holds.
     const target = await currentUser.resolve();
     if (!target) {
-      // The one path of this flow that used to return silently: no started
-      // line had been emitted yet (it needs the email this resolve failed to
-      // find), so a 404 here left the log stream with nothing but the generic
-      // `request completed`. Logged inside the span, so it shares the
-      // `change_password` span_id like every other line of the flow.
-      //
-      // No email_hash: the email is precisely what could not be resolved. The
-      // caller's identity still reaches the line through the request log
-      // context.
+      // CONTRACT: Log this branch. No `change_password_started` line exists yet (it
+      // needs the email this resolve could not find), so without it a 404 leaves the
+      // stream with nothing but the generic `request completed`. Inside the span, so
+      // it shares the flow's span_id. No email_hash — the email is what failed to
+      // resolve; identity still reaches the line via the request log context.
       appLogger.warn(
         { app_event: "change_password_failed", reason: "unknown_user" },
         "Password change failed: the caller resolved to no user",

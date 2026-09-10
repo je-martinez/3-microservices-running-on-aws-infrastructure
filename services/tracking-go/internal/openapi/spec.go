@@ -1,15 +1,11 @@
-// Package openapi builds the OpenAPI document the Go routes describe, and pins it
-// against the committed Python contract.
-//
-// The document is the equivalence gate's second closing criterion: the Python
-// service's `services/tracking/openapi.yaml` is the file consumers import, so the
-// Go rewrite is only a rewrite if it serves the same contract.
+// Package openapi builds the OpenAPI document the routes describe and pins it
+// against the committed contract in testdata/, which is the file consumers
+// import. See [[openapi-specs]]
 package openapi
 
-// nullableString is the parameter schema FastAPI generates for a header declared
-// `str | None`. Every header on this surface is optional AT THE SCHEMA LEVEL and
-// rejected INSIDE the handler — a required header would make FastAPI answer 422
-// where the service answers 401, and the 401 is the documented behaviour.
+// CONTRACT: Every header on this surface stays optional AT THE SCHEMA LEVEL and
+// is rejected INSIDE the handler. A required header is answered 422 by the
+// framework, and 401 is the documented behaviour.
 func nullableString(title string) map[string]any {
 	return map[string]any{
 		"anyOf": []any{
@@ -67,33 +63,16 @@ func validationError() map[string]any {
 	return jsonResponse("Validation Error", ref("HTTPValidationError"))
 }
 
-// BuildSpec returns the OpenAPI document the routes describe.
+// BuildSpec returns the OpenAPI document the routes describe, written by hand
+// because gin knows the method and path and NOTHING about status codes, bodies
+// or auth — the 401s from middleware, the 404/409 from a handler, the 400s from
+// the state machine. This file IS the declaration, and spec_test.go enumerates
+// the route table against it.
 //
-// # Why this is written by hand rather than reflected off gin's route tree
-//
-// gin knows the method and the path template and NOTHING about status codes,
-// bodies or auth. The failures that matter here — the 401s raised by middleware,
-// the 404/409 raised inside a handler, the 400s from the state machine and the
-// batch cap — are exactly the ones no framework can see. In the Python service
-// they appear ONLY because each route declares them in `responses=`, and BOTH
-// user-scoped reads shipped without their 401 for precisely that reason.
-//
-// So this file IS the declaration, and spec_test.go enumerates the route table
-// against it. A route added without an entry here fails that test.
-//
-// # Document-level metadata lives HERE
-//
-// title, description, servers and tags are the facts no route can supply. The
-// Python declares them in `create_app()` rather than patching the generated YAML
-// afterwards, because a post-generation patch makes the file hand-maintained
-// again — the exact drift the autogeneration removed. Same reasoning, same place:
-// in the code that builds the document.
-//
-// # No database, no environment
-//
-// BuildSpec reads nothing and dials nothing. The document is a routing-table fact,
-// so its test runs in the suite that executes when no MySQL is reachable — which
-// is exactly when a wiring mistake is likeliest to go unnoticed.
+// CONTRACT: Document-level metadata (title, servers, tags) belongs here, never
+// in a post-generation patch of the YAML — that makes the file hand-maintained
+// again. BuildSpec reads nothing and dials nothing, so its test runs even with
+// no MySQL reachable. See [[openapi-specs]]
 func BuildSpec() map[string]any {
 	return map[string]any{
 		"openapi": "3.1.0",
@@ -198,13 +177,10 @@ func paths() map[string]any {
 						ref("InternalDeleteByUserResponse")),
 					"401": description("Missing or invalid internal API key"),
 					"422": validationError(),
-					// DECLARED, and the Python spec does not declare it. The
-					// Python handler re-raises the driver's failure untouched
-					// and FastAPI serves a 500 — real, served behaviour that its
-					// generator simply cannot see, because nothing declares it.
-					// This is the cascade's leg: a caller that treats an
-					// undocumented 500 as "impossible" leaves a user
-					// half-deleted, so the Go says it out loud.
+					// CONTRACT: DECLARED even though the pinned spec omits it.
+					// This is the cascade's leg, and a caller treating an
+					// undocumented 500 as impossible leaves a user
+					// half-deleted.
 					"500": jsonResponse("The soft-delete failed", ref("ErrorResponse")),
 				},
 			},

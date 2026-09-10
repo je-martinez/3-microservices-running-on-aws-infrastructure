@@ -6,6 +6,20 @@ variable "context" {
   })
 }
 
+variable "dlq_arn" {
+  description = <<-EOT
+    ARN of the dead-letter queue, so the consumer can send an UNPROCESSABLE
+    message there itself.
+
+    CONTRACT: This is NOT the redrive path. Redrive moves a message SQS gave up
+    retrying; a message the consumer rejects as permanently invalid is deleted
+    on return and never reaches it. Without this grant such a message is gone
+    with no copy anywhere. "" omits the statement.
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "queue_arn" {
   description = "ARN of the SQS queue this Lambda's event source mapping polls."
   type        = string

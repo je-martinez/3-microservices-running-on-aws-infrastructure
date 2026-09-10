@@ -6,13 +6,9 @@ using Orders.Infrastructure.Persistence;
 namespace Orders.Api.BackgroundServices;
 
 /// <summary>
-/// Periodically publishes <c>orders_total</c> — the true count of live orders.
-///
-/// A gauge, not a counter: it reports current state, and it is what makes the
-/// Orders-to-Tracking gap visible. Tracking publishes DELIVERED + IN_PROGRESS
-/// counts of orders that HAVE a tracking row; the difference against this number
-/// is exactly the set of orders whose init-tracking call failed (see
-/// TrackingInitResult's remarks). In normal operation the difference is zero.
+/// Periodically publishes <c>orders_total</c>, the count of live orders. A gauge, not a
+/// counter: its difference against Tracking's DELIVERED + IN_PROGRESS counts is exactly the
+/// set of orders whose init-tracking call failed, and is zero in normal operation.
 /// </summary>
 public class OrdersMetricsPublisher : BackgroundService
 {
@@ -55,14 +51,10 @@ public class OrdersMetricsPublisher : BackgroundService
             }
             catch (Exception ex)
             {
-                // Swallow and keep ticking: one bad tick must not kill the loop.
-                //
-                // Stays OUTSIDE the span on purpose (see CollectAndPublishAsync):
-                // the span has to SEE the throw to come out ERROR, so by the time
-                // this line runs the activity has already ended and the line does
-                // not carry its span id. The span still tells the failure story on
-                // its own — ERROR status plus the recorded exception carrying this
-                // same message.
+                // CONTRACT: Swallow and keep ticking — one bad tick must not kill the loop.
+                // Keep this catch OUTSIDE the span: the span must SEE the throw to come out
+                // ERROR, so this line does not carry its span id, and the span's recorded
+                // exception tells the same story. See [[logging-context]]
                 _logger.LogWarning(
                     ex, "{app_event} reason={reason}", "metrics_collection_failed", ex.Message);
             }
@@ -74,18 +66,11 @@ public class OrdersMetricsPublisher : BackgroundService
     /// drive it without waiting on the timer.
     /// </summary>
     /// <remarks>
-    /// The tick runs on a PeriodicTimer, so there is no ambient request span to hang
-    /// off: without this wrapper each tick's EF Core and CloudWatch spans arrive at
-    /// Jaeger as their OWN root traces (60 orphans were measured in an hour, rooted at
-    /// <c>orders</c> and <c>CloudWatch.PutMetricData</c>), burying the traces of real
-    /// requests and giving whoever opens one no way to tell which process produced it.
-    ///
-    /// INTERNAL, not CONSUMER — events-pipeline's identically-named <c>metrics-tick</c>
-    /// is CONSUMER because EventBridge wakes it; this one is our own timer and consumes
-    /// nothing. The name is shared across services on purpose so it means the same thing
-    /// everywhere.
-    ///
-    /// The caller's try/catch stays outside this method so the span sees the throw.
+    /// CONTRACT: Keep the wrapper span. The tick runs on a PeriodicTimer with no ambient
+    /// request span, so without it each tick's EF Core and CloudWatch spans arrive as their
+    /// OWN root traces and bury the traces of real requests. INTERNAL, not CONSUMER — this
+    /// timer consumes nothing. The caller's try/catch stays outside so the span sees the
+    /// throw. See [[ADR-0019-distributed-tracing-opentelemetry]]
     /// </remarks>
     public async Task CollectAndPublishAsync(CancellationToken stoppingToken) =>
         await _tracer.TraceWorkflowAsync(
@@ -109,18 +94,10 @@ public class OrdersMetricsPublisher : BackgroundService
                     new Dictionary<string, string> { ["Service"] = "orders" },
                     stoppingToken);
 
-                // Seed the failure counters at zero.
-                //
-                // http_errors_total is emitted from the error path only
-                // (HttpErrorMetricsMiddleware), so until something fails the
-                // series does not exist — and a panel over a non-existent
-                // stream renders "Error Loading Data". That is backwards for an
-                // incident card: the one that should read "no errors" is the
-                // one that looks broken, which makes a real outage
-                // indistinguishable from a healthy system.
-                //
-                // The zero is arithmetically free: CloudWatch sums within a
-                // period, so it never alters a real count.
+                // CONTRACT: Seed the failure counters at zero. http_errors_total is emitted
+                // from the error path only, so until something fails the series does not
+                // exist and its panel renders "Error Loading Data" — a healthy system reads
+                // as broken. The zero is free: CloudWatch sums within a period.
                 foreach (var statusClass in new[] { "4xx", "5xx" })
                 {
                     await _metrics.PublishAsync(

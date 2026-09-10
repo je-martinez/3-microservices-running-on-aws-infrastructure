@@ -1,10 +1,18 @@
 <button
   type="button"
-  class="h-field bg-surface-white border-line-strong text-brand-navy rounded-md inline-flex w-full items-center justify-center gap-md border text-base font-semibold"
+  class="bg-surface-white border-line-strong text-brand-navy rounded-md inline-flex w-full items-center justify-center gap-md border font-semibold"
+  [class.h-control-base]="compact()"
+  [class.text-body-lg]="compact()"
+  [class.h-field]="!compact()"
+  [class.text-base]="!compact()"
   [disabled]="disabled()"
   [class.opacity-50]="disabled()"
   (click)="clicked.emit()"
 >
-  <svg [lucideIcon]="icon()" class="text-title"></svg>
+  <svg
+    [lucideIcon]="icon()"
+    [class.text-subtitle]="compact()"
+    [class.text-title]="!compact()"
+  ></svg>
   {{ label() }}
 </button>

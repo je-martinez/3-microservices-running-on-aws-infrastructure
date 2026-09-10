@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { AccountMenu } from '../../features/account/account-menu';
 import { NotificationsPanel } from '../../features/notifications/notifications-panel';
@@ -15,6 +15,7 @@ import { Scrim } from '../overlay/scrim';
 @Component({
   selector: 'app-shell',
   imports: [AccountMenu, NotificationsPanel, RouterOutlet, Scrim],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './shell.html',
 })
 export class Shell {

@@ -32,13 +32,9 @@ const serviceDimension = "tracking"
 const healthRoute = "/v1/health"
 
 // MetricPublisher is the ONE call this middleware makes into metrics, declared
-// HERE by the code that consumes it. Narrow by design: the CloudWatch publisher
-// satisfies it without this package importing the AWS SDK, and a test double is
-// three lines.
-//
-// It never returns an error, and that is part of the contract rather than an
-// implementation detail — the response has already been sent by the time it is
-// called, so there is nothing left to fail.
+// here by its consumer so the CloudWatch publisher satisfies it without this
+// package importing the AWS SDK. It returns no error by contract: the response
+// is already sent by the time it runs, so there is nothing left to fail.
 type MetricPublisher interface {
 	Publish(ctx context.Context, name string, value float64, dimensions [][2]string)
 }
@@ -46,27 +42,15 @@ type MetricPublisher interface {
 // LogContextMiddleware seeds the per-request log context, emits the one
 // `request completed` line, and counts every 4xx/5xx.
 //
-// # Seeded at the OUTERMOST layer
+// CONTRACT: Register this OUTERMOST, before any auth or routing step. The
+// requests asked about later are the ones that never reached a handler (a 401
+// from the key check, a 404 from the router), and an id seeded further in is
+// missing from exactly those lines. The metric is published here for the same
+// reason: only this layer sees every response's final status.
 //
-// Before any auth or routing step. The requests someone asks about afterwards
-// are disproportionately the ones that did NOT reach a handler — a 401 from the
-// api-key check, a 404 from the router — and those are exactly the lines an id
-// seeded further in would be missing. Users shipped that precise ordering bug
-// (id seeded after the auth guard, so 401s had none) and a test caught it.
-//
-// # x-user-id is seeded for LOGGING ONLY
-//
-// It authorizes nothing: rejecting an absent or empty sub is RequireCallerSub's
-// job, and seeding a context field never grants access to anything. Note also
-// that despite the header's name the value is a Cognito SUB, never the internal
-// usr_ id — hence it is merged as cognito_sub and never as user_id.
-//
-// # Why the metric is published from here
-//
-// This is the only layer that sees the final status of EVERY response, a router
-// 404 included — no handler and no guard ever runs for that one. Only 4xx/5xx
-// are counted; a datum per 2xx would be a request-rate metric the request log
-// already provides.
+// CONTRACT: x-user-id is seeded for LOGGING ONLY and authorizes nothing. It
+// holds a Cognito SUB despite its name, so it merges as cognito_sub.
+// See [[logging-context]]
 func LogContextMiddleware(log *slog.Logger, metrics MetricPublisher) gin.HandlerFunc {
 	if log == nil {
 		log = slog.Default()
@@ -84,15 +68,10 @@ func LogContextMiddleware(log *slog.Logger, metrics MetricPublisher) gin.Handler
 
 		started := time.Now()
 
-		// A PANIC is the one 5xx this middleware cannot read off the writer:
-		// gin.Recovery sits outside it and writes the 500 only after the panic
-		// has already unwound past here. Observing it in a deferred function is
-		// what keeps the 5xx series from missing exactly the failures it exists
-		// to count, and gives the request most worth having a line for its line.
-		//
-		// The panic is RE-RAISED: producing the error response stays
-		// gin.Recovery's job, and swallowing it here would turn a crash into a
-		// silent empty 200.
+		// CONTRACT: Observe a panic from this deferred function and RE-RAISE it.
+		// gin.Recovery sits outside and writes its 500 only after the panic has
+		// unwound past here, so the 5xx series would miss exactly the failures
+		// it exists to count; swallowing it turns a crash into an empty 200.
 		panicked := true
 		defer func() {
 			if !panicked {
@@ -116,24 +95,15 @@ func observe(c *gin.Context, log *slog.Logger, metrics MetricPublisher, started 
 
 // logRequest emits the ONE line in this service with no app_event.
 //
-// INFO for every status, 4xx and 5xx included: the status code already carries
-// the outcome, so raising the severity would double-encode it and make an error
-// rate computed from severity_text disagree with one computed from
-// http_response_status_code.
+// CONTRACT: INFO for every status, 4xx and 5xx included. The status code already
+// carries the outcome, and raising severity makes an error rate from
+// severity_text disagree with one from http_response_status_code.
 //
-// HEALTH CHECKS ARE THE ONE EXCEPTION, and only while they SUCCEED. Measured:
-// 353 of this service's 368 log lines in an hour were GET /v1/health -> 200 —
-// 96% of the stream against 2 lines describing actual tracking work. The probe
-// runs forever at a fixed interval, so that share only grows on an idle system.
-// A succeeding probe is also the one request whose line carries no information;
-// a FAILING one carries the status and latency that explain why, so it is logged
-// like any other request. Scoped by STATUS rather than by a route list, which is
-// what keeps this a rule rather than an allowlist to maintain.
-//
-// NEVER FAILS THE REQUEST. The response has already been sent (or, on the panic
-// path, the original panic is about to continue unwinding), so an observation of
-// it must never become the request's failure — nor replace the panic the
-// application actually raised.
+// CONTRACT: SUCCEEDING health checks are the one exemption, scoped by status and
+// not a route list. The probe runs forever and swamps the stream (measured 96%
+// of lines); a FAILING probe carries the status and latency that explain why, so
+// it is logged like any request. This never fails the request.
+// See [[health-check-logging]]
 func logRequest(c *gin.Context, log *slog.Logger, started time.Time, status int) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -141,14 +111,10 @@ func logRequest(c *gin.Context, log *slog.Logger, started time.Time, status int)
 		}
 	}()
 
-	// FullPath() is the matched TEMPLATE (/v1/trackings/:order_id), not the
-	// concrete URL. Logging the raw path would make every order id its own
-	// "route" and blow up dashboard cardinality — the field would stop being
-	// groupable, which is the only reason it exists.
-	//
-	// It is empty whenever nothing matched (a 404 from the router), so the raw
-	// path is the fallback: those requests still deserve a line, and the
-	// cardinality risk is bounded by their hitting no route at all.
+	// CONTRACT: Log FullPath(), the matched TEMPLATE, not the concrete URL —
+	// the raw path makes every order id its own route and destroys the
+	// cardinality that is the field's only reason to exist. It is empty when
+	// nothing matched, so a router 404 falls back to the raw path.
 	route := c.FullPath()
 	if route == "" {
 		route = c.Request.URL.Path
@@ -158,17 +124,8 @@ func logRequest(c *gin.Context, log *slog.Logger, started time.Time, status int)
 		return
 	}
 
-	// THE CACHE RESULT IS MERGED STRAIGHT FROM THE RESPONSE WRITER.
-	//
-	// The Python original reads X-Cache back off the ASGI wire and merges it in
-	// the middleware, because its cached reads are `def` handlers that FastAPI
-	// runs in a threadpool worker holding a COPY of the contextvars — a merge
-	// performed there is discarded the moment the handler returns, silently.
-	// Go has no such trap: a Gin handler shares this request's context.Context,
-	// and here the response writer is right at hand. So the header is read
-	// directly, with none of that workaround.
-	//
-	// Absent header means NO field: an uncached route, and every route while
+	// The cache result is read straight off the response writer. An absent
+	// header means NO field: an uncached route, and every route while
 	// CACHE_ENABLED=false, omits cache_result rather than logging a null.
 	ctx := logging.WithLogFields(c.Request.Context(),
 		slog.String(logging.KeyCacheResult, strings.ToLower(c.Writer.Header().Get(CacheHeader))),

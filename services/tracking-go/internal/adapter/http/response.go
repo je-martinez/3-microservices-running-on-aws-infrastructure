@@ -6,25 +6,17 @@ import (
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/domain"
 )
 
-// isoLayout renders the way Python's datetime.isoformat() does: no zone suffix of
-// its own (the "Z" is appended), and a fractional part that disappears entirely
-// when it is zero.
-//
-// RFC3339 is NOT equivalent — it emits "+00:00" or a fixed fractional width, and
-// a client parsing the Python service's output would see a different string. The
-// ".999999" verb drops trailing zeros exactly as isoformat() does.
+// CONTRACT: isoLayout carries no zone suffix of its own (the "Z" is appended)
+// and drops a zero fractional part entirely. RFC3339 is NOT equivalent — it
+// emits "+00:00" or a fixed fractional width, a different string for the same
+// instant. See [[openapi-specs]]
 const isoLayout = "2006-01-02T15:04:05.999999"
 
 // ISO renders a timestamp as the wire string.
 //
-// A nil or zero moment renders as "", never null: the field is typed as a string
-// on the contract, and a string-typed field that can also be null would force
-// every consumer to handle a case that never occurs in practice. Omitted, never
-// null.
-//
-// The moment is CONVERTED to UTC before formatting, not merely labelled: the
-// columns are naive MySQL DATETIME holding UTC, but a value that reached this
-// function in another zone would otherwise be stamped "Z" while naming a
+// CONTRACT: A nil or zero moment renders as "", never null — the contract types
+// the field as a string. CONVERT to UTC before formatting, never merely label: a
+// value arriving in another zone is otherwise stamped "Z" while naming a
 // different instant.
 func ISO(t *time.Time) string {
 	if t == nil || t.IsZero() {

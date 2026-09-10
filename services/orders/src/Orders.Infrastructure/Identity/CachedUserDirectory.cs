@@ -4,16 +4,10 @@ using Orders.Infrastructure.Caching;
 namespace Orders.Infrastructure.Identity;
 
 /// <summary>
-/// Wraps the gRPC directory with the identity-mapping cache.
+/// Wraps the gRPC directory with the identity-mapping cache. It sits in FRONT of the response
+/// cache — every per-user key carries <c>user_id</c>, so this resolution runs before a key
+/// can be built, and caching it is what stops a response-cache hit paying a gRPC round trip.
 /// </summary>
-/// <remarks>
-/// Sits in FRONT of the response cache: every per-user key carries <c>user_id</c>, so this
-/// resolution runs before a response key can be built — on hits too. Caching it is what
-/// keeps a response-cache hit from still paying a gRPC round trip, and it is why
-/// <c>CallerContextMiddleware</c>'s once-per-request resolution (which every read now pays
-/// so its log lines carry <c>user_id</c>) stops being a network call on the hot path.
-/// A decorator, so nothing that consumes <see cref="IUserDirectory"/> changes.
-/// </remarks>
 public class CachedUserDirectory : IUserDirectory
 {
     private readonly IUserDirectory _inner;
@@ -51,12 +45,10 @@ public class CachedUserDirectory : IUserDirectory
 
     /// <summary>
     /// Deliberately NOT cached.
+    /// WARNING: The full profile carries email, name and address (PII). It is read only on
+    /// the write path, so caching would save little and leave PII in Redis for an hour.
+    /// See [[logging-context]]
     /// </summary>
-    /// <remarks>
-    /// The full profile carries the caller's email, name and delivery address, and it is
-    /// only read on the order-creation write path — where the saving would be negligible
-    /// and the PII sitting in Redis for an hour would not.
-    /// </remarks>
     public Task<CallerProfile?> ResolveCallerAsync(
         string cognitoSub,
         CancellationToken ct = default) =>

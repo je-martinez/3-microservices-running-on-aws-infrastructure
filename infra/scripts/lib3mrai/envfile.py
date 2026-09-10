@@ -1,11 +1,8 @@
 """Generate env files with a regenerated AUTO-GENERATED box and a preserved CUSTOM one.
 
-The box mechanism is the whole point: a file is part machine-owned (values that
-change on every `terraform apply` — Floci mints new Cognito ids, new api ids,
-and reassigns DB proxy ports) and part human-owned (a token, a port override).
-Regeneration rewrites ONLY the machine half, so hand-added values survive.
-
-Box markers are `#` comments, which docker-compose and dotenv both ignore.
+CONTRACT: Regeneration rewrites ONLY the machine half. Floci mints new Cognito
+and api ids and reassigns DB proxy ports on every apply, while the CUSTOM box
+holds hand-added values that must survive. See [[env-files]]
 """
 
 import subprocess
@@ -45,10 +42,9 @@ def terraform_output(tf_dir: Path, name: str) -> str:
 def read_custom_block(path: Path) -> list[str]:
     """The lines a human owns in an existing file, so regeneration can put them back.
 
-    Anything between the CUSTOM markers is kept. For a file that predates those
-    markers, every line outside the AUTO-GENERATED box counts as custom — that
-    is what carries an existing hand-added value (e.g. APIDOG_ACCESS_TOKEN)
-    through the first regeneration instead of silently dropping it.
+    CONTRACT: For a file predating the CUSTOM markers, every line outside the
+    AUTO box counts as custom — otherwise an existing hand-added value is
+    silently dropped on the first regeneration. See [[env-files]]
     """
     if not path.exists():
         return []
@@ -100,15 +96,9 @@ def write_env_file(
 ) -> None:
     """Write `path` with a fresh AUTO box and the file's existing CUSTOM block.
 
-    `custom_defaults` seed the CUSTOM box PER KEY: a default is appended only
-    when that key is absent from the box, so a first run gets working defaults
-    and later runs never overwrite what the developer changed.
-
-    Per key, not all-or-nothing, because the two are indistinguishable on a
-    first run and diverge the moment a NEW default is added to a service that
-    already has a CUSTOM box — which is every existing checkout. Seeding only
-    an empty box would silently skip the new key for everyone but a fresh
-    clone, and the service would boot without it (JE-195).
+    CONTRACT: Seed `custom_defaults` PER KEY, never all-or-nothing. Seeding only
+    an empty box skips a newly added default for every checkout that already has
+    a CUSTOM box, and the service boots without it. See [[env-files]]
     """
     for key, value in generated.items():
         if value is None or value == "":

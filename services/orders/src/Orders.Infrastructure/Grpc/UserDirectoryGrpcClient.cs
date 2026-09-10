@@ -23,15 +23,11 @@ public class UserDirectoryGrpcClient : IUserDirectory
     public async Task<CallerProfile?> ResolveCallerAsync(string cognitoSub, CancellationToken ct = default)
     {
         var response = await LookupAsync(cognitoSub, ct);
-        // Email and FullName come off the SAME GetUserById response that resolves the id —
-        // see users.v1.UserResponse.email / .full_name. ORDER_CREATED needs both (who the
-        // confirmation email is sent to, and who it greets), so mapping them here costs
-        // nothing: no extra round trip, no new dependency. PII, like Address: never log
-        // either in plaintext.
-        //
-        // FullName is passed through as-is, including "" — proto3 has no null, so a user
-        // with no name on file arrives empty, and CallerProfile documents "" as the
-        // "unnamed" value rather than collapsing it to null.
+        // CONTRACT: Pass FullName through as-is, including "" — proto3 has no null, so a
+        // nameless user arrives empty and CallerProfile treats "" as the unnamed value rather
+        // than collapsing it to null.
+        // WARNING: Email, FullName and Address are PII. Never log them in plaintext.
+        // See [[logging-context]]
         return response is null
             ? null
             : new CallerProfile(response.Id, response.Email, response.FullName, ToAddress(response.Address));

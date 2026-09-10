@@ -1,23 +1,15 @@
 import { expect, type APIResponse } from "@playwright/test";
 
-// The X-Cache contract, asserted from ONE place so a spec can never quietly
-// encode a weaker version of it. Full contract:
-// docs/shared/conventions/x-cache-response-header.md.
+// The X-Cache contract, asserted from ONE place so a spec can never encode a weaker
+// version of it. HIT carries X-Cache-TTL; MISS and BYPASS carry none; no header at all
+// means CACHE_ENABLED=false.
 //
-// | Value                | Companion        | When                                    |
-// |----------------------|------------------|-----------------------------------------|
-// | `X-Cache: HIT`       | `X-Cache-TTL: n` | served from Redis, handler skipped      |
-// | `X-Cache: MISS`      | none             | not in Redis, handler ran, 200 cached   |
-// | `X-Cache: BYPASS`    | none             | Redis unavailable, fell through to DB   |
-// | *(no header at all)* | none             | `CACHE_ENABLED=false`                   |
-//
-// Header lookup is case-insensitive: Playwright's headers() lowercases every
-// key, and asserting on "X-Cache" (mixed case) silently reads `undefined`
-// regardless of what the service actually sent — a spec that passes while
-// proving nothing. Always read the lowercase spelling. This matters concretely
-// here: Orders sends `X-Cache` while Users and Tracking send `x-cache`, so any
-// spec reading the mixed-case spelling would pass against one service and fail
-// against another for a reason that has nothing to do with caching.
+// CONTRACT: Always read the LOWERCASE header spelling. Playwright's headers()
+// lowercases every key, so asserting on "X-Cache" reads `undefined` no matter what the
+// service sent — a spec that passes while proving nothing. Orders sends `X-Cache` while
+// Users and Tracking send `x-cache`, so the mixed-case spelling passes against one
+// service and fails against another for a reason unrelated to caching.
+// See [[x-cache-response-header]]
 
 function cacheHeader(res: APIResponse): string | undefined {
   return res.headers()["x-cache"];
@@ -28,13 +20,9 @@ function cacheTtlHeader(res: APIResponse): string | undefined {
 }
 
 /**
- * A cold read: the handler ran and (on a 200) populated the cache.
- *
- * BYPASS is explicitly named in the failure message because it is the ONE
- * outcome that looks like a cache bug and is not: it means Redis was
- * unreachable and the service failed open exactly as designed. Naming it here
- * saves the reader from debugging the interceptor when the actual problem is a
- * stopped container.
+ * A cold read: the handler ran and (on a 200) populated the cache. The failure message
+ * names BYPASS explicitly — it is the one outcome that looks like a cache bug and is
+ * not, meaning Redis was unreachable and the service failed open as designed.
  */
 export function expectMiss(res: APIResponse, what: string): void {
   const value = cacheHeader(res);
@@ -50,12 +38,10 @@ export function expectMiss(res: APIResponse, what: string): void {
 }
 
 /**
- * A warm read: served from Redis, the handler never executed.
- *
- * Asserts the TTL header too, and asserts it as a NUMBER in a plausible range
- * rather than merely being present — a header stuck at "0" or carrying a
- * non-numeric string would pass a presence check while telling every client
- * something false.
+ * A warm read: served from Redis, the handler never executed. The TTL is asserted as a
+ * NUMBER in a plausible range, not merely present — a header stuck at "0" or carrying
+ * a non-numeric string passes a presence check while telling every client something
+ * false.
  */
 export function expectHit(res: APIResponse, what: string, maxTtlSeconds: number): void {
   const value = cacheHeader(res);
@@ -79,14 +65,10 @@ export function expectHit(res: APIResponse, what: string, maxTtlSeconds: number)
 }
 
 /**
- * The first read of a SHARED, ownerless key (`orders:products:v1`).
- *
- * Such a key may legitimately be warm from an earlier test or an earlier RUN, so
- * asserting MISS would be asserting test-ordering rather than behaviour. What is
- * still assertable — and is the part that catches a real regression — is that the
- * header is PRESENT and is not BYPASS. Without this the natural shortcut is to
- * assert nothing at all on the first read, which would let a stopped Redis pass
- * silently.
+ * CONTRACT: The first read of the SHARED `orders:products:v1` key may legitimately be
+ * warm from an earlier RUN, so do NOT assert MISS — but do NOT skip the assertion
+ * either. The header must be PRESENT and not BYPASS; asserting nothing on the first
+ * read lets a stopped Redis pass silently.
  */
 export function expectMissOrHit(res: APIResponse, what: string): void {
   const value = cacheHeader(res);
@@ -108,12 +90,10 @@ export function expectNoCacheHeaders(res: APIResponse, what: string): void {
 }
 
 /**
- * A write response must never carry a cache header — only GETs are cached.
- *
- * Its own helper rather than an inline `toBeUndefined()` because the failure it
- * guards against is subtle: an interceptor registered on the wrong pipeline
- * branch would stamp every response, and a MISS on a PUT looks harmless enough
- * to be scrolled past in a diff.
+ * A write response must never carry a cache header — only GETs are cached. Its own
+ * helper rather than an inline `toBeUndefined()`: an interceptor on the wrong pipeline
+ * branch stamps every response, and a MISS on a PUT is harmless-looking enough to be
+ * scrolled past in a diff.
  */
 export function expectNoCacheHeaderOnWrite(res: APIResponse, what: string): void {
   expect(

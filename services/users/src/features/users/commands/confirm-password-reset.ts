@@ -71,16 +71,11 @@ export class ConfirmPasswordResetCommand {
       "Starting password reset confirmation",
     );
 
-    // Every rejection below throws the SAME InvalidResetCodeError: unknown
-    // email, no outstanding code, expired code, wrong code. The caller cannot
-    // tell them apart, which is what keeps the enumeration property established
-    // by /password/forgot intact — an endpoint that answered "no such account"
-    // here would undo it. The distinguishing detail goes on the log line's
-    // `reason`, for operators only.
-    //
-    // The user is loaded FIRST because the flag-clearing write below needs the
-    // id, and the store is keyed by email. An unknown email is rejected with the
-    // same error as a bad code, and no code is ever verified for it.
+    // CONTRACT: Every rejection below throws the SAME InvalidResetCodeError — unknown
+    // email, no outstanding code, expired code, wrong code. An endpoint that answered
+    // "no such account" here undoes the enumeration property /password/forgot
+    // establishes. The distinguishing detail goes on the log line's `reason`, for
+    // operators only.
     const user = await this.db.user.findFirst({ where: { email: input.email } });
     if (!user) {
       this.reject(input.email, "unknown_email");
@@ -88,36 +83,24 @@ export class ConfirmPasswordResetCommand {
 
     setLogContext({ user_id: user!.id });
 
-    // Single call: verifies against the hash in Redis (constant-time) and
-    // DELETES the key on success, which is what makes the code single-use.
-    //
-    // "Expired" needs no branch here — Redis has already removed the key, so an
-    // expired code arrives as the same `false` a missing one does. That collapse
-    // is deliberate and matches what the API exposes anyway; the price is that
-    // the log line cannot separate `expired_code` from `code_mismatch` the way
-    // the table version could, which is a trade the native TTL is worth.
+    // Single call: constant-time verify against the hash in Redis, plus a DELETE on
+    // success, which is what makes the code single-use. "Expired" needs no branch —
+    // Redis has removed the key, so it arrives as the same `false` a missing one does.
     const accepted = await this.resetCodeStore.verifyAndConsume(input.email, input.code);
     if (!accepted) {
       this.reject(input.email, "invalid_or_expired_code");
     }
 
-    // ==== ORDERING: the code is consumed BEFORE Cognito is called ====
-    // This is forced by the store's atomic verify-and-delete and is the one
-    // behaviour that differs from the Postgres version, which applied the
-    // password first so a Cognito failure left the code reusable. Here a Cognito
-    // failure burns the code and the user must request a new one.
-    //
-    // Accepted on purpose: the alternative — verify, call Cognito, then delete —
-    // leaves a verified code live across a network call, so two concurrent
-    // requests could both pass verification, and a crash in between would leave
-    // a usable code for the rest of its TTL. Trading a rare "request another
-    // code" for a closed replay window is the right way round for a credential.
+    // CONTRACT: The code is consumed BEFORE Cognito is called. Do NOT reorder to
+    // verify, call Cognito, then delete — that leaves a verified code live across a
+    // network call, so two concurrent requests both pass verification and a crash in
+    // between leaves a usable code for the rest of its TTL. The cost is that a Cognito
+    // failure burns the code and the user requests a new one.
     await this.auth.setPassword(input.email, input.newPassword);
 
-    // Clears the forced-change flag if it was set: the user has just chosen a
-    // password of their own, which is exactly what the flag was demanding.
-    // Written unconditionally rather than read-then-write — setting false on a
-    // row that is already false costs one statement and avoids a read.
+    // Clears the forced-change flag: the user has just chosen a password of their own.
+    // Written unconditionally — setting false on an already-false row costs one
+    // statement and avoids a read.
     await runAsActor(AuditActor.PasswordResetConfirmed, () =>
       this.db.user.update({
         where: { id: user!.id },
@@ -125,17 +108,11 @@ export class ConfirmPasswordResetCommand {
       }),
     );
 
-    // ==== WHY A PASSWORD RESET INVALIDATES THE PROFILE CACHE ====
-    // Nothing password-related is ever cached. But the write above CLEARS
-    // `mustChangePassword`, which is a field of UserSchema and therefore part
-    // of the cached GET /v1/users/me body. Without this the frontend keeps
-    // reading `mustChangePassword: true` for up to five minutes after the
-    // reset and sends the user round the forced-change flow again.
-    //
-    // AFTER the write has persisted, never before. This flow is unauthenticated
-    // (identified by email, not by x-user-id), so the key's sub half comes from
-    // the row itself; a user whose Cognito identity was never captured has no
-    // sub and therefore no cached entry to drop.
+    // CONTRACT: Invalidate the profile cache AFTER the write persists. No password is
+    // cached, but the write above clears `mustChangePassword`, a field of the cached
+    // GET /v1/users/me body — without this the frontend reads it as true for five more
+    // minutes and loops the user through the forced-change flow. This flow is
+    // unauthenticated, so the key's sub half comes from the row itself.
     const cognitoSub = (user as { cognitoSub?: string | null } | null)?.cognitoSub;
     if (cognitoSub) {
       await this.cacheGateway.invalidate(ME_KEY_PREFIX, meCacheKey(cognitoSub, user!.id));

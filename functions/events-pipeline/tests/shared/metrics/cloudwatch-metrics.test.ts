@@ -96,16 +96,11 @@ describe("publishEmailMetric", () => {
     spanExporter.reset();
   });
 
-  // The two publishes are two REAL round trips (52ms and 85ms measured live), so
-  // two spans is the honest rendering — but named by metric alone they render as
-  // two IDENTICAL bars in the waterfall, and telling the per-template series from
-  // the ALL rollup took a click into the attributes. Reading a cascade should not
-  // require that: same reasoning, and same shape, as `documentdb updateOne
-  // <STATUS>`.
-  //
-  // Asserted rather than left to the eye because it is the kind of detail a
-  // later refactor drops silently — the metrics keep publishing correctly and
-  // only the trace gets harder to read, which no other test would catch.
+  // CONTRACT: The two publishes are two real round trips, and named by metric
+  // alone they draw two IDENTICAL bars — telling the per-template series from
+  // the ALL rollup then costs a click into the attributes. Asserted because a
+  // refactor drops this silently: the metrics keep publishing correctly and only
+  // the trace gets harder to read.
   it("names each span after the EmailType it publishes, so the two are distinguishable", async () => {
     await publishEmailMetric("emails_sent_total", "user-created");
 

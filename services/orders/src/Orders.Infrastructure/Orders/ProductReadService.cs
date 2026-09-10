@@ -51,13 +51,10 @@ public class ProductReadService
                 var dtos = products.Select(Map).ToList();
                 _tracer.SetAttribute("product_count", dtos.Count);
 
-                // Same shape and same reasoning as list_my_orders: one
-                // _succeeded line, no _started twin, no _failed branch (this
-                // method has no failure of its own — a DB fault throws out of
-                // TraceWorkflowAsync, which records it on the span, and the
-                // request log reports the 500). Its job is to give the span a log
-                // line carrying ITS span_id, so a span-scoped lookup stops
-                // returning nothing. See OrderReadService for the full rationale.
+                // CONTRACT: One _succeeded line, no _started twin and no _failed branch, as
+                // in list_my_orders — a DB fault throws out of TraceWorkflowAsync, which
+                // records it. The line exists so the span carries its own span_id.
+                // See [[logging-context]]
                 _logger.LogInformation(
                     "Listed the product catalogue {app_event} {product_count}",
                     "list_products_succeeded", dtos.Count);

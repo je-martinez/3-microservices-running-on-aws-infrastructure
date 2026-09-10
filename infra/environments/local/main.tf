@@ -56,13 +56,9 @@ module "label_cache" {
 }
 
 # ─── Networking ─────────────────────────────────────────────────────────────────
-# NOTE (reconciliation): the networking module's `subnets` variable is
-# list(object({ suffix, cidr, az })), while the root `var.subnets` (Task 1) is a
-# plain list(string) of CIDRs — the two are not interchangeable. Rather than
-# reshape a Task-1 variable (out of scope for this composition task), `subnets`
-# is intentionally omitted here so the module falls back to its own default
-# (already shaped correctly: 2 AZs, 10.0.1.0/24 + 10.0.2.0/24). `vpc_cidr` is a
-# plain string in both places, so it is passed through.
+# WHY: `subnets` is omitted so the module uses its own default (2 AZs,
+# 10.0.1.0/24 + 10.0.2.0/24). Root `var.subnets` is a list(string) of CIDRs and
+# the module wants list(object({suffix, cidr, az})) — not interchangeable.
 module "networking" {
   source   = "../../modules/networking"
   context  = { id = module.label_net.id, tags = module.label_net.tags }
@@ -70,15 +66,10 @@ module "networking" {
 }
 
 # ─── Aurora Postgres ────────────────────────────────────────────────────────────
-# RECONCILIATION: the label module's default label_order puts "namespace"
-# first, so module.label_db.id = "3mrai-local-aurora" — a digit-leading
-# string. rds-aurora interpolates context.id straight into
-# aws_rds_cluster.cluster_identifier ("${var.context.id}-aurora"), and AWS/the
-# provider rejects identifiers that don't start with a letter. The `infra/modules/label`
-# wrapper does not expose `label_order` as a passthrough, so it cannot be
-# reordered from here without editing that module (out of scope — compose/wire
-# only). Building the context object inline with a letter-led id is pure
-# composition: reuses module.label_db.tags as-is, only reshapes id.
+# CONTRACT: Keep the letter-led "aurora-" prefix on context.id. module.label_db.id
+# is digit-leading ("3mrai-local-aurora") and rds-aurora interpolates it into
+# cluster_identifier, which the provider rejects unless it starts with a letter.
+# See [[ADR-0001-terraform-cloudposse-naming]]
 module "rds_aurora" {
   source              = "../../modules/rds-aurora"
   context             = { id = "aurora-${module.label_db.id}", tags = module.label_db.tags }
@@ -90,15 +81,11 @@ module "rds_aurora" {
   engine              = "postgres"
   instance_class      = "db.t3.micro"
   skip_final_snapshot = true
-  # false LOCAL ONLY: the module's postgresql_* resources require the
-  # `postgresql` provider to be configured with the cluster's endpoint, but
-  # Terraform configures providers BEFORE creating the resources in the plan —
-  # the Floci-proxied Postgres endpoint doesn't exist yet on a clean apply, so
-  # no host/port default can ever be correct (chicken-and-egg). The
-  # least-privilege app DB user is created post-apply instead by
-  # bootstrap.sh, which connects to the endpoint once it actually exists.
-  # Production keeps manage_app_user = true (stable, pre-existing Aurora DNS
-  # endpoint — no chicken-and-egg there).
+  # WORKAROUND(local): Do NOT set manage_app_user = true here. The postgresql
+  # provider is configured before the cluster exists, so no host/port default can
+  # be correct on a clean apply. Phase 2 creates the app user instead. Prod keeps
+  # the default (true) against a stable Aurora endpoint.
+  # See [[two-phase-terraform-apply]]
   manage_app_user     = false
   create_subnet_group = false
   subnet_group_name   = "default"
@@ -113,20 +100,11 @@ module "label_orders_db" {
 }
 
 # ─── Orders MySQL ───────────────────────────────────────────────────────────────
-# Second instantiation of the engine-agnostic rds-aurora module, this time with
-# engine = "mysql" for the Orders service. Floci runs a real mysql container off
-# the cluster alone (no Aurora cluster-instance concept), so the module's
-# writer/reader cluster_instances auto-skip via their startswith(engine,"aurora")
-# gate — same as the local Postgres above.
-#
-# Same letter-led-id trick as rds_aurora: module.label_orders_db.id is
-# "3mrai-local-orders-db" (digit-leading), and rds-aurora interpolates
-# context.id into cluster_identifier which AWS rejects unless it starts with a
-# letter — so prefix with "mysql-".
-#
-# manage_app_user = false LOCAL ONLY: the mysql provider would need the cluster
-# endpoint before the cluster exists (chicken-and-egg, same as Postgres). The
-# least-privilege orders_app user is created post-apply by bootstrap.sh instead.
+# CONTRACT: Keep the letter-led "mysql-" prefix on context.id — rds-aurora feeds
+# it to cluster_identifier, which the provider rejects on a digit-leading name.
+# WORKAROUND(local): Do NOT set manage_app_user = true. The mysql provider needs
+# the cluster endpoint before the cluster exists; phase 2 creates orders_app.
+# See [[two-phase-terraform-apply]]
 module "rds_mysql" {
   source              = "../../modules/rds-aurora"
   context             = { id = "mysql-${module.label_orders_db.id}", tags = module.label_orders_db.tags }
@@ -145,35 +123,18 @@ module "rds_mysql" {
 }
 
 # ─── Tracking database (SECOND schema on the SAME MySQL cluster) ────────────────
-# DECISION: Tracking gets its own database/schema on the EXISTING rds_mysql
-# cluster above — NOT a second MySQL cluster.
-#
-# WHY NOT A SECOND CLUSTER: Floci assigns its RDS proxy ports (7000-7099) by
-# cluster CREATION ORDER, and that order is NOT stable across applies — with two
-# clusters today (Users Postgres + Orders MySQL) the assignment already flips
-# between applies, which is why every consumer must call discover_port(engine).
-# `discover_port` resolves a port by matching the cluster's `Engine` field, so a
-# THIRD cluster with engine = "mysql" would make that lookup ambiguous: two
-# clusters would match "mysql" and the helper would return whichever came first,
-# non-deterministically. Disambiguating would mean threading cluster identifiers
-# through every caller (Makefile, generator, gate) for zero benefit — Tracking
-# and Orders have no cross-schema queries and no independent scaling story
-# locally. One cluster, two databases.
-#
-# MECHANISM: `aws_rds_cluster.database_name` creates exactly ONE database, at
-# cluster-creation time (that is how `orders` exists). There is no AWS API — and
-# so no Terraform AWS resource — for adding a database to an existing cluster;
-# it is engine DDL. The petoju/mysql provider's `mysql_database` is not an option
-# either: it needs the cluster endpoint configured BEFORE the cluster exists
-# (the same chicken-and-egg that forced manage_app_user = false), and it hangs
-# against Floci. So this uses the repo's established awscli-fallback shape
-# (terraform_data + local-exec + idempotent Python), which runs after the
-# cluster resource. See scripts/create_mysql_database.py for why the DDL must
-# run as root rather than as `test`.
+# CONTRACT: Do NOT add a second cluster with engine = "mysql". Floci assigns RDS
+# proxy ports (7000-7099) by cluster creation order, so consumers resolve a port
+# by matching the `Engine` field; two mysql clusters make that lookup return
+# whichever came first, non-deterministically. Tracking is a second DATABASE on
+# the existing rds_mysql cluster.
+# WORKAROUND(local): Adding a database to a live cluster is engine DDL — no AWS
+# API and no mysql-provider resource can do it here (the provider needs the
+# endpoint before the cluster exists), so this uses the awscli-fallback shape.
+# See [[awscli-fallback-for-floci]]
 resource "terraform_data" "tracking_database" {
-  # cluster_identifier is in `input` purely to make this resource DEPEND on the
-  # cluster: terraform_data replaces when `input` changes, so a recreated
-  # cluster (new identifier) re-runs the DDL against the fresh, empty database.
+  # CONTRACT: Keep cluster_id in `input`. It is what makes a recreated cluster
+  # replace this resource and re-run the DDL against the fresh, empty database.
   input = {
     database   = "tracking"
     cluster_id = module.rds_mysql.cluster_identifier
@@ -183,21 +144,19 @@ resource "terraform_data" "tracking_database" {
     command     = "${abspath("${path.root}/../../../.venv/bin/python")} ${abspath("${path.root}/scripts/create_mysql_database.py")} ${self.input.database}"
     interpreter = ["/usr/bin/env", "bash", "-c"]
     environment = {
-      # Traceability only: the script always runs and the log never causes a
-      # skip. Set explicitly rather than relying on the Makefile's exported
-      # value being inherited, so a `terraform apply` run by hand records too.
+      # WHY: Traceability only — the log never skips a run. Set explicitly so a
+      # hand-run `terraform apply` records too, without the Makefile's export.
       EXECUTION_LOG_TABLE = var.execution_log_table
     }
   }
 }
 
 # ─── Cognito ────────────────────────────────────────────────────────────────────
-# manage_client_via_provider = false (LOCAL ONLY): the native
-# aws_cognito_user_pool_client resource cannot apply cleanly against Floci —
-# see modules/cognito/variables.tf's manage_client_via_provider description
-# and the floci skill (quirk #2). The client is created instead via an awscli
-# local-exec fallback in that module, pointed at the same endpoint as the aws
-# provider above. Prod/Ministack keep the default (true).
+# WORKAROUND(local): Do NOT set manage_client_via_provider = true here. The
+# native aws_cognito_user_pool_client cannot apply against Floci; the module
+# creates the client through an awscli local-exec fallback instead. Prod keeps
+# the default (true).
+# See [[awscli-fallback-for-floci]]
 module "cognito" {
   source                     = "../../modules/cognito"
   context                    = { id = module.label_cognito.id, tags = module.label_cognito.tags }
@@ -205,26 +164,24 @@ module "cognito" {
   issuer_style               = "floci"
   manage_client_via_provider = false
   aws_cli_endpoint_url       = "http://localhost:4566"
-  # The venv interpreter for the module's awscli-fallback provisioners. Resolved
-  # from THIS root (path.root = environments/local), because the shared module
-  # cannot know its distance to the repo root. `make scripts-setup` — a
-  # prerequisite of every apply target — guarantees it exists.
+  # CONTRACT: Pass the venv interpreter by absolute path, never plain `python3` —
+  # the ambient one may resolve into an unrelated venv. Resolved from THIS root
+  # because the shared module cannot know its distance to the repo root.
+  # See [[scripting-language]]
   python_bin = abspath("${path.root}/../../../.venv/bin/python")
-  # Traceability log for those same two provisioners. The module defaults this
-  # to "" (record nothing), which is what prod wants — there the client is
-  # managed by the native provider and neither script runs.
+  # WHY: Traceability log for those two provisioners. The module defaults to ""
+  # (record nothing), which is what prod wants — neither script runs there.
   execution_log_table = var.execution_log_table
 
-  # The OTP challenge Lambda publishes AUTH_OTP_REQUESTED to the shared events
-  # queue, which the events-pipeline Lambda consumes to mail the code. Declared
-  # AFTER module.messaging in this file but resolved by the dependency graph,
-  # not by file order.
+  # WHY: The OTP challenge Lambda publishes AUTH_OTP_REQUESTED to the shared
+  # queue for the events-pipeline Lambda to mail. module.messaging is declared
+  # below; the dependency graph resolves it, not file order.
   events_queue_url = module.messaging.queue_url
   events_queue_arn = module.messaging.queue_arn
 
-  # The Lambda runs as a Docker container on 3mrai-network, so its endpoint is
-  # the IN-NETWORK name — NOT the localhost:4566 the host-side provisioners use
-  # above. Same distinction the events-pipeline Lambda makes.
+  # CONTRACT: In-network name, NOT the localhost:4566 the host-side provisioners
+  # use above — the Lambda runs as a container on 3mrai-network and cannot reach
+  # the host's localhost.
   aws_cli_endpoint_url_in_network = "http://floci:4566"
   # LOCAL ONLY: real AWS rejects AWS_REGION as a reserved Lambda env key, so the
   # module omits it when this is "" (its default, i.e. production).
@@ -254,37 +211,15 @@ module "messaging" {
 }
 
 # ─── DocumentDB (events-pipeline store) ─────────────────────────────────────────
-# Same letter-led-id trick as rds_aurora/rds_mysql: module.label_events.id is
-# "3mrai-local-events" (digit-leading), and the database module interpolates
-# context.id into aws_docdb_cluster.cluster_identifier, which AWS rejects unless
-# it starts with a letter — so prefix with "db-". The prefix is NOT decorative;
-# dropping it makes the cluster identifier invalid. It is "db-" rather than
-# "docdb-" because the module already appends its own "-docdb" suffix, so the
-# latter would read docdb-3mrai-local-events-docdb.
-#
-# Resulting cluster identifier: db-3mrai-local-events-docdb. That value derives
-# Floci's backing container name (floci-docdb-<cluster_identifier>), which is
-# how anything on 3mrai-network reaches Mongo — port 27017 is NOT published to
-# the host and the reported IP changes on every recreation. Changing this
-# identifier forces cluster REPLACEMENT and invalidates every consumer of that
-# container name, so treat it as a stable contract from here on. See
-# docs/lessons/floci-sqs-lambda-docdb-support.md.
-#
-# manage_cluster_via_provider = false (LOCAL ONLY): the native aws_docdb_cluster
-# resource cannot apply against Floci — it fails with
-#   creating DocumentDB Cluster (db-3mrai-local-events-docdb):
-#   InvalidClientTokenId: The security token included in the request is invalid.
-#   status code: 403
-# while the IDENTICAL CreateDBCluster call through the AWS CLI / boto3 succeeds
-# against the same live Floci (verified 2026-08-03: the cluster comes back
-# Status "available" on port 27017, with its floci-docdb-<id> container running).
-# So Floci implements DocumentDB fine and the pinned provider (`= 5.31.0`,
-# non-negotiable — newer versions break aws_cognito_user_pool_client here) signs
-# this request in a way Floci's docdb handler rejects. That is the same class of
-# failure create_subnet_group already works around one resource earlier, and it
-# meets the awscli-fallback pattern's bar: proven by a real apply failure, with a
-# proven-working SDK equivalent. Prod keeps the default (true) and the native
-# resources. See docs/shared/patterns/awscli-fallback-for-floci.md.
+# CONTRACT: Keep the "db-" prefix on context.id. Floci derives its container name
+# floci-docdb-<cluster_identifier> from it, and that name is the only route to
+# Mongo on 3mrai-network (27017 is not published, the reported IP changes on every
+# recreation); renaming forces cluster REPLACEMENT.
+# See [[floci-sqs-lambda-docdb-support]]
+# WORKAROUND(local): manage_cluster_via_provider=false. The native aws_docdb_cluster
+# gets a 403 from Floci while the identical boto3 CreateDBCluster succeeds.
+# Prod keeps the default (true) and the native resources.
+# See [[awscli-fallback-for-floci]]
 module "docdb" {
   source                      = "../../modules/docdb"
   context                     = { id = "db-${module.label_events.id}", tags = module.label_events.tags }
@@ -296,10 +231,8 @@ module "docdb" {
   manage_cluster_via_provider = false
   aws_cli_endpoint_url        = "http://localhost:4566"
   region                      = local.region
-  # Same reasoning as the cognito module's python_bin: resolved from THIS root
-  # (path.root = environments/local), because the shared module cannot know its
-  # distance to the repo root. `make scripts-setup` — a prerequisite of every
-  # apply target — guarantees it exists.
+  # CONTRACT: Absolute venv interpreter, never plain `python3` — see the cognito
+  # module's python_bin above. See [[scripting-language]]
   python_bin = abspath("${path.root}/../../../.venv/bin/python")
   # Traceability log for the fallback provisioner. The module defaults this to
   # "" (record nothing), which is what prod wants — there the script never runs.
@@ -307,60 +240,33 @@ module "docdb" {
 }
 
 # ─── Redis / ElastiCache (Users password-reset codes) ───────────────────────────
-# A short-lived store for password-reset codes (10-minute TTL). Deliberately NOT
-# a Postgres table: the data is regenerable, single-key, and expires on its own —
-# Redis's native TTL does the cleanup that a table would need a sweeper job for.
-#
-# Same letter-led-id reasoning as rds_aurora/rds_mysql/docdb: module.label_cache.id
-# is "3mrai-local-cache" (digit-leading), and the module interpolates context.id
-# into the replication group id, which AWS rejects unless it starts with a
-# letter — so prefix with "cache-". Resulting replication group id:
-# cache-3mrai-local-cache-redis.
-#
-# THAT ID IS A CONTRACT, not decoration. Floci names the backing container
-# `floci-valkey-<replication_group_id>` (image valkey/valkey:8, attached to
-# 3mrai-network with NO host port published), and that container name is the ONLY
-# way a service reaches Redis — the API reports ConfigurationEndpoint.Address =
-# "localhost", which from inside the network is the caller's own container.
-# Changing this identifier renames the container and invalidates every consumer
-# of REDIS_HOST. Exactly the DocumentDB quirk above, one data store over.
-#
-# manage_via_provider = false (LOCAL ONLY): the native
-# aws_elasticache_replication_group resource CRASHES the provider against Floci —
-#   panic: runtime error: index out of range [0] with length 0
-#   .../internal/service/elasticache/replication_group.go:632
-#   Error: The terraform-provider-aws_v5.31.0_x5 plugin crashed!
-# The provider reads NodeGroups[0] after create to populate the primary endpoint;
-# Floci's response carries no NodeGroups array at all. Worse than a plain error:
-# the group IS created before the panic but nothing lands in state, so the retry
-# fails with ReplicationGroupAlreadyExistsFault and the root is wedged. The
-# identical boto3 call succeeds and returns Status "available" (verified
-# 2026-08-09). Prod keeps the default (true) and the native resource. See
-# docs/shared/patterns/awscli-fallback-for-floci.md.
-#
-# create_subnet_group = false, and NO subnet_group_name: unlike rds-aurora/docdb
-# there is no "default" group to fall back to, because Floci implements no
-# subnet-group API at all — CreateCacheSubnetGroup and DescribeCacheSubnetGroups
-# both answer UnsupportedOperation. The group is created without one; Floci
-# attaches the container to the compose network directly.
+# CONTRACT: Keep the "cache-" prefix on context.id. Floci derives the container
+# name floci-valkey-<id> from it, and that name is the only route to Redis (the
+# API reports ConfigurationEndpoint "localhost"); renaming breaks REDIS_HOST.
+# WORKAROUND(local): manage_via_provider=false. The native
+# aws_elasticache_replication_group panics provider 5.31.0 against Floci and
+# wedges state (group created, nothing in state, retry hits
+# ReplicationGroupAlreadyExistsFault). Prod keeps the default.
+# WORKAROUND(local): create_subnet_group=false and no subnet_group_name — Floci
+# answers UnsupportedOperation for ElastiCache subnet groups and there is no
+# "default" to fall back to; the container joins the compose network directly.
+# See [[floci-elasticache-two-ports-and-provider-panic]]
 module "redis" {
   source              = "../../modules/redis"
   context             = { id = "cache-${module.label_cache.id}", tags = module.label_cache.tags }
   description         = "Short-lived codes (password reset) for the Users service"
   manage_via_provider = false
   create_subnet_group = false
-  # Floci terminates no TLS (same as its RDS proxy), so the local client dials
-  # plain redis://. Production opts in per environment — see the variable.
+  # WORKAROUND(local): Floci terminates no TLS, so the client dials plain
+  # redis://. Production opts in per environment. See [[ADR-0017-floci-local]]
   transit_encryption_enabled = false
   aws_cli_endpoint_url       = "http://localhost:4566"
   region                     = local.region
-  # Same reasoning as the cognito/docdb modules' python_bin: resolved from THIS
-  # root (path.root = environments/local), because the shared module cannot know
-  # its distance to the repo root. `make scripts-setup` — a prerequisite of every
-  # apply target — guarantees it exists.
+  # CONTRACT: Absolute venv interpreter, never plain `python3` — see the cognito
+  # module's python_bin above. See [[scripting-language]]
   python_bin = abspath("${path.root}/../../../.venv/bin/python")
-  # Traceability log for the fallback provisioner. The module defaults this to
-  # "" (record nothing), which is what prod wants — there the script never runs.
+  # WHY: Traceability log for the fallback provisioner. The module defaults to ""
+  # (record nothing), which is what prod wants — the script never runs there.
   execution_log_table = var.execution_log_table
 }
 
@@ -372,12 +278,9 @@ module "ws_connections" {
   context = { id = module.label_realtime.id, tags = module.label_realtime.tags }
 }
 
-# The WebSocket API and its four Lambdas (authorizer, $connect, $disconnect,
-# $default). source_dir points at the BUILT dist/ of functions/realtime-events —
-# archive_file is a data source read at PLAN time, so that directory must exist
-# before plan/apply (`pnpm run build` there first). `terraform validate` does not
-# evaluate data sources and so passes without it, same as the events-pipeline
-# Lambda below.
+# CONTRACT: Build functions/realtime-events before plan/apply. source_dir points
+# at its dist/, and archive_file is a data source read at PLAN time; `terraform
+# validate` does not evaluate data sources, so it passes without the build.
 module "api_gateway_ws" {
   source     = "../../modules/api-gateway-ws"
   context    = { id = module.label_realtime.id, tags = module.label_realtime.tags }
@@ -390,251 +293,163 @@ module "api_gateway_ws" {
   # actually exports (see its outputs.tf).
   cognito_user_pool_id = module.cognito.user_pool_id
   cognito_client_id    = module.cognito.client_id
-  # SAME value the REST API Gateway's native JWT authorizer already consumes
-  # below (module.api_gateway.cognito_issuer) — module.cognito.issuer is
-  # "floci"-styled here (issuer_style = "floci" above), i.e.
-  # http://localhost:4566/<pool-id>, which is what Floci actually stamps as
-  # `iss` on every token it mints. See modules/cognito/outputs.tf and
-  # api-gateway-ws/variables.tf's cognito_issuer description for why this
-  # must be passed as configuration rather than derived inside the Lambda.
+  # CONTRACT: Pass the issuer as configuration; do NOT derive it inside the
+  # Lambda from the pool id. Floci stamps http://localhost:4566/<pool-id> as
+  # `iss`, which a derived issuer will not match, and every token is rejected.
   cognito_issuer = module.cognito.issuer
 
-  # IN-NETWORK name: these four Lambdas run as Docker containers on
-  # 3mrai-network, so the SDK inside them reaches the emulator as `floci`, never
-  # `localhost`. Same distinction the events-pipeline Lambda and the cognito
-  # module's OTP Lambda already make.
+  # CONTRACT: In-network name. These four Lambdas run as containers on
+  # 3mrai-network and cannot reach the host's localhost.
   aws_endpoint_url = "http://floci:4566"
 
   # ─── Traces ─────────────────────────────────────────────────────────────
-  # OTLP config lives HERE, in environment variables, never in the Lambdas'
-  # code — the rule that exists because three silent failures in this repo came
-  # from configuring the SDK in code ([[logging-context]]). The bootstrap in
-  # functions/realtime-events/src/shared/observability/tracing.ts constructs
-  # OTLPTraceExporter with NO arguments precisely so these vars are the only
-  # source of truth.
-  #
-  # Applied to all four functions at once (see the module's
-  # environment_variables description): the authorizer, $connect, $disconnect
-  # and $default are one for_each'd resource and all four export to the same
-  # collector under the same service name.
+  # CONTRACT: OTLP config lives here, never in the Lambdas' code — an SDK option
+  # passed in code reads as "not overridden" and auto-detection silently wins.
+  # tracing.ts constructs OTLPTraceExporter with no arguments for that reason.
+  # Applied to all four functions at once (one for_each'd resource).
+  # See [[logging-context]]
   environment_variables = {
-    # `otel-collector`, NOT `localhost`: like AWS_ENDPOINT_URL above, this is
-    # resolved from INSIDE the Lambda containers on 3mrai-network, where the
-    # collector is a sibling container of that name (docker-compose.yml). It is
-    # a BASE url — the exporter appends /v1/traces itself, per the OTLP spec.
-    # Hand-building the full path is what made Orders POST every batch to the
-    # collector's root and collect silent 404s.
+    # CONTRACT: Base url only — the exporter appends /v1/traces per the OTLP
+    # spec; a hand-built full path POSTs every batch to the collector's root and
+    # collects silent 404s. Host is the in-network sibling container name.
     OTEL_EXPORTER_OTLP_ENDPOINT = "http://otel-collector:4318"
     OTEL_EXPORTER_OTLP_PROTOCOL = "http/protobuf"
     OTEL_SERVICE_NAME           = "realtime-events"
-    # Metrics do NOT travel over OTLP (CloudWatch PutMetricData, scraped from
-    # there by the collector) and these Lambdas' logs travel stdout ->
-    # CloudWatch, not OTLP. Both must be disabled HERE rather than in code:
-    # NodeSDK auto-detects both exporters from OTEL_EXPORTER_OTLP_ENDPOINT, and
-    # an `undefined` SDK option reads as "not overridden", so auto-detection
-    # still wins. The collector serves /v1/traces only.
+    # CONTRACT: Disable these here, not in code. NodeSDK auto-detects both
+    # exporters from OTEL_EXPORTER_OTLP_ENDPOINT and an `undefined` SDK option
+    # loses to auto-detection; the collector serves /v1/traces only.
+    # See [[logging-context]]
     OTEL_METRICS_EXPORTER = "none"
     OTEL_LOGS_EXPORTER    = "none"
   }
 }
 
 # ─── Events Pipeline Lambda ─────────────────────────────────────────────────────
-# source_dir points at the BUILT dist/ output of functions/events-pipeline. That
-# directory must exist before plan/apply: archive_file is a data source, read at
-# plan time. Build the function first (Block B produces it) — `terraform
-# validate` does not evaluate data sources and so passes without it.
-#
+# CONTRACT: Build functions/events-pipeline before plan/apply — source_dir points
+# at its dist/ and archive_file is a data source read at PLAN time; `terraform
+# validate` does not evaluate data sources, so it passes without the build.
+
 # ─── SES sender identity ────────────────────────────────────────────────────────
-# Real AWS refuses SendEmail from an unverified address ("MessageRejected: Email
-# address is not verified"), so the from-address must be verified before the
-# pipeline can mail anyone. Floci does NOT enforce this — verified empirically:
-# `ses list-identities` returned empty and delivery still succeeded — which is
-# exactly why it belongs in Terraform rather than being discovered missing in
-# production. Verification is immediate here; real AWS sends a confirmation mail.
+# CONTRACT: Keep the sender identity in Terraform even though Floci ignores it.
+# Real AWS refuses SendEmail from an unverified address ("MessageRejected"), so
+# without this the pipeline mails nobody in production.
 resource "aws_ses_email_identity" "events_pipeline_sender" {
   email = var.ses_from_address
 }
 
-# The Lambda runs as a Docker container on 3mrai-network (Floci), so its
-# endpoint/host values are IN-NETWORK names (floci:4566, the docdb container
-# name), never localhost.
+# CONTRACT: This Lambda's endpoint/host values are IN-NETWORK names (floci:4566,
+# the docdb container name) — it runs as a container on 3mrai-network and cannot
+# reach the host's localhost.
 module "lambda_events_pipeline" {
   source     = "../../modules/lambda"
   context    = { id = module.label_events.id, tags = module.label_events.tags }
   queue_arn  = module.messaging.queue_arn
+  dlq_arn    = module.messaging.dlq_arn
   source_dir = "${path.module}/../../../functions/events-pipeline/dist"
 
-  # Realtime fan-out grants: Query on the by-cognito-sub GSI + DeleteItem for the
-  # 410-Gone pruning path, and ManageConnections to push a frame. Both default to
-  # "" in the module, so a consumer that does not fan out gets the same policy it
-  # always had.
+  # WHY: Realtime fan-out grants — Query on the by-cognito-sub GSI, DeleteItem for
+  # the 410-Gone pruning path, ManageConnections to push a frame. Both default to
+  # "" so a consumer that does not fan out gets no extra policy.
   ws_connections_table_arn  = module.ws_connections.table_arn
   ws_manage_connections_arn = module.api_gateway_ws.manage_connections_arn
 
-  # Throughput, NOT tracing. This used to be pinned to 1 because the handler
-  # could only parent a record span to its origin when the batch held exactly
-  # one record, and fell back to FOLLOWS_FROM links otherwise — which detached
-  # the pipeline's work from the request that caused it. Measured at the module
-  # default of 10, 19 of 21 invocations carried more than one record, so 90% of
-  # orders had their email work stranded in a separate trace.
-  #
-  # handler.ts now parents EVERY record to its own origin regardless of batch
-  # size (see recordSpanAttachment), so N records from N requests produce N
-  # continuous cascades. The batch span links to each origin instead of
-  # parenting them, which is the shape OTel's messaging conventions prescribe.
-  # Batch size is therefore free to be a throughput knob again.
-  #
-  # 10 is the module default, restored deliberately rather than tuned: this
-  # pipeline sends emails and fans out WebSocket frames on order events, so it
-  # is not high volume, and a larger batch mainly cuts invocation overhead.
-  # Raising it further is safe for TRACING now, but note the whole batch shares
-  # one 30s timeout and one DocumentDB connection.
+  # WHY: A throughput knob, not a tracing one — handler.ts parents every record to
+  # its own origin regardless of batch size (recordSpanAttachment), so traces stay
+  # continuous at any size. 10 is the module default; the whole batch shares one
+  # 30s timeout and one DocumentDB connection, which is what bounds it.
   batch_size = 10
 
-  # FOUR pollers, and only because this is the emulator. Real Lambda scales one
-  # mapping out by itself, so every deployed environment leaves this at the
-  # module default of 1 — see the resource comment in modules/lambda/main.tf.
-  #
-  # Floci keeps one invocation in flight per mapping, so mapping count IS the
-  # concurrency knob here. Measured, same 80 events, nothing else changed:
-  # 1 mapping -> 79s (1.02 ev/s); 4 mappings -> 24s (3.37 ev/s), with zero
-  # failures, zero duplicates and an empty DLQ.
-  #
-  # 4 rather than more: the gain is linear in mapping count but each poller is a
-  # Lambda container on a machine already hosting the whole stack, and 4 was
-  # enough to move a full E2E suite's backlog out of the specs' 45s budget.
+  # WORKAROUND(local): Four pollers because Floci keeps one invocation in flight
+  # per mapping, so mapping count is the only concurrency knob. Do NOT raise this
+  # in a deployed environment — real Lambda scales one mapping out by itself, and
+  # each extra poller is another container on the host running the whole stack.
   mapping_count = 4
 
-  # The E2E email-query route. The suite cannot reach DocumentDB directly —
-  # Floci does not publish 27017 to the host in our containerized setup — so the
-  # only way for a Playwright process to read the e2e_emails collection is
-  # through the function that already holds a connection to it.
-  #
-  # LOCAL ONLY. The module defaults this to false, so production's events
-  # function gets no public URL by omission rather than by remembering to say
-  # no. See the module for why authorization_type is NONE and why the token,
-  # not the URL, is the boundary.
+  # WORKAROUND(local): The E2E email-query route. Floci does not publish 27017 to
+  # the host, so a Playwright process can only read e2e_emails through the
+  # function that already holds the connection. The module defaults this to
+  # false, so production gets no public URL by omission.
   enable_function_url = true
 
   environment_variables = {
     AWS_ENDPOINT_URL = "http://floci:4566"
-    # Set explicitly: real Lambda injects AWS_REGION into every execution
-    # environment, but whether Floci's Lambda container does is unverified. This
-    # function calls SES, and a missing region surfaces there as a confusing
-    # credentials/endpoint error rather than an obvious "no region configured".
+    # WHY: Set explicitly because Floci's Lambda container may not inject it. A
+    # missing region surfaces from the SES call as a credentials/endpoint error
+    # rather than an obvious "no region configured".
     AWS_REGION     = local.region
     DOCDB_HOST     = "floci-docdb-${module.docdb.cluster_identifier}"
     DOCDB_PORT     = tostring(module.docdb.port)
     DOCDB_USERNAME = module.docdb.master_username
     DOCDB_PASSWORD = var.docdb_password
-    # LOCAL ONLY: Floci backs DocumentDB with a stock mongo:7.0 container, whose
-    # MONGO_INITDB_ROOT_* user is created in the `admin` database, not in the
-    # target database. Without authSource=admin on the connection URI the
-    # driver reports "MongoServerError: Authentication failed" (verified both
-    # ways). Real Amazon DocumentDB authenticates the master user against the
-    # target database itself, so this is NOT set for production — see
-    # DOCDB_AUTH_SOURCE in functions/events-pipeline/src/shared/config/env.ts.
+    # WORKAROUND(local): Do NOT set this in production. Floci's stock mongo:7.0
+    # creates its root user in `admin`, so without authSource=admin the driver
+    # reports "MongoServerError: Authentication failed"; real DocumentDB
+    # authenticates the master user against the target database instead.
+    # See [[floci-sqs-lambda-docdb-support]]
     DOCDB_AUTH_SOURCE = "admin"
-    # Email sent/failed counters to CloudWatch. The function's IAM role grants
-    # cloudwatch:PutMetricData scoped to the 3MRAI namespace (see
-    # modules/lambda/main.tf). This is the DEPLOYED function's value — the
-    # .env.local.events-pipeline entry only serves local tests.
+    # WHY: Email sent/failed counters to CloudWatch, under the IAM role's
+    # 3MRAI-scoped PutMetricData grant. This is the DEPLOYED function's value;
+    # .env.local.events-pipeline only serves local tests.
     METRICS_ENABLED  = "true"
     SES_FROM_ADDRESS = var.ses_from_address
-    # Base URL the email templates append icon keys to. The templates render
-    # REMOTE <img> tags (100% client support) rather than base64 data: URIs
-    # (80.95%), so without this every icon in every email is a broken URL. The
-    # function's Zod schema requires it, so a missing value kills the Lambda at
-    # boot instead of silently mailing broken images — see
-    # functions/events-pipeline/src/shared/config/env.ts.
-    #
-    # `localhost`, not `floci`, on purpose: this URL is resolved by the reader's
-    # mail client on the HOST, never fetched by the Lambda itself. See
-    # var.assets_base_url for the full argument and for why this is a variable
-    # rather than a read of the phase-2 bucket output.
+    # WHY: Where the handler writes a message it rejects as UNPROCESSABLE. Such a
+    # message is deleted on return and never reaches the redrive path, so without
+    # this it is gone with no copy anywhere — see #pipeline/quarantine.
+    EVENTS_DLQ_URL = module.messaging.dlq_url
+    # CONTRACT: A host-resolvable URL (localhost, NOT floci) — the reader's mail
+    # client fetches these icons, the Lambda never does. Templates render remote
+    # <img> tags, so a wrong host is a broken icon in every email.
     ASSETS_BASE_URL = var.assets_base_url
 
     # ─── Realtime WebSocket fan-out ─────────────────────────────────────────
     WS_CONNECTIONS_TABLE = module.ws_connections.table_name
     WS_CONNECTIONS_GSI   = module.ws_connections.gsi_name
-    # LOCAL: Floci's @connections endpoint carries an UNDOCUMENTED
-    # /execute-api/{apiId}/{stage} prefix and differs from real AWS's
-    # https://{apiId}.execute-api.{region}.amazonaws.com/{stage}. A wrong shape
-    # answers HTTP 400 with an S3 XML body — unrouted :4566 paths fall through
-    # to Floci's S3 handler — which looks nothing like an endpoint error.
+    # WORKAROUND(local): Floci's @connections endpoint carries an undocumented
+    # /execute-api/{apiId}/{stage} prefix, unlike real AWS. A wrong shape answers
+    # HTTP 400 with an S3 XML body (unrouted :4566 paths fall through to S3),
+    # which looks nothing like an endpoint error.
     WS_MANAGEMENT_ENDPOINT = module.api_gateway_ws.management_endpoint_local
 
     # ─── Traces ─────────────────────────────────────────────────────────────
-    # OTLP config lives HERE, in environment variables, never in the Lambda's
-    # code — the rule that exists because three silent failures in this repo
-    # came from configuring the SDK in code ([[logging-context]]). The bootstrap
-    # in functions/events-pipeline/src/shared/observability/tracing.ts
-    # constructs OTLPTraceExporter with NO arguments precisely so these vars are
-    # the only source of truth.
-    #
-    # `otel-collector`, NOT `localhost`: like AWS_ENDPOINT_URL and DOCDB_HOST
-    # above, this is resolved from INSIDE the Lambda container on
-    # 3mrai-network, where the collector is a sibling container of that name
-    # (docker-compose.yml). Same value the four realtime-events Lambdas already
-    # use. It is a BASE url — the exporter appends /v1/traces itself, per the
-    # OTLP spec. Hand-building the full path is what made Orders POST every
-    # batch to the collector's root and collect silent 404s.
+    # CONTRACT: OTLP config lives here, never in the Lambda's code — an SDK
+    # option passed in code loses to auto-detection. Base url only: the exporter
+    # appends /v1/traces per the OTLP spec, and a hand-built full path POSTs to
+    # the collector's root for silent 404s. Host is the in-network sibling.
+    # See [[logging-context]]
     OTEL_EXPORTER_OTLP_ENDPOINT = "http://otel-collector:4318"
     OTEL_EXPORTER_OTLP_PROTOCOL = "http/protobuf"
     OTEL_SERVICE_NAME           = "events-pipeline"
-    # Metrics do NOT travel over OTLP here (this function publishes its email
-    # counters with CloudWatch PutMetricData, scraped from there by the
-    # collector) and its logs travel stdout -> CloudWatch, not OTLP. Both must
-    # be disabled HERE rather than in code: NodeSDK auto-detects both exporters
-    # from OTEL_EXPORTER_OTLP_ENDPOINT, and an `undefined` SDK option reads as
-    # "not overridden", so auto-detection still wins. The collector serves
-    # /v1/traces only.
+    # CONTRACT: Disable these here, not in code. NodeSDK auto-detects both
+    # exporters from OTEL_EXPORTER_OTLP_ENDPOINT and an `undefined` SDK option
+    # loses to auto-detection; the collector serves /v1/traces only.
+    # See [[logging-context]]
     OTEL_METRICS_EXPORTER = "none"
     OTEL_LOGS_EXPORTER    = "none"
 
     # ─── E2E email store ────────────────────────────────────────────────────
-    # Three switches for one feature, all LOCAL ONLY — a deployed environment
-    # sets none of them, so the e2e_emails collection is never written and the
-    # Function URL route above answers 404 for every request.
-    #
-    # E2E_TESTING_ENABLED gates BOTH the write (one document per rendered
-    # email) and the read route. Same flag name the three services already use
-    # for their own E2E-only routes, deliberately: one concept, one spelling.
+    # CONTRACT: Do NOT set these three in a deployed environment — e2e_emails is
+    # then never written and the Function URL answers 404. E2E_TESTING_ENABLED
+    # gates both the write and the read route, under the same flag name the
+    # three services use for their own E2E-only routes.
     E2E_TESTING_ENABLED = "true"
-    # TTL on each stored email. An hour is far longer than any suite run and
-    # short enough that a developer's machine never accumulates them; the
-    # expiry is enforced by a Mongo TTL index, not by a sweeper.
+    # WHY: An hour outlasts any suite run and still keeps a developer's machine
+    # clean. Expiry is a Mongo TTL index, not a sweeper.
     E2E_EMAIL_TTL_SECONDS = "3600"
-    # The actual security boundary for the Function URL (which is AuthType
-    # NONE). The handler compares this in constant time against the request's
-    # `x-e2e-token` and answers 404 — not 401 — when it is absent or wrong, so
-    # an unauthenticated caller cannot even tell the route exists.
+    # WARNING: This token, not the URL, is the boundary — the Function URL is
+    # AuthType NONE. The handler compares it in constant time and answers 404,
+    # not 401, so an unauthenticated caller cannot tell the route exists.
     E2E_QUERY_TOKEN = var.e2e_query_token
   }
 }
 
 # ─── events-pipeline metrics tick ───────────────────────────────────────────────
-# A clock for the email counters. The Lambda publishes emails_sent_total /
-# emails_failed_total, which only emit when mail actually moves — so in a quiet
-# window their series has no datapoints and OpenObserve's metric panel throws
-# `Cannot read properties of undefined (reading 'values')` instead of showing 0.
-#
-# Seeding those counters from inside the SQS path could not fix it: that path
-# runs only when mail is ALREADY flowing, which is exactly when the zeros are
-# not needed. Measured before this rule existed: emails_sent_total had zero
-# points over 6h while users_total — published by a real periodic loop — had
-# continuous coverage. Every other service hosts its own poller in a
-# long-running process; a Lambda has none, so the clock comes from EventBridge.
-#
-# Verified against Floci before being written (2026-08-14): a rate(1 minute)
-# rule DOES invoke the function, twice, 60s apart. Note Floci's Lambda runtime
-# emits no START lines, so counting them reads 0 — check the invocations
-# themselves, not that filter.
-#
-# rate(1 minute) is EventBridge's floor. It now MATCHES the services' local
-# interval (60s) rather than being coarser than it, so the Lambda's counters and
-# the services' gauges share one cadence. That is sufficient here: the narrowest
-# dashboard range is 5 minutes, which gets five points.
+# CONTRACT: Do NOT remove this rule or seed the counters from the SQS path
+# instead. emails_sent_total/emails_failed_total only emit when mail moves, so a
+# quiet window leaves the series empty and OpenObserve's metric panel throws
+# `Cannot read properties of undefined (reading 'values')` rather than showing 0.
+# A Lambda hosts no periodic loop of its own, so the clock comes from EventBridge
+# at rate(1 minute) — its floor, and the same cadence the services' gauges use.
+# See [[logging-context]]
 resource "aws_cloudwatch_event_rule" "events_pipeline_metrics_tick" {
   name                = "${module.label_events.id}-metrics-tick"
   description         = "Periodic tick so the events-pipeline seeds its email counters even with no mail traffic."
@@ -647,10 +462,10 @@ resource "aws_cloudwatch_event_target" "events_pipeline_metrics_tick" {
   target_id = "events-pipeline-metrics-tick"
   arn       = module.lambda_events_pipeline.function_arn
 
-  # The handler branches on `detail-type` to tell a tick from an SQS batch, so
-  # the constant here is a CONTRACT with src/handler.ts (METRICS_TICK_DETAIL_TYPE),
-  # not decoration. Matching on the shape instead — "no Records field" — would
-  # also swallow a malformed SQS delivery and report success on dropped mail.
+  # CONTRACT: This string must match METRICS_TICK_DETAIL_TYPE in src/handler.ts —
+  # the handler branches on it to tell a tick from an SQS batch. Matching on
+  # shape ("no Records field") instead swallows a malformed SQS delivery and
+  # reports success on dropped mail.
   input = jsonencode({
     "detail-type" = "3mrai.metrics.tick"
   })
@@ -679,12 +494,9 @@ module "api_gateway" {
   nginx_base_uri           = "http://nginx-stable"
   enable_e2e_cleanup_route = true
 
-  # ON: the Tracking service now exists AND nginx has a `tracking` upstream
-  # (`location = /v1/tracking/health` + `location /v1/trackings`, both on port
-  # 8000 — see modules/compute/nginx/nginx.conf). Until that upstream existed,
-  # nginx's default `location /` sent /v1/trackings/* to users:3000 — a green
-  # health check served by the wrong service is harder to spot than a 404. The
-  # two must stay in lockstep: removing the nginx locations means flipping this
-  # back to false in the same change.
+  # CONTRACT: Keep this in lockstep with nginx's `tracking` locations
+  # (modules/compute/nginx/nginx.conf). Without them, the default `location /`
+  # sends /v1/trackings/* to users:3000 — a green health check served by the
+  # wrong service, which is harder to spot than a 404.
   enable_tracking_routes = true
 }

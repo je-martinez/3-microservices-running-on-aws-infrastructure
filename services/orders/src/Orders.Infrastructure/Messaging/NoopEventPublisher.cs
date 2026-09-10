@@ -9,6 +9,7 @@ public class NoopEventPublisher : IEventPublisher
 {
     public Task PublishOrderCreatedAsync(
         string orderId,
+        string? orderNumber,
         string userId,
         string email,
         string fullName,

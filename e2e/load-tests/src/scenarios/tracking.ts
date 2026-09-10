@@ -3,18 +3,14 @@ import { http, status } from "@gatling.io/http";
 import { carrierApiKey } from "../support/config.js";
 
 /**
- * Tracking: the user's own reads, plus the carrier webhook that actually moves
- * a delivery forward.
+ * Tracking: the user's own reads, plus the carrier webhook that moves a delivery
+ * forward.
  *
- * Driving the status by webhook is the point. TestMode (`x-test-mode`) would
- * advance a tracking on a timer by itself, but this traffic deliberately omits
- * that header — so the only way an order reaches DELIVERED is the way a real
- * carrier does it: PUT /v1/trackings/{orderId}/status, authenticated with the
- * carrier API key rather than a Cognito JWT.
- *
- * That key is a DIFFERENT secret from the internal gRPC key, and lives in a
- * different trust domain — it is issued to an outside vendor. Never substitute
- * one for the other.
+ * CONTRACT: Send NO `x-test-mode` here. Omitting it means a tracking reaches DELIVERED
+ * only the way a real carrier does — PUT /v1/trackings/{orderId}/status, authenticated
+ * with the carrier API key.
+ * CONTRACT: The carrier key is a DIFFERENT secret from the internal gRPC key, issued to
+ * an outside vendor. Never substitute one for the other. See [[testing]]
  */
 
 const authHeader = (session: { get: (k: string) => unknown }) =>
@@ -29,11 +25,9 @@ export const readTracking = exec(
 );
 
 /**
- * The batch read.
- *
- * Sent with the same single id repeated is pointless, so this uses the one id
- * the session holds — the shape (`?order_ids=<csv>`) is what matters for the
- * route to register in the dashboards.
+ * The batch read, using the one id the session holds — repeating the same id would be
+ * pointless, and the shape (`?order_ids=<csv>`) is what matters for the route to
+ * register in the dashboards.
  */
 export const readTrackingsBatch = exec(
   http("GET /v1/trackings?order_ids=")
@@ -47,12 +41,10 @@ export const readTrackingsBatch = exec(
 );
 
 /**
- * One carrier status update.
- *
- * The state machine is forward-only and DELIVERED is terminal, so a transition
- * that arrives out of order is rejected with 400 — expected under load, not a
- * defect, hence `in(200, 400, 404)`. Asserting 200 only would paint the run red
- * for behaving exactly as designed.
+ * One carrier status update. The state machine is forward-only and DELIVERED terminal,
+ * so an out-of-order transition is rejected with 400 — expected under load, not a
+ * defect, hence `in(200, 400, 404)`. Asserting 200 only would paint the run red for
+ * behaving exactly as designed.
  */
 const advanceTo = (newStatus: string) =>
   exec(

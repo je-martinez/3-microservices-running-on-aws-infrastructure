@@ -4,6 +4,7 @@ import {
   AdminSetUserPasswordCommand,
   AdminUpdateUserAttributesCommand,
   AdminInitiateAuthCommand,
+  GlobalSignOutCommand,
   RespondToAuthChallengeCommand,
   type CognitoIdentityProviderClient,
 } from "@aws-sdk/client-cognito-identity-provider";
@@ -13,45 +14,22 @@ import type { AuthProvider, AuthTokens, CognitoSignUpResult, RefreshedTokens } f
 import { InvalidCredentialsError, EmailAlreadyExistsError, InvalidOtpError } from "./auth-errors.ts";
 
 
-// The trace context handed DOWN to the Cognito CUSTOM_AUTH trigger.
-//
-// That trigger — infra/modules/cognito/otp-challenge-lambda — is what publishes
-// AUTH_OTP_REQUESTED to SQS, so it is a FOURTH producer on that queue alongside
-// Users, Orders and Tracking. Unlike them it cannot inject a traceparent
-// itself: Cognito invokes it, so this request's context never reaches it, and
-// it ships zero dependencies on purpose (no OTel SDK, not even the AWS SDK).
-//
-// ClientMetadata is the only caller-controlled field Cognito forwards to a
-// trigger verbatim, so it is the seam. The trigger shape-checks what arrives
-// and copies it onto the SQS message as the `traceparent` attribute, which is
-// exactly what the other three publishers set — so the pipeline reads this
-// message through the same code path as theirs.
-//
-// Returns UNDEFINED, never `{}`, when no span is active: `propagation.inject`
-// writes nothing without one, and passing an empty ClientMetadata would send a
-// field with nothing usable in it. Same "omitted, never blank" rule the SQS
-// publisher's own traceparent follows — see the note on `traceparentAttributes`
-// in shared/messaging/event-publisher.ts, and [[logging-context]].
-//
-// Unlike that one, this value SURVIVES to the wire: no aws-sdk instrumentation
-// re-injects over Cognito's ClientMetadata the way it does over SQS
-// MessageAttributes, so the id read by the pipeline is the one written here.
+// CONTRACT: ClientMetadata is the seam that hands trace context DOWN to the Cognito
+// CUSTOM_AUTH trigger — the only caller-controlled field Cognito forwards verbatim.
+// That trigger publishes AUTH_OTP_REQUESTED but cannot inject a traceparent itself
+// (Cognito invokes it, and it ships zero dependencies). Return UNDEFINED, never `{}`,
+// when no span is active: an empty ClientMetadata sends a field with nothing usable.
+// Unlike the SQS traceparent, this value survives to the wire unmodified.
+// See [[logging-context]]
 function traceContextMetadata(): Record<string, string> | undefined {
   const carrier: Record<string, string> = {};
   propagation.inject(context.active(), carrier);
 
-  // The E2E run id rides the SAME seam as traceparent, for the same reason:
-  // Cognito invokes the CUSTOM_AUTH trigger, so this request's context never
-  // reaches it, and ClientMetadata is the only caller-controlled field Cognito
-  // forwards verbatim.
-  //
-  // Added to the carrier AFTER the inject rather than gated behind it, and the
-  // difference is load-bearing: `propagation.inject` writes nothing when no span
-  // is active, so returning early on an empty carrier would drop the run id
-  // whenever tracing is off — and an E2E stack with tracing off is exactly the
-  // configuration where every OTP email would then land unattributed.
-  //
-  // Omitted, never blank, matching how traceparent behaves with no active span.
+  // CONTRACT: Add the run id AFTER the inject, never gated behind it.
+  // `propagation.inject` writes nothing without an active span, so returning early on
+  // an empty carrier drops the run id whenever tracing is off — exactly the E2E
+  // configuration where every OTP email would then land unattributed. Omitted, never
+  // blank, like traceparent.
   const runId = getLogContext().run_id;
   if (runId) carrier.runId = runId;
 
@@ -110,9 +88,8 @@ export class CognitoAuthProvider implements AuthProvider {
         Permanent: true,
       }),
     );
-    // A missing `sub` used to fall back to the email. That is a silent
-    // corruption: the email would be hashed into the idempotency key as if it
-    // were a sub. Fail loudly instead.
+    // CONTRACT: Do NOT fall back to email when Cognito returns no sub — the email
+    // hashes into the idempotency key as if it were a sub (silent corruption). Throw.
     const sub = created.User?.Attributes?.find((a) => a.Name === "sub")?.Value;
     if (!sub) throw new Error(`Cognito AdminCreateUser returned no sub for ${email}`);
     const emailVerified = created.User?.Attributes?.find((a) => a.Name === "email_verified")?.Value;
@@ -204,17 +181,12 @@ export class CognitoAuthProvider implements AuthProvider {
     };
   }
 
-  // The final write of the self-owned reset flow. `Permanent: true` matters: a
-  // temporary password would put the account into FORCE_CHANGE_PASSWORD, and the
-  // very next login would come back with a NEW_PASSWORD_REQUIRED challenge this
-  // service has no path to answer — the user would be locked out by the act of
-  // resetting their password. The "must change password" signal we DO want lives
-  // in our own column (`users.must_change_password`), which the frontend reads,
-  // not in Cognito's account status.
-  //
-  // Authorization is the CALLER's responsibility and has already happened: either
-  // a reset code was verified against our store, or the request carried an
-  // authenticated identity. Nothing about this method checks it.
+  // CONTRACT: Keep `Permanent: true`. A temporary password puts the account into
+  // FORCE_CHANGE_PASSWORD, so the next login returns a NEW_PASSWORD_REQUIRED
+  // challenge this service cannot answer — the user is locked out by the act of
+  // resetting their password. The "must change password" signal lives in our own
+  // column, not Cognito's account status. Authorization is the CALLER's job and has
+  // already happened; nothing here checks it.
   async setPassword(email: string, newPassword: string): Promise<void> {
     try {
       await this.client.send(
@@ -226,23 +198,17 @@ export class CognitoAuthProvider implements AuthProvider {
         }),
       );
     } catch (e: any) {
-      // Mapped to the same 401 an unknown/failed credential gets, so this call
-      // cannot be turned into an account-existence oracle by a caller who
-      // somehow reaches it with an unknown email.
+      // CONTRACT: Map to the same 401 a failed credential gets, so this cannot become
+      // an account-existence oracle for a caller reaching it with an unknown email.
       if (e?.name === "UserNotFoundException") throw new InvalidCredentialsError();
       throw e;
     }
   }
 
-  // Projects the `users.must_change_password` column onto the Cognito account so
-  // the Pre-Token-Generation trigger can emit it as a claim (see the port's note
-  // in auth-provider.ts). Cognito has no boolean attribute type, so the value is
-  // the string "true"/"false" — matching what the Lambda compares against.
-  //
-  // Note this does NOT re-issue existing tokens: a token already in the user's
-  // hands keeps the value it was minted with until it expires or is refreshed.
-  // That is inherent to putting mutable state in a JWT and is why Postgres, read
-  // through GET /v1/users/me, remains the authoritative answer.
+  // CONTRACT: Cognito has no boolean attribute type — the value is the STRING
+  // "true"/"false" the Lambda compares against. This does not re-issue existing
+  // tokens: one already in the user's hands keeps its minted value until refreshed,
+  // which is why Postgres via GET /v1/users/me stays authoritative.
   async setMustChangePassword(email: string, mustChangePassword: boolean): Promise<void> {
     try {
       await this.client.send(
@@ -300,5 +266,21 @@ export class CognitoAuthProvider implements AuthProvider {
     }
     const r = res.AuthenticationResult;
     return { idToken: r?.IdToken ?? "", accessToken: r?.AccessToken ?? "" };
+  }
+
+  // GlobalSignOut, NOT RevokeToken: RevokeToken kills only the refresh token and
+  // leaves the access token usable until it expires on its own.
+  // CONTRACT: Swallow NotAuthorizedException rather than mapping it to a 401 — Cognito
+  // answers it for an expired, malformed or ALREADY revoked token, all of which mean
+  // the session is gone, which is what the caller asked for. A 401 here fails the
+  // second of two clicks for a client that already dropped its tokens.
+  // See [[users-service-design]]
+  async signOut(accessToken: string): Promise<void> {
+    try {
+      await this.client.send(new GlobalSignOutCommand({ AccessToken: accessToken }));
+    } catch (e: any) {
+      if (e?.name === "NotAuthorizedException" || e?.name === "UserNotFoundException") return;
+      throw e;
+    }
   }
 }

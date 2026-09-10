@@ -17,17 +17,12 @@ const PIPELINE_ACTOR = "events-pipeline";
 // violates a unique index.
 const MONGO_DUPLICATE_KEY = 11000;
 
-// A redelivery of an already-persisted event. SQS is at-least-once, so the same
-// message CAN arrive twice; the unique index on `event_id` (the producer's
-// idempotency key) is what catches it.
-//
-// It extends PermanentError deliberately: isTransient() defaults to true for
-// anything unclassified, which would put an ALREADY-PROCESSED message into
-// batchItemFailures and have SQS retry it all the way to the DLQ. Classifying it
-// as permanent makes processRecord return { ok: false, transient: false }, so the
-// message is CONSUMED instead. Its own subclass (rather than a bare
-// PermanentError) so logs and future callers can tell "we already did this" apart
-// from "this event is unprocessable".
+// CONTRACT: `event_id` is the idempotency key, and the unique index on it is
+// what catches a redelivery — SQS is at-least-once. This must stay a
+// PermanentError: unclassified defaults to transient, which would retry an
+// ALREADY-PROCESSED message all the way to the DLQ. Its own subclass so logs can
+// tell "we already did this" from "this event is unprocessable".
+// See [[events-pipeline-design]]
 export class DuplicateEventError extends PermanentError {
   constructor(public readonly event_id: string) {
     super(`duplicate event: ${event_id} has already been persisted`);
@@ -97,12 +92,10 @@ export class MongoEventsRepository implements EventsRepositoryPort {
           throw err;
         }
       },
-      // The error CLASS, never its message. A Mongo write error's message embeds
-      // the REJECTED DOCUMENT — the event payload, carrying the user's email —
-      // which is why the handler already logs only `err.name`. The span obeys the
-      // same rule; Jaeger is not a lower-PII destination than CloudWatch.
-      // DuplicateEventError is synthesized from event_id alone, so its message is
-      // clean by construction and safe to surface as-is.
+      // CONTRACT: The error CLASS, never its message — a Mongo write error's
+      // message embeds the REJECTED DOCUMENT, i.e. the payload with the user's
+      // email. A span is no lower-PII a destination than a log line.
+      // DuplicateEventError is built from event_id alone, so it is safe as-is.
       (err) =>
         err instanceof DuplicateEventError
           ? err.message
@@ -120,20 +113,12 @@ export class MongoEventsRepository implements EventsRepositoryPort {
     const now = new Date();
     const errorPatch = patch?.error !== undefined ? { error: patch.error } : {};
 
-    // Manual CLIENT span, for the same bundling reason as insertStarted above —
-    // and this one was the larger hole. A record performs ONE insert and up to
-    // THREE transitions, and only the insert was instrumented, so `process_record`
-    // reported a duration its visible children could not account for: 194ms of
-    // span against ~1ms of `documentdb insertOne` plus the handler. The missing
-    // time was these writes, invisible because nothing opened a span around them.
-    //
-    // The status is IN the span name rather than only in an attribute. A waterfall
-    // renders names, not attributes, so three spans all called
-    // `documentdb updateOne` would be three identical bars that force a click each
-    // to tell IN_PROGRESS from COMPLETED. Naming them apart is what makes the
-    // document's lifecycle legible at a glance — which is the point of
-    // instrumenting them at all. `db.operation` keeps the plain `updateOne` for
-    // anything aggregating by operation, so the semantic convention still holds.
+    // CONTRACT: Keep the status IN the span name. A record performs one insert
+    // and up to three transitions, and a waterfall renders names, not attributes
+    // — three bars all reading `documentdb updateOne` cost a click each to tell
+    // IN_PROGRESS from COMPLETED. `db.operation` keeps the plain `updateOne` for
+    // aggregation, so the semantic convention still holds. Manual because esbuild
+    // inlines the driver and nothing auto-instruments it.
     return withClientSpan(
       `documentdb updateOne ${status}`,
       SpanKind.CLIENT,

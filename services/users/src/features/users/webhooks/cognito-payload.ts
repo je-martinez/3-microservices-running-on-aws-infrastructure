@@ -1,18 +1,11 @@
 import { z } from "zod/v4";
 
-// Mirrors the real Cognito PostConfirmation event (verified against the AWS docs
-// and a live Floci pool). The event carries NO timestamp and no per-delivery
-// unique field — a retry is byte-identical. That is why the idempotency key is
-// derived rather than transmitted (spec D4).
-//
-// Note: the real event also has a top-level `response` field. It is
-// deliberately NOT modeled here — it's trigger-outbound data the Lambda echoes
-// back to Cognito, not captured state — so `.parse()` strips it and it is not
-// retained in raw_payload.
-//
-// The triggerSource enum is the gate enforcing spec D5: PostConfirmation only.
-// Adding a recurring trigger (e.g. PostAuthentication) requires reworking the
-// derived message_id first, or only the first occurrence would ever be stored.
+// CONTRACT: The triggerSource enum is the gate — PostConfirmation only. Adding a
+// recurring trigger (PostAuthentication) requires reworking the derived message_id
+// first, or only the first occurrence is ever stored. The event carries no timestamp
+// and no per-delivery unique field, so a retry is byte-identical, which is why the
+// idempotency key is derived. `response` is deliberately unmodelled: it is
+// trigger-outbound data, so `.parse()` strips it from raw_payload.
 export const cognitoWebhookPayloadSchema = z.object({
   version: z.string(),
   triggerSource: z.enum([

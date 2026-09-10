@@ -9,8 +9,9 @@
 // constant while the panel ran 9px past the viewport, so a height-only test
 // passes against it. See [[angular-component-authoring]]
 
-import { chromium, expect, test, type Browser, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Browser, type Locator, type Page } from "@playwright/test";
 import { launchWebBrowser } from "../../support/web-browser";
+import { CART_WRITE_TIMEOUT_MS, signInAsNewUser } from "../../support/web-session";
 
 const VIEWPORT = { width: 1440, height: 900 };
 
@@ -83,9 +84,11 @@ test("the cart drawer animates open and closed without transforming its host", a
   const page = await browser.newPage({ viewport: VIEWPORT, baseURL });
 
   try {
-    await page.goto("/");
-    // The route's own content first: `goto` resolves before Angular renders, and
-    // a baseline taken on an unrendered page is one empty viewport tall.
+    // `/` sits behind authGuard, so an anonymous visit renders the login form
+    // and no cart button exists. Sign-in lands on home; its content still has to
+    // be awaited, since a baseline taken on an unrendered page is one empty
+    // viewport tall.
+    await signInAsNewUser(page, baseURL!);
     await expect(page.getByRole("heading", { level: 1, name: /new arrivals/i })).toBeVisible();
     await page.waitForTimeout(500);
 
@@ -162,14 +165,50 @@ test("the cart drawer animates open and closed without transforming its host", a
 });
 
 /**
- * CONTRACT: This test is only meaningful with prices of DIFFERENT character
- * widths on screen. The drawer shows the first three catalogue fixtures —
- * $89.00, $149.00 and $24.00 — so a six- and a seven-character price are both
- * present; the design's own `Cart Drawer` frame renders three six-character
- * prices, which line up by coincidence and hide this. The test asserts the
- * mixed widths are still there before asserting alignment, so a fixture reorder
- * makes it fail loudly rather than pass vacuously. See [[testing]]
+ * Adds catalogue products until the cart holds at least two prices of DIFFERENT
+ * character widths, and returns them.
+ *
+ * CONTRACT: Seed the cart here rather than assuming it holds anything. The cart
+ * is server-backed as of JE-245, so a freshly registered user's is EMPTY and the
+ * alignment tests below would time out waiting for a line that never renders.
+ * Different widths are what makes the assertion able to fail at all: three
+ * six-character prices line up whatever the alignment.
+ * See [[2026-09-04-web-gateway-integration-design]]
  */
+async function seedMixedWidthCart(page: Page): Promise<string[]> {
+  await expect(page.getByRole("heading", { level: 1, name: /new arrivals/i })).toBeVisible();
+  const cards = page.locator("app-product-card");
+  await expect(cards.first()).toBeVisible();
+
+  const added: string[] = [];
+  const count = await cards.count();
+  for (let i = 0; i < count; i++) {
+    const card = cards.nth(i);
+    const addButton = card.getByRole("button", { name: /^add$/i });
+    if ((await addButton.count()) === 0) continue;
+
+    const price = (await card.locator("span").filter({ hasText: /^\$/ }).first().innerText()).trim();
+    await addButton.click();
+    // CONTRACT: Wait for the BADGE between adds, with headroom well past the
+    // default timeout. The badge counts the server's response, so this is what
+    // confirms the PUT landed — clicking on without it races the one-active-cart
+    // 500 (JE-246). PUT /v1/cart measures ~5s against the local emulator, so the
+    // default 5s expect timeout is marginal and fails on the second add.
+    await expect(cartButton(page), `adding ${price} never reached the cart`).toContainText(
+      String(added.length + 1),
+      { timeout: CART_WRITE_TIMEOUT_MS },
+    );
+    added.push(price);
+
+    if (new Set(added.map((value) => value.length)).size > 1) return added;
+  }
+
+  throw new Error(
+    `the catalogue offers no two prices of different character widths — added ${added.join(", ")}. ` +
+      "This test cannot detect the bug it exists for without them.",
+  );
+}
+
 for (const surface of [
   { name: "cart drawer", path: "/", open: true },
   { name: "checkout order summary", path: "/checkout", open: false },
@@ -178,12 +217,17 @@ for (const surface of [
     const page = await browser.newPage({ viewport: VIEWPORT, baseURL });
 
     try {
-      await page.goto(surface.path);
-      if (surface.open) {
-        await expect(page.getByRole("heading", { level: 1, name: /new arrivals/i })).toBeVisible();
-        await cartButton(page).click();
-      }
-      await expect(page.locator("app-cart-line").first()).toBeVisible();
+      // Both surfaces sit behind authGuard; sign-in lands on `/`, which is also
+      // where the cart is filled, so only checkout needs a navigation after.
+      await signInAsNewUser(page, baseURL!);
+      const seeded = await seedMixedWidthCart(page);
+      if (surface.path !== "/") await page.goto(surface.path);
+      if (surface.open) await cartButton(page).click();
+
+      await expect(
+        page.locator("app-cart-line").first(),
+        `the cart was seeded with ${seeded.join(", ")} but ${surface.name} renders no line`,
+      ).toBeVisible();
       await page.waitForTimeout(400);
 
       const prices = await page.locator("app-cart-line").evaluateAll((lines) =>
@@ -249,6 +293,9 @@ test("profile fields fill their row rather than shrink-wrapping", async ({ baseU
   const page = await browser.newPage({ viewport: VIEWPORT, baseURL });
 
   try {
+    // `/profile` sits behind authGuard — an anonymous visit renders the login
+    // form, which has no `app-field` and would fail on an unrelated timeout.
+    await signInAsNewUser(page, baseURL!);
     await page.goto("/profile");
     await expect(page.locator("app-field").first()).toBeVisible();
     await page.waitForTimeout(400);

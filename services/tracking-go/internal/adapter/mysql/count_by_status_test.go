@@ -89,13 +89,9 @@ func countSeed(t *testing.T, db *sql.DB, id, orderID, status string, deleted boo
 	}
 }
 
-// TestCountByStatus covers the ticker's one query.
-//
-// The two facts worth a real server: the GROUP BY shape maps into the Go map the
-// ticker expects, and SOFT-DELETED ROWS ARE EXCLUDED. The second is the one that
-// matters — a deleted tracking is not an order in flight, and counting it would
-// make the gauge disagree with every user-facing read, all of which filter the
-// same way.
+// TestCountByStatus covers the ticker's one query: the GROUP BY shape maps into
+// the Go map the ticker expects, and soft-deleted rows are excluded. Counting a
+// deleted tracking makes the gauge disagree with every user-facing read.
 func TestCountByStatus(t *testing.T) {
 	db := requireCountMySQL(t)
 	repo := mysql.NewMetricsRepository(db)

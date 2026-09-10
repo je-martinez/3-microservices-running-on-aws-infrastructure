@@ -1,6 +1,6 @@
 <div class="bg-surface-body flex w-full flex-1 flex-col items-start justify-start gap-0">
   <div class="flex w-full flex-1 flex-col items-center justify-start gap-0 p-5 md:p-11">
-    <div class="flex h-fit w-full max-w-[47.5rem] shrink-0 flex-col items-start justify-start gap-5 md:gap-[1.625rem]">
+    <div class="flex h-fit w-full max-w-190 shrink-0 flex-col items-start justify-start gap-5 md:gap-[1.625rem]">
       <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-[0.1875rem] md:gap-[0.375rem]">
         <h1 class="text-ink-primary text-2xl font-bold tracking-[-0.03125rem] md:text-[1.875rem] md:tracking-[-0.05rem]">
           Profile
@@ -10,64 +10,144 @@
         </p>
       </div>
 
-      <div class="border-line bg-surface-white flex h-fit w-full shrink-0 flex-col items-start justify-start gap-[0.875rem] rounded-xl border p-[1.125rem] md:flex-row md:items-center md:gap-4 md:p-5">
-        <div class="flex w-full shrink-0 flex-row items-center justify-start gap-[0.875rem] md:contents">
-          <div class="bg-brand-navy flex h-13 w-13 shrink-0 flex-row items-center justify-center rounded-full md:h-14 md:w-14">
-            <span class="text-surface-white text-lg font-bold">{{ initials() }}</span>
-          </div>
-          <div class="flex h-fit min-w-0 flex-1 flex-col items-start justify-start gap-[0.1875rem]">
-            <span class="text-ink-primary text-base font-semibold md:text-[1.03125rem]">{{ user.fullName }}</span>
-            <!--
-              CONTRACT: The email keeps `min-w-0 flex-1` at EVERY breakpoint and never
-              regains `w-fit`/`flex-none`. From `md:` up the card is a row, and a
-              non-shrinking email pushes the `shrink-0` member badge on top of it — 37px
-              of overlap at 768px, where the row needs 676px of card interior and gets 663.
-              `break-words` handles the other half: the address is one unbreakable token,
-              so at 320px it overflows its own box by 37px while every ancestor stays
-              inside the viewport, which an overflow check cannot see. See [[testing]]
-            -->
-            <span class="flex h-fit w-full min-w-0 shrink flex-row items-start justify-start gap-[0.375rem] md:items-center md:gap-[0.4375rem]">
-              <svg lucideLock class="text-ink-muted mt-[0.15625rem] h-[0.8125rem] w-[0.8125rem] shrink-0 md:mt-0"></svg>
-              <span class="text-ink-secondary min-w-0 flex-1 text-[0.8125rem]/[1.125rem] break-words md:text-[0.84375rem]"
-                >{{ user.email }} · sign-in email, can't be changed</span
-              >
-            </span>
-          </div>
-        </div>
-        <span class="bg-surface-subtle flex h-[1.875rem] w-fit shrink-0 flex-row items-center justify-center rounded-full px-[0.8125rem]">
-          <span class="text-ink-secondary text-[0.78125rem] whitespace-nowrap">{{ memberSinceLabel() }}</span>
-        </span>
-      </div>
-
-      <div class="border-line bg-surface-white flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5 md:p-6">
-        <span class="text-ink-muted text-xs font-semibold tracking-[0.09375rem]">PERSONAL DETAILS</span>
-        <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 md:flex-row">
-          <div class="w-full flex-1">
-            <app-field label="Full name" icon="user" [value]="user.fullName" />
-          </div>
-          <div class="w-full flex-1">
-            <app-field label="Phone number" icon="phone" type="text" [value]="user.phoneNumber ?? ''" />
-          </div>
-        </div>
-      </div>
-
-      <div class="border-line bg-surface-white flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5 md:p-6">
-        <span class="text-ink-muted text-xs font-semibold tracking-[0.09375rem]">DELIVERY ADDRESS</span>
-        <app-field label="Address" icon="map-pin" [value]="addressLine()" help="Used as the default delivery address at checkout." />
-      </div>
-
-      <div class="flex h-fit w-full shrink-0 flex-row items-center justify-end gap-3">
-        <button
-          type="button"
-          class="h-field border-line-strong text-brand-navy flex w-[8.75rem] shrink-0 flex-row items-center justify-center rounded-md border text-base font-semibold"
-          (click)="goTo('/')"
+      @if (error(); as message) {
+        <div
+          role="alert"
+          class="border-line bg-surface-white flex h-fit w-full shrink-0 flex-col items-start justify-start gap-lg rounded-xl border p-5 md:flex-row md:items-center"
         >
-          Cancel
-        </button>
-        <div class="w-[11.875rem]">
-          <app-button-primary label="Save changes" />
+          <svg lucideTriangleAlert class="text-danger-red h-icon-md w-icon-md shrink-0"></svg>
+          <div class="flex h-fit min-w-0 flex-1 flex-col items-start justify-start gap-rule">
+            <span class="text-ink-primary text-label font-semibold">We could not load your profile.</span>
+            <span class="text-ink-secondary text-body">{{ message }}</span>
+          </div>
+          <button
+            type="button"
+            class="border-line-strong text-brand-navy flex h-control w-fit shrink-0 flex-row items-center justify-start gap-sm rounded-lg border px-2xl text-body font-semibold"
+            (click)="load()"
+          >
+            <svg lucideRefreshCw class="h-icon-sm w-icon-sm"></svg>
+            Try again
+          </button>
         </div>
-      </div>
+      }
+
+      @if (loading()) {
+        <div class="flex h-fit w-full shrink-0 animate-pulse flex-col items-start justify-start gap-5" aria-busy="true">
+          <div class="border-line bg-surface-white h-24 w-full shrink-0 rounded-xl border"></div>
+          <div class="border-line bg-surface-white h-36 w-full shrink-0 rounded-xl border"></div>
+          <div class="border-line bg-surface-white h-30 w-full shrink-0 rounded-xl border"></div>
+        </div>
+      } @else if (user(); as user) {
+        <div class="border-line bg-surface-white flex h-fit w-full shrink-0 flex-col items-start justify-start gap-[0.875rem] rounded-xl border p-[1.125rem] md:flex-row md:items-center md:gap-4 md:p-5">
+          <div class="flex w-full shrink-0 flex-row items-center justify-start gap-[0.875rem] md:contents">
+            <div class="bg-brand-navy flex h-13 w-13 shrink-0 flex-row items-center justify-center rounded-full md:h-14 md:w-14">
+              <span class="text-surface-white text-lg font-bold">{{ initials() }}</span>
+            </div>
+            <div class="flex h-fit min-w-0 flex-1 flex-col items-start justify-start gap-[0.1875rem]">
+              <span class="text-ink-primary text-base font-semibold md:text-[1.03125rem]">{{ user.fullName }}</span>
+              <!--
+                CONTRACT: The email keeps `min-w-0 flex-1` at EVERY breakpoint and never
+                regains `w-fit`/`flex-none`. From `md:` up the card is a row, and a
+                non-shrinking email pushes the `shrink-0` member badge on top of it — 37px
+                of overlap at 768px, where the row needs 676px of card interior and gets 663.
+                `break-words` handles the other half: the address is one unbreakable token,
+                so at 320px it overflows its own box by 37px while every ancestor stays
+                inside the viewport, which an overflow check cannot see. See [[testing]]
+              -->
+              <span class="flex h-fit w-full min-w-0 shrink flex-row items-start justify-start gap-[0.375rem] md:items-center md:gap-[0.4375rem]">
+                <svg lucideLock class="text-ink-muted mt-[0.15625rem] h-[0.8125rem] w-[0.8125rem] shrink-0 md:mt-0"></svg>
+                <span class="text-ink-secondary min-w-0 flex-1 text-[0.8125rem]/[1.125rem] break-words md:text-[0.84375rem]"
+                  >{{ user.email }} · sign-in email, can't be changed</span
+                >
+              </span>
+            </div>
+          </div>
+          <!-- CONTRACT: `bg-line` pairs with `text-brand-navy`. On this ground
+               `text-ink-secondary` is 3.9:1, under AA. -->
+          <span class="bg-line flex h-[1.875rem] w-fit shrink-0 flex-row items-center justify-center rounded-full px-[0.8125rem]">
+            <span class="text-brand-navy text-[0.78125rem] whitespace-nowrap">{{ memberSinceLabel() }}</span>
+          </span>
+        </div>
+
+        <div class="border-line bg-surface-white flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5 md:p-6">
+          <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
+            <span class="text-ink-muted text-xs font-semibold tracking-[0.09375rem]">PERSONAL DETAILS</span>
+            <app-dev-fill-button (filled)="devFillPersonal($event)" />
+          </div>
+          <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 md:flex-row">
+            <div class="w-full flex-1">
+              <app-field label="Full name" icon="user" [formField]="profileForm.fullName" />
+            </div>
+            <div class="w-full flex-1">
+              <app-phone-field
+                label="Phone number"
+                icon="phone"
+                [defaultCountry]="seedCountry()"
+                [formField]="profileForm.phoneNumber"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div class="border-line bg-surface-white flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5 md:p-6">
+          <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
+            <span class="text-ink-muted text-xs font-semibold tracking-[0.09375rem]">DELIVERY ADDRESS</span>
+            <app-dev-fill-button (filled)="devFillAddress($event)" />
+          </div>
+          <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 md:flex-row">
+            <div class="w-full flex-1">
+              <app-street-autocomplete
+                label="Address Line 1"
+                icon="map-pin"
+                placeholder="Av. Rómulo Betancourt 1204"
+                help="Used as the default delivery address at checkout."
+                [formField]="profileForm.street"
+                (valueChange)="onStreetTyped($event)"
+                (addressSelected)="onAddressSuggested($event)"
+              />
+            </div>
+            <div class="w-full flex-1">
+              <app-field
+                label="Address Line 2"
+                icon="building-2"
+                placeholder="Apartment, suite, floor (optional)"
+                [formField]="profileForm.line2"
+              />
+            </div>
+          </div>
+          <app-field label="City" icon="map" [formField]="profileForm.city" />
+          <app-field label="State" icon="map" [formField]="profileForm.state" />
+          <app-field
+            label="ZIP Code"
+            type="numeric"
+            autocomplete="postal-code"
+            icon="map"
+            [formField]="profileForm.postalCode"
+            help="Used as the default delivery address at checkout."
+          />
+
+          @if (saveError(); as message) {
+            <p role="alert" class="text-danger-red w-full shrink-0 text-body-sm">{{ message }}</p>
+          }
+        </div>
+
+        <div class="flex h-fit w-full shrink-0 flex-row items-center justify-end gap-3">
+          <button
+            type="button"
+            class="h-field border-line-strong text-brand-navy flex w-35 shrink-0 flex-row items-center justify-center rounded-md border text-base font-semibold"
+            (click)="resetForm()"
+          >
+            Cancel
+          </button>
+          <div class="w-47.5">
+            <app-button-primary
+              [label]="saving() ? 'Saving…' : 'Save changes'"
+              [disabled]="!canSave()"
+              (clicked)="save()"
+            />
+          </div>
+        </div>
+      }
     </div>
   </div>
 </div>

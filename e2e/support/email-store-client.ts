@@ -1,19 +1,11 @@
 // Reads the pipeline's E2E email records over the events Lambda's Function URL.
 //
-// ## This is a DIAGNOSTIC channel, not an assertion channel
-//
-// Specs still wait for the real message in Mailpit and still extract the OTP
-// from it. Nothing here replaces that, and nothing here should ever become the
-// source of a code a spec logs in with — a suite that reads its OTP from this
-// store stops proving that email is delivered at all, which is the one thing
-// these specs exist to prove.
-//
-// What it adds is the answer to the question a bare "nothing arrived in 45s"
-// cannot answer: did the pipeline ever RENDER and SEND this email? Those are
-// different failures with different fixes — one is a timing ceiling, the other
-// is a lost event — and they were indistinguishable before this existed.
-//
-// No new dependency: plain fetch, exactly like mailpit-client.ts.
+// CONTRACT: This is a DIAGNOSTIC channel, never an assertion channel. Specs must still
+// wait for the real Mailpit message and extract the OTP from it — a suite that reads
+// its code from this store stops proving email is delivered at all, the one thing
+// these specs exist to prove. What it adds is the answer a bare "nothing arrived in
+// 45s" cannot give: did the pipeline ever RENDER and SEND it? A timing ceiling and a
+// lost event are different failures with different fixes. See [[testing]]
 
 export interface RecordedEmail {
   run_id: string;
@@ -30,11 +22,8 @@ export interface RecordedEmail {
 
 /**
  * The current run's id, as minted by global-setup.
- *
- * Throws rather than returning a placeholder: a placeholder would query the
- * collection for a run that never existed and return zero rows, which reads
- * identically to "the pipeline sent nothing" — the exact confusion this module
- * exists to remove.
+ * CONTRACT: Throw; do NOT return a placeholder. It would query a run that never existed
+ * and return zero rows, reading identically to "the pipeline sent nothing".
  */
 export function currentRunId(): string {
   const runId = process.env.E2E_RUN_ID;
@@ -50,19 +39,17 @@ export function currentRunId(): string {
 function config(): { url: string; token: string } | null {
   const url = process.env.EVENTS_QUERY_URL;
   const token = process.env.E2E_QUERY_TOKEN;
-  // Missing config DISABLES diagnostics rather than failing: this channel must
-  // never be the reason a test goes red. A stack without the Function URL is a
-  // stack where these specs still work, just with less helpful failures.
+  // CONTRACT: Missing config DISABLES diagnostics — this channel must never be the
+  // reason a test goes red. Without the Function URL the specs still work, just with
+  // less helpful failures.
   if (!url || !token) return null;
   return { url, token };
 }
 
 /**
  * Every email the pipeline recorded for this run, newest first.
- *
- * Returns an empty array on ANY failure — unreachable URL, non-2xx, malformed
- * body. Same rule as above: a diagnostic that throws would convert a clear
- * email-timing failure into a confusing connection error and bury the real one.
+ * CONTRACT: Return `[]` on ANY failure — unreachable URL, non-2xx, malformed body. A
+ * diagnostic that throws buries a clear email-timing failure under a connection error.
  */
 export async function fetchRecordedEmails(
   opts: { to?: string; templateKey?: string; limit?: number } = {},
@@ -88,20 +75,12 @@ export async function fetchRecordedEmails(
 }
 
 /**
- * A block to append to a failing email assertion's message.
- *
- * What it can and cannot conclude, stated precisely because an overconfident
- * diagnostic is worse than none:
- *
- *   - RECORDED → the pipeline definitely rendered and sent it. The mail exists,
- *     so the failure is delivery timing. This branch is conclusive.
- *   - NOTHING RECORDED → inconclusive on its own. The store is written after the
- *     send, so a backlog hides the record on the same far side of the budget as
- *     the mail itself. It means "not yet", and only the queue depth separates
- *     "late" from "genuinely lost".
- *
- * Never throws: a failed diagnostic returns a note saying so, because the
- * assertion it is decorating is the thing that matters.
+ * A block to append to a failing email assertion's message. Never throws.
+ * CONTRACT: RECORDED is conclusive — rendered and sent, so the failure is delivery
+ * timing. NOTHING RECORDED means "not yet", NOT "never": the store is written after
+ * the send, so a backlog hides the record on the same far side of the budget as the
+ * mail. Only the queue depth separates late from lost.
+ * See [[2026-08-29-the-emulator-was-the-ceiling-not-the-code]]
  */
 export async function describeRecordedEmails(to: string): Promise<string> {
   let emails: RecordedEmail[];
@@ -114,17 +93,12 @@ export async function describeRecordedEmails(to: string): Promise<string> {
   }
 
   if (emails.length === 0) {
-    // "NOT YET", never "never". The store is read at the instant the assertion
-    // gives up, and the pipeline records an email only AFTER it sends it — so a
-    // backlog puts the record on the far side of the spec's budget too.
-    //
-    // Measured on a cold stack: a spec timed out at 45s and its OTP was recorded
-    // at 2m25s, comfortably real and comfortably late. An earlier version of
-    // this message said the pipeline "never rendered one", which is the opposite
-    // conclusion and sends the reader hunting a defect that is not there.
-    //
-    // Distinguishing the two needs the queue depth, which this client cannot
-    // read — so it names the check instead of guessing.
+    // CONTRACT: Word this as "NOT YET", never "never". The store is written after the
+    // send, so a backlog puts the record on the far side of the spec's budget too — a
+    // spec once timed out at 45s while its OTP was recorded at 2m25s. Concluding "the
+    // pipeline never rendered one" sends the reader hunting a defect that is not there.
+    // Separating late from lost needs the queue depth, which this client cannot read,
+    // so it names the check instead of guessing.
     return (
       `\n[email-store] Nothing recorded for ${to} AT THE MOMENT THIS WAS CHECKED. ` +
       `The store is written after the send, so this means the pipeline had not ` +

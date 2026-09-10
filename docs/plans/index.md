@@ -65,6 +65,8 @@ related:
   - "[[2026-08-17-web-app-foundation-design]]"
   - "[[2026-08-18-web-app-foundation]]"
   - "[[web-app-foundation-milestone]]"
+  - "[[2026-09-04-web-gateway-integration-design]]"
+  - "[[web-gateway-integration-milestone]]"
 ---
 
 # 3MRAI Plans — Index
@@ -130,6 +132,8 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-08-17-web-app-foundation-design]] — design spec for `apps/web/` (Angular + NgRx + Tailwind) and the `pencil-design-extraction` skill: the `.pen`-as-source-of-truth pipeline, why the HTML export is a reference and never a source, and the phase-1 screens-not-behaviour scope boundary.
 - [[2026-08-18-web-app-foundation]] — implementation plan for the Web App Foundation milestone: scaffold, design tokens, fixtures, HTML snapshots, app shell, the 18 designed screens, and the extraction skill/agent/convention.
 - [[web-app-foundation-milestone]] — logical execution plan for the Web App Foundation milestone: task sequence, phases, and blocking dependency graph for JE-162 through JE-172, plus JE-174 and JE-175.
+- [[2026-09-04-web-gateway-integration-design]] — design spec for phase 2 of `apps/web/`: replacing phase-1 fixtures with real gateway calls via same-origin nginx/`ng serve` proxying, an encrypted-IndexedDB token store, a deduped refresh interceptor, and a server-backed cart; a 9-issue work plan on `feature/web-gateway-integration`, cut from `feature/web-app-foundation`.
+- [[web-gateway-integration-milestone]] — logical execution plan for the Web Gateway Integration milestone: task sequence, phases, and blocking dependency graph for JE-237 through JE-245, plus JE-246 filed as a backend bug.
 
 > [!note] No plan note for the AuditActor enum
 > [[2026-07-12-audit-actor-enum-design]] was implemented directly from the spec — there is no separate `writing-plans` plan for it.
@@ -193,3 +197,5 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-08-17-web-app-foundation-design]]
 - [[2026-08-18-web-app-foundation]]
 - [[web-app-foundation-milestone]]
+- [[2026-09-04-web-gateway-integration-design]]
+- [[web-gateway-integration-milestone]]

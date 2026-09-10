@@ -41,36 +41,13 @@ const RESET_PAYLOAD = {
 };
 
 describe("SqsEventPublisher", () => {
-  // The SQS hop is the one place the trace cascade can break invisibly: there is
-  // no auto-instrumentation carrying context across a queue, so if these
-  // attributes are wrong the pipeline simply starts a fresh, disconnected trace
-  // and nothing anywhere reports an error.
-  //
-  // The tracer provider is registered in tests/setup-tracing.ts, which also
-  // installs the default W3C CompositePropagator that `propagation.inject`
-  // resolves — a real propagator, not a stub, so the string asserted below is
-  // the exact one that would go on the wire.
-  //
-  // IMPORTANT, and MEASURED rather than assumed: what these tests observe is
-  // what `traceparentAttributes()` writes, because the client here is a fake and
-  // no AWS SDK instrumentation is in the loop. IN PRODUCTION IT IS NOT THE FINAL
-  // VALUE. @opentelemetry/instrumentation-aws-sdk's `requestPostSpanHook` runs
-  // after its own `<queue> send` span is started, inside that span's context,
-  // and calls `propagation.inject` on the SAME MessageAttributes object — so it
-  // OVERWRITES whatever is there, unconditionally. Verified against the real
-  // instrumentation with a stub SQS endpoint: a deliberately bogus traceparent
-  // set by the caller came out replaced by the SDK span's id.
-  //
-  // That does NOT make this seam pointless, and it is not a bug to fix here:
-  // the SDK's span is a CHILD of the publish span (measured:
-  // register -> sqs.publish user_created -> events send), so the consumer joins
-  // one level below the publish rather than beside it either way. The subtree is
-  // right; only the exact span id differs. What this seam guarantees, and what
-  // these tests pin, is that a well-formed traceparent naming a span INSIDE the
-  // publish is produced even when nothing else injects one.
-  //
-  // Since the publisher now always opens its own span, the old "no active span"
-  // case is gone: a traceparent is always present at this seam.
+  // The SQS hop is where the trace cascade breaks invisibly: nothing carries context
+  // across a queue, so wrong attributes start a fresh, disconnected trace with no
+  // error anywhere. The real W3C propagator is registered in tests/setup-tracing.ts.
+
+  // WARNING: These observe what `traceparentAttributes()` writes; in production that
+  // is NOT the final value — instrumentation-aws-sdk injects over the same
+  // MessageAttributes object from its own span. See [[logging-context]]
   describe("traceparent propagation", () => {
     const tracer = trace.getTracer("test");
 
@@ -133,11 +110,9 @@ describe("SqsEventPublisher", () => {
     it("still injects one with no caller span — the publish span is a root, and a real one", async () => {
       const client = fakeClient();
 
-      // No context.with. This used to omit the key, because the only candidate
-      // was the caller's span and there was none. Now the publisher opens its
-      // own, so the message carries a valid traceparent naming a root publish
-      // span — which is strictly better: the pipeline's work joins THAT trace
-      // instead of starting an orphan of its own.
+      // No context.with. The publisher opens its own span, so the message still
+      // carries a valid traceparent naming a root publish span and the pipeline's work
+      // joins THAT trace instead of starting an orphan.
       await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
 
       const traceparent = sentCommand(client).input.MessageAttributes!.traceparent;
@@ -175,14 +150,11 @@ describe("SqsEventPublisher", () => {
     });
   });
 
-  // The correlation id has to travel ON THE ENVELOPE, not just in this service's
-  // own log lines: the events-pipeline runs no OTel SDK, so this field is the
-  // only thing tying the email it sends back to the request that caused it.
-  //
-  // This was a real gap — Users seeded request_id for HTTP but did not forward
-  // it, so an E2E run produced 309 pipeline lines with no correlation id, all of
-  // them from Users-published events (USER_CREATED, PASSWORD_RESET_REQUESTED,
-  // AUTH_OTP_REQUESTED) while Orders' and Tracking's carried one.
+  // CONTRACT: The correlation id must travel ON THE ENVELOPE, not only in this
+  // service's own log lines. The events-pipeline runs no OTel SDK, so this field is the
+  // only thing tying the email it sends back to the request that caused it — seeding
+  // request_id for HTTP without forwarding it leaves every pipeline line uncorrelated.
+  // See [[logging-context]]
   describe("request_id propagation", () => {
     it("puts the active request's id on the envelope", async () => {
       const client = fakeClient();
@@ -499,18 +471,12 @@ describe("SqsEventPublisher", () => {
       expect(span.parentSpanContext?.spanId).toBe(parent.spanContext().spanId);
     });
 
-    // THE regression this span exists to keep honest, and the exact bug fixed
-    // on the Orders side (commit 81c52a7): there the message attributes were
-    // built before the publish span existed, so the traceparent carried the
-    // enclosing workflow span and the consumer's work hung BESIDE the publish
-    // instead of under it. Nothing errors when that happens — the waterfall is
-    // just quietly wrong.
-    //
-    // What is pinned is that the injected id belongs INSIDE the publish, never
-    // to the workflow above it. With the real AWS SDK instrumentation loaded the
-    // final wire value is its `<queue> send` span instead (it overwrites this —
-    // see the block comment above), and that span is a CHILD of the publish, so
-    // the property asserted here still holds end to end.
+    // CONTRACT: The injected id belongs INSIDE the publish, never to the workflow
+    // above it. Building the message attributes before the publish span exists makes
+    // the traceparent name the enclosing workflow span and the consumer's work hang
+    // BESIDE the publish — nothing errors, the waterfall is just quietly wrong. The
+    // property holds end to end: the SDK's overwriting span is a CHILD of the publish.
+    // See [[logging-context]]
     it("injects the traceparent of the PUBLISH span, not of the enclosing workflow span", async () => {
       const client = fakeClient();
       const workflow = tracer.startSpan("register");

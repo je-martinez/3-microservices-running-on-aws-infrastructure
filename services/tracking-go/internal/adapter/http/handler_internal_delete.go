@@ -21,22 +21,18 @@ import (
 // the log line and the span, never in the body.
 const reasonDBError = "db_error"
 
-// internalDeleteRequest is the body of DELETE /v1/trackings/by-user.
+// internalDeleteRequest is the body of DELETE /v1/trackings/by-user — a DELETE
+// with a required body, because the caller is Users' account-deletion cascade
+// and the identities arrive in the body rather than the x-user-id header.
 //
-// A DELETE WITH A REQUIRED BODY, which is unusual but deliberate: this is the one
-// route where the two identities arrive in the body rather than the x-user-id
-// header, because the caller is Users' account-deletion cascade and not a user
-// session.
-//
-// Pointers, not plain strings, so "absent" and "present but empty" are
-// distinguishable at decode time. Both are rejected, but conflating them would
-// make the validation read as a formatting check rather than the security control
-// it is.
+// CONTRACT: Pointers, not plain strings, so "absent" and "present but empty"
+// stay distinguishable at decode time. Both are rejected; conflating them makes
+// the validation read as formatting, not the security control it is.
+// See [[soft-delete]]
 type internalDeleteRequest struct {
-	// BOTH identities travel because the ownership predicate matches either.
-	// Rows predating the cognito_sub migration carry only user_id, and
-	// cognito_sub is not durable — a user who deletes and re-registers gets a new
-	// one while their usr_ id never changes.
+	// CONTRACT: BOTH identities travel — the ownership predicate matches either.
+	// Pre-migration rows carry only user_id, and cognito_sub is not durable: a
+	// user who re-registers gets a new one while their usr_ id never changes.
 	CognitoSub *string `json:"cognito_sub"`
 	UserID     *string `json:"user_id"`
 }
@@ -44,10 +40,9 @@ type internalDeleteRequest struct {
 // InternalDeleteHandler serves DELETE /v1/trackings/by-user, the Tracking leg of
 // the account-deletion cascade.
 //
-// It is guarded by RequireInternalKey (GRPC_API_KEY), never the carrier key: a
-// mass soft-delete surface is the widest blast radius this service has, and
-// accepting an external vendor's credential here would let it erase a user's
-// delivery history.
+// WARNING: Guarded by RequireInternalKey (GRPC_API_KEY), never the carrier key.
+// Accepting a vendor's credential on a mass soft-delete lets it erase a user's
+// delivery history. See [[two-api-keys-two-trust-domains]]
 type InternalDeleteHandler struct {
 	uc     *app.DeleteByUser
 	log    *slog.Logger
@@ -74,21 +69,14 @@ func NewInternalDeleteHandler(uc *app.DeleteByUser, log *slog.Logger, tracer tra
 // RegisterInternalDelete mounts DELETE /v1/trackings/by-user BEHIND the internal
 // key guard.
 //
-// The guard is applied HERE, in the same call that mounts the route, and that is
-// the whole reason this seam exists rather than two lines in main.go. This is the
-// widest blast radius in the service — an unauthenticated mass soft-delete — and
-// a route mounted in one place while its guard is applied in another is a route
-// somebody eventually mounts without the guard.
+// CONTRACT: Apply the guard HERE, in the call that mounts the route — that is
+// why this seam exists rather than two lines in main.go. A route mounted in one
+// place and guarded in another is a route mounted without its guard, on the
+// widest blast radius this service has. internalAPIKey is GRPC_API_KEY, NEVER
+// TRACKING_CARRIER_API_KEY. See [[two-api-keys-two-trust-domains]]
 //
-// internalAPIKey is GRPC_API_KEY, the shared service-to-service secret, NEVER
-// TRACKING_CARRIER_API_KEY: handing an external carrier a credential that also
-// erases a user's delivery history is exactly the confusion the two separate
-// config fields exist to prevent.
-//
-// The literal `by-user` sits where GET /v1/trackings/:order_id's wildcard also
-// matches, and coexists with it ONLY because Gin keeps one radix tree per METHOD
-// and these are DELETE. A GET literal under this prefix would panic the process
-// at startup — see NewRouter.
+// The `by-user` literal coexists with the :order_id wildcard only because these
+// are DELETE and Gin keeps one radix tree per method — see NewRouter.
 func RegisterInternalDelete(router gin.IRouter, handler *InternalDeleteHandler, internalAPIKey string) {
 	group := router.Group("/v1/trackings", RequireInternalKey(internalAPIKey, handler.log))
 	group.DELETE("/by-user", handler.Handle)
@@ -138,15 +126,11 @@ func (h *InternalDeleteHandler) Handle(c *gin.Context) {
 			"string_too_short"))
 		return
 	case err != nil:
-		// A fault here aborts the whole deletion: Users calls both cascade legs
-		// BEFORE touching the account, so a 500 from us leaves the caller's
-		// account alive and their Orders data already swept — recoverable only
-		// because a retry re-runs Orders as a no-op. Without this branch the 500
-		// would carry no *_failed, no reason and no span attribute: the one
-		// outcome that most needs to be findable would be the only silent one.
-		//
-		// The status is unchanged by the branch — the error is reported, not
-		// translated.
+		// CONTRACT: Keep this branch. Users calls both cascade legs before
+		// touching the account, so a 500 here leaves the account alive with
+		// Orders already swept; without the branch that 500 carries no
+		// *_failed, no reason and no span attribute. The status is unchanged —
+		// the error is reported, not translated. See [[logging-context]]
 		setSpanReason(span, reasonDBError)
 		h.log.ErrorContext(ctx, "internal_delete_by_user_failed",
 			slog.String("app_event", "internal_delete_by_user_failed"),

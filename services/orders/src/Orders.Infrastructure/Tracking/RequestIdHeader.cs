@@ -7,23 +7,18 @@ namespace Orders.Infrastructure.Tracking;
 /// Attaches the correlation header to an outbound Tracking request.
 /// </summary>
 /// <remarks>
-/// An extension rather than a line copied into each call site: both operations on
-/// <see cref="TrackingHttpClient"/> — creation and the batch read — must send the same
-/// header spelled the same way, and the failure mode of forgetting it on one of them is a
-/// silent gap in exactly one hop of the flow, which nothing else would catch.
+/// CONTRACT: An extension, not a line copied per call site. Both operations must send the
+/// same header spelled the same way, and forgetting it on one leaves a silent gap in exactly
+/// one hop that nothing else catches. See [[logging-context]]
 /// </remarks>
 internal static class RequestIdHeader
 {
     /// <summary>
-    /// Adds <c>x-request-id</c> when a request id is in scope; adds nothing when there is
-    /// none.
+    /// Adds <c>x-request-id</c> when a request id is in scope, and nothing when there is none.
+    /// CONTRACT: Omit the header rather than sending it empty — Tracking discards an empty
+    /// value anyway, and a traffic capture then reads as though a correlation id existed and
+    /// was blank. See [[logging-context]]
     /// </summary>
-    /// <remarks>
-    /// OMITTED rather than sent empty when absent (background work, a test that seeded no
-    /// context). Tracking validates what it receives and would discard an empty value
-    /// anyway, so sending one buys nothing and makes a traffic capture read as though a
-    /// correlation id existed and was blank.
-    /// </remarks>
     internal static RestRequest WithRequestId(this RestRequest request)
     {
         var requestId = AmbientRequestId.Current;

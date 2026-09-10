@@ -2,18 +2,12 @@ import { test, expect } from "@playwright/test";
 import { getGatewayToken } from "../../support/auth.js";
 import { gatewayClient } from "../../support/gateway-client.js";
 
-// Gateway E2E for the cart endpoints (GET/PUT/DELETE /v1/cart), added
-// alongside the checkout flow. Real Cognito JWT through API_GATEWAY_URL —
-// this is the layer that catches a missing route, a dropped verb, or a
-// method mismatch, which the in-process/internal specs structurally cannot
-// see because they fake the authorizer. gatewayClient() already sends
-// X-E2E-Source on every request (see support/gateway-client.ts), so the
-// order created in scenario 6 below is tagged for the existing teardown
-// without any extra header.
-//
-// Wire format is camelCase throughout (productId, quantity, items, unitPrice,
-// unitsInStock, unavailableReason, canCheckout) — verified against
-// services/orders/openapi.yaml, not inferred from field-name guesses.
+// Gateway E2E for the cart endpoints (GET/PUT/DELETE /v1/cart) with a real Cognito JWT
+// through API_GATEWAY_URL — the layer that catches a missing route, a dropped verb or
+// a method mismatch, which the internal specs cannot see because they fake the
+// authorizer. `gatewayClient()` already sends X-E2E-Source, so the order created below
+// is tagged for teardown without an extra header. Wire format is camelCase throughout,
+// taken from services/orders/openapi.yaml rather than guessed.
 
 async function newAuthedClient(): Promise<Awaited<ReturnType<typeof gatewayClient>>> {
   const { token } = await getGatewayToken();

@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-08-19
-updated: 2026-09-03
+updated: 2026-09-10
 tags:
   - type/convention
   - area/shared
@@ -15,6 +15,11 @@ related:
   - "[[2026-09-03-unstyled-custom-element-host-is-inline]]"
   - "[[2026-09-03-cart-drawer-scrim-lead-flicker]]"
   - "[[2026-09-03-cart-drawer-first-open-flicker]]"
+  - "[[2026-09-04-web-gateway-integration-design]]"
+  - "[[web-gateway-integration-milestone]]"
+  - "[[2026-09-10-signal-forms-required-accepts-whitespace]]"
+  - "[[2026-09-10-formfield-reads-the-raw-dom-value]]"
+  - "[[2026-09-10-formfield-owns-its-control-bindings-ng8022]]"
 ---
 
 # Angular Component Authoring
@@ -118,6 +123,63 @@ know the component needs it, so the fix must travel with the component. This hit
 evidence, and why it reads as a content-alignment bug rather than a sizing bug:
 [[2026-09-03-unstyled-custom-element-host-is-inline]].
 
+## Rule 4 — `ApiClient` paths never include the `/v1` prefix
+
+`core/http/api-client.ts` (introduced in [[2026-09-04-web-gateway-integration-design]]) reads
+its base URL from `APP_CONFIG.apiGatewayUrl`, which **already supplies** the `/v1` prefix.
+Every caller passes a path relative to that prefix — `products`, `cart`, `users/me` — never
+`v1/products`. Passing a path that starts with `/v1/...` produces a doubled prefix,
+`/v1/v1/...`, which 404s at the gateway. This is easy to get wrong by habit, since the
+service's own OpenAPI paths are documented with the `/v1` prefix included — the prefix belongs
+to `APP_CONFIG`, not to the call site.
+
+## Rule 5 — interceptor order matters: refresh before auth
+
+The refresh interceptor MUST be registered **before** the auth interceptor in
+`provideHttpClient(withInterceptors([...]))`. Angular's HTTP interceptor chain runs in
+registration order for the outbound request and in reverse for the response, so refresh-before-
+auth is what makes a retried request **re-enter** the auth interceptor and pick up the freshly
+refreshed token, rather than replaying the same stale `Authorization` header that just produced
+the 401. Reversing the order produces a retry loop that fails identically every time, because
+the retried request never sees the new token.
+
+## Rule 6 — a guard must AWAIT async rehydration, never read a synchronous flag
+
+`authGuard` and `guestGuard` read session state that is rehydrated from the encrypted IndexedDB
+token store on boot — an inherently asynchronous read. A guard that checks a synchronous
+`isAuthenticated` flag before that rehydration resolves will see the pre-rehydration default
+(unauthenticated) and evict a genuinely logged-in user on a page reload. The guard function
+must `await` the rehydration before making its allow/deny decision — this is not an edge case,
+it is the default path every reload of `/orders`, `/checkout`, or `/profile` takes.
+
+## Rule 7 — a gating `required` is paired with `pattern(path.x, /\S/)`
+
+Angular Signal Forms' `required()` counts a value of nothing but spaces as **present**: its
+`isEmpty()` rejects only `''`, `false`, `null`/`undefined` (and `NaN` for numbers). So
+`required()` alone is **weaker** than the `fullName().trim().length > 0` guard it typically
+replaces during a migration — it compiles, it passes the existing tests, and it lets a user
+register with a name of three spaces or save a delivery address that ships nowhere.
+
+Whenever a `required` is what **gates submission**, pair it:
+
+```ts
+required(path.fullName, { message: 'Enter your full name' });
+pattern(path.fullName, /\S/, { message: 'Enter your full name' });
+```
+
+Same message on both, so which validator fired is invisible to the user.
+
+**Scope:** this applies to a `required` that gates submission. A `required` used purely to mark
+a field visually does not carry the same risk.
+
+**The regression test must hold every other field valid**, so the field under test is the only
+thing that can block submission. A test that blanks several fields at once can pass for an
+unrelated reason and be inert — an `<input type="email">` reports `""` for an invalid value, so
+a blank email blocks submission on its own and masks a missing name check entirely.
+
+Full incident, the `file:line` evidence in the installed Angular, and the mutation check that
+proves the test is not inert: [[2026-09-10-signal-forms-required-accepts-whitespace]].
+
 ## Where this bites — the extraction workflow, not just the component
 
 The Pencil `html-tailwind` export emits fixed `px` for every value and has no `.html`/`.ts`
@@ -140,6 +202,10 @@ colours — and it was the half that got missed when the app was first built.
 - `apps/web/CLAUDE.md` — the app's stack, the tokens golden rule (§2a), and the `${{ }}`
   template gotcha this note's Rule 1 references.
 - [[2026-08-17-web-app-foundation-design]] — the design spec `apps/web/` was built from.
+- [[2026-09-04-web-gateway-integration-design]] — phase 2, whose new `core/` code (HTTP client,
+  auth interceptors, session store, API services) follows this convention, and the source of
+  Rules 4–6 above (`ApiClient` path prefix, interceptor order, guard rehydration).
+- [[web-gateway-integration-milestone]] — the milestone that established Rules 4–6.
 - [[2026-09-03-unstyled-custom-element-host-is-inline]] — the lesson behind Rule 3: the
   incident detail, measured evidence, and why the bug reads as content misalignment rather
   than a sizing defect.
@@ -152,3 +218,11 @@ colours — and it was the half that got missed when the app was first built.
   (`apps/web/src/app/core/overlay/defer-enter-animation.ts`) this app uses to hold an overlay's
   enter animation until its first frame is actually presented, and why its deferred flag must
   be a `signal` rather than a plain field.
+- [[2026-09-10-signal-forms-required-accepts-whitespace]] — the lesson behind Rule 7: the
+  incident, the `isEmpty()` source evidence in the installed Angular, and the mutation check
+  that distinguishes a real regression test from an inert one.
+- [[2026-09-10-formfield-reads-the-raw-dom-value]] — the same directive Rule 7 validates:
+  `[formField]` registers its own `input` listener and takes the element's raw value, so a
+  sanitising `(input)` handler races it rather than filtering it.
+- [[2026-09-10-formfield-owns-its-control-bindings-ng8022]] — `[formField]` claims a fixed set
+  of control bindings and feeds them itself; binding one by hand is a compile error (NG8022).

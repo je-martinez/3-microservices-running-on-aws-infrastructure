@@ -6,19 +6,17 @@ import (
 	"strings"
 )
 
-// MySQLDSN converts a SQLAlchemy DSN into a go-sql-driver/mysql DSN.
+// MySQLDSN converts a SQLAlchemy DSN into a go-sql-driver/mysql DSN. The
+// generated env files carry the SQLAlchemy spelling, so converting here is
+// cheaper than forking the generator.
 //
 //	mysql+pymysql://user:pass@host:3306/tracking
 //	  ->  user:pass@tcp(host:3306)/tracking?parseTime=true&loc=UTC
 //
-// The env files are generated (never hand-edited) and are shared with the Python
-// service during the migration, so the SQLAlchemy spelling is what arrives and
-// converting here is cheaper than forking the generator.
-//
-// parseTime=true and loc=UTC are ALWAYS appended, and both are load-bearing:
-// without parseTime every DATETIME column comes back as []byte, and without
-// loc=UTC the driver reads stored values in the process's local zone — which
-// makes every timestamp wrong by the offset, silently, and only outside UTC.
+// CONTRACT: Always append parseTime=true and loc=UTC. Without the first every
+// DATETIME comes back as []byte; without the second the driver reads stored
+// values in the process zone, silently wrong by the offset outside UTC.
+// See [[env-files]]
 func MySQLDSN(sqlAlchemyDSN string) (string, error) {
 	if strings.TrimSpace(sqlAlchemyDSN) == "" {
 		return "", fmt.Errorf("config: empty database DSN")

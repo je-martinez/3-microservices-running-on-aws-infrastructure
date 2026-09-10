@@ -1,5 +1,6 @@
-import { Component, input, output } from '@angular/core';
+import { Component, inject, input, output, ChangeDetectionStrategy } from '@angular/core';
 import { LucideBell, LucideSearch, LucideShoppingBag, LucideUser } from '@lucide/angular';
+import { CatalogueSearchStore } from '../catalogue/catalogue-search-store';
 import { LogoLockup } from '../../shared/ui/logo-lockup';
 import { RouterLink } from '@angular/router';
 
@@ -22,14 +23,21 @@ import { RouterLink } from '@angular/router';
   // `w-full` resolves against that shrunken width — the bar stops short of
   // the viewport edge instead of spanning it. Setting it here rather than on
   // each of the five call sites means a new one cannot forget it.
+  changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block w-full' },
 })
 export class AppHeader {
+  /** Shared with the catalogue page, which is a sibling of this header. */
+  protected readonly search = inject(CatalogueSearchStore);
+
   readonly cartCount = input(0);
   readonly hasUnreadNotifications = input(false);
 
-  readonly searchClicked = output<void>();
   readonly notificationsClicked = output<void>();
   readonly profileClicked = output<void>();
   readonly cartClicked = output<void>();
+
+  protected onSearch(event: Event): void {
+    this.search.setQuery((event.target as HTMLInputElement).value);
+  }
 }

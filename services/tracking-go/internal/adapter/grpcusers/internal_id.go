@@ -20,21 +20,15 @@ type userLookup interface {
 	Resolve(ctx context.Context, identifier string) (ResolvedUser, error)
 }
 
-// InternalIDResolver adapts this package's Resolve to app.UserResolver.
+// InternalIDResolver adapts this package's Resolve to app.UserResolver, doing
+// two load-bearing translations: ResolvedUser to the INTERNAL usr_ id, and
+// ErrUnknownUser to domain.ErrUserNotFound.
 //
-// # It exists to do exactly two translations, and both are load-bearing
-//
-//  1. ResolvedUser -> the INTERNAL usr_ id. The caller is identified to us by
-//     their Cognito sub, and what tracking.user_id stores is the usr_ id. These
-//     are different strings for the same person, and putting the sub where the
-//     usr_ id belongs writes a row no ownership predicate can match.
-//  2. ErrUnknownUser -> domain.ErrUserNotFound. The use case answers 404 on the
-//     domain sentinel and 500 on everything else, and it must not import this
-//     package to tell the two apart.
-//
-// EVERY OTHER ERROR PROPAGATES UNCHANGED, wrapped. An Unavailable or a
-// DeadlineExceeded rendered as "unknown user" would answer 404 to a perfectly
-// valid request and blame the caller for someone else's outage.
+// CONTRACT: Both are required and every OTHER error propagates unchanged. The
+// sub and the usr_ id are different strings for one person, so putting the sub
+// where the usr_ id belongs writes a row no ownership predicate matches; and an
+// Unavailable rendered as "unknown user" 404s a valid request.
+// See [[user-id-vs-cognito-sub-ownership-key]]
 type InternalIDResolver struct {
 	users userLookup
 }

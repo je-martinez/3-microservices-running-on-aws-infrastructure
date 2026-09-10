@@ -1,35 +1,17 @@
 package openapi
 
-// The component schemas.
+// The component schemas, reproduced from the pinned contract including its
+// auto-derived `title` values — dropping them would be a difference on every
+// schema at once, and the allowlist would hide thirteen real ones behind it.
 //
-// # Reproduced from the Python contract, INCLUDING its Pydantic artifacts
+// CONTRACT: NestedErrorResponse and NestedErrorBody are absent from the pinned
+// document on purpose. It declares init-tracking's 404 and 409 as FLAT and is
+// wrong; the shipped body is nested, so allowlist.go records the difference
+// rather than "fixing" the handler to a body nothing has served.
 //
-// Every `title` here is one Pydantic auto-derived from a field name, and no
-// consumer branches on a title. They are kept anyway: dropping them would be a
-// difference on every schema at once, and the allowlist would then be carrying an
-// entry that hides thirteen real ones behind a wildcard. Copying them costs
-// nothing and keeps the diff genuinely empty.
-//
-// # Two schemas here are NOT in the Python document, deliberately
-//
-// NestedErrorResponse and NestedErrorBody describe the body init-tracking's 404
-// and 409 actually serve. The Python CODE raises
-// HTTPException(detail={"detail": ..., "reason": ...}), which FastAPI renders as
-// {"detail": {"detail": ..., "reason": ...}} -- nested. FastAPI's generator
-// cannot express that wrapping and emits the flat ErrorResponse instead, so THE
-// PYTHON SPEC IS WRONG THERE AND THE PYTHON CODE IS RIGHT. The Go handler matches
-// the code, this document matches the Go handler, and allowlist.go records the
-// difference from the spec rather than "fixing" the handler to match a body no
-// deployed service has ever served.
-//
-// # What is absent, and must stay absent
-//
-// No response schema carries `shipping_address` (PII) or `cognito_sub`
-// (identity). `datetime` is a plain `string` on both response schemas -- the wire
-// value is isoformat() + "Z" with microsecond precision, and "" when absent. It
-// is NOT `format: date-time`, which would tell a generated client to expect
-// RFC3339 and to parse "" as an error, and it is NOT nullable, because the field
-// is never null.
+// CONTRACT: No response schema carries shipping_address (PII) or cognito_sub.
+// `datetime` is a plain `string`, never `format: date-time` and never nullable.
+// See [[openapi-specs]]
 
 // schemas returns components.schemas.
 func schemas() map[string]any {

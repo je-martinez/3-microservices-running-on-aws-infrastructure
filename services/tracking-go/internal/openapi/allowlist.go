@@ -1,22 +1,14 @@
 package openapi
 
-// AllowedDifferences is CLOSED and ENUMERATED.
+// AllowedDifferences is CLOSED and ENUMERATED. A trailing "*" matches one path
+// segment and also covers everything below the node it names.
 //
-// Every entry is a spec-generation artifact or a difference where the PYTHON SPEC
-// disagrees with the PYTHON CODE — never a behavioural divergence between the two
-// services. The acceptance criterion for this migration is "an empty diff EXCEPT
-// this list", so an entry added to make a test pass is an entry that has moved the
-// goalposts, and the list growing beyond these categories means the criterion is
-// not met rather than newly satisfied.
-//
-// spec_test.go asserts a CAP on the length, so that failure is a test failure and
-// not a judgement call somebody has to remember to make. It also asserts the two
-// nested-error entries are PRESENT, so a future change cannot quietly make the Go
-// handler serve the flat body "to match the spec" and then delete the entry that
-// documented why it must not.
-//
-// A trailing "*" matches one path segment, and a pattern also covers everything
-// below the node it names.
+// CONTRACT: Do NOT add an entry to make a test pass. Every entry is a
+// spec-generation artifact or a place the pinned SPEC disagrees with the shipped
+// CODE — never a behavioural divergence. spec_test.go caps the length and
+// asserts the two nested-error entries are PRESENT, so nothing can quietly serve
+// the flat body "to match the spec" and delete the entry saying why not.
+// See [[openapi-specs]]
 var AllowedDifferences = []AllowedDifference{
 	{
 		Path: "paths./v1/trackings/init-tracking.post.responses.404.content.application/json.schema",

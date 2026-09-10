@@ -5,22 +5,11 @@ import { sendEmail } from "#email/sender";
 import { PermanentError } from "#pipeline/errors";
 import type { HandlerDeps } from "#pipeline/process-record";
 
-// Payload contract — camelCase, unlike ORDER_CREATED and
-// TRACKING_STATUS_CHANGED. That is the producer's shape and it is deliberate:
-// `fullName` has been on the wire since this handler existed, so the enrichment
-// fields joined the payload's OWN convention rather than mixing `fullName` with
-// `created_at` in one object. See the enrichment spec's "Payload changes"
-// section. (The ENVELOPE around it is snake_case for every producer.)
-//
-// Verified against the producer, `services/users/src/shared/messaging/
-// event-publisher.ts`, which emits exactly
-// `{ email, fullName, userId, createdAt }` — `createdAt` already serialized to
-// ISO-8601 by the publisher, hence a string here and not a coerced date.
-//
-// `userId` duplicates the envelope's root `user_id` on purpose: the renderer is
-// handed the PAYLOAD, not the envelope, so a template that prints the account id
-// has to read it from here. `createdAt` feeds the welcome email's "Member Since"
-// row.
+// CONTRACT: This payload is camelCase — the producer's own shape — while the
+// ENVELOPE around it is snake_case. This schema validates the wire, not a
+// preference. `createdAt` arrives already ISO-8601, hence a string rather than a
+// coerced date. `userId` duplicates the envelope's root `user_id` on purpose:
+// the renderer is handed the PAYLOAD, so a template reads the account id here.
 const UserCreatedPayloadSchema = z.object({
   fullName: z.string().min(1),
   email: z.string().email(),
@@ -28,21 +17,17 @@ const UserCreatedPayloadSchema = z.object({
   createdAt: z.string().min(1),
 });
 
-// The flow from the milestone design spec's "Email" section:
-// validate payload (Zod) → render the react-email template to HTML →
-// SES SendEmail → COMPLETED (the state machine records the status; this
-// handler only has to return or throw).
+// validate (Zod) → render the react-email template → SES SendEmail. The state
+// machine records the status; this handler returns or throws.
 export async function userCreatedHandler(envelope: Envelope, deps: HandlerDeps = {}): Promise<void> {
   const result = UserCreatedPayloadSchema.safeParse(envelope.payload);
 
   if (!result.success) {
-    // PERMANENT: the payload will not become valid on a redelivery, so the
-    // message is consumed and the document recorded FAILED.
-    //
-    // Only the FIELD PATHS are reported, never Zod's own message — it echoes
-    // the offending input, which here is the user's plaintext email address.
-    // This string is persisted on the event document and logged as `reason`
-    // (see src/handler.ts), so it must be PII-free by construction.
+    // PERMANENT: a redelivery cannot make this payload valid.
+    // CONTRACT: Report FIELD PATHS only, never Zod's message — it echoes the
+    // offending input, here the user's plaintext email. This string is persisted
+    // and logged as `reason`, so it must be PII-free by construction.
+    // See [[logging-context]]
     const fields = result.error.issues.map((issue) => issue.path.join(".")).join(", ");
     throw new PermanentError(`invalid USER_CREATED payload: invalid fields: ${fields}`);
   }

@@ -1,12 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// #shared/config/env parses process.env at MODULE LOAD (ADR-0014). This file
-// imports #handlers/index, which now (since the realtime fan-out landed in
-// tracking-status-changed.ts) transitively pulls in
-// #shared/realtime/websocket-publisher -> #shared/logging/app-logger ->
-// #shared/config/env, so the schema must be satisfied even though this
-// suite never exercises tracking-status-changed itself. Mirrors
-// tests/handler.test.ts.
+// #shared/config/env parses process.env at MODULE LOAD (ADR-0014), and
+// #handlers/index reaches it transitively through the realtime fan-out, so the
+// schema must be satisfied even though this suite never exercises it.
 vi.stubEnv("DOCDB_HOST", "docdb-test");
 vi.stubEnv("DOCDB_USERNAME", "root");
 vi.stubEnv("DOCDB_PASSWORD", "secret");
@@ -33,15 +29,11 @@ import type { Envelope } from "#domain/envelope";
 const { userCreatedHandler } = await import("#handlers/user-created");
 const { handlers } = await import("#handlers/index");
 
-// The payload EXACTLY as `services/users/src/shared/messaging/event-publisher.ts`
-// puts it on the wire: `{ email, fullName, userId, createdAt }`, camelCase (that
-// payload's own convention — the envelope around it is snake_case), with
-// `createdAt` already serialized to ISO-8601 by the publisher.
-//
-// Declared as a factory with defaults so each test overrides ONLY the field it is
-// about. Pasting the whole enriched payload at every call site is what let the
-// fixtures drift from the producer in the first place: a test about a transport
-// failure has no business restating four unrelated fields.
+// The payload exactly as the Users publisher puts it on the wire — camelCase
+// (the payload's own convention; the envelope is snake_case), `createdAt`
+// already ISO-8601. A factory with defaults so each test overrides ONLY the
+// field it is about; restating four unrelated fields per call site is what lets
+// fixtures drift from the producer.
 function validPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     email: "ada@example.com",
@@ -128,17 +120,11 @@ describe("userCreatedHandler", () => {
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
-  // Scope, stated honestly: this covers only that the handler does NOT swallow
-  // a transport failure — it must propagate so process-record can persist
-  // FAILED and classify the record.
-  //
-  // It deliberately rejects with a PLAIN Error. Rejecting with a TransientError
-  // and then asserting TransientError would only prove that the mock returns
-  // what the mock was configured to return: no change to sender.ts could ever
-  // fail it. The actual TransientError-vs-PermanentError classification lives
-  // in sender.ts and is covered against a real failing send in
-  // tests/email/sender.test.ts — which exists precisely because a mutation of
-  // that classification left this file green.
+  // CONTRACT: Reject with a PLAIN Error. Rejecting with a TransientError and
+  // asserting TransientError only proves the mock returns what it was
+  // configured to return, and no change to sender.ts could fail it. This covers
+  // only that the handler does not SWALLOW a transport failure; the
+  // classification itself is pinned in tests/email/sender.test.ts.
   it("does not swallow a transport failure — it propagates to the caller", async () => {
     vi.mocked(sendEmail).mockRejectedValue(new Error("transport exploded"));
 

@@ -5,40 +5,25 @@ import { NodeSDK } from "@opentelemetry/sdk-node";
 import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
 
-// Trace bootstrap for the four WebSocket Lambdas. Same shape as Users'
-// tracing.ts, minus the auto-instrumentations — see below for why they would
-// be a no-op here.
-//
-// THIS ONE SOURCE FILE IS BUNDLED FOUR TIMES, once into each of
-// dist/authorizer.js, dist/connect.js, dist/disconnect.js and dist/default.js:
-// scripts/build.mjs declares four entryPoints and an `outdir`, not a shared
-// `outfile`. That is correct, not duplication to dedupe — each Lambda is its
-// own process running its own standalone bundle, so "shared" here means
-// "authored once", never "one runtime instance across the four". The direct
-// consequence is flushTraces(): each handler must import and CALL it in its own
-// `finally`, because there is no cross-Lambda runtime to centralize it in.
-//
-// NO getNodeAutoInstrumentations(). OTel patches modules at require() time, and
-// esbuild has already inlined the AWS SDK into each bundle, so there is no
-// module boundary left to patch. Registering them would produce ZERO spans, in
-// silence. Every span around an AWS call in this package is therefore written
-// by hand.
-//
-// Surface the SDK's own diagnostics: without this an export failure — a 404, a
-// refused connection — is swallowed entirely, which is how the Orders
-// misconfiguration went unnoticed. ERROR level only, so healthy runs stay quiet.
+// Trace bootstrap for the four WebSocket Lambdas.
+// CONTRACT: This file is bundled FOUR times, once per entrypoint — "shared"
+// means authored once, never one runtime instance. So each handler must call
+// flushTraces() in its own `finally`; there is nowhere central to drain from.
+
+// CONTRACT: Do NOT add getNodeAutoInstrumentations(). esbuild inlines the AWS
+// SDK into each bundle, leaving no module boundary for OTel to patch at
+// require() time, so they produce ZERO spans in silence. Every span here is
+// manual. The diag logger stays: without it an export failure (404, refused
+// connection) is swallowed entirely. ERROR level, so healthy runs stay quiet.
+// See [[logging-context]]
 diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.ERROR);
 
-// A BatchSpanProcessor held in a module-level const, rather than NodeSDK's
-// `traceExporter` option, for one reason: forceFlush(). Lambda FREEZES the
-// process the instant the handler returns, so whatever the batch processor
-// still holds is either lost or delivered on some later invocation, attributed
-// to the wrong request. Keeping the processor addressable is what lets each
-// handler drain it before returning.
-//
-// SimpleSpanProcessor would avoid the flush but export synchronously on every
-// span.end(), putting an HTTP round-trip to the collector inside the request
-// path — see spec Decision 7.
+// CONTRACT: Keep the processor addressable in a module const, not behind
+// NodeSDK's `traceExporter` option — each handler must forceFlush() it before
+// returning. Lambda freezes the process on return, so anything still batched is
+// lost or delivered on a later invocation under the wrong request.
+// SimpleSpanProcessor avoids the flush but puts an HTTP round trip in the
+// request path.
 const processor = new BatchSpanProcessor(new OTLPTraceExporter());
 
 const sdk = new NodeSDK({
@@ -46,13 +31,11 @@ const sdk = new NodeSDK({
     [ATTR_SERVICE_NAME]: "realtime-events",
     "deployment.environment.name": process.env.DEPLOYMENT_ENVIRONMENT ?? "local",
   }),
-  // No `url` on the exporter and no endpoint anywhere in this file ON PURPOSE.
-  // OTLP config lives in environment variables (OTEL_EXPORTER_OTLP_ENDPOINT,
-  // OTEL_EXPORTER_OTLP_PROTOCOL, OTEL_METRICS_EXPORTER/OTEL_LOGS_EXPORTER=none),
-  // set on these Lambdas in infra/environments/local/main.tf. The exporter
-  // treats the endpoint as a BASE url and appends /v1/traces itself; hand-built
-  // URLs are what made Orders POST every batch to the collector's root and get
-  // a silent 404. See [[logging-context]].
+  // CONTRACT: No `url` on the exporter and no endpoint in this file. OTLP config
+  // lives in env vars (OTEL_EXPORTER_OTLP_ENDPOINT/_PROTOCOL,
+  // OTEL_METRICS_EXPORTER/OTEL_LOGS_EXPORTER=none). The exporter appends
+  // /v1/traces to the BASE url itself; a hand-built URL gets a silent 404.
+  // See [[logging-context]]
   spanProcessors: [processor],
 });
 

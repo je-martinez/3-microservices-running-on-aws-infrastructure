@@ -1,38 +1,15 @@
 namespace Orders.Application.Identity;
 
 /// <summary>
-/// The caller as Users knows them, resolved in a single <c>GetUserById</c> round trip:
-/// the internal id order creation must stamp, the email and name the ORDER_CREATED
-/// consumer needs, plus the delivery address it snapshots.
+/// The caller as Users knows them, from one <c>GetUserById</c> round trip: the internal
+/// <c>usr_</c> id order creation stamps, the email and name ORDER_CREATED needs, and the
+/// address it snapshots (<c>null</c> when none is on file).
+/// CONTRACT: <c>FullName</c> is non-nullable, defaulting to <c>""</c> — proto3 has no null,
+/// so a nameless user arrives empty rather than absent. Nulling it has the consumer reject
+/// the envelope and costs the buyer their confirmation email.
+/// WARNING: PII. Never log the email, name or address — log <c>EmailHash.Compute</c>.
+/// See [[logging-context]]
 /// </summary>
-/// <param name="InternalUserId">The internal <c>usr_</c> id.</param>
-/// <param name="Email">
-/// The caller's email address. Carried because the events-pipeline's ORDER_CREATED handler
-/// requires it in the payload (it is who the confirmation email is sent to), and it already
-/// rides on the SAME <c>GetUserById</c> response that resolves the id — see
-/// <c>users.v1.UserResponse.email</c>. No extra round trip, no new dependency.
-/// PII — never log it in plaintext; log <c>EmailHash.Compute</c> instead (see the
-/// logging-context convention).
-/// </param>
-/// <param name="FullName">
-/// The caller's display name, for the confirmation email's greeting and the receipt's
-/// "billed to" line. Carried for exactly the same reason as <paramref name="Email"/>: it is
-/// already on the SAME <c>GetUserById</c> response (<c>users.v1.UserResponse.full_name</c>),
-/// so reading it here is free, whereas a second lookup later would spend a network call on
-/// data the service already had in hand.
-/// <para>
-/// Non-nullable, defaulting to <c>""</c>, because proto3 has no null: a user with no name on
-/// file arrives as an empty string rather than as an absent field. Keeping that shape means
-/// the payload always carries the key and the template renders an unnamed greeting, instead
-/// of the consumer's schema rejecting the envelope — which would cost the buyer their
-/// confirmation email over a missing courtesy.
-/// </para>
-/// PII — treat it like <paramref name="Email"/>: never log it.
-/// </param>
-/// <param name="Address">
-/// The caller's delivery address, or <c>null</c> when they have none on file. PII —
-/// never log it (see the logging-context convention).
-/// </param>
 public sealed record CallerProfile(
     string InternalUserId,
     string Email,
@@ -44,25 +21,11 @@ public sealed record CallerProfile(
 /// normalized away.
 /// </summary>
 /// <remarks>
-/// <para>
-/// <b>Every field is nullable, and "not provided" is always <c>null</c>.</b> proto3 scalars
-/// have no null: a key absent from the JSON Users stores (commonly <c>line2</c>,
-/// <c>state</c>, <c>postal_code</c>) arrives as <c>""</c>, not null. That is a fact about
-/// the transport, so the adapter that speaks the transport normalizes it, and nothing
-/// downstream — the snapshot on the order, the body sent to Tracking, a future consumer —
-/// has to know that gRPC was ever involved or repeat the "empty means absent" rule.
-/// </para>
-/// <para>
-/// This record lives in Application rather than Infrastructure so the port can express the
-/// address without dragging the generated gRPC types across the dependency boundary.
-/// </para>
-/// <para>
-/// Field names mirror <c>users.v1.Address</c> (and <c>tracking.v1.Address</c>) one for one;
-/// they are a frozen value object, not an evolving contract.
-/// </para>
-/// <para>
-/// PII — never log this, not even one field. See the logging-context convention.
-/// </para>
+/// CONTRACT: Every field is nullable and "not provided" is always <c>null</c>. proto3 scalars
+/// have no null, so an absent key arrives as <c>""</c>; the adapter normalizes that once so
+/// nothing downstream repeats the "empty means absent" rule. Field names mirror
+/// <c>users.v1.Address</c> one for one — a frozen value object, not an evolving contract.
+/// WARNING: PII. Never log this, not even one field. See [[logging-context]]
 /// </remarks>
 public sealed record CallerAddress(
     string? Line1,
@@ -73,14 +36,10 @@ public sealed record CallerAddress(
     string? PostalCode)
 {
     /// <summary>
-    /// True when the address carries no information at all — every field absent.
+    /// True when every field is absent. proto3 always materializes an <c>Address</c>
+    /// message, so a user with none on file arrives as all-empty strings; callers collapse
+    /// that back to <c>null</c> rather than storing an object that reads as an address.
     /// </summary>
-    /// <remarks>
-    /// proto3 always materializes a present <c>Address</c> message, and Users returns one
-    /// whose fields are all <c>""</c> for a user with no address on file. Persisting that
-    /// would store an object of empty strings that reads as "we have an address" while
-    /// meaning the opposite. Callers use this to collapse it back to <c>null</c>.
-    /// </remarks>
     public bool IsEmpty =>
         Line1 is null && Line2 is null && City is null
         && State is null && Country is null && PostalCode is null;

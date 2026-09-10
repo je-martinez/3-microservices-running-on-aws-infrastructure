@@ -1,12 +1,7 @@
-// Build-time converter: reads the OpenAPI JSON emitted by
-// Microsoft.Extensions.ApiDescription.Server and writes the committed
-// services/orders/openapi.yaml (OpenAPI 3.1) that is imported into Datadog.
-//
-// The build-time document generator only emits JSON, so this .NET 10 file-based
-// app (invoked from Orders.Api.csproj after GenerateOpenApiDocuments) re-serializes
-// it as YAML 3.1. Kept off the runtime dependency graph — it is build tooling only,
-// so it can pin a patched Microsoft.OpenApi independent of the service's packages.
-//
+// Build-time converter: re-serializes the OpenAPI JSON the document generator emits as the
+// committed services/orders/openapi.yaml (3.1). Invoked from Orders.Api.csproj.
+// CONTRACT: Keep it off the runtime dependency graph — build tooling only, so it can pin a
+// patched Microsoft.OpenApi independent of the service's packages.
 // Usage: dotnet run --file openapi-json-to-yaml.cs -- <input.json> <output.yaml>
 #:package Microsoft.OpenApi@2.10.0
 using Microsoft.OpenApi;

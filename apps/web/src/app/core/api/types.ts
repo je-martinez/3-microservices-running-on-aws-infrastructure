@@ -1,6 +1,6 @@
 /**
- * Phase-1 fixture types, derived from the services' openapi.yaml.
- * Phase 2 swaps the DATA SOURCE, not these types or the templates.
+ * Contract types for every gateway response this app consumes, transcribed
+ * from the services' openapi.yaml. Fixtures and API services both speak these.
  *
  * CONTRACT: Field names mirror the wire EXACTLY, including the camelCase
  * (Orders) / snake_case (embedded tracking) split. Normalising it here hides a
@@ -22,9 +22,21 @@ export function toInt(value: IntLike): number {
   return n;
 }
 
-/** Format integer cents as a display price. No currency in any contract. */
-export function formatCents(value: IntLike): string {
-  return (toInt(value) / 100).toFixed(2);
+/**
+ * services/orders/openapi.yaml — Money. Every HTTP amount is this object.
+ *
+ * CONTRACT: Render `formatted` verbatim. Do NOT re-round, re-derive or
+ * recompute a display string from `cents`/`amount` — the server rounds tax per
+ * line, so a client that rounds once over a subtotal shows a total a cent away
+ * from what checkout actually charges. `cents` is the authoritative value and
+ * is for arithmetic the server does not do (e.g. a local quantity preview).
+ * See [[money-representation]]
+ */
+export interface Money {
+  cents: IntLike;
+  amount: string;
+  formatted: string;
+  currency: string;
 }
 
 /** services/orders/openapi.yaml — ProductImageDto. Note: `uri`, not `url`. */
@@ -40,34 +52,111 @@ export interface Product {
   id: string;
   name: string;
   description: string;
-  unitPriceCents: IntLike;
+  unitPrice: Money;
   unitsInStock: IntLike;
   categories: string[];
   image: ProductImage | null;
 }
 
 /**
+ * Why a cart line cannot be bought.
+ *
+ * CONTRACT: snake_case — the ONLY snake_case values Orders sends, and unlike
+ * every other Orders string these are an enum the service pins in
+ * Orders.Application.Carts.UnavailableReason. The openapi.yaml types the field
+ * as a bare `string`, so nothing generated will catch a drift here.
+ * See [[openapi-specs]]
+ */
+export type UnavailableReason = "unknown_product" | "out_of_stock" | "insufficient_stock";
+
+/**
+ * services/orders/openapi.yaml — CartLineDto. All nine keys always present.
+ *
+ * CONTRACT: `available: false` does NOT imply an unpriced line. Only the
+ * `unknown_product` reason nulls `name`/`unitPrice`/`subtotal`/`image`; an
+ * out_of_stock or insufficient_stock line is fully priced and renders normally
+ * with a badge. Guard on the field you read, not on `available` — treating the
+ * two as equivalent blanks the price of every low-stock line.
+ * `unavailableReason` is non-null exactly when `available` is false.
+ * See [[money-representation]]
+ */
+export interface CartLine {
+  productId: string;
+  name: string | null;
+  quantity: IntLike;
+  unitsInStock: IntLike;
+  available: boolean;
+  unitPrice: Money | null;
+  subtotal: Money | null;
+  image: ProductImage | null;
+  unavailableReason: UnavailableReason | null;
+}
+
+/**
+ * services/orders/openapi.yaml — CartDto.
+ * `id` is null for a user who has never had a cart persisted.
+ */
+export interface Cart {
+  id: string | null;
+  items: CartLine[];
+  subtotal: Money;
+  tax: Money;
+  shipping: Money;
+  total: Money;
+  canCheckout: boolean;
+}
+
+/**
  * services/orders/openapi.yaml — OrderLineDto.
- * Carries ONLY productId: no name, image, or unit price. Rendering a line
- * requires joining against the product catalogue (see joinOrderLine).
+ *
+ * CONTRACT: `name` and `image` are a SNAPSHOT taken at order creation, and are
+ * null on orders predating it, which were not backfilled. Never "correct" a
+ * line from the current catalogue, and guard every read — an unguarded `[src]`
+ * renders a broken image on every historical row.
+ *
+ * CONTRACT: A line has NO `shipping` — only the order does, so summing the
+ * lines falls short of `order.total` by exactly that. Do NOT invent a per-line
+ * shipping share to reconcile them. See [[money-representation]]
  */
 export interface OrderLine {
   productId: string;
+  name: string | null;
   quantity: IntLike;
-  subtotalCents: IntLike;
-  taxCents: IntLike;
-  totalCents: IntLike;
+  subtotal: Money;
+  tax: Money;
+  total: Money;
+  image: ProductImage | null;
 }
 
 /** services/orders/openapi.yaml — OrderDto. No status field on the wire. */
+/**
+ * services/orders/openapi.yaml — OrderNumberDto. The customer-facing order label.
+ *
+ * CONTRACT: Render `formatted` verbatim. Do NOT insert the separator yourself —
+ * the server owns that rule, exactly as it owns `Money.formatted`. Six consumers
+ * each formatting their own copy is six copies that drift, and a customer then
+ * reads out a number support cannot find. `raw` is what you send BACK.
+ * See [[friendly-order-number]]
+ */
+export interface OrderNumber {
+  raw: string;
+  formatted: string;
+}
+
 export interface Order {
   id: string;
+  /**
+   * Null for an order predating the backfill — the whole object, never an object
+   * of empty strings, so a template branches on one absence marker. `id` remains
+   * the identifier the URL and every other contract use.
+   */
+  orderNumber: OrderNumber | null;
   userId: string;
   cognitoSub: string;
-  subtotalCents: IntLike;
-  taxCents: IntLike;
-  shippingCents: IntLike;
-  totalCents: IntLike;
+  subtotal: Money;
+  tax: Money;
+  shipping: Money;
+  total: Money;
   createdAt: string;
   lines: OrderLine[];
 }
@@ -115,7 +204,16 @@ export interface Tracking {
   history: TrackingHistoryEntry[];
 }
 
-/** GET /v1/orders/my-orders returns an array of THESE, not of bare orders. */
+/**
+ * GET /orders/my-orders returns an array of THESE only when the request carries
+ * `includeTracking=true`.
+ *
+ * CONTRACT: That parameter defaults to FALSE, and without it the same route
+ * answers 200 with an array of bare `Order`s. Nothing throws — every
+ * `entry.order` reads undefined and the list renders as if the user had no
+ * orders. OrdersApi is what pins the parameter on; see orders-api.ts.
+ * See [[openapi-specs]]
+ */
 export interface OrderWithTracking {
   order: Order;
   tracking: Tracking | null;

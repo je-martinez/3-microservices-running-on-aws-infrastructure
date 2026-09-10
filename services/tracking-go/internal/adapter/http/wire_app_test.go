@@ -29,13 +29,9 @@ import (
 // and generic names collided across them (plan correction 11).
 
 // wireStubs are the collaborators AppRouter needs that a wiring test has no
-// business supplying for real. Every one is either nil-tolerated by the seam it
-// reaches or a null object.
-//
-// The database pool is a NON-NIL, NEVER-CONNECTED *sql.DB. sql.Open does not
-// dial, so this is a legal pool that would only fail on first query — and no
-// test here issues one. That is what lets the route table be asserted without
-// MySQL, while the repository tests keep using a real server.
+// business supplying for real — each is nil-tolerated or a null object. The pool
+// is a non-nil, never-connected *sql.DB (sql.Open does not dial), which is what
+// lets the route table be asserted with no MySQL.
 func wireStubs(t *testing.T) (*sql.DB, *slog.Logger) {
 	t.Helper()
 
@@ -113,14 +109,10 @@ func TestAppRouterRegistersEverySeam(t *testing.T) {
 }
 
 // TestAppRouterDoesNotPanicOnWildcardConflict pins the failure mode that takes
-// the PROCESS down rather than one request.
-//
-// Gin builds one radix tree PER METHOD and panics AT REGISTRATION when a literal
-// and a wildcard collide inside one tree. The three literals here
-// (init-tracking, by-user, e2e-cleanup) coexist with :order_id ONLY because their
-// methods differ. Constructing the full router is the assertion: a panic fails
-// this test at the exact commit that introduced the conflicting route, instead of
-// crash-looping a container.
+// the PROCESS down rather than one request. Gin panics AT REGISTRATION when a
+// literal and a wildcard collide in one method's tree, and the three literals
+// here coexist with :order_id only because their methods differ. Constructing
+// the router IS the assertion, so a conflicting route fails at its own commit.
 func TestAppRouterDoesNotPanicOnWildcardConflict(t *testing.T) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -145,13 +137,10 @@ func TestE2ECleanupRouteIsAbsentWhenTheFlagIsOff(t *testing.T) {
 	}
 }
 
-// TestE2ECleanupAnswers405WhenTheFlagIsOff is the behavioural half.
-//
-// 405 rather than 404 BECAUSE GET /v1/trackings/:order_id matches that path in
-// another method's tree, and HandleMethodNotAllowed is on. The Python answers 405
-// for the same reason (Starlette's default), so a 404 here would be a silent
-// behavioural drift the equivalence gate exists to catch — and it is exactly what
-// forgetting `router.HandleMethodNotAllowed = true` produces.
+// TestE2ECleanupAnswers405WhenTheFlagIsOff is the behavioural half. 405 rather
+// than 404 because GET /v1/trackings/:order_id matches that path in another
+// method's tree and HandleMethodNotAllowed is on — a 404 here is exactly what
+// forgetting that setting produces.
 func TestE2ECleanupAnswers405WhenTheFlagIsOff(t *testing.T) {
 	router := adapterhttp.NewAppRouter(wireOptions(t, false))
 
@@ -187,30 +176,13 @@ func TestAppRouterServesHealth(t *testing.T) {
 
 // ─── The middleware order ────────────────────────────────────────────────────
 
-// TestRecoverySitsOutsideLogContext pins the ORDER of the two middlewares.
-//
-// # What the order actually changes, measured rather than assumed
-//
-// The obvious assertion — "the panic escapes if the order is wrong" — DOES NOT
-// HOLD, and asserting it yields a test that passes under both orders. Verified
-// on gin 1.12.0: LogContextMiddleware's deferred observer never calls recover(),
-// so it re-raises only in the sense of letting the panic keep unwinding, and
-// gin.Recovery catches a panic from anywhere INSIDE it, on the way out as well
-// as on the way in. Either order therefore answers 500 and drops nothing.
-//
-// The difference is in the OBSERVATION, which is the whole reason the middleware
-// watches for panics at all. It shows up on a handler that panics AFTER the
-// status is already written:
-//
-//	Recovery OUTER (correct): the panic unwinds THROUGH LogContextMiddleware,
-//	  whose deferred observe() fires with an explicit 500 — the request log line
-//	  says 500 and the 5xx metric is counted.
-//	Recovery INNER (wrong):   Recovery swallows the panic before
-//	  LogContextMiddleware sees it unwinding, so c.Next() returns normally and
-//	  the line is built from c.Writer.Status() — 200. The crash is INVISIBLE in
-//	  the logs and uncounted in the metric that exists to find it.
-//
-// So the assertion is on the logged status code, not on the HTTP status.
+// CONTRACT: gin.Recovery sits OUTSIDE LogContextMiddleware, and the assertion is
+// on the LOGGED status code, not the HTTP one — both orders answer 500, so
+// asserting the panic escapes passes either way. With Recovery inner it swallows
+// the panic before LogContextMiddleware sees it unwinding, so the line is built
+// from c.Writer.Status() and a crash after the status is written logs 200:
+// invisible in the logs and uncounted in the 5xx metric.
+// See [[logging-context]]
 func TestRecoverySitsOutsideLogContext(t *testing.T) {
 	var logged bytes.Buffer
 
@@ -268,19 +240,12 @@ func (r *wireCountingResolver) Calls() int {
 	return r.calls
 }
 
-// TestTheIdentityStampIsAppliedToTheReadsAndNowhereElse is the composition
-// root's half of this task.
-//
-// StampResolvedUserID itself is covered by its own suite; what cannot be covered
-// there is whether NewAppRouter ever CALLS it, and on which routes. A dropped
-// group here would put the response cache back to permanently inert — with every
-// other test in this package still green, because each one stamps the usr_ id in
-// its own fixture middleware.
-//
-// The reads are asserted through their 401: with no x-user-id the middleware has
-// nothing to resolve, so a resolution count of 1 on a request that CARRIES one,
-// and 0 on the identityless routes, is what separates "applied per-route" from
-// "applied globally".
+// TestTheIdentityStampIsAppliedToTheReadsAndNowhereElse asserts NewAppRouter
+// actually CALLS StampResolvedUserID, and on which routes — what its own suite
+// cannot cover. A dropped group makes the response cache permanently inert while
+// every other test here stays green, since each stamps the usr_ id in its own
+// fixture. A count of 1 on a request carrying an identity and 0 on the
+// identityless routes separates per-route from global.
 func TestTheIdentityStampIsAppliedToTheReadsAndNowhereElse(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -321,19 +286,12 @@ func TestTheIdentityStampIsAppliedToTheReadsAndNowhereElse(t *testing.T) {
 
 // ─── The document and the router describe the SAME service ───────────────────
 
-// TestTheOpenAPIDocumentDescribesExactlyTheseRoutes ties the hand-written spec to
-// the route table Gin actually holds.
-//
-// internal/openapi enumerates seven routes against itself, which proves the
-// document is internally consistent and nothing more: it never sees a gin.Engine,
-// so a route added to NewAppRouter and forgotten in the document would leave every
-// test in that package green. This is the only assertion in the repo that fails
-// when the two drift, and it belongs here rather than there — this is the package
-// that can build the real router, and openapi must keep importing nothing.
-//
-// It compares PATH TEMPLATES, so gin's ":order_id" is normalized to the "{order_id}"
-// OpenAPI writes. Different syntax for the same route, and mapping between them is
-// exactly the translation a reader has to do by hand otherwise.
+// TestTheOpenAPIDocumentDescribesExactlyTheseRoutes ties the hand-written spec
+// to the route table Gin holds. internal/openapi only proves the document is
+// internally consistent — it never sees a gin.Engine — so this is the only
+// assertion that fails when the two drift, and it lives here because this
+// package can build the real router while openapi imports nothing. It compares
+// PATH TEMPLATES, normalizing gin's ":order_id" to OpenAPI's "{order_id}".
 func TestTheOpenAPIDocumentDescribesExactlyTheseRoutes(t *testing.T) {
 	// E2E on, matching the document: it describes the FULL contract including the
 	// flag-guarded cleanup route, the same choice the Python generator makes.

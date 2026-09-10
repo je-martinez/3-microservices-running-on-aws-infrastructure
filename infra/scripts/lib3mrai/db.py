@@ -14,16 +14,11 @@ COMPOSE_NETWORK = "3mrai_3mrai-network"
 def discover_port(engine: str) -> int:
     """Return the RDS-proxy port Floci assigned to `engine`'s cluster.
 
-    Floci assigns those ports (7000-7099) by cluster CREATION ORDER, which is
-    NOT stable across applies: with two clusters (Users Postgres + Orders
-    MySQL) the assignment can flip, so one apply yields postgres=7001/
-    mysql=7002 and another yields the reverse. Any code that hardcodes
-    7001=Postgres breaks whenever Floci flips them.
-
-    describe_db_clusters exposes `Engine` per cluster, so the port is resolved
-    for a given engine instead of guessed by position.
-
-    Raises LookupError when no cluster matches the engine.
+    CONTRACT: Do NOT hardcode a port. Floci assigns 7000-7099 by cluster
+    CREATION ORDER, which is not stable across applies — postgres and mysql have
+    been observed swapped between runs. describe_db_clusters exposes `Engine`
+    per cluster, so the port is resolved by engine, never by position.
+    Raises LookupError when no cluster matches. See [[floci-rds-apigw-limits]]
     """
     clusters = aws.client("rds").describe_db_clusters().get("DBClusters", [])
     for cluster in clusters:
@@ -61,11 +56,10 @@ def wait_for_db(
 ) -> bool:
     """Poll until `engine` at host:port accepts connections.
 
-    Returns True as soon as it is ready, False if it never became ready within
-    `attempts`. Raises ValueError for an unknown engine.
+    True once ready, False on timeout. Raises ValueError for an unknown engine.
     """
-    # Resolve the engine first, so an unknown one fails immediately instead of
-    # after the full retry budget.
+    # WHY: Resolve the engine first so an unknown one fails immediately rather
+    # than after the full retry budget.
     _probe_command(engine, host, port)
 
     for attempt in range(1, attempts + 1):

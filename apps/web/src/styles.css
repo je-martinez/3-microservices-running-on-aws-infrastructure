@@ -135,6 +135,7 @@
   --spacing-stepper: 1.875rem; /* 30px — quantity stepper button width */
   --spacing-control: 2.375rem; /* 38px — filter chip */
   --spacing-control-md: 2.625rem; /* 42px — desktop menu row */
+  --spacing-control-base: 2.75rem; /* 44px — in-card action button */
   --spacing-control-lg: 2.875rem; /* 46px — payment field */
   --spacing-control-xl: 3.125rem; /* 50px — mobile menu row */
   --spacing-control-2xl: 3.625rem; /* 58px — primary CTA / payment row (NOT --spacing-field, 56px) */
@@ -154,14 +155,54 @@ body {
   overflow: hidden;
 }
 
-/* The single scroll container: full-width so the header spans the viewport,
- * with the gutter reserved inside it so its content box is one constant width
- * whether or not the route overflows. */
+/* CONTRACT: This container carries the background, because ONLY it can paint
+ * the reserved gutter. `scrollbar-gutter` reserves that 15px strip OUTSIDE the
+ * content box, so no descendant — however wide — ever covers it; a page painting
+ * its own background leaves the strip showing whatever is behind, which reads as
+ * a grey band down the right edge of the white `/`. Routes disagree on the
+ * colour, so it comes from `--page-bg`, which each white page sets on itself via
+ * `data-page-bg="white"` below. See [[angular-component-authoring]] */
 .app-scroll {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   scrollbar-gutter: stable;
+  background-color: var(--page-bg, var(--color-surface-body));
+}
+
+/* CONTRACT: A routed host MUST stay a stretching flex column. Router-outlet
+ * inserts each page's host element here, and an Angular host defaults to
+ * `display: inline` with no flex sizing — so a page's own `flex-1` resolves
+ * against that inline box rather than this container, and a short route paints
+ * only as tall as its content, leaving `body` grey below it.
+ *
+ * CONTRACT: `router-outlet` MUST stay excluded. Angular inserts the routed
+ * component as the outlet's SIBLING, not its child, so a bare `> *` also
+ * stretches the empty outlet: two `flex: 1 0 auto` children then split the
+ * free space and the page renders pushed down (measured: a 94px empty outlet
+ * above a page that should start at 0), reading as a vertically centred screen.
+ * See [[angular-component-authoring]] */
+.app-scroll > *:not(router-outlet) {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+}
+
+/* The outlet is an insertion marker, never a box in the layout. */
+.app-scroll > router-outlet {
+  display: none;
+}
+
+/* CONTRACT: Every page whose own background is `bg-surface-white` MUST also
+ * carry `data-page-bg="white"`, since only this hook reaches the gutter strip
+ * the page itself cannot paint. `:has()` and not inheritance: the variable has
+ * to travel UP from the routed page to the scroller enclosing it. The second
+ * selector is for a layout whose routes are ALL white (auth), which sets the
+ * attribute on the scroller itself — `:has()` never matches its own subject.
+ * See [[angular-component-authoring]] */
+.app-scroll:has([data-page-bg="white"]),
+.app-scroll[data-page-bg="white"] {
+  --page-bg: var(--color-surface-white);
 }
 
 body {

@@ -13,10 +13,16 @@ if [[ -f "$merge_head" ]]; then
   exit 0
 fi
 
+# CONTRACT: This list mirrors LANG_BY_SUFFIX and LANG_BY_STEM in
+# scripts/validate-comments.py. A suffix the script lints but this case misses is
+# gated by `make lint-comments` alone and passes every commit — which is how an
+# Angular template kept a narrative block through review.
 staged_paths=()
 while IFS= read -r -d '' path; do
   case "$path" in
-    *.tf | *.tfvars | *.py | *.ts | *.tsx | *.js | *.mjs | *.jsx | *.cs | *.go)
+    *.tf | *.tfvars | *.py | *.ts | *.tsx | *.js | *.mjs | *.jsx | *.cs | *.go | \
+    *.html | *.yml | *.yaml | Makefile* | */Makefile* | Dockerfile* | */Dockerfile* | \
+    Containerfile* | */Containerfile*)
       staged_paths+=("$path")
       ;;
   esac

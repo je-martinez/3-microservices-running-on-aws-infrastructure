@@ -10,16 +10,10 @@ import (
 	tracing "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/otel"
 )
 
-// StatusCounter is the ONE query the ticker needs, declared HERE by the code that
-// consumes it. The MySQL adapter satisfies it without importing this package and
-// without a shared repository interface.
-//
-// It runs on the READ connection and excludes soft-deleted rows:
-//
-//	SELECT status, COUNT(*) FROM tracking WHERE deleted_at IS NULL GROUP BY status
-//
-// A deleted tracking is not an order in flight, and counting it would make the
-// gauge disagree with every user-facing read, all of which filter the same way.
+// StatusCounter is the ONE query the ticker needs, declared here by its
+// consumer. It runs on the READ connection and excludes soft-deleted rows — a
+// deleted tracking is not an order in flight, and counting it makes the gauge
+// disagree with every user-facing read. See [[soft-delete]]
 type StatusCounter interface {
 	CountByStatus(ctx context.Context) (map[string]int64, error)
 }
@@ -44,16 +38,11 @@ const DefaultInterval = 15 * time.Second
 // "no errors" instead of "Error Loading Data".
 var httpErrorClasses = []string{"4xx", "5xx"}
 
-// SplitStatusCounts splits raw per-status counts into (delivered, inProgress).
-//
-// Pure, so the split is unit-testable without a database. BOTH values are always
-// returned, 0 included: a series that stops being published reads as "no data"
-// in a dashboard rather than as zero.
-//
-// Anything that is not the terminal status counts as in progress — INCLUDING a
-// status this code does not know about. That direction is deliberate: a new
-// status added to the progression should land in "still in flight" by default
-// rather than silently disappear from both series.
+// SplitStatusCounts splits raw per-status counts into (delivered, inProgress),
+// pure so it is testable without a database. BOTH values are always returned,
+// 0 included, since an unpublished series reads as "no data" rather than zero.
+// Anything but the terminal status counts as in progress, so a new status lands
+// in "in flight" by default.
 func SplitStatusCounts(raw map[string]int64) (delivered, inProgress int64) {
 	for status, count := range raw {
 		if status == TerminalStatus {
@@ -65,23 +54,14 @@ func SplitStatusCounts(raw map[string]int64) (delivered, inProgress int64) {
 	return delivered, inProgress
 }
 
-// RunTicker publishes the gauge series every interval until ctx is cancelled.
+// RunTicker publishes the gauge series every interval until ctx is cancelled. It
+// SLEEPS FIRST: at startup the database may still be unreachable, and a tick
+// before the first interval yields only an unactionable failure line.
 //
-// IT SLEEPS FIRST, THEN PUBLISHES. At startup the database may still be
-// unreachable, and a tick before the first interval elapses yields only an
-// unactionable failure line — noise at exactly the moment the log is being read
-// for something else.
-//
-// A PER-TICK FAILURE IS SWALLOWED AND THE LOOP CONTINUES. This loop has no
-// natural end, so a transient database blip or a CloudWatch outage must cost one
-// datapoint, not the rest of the process's metrics. Only cancellation ends it.
-//
-// The ctx it receives must be the PROCESS LIFETIME context, never a request's:
-// this goroutine outlives any request, and a request context is cancelled the
-// moment its response is sent, which would end the ticker on the first request.
-//
-// Start it only when METRICS_ENABLED — the caller decides, so this function has
-// no flag inside it.
+// CONTRACT: ctx must be the process-lifetime context, never a request's, which
+// is cancelled when its response is sent. A per-tick failure is swallowed —
+// a blip costs one datapoint, not the process's metrics.
+// See [[logging-context]]
 func RunTicker(ctx context.Context, p Publisher, counts StatusCounter, interval time.Duration, log *slog.Logger) {
 	if interval <= 0 {
 		interval = DefaultInterval
@@ -99,17 +79,13 @@ func RunTicker(ctx context.Context, p Publisher, counts StatusCounter, interval 
 	}
 }
 
-// publishTick runs one tick's query and its five publishes inside a metrics-tick
-// span.
+// publishTick runs one tick's query and its publishes inside a metrics-tick span.
 //
-// The loop runs on a timer, outside any request, so without a wrapper every
-// tick's SQL and AWS spans would reach the backend as their OWN root traces — 60
-// orphans named `connect` and `SELECT tracking` were measured in one hour, which
-// buries the real request traces under fragments nobody can attribute.
-//
-// The span name is shared with Users and events-pipeline on purpose, so one query
-// means the same thing in every service. INTERNAL, not CONSUMER: events-pipeline's
-// is CONSUMER because EventBridge wakes it; this one is our own timer.
+// CONTRACT: Keep the wrapping span. Without it every tick's SQL and AWS spans
+// reach the backend as their OWN root traces, burying real request traces under
+// unattributable fragments. The name is shared with Users and events-pipeline so
+// one query means the same thing everywhere; INTERNAL, not CONSUMER, because
+// this is our own timer. See [[ADR-0019-distributed-tracing-opentelemetry]]
 func publishTick(ctx context.Context, p Publisher, counts StatusCounter, log *slog.Logger) {
 	ctx, end := tracing.WorkflowSpan(ctx, "metrics-tick",
 		attribute.String("app_event", "metrics_tick_started"))

@@ -30,29 +30,12 @@ public static class CreateOrderEndpoint
         HttpContext http,
         IConfiguration config)
     {
-        // Validate the body BEFORE anything else runs. `Lines` is declared as a
-        // non-nullable IReadOnlyList, but that is a compile-time annotation only —
-        // System.Text.Json does not enforce it, so a body that omits the key (or
-        // spells it wrong, or sends an explicit null) binds it to null and every
-        // nullable-reference warning stays silent.
-        //
-        // Without this guard the first use downstream was `command.Lines.Count` in
-        // CreateOrderService, which threw NullReferenceException out of the handler
-        // and became a 500. That is the wrong answer twice over: it reports a server
-        // fault for what is entirely a caller mistake, and it gives the caller
-        // nothing to act on. It is also how the bug surfaced — a client posting
-        // `items` instead of `lines` got an opaque 500.
-        //
-        // An EMPTY list is rejected here too, and deliberately: it is well-formed
-        // JSON, so it would sail past this method and open a write transaction plus
-        // a gRPC caller lookup only to commit an order with no lines and a zero
-        // total. An order with nothing in it is not a request this service should
-        // satisfy.
-        //
-        // 400 is NOT in the group's .Produces list by accident — OrderEndpoints.cs
-        // declares it alongside the others, so the generated openapi.yaml documents
-        // it (see CLAUDE.md §2a: a route's declared statuses must match what the
-        // handler really returns).
+        // CONTRACT: Validate the body BEFORE anything else. The non-nullable annotation on
+        // `Lines` is compile-time only, so a client posting `items` instead of `lines` binds
+        // null and gets an opaque 500 for its own mistake. Reject an EMPTY list too: it is
+        // well-formed JSON that would otherwise open a write transaction and a gRPC lookup
+        // to commit an order with no lines. The 400 is declared in OrderEndpoints' .Produces
+        // so openapi.yaml documents it.
         if (body?.Lines is null || body.Lines.Count == 0)
         {
             return Results.BadRequest(new

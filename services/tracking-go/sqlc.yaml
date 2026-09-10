@@ -1,9 +1,8 @@
 version: "2"
 sql:
   - engine: "mysql"
-    # Schema comes from the migrations themselves, so the generated models can
-    # never drift from the DDL the database actually runs. There is no second
-    # schema definition to keep in sync.
+    # WHY: The migrations are the schema, so generated models cannot drift from
+    # the DDL the database runs.
     schema: "migrations/"
     queries: "internal/adapter/mysql/queries/"
     gen:
@@ -11,9 +10,9 @@ sql:
         package: "mysql"
         out: "internal/adapter/mysql"
         sql_package: "database/sql"
-        # No JSON tags on generated models. These are persistence structs; the
-        # HTTP response types are separate and hand-written, precisely so a
-        # response can never accidentally carry shipping_address or cognito_sub.
+        # CONTRACT: Do NOT emit JSON tags here. These are persistence structs;
+        # response types are hand-written so a response cannot accidentally
+        # serialize shipping_address or cognito_sub. See [[logging-context]]
         emit_json_tags: false
         emit_prepared_queries: false
         emit_interface: true
@@ -21,44 +20,20 @@ sql:
         emit_result_struct_pointers: false
         emit_params_struct_pointers: false
         overrides:
-          # tags -> the hand-written Tags type (tags.go), which implements
-          # sql.Scanner and driver.Valuer over []string.
-          #
-          # Tags lives in its OWN package (tagtype), not in package mysql
-          # alongside the generated code. sqlc's go_type override can only name
-          # a type via an import path, and pointing that import at the very
-          # package it is generating into emits
-          # `import mysql "…/internal/adapter/mysql"` inside a file that IS
-          # package mysql — a self-import that fails with "import cycle not
-          # allowed". A bare `go_type: "Tags"` is rejected too ("not a Go basic
-          # type"), so a separate package is the only arrangement sqlc supports
-          # for a hand-written Scanner/Valuer on a generated model.
+          # CONTRACT: Keep Tags in its own tagtype package. sqlc names an
+          # override type only by import path, so pointing it at package mysql
+          # emits a self-import that fails with "import cycle not allowed".
           - column: "tracking.tags"
             go_type:
               import: "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/mysql/tagtype"
               package: "tagtype"
               type: "Tags"
-          # shipping_address stays RAW JSON. Deliberately NOT a Go struct: the
-          # shape is owned by Orders/Users, this service only stores and returns
-          # it, and a strict model would turn an additive upstream field into a
-          # tracking-creation outage.
-          #
-          # []byte, NOT json.RawMessage, and the difference is not cosmetic.
-          # json.RawMessage does not implement sql.Scanner, so scanning a NULL
-          # column into it fails AT RUNTIME:
-          #
-          #   sql: Scan error on column index 4, name "shipping_address":
-          #   unsupported Scan, storing driver.Value type <nil>
-          #   into type *json.RawMessage
-          #
-          # The column is nullable and most rows have no address, so this is the
-          # common path, not an edge case. []byte accepts NULL as a nil slice.
-          # Verified against a real MySQL row; the assertion in models_test.go
-          # pins the generated type so a future override cannot silently undo it.
-          #
-          # The override names no import, which is what keeps sqlc from emitting
-          # "encoding/json" twice (`json redeclared in this block`) -- the reason
-          # an earlier attempt at an override was reverted rather than fixed.
+          # CONTRACT: []byte, NOT json.RawMessage, and no import on the
+          # override. RawMessage is no sql.Scanner, so the nullable column's
+          # common NULL path fails at runtime ("unsupported Scan, storing
+          # driver.Value type <nil>"); naming an import redeclares json.
+          # The shape stays raw because Orders/Users own it. models_test.go
+          # pins the generated type.
           - column: "tracking.shipping_address"
             go_type:
               type: "byte"

@@ -21,13 +21,9 @@ vi.stubEnv("METRICS_ENABLED", "");
 // reasoning as tests/handlers/user-created.test.ts.
 vi.mock("#email/sender", () => ({ sendEmail: vi.fn(async () => {}) }));
 
-// The websocket publisher is mocked too: it is its own process boundary
-// (DynamoDB query + API Gateway Management API), and its own unit tests
-// already cover its internals. Mocked here via the SAME `#` alias the module
-// is imported by (not a relative path), matching every other vi.mock in this
-// suite. `vi.hoisted` is required (not a plain top-level const) because
-// `vi.mock` factories are hoisted above all other module code, including
-// normal top-level declarations.
+// CONTRACT: Mock via the SAME `#` alias the module is imported by, never a
+// relative path, and build the stub with `vi.hoisted` — `vi.mock` factories are
+// hoisted above all other module code, including top-level declarations.
 const { publishToUser } = vi.hoisted(() => ({ publishToUser: vi.fn(async () => {}) }));
 vi.mock("#shared/realtime/websocket-publisher", () => ({ publishToUser }));
 
@@ -84,6 +80,48 @@ function makeEnvelope(status: string, previousStatus: string, event_id?: string)
   };
 }
 
+describe("the customer-facing order number", () => {
+  beforeEach(() => vi.mocked(sendEmail).mockClear());
+
+  const ORDER_NUMBER = { raw: "2609078KJ4M2", formatted: "260907-8KJ4M2" };
+
+  function withNumber(status: string, previousStatus: string): Envelope {
+    const base = makeEnvelope(status, previousStatus);
+    return { ...base, payload: { ...base.payload, order_number: ORDER_NUMBER } };
+  }
+
+  it("renders the FORMATTED number in the body, verbatim", async () => {
+    await trackingStatusChangedHandler(withNumber("SHIPPED", "PROCESSING"));
+
+    const { html } = vi.mocked(sendEmail).mock.calls[0][0];
+    expect(html).toContain("260907-8KJ4M2");
+    // Never the canonical form, which no human is meant to read.
+    expect(html).not.toContain("2609078KJ4M2");
+  });
+
+  // CONTRACT: The subject is the most visible surface of all — an opaque
+  // `ord_RbVmVSLmbHj6DWQ6N4l0d7C8` sitting in an inbox is exactly the problem
+  // this feature exists to fix. See [[friendly-order-number]]
+  it("puts the formatted number in the subject line", async () => {
+    await trackingStatusChangedHandler(withNumber("DELIVERED", "OUT_FOR_DELIVERY"));
+
+    const { subject } = vi.mocked(sendEmail).mock.calls[0][0];
+    expect(subject).toBe("Order 260907-8KJ4M2: delivered");
+  });
+
+  // The backward-compatibility case: a message published before the field
+  // existed can still be on the queue at deploy time, and requiring the field
+  // would make it a PermanentError whose email AND WebSocket push are lost.
+  it("still sends, with the id, when the payload carries no number", async () => {
+    await trackingStatusChangedHandler(makeEnvelope("SHIPPED", "PROCESSING"));
+
+    expect(vi.mocked(sendEmail)).toHaveBeenCalledTimes(1);
+    const { subject, html } = vi.mocked(sendEmail).mock.calls[0][0];
+    expect(subject).toBe("Order ord_1: shipped");
+    expect(html).toContain("ord_1");
+  });
+});
+
 describe("trackingStatusChangedHandler", () => {
   beforeEach(() => {
     vi.mocked(sendEmail).mockReset();
@@ -103,14 +141,10 @@ describe("trackingStatusChangedHandler", () => {
     expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: "ada@example.com" }));
   });
 
-  // Without this, the previous test would still pass against a handler that
-  // sends a hardcoded/empty body — asserting only the recipient proves
-  // nothing about the render actually reaching the transport, nor that each
-  // status maps to ITS OWN copy rather than one shared/generic string.
-  //
-  // Comparing every pair (not just PLACED vs DELIVERED) matters: a handler
-  // that collapses PROCESSING/OUT_FOR_DELIVERY onto the SHIPPED template
-  // still passes a two-variant check as long as DELIVERED stays distinct.
+  // CONTRACT: Compare EVERY pair, not just PLACED vs DELIVERED. A handler that
+  // collapses PROCESSING/OUT_FOR_DELIVERY onto the SHIPPED template still
+  // passes a two-variant check while DELIVERED stays distinct, and asserting
+  // only the recipient proves nothing about the render reaching the transport.
   it("renders status-specific copy into the html body for each of the five variants", async () => {
     const bodies: Record<string, string> = {};
     for (const [status, previous] of [
@@ -244,14 +278,10 @@ describe("trackingStatusChangedHandler", () => {
     expect(error.message).not.toContain("leaky@example.com");
   });
 
-  // Scope, stated honestly: this covers only that the handler does NOT
-  // swallow a transport failure — it must propagate so process-record can
-  // persist FAILED and classify the record. It deliberately rejects with a
-  // PLAIN Error rather than a TransientError: rejecting with a TransientError
-  // and then asserting TransientError would only prove the mock returns what
-  // it was configured to return (see tests/handlers/user-created.test.ts for
-  // the fuller explanation). The real classification lives in sender.ts and
-  // is covered against a real failing send in tests/email/sender.test.ts.
+  // CONTRACT: Reject with a PLAIN Error — rejecting with a TransientError and
+  // asserting TransientError only proves the mock returns what it was told to.
+  // This covers only that the handler does not SWALLOW a transport failure; the
+  // classification is pinned in tests/email/sender.test.ts.
   it("does not swallow a transport failure — it propagates to the caller", async () => {
     vi.mocked(sendEmail).mockRejectedValue(new Error("transport exploded"));
 

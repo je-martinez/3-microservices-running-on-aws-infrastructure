@@ -18,16 +18,11 @@ const EXACT: ReadonlyArray<{ method: string; path: string }> = [
   // authenticated change, and it must 401 without an identity.
   { method: "POST", path: "/v1/users/password/forgot" },
   { method: "POST", path: "/v1/users/password/confirm" },
-  // The E2E harness's global teardown, which runs once with no user session and
-  // so cannot send an x-user-id. It deletes by TAG ("E2E Source"), never by
-  // caller, so an identity would tell it nothing anyway.
-  //
-  // This entry is what makes the route reachable at all: it 401'd every call
-  // since it was written, and because the old teardown ignored the response,
-  // that failed silently — E2E users were never actually cleaned up. The route
-  // itself only EXISTS under E2E_TESTING_ENABLED (see routes.ts), which is what
-  // keeps it off a production runtime; being on this allowlist does not expose
-  // it anywhere the flag is off.
+  // CONTRACT: This entry is what makes the route reachable — without it every call
+  // 401s, and a teardown that ignores the response fails silently, leaving E2E users
+  // uncleaned. The harness's global teardown has no user session, and it deletes by
+  // TAG rather than by caller. The route only EXISTS under E2E_TESTING_ENABLED, so
+  // this allowlist exposes nothing where the flag is off.
   { method: "DELETE", path: "/v1/users/e2e-cleanup" },
 ];
 

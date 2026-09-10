@@ -236,6 +236,10 @@ namespace Orders.Infrastructure.Migrations
                         .HasColumnType("varchar(28)")
                         .HasColumnName("deleted_by");
 
+                    b.Property<string>("OrderNumber")
+                        .HasColumnType("char(12)")
+                        .HasColumnName("order_number");
+
                     b.Property<string>("ShippingAddress")
                         .HasColumnType("json")
                         .HasColumnName("shipping_address");
@@ -288,6 +292,10 @@ namespace Orders.Infrastructure.Migrations
                     b.HasIndex("DeletedAt")
                         .HasDatabaseName("idx_order_deleted_at");
 
+                    b.HasIndex("OrderNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ux_order_order_number");
+
                     b.HasIndex("UserId")
                         .HasDatabaseName("idx_order_user_id");
 
@@ -336,6 +344,15 @@ namespace Orders.Infrastructure.Migrations
                         .HasMaxLength(28)
                         .HasColumnType("varchar(28)")
                         .HasColumnName("product_id");
+
+                    b.Property<string>("ProductImage")
+                        .HasColumnType("json")
+                        .HasColumnName("product_image");
+
+                    b.Property<string>("ProductName")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)")
+                        .HasColumnName("product_name");
 
                     b.Property<uint>("Quantity")
                         .HasColumnType("int unsigned")

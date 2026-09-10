@@ -4,15 +4,10 @@ export type CatalogueProduct = { id: string; unitsInStock: number };
 /**
  * Pick one in-stock product for a single-unit order.
  *
- * Random rather than `catalogue.find(p => p.unitsInStock > 0)`, and this was
- * measured rather than assumed: with 10 Playwright workers all pinning to the
- * first in-stock row, a 25-unit product drained under a full suite and unrelated
- * specs failed with `409 insufficient_stock` — including gateway
- * `realtime-tracking.spec.ts`, which never reached its websocket assertions.
- *
- * Spreading across the catalogue models real shopping and keeps parallel workers
- * from contending on one row. The load-test Orders scenario uses the same idea
- * (`findRandom()` in `load-tests/src/scenarios/orders.ts`).
+ * CONTRACT: Pick RANDOMLY — do NOT revert to `catalogue.find(p => p.unitsInStock > 0)`.
+ * With 10 workers pinning to the first in-stock row, a 25-unit product drained under a
+ * full suite and unrelated specs failed with `409 insufficient_stock`, including a
+ * gateway spec that never reached its websocket assertions. See [[testing]]
  */
 export function pickProductWithStock(
   catalogue: CatalogueProduct[],

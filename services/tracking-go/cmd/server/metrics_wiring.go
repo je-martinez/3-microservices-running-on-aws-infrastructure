@@ -6,35 +6,17 @@ import (
 )
 
 // selectCacheMetrics binds the cache gateway's metrics port to a real publisher
-// or to the discarding one, and it is the ONLY place that decision is made.
+// or the discarding one — the ONLY place that decision is made.
 //
-// # Why this is a function rather than three lines inside run()
+// CONTRACT: Keep it a function, not three lines in run(). main() cannot be
+// imported, so an inline decision is observable only by starting a process: the
+// gateway's suite proves it CAN publish and the publisher's proves it CAN emit,
+// and neither can see that the two are not connected.
+// See [[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]]
 //
-// So it can be TESTED. main() cannot be imported, so every decision taken inline
-// there is observable only by starting a process — which is precisely how this
-// seam came to be wrong in the first place: the composition root passed
-// cache.NewNoopMetrics() unconditionally, the cache computed
-// cache_requests_total and cache_operation_duration_ms on every operation and
-// threw them away, and no test in either package could see it. The gateway's
-// suite proves the gateway CAN publish (through a spy it injects); the
-// publisher's suite proves the publisher CAN emit (through a double it injects);
-// neither can observe that the two are not connected.
-//
-// # The FLAG is honoured here, not inside the gateway
-//
-// Same rule the rest of this composition root follows: METRICS_ENABLED decides
-// WHICH DEPENDENCY EXISTS, never a branch in the request path. The gateway calls
-// straight through its Metrics port with no flag check of its own, so "metrics
-// are off" is expressed by binding the null object rather than by a condition
-// repeated at four call sites.
-//
-// # A nil publisher yields the NOOP, never a nil interface
-//
-// cloudwatch.Publisher is an INTERFACE. Handing a nil one to the gateway would
-// not fail at startup — it would panic on the first cache operation, in the
-// request path, well away from the wiring that caused it. The noop is returned
-// instead so an absent publisher degrades to "no metrics" rather than to an
-// outage.
+// CONTRACT: The flag is honoured here, never inside the gateway, and a nil
+// publisher yields the NOOP rather than a nil interface — a nil one panics on
+// the first cache operation, in the request path, far from the wiring.
 func selectCacheMetrics(metricsEnabled bool, publisher cloudwatch.Publisher) cache.Metrics {
 	if !metricsEnabled || publisher == nil {
 		return cache.NewNoopMetrics()

@@ -1,5 +1,7 @@
 import { Routes } from '@angular/router';
 
+import { authGuard, guestGuard } from './core/auth/guards';
+
 // Every routed page lazy-loads so a broken screen cannot break the whole
 // bundle. The two layouts lazy-load too: each renders the chrome its children
 // share, so it is on the critical path of every navigation under it anyway.
@@ -14,6 +16,10 @@ export const routes: Routes = [
     // brand panel with no form under it. See [[angular-component-authoring]]
     path: '',
     loadComponent: () => import('./core/layout/app-layout').then((m) => m.AppLayout),
+    // The guard sits on the parent, not on each child: every page under this
+    // layout is signed-in-only, and a per-child copy is a list that silently
+    // stops covering the next route someone adds here.
+    canActivate: [authGuard],
     children: [
       {
         // CONTRACT: `pathMatch: 'full'` belongs on this CHILD, never on the
@@ -52,6 +58,9 @@ export const routes: Routes = [
   {
     path: '',
     loadComponent: () => import('./core/layout/auth-layout').then((m) => m.AuthLayout),
+    // Bounces an already-signed-in visitor back to `/`. Same parent placement,
+    // same reason, as the app layout above.
+    canActivate: [guestGuard],
     children: [
       {
         path: 'login',

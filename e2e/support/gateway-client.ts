@@ -1,18 +1,12 @@
 import { request, type APIRequestContext } from "@playwright/test";
 
-// Drives requests through the API gateway — the URL the end user hits. Unlike
-// api-client.ts (direct service + faked x-user-id), this exercises the JWT
-// authorizer → njs sub-extraction → nginx routing → service, end to end.
+// Drives requests through the API gateway — the URL the end user hits, exercising the
+// JWT authorizer → njs sub-extraction → nginx routing → service end to end.
 //
-// API_GATEWAY_URL has a non-root path (Floci's
-// `.../restapis/<id>/$default/_user_request_`). Playwright's APIRequestContext
-// joins request paths onto baseURL using the WHATWG URL algorithm, where a
-// LEADING SLASH replaces the entire baseURL path (so requests would land on
-// Floci's S3 root instead of the gateway integration). The fix: normalize
-// baseURL to end with a single trailing slash, and always issue requests with
-// RELATIVE paths (no leading slash) so WHATWG appends onto the existing path
-// instead of replacing it. `$default` is untouched — this is plain string
-// concatenation, no URL re-encoding.
+// CONTRACT: Keep baseURL ending in a single trailing slash and issue every request
+// path RELATIVE (no leading slash). API_GATEWAY_URL has a non-root path, and under
+// WHATWG URL joining a LEADING SLASH replaces it entirely — the request then lands on
+// Floci's S3 root instead of the gateway integration. See [[testing]]
 function normalizeBaseURL(url: string): string {
   return url.endsWith("/") ? url : `${url}/`;
 }
@@ -25,23 +19,16 @@ export async function gatewayClient(token?: string): Promise<APIRequestContext> 
   return request.newContext({
     baseURL: normalizeBaseURL(rawBaseURL),
     extraHTTPHeaders: {
-      // Tags every row this suite creates as "E2E Source", which is what global
-      // teardown deletes by. api-client.ts (the direct-to-service contexts) has
-      // always sent this; the gateway contexts did NOT, so rows created through
-      // the gateway — the majority of the suite — were invisible to cleanup.
-      //
-      // Harmless in a production runtime: each service only honors the header
-      // when its own E2E_TESTING_ENABLED is set, so the header alone cannot tag
-      // anything.
+      // CONTRACT: Keep this header on the gateway contexts too. It tags rows as "E2E
+      // Source", which is the only thing global teardown deletes by — without it the
+      // majority of the suite's rows are invisible to cleanup. Harmless in production:
+      // each service honors it only under its own E2E_TESTING_ENABLED.
       "X-E2E-Source": "true",
       // Attributes every email this request causes to THIS run, so the fixture
-      // collection can be queried per invocation instead of blindly across
-      // workers and reruns. Minted once in global-setup and passed through the
-      // environment.
-      //
-      // Same "harmless in production" property as the header above: each service
-      // only honors it under its own E2E_TESTING_ENABLED, and the Cognito
-      // trigger re-validates the shape independently.
+      // collection is queryable per invocation rather than blindly across workers and
+      // reruns. Minted once in global-setup. Same production-safety property as above:
+      // honored only under E2E_TESTING_ENABLED, with the Cognito trigger re-validating
+      // the shape independently.
       "x-e2e-run-id": process.env.E2E_RUN_ID ?? "",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },

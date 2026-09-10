@@ -1,10 +1,8 @@
 # ─── DB Subnet Group ──────────────────────────────────────────────────────────
-# Optional: Floci's ListTagsForResource fails with DBInstanceNotFound for ANY
-# DB subnet group ARN (even untagged/default ones), and that tag read is part
-# of the Create/Read cycle Terraform runs for this resource — unavoidable while
-# it's managed. Local Floci sets create_subnet_group = false and points the
-# cluster at Floci's pre-existing "default" subnet group instead (see
-# subnet_group_name below).
+# WORKAROUND(local): Do NOT manage this against Floci — its ListTagsForResource
+# answers DBInstanceNotFound for ANY DB subnet group ARN, and that tag read is
+# part of Terraform's own Create/Read cycle. Local points the cluster at Floci's
+# pre-existing "default" group instead. See [[floci-rds-apigw-limits]]
 resource "aws_db_subnet_group" "this" {
   count = var.create_subnet_group ? 1 : 0
 
@@ -34,18 +32,12 @@ resource "aws_rds_cluster" "this" {
 
   tags = merge(var.context.tags, { Name = "${var.context.id}-aurora" })
 
-  # `ignore_changes` is a static meta-argument (cannot key off var.engine), so
-  # this applies to both engines. It is safe for prod aurora-postgresql too:
-  # engine_mode is set once at creation and never legitimately drifts outside
-  # Terraform's own config, so ignoring it cannot mask a real misconfiguration.
-  #
-  # Floci returns engine_mode = "provisioned" on refresh regardless of the
-  # requested engine (postgres here is a real, non-Aurora Postgres container),
-  # which the AWS provider reads as a change to an Aurora-only attribute and
-  # marks `# forces replacement` — destroying/recreating the cluster (and
-  # wiping migrated data) on every apply. See docs/lessons/
-  # floci-vs-ministack-spike-findings.md for the class of quirk (Floci
-  # emulating computed AWS attributes imperfectly).
+  # WORKAROUND(local): Do NOT drop this ignore_changes. Floci returns
+  # engine_mode = "provisioned" on refresh whatever engine was requested, which
+  # the provider reads as a change to an Aurora-only attribute and marks
+  # "forces replacement" — destroying the cluster and wiping migrated data on
+  # every apply. Safe for prod too: engine_mode never legitimately drifts.
+  # See [[floci-rds-apigw-limits]]
   lifecycle {
     ignore_changes = [engine_mode]
   }
@@ -101,12 +93,9 @@ resource "aws_secretsmanager_secret_version" "db_credentials" {
 }
 
 # ─── Least-privilege application DB user (gated by manage_app_user) ──────────
-# IMPORTANT: The application DB user is created WITHOUT the DELETE privilege.
-# This project enforces soft-delete only (ADR-0004); hard DELETE is intentionally
-# unavailable so that queries always filter `deleted_at IS NULL`.
-#
-# Default off (manage_app_user = false); envs opt in once the postgresql
-# provider can reach the cluster (see environments/*/providers.tf).
+# CONTRACT: Do NOT grant DELETE to the application DB user. This project is
+# soft-delete only, and the missing privilege is what forces every query to
+# filter `deleted_at IS NULL`. See [[ADR-0004-soft-delete-only]]
 resource "random_password" "app_user" {
   count   = var.manage_app_user ? 1 : 0
   length  = 24

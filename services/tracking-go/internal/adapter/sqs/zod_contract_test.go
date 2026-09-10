@@ -11,46 +11,14 @@ import (
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/sqs"
 )
 
-// THE GUARD THIS FILE EXISTS TO BE.
+// CONTRACT: This test reads the consumer's Zod schema off disk — do NOT replace
+// it with a Go-side restatement. A producer-only wire-shape test passes while a
+// mismatched field makes the pipeline reject the record as a PermanentError:
+// consumed, no email, no WebSocket push, and an empty DLQ.
 //
-// publisher_test.go asserts what the PRODUCER emits. That proves nothing about
-// what the CONSUMER accepts, and this repo has the receipt: the envelope emitted
-// `shipping_address` as a JSON string, the pipeline's Zod schema requires an
-// object, and the producer's own wire-shape test asserted the string — so the
-// suite was green while every status change with an address silently lost its
-// email and its WebSocket push. A `transient: false` PermanentError CONSUMES the
-// record; the producer logs success and the DLQ stays empty.
-//
-// So this test reads the ACTUAL consumer schema off disk and checks the Go
-// envelope against it, rather than against a Go-side restatement of it that can
-// drift the same way a comment can.
-//
-// # Why regex over TypeScript and not something stronger
-//
-// Weighed and rejected:
-//
-//   - Running the real Zod validator (node + vitest from a Go test). Highest
-//     fidelity, but it makes `go test ./...` depend on a Node toolchain, a pnpm
-//     install and a second language's build being green — a Go-only change could
-//     then fail for reasons that have nothing to do with it. The pipeline's own
-//     vitest suite already runs Zod; duplicating it here buys fidelity we already
-//     have somewhere.
-//   - A shared JSON-schema fixture both sides validate against. Genuinely the
-//     right answer for a contract with many producers, and the direction to go if
-//     a fourth producer appears. Today it means introducing a third artifact,
-//     generating it from Zod, wiring it into two build systems, and keeping THAT
-//     in sync — a fixture nobody regenerates is exactly the stale restatement
-//     this test is trying to avoid.
-//   - A golden envelope file checked by both sides. Pins one example, not the
-//     rule. It would have caught this bug, and would not catch the next field
-//     whose fixture happens to be NULL.
-//
-// What is left is cheap, has no new dependencies, and fails on the ONE thing that
-// actually went wrong: a Go type whose JSON shape disagrees with the combinator
-// the consumer declares. The regex is deliberately narrow — if the schema is
-// reformatted past it, the test FAILS LOUDLY (it cannot find the field) rather
-// than passing vacuously. That failure mode is the point: a guard that goes quiet
-// when it stops understanding its input is not a guard.
+// CONTRACT: Keep the regex narrow. A reformatted schema must FAIL LOUDLY here
+// (field not found) rather than pass vacuously.
+// See [[events-pipeline-design]]
 const zodHandlerPath = "../../../../../functions/events-pipeline/src/handlers/tracking-status-changed.ts"
 
 // zodFieldDecl finds `  <field>: <combinator chain>,` inside the payload schema.
@@ -99,11 +67,11 @@ func jsonKindOfZod(t *testing.T, field, decl string) string {
 	switch {
 	case strings.HasPrefix(decl, "z.record("), strings.HasPrefix(decl, "z.object("):
 		return "object"
-	// A named schema reference (EnvelopeSchema's `author: AuthorSchema`). Every
-	// z.object() in this contract is a JSON object; the referenced schema's own
-	// FIELDS are checked by this test's second case, which parses AuthorSchema
-	// directly.
-	case strings.HasSuffix(decl, "Schema"):
+	// A named schema reference, with or without a trailing .optional(). Every
+	// z.object() in this contract is a JSON object, and the referenced schema's own
+	// FIELDS are checked by the second case below. An .optional() reference reaches
+	// here only when the producer DID send the key, so the type must still match.
+	case strings.HasSuffix(decl, "Schema"), strings.HasSuffix(decl, "Schema.optional()"):
 		return "object"
 	case strings.HasPrefix(decl, "z.array("):
 		return "array"
@@ -267,14 +235,10 @@ func TestFullEnvelopeMatchesTheRootSchemaTypes(t *testing.T) {
 	}
 }
 
-// TestNoEnvelopeFieldIsEverNull sweeps the WHOLE emitted document for nulls,
-// under every combination of the absent-able inputs.
-//
-// OMITTED, NEVER NULL is a rule about the whole envelope, not about the three
-// fields that happen to have their own test today. Every schema here is
-// `.optional()` and none is `.nullable()`, so a single null anywhere is a
-// PermanentError — and a per-field test only ever guards the fields somebody
-// remembered.
+// TestNoEnvelopeFieldIsEverNull sweeps the whole emitted document for nulls
+// under every combination of absent-able inputs. Omitted-never-null governs the
+// envelope, not just the fields with their own test: every schema is .optional()
+// and none .nullable(), so one null anywhere is a PermanentError.
 func TestNoEnvelopeFieldIsEverNull(t *testing.T) {
 	for name, mutate := range map[string]func(in *sqs.StatusChanged){
 		"everything present":        func(*sqs.StatusChanged) {},

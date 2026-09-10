@@ -1,19 +1,8 @@
-// Reads the local Mailpit inbox — the last hop of the events-pipeline's email
-// path, and the only place that proves an email was actually DELIVERED.
-//
-// What this closes: every layer below it stops short of the inbox. The pipeline's
-// unit tests assert what a handler HANDS to sendEmail; its integration test
-// (functions/events-pipeline/tests/email/sender.integration.test.ts) sends one
-// email directly and reads it back. Neither exercises the real trigger — a user
-// registering, an order being placed, a carrier moving a tracking — nor the
-// producer → SQS → Lambda → SES → SMTP relay chain those actions set off. A
-// broken producer, a queue the Lambda is not subscribed to, or a dispatch that
-// silently drops an event type all leave those suites green and the user's inbox
-// empty. Asserting here is what makes that visible.
-//
-// Style follows api-client.ts / gateway-client.ts: a base URL from the
-// environment with an actionable failure when it is missing, and no
-// test-specific logic — the specs decide WHAT to assert, this only fetches.
+// Reads the local Mailpit inbox — the last hop of the events-pipeline's email path,
+// and the only place that proves an email was actually DELIVERED. Every layer below
+// stops short of it: a broken producer, a queue the Lambda is not subscribed to, or a
+// dispatch that silently drops an event type all leave those suites green and the
+// user's inbox empty. No test-specific logic here — the specs decide what to assert.
 
 //: One message as Mailpit's search endpoint renders it. This is the SUMMARY
 // shape, which is a strict subset of what `GET /message/{ID}` returns: the
@@ -52,29 +41,14 @@ function mailpitApiUrl(): string {
 
 // Finds every message delivered to ONE address.
 //
-// ## Why an exact address is the whole safety mechanism
-//
-// Mailpit ACCUMULATES: it is a long-lived local container with no cleanup
-// between runs (global-teardown.ts deletes rows from the three services and
-// deliberately does not touch the inbox — see the note there). The local
-// instance already holds ~150 messages from previous runs, so a query that
-// matched anything but this run's own mail would assert against a PREVIOUS
-// run's email and pass while the pipeline was completely broken.
-//
-// Two properties make this safe, and both were verified live rather than
-// assumed:
-//
-//  1. Every address is unique per run. chance-factory.ts builds them as
-//     `e2e+<crypto.randomUUID()>@example.com` — explicitly NOT from the seeded
-//     Chance instance, precisely so parallel workers cannot collide.
-//  2. Mailpit's `to:` is an EXACT-address match, not a substring one. Queried
-//     live against an inbox of 148 messages whose addresses ALL begin `e2e+`,
-//     `to:e2e@example.com` returned 0 matches while the full address returned
-//     exactly its own 2. So a run cannot be contaminated by a sibling address
-//     that merely shares a prefix.
-//
-// The address is always passed in by the caller, never defaulted or hardcoded:
-// a spec asserts against the address IT created.
+// CONTRACT: Always pass the caller's own address — never default or hardcode one, and
+// never match on a prefix. Mailpit ACCUMULATES (a long-lived container global-teardown
+// deliberately does not clear, already holding ~150 messages), so a looser query
+// asserts against a PREVIOUS run's email and passes while the pipeline is broken.
+// Two properties keep it safe: chance-factory mints `e2e+<randomUUID()>@example.com`
+// per run outside the seeded Chance instance, and Mailpit's `to:` is an EXACT match —
+// against 148 messages all beginning `e2e+`, `to:e2e@example.com` returned 0.
+// See [[testing]]
 export async function searchByRecipient(address: string, limit = 50): Promise<MailpitMessage[]> {
   // encodeURIComponent, not raw interpolation: the addresses this suite
   // generates contain a `+`, which is decoded as a SPACE in a query string.
@@ -115,15 +89,11 @@ export interface WaitForEmailOptions {
   description?: string;
 }
 
-// Polls until the expected mail arrives, or fails with a message that says what
-// was missing and where to look.
-//
-// Polling rather than a single query is not a robustness nicety — a bare query
-// WOULD be flaky. Nothing in the HTTP response the spec just received implies
-// the email exists yet: the producer publishes to SQS after its own transaction
-// commits, the Lambda is polled by an event-source mapping on its own schedule,
-// and SES then relays over SMTP. The email is guaranteed to arrive LATER than
-// the API call that caused it, by an amount nobody controls.
+// CONTRACT: Poll; do NOT replace this with a single query. Nothing in the HTTP
+// response a spec just received implies the email exists yet — the producer publishes
+// to SQS after its transaction commits, the Lambda is polled on its own schedule, and
+// SES then relays over SMTP. The mail always lands LATER than the call that caused it,
+// by an amount nobody controls. See [[testing]]
 export async function waitForEmailTo(
   address: string,
   options: WaitForEmailOptions = {},
@@ -171,15 +141,10 @@ export async function waitForEmailTo(
   );
 }
 
-//: One message as `GET /message/{ID}` renders it — the FULL shape, which is what
-// the summary from /search is not. The distinction is the whole reason this
-// exists: the search summary carries only `Snippet`, a flattened preview, while
-// this endpoint carries the real `Text` and `HTML` bodies.
-//
-// Only the fields a spec actually reads are declared, same rule as
-// MailpitMessage above: Mailpit returns many more (Attachments, Inline, Cc, Bcc,
-// ReplyTo, ReturnPath, ListUnsubscribe, Size, Tags, MessageID, Date), and typing
-// fields nobody asserts on would invite drift.
+//: One message as `GET /message/{ID}` renders it — the FULL shape the /search summary
+// is not: that carries only `Snippet`, a flattened preview, while this carries the real
+// `Text` and `HTML` bodies. Only the fields a spec reads are declared (Mailpit returns
+// many more), same rule as MailpitMessage above.
 export interface MailpitFullMessage {
   ID: string;
   Subject: string;
@@ -194,22 +159,12 @@ export interface MailpitFullMessage {
 
 // Fetches ONE message in full, by id.
 //
-// ## Why a second request rather than reading the search result
-//
-// `searchByRecipient` returns Mailpit's SUMMARY shape, whose only body field is
-// `Snippet` — a flattened, TRUNCATED preview built for list display. Asserting
-// on a value that must survive that flattening is a latent flake: a code near
-// the end of a longer email, or wrapped in markup, can be cut or mangled, and
-// the resulting failure looks like "the pipeline did not send it" when the mail
-// was delivered perfectly.
-//
-// This matters most for a one-time code, where the test's entire purpose is to
-// read a specific short string back out of the body and then USE it. Verified
-// against the live inbox: `GET /message/{ID}` returns both `Text` and `HTML`
-// populated, so the code can be extracted from a real body.
-//
-// Callers get the id from a `searchByRecipient` / `waitForEmailTo` result, so
-// the flow is: wait for the message → fetch it in full → extract.
+// CONTRACT: Do NOT assert body content off a `searchByRecipient` result. That is
+// Mailpit's SUMMARY shape whose only body field is `Snippet`, a flattened TRUNCATED
+// preview — a code near the end of a longer email, or wrapped in markup, is cut or
+// mangled, and the failure reads as "the pipeline did not send it" when the mail was
+// delivered perfectly. The flow is: wait for the message → fetch it here → extract.
+// See [[email-templates]]
 export async function getMessage(id: string): Promise<MailpitFullMessage> {
   const res = await fetch(`${mailpitApiUrl()}/message/${encodeURIComponent(id)}`);
 
@@ -224,17 +179,10 @@ export async function getMessage(id: string): Promise<MailpitFullMessage> {
   return (await res.json()) as MailpitFullMessage;
 }
 
-// Asserts the inbox is reachable before a spec starts asking it questions.
-//
-// ## Hard failure here, unlike the pipeline's integration test, which SKIPS
-//
-// That suite runs in `make test-unit` too, where no stack is expected, so a skip
-// keeps it honest. This layer is different: the E2E suite ALREADY requires the
-// entire stack — global-setup.ts fails outright when Users, Tracking, or the
-// gateway is not answering, and Mailpit is a compose service that comes up with
-// them. Skipping here would silently downgrade "the pipeline delivers email" to
-// "we did not check", which is the exact failure mode this task exists to close.
-// A missing Mailpit is a broken environment, and it should say so.
+// CONTRACT: Fail hard here — do NOT skip when Mailpit is unreachable. The E2E suite
+// already requires the whole stack (global-setup fails outright without Users,
+// Tracking or the gateway) and Mailpit comes up with it, so a skip silently downgrades
+// "the pipeline delivers email" to "we did not check". See [[testing]]
 export async function assertMailpitReachable(): Promise<void> {
   const info = `${mailpitApiUrl()}/info`;
   try {

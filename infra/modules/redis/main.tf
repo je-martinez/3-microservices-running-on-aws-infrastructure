@@ -15,17 +15,11 @@ locals {
 }
 
 # ─── ElastiCache Subnet Group ───────────────────────────────────────────────────
-# Optional, and OFF locally: Floci does not implement this API surface at all.
-# Both calls answer UnsupportedOperation (verified 2026-08-09):
-#
-#   aws elasticache create-cache-subnet-group   -> UnsupportedOperation
-#   aws elasticache describe-cache-subnet-groups -> UnsupportedOperation
-#
-# Note the difference from rds-aurora/docdb, which set create_subnet_group =
-# false and then point at Floci's pre-existing "default" group: here there is no
-# group to point at, because Floci cannot even list them. So locally the
-# replication group is created with NO subnet group, which it does not need —
-# Floci attaches the backing container to the compose network directly.
+# WORKAROUND(local): Do NOT enable this against Floci — both create and describe
+# answer UnsupportedOperation, so unlike rds-aurora/docdb there is not even a
+# "default" group to point at. The replication group is created with none, which
+# it does not need: Floci attaches the container to the compose network directly.
+# See [[floci-elasticache-two-ports-and-provider-panic]]
 resource "aws_elasticache_subnet_group" "this" {
   count = var.create_subnet_group ? 1 : 0
 
@@ -36,16 +30,13 @@ resource "aws_elasticache_subnet_group" "this" {
 }
 
 # ─── Redis Replication Group ────────────────────────────────────────────────────
-# THE PRODUCTION PATH. A REPLICATION GROUP, not aws_elasticache_cluster: Redis
-# and Valkey must be created via CreateReplicationGroup. Floci rejects the
-# cluster API outright — "Engine must be 'memcached'. For Redis/Valkey use
-# CreateReplicationGroup." — and real AWS points the same way.
-#
-# var.manage_via_provider gates which implementation creates the group:
-# - true (default, prod): this native resource.
-# - false (Floci local only): the boto3 fallback further down, because this
-#   resource CRASHES the provider against Floci (nil NodeGroups → index out of
-#   range). Full evidence in var.manage_via_provider's description.
+# CONTRACT: A replication group, NOT aws_elasticache_cluster — Redis and Valkey
+# must be created via CreateReplicationGroup; the cluster API answers "Engine
+# must be 'memcached'".
+# WORKAROUND(local): manage_via_provider = false. This resource crashes the
+# provider against Floci (nil NodeGroups → index out of range), so the boto3
+# fallback below creates the group instead.
+# See [[floci-elasticache-two-ports-and-provider-panic]]
 resource "aws_elasticache_replication_group" "this" {
   count = var.manage_via_provider ? 1 : 0
 
@@ -57,11 +48,9 @@ resource "aws_elasticache_replication_group" "this" {
   node_type      = var.node_type
   port           = var.port
 
-  # A single node: this cache holds password-reset codes with a 10-minute TTL —
-  # regenerable state, not a system of record. Losing it costs a user one
-  # "resend code" click, so a replica buys availability the data does not
-  # warrant. Raise this (and automatic_failover_enabled with it) if the cache
-  # ever holds something whose loss is not self-healing.
+  # WHY: A single node — this cache holds regenerable reset codes on a 10-minute
+  # TTL, so losing it costs one "resend code" click. Raise this together with
+  # automatic_failover_enabled if it ever holds non-self-healing state.
   num_cache_clusters = var.num_cache_clusters
 
   subnet_group_name  = var.create_subnet_group ? aws_elasticache_subnet_group.this[0].name : null
@@ -74,16 +63,12 @@ resource "aws_elasticache_replication_group" "this" {
 }
 
 # ─── Redis Replication Group — Floci fallback (bypasses the aws provider) ───────
-# Only created when var.manage_via_provider = false. Creates the group with a
-# plain boto3 call, outside Terraform's resource lifecycle, so the provider's
-# post-create NodeGroups[0] read — the thing that panics — never happens. The
-# script is idempotent (lookup-then-create, and treats ReplicationGroupAlreadyExists
-# as success) because `make bootstrap` rebuilds this stack routinely and
-# terraform_data re-runs the provisioner whenever `input` changes. The resulting
-# endpoint/port are written to a JSON descriptor under the root module's working
-# directory that `data.local_file.group_via_cli` reads back into the outputs.
-# See scripts/create_replication_group.py and
-# docs/shared/patterns/awscli-fallback-for-floci.md.
+# WORKAROUND(local): Creates the group with a plain boto3 call outside Terraform's
+# resource lifecycle, so the provider's post-create NodeGroups[0] read — the thing
+# that panics — never happens.
+# CONTRACT: The script must stay idempotent (ReplicationGroupAlreadyExists treated
+# as success) — `make bootstrap` rebuilds this routinely.
+# See [[awscli-fallback-for-floci]]
 resource "terraform_data" "group_via_cli" {
   count = var.manage_via_provider ? 0 : 1
 

@@ -4,15 +4,10 @@ namespace Orders.Domain.Entities;
 /// A user's in-progress selection of products. At most ONE active cart per user.
 /// </summary>
 /// <remarks>
-/// <para>
-/// The one-active-cart invariant is enforced by a UNIQUE INDEX in the database
-/// (see CartConfiguration), not by a check in service code — two concurrent
-/// requests would both pass a "does one already exist?" read and both insert.
-/// </para>
-/// <para>
-/// A cart with no live lines DOES NOT EXIST: emptying a cart deletes it. See
-/// CartWriteService, which routes every deletion path through one method.
-/// </para>
+/// CONTRACT: The one-active-cart invariant is enforced by a UNIQUE INDEX, never by a check in
+/// service code — two concurrent requests both pass a "does one exist?" read and both insert.
+/// A cart with no live lines does not exist: emptying one deletes it.
+/// See [[orders-service-design]]
 /// </remarks>
 public class Cart : AuditableEntity
 {

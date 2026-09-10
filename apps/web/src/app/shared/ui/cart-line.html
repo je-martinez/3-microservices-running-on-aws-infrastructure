@@ -1,46 +1,68 @@
 <div class="flex h-fit w-full flex-row items-start justify-start gap-2xl">
-  @if (product().image; as image) {
-    <img
-      [src]="image.uri"
-      [alt]="product().name"
-      class="h-22 w-19 shrink-0 rounded-lg object-cover"
-    />
+  <!-- WHY: The image guard reads `image`, not `available`. A low-stock line
+       still carries its artwork, and blanking it there makes an in-stock-but-
+       limited item look delisted. -->
+  @if (line().image; as image) {
+    <img [src]="image.uri" [alt]="name()" class="h-22 w-19 shrink-0 rounded-lg object-cover" />
   } @else {
     <div class="bg-surface-subtle h-22 w-19 shrink-0 rounded-lg"></div>
   }
-  <div class="flex h-22 flex-1 flex-col items-start justify-between">
+  <div class="flex min-h-22 flex-1 flex-col items-start justify-between gap-md">
     <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-rule">
       <div class="text-ink-primary w-full text-body-lg leading-body-lg font-semibold">
-        {{ product().name }}
+        {{ name() }}
       </div>
-      @if (variant(); as variantLabel) {
-        <div class="text-ink-secondary text-body-sm">{{ variantLabel }}</div>
+      @if (unavailableCopy(); as copy) {
+        <!-- WHY: The design has no unavailable variant, so this badge is built
+             from the existing warn tokens rather than a new colour. -->
+        <div
+          class="bg-warn-bg text-warn-ink flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-2xs rounded-full px-sm py-2xs text-caption font-semibold"
+        >
+          <svg lucideTriangleAlert class="h-icon-xs w-icon-xs"></svg>
+          {{ copy }}
+        </div>
       }
     </div>
-    <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
-      <div
-        class="border-line-strong flex h-control-sm w-fit shrink-0 flex-row items-center justify-start rounded-lg border"
-      >
-        <button
-          type="button"
-          class="flex h-control-sm w-8 shrink-0 flex-row items-center justify-center"
-          [disabled]="quantity() <= 1"
-          (click)="decrement.emit()"
+    <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between gap-md">
+      @if (readonlyQuantity()) {
+        <span class="text-ink-secondary text-body-sm">Qty {{ quantity() }}</span>
+      } @else {
+        <div
+          class="border-line-strong flex h-control-sm w-fit shrink-0 flex-row items-center justify-start rounded-lg border"
         >
-          <svg lucideMinus class="text-ink-secondary h-3.5 w-3.5"></svg>
-        </button>
-        <div class="flex h-control-sm w-stepper shrink-0 flex-row items-center justify-center">
-          <span class="text-ink-primary text-sm font-semibold">{{ quantity() }}</span>
+          <!-- WHY: At quantity 1 this removes the line rather than disabling.
+               The server has no per-line DELETE, so a stepper that stops at 1
+               leaves no way to take an item out of the cart. -->
+          <button
+            type="button"
+            class="flex h-control-sm w-8 shrink-0 flex-row items-center justify-center disabled:opacity-40"
+            [disabled]="disabled()"
+            [attr.aria-label]="quantity() <= 1 ? 'Remove ' + name() : 'Decrease quantity'"
+            (click)="quantity() <= 1 ? removed.emit() : decrement.emit()"
+          >
+            <svg lucideMinus class="text-ink-secondary h-3.5 w-3.5"></svg>
+          </button>
+          <div class="flex h-control-sm w-stepper shrink-0 flex-row items-center justify-center">
+            <span data-testid="cart-line-quantity" class="text-ink-primary text-sm font-semibold">{{
+              quantity()
+            }}</span>
+          </div>
+          <button
+            type="button"
+            class="flex h-control-sm w-8 shrink-0 flex-row items-center justify-center disabled:opacity-40"
+            [disabled]="!canIncrement()"
+            aria-label="Increase quantity"
+            (click)="increment.emit()"
+          >
+            <svg lucidePlus class="text-ink-primary h-3.5 w-3.5"></svg>
+          </button>
         </div>
-        <button
-          type="button"
-          class="flex h-control-sm w-8 shrink-0 flex-row items-center justify-center"
-          (click)="increment.emit()"
-        >
-          <svg lucidePlus class="text-ink-primary h-3.5 w-3.5"></svg>
-        </button>
-      </div>
-      <span class="text-ink-primary text-body-lg font-semibold">{{ linePrice() }}</span>
+      }
+      <!-- WHY: Guards on `subtotal` itself. Only an unknown_product line nulls
+           it; a low-stock line is fully priced and shows its money. -->
+      @if (price(); as linePrice) {
+        <span class="text-ink-primary text-body-lg font-semibold">{{ linePrice }}</span>
+      }
     </div>
   </div>
 </div>

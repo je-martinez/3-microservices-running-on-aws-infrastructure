@@ -1,4 +1,4 @@
-import { Component, afterNextRender } from '@angular/core';
+import { Component, afterNextRender, ChangeDetectionStrategy } from '@angular/core';
 
 import { Shell } from './core/layout/shell';
 import { dismissBootLoader } from './core/boot/boot-loader';
@@ -6,6 +6,7 @@ import { dismissBootLoader } from './core/boot/boot-loader';
 @Component({
   selector: 'app-root',
   imports: [Shell],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<app-shell />`,
 })
 export class App {

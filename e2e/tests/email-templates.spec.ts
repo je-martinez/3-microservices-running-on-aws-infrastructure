@@ -9,31 +9,16 @@ import {
 } from "../support/email-catalog-render.js";
 
 // Screenshots every entry of the events-pipeline email catalog into
-// e2e/screenshots/<catalog-key>.png, so a human can SEE what the rebranded
-// transactional emails actually look like.
+// e2e/screenshots/<catalog-key>.png, so a human can SEE the transactional emails.
 //
-// ## This is a visual-artefact generator, not a pixel-diff suite
-//
-// There is deliberately NO `toHaveScreenshot()` / snapshot comparison here. A
-// pixel baseline for eight emails full of dates ("Member Since August 5, 2026")
-// would go red on every font update and every day the sample timestamps drift
-// relative to `new Date()`, and it would answer a question nobody asked. The
-// output of this spec is the PNGs; the assertions exist only to guarantee the
-// PNGs are of a real, populated email rather than a blank page.
-//
-// ## Where the HTML comes from — and why not the preview server
-//
-// Not from `docker compose --profile preview up email-preview` (host 3003).
-// The preview UI lists the four FILES under functions/events-pipeline/emails/,
-// while the catalog registers EIGHT entries — tracking-status-changed.tsx alone
-// is registered five times with different sampleProps. Driving the preview would
-// produce four images, collapse the five tracking variants into one, and paint
-// them with undefined props (the templates export no `PreviewProps`). The full
-// reasoning lives in ../support/email-catalog-render.ts.
-//
-// Instead the catalog is rendered directly, through the events-pipeline
-// package's own toolchain, with the same sampleProps its snapshot tests use.
-// That covers every entry and needs no running service.
+// CONTRACT: Do NOT add `toHaveScreenshot()` here — this is an artefact generator, not
+// a pixel-diff suite. A baseline for eight emails full of dates would go red on every
+// font update and every day the sample timestamps drift against `new Date()`. The
+// PNGs are the output; the assertions only prove they show a populated email.
+// CONTRACT: Render the catalog directly, NOT through the preview server. The preview
+// lists the four FILES while the catalog registers EIGHT entries (tracking-status-
+// changed alone appears five times with different sampleProps), so driving it collapses
+// the variants and paints them with undefined props. See [[email-templates]]
 
 const screenshotsDir = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -48,20 +33,14 @@ const screenshotsDir = path.resolve(
 // realistic one keeps any above-the-fold judgement honest.
 const VIEWPORT = { width: 680, height: 1024 };
 
-// Content each template must show, beyond the shared brand mark. These are the
-// values that make the screenshot WORTH taking: the receipt's total, the
-// timeline's tracking number, the one-time code. A blank or half-rendered page
-// fails here instead of being silently saved as a useless PNG.
-//
-// ## Why the brand mark is matched as /3M\s*RAI/ and not "3MRAI"
-//
-// The wordmark is NOT a single text node. `Brand`/`EmailLayout` render it split
-// so the two halves can be coloured differently, so the rendered HTML contains
-// `3M` and `RAI` in separate elements and the browser's text content reads
-// "3M RAI". Asserting the literal "3MRAI" against the visible text would fail on
-// a perfectly correct email. The footer does carry a contiguous "3MRAI Company",
-// which is why the check below tolerates the optional whitespace instead of
-// pinning either spelling.
+// Content each template must show, beyond the brand mark: the receipt's total, the
+// timeline's tracking number, the one-time code. A blank or half-rendered page fails
+// here instead of being saved as a useless PNG.
+// CONTRACT: Match the wordmark as /3M\s*RAI/, never the literal "3MRAI". `Brand`
+// renders the two halves as separate elements so they can be coloured differently, so
+// visible text reads "3M RAI" and a literal match fails on a correct email. The footer
+// does carry a contiguous "3MRAI Company", hence the optional whitespace.
+// See [[email-templates]]
 const BRAND_MARK = /3M\s*RAI/;
 
 //: Per-key expectations, keyed by CATALOG key. Every catalog entry must appear
@@ -95,16 +74,11 @@ const EXPECTATIONS: Record<string, RegExp[]> = {
   "tracking-status-changed-processing": [
     /being prepared/i,
     /3MRAI-7K2P-9WQX-4M8B/,
-    //: The previous status is shown, which is the whole point of a "changed"
-    // email — a transition mail that only names the new status tells the
-    // recipient nothing they did not already know.
-    //
-    // Matched as the WHOLE "previously: <label>" clause, and with the human
-    // label rather than the raw enum. Both halves are deliberate: the template
-    // prints "Order Placed", not "PLACED" (a customer-facing mail should never
-    // leak an enum), and anchoring on the clause keeps the assertion from being
-    // satisfied by the same words appearing in the timeline below, which lists
-    // every step's label anyway.
+    //: CONTRACT: Match the WHOLE clause and the human label, never the raw enum. The
+    // template prints "Order Placed", not "PLACED" — a customer-facing mail must not
+    // leak an enum — and anchoring on the clause stops the timeline below, which lists
+    // every step's label, from satisfying this assertion on its own. Showing the prior
+    // status is the point of a "changed" email. See [[email-templates]]
     /previously: Order Placed/,
   ],
   "tracking-status-changed-shipped": [
@@ -173,15 +147,11 @@ test.beforeAll(async () => {
   }
 });
 
-// Paints one rendered email and captures it full-page.
-//
-// `setContent` with `waitUntil: "load"` rather than the default "load"-on-
-// navigation semantics of goto: the HTML is self-contained (react-email inlines
-// every style, and `<Tailwind>` compiles its classes to inline `style`
-// attributes at render time — nothing is fetched at paint time), so there is no
-// network to wait on. The one exception is the @font-face declaration for Inter,
-// which has no `src` and therefore resolves instantly to the Helvetica/Arial
-// fallback — the same fallback most mail clients apply.
+// Paints one rendered email and captures it full-page. `setContent` with
+// `waitUntil: "load"` needs no network wait: the HTML is self-contained, since
+// react-email inlines every style and `<Tailwind>` compiles its classes to inline
+// `style` attributes at render time. The Inter @font-face has no `src` and resolves
+// instantly to the Helvetica/Arial fallback most mail clients apply anyway.
 async function captureTemplate(page: Page, template: RenderedTemplate): Promise<string> {
   await page.setViewportSize(VIEWPORT);
   await page.setContent(template.html, { waitUntil: "load" });

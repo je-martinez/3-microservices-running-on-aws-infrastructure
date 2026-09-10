@@ -8,14 +8,10 @@ namespace Orders.Tests.Observability;
 /// <see cref="Activity"/> that was current when it was written.
 /// </summary>
 /// <remarks>
-/// Capturing <c>Activity.Current</c> at log time is the whole point of this double, and is what
-/// separates it from an ordinary capturing logger. The read services' log lines exist so their
-/// workflow span is not mute: in production the span id lands on the line via
-/// <c>LogContextEnricher</c>, which reads <c>Activity.Current</c>. A line written after the
-/// <c>using</c> activity in <c>WorkflowTracer.TraceWorkflowAsync</c> has been disposed still
-/// renders identically and still asserts its <c>app_event</c> correctly — but carries a different
-/// span id (or none), which is exactly the bug these lines were added to fix. Only recording the
-/// ambient activity can tell those two cases apart.
+/// CONTRACT: Capture <c>Activity.Current</c> at LOG time — that is what separates this from an
+/// ordinary capturing logger. A line written after the workflow activity is disposed renders
+/// identically and asserts its <c>app_event</c> correctly while carrying a different span id,
+/// and only the ambient activity tells those two cases apart. See [[logging-context]]
 /// </remarks>
 public sealed class SpanScopedLogger<T> : ILogger<T>
 {

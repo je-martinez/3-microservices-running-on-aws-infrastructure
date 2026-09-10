@@ -12,20 +12,12 @@ namespace Orders.Tests.Api;
 /// 2-minute cache entry.
 /// </summary>
 /// <remarks>
-/// <para>
-/// <b>The window is real, not hypothetical.</b> <c>CreateOrderService</c> initiates tracking
-/// AFTER its own transaction commits, so an order exists before its tracking does. A
-/// <c>t1</c> read landing in between legitimately answers <c>tracking: null</c>; storing that
-/// answer serves it as a HIT for the full TTL, long after Tracking has the record. It was
-/// reproduced deterministically against the live stack, and it is what makes the gateway spec
-/// <c>tracking-flow.spec.ts</c> fail intermittently with "tracking was not included".
-/// </para>
-/// <para>
-/// Every test here asserts on <c>CacheKeyExistsAsync</c> as well as on <c>X-Cache</c>. The
-/// header alone is not enough: it says what THIS response was, while the defect is about what
-/// was WRITTEN. Checking the key directly is what makes "nothing was stored" an observation
-/// rather than an inference.
-/// </para>
+/// CONTRACT: Assert on <c>CacheKeyExistsAsync</c> as well as <c>X-Cache</c>. The header says
+/// what THIS response was, while the defect is about what was WRITTEN — checking the key is
+/// what makes "nothing was stored" an observation rather than an inference.
+/// The window is real: tracking is initiated AFTER order creation commits, so a <c>t1</c>
+/// read in between legitimately answers <c>tracking: null</c> and storing it serves a HIT for
+/// the full TTL. See [[x-cache-response-header]]
 /// </remarks>
 [Collection(OrdersApiCollection.Name)]
 public class TrackingNullCacheTests : IDisposable
@@ -109,14 +101,11 @@ public class TrackingNullCacheTests : IDisposable
     }
 
     /// <summary>
-    /// The list case, with the mix that decides the rule: one brand-new order among older
-    /// ones that already have their trackings.
+    /// The list case with the mix that decides the rule: one brand-new order among older
+    /// ones that already have trackings.
+    /// CONTRACT: Under an "any tracking present" rule this stores, pinning the order the user
+    /// is watching at <c>tracking: null</c> for two minutes. See [[x-cache-response-header]]
     /// </summary>
-    /// <remarks>
-    /// Under an "any tracking present" rule this list WOULD be stored — and the one order the
-    /// user is actually watching, the one just placed, would be pinned at <c>tracking: null</c>
-    /// for two minutes. That is why the rule is "every".
-    /// </remarks>
     [Fact]
     public async Task My_orders_is_not_stored_while_any_order_still_lacks_tracking()
     {
@@ -169,14 +158,11 @@ public class TrackingNullCacheTests : IDisposable
     }
 
     /// <summary>
-    /// The t0 variants carry no tracking at all and must keep caching exactly as before.
+    /// The t0 variants carry no tracking and must keep caching.
+    /// CONTRACT: A shape-blind "decline when tracking is null" also declines <c>OrderDto</c>,
+    /// which has no tracking member — turning both default reads into permanent misses with
+    /// nothing else in the suite to say so. See [[x-cache-response-header]]
     /// </summary>
-    /// <remarks>
-    /// The regression this guards is a blanket rule: "decline when tracking is null" applied
-    /// without regard to shape would also decline <c>OrderDto</c>, which HAS no tracking
-    /// member — silently turning both default reads into permanent misses, with no failing
-    /// assertion anywhere else in the suite to say so.
-    /// </remarks>
     [Fact]
     public async Task Bare_variants_still_cache_while_tracking_is_absent()
     {

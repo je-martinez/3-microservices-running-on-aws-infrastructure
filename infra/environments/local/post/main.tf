@@ -22,9 +22,8 @@ module "users_app" {
   depends_on = [terraform_data.wait_for_db]
 }
 
-# Orders app-user (MySQL). Enabled locally since 2026-07-30: the petoju/mysql
-# provider was re-verified against Floci and no longer hangs (see
-# var.enabled_app_users).
+# Orders app-user (MySQL). Enabled locally: the petoju/mysql provider works
+# against Floci (see var.enabled_app_users).
 module "orders_app" {
   count  = contains(var.enabled_app_users, "mysql") ? 1 : 0
   source = "../../../modules/db-app-user"

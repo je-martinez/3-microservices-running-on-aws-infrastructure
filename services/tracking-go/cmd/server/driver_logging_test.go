@@ -10,16 +10,11 @@ import (
 	"github.com/go-sql-driver/mysql"
 )
 
-// The DRIVER-LOGGER tests.
-//
-// They assert on what the driver's logger actually WRITES, never that a setter
-// was called. A test of the form "SetLogger received something non-nil" passes
-// against an adapter that drops the message, writes plain text, or emits a
-// second severity vocabulary — all three of which are the actual regression
-// here, not the absence of a call.
-//
-// So each test drives the real seam (installDriverLogging) and then parses the
-// bytes that came out, exactly as the collector would.
+// CONTRACT: These assert on what the driver's logger WRITES, never that a setter
+// was called. "SetLogger received something non-nil" passes against an adapter
+// that drops the message, writes plain text, or emits a second severity
+// vocabulary — the actual regressions. Each test drives installDriverLogging and
+// parses the bytes, as the collector would. See [[logging-context]]
 
 // decodeDriverLine parses the single line the adapter is expected to write.
 func decodeDriverLine(t *testing.T, buf *bytes.Buffer) map[string]any {
@@ -41,14 +36,9 @@ func decodeDriverLine(t *testing.T, buf *bytes.Buffer) map[string]any {
 }
 
 // TestDriverLogGoesThroughSlogAsOneJSONLine is the regression test.
-//
-// The observed defect, verbatim from the running container:
-//
-//	[mysql] 2026/08/29 03:24:30 connection.go:801 closing bad idle connection: unexpected read from socket
-//
-// One non-JSON line out of 493 from this service; Users and Orders emit zero.
-// go-sql-driver/mysql carries its OWN package-level logger, defaulting to the
-// standard log package writing to stderr, and nothing in slog's world reaches it.
+// go-sql-driver/mysql carries its OWN package-level logger writing plain text to
+// stderr, which nothing in slog's world reaches — those lines escape as
+// unclassified in the collector.
 func TestDriverLogGoesThroughSlogAsOneJSONLine(t *testing.T) {
 	var buf bytes.Buffer
 	restoreDriverLogger(t)
@@ -79,14 +69,10 @@ func TestDriverLogGoesThroughSlogAsOneJSONLine(t *testing.T) {
 	}
 }
 
-// TestDriverLogKeepsTheWholeMessage is the half a "was the setter called" test
-// can never cover.
-//
-// mysql.Logger is Print(v ...any) — a variadic the driver splits its message
-// across. An adapter that forwarded only v[0], or that used the message as the
-// slog format string, would still be "wired" and would still emit valid JSON,
-// while the sentence that says WHAT WENT WRONG is gone. The message text is the
-// entire diagnostic value of the line.
+// TestDriverLogKeepsTheWholeMessage covers what a "was the setter called" test
+// cannot. mysql.Logger is Print(v ...any), a variadic the driver splits its
+// message across, so an adapter forwarding only v[0] is still "wired" and still
+// emits valid JSON while the sentence saying WHAT WENT WRONG is gone.
 func TestDriverLogKeepsTheWholeMessage(t *testing.T) {
 	var buf bytes.Buffer
 	restoreDriverLogger(t)
@@ -167,14 +153,10 @@ func TestInstallDriverLoggingDoesNotPanicOnANilLogger(t *testing.T) {
 	mysqlDriverLogger(t).Print("still usable")
 }
 
-// mysqlDriverLogger returns the logger the driver would actually use, read back
-// through the driver's OWN public surface rather than from a variable this test
-// kept.
-//
-// That indirection is the point: mysql.NewConfig() copies the package-level
-// defaultLogger into the config it returns (dsn.go:96), so what comes back here
-// is what a connection opened right now would log through. A test holding its
-// own reference would pass even if SetLogger had never been called.
+// CONTRACT: Read the logger back through the driver's OWN public surface, never
+// a reference this test kept. mysql.NewConfig() copies the package-level logger
+// into the config it returns, so this is what a connection opened now would log
+// through; a held reference passes even if SetLogger was never called.
 func mysqlDriverLogger(t *testing.T) mysql.Logger {
 	t.Helper()
 	logger := mysql.NewConfig().Logger

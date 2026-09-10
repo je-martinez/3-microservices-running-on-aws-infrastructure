@@ -258,13 +258,9 @@ func TestProgression(t *testing.T) {
 			fast, log, progNoopTracer())
 
 		// The request's context, cancelled exactly as net/http cancels it when
-		// the handler returns.
-		//
-		// Start takes NO context: the signature itself is the fix. There is no
-		// parameter through which a handler could hand its dying context to a
-		// goroutine that has to outlive it. This test cancels the request context
-		// anyway, from the caller's side, to prove that nothing the progression
-		// reached for is tied to it.
+		// the handler returns. Start takes NO context, so no parameter can hand
+		// a dying one to a goroutine that must outlive it; this cancels from the
+		// caller's side anyway, proving the progression is tied to nothing there.
 		requestCtx, cancelRequest := context.WithCancel(context.Background())
 		p.Start(progSnapshot("ord_1", domain.StatusPlaced))
 		cancelRequest()

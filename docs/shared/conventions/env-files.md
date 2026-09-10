@@ -4,7 +4,7 @@ type: convention
 area: infra
 status: active
 created: 2026-07-20
-updated: 2026-08-26
+updated: 2026-09-07
 tags:
   - type/convention
   - area/infra
@@ -18,6 +18,10 @@ related:
   - "[[2026-08-03-events-pipeline-milestone-design]]"
   - "[[2026-08-25-response-caching-layer-design]]"
   - "[[x-cache-response-header]]"
+  - "[[2026-09-04-web-gateway-integration-design]]"
+  - "[[web-gateway-integration-milestone]]"
+  - "[[2026-09-06-address-geocoding-proxy-design]]"
+  - "[[2026-09-07-a-dead-path-is-not-fail-closed-against-an-external-host]]"
 ---
 
 # Env Files
@@ -39,7 +43,47 @@ new API id, and reassigns RDS proxy ports by cluster creation order.
 | `.env.local.tracking` | the Tracking service environment (incl. `E2E_TESTING_ENABLED=true` in CUSTOM, `EVENTS_QUEUE_URL`) | compose `env_file:` |
 | `.env.local.events-pipeline` | the events-pipeline Lambda environment (DocumentDB connection, `EVENTS_QUEUE_URL`, SES sender) | the Lambda's environment variables, set via Terraform |
 | `.env.local.debug` | HOST-reachable connection strings | a SQL client; **loaded by nothing** |
+| `.env.local.web` | the web app's build-time env (`NG_APP_API_GATEWAY_URL`, `NG_APP_STRIPE_ENABLED`, `NG_APP_GEOCODE_ENABLED`) **plus the runtime `GEOAPIFY_API_KEY`** | compose `env_file:` for the `web` service, `@ngx-env/builder`, and `apps/web/nginx.conf`'s envsubst template |
 | `.env.example` | the committed contract | documentation only |
+
+`.env.local.web` was added with the [[2026-09-04-web-gateway-integration-design]] milestone
+([[web-gateway-integration-milestone]]), generated the same way as every other per-service
+file. Alongside it, `make env-file` also generates **`apps/web/proxy.conf.mjs`** — the `ng
+serve` development-proxy target, pointing at Floci's gateway from the developer's host. Unlike
+the `.env.local.*` files, this one is not a dotenv file; it is a generated **ES module**
+consumed via `ng serve --proxy-config`, exporting the same shape Angular's proxy config always
+takes. It is **gitignored**, with `apps/web/proxy.conf.example.mjs` committed as the contract
+new contributors copy and adapt — the same generated/example split every other env surface in
+this repo already uses.
+
+It started as plain JSON in the gateway-integration milestone and was converted to a module on
+2026-09-06 once [[2026-09-06-address-geocoding-proxy-design]] added a `/geocode/` route that
+must append an API key at request time — JSON is declarative and cannot read `process.env` or a
+file, while `@angular/build` loads any non-`.json` proxy path as a module and honours its
+`default` export. The module reads `GEOAPIFY_API_KEY` from `.env.local.web`'s CUSTOM box at
+request time (never interpolated into the generated file), the same box `apps/web/nginx.conf`
+reads for the container path, so `ng serve` and the container never disagree about which key is
+in play. See [[2026-09-07-a-dead-path-is-not-fail-closed-against-an-external-host]] for a trap
+found converting the "key unset" branch to this shape.
+
+**`GEOAPIFY_API_KEY`** (runtime, CUSTOM box) and **`NG_APP_GEOCODE_ENABLED`** (build-time,
+default `false`) were added with [[2026-09-06-address-geocoding-proxy-design]]. They are
+deliberately two separate values, not one: the key lives in `.env.local.web`'s CUSTOM box and
+is read at request time by both `apps/web/nginx.conf` (container) and `apps/web/proxy.conf.mjs`
+(`ng serve`) — never compiled into the bundle — while the flag is a build-time `NG_APP_*` var
+controlling whether the UI offers autocomplete at all. Both must be set for the feature to
+work — an unset key with the flag on 503s on every keystroke.
+
+> [!warning] A build-time `NG_APP_*` var absent at build time is not "missing" — it throws
+> `@ngx-env/builder` only inlines an `NG_APP_*` variable it can see at build time; one it
+> cannot see is left as a live `import.meta.env.NG_APP_*` lookup in the shipped bundle, which is
+> `undefined` in a browser and **throws before Angular boots** rather than falling back to a
+> default — a `||` fallback never runs, because the throw happens evaluating its left operand.
+> This bit `NG_APP_API_GATEWAY_URL`: `docker-compose.yml` passed it as a build arg, but
+> `apps/web/Dockerfile` declared no matching `ARG`/`ENV` to receive it. Every `NG_APP_*` the app
+> reads needs both an `ARG` and an `ENV` in the Dockerfile — see
+> [[2026-09-04-a-build-time-env-var-absent-at-build-time-is-a-live-lookup]] for the full
+> incident, including why unit tests, a clean build, and a 200 from the proxy all missed it.
 
 `EVENTS_QUEUE_URL` (the shared SQS queue the events-pipeline consumes) is generated into **four**
 files as of the events-pipeline milestone: `.env.local.events-pipeline` itself, plus
@@ -145,3 +189,13 @@ When changing env plumbing, verify against a real bring-up, not by inspection:
 - [[2026-08-25-response-caching-layer-design]] — `CACHE_ENABLED`/`REDIS_HOST`/`REDIS_PORT`'s
   propagation into Orders' and Tracking's env files.
 - [[x-cache-response-header]] — the `CACHE_ENABLED` kill switch's consumer contract.
+- [[2026-09-04-web-gateway-integration-design]] — the design that added `.env.local.web` and
+  the `ng serve` proxy, originally `apps/web/proxy.conf.json`/`proxy.conf.example.json`.
+- [[web-gateway-integration-milestone]] — the milestone that shipped them.
+- [[2026-09-04-a-build-time-env-var-absent-at-build-time-is-a-live-lookup]] — the missing-ARG/ENV
+  incident behind the warning above.
+- [[2026-09-06-address-geocoding-proxy-design]] — the design that added `GEOAPIFY_API_KEY` and
+  `NG_APP_GEOCODE_ENABLED` to `.env.local.web`, and converted the `ng serve` proxy from JSON to
+  `apps/web/proxy.conf.mjs`/`proxy.conf.example.mjs`.
+- [[2026-09-07-a-dead-path-is-not-fail-closed-against-an-external-host]] — the `bypass`
+  fail-closed trap found converting the proxy's "key unset" branch to the module shape.

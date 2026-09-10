@@ -22,46 +22,27 @@ export interface QueryEventEmitter {
 }
 
 /**
- * Emit SQL only outside production, matching Tracking's `Settings.echo_sql`
- * (`environment != "production"`). Gated rather than hardcoded on: the
- * statements are genuinely useful locally but high-volume, and production has no
- * need for a line per query. Derived from the Zod-validated `NODE_ENV` (see
- * [[ADR-0014-env-validation-zod]]) rather than a new env var, so no env file,
- * compose service or deployment has to learn a key to get the same posture the
- * other two services already have.
+ * Emit SQL only outside production, matching Tracking's `echo_sql`. The statements are
+ * useful locally but high-volume. Derived from the Zod-validated `NODE_ENV` rather
+ * than a new env var, so nothing has to learn another key.
  */
 export const echoSql: boolean = env.NODE_ENV !== "production";
 
 /**
  * Route Prisma's statements through the service's OWN Pino logger.
  *
- * ROUTING CONTRACT (observability/otel-collector-config.yaml → filter/only_sql):
- * the collector selects a record for the `sql` stream when `attributes["message"]`
- * matches `^(SELECT|INSERT|UPDATE|DELETE|BEGIN|COMMIT|ROLLBACK)\b`, or when
- * `attributes["commandText"]` is present. We take the FIRST branch: the bare
- * statement IS the log message, exactly like SQLAlchemy's echo in Tracking. So
- * nothing in the collector config needs to change for these lines to be routed.
- *
- * WHY THROUGH `appLogger` AND NOT `console.log` / Prisma's `emit: "stdout"`:
- * a line emitted by the library itself carries no `service_name`, no
- * `severity_text`/`severity_number`, and none of the AsyncLocalStorage request
- * context — so it cannot be filtered by service and cannot be tied back to the
- * request that issued it. Tracking paid for that lesson: `create_engine(echo=True)`
- * made SQLAlchemy install its own plain-text StreamHandler AFTER startup had
- * stripped library handlers, and every statement was emitted twice — once as
- * enriched JSON, once as raw text with multi-line statements arriving as several
- * unrelated records (see services/tracking/src/shared/db/engine.py). Prisma's
- * mechanism differs (`log: [{ emit: "event", level: "query" }]` + `$on`), but the
- * principle is identical: the library hands us the record, WE emit it.
- *
- * PARAMETER VALUES ARE DELIBERATELY OMITTED. `event.params` carries the bound
- * values — for this service that means emails, password-reset codes and tokens.
- * Per [[logging-context]] those must never reach a log line. The statement text
- * (placeholders intact) and the duration are the whole diagnostic value; the
- * values are a PII leak with no diagnostic payoff, so `params` is never read.
- *
- * `duration_ms` matches the shared context field Tracking and Orders already
- * carry for timing.
+ * CONTRACT: The bare statement IS the log message — the collector selects the `sql`
+ * stream on `attributes["message"]` matching `^(SELECT|INSERT|...)`, so renaming or
+ * prefixing it drops these lines out of that stream. Emit through `appLogger`, never
+ * `console.log`: a line the library emits carries no service or request context.
+ * See [[logging-context]]
+ */
+
+/**
+ * WARNING: Never read `event.params`. The bound values are emails, password-reset
+ * codes and tokens — a PII leak with no diagnostic payoff. The statement text with
+ * placeholders intact, plus `duration_ms`, is the whole diagnostic value.
+ * See [[logging-context]]
  */
 export function attachSqlLogging(
   client: QueryEventEmitter,

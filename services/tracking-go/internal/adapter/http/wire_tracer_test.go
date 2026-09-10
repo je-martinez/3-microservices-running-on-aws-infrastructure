@@ -15,24 +15,14 @@ import (
 	tracing "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/otel"
 )
 
-// The workflow spans exist because a trace needs to say WHICH business operation
-// ran. otelgin's server span says only that a request arrived at a route; it is
-// the workflow span that names init_tracking or carrier_status_update.
+// The workflow spans name WHICH business operation ran; otelgin's server span
+// says only that a request arrived at a route.
 //
-// This file exists because all four of them were missing in production while
-// every unit test stayed green. wire_app.go passed nil as the tracer, each
-// handler guards with `if h.tracer != nil`, and the handlers' own tests inject a
-// real tracer — so the only place the bug was observable was a running system.
-// An E2E spec found it:
-//
-//	Trace 7ca38f79... has tracking spans but no 'init_tracking' workflow span
-//
-// The reachability gate could not see it either: it asks whether a seam is
-// CALLED, and NewInitTrackingHandler was called. What arrived empty was an
-// ARGUMENT. That is the shape this file guards.
-//
-// So these tests assert the span was EXPORTED, never that a field is non-nil. A
-// tracer can be non-nil and still be a no-op provider; only the span proves it.
+// CONTRACT: These tests assert the span was EXPORTED, never that a field is
+// non-nil — a tracer can be non-nil and still be a no-op provider. The guarded
+// bug is a nil tracer ARGUMENT reaching handlers that each check `if h.tracer
+// != nil`, which no reachability gate sees because the constructor IS called.
+// See [[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]]
 
 // spanRecorder installs an in-memory exporter as the GLOBAL provider, because
 // that is what tracing.Tracer() reads — the same call the composition root
@@ -44,13 +34,10 @@ func spanRecorder(t *testing.T) *tracetest.SpanRecorder {
 	recorder := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
 
-	// BOTH providers, and the pair is the whole point. otelgin resolves the
-	// GLOBAL provider, while tracing.Tracer() reads a package-level variable in
-	// internal/adapter/otel that was initialised once from the global and does
-	// not track later changes to it. Setting only the global gives a test where
-	// the server spans arrive and the workflow spans do not — which is
-	// indistinguishable from the nil-tracer bug this file exists to catch, and
-	// is exactly the false negative it produced when first written.
+	// CONTRACT: Set BOTH providers. otelgin resolves the GLOBAL one while
+	// tracing.Tracer() reads a package-level variable initialised once from it,
+	// so setting only the global gives a test where server spans arrive and
+	// workflow spans do not — indistinguishable from the nil-tracer bug.
 	previousGlobal := otel.GetTracerProvider()
 	otel.SetTracerProvider(tp)
 	tracing.SetTracerProvider(tp)
@@ -81,14 +68,10 @@ func hasSpan(recorder *tracetest.SpanRecorder, want string) bool {
 }
 
 // Each case drives the route far enough to open its span. The requests are
-// expected to FAIL — the pool never connects — and that is deliberate: the span
-// is opened before the work and ended by defer, so the failure path proves the
-// tracer is wired without needing a database. A span on the error path is still
-// a span.
-//
-// Ordering matters for the request shape: init_tracking's span opens AFTER auth
-// (401) and body validation (422), so its request must carry x-user-id and a
-// well-formed body or it returns before the span is ever created.
+// expected to FAIL — the pool never connects — and the span is opened before the
+// work and ended by defer, so the failure path proves the wiring without a
+// database. init_tracking's span opens after auth and body validation, so its
+// request must carry x-user-id and a well-formed body.
 func TestEveryWorkflowSpanIsEmittedThroughTheProductionRouter(t *testing.T) {
 	cases := []struct {
 		span    string
@@ -136,13 +119,10 @@ func TestEveryWorkflowSpanIsEmittedThroughTheProductionRouter(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.span, func(t *testing.T) {
-			// The recorder is installed BEFORE the router is built, and the order
-			// is load-bearing rather than tidy: tracing.Tracer() resolves against
-			// whatever provider is global AT THE MOMENT IT IS CALLED, and
-			// NewAppRouter calls it while wiring. Install the recorder second and
-			// the handlers hold tracers from the previous provider, which exports
-			// nowhere — a failure indistinguishable from the nil-tracer bug this
-			// file exists to catch.
+			// CONTRACT: Install the recorder BEFORE the router is built.
+			// tracing.Tracer() resolves the global provider at call time and
+			// NewAppRouter calls it while wiring, so the other order leaves the
+			// handlers holding tracers that export nowhere.
 			recorder := spanRecorder(t)
 
 			// e2eEnabled: true so the cleanup route is mounted at all. The other

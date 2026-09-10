@@ -13,24 +13,13 @@ import {
 import * as grpc from "@grpc/grpc-js";
 import { extractParentContext } from "#shared/grpc/api-key-interceptor";
 
-// Regression tests for JE-77: a cross-service gRPC trace must JOIN, not split.
-//
-// The bug: the api-key interceptor extracted the caller's W3C context correctly,
-// but activated it with `context.with(parent, () => mdNext(...))` inside
-// `onReceiveMetadata`. That callback returns synchronously, long before grpc-js
-// dispatches the (async) handler, so the context had already unwound by the time
-// the handler — and its `withGrpcServerSpan` — ran. The server span came out a
-// ROOT (refs=0) and Jaeger showed two disjoint traces instead of one.
-//
-// The fix: stash the extracted context and re-activate it in `onReceiveHalfClose`,
-// the continuation that actually dispatches the handler.
-//
-// These tests cover the two halves of that fix without a live gRPC server:
-//   1. extractParentContext turns an inbound traceparent into the right parent.
-//   2. activating a context around a continuation must survive to an ASYNC
-//      callback dispatched from it — the exact synchronous-vs-async gap the bug
-//      fell through. Driven with a real AsyncLocalStorage-backed context manager,
-//      the same substrate prod uses via @opentelemetry/context-async-hooks.
+// CONTRACT: A cross-service gRPC trace must JOIN, not split. Activating the extracted
+// context in `onReceiveMetadata` unwinds before grpc-js dispatches the async handler,
+// so the server span comes out a ROOT and the trace shows two disjoint halves; it must
+// be activated in `onReceiveHalfClose`. These cover both halves without a live server:
+// that extractParentContext yields the right parent, and that an activated context
+// survives to an ASYNC callback dispatched from it — the exact gap the bug fell
+// through. See [[grpc-context-activate-at-dispatch]]
 
 // --- test substrate (NOT mocks of the code under test) ---------------------
 

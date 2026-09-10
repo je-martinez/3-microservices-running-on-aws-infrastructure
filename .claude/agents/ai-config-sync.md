@@ -21,6 +21,13 @@ files — so consistency has to come from this repo.
 
 - **Never write to `.claude/` or `CLAUDE.md`.** They are the source. Read only.
 - **Never run git.** Leave your work in the working tree; the main session commits.
+- **`.lnai-projection.yml` is linted like code.** It is `.yml`, so
+  `scripts/validate-comments.py` gates it: five tags, ≤6 lines untagged, **over
+  12 lines is an error**, and no narration. An entry records the DECISION and the
+  constraint that forced it — never the argument that reached it, and never the
+  incident that prompted it. `python3 scripts/validate-comments.py
+  .ai/.lnai-projection.yml` must be clean before you report done; a rule you are
+  projecting is one you follow while projecting it.
 - `.ai/` is derived — but **committed**, along with every per-provider output, so a
   fresh clone or Orca worktree works without syncing first. Regenerating it is always
   safe; deleting it is not. `config.json` and `.lnai-projection.yml` are decisions

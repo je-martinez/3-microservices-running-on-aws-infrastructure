@@ -1,42 +1,14 @@
 // Package sqs publishes TRACKING_STATUS_CHANGED onto the shared events queue.
 //
-// # The wire contract, and where it comes from
+// CONTRACT: The consumer owns the wire shape — build the envelope against
+// functions/events-pipeline/src/domain/envelope.ts. A misnamed field is a
+// PermanentError: consumed, not retried, no email, nothing upstream notices.
+// See [[events-pipeline-design]]
 //
-// THE AUTHORITY IS THE CONSUMER, not this file:
-// functions/events-pipeline/src/domain/envelope.ts and
-// .../handlers/tracking-status-changed.ts. A missing or misnamed field is NOT a
-// loud failure — the handler rejects it as a PermanentError, the record is
-// consumed rather than retried, and the user never gets an email. Nothing
-// upstream notices. That is why the envelope is built literally against those two
-// schemas.
-//
-// # FAILURE POLICY: LOG AND SWALLOW
-//
-// Neither a failed email resolution nor a failed send propagates. The transition
-// is already persisted and COMMITTED by the time this runs, and this endpoint's
-// two callers make raising the worse option:
-//
-//   - The CARRIER WEBHOOK is an external third party. A 500 makes it retry the
-//     PUT — and the retry hits the SAME transition it already applied, which the
-//     forward-only state machine rejects with a 400. So the carrier would see a
-//     permanent-looking failure for a status change we actually recorded, and
-//     would keep redelivering until it gave up.
-//   - TESTMODE PROGRESSION already swallows everything by design; an error here
-//     would silently end the run three transitions early.
-//
-// The trade accepted is AT-MOST-ONCE delivery of the notification, which is the
-// correct direction for this event: a missed "out for delivery" email is a
-// degraded experience, while a duplicate one is a bug report.
-//
-// This is NOT silent: every failure is an ERROR line with a machine-readable
-// reason, which is what makes it alertable.
-//
-// # PII
-//
-// email, full_name and shipping_address travel in the payload because the
-// pipeline needs somewhere to send the mail and something to render in it, and
-// NOWHERE else. None is ever logged: failure lines carry email_hash plus user_id
-// and order_id, never the address, the name, or the delivery address.
+// CONTRACT: Do NOT propagate a publish failure. The transition is already
+// committed, so raising makes the carrier webhook retry a transition the
+// forward-only state machine rejects with 400, and ends a TestMode run three
+// transitions early. Delivery is at-most-once; failures log ERROR with a reason.
 package sqs
 
 import (
@@ -56,17 +28,13 @@ import (
 
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/grpcusers"
 	tracing "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/otel"
+	"github.com/jemartinez/3mrai/services/tracking-go/internal/domain"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/platform/logging"
 )
 
-// PublishSpanName is the queue hop's span name, NAMED AFTER WHAT IS PUBLISHED,
-// not after where it goes.
-//
-// All three producers publish every event type onto the SAME shared queue, so a
-// name identifying the transport reads as a distinction and is not one: a reader
-// looking at a cascade could not tell a tracking transition from an order
-// confirmation. This is the same shape Orders uses (`sqs.publish order_created`),
-// so one query reads the queue hop across all producers.
+// PublishSpanName names the queue hop after what is published, not where it
+// goes: all three producers share one queue, and Orders uses the same shape
+// (`sqs.publish order_created`) so one query reads the hop across producers.
 const PublishSpanName = "sqs.publish tracking_status_changed"
 
 const (
@@ -80,18 +48,19 @@ type SendMessageAPI interface {
 	SendMessage(ctx context.Context, in *awssqs.SendMessageInput, opts ...func(*awssqs.Options)) (*awssqs.SendMessageOutput, error)
 }
 
-// UserResolver is declared HERE, by the publisher that consumes it — narrow, one
-// method, never a central interface file. The grpcusers client satisfies it
-// without importing this package.
+// UserResolver is declared here by its consumer, so the grpcusers client
+// satisfies it without importing this package.
 //
-// The publisher resolves the user itself because the pipeline's handler REQUIRES
-// email (and now full_name), and Tracking persists neither. Doing it here rather
-// than in the update command keeps the command's job the state transition: it
-// would otherwise have to handle a Users outage in the middle of a database
-// write.
+// WHY: The publisher resolves the user because the pipeline's handler requires
+// email and full_name, which Tracking persists neither of. Resolving in the
+// update command instead would put a Users outage inside a database write.
 type UserResolver interface {
 	Resolve(ctx context.Context, identifier string) (grpcusers.ResolvedUser, error)
 }
+
+// WARNING: email, full_name and shipping_address travel in this payload and
+// NOWHERE else. Failure lines carry email_hash, user_id and order_id only.
+// See [[logging-context]]
 
 // Publisher emits one transition. PublishTrackingStatusChanged NEVER returns an
 // error — that is the contract, not an implementation detail.
@@ -238,6 +207,7 @@ func buildEnvelope(ctx context.Context, in StatusChanged, user grpcusers.Resolve
 			// ALWAYS present, "" when unknown.
 			FullName:       user.FullName,
 			OrderID:        in.OrderID,
+			OrderNumber:    omittableOrderNumber(in.OrderNumber),
 			TrackingNumber: in.TrackingNumber,
 			// Raw JSON forwarded byte-for-byte as an OBJECT, or omitted. Never a
 			// string, and never null — see omittableAddress.
@@ -256,28 +226,32 @@ func buildEnvelope(ctx context.Context, in StatusChanged, user grpcusers.Resolve
 	return env
 }
 
+// omittableOrderNumber returns both wire forms of the order number, or nil to
+// have omitempty drop the key entirely.
+//
+// CONTRACT: nil for "", never an object of empty strings. A present-but-blank
+// order number renders as an empty gap on a receipt, where an absent one makes
+// the template fall back to the order id — which is the intended degradation for
+// an order predating the backfill. See [[friendly-order-number]]
+func omittableOrderNumber(canonical string) *orderNumber {
+	if canonical == "" {
+		return nil
+	}
+	return &orderNumber{
+		Raw:       canonical,
+		Formatted: domain.FormatOrderNumber(canonical),
+	}
+}
+
 // omittableAddress returns the address bytes to place on the wire, or nil to have
 // omitempty drop the key entirely.
 //
-// It returns nil in three cases, and all three are the SAME requirement seen from
-// different angles: `shipping_address` in the pipeline's Zod schema is
-// `.optional()` and NOT `.nullable()`, so the only two acceptable states are a
-// JSON OBJECT or NO KEY AT ALL. Anything else is a PermanentError that consumes
-// the record and silently loses the email and the WebSocket push.
-//
-//   - nil bytes — the column is NULL. The common case: most rows have no address.
-//   - zero-length bytes — not a JSON document at all. A *string field used to make
-//     "" a forwardable "value"; raw JSON has no such spelling, and emitting it
-//     would be a syntax error downstream rather than an empty address.
-//   - the literal document `null` — which a MySQL JSON column can legally hold.
-//     omitempty does NOT catch this one: the bytes are non-empty, so they would
-//     marshal through as "shipping_address": null. This is the case a naive
-//     "just switch the type and trust omitempty" fix leaves behind.
-//
-// Anything else is forwarded UNPARSED. The shape is owned by Orders, and parsing
-// it here would turn an additive upstream field into a lost notification — the
-// same reasoning that keeps it []byte in the domain and z.record() in the
-// consumer.
+// CONTRACT: shipping_address is a JSON OBJECT or NO KEY AT ALL — the pipeline's
+// Zod schema is .optional() and not .nullable(), so anything else is a
+// PermanentError that consumes the record and loses the email and the WebSocket
+// push. Nil bytes, zero-length bytes and the literal document `null` (which
+// omitempty does not catch) all become nil here. Everything else forwards
+// UNPARSED, because Orders owns the shape. See [[events-pipeline-design]]
 func omittableAddress(raw json.RawMessage) json.RawMessage {
 	if len(raw) == 0 {
 		return nil
@@ -290,37 +264,13 @@ func omittableAddress(raw json.RawMessage) json.RawMessage {
 
 // buildMessageAttributes returns type, source, and the W3C trace context.
 //
-// # type and source
-//
-// Duplicated out of the envelope so the queue can be inspected and filtered
-// without deserializing the body — the same two keys Users and Orders set.
-//
-// # traceparent, and why it rides HERE and not in the envelope
-//
-// SQS is where the trace would otherwise end: the pipeline's Lambda is a separate
-// process reached through a queue, so nothing links its spans to the PUT that
-// produced the message unless the context travels with it. MessageAttributes is
-// the transport SQS gives us for exactly that.
-//
-// It is deliberately NOT a field of the envelope. The envelope is the DOMAIN
-// contract with events-pipeline and a transport concern has no business in it;
-// the consumer reads record.messageAttributes.traceparent.stringValue, which needs
-// no schema change at all.
-//
-// # It MUST be called INSIDE the publish span
-//
-// The propagator reads whatever span is ACTIVE at the moment it runs, so WHERE
-// this is called decides which span the consumer parents itself to. Evaluated one
-// line earlier it would write the enclosing WORKFLOW span's id, and the pipeline's
-// spans would hang BESIDE the publish rather than under it — a trace that still
-// looks complete. Orders hit exactly this and fixed it the same way.
-//
-// # Omitted, never empty
-//
-// The propagator writes NOTHING into the carrier when there is no valid active
-// span, so this loop adds zero keys rather than a blank traceparent. That matters:
-// the consumer would treat "" as a malformed-but-present context, which is
-// strictly worse than an absent one it can link nothing to.
+// CONTRACT: Call this INSIDE the publish span. The propagator reads whichever
+// span is active, so one line earlier it writes the enclosing workflow span's id
+// and the pipeline's spans hang BESIDE the publish instead of under it — a trace
+// that still looks complete. traceparent rides in MessageAttributes, not in the
+// envelope, which stays the domain contract; blank values are skipped so the
+// consumer never sees a malformed-but-present context.
+// See [[ADR-0019-distributed-tracing-opentelemetry]]
 func buildMessageAttributes(ctx context.Context) map[string]sqstypes.MessageAttributeValue {
 	attributes := map[string]sqstypes.MessageAttributeValue{
 		"type":   {DataType: aws.String("String"), StringValue: aws.String(EventType)},
@@ -343,14 +293,9 @@ func buildMessageAttributes(ctx context.Context) map[string]sqstypes.MessageAttr
 
 // noopPublisher discards every call.
 //
-// NOT dead code, and kept for the same reason Users and Orders keep theirs: a
-// test (or an environment) that must not emit binds this instead, rather than the
-// command growing an `if publishEnabled` branch that production would then carry
-// forever.
-//
-// Deliberately records nothing. A test that needs to ASSERT on what was published
-// uses its own recording fake — a Noop that silently swallowed the call cannot
-// fail when the call stops happening.
+// WHY: A test or environment that must not emit binds this, so the command never
+// grows an `if publishEnabled` branch. It records nothing on purpose — a test
+// asserting on what was published uses its own recording fake.
 type noopPublisher struct{}
 
 // NewNoopPublisher returns the discarding publisher.

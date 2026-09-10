@@ -6,29 +6,12 @@ namespace Orders.Tests.Infrastructure;
 
 /// <summary>
 /// Cross-checks the seed's embedded image metadata against assets.manifest.json.
+/// CONTRACT: This is what makes hardcoding that metadata safe — after <c>make assets-sync</c>
+/// it fails until the seed matches. The values describe the OPTIMISED objects, not the
+/// masters.
+/// WARNING: xUnit 2.9.3 has no runtime skip, so an absent manifest returns EARLY and the run
+/// reads as PASSED rather than SKIPPED. See [[testing]]
 /// </summary>
-/// <remarks>
-/// <para>
-/// The seed hardcodes each product's width/height/blurhash rather than reading the
-/// manifest at runtime (which would mean mounting it into the container and adding a
-/// boot-time failure mode for a file <c>make bootstrap</c> does not guarantee exists).
-/// This test is what makes that safe: re-run <c>make assets-sync</c> after changing a
-/// photo and this fails until the seed is updated to match.
-/// </para>
-/// <para>
-/// Note the values describe the OPTIMISED objects, not the masters under
-/// assets/products/ — sync_assets.py caps the long edge at 1080, so a 1080x1620 master
-/// is served as 720x1080. The manifest is the authority precisely because it records
-/// what was uploaded.
-/// </para>
-/// <para>
-/// This project is on xUnit 2.9.3, which has NO runtime skip (Assert.Skip is a v3 API),
-/// so an absent or un-synced manifest returns early instead: a fresh clone that has
-/// never run the sync must not fail the suite for an unrelated reason. The trade-off is
-/// that such a run reads as PASSED rather than SKIPPED, which is why the local
-/// verification step runs this again after `make assets-sync`.
-/// </para>
-/// </remarks>
 public class ProductSeedManifestTests
 {
     private static string? FindManifest()

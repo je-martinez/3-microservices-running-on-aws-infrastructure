@@ -4,27 +4,19 @@ import { makeUser } from "../support/chance-factory.js";
 import { assertMailpitReachable, waitForEmailTo, getMessage } from "../support/mailpit-client.js";
 import { describeRecordedEmails } from "../support/email-store-client.js";
 
-// The OTP endpoints against the service URL directly (the "internal" project).
-// This layer sits below the gateway spec (tests/gateway/otp-flow.spec.ts) and
-// answers a different question: it exercises the service's own contract —
-// status codes, the shape of what comes back, the passwordless guard — without
-// the JWT authorizer, njs, or nginx in the path.
-//
-// It still crosses into Cognito and the events pipeline for real: `otp/start`
-// hits AdminInitiateAuth and the challenge Lambda genuinely emails a code. What
-// it does NOT prove is that the gateway routes exist and forward correctly —
-// only the gateway spec can, which is why an endpoint needs both.
+// The OTP endpoints against the service URL directly, below the gateway spec: the
+// service's own contract — status codes, response shapes, the passwordless guard —
+// with no JWT authorizer, njs or nginx in the path. It still crosses into Cognito and
+// the events pipeline for real. What it cannot prove is that the gateway routes exist
+// and forward correctly, which is why an endpoint needs both layers.
 
 const EMAIL_TIMEOUT_MS = 45_000;
 const OTP_SUBJECT = "Your one-time code";
 
-// The email wait, with the record store's verdict appended on failure.
-//
-// The ASSERTION IS UNCHANGED — this still fails when no email arrives, and it
-// still reads the code out of the real message. All the wrapper adds is the one
-// fact the bare timeout cannot supply: whether the pipeline rendered and sent
-// the mail at all. "Late" and "lost" look identical from Mailpit's side and have
-// completely different fixes.
+// CONTRACT: This wrapper must not weaken the wait — it still fails when no email
+// arrives and still reads the code from the real message. It only appends the fact a
+// bare timeout cannot supply: whether the pipeline rendered and sent the mail. Late
+// and lost look identical from Mailpit's side and have completely different fixes.
 async function waitForOtpEmail(email: string) {
   try {
     return await waitForEmailTo(email, {

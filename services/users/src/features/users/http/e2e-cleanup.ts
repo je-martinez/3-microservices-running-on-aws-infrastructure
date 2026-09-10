@@ -26,32 +26,23 @@ export class E2eCleanupCommand {
       select: { id: true, cognitoSub: true },
     })) as Array<{ id: string; cognitoSub: string | null }>;
 
-    // `deleteMany` is redirected to a soft-delete update by the Prisma
-    // extension (see [[soft-delete]]); `runAsActor` sets a fixed actor for
-    // this call instead of relying on the request's `x-user-id` (this
-    // maintenance endpoint isn't tied to an authenticated user).
-    //
-    // `deletedAt: null` is what keeps the count meaningful. The extension
-    // injects that filter into `find*` but NOT into `deleteMany` — it forwards
-    // `where` verbatim to `updateMany` — so without it this re-stamps every
-    // row it has ever deleted and returns a running total of all history.
-    // The E2E teardown prints that number, and it climbed every run (590 →
-    // 643 → …) when it should report what the run just created. Re-deleting
-    // was harmless but told you nothing.
+    // CONTRACT: Pass `deletedAt: null` explicitly. The extension injects it into
+    // `find*` but NOT into `deleteMany`, which forwards `where` verbatim, so without it
+    // this re-stamps every row ever deleted and the teardown count becomes a running
+    // total of all history instead of what the run created. `runAsActor` sets a fixed
+    // actor: this maintenance endpoint has no authenticated user.
+    // See [[soft-delete]]
     const res = (await runAsActor(AuditActor.E2eCleanup, () =>
       this.db.user.deleteMany({
         where: { tags: { has: "E2E Source" }, deletedAt: null },
       }),
     )) as { count: number };
 
-    // AFTER the delete has persisted, like every other invalidation in this
-    // service. Without it an E2E run leaves cached profiles for users the
-    // database now reports as gone, and the NEXT run reads them for up to five
-    // minutes — a stale-data failure that looks like a test flake.
-    //
-    // Rows with no `cognitoSub` are skipped: no read ever cached them (the key
-    // needs a sub), and a `users:me:v1:null:usr_x` key would match nothing
-    // while reading like a working invalidation.
+    // CONTRACT: Invalidate AFTER the delete persists. Otherwise a run leaves cached
+    // profiles for users the database reports as gone and the NEXT run reads them for
+    // five minutes — a stale-data failure that looks like a flake. Rows with no
+    // `cognitoSub` are skipped: no read cached them, and a `…:null:usr_x` key matches
+    // nothing while reading like a working invalidation.
     const keys = doomed
       .filter((row): row is { id: string; cognitoSub: string } => row.cognitoSub !== null)
       .map((row) => meCacheKey(row.cognitoSub, row.id));

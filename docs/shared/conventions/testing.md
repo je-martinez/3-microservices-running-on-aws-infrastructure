@@ -8,6 +8,11 @@ updated: 2026-09-04
 tags: [type/convention, area/shared, status/active]
 related:
   - "[[2026-08-17-web-app-foundation-design]]"
+  - "[[2026-09-04-web-gateway-integration-design]]"
+  - "[[web-gateway-integration-milestone]]"
+  - "[[2026-09-04-a-retrying-url-assertion-passes-mid-redirect]]"
+  - "[[2026-09-04-a-concurrency-test-can-fail-by-starvation]]"
+  - "[[2026-09-04-a-build-time-env-var-absent-at-build-time-is-a-live-lookup]]"
   - "[[2026-09-03-animation-clock-sampling-beats-style-and-class-probes]]"
   - "[[headed-browser-consent]]"
   - "[[ADR-0010-cognito-auth]]"
@@ -135,6 +140,39 @@ when date normalisation regresses to viewer-local rendering — verified by muta
 `e2e/tests/gateway/<svc>.spec.ts` exist and cover it — an easy asymmetry to miss (this is exactly
 what happened with orders: a gateway spec existed with no internal spec until it was caught in
 review).
+
+## Phase 2 of the web app needs the backend — unlike the rest of `e2e/tests/web/`
+
+The `web-tokyo`/`web-tegucigalpa` pair described above is phase-1 verification: the app renders
+fixtures and makes no gateway call, so those specs need only `pnpm web:dev` and nothing else.
+Phase 2 ([[2026-09-04-web-gateway-integration-design]], [[web-gateway-integration-milestone]])
+replaced those fixtures with real gateway calls, so its E2E specs are a **different shape**
+within the same `e2e/tests/web/` directory:
+
+- **Unit layer — Vitest.** The refresh interceptor (including the concurrent-401 case that must
+  share one in-flight refresh, never fire N), the encrypted IndexedDB token store, and the route
+  guards, run with no backend at all.
+- **Browser E2E layer — Playwright against the real gateway.** Real login through Cognito,
+  session surviving a page reload, and eviction on token expiry. Unlike the phase-1 web specs,
+  **these specs DO need the backend up** (`make bootstrap`) — they exercise the real
+  `POST /v1/users/refresh`, the auth interceptor, and the guard's async rehydration end to end.
+- **`global-setup.ts` skips health checks only when web-only projects are selected** — the same
+  skip that lets phase-1's fixture-only specs run with no backend now has to be read carefully
+  once phase-2 specs share the same web project family: a web-only Playwright run does not
+  automatically mean "no backend needed" any more.
+- **`WEB_BASE_URL=http://localhost:3004` must be set explicitly.** `playwright.config.ts`
+  defaults to `http://localhost:4200` (the same wrong-default trap already documented above for
+  the phase-1 web projects) — the phase-2 gateway specs run against the containerised app on
+  `:3004`, not the dev server's default port, so the env var is not optional here the way it can
+  be for a bare `ng serve` session.
+- **A retrying URL assertion can pass mid-redirect.** See
+  [[2026-09-04-a-retrying-url-assertion-passes-mid-redirect]]: in a guard/redirect test, assert
+  the rendered content first and the URL second, or the assertion can pass before the guard's
+  eviction has actually finished.
+- **A non-overlap assertion for the cart's serialized mutations must run inside the loop, not
+  after it.** See [[2026-09-04-a-concurrency-test-can-fail-by-starvation]]: asserting only once,
+  after every concurrent write has already flushed, lets the check pass vacuously by starvation
+  rather than by proving serialization worked.
 
 ## Rationale
 
@@ -445,6 +483,17 @@ invalidates the catalogue cache.
 
 - [[2026-08-17-web-app-foundation-design]] — D9, the phase-1 web verification the `web-tokyo` /
   `web-tegucigalpa` Playwright projects implement.
+- [[2026-09-04-web-gateway-integration-design]] — phase 2's adapted three-layer treatment for a
+  client app: Vitest unit coverage (refresh interceptor concurrency, encrypted token store,
+  guards) plus gateway-backed Playwright specs for login, reload persistence, and expiry.
+- [[web-gateway-integration-milestone]] — the milestone that shipped phase 2's testing layers
+  described above.
+- [[2026-09-04-a-retrying-url-assertion-passes-mid-redirect]] — assert rendered content before
+  URL in guard/redirect E2E specs.
+- [[2026-09-04-a-concurrency-test-can-fail-by-starvation]] — a non-overlap assertion must run
+  inside the loop, not after every write has already flushed.
+- [[2026-09-04-a-build-time-env-var-absent-at-build-time-is-a-live-lookup]] — why a built-container
+  smoke check, not unit tests or a clean build, is what catches a missing Dockerfile `ARG`/`ENV`.
 - [[ADR-0010-cognito-auth]]
 - [[ADR-0016-local-apigw-nginx-ecs]]
 - [[local-dev]]

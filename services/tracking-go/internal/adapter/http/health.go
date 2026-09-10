@@ -13,27 +13,15 @@ type HealthResponse struct {
 
 // RegisterHealth mounts GET /v1/health.
 //
-// ## Bare path here, prefixed at the gateway
+// CONTRACT: Bare internally, PREFIXED at the gateway (/v1/tracking/health, which
+// nginx rewrites down). A bare health route at the gateway falls through nginx's
+// `location /` catch-all to users:3000 and returns USERS' 200 — a Tracking probe
+// reporting healthy without ever reaching this service.
+// See [[2026-08-25-route-works-in-process-but-404s-at-gateway]]
 //
-// The service serves this UNPREFIXED at /v1/health, while the gateway publishes
-// it as /v1/tracking/health and nginx rewrites the prefixed path down to this
-// bare one (infra/modules/compute/nginx/nginx.conf, marked HEALTH-ONLY there —
-// the rewrite must not be extended to functional routes). Users and Orders serve
-// theirs the same way.
-//
-// The gateway prefix is not cosmetic. nginx's default `location /` proxies
-// anything unmatched to users:3000, so a bare GET /v1/health route AT THE
-// GATEWAY would fall through to that catch-all and return USERS' 200 — a
-// Tracking health probe that reports healthy while never once reaching this
-// service. That failure mode is worse than a 404 because nothing would ever
-// flag it. Hence: bare internally, prefixed at the gateway.
-//
-// ## Unauthenticated, and shallow
-//
-// No x-user-id, no API key — an ALB/Fargate probe carries neither. And it does
-// NOT touch the database: this is a liveness check answering "is this process up
-// and serving HTTP". Folding a SELECT 1 into it would make a transient database
-// blip cycle otherwise-healthy tasks.
+// CONTRACT: Unauthenticated and shallow. An ALB/Fargate probe carries no
+// x-user-id and no API key, and folding a SELECT 1 in here makes a transient
+// database blip cycle otherwise-healthy tasks. See [[health-check-logging]]
 func RegisterHealth(router gin.IRouter) {
 	router.GET("/v1/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, HealthResponse{Status: "ok"})

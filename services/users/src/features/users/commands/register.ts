@@ -58,14 +58,11 @@ export class RegisterUserCommand {
     this.captureCognitoIdentityCommand = captureCognitoIdentityCommand;
   }
 
-  // The workflow span for this flow. Its attributes are the SAME fields the
-  // flow's own log lines carry (app_event, reason on failure, user_id), so the
-  // trace and the logs tell one story. `auth_type` distinguishes this span from
-  // register-passwordless.ts's, which shares the `register` name on purpose.
-  //
-  // NEVER put PII on a span attribute: no plaintext email (email_hash only, and
-  // it is already on the log context), no password, no token. Same rule as
-  // [[logging-context]] § PII rules.
+  // The workflow span carries the same fields as this flow's log lines, so the trace
+  // and the logs tell one story. `auth_type` separates it from
+  // register-passwordless.ts's, which shares the `register` name.
+  // WARNING: Never put PII on a span attribute — no plaintext email (email_hash only),
+  // no password, no token. See [[logging-context]]
   async execute(input: RegisterInput): Promise<User> {
     return withWorkflowSpan(
       "register",
@@ -86,14 +83,11 @@ export class RegisterUserCommand {
       "Starting user registration",
     );
 
-    // Self-registration: the new row is its own audit actor. The id is
-    // reserved up front (instead of letting the nano-id extension generate it)
-    // so it can be used as both the row's `id` and the `appUserId` passed to
-    // `signUp` (landing in Cognito's `custom:app_user_id` before the row
-    // exists). The audit actor is NOT this id: the `create` runs inside
-    // `runAsActor(AuditActor.Register, ...)`, so the extension stamps
-    // `createdBy`/`updatedBy` with the semantic `users_api:register` value
-    // rather than the user's own id (see [[audit-fields]], `AuditActor`).
+    // CONTRACT: Reserve the id up front rather than letting the nano-id extension
+    // mint it — it is needed as both the row's `id` and the `appUserId` handed to
+    // `signUp`, which lands in Cognito before the row exists. The audit actor is NOT
+    // this id: `runAsActor(AuditActor.Register, ...)` stamps the semantic
+    // `users_api:register` value. See [[audit-fields]]
     const id = generateId(MODEL_ID_PREFIXES.User);
 
     // The failure branches are distinguished HERE rather than in the route's
@@ -153,16 +147,11 @@ export class RegisterUserCommand {
       throw err;
     }
 
-    // Spec D2 + D7. Cognito never invokes its Lambda triggers on the local
-    // emulator (ADR-0017), so outside production we synthesize the same event
-    // and drive the same command the prod webhook route delegates to. In
-    // production the Lambda shim owns this — calling it here too would be a
-    // double capture (harmless: D4's derived message_id dedupes it). This
-    // must run AFTER the user row above is created: users_cognito_data.user_id
-    // is a NOT NULL FK to users.id, and the command looks the user up by email.
-    //
-    // Best-effort (spec D3): identity capture is a secondary snapshot, never a
-    // precondition for registration. A failure is logged, not propagated.
+    // CONTRACT: Run this AFTER the user row is created — users_cognito_data.user_id
+    // is a NOT NULL FK to users.id and the command looks the user up by email.
+    // Best-effort: identity capture is a secondary snapshot, never a precondition, so
+    // a failure is logged and not propagated. Only outside production, where Cognito
+    // never invokes its Lambda triggers on the emulator.
     if (this.env.NODE_ENV !== "production") {
       try {
         await this.captureCognitoIdentityCommand.execute({
@@ -188,23 +177,12 @@ export class RegisterUserCommand {
       }
     }
 
-    // `fullName` travels with the event because the events-pipeline
-    // USER_CREATED handler requires it (its payload schema rejects an envelope
-    // without it) and the welcome email greets the user by name. The publisher
-    // is best-effort by design: it swallows and logs its own failures, so a
-    // queue outage never turns a completed registration into an HTTP error.
-    //
-    // `cognitoSub` rides along because it is already in hand here: `signUp.sub`
-    // is the same value stamped onto the row above. It lands in the envelope's
-    // `author` block — WHO originated the event, next to the `user_id` that says
-    // WHO it is about (the same person on a self-registration, not on every
-    // event). Nothing is plumbed through to fetch it.
-    //
-    // `createdAt` comes off the row the `create` above just returned — NOT from
-    // a re-read. The welcome email prints a "Member Since" row from it (and an
-    // "Account ID" row from `id`), so both have to reach the publisher; both
-    // were already in hand at this point, so enriching the payload costs no
-    // extra database round trip.
+    // CONTRACT: `fullName` and `createdAt` must travel with the event — the pipeline's
+    // payload schema rejects an envelope without the first, and the welcome email
+    // prints "Member Since" from the second and "Account ID" from `id`. `createdAt`
+    // comes off the row the `create` just returned, never a re-read. `cognitoSub` is
+    // already in hand and lands in the envelope's `author` block.
+    // See [[audit-fields]]
     await this.events.publishUserCreated({
       id,
       email: input.email,

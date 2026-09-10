@@ -29,22 +29,15 @@ func NewListMyTrackings(lister ScopedTrackingLister) *ListMyTrackings {
 
 // Execute returns the caller's trackings among orderIDs.
 //
-// Ids that do not exist — or exist but belong to another user — are OMITTED,
-// never reported as a per-id error entry and never as a 404 for the request. A
-// caller passing ten ids and owning three gets exactly three back, and cannot
-// tell which of the missing seven exist. That is the same non-oracle property
-// the single read's 404 has, expressed as a shorter list.
-//
-// Scoped by cognitoSub for the same reason GetMyTracking is: user_id would
-// compare a sub against a usr_ id and return an empty list for every caller.
+// CONTRACT: Omit ids that do not exist or belong to someone else — no per-id
+// error, no 404. A caller owning three of ten gets three back and cannot tell
+// which of the seven exist. Scoped by cognitoSub, since user_id compares a sub
+// against a usr_ id and returns an empty list for everyone.
+// See [[user-id-vs-cognito-sub-ownership-key]]
 func (uc *ListMyTrackings) Execute(ctx context.Context, orderIDs []string, cognitoSub string) ([]domain.TrackingWithHistory, error) {
-	// THE SHORT-CIRCUIT IS LOAD-BEARING, not an optimisation: sqlc renders
-	// `IN (sqlc.slice('order_ids'))` by expanding the placeholder once per
-	// element, so zero elements produces `IN ()` — a syntax error MySQL rejects
-	// outright. The empty result is also the correct answer, so nothing is lost
-	// by never asking.
-	//
-	// Non-nil, so the handler's response marshals as [] and never as null.
+	// CONTRACT: Keep this short-circuit. sqlc expands the slice placeholder once
+	// per element, so zero elements renders `IN ()` — a syntax error MySQL
+	// rejects. The result is non-nil so the response marshals as [], not null.
 	if len(orderIDs) == 0 {
 		return []domain.TrackingWithHistory{}, nil
 	}

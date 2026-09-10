@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { BrandPanel } from '../../shared/ui/brand-panel';
 import { MobileBrandHeader } from '../../shared/ui/mobile-brand-header';
@@ -17,6 +17,7 @@ import { MobileBrandHeader } from '../../shared/ui/mobile-brand-header';
 @Component({
   selector: 'app-auth-layout',
   imports: [BrandPanel, MobileBrandHeader, RouterOutlet],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './auth-layout.html',
 })
 export class AuthLayout {}

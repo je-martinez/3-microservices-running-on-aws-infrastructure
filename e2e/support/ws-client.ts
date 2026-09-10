@@ -7,13 +7,9 @@ export interface CollectedSocket {
 }
 
 /**
- * Open an authenticated socket and collect everything it receives.
- *
- * The token goes in the query string because a WebSocket handshake cannot
- * carry an Authorization header — confirmed against the real authorizer
- * (functions/realtime-events/src/authorizer.ts): the only headers that reach
- * it are the handshake's own (Sec-WebSocket-Key, Connection, etc.), never
- * Authorization.
+ * Open an authenticated socket and collect everything it receives. The token rides the
+ * query string because a WebSocket handshake cannot carry an Authorization header —
+ * the only headers reaching the authorizer are the handshake's own.
  */
 export async function openSocket(wsUrl: string, token: string): Promise<CollectedSocket> {
   const socket = new WebSocket(`${wsUrl}?token=${encodeURIComponent(token)}`);
@@ -39,10 +35,9 @@ export async function openSocket(wsUrl: string, token: string): Promise<Collecte
       const deadline = Date.now() + timeoutMs;
       while (messages.length < n) {
         if (Date.now() > deadline) {
-          // Report WHAT arrived, not just how many. "got 3" is the same
-          // message whether the fan-out is broken or the clock is short, and
-          // that ambiguity cost real debugging time — the statuses tell you
-          // immediately which transition went missing.
+          // CONTRACT: Report WHAT arrived, never only how many. "got 3" is identical
+          // whether the fan-out dropped a message or the expectation was wrong, and
+          // the statuses name the missing transition immediately.
           const detail = JSON.stringify(messages);
           throw new Error(
             `timed out waiting for ${n} messages; got ${messages.length}: ${detail}`,
@@ -55,13 +50,10 @@ export async function openSocket(wsUrl: string, token: string): Promise<Collecte
 }
 
 /**
- * Attempt a handshake and resolve with whether it succeeded.
- *
- * Distinguishes an actual protocol-level "open" event from anything else
- * (HTTP 403 from the authorizer's Deny policy, connection refused, etc.),
- * which is what makes this able to catch a bypassed authorizer: if the
- * authorizer were disabled or the Deny path were broken, this would resolve
- * `true` for a garbage token and the invalid-token test would go red.
+ * Attempt a handshake and resolve with whether it succeeded, distinguishing a real
+ * protocol-level "open" from an HTTP 403 Deny or a refused connection. That is what
+ * catches a bypassed authorizer: a disabled or broken Deny path resolves `true` for a
+ * garbage token and turns the invalid-token test red.
  */
 export async function tryOpen(wsUrl: string, token: string): Promise<boolean> {
   return new Promise((resolve) => {

@@ -1,31 +1,12 @@
 #!/usr/bin/env python
 """Redeploy every local Lambda from the current source.
 
-WHY THIS EXISTS
----------------
-A Lambda does NOT rebuild with `docker compose`. The services do — edit a file,
-`docker compose up -d --build users`, done — so the habit the whole local stack
-teaches you is wrong for exactly the four functions that need it most.
-
-That gap shipped a real, silent bug. The Cognito CUSTOM_AUTH trigger was fixed to
-emit `severity_text`/`severity_number` instead of a hardcoded `level: "info"`;
-the source was correct, its tests passed, and the deployed function kept running
-the version from days earlier. Every `otp_challenge_rejected` — a wrong one-time
-code, the line someone looks for when investigating a failed login or a
-brute-force attempt — kept arriving at severity 0, indistinguishable from an INFO
-on every dashboard. Nothing anywhere reported a problem: the code said one thing,
-the running function did another, and only reading the deployed zip revealed it.
-
-`terraform apply` would also redeploy these (archive_file's hash triggers the
-update), but a second phase-1 apply fails against Floci on UpdateTags — see
-[[floci-rds-apigw-limits]] — so it is not the loop to reach for after a code
-edit. This script does the one thing that is needed and nothing else.
-
-WHAT IT DOES NOT DO
--------------------
-It does not BUILD. The two bundled functions must be built first — the Makefile
-target does that — because building here would hide which step failed and would
-make a redeploy of unchanged code silently rebuild it.
+CONTRACT: A Lambda does NOT rebuild with `docker compose`, unlike every service
+here. Skip this and the deployed function keeps running old code while the
+source and its tests say otherwise — only the deployed zip reveals it.
+WORKAROUND(local): `terraform apply` would also redeploy these, but a second
+phase-1 apply fails on UpdateTags. See [[floci-rds-apigw-limits]]
+CONTRACT: This does NOT build — build the bundled functions first.
 """
 
 from __future__ import annotations
@@ -44,17 +25,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 #: function name -> the files that make up its zip.
 #:
-#: The paths mirror what Terraform's archive_file packages, and the SHAPE of each
-#: zip matters as much as its contents: every function's entrypoint must sit at
-#: the ZIP ROOT (`handler.handler`, `index.handler`), never nested in a
-#: directory, or the runtime cannot resolve it.
-#:
-#: The Cognito functions deliberately ship a BARE index.mjs with no package.json
-#: beside it — that is what makes the nodejs runtime treat it as ESM/CJS the way
-#: each expects. The otp-challenge directory is also a pnpm workspace so its tests
-#: run, which adds node_modules and a package.json that must NOT ship; the
-#: explicit file list below is what keeps them out, mirroring the `excludes` on
-#: its archive_file.
+#: CONTRACT: Every entrypoint must sit at the ZIP ROOT (`handler.handler`,
+#: `index.handler`), never nested, or the runtime cannot resolve it. The Cognito
+#: functions ship a BARE index.mjs with no package.json beside it; the explicit
+#: file list keeps the otp-challenge workspace's node_modules out.
 LAMBDAS: dict[str, list[Path]] = {
     "3mrai-local-events": [
         REPO_ROOT / "functions/events-pipeline/dist/handler.js",

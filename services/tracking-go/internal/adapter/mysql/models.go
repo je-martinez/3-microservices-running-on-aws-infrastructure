@@ -27,6 +27,7 @@ type Tracking struct {
 	CognitoSub      sql.NullString
 	Tags            tagtype.Tags
 	TrackingNumber  string
+	OrderNumber     sql.NullString
 }
 
 type TrackingHistory struct {

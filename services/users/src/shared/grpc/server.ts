@@ -6,6 +6,7 @@ import { env } from "#shared/config/env";
 import { getUserByIdHandler } from "#features/users/grpc/get-user-by-id";
 import type { UserQueryService } from "#features/users/queries/get-me";
 import { makeApiKeyInterceptor } from "#shared/grpc/api-key-interceptor";
+import { toGrpcAddress } from "#shared/grpc/address";
 
 // This module lives at `src/shared/grpc/server.ts` in dev (tsx) and compiles to
 // `dist/shared/grpc/server.js` — both are three levels under `services/users/`,
@@ -46,11 +47,13 @@ export function buildGrpcServer(deps: GrpcServerDeps): grpc.Server {
         callback({ code: grpc.status.NOT_FOUND, details: "user not found" });
         return;
       }
+      // WARNING: `address` is PII — never log this response. See [[logging-context]].
       callback(null, {
         id: user.id,
         email: user.email,
         full_name: user.fullName,
         cognito_sub: user.cognitoSub ?? "",
+        address: toGrpcAddress(user.address),
       });
     },
   });

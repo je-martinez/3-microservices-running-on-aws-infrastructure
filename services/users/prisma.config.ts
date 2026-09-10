@@ -2,20 +2,14 @@ import "dotenv/config";
 import path from "node:path";
 import { defineConfig } from "prisma/config";
 
-// CLI-only configuration (migrate/generate). Runtime env validation for the
-// app itself stays in src/shared/config/env.ts (Zod) — unrelated to this file.
-// The writer URL is used here because migrations run DDL, which only the
-// writer connection is allowed to do.
+// CLI-only configuration (migrate/generate); the app's own env validation lives in
+// src/shared/config/env.ts. The writer URL is used because migrations run DDL.
 //
-// NOTE: we read process.env directly instead of prisma/config's `env()`
-// helper. `env()` throws PrismaConfigEnvError synchronously if the variable
-// is unset, and it does so while this config module is evaluated — before
-// Prisma even knows which command is running. `prisma generate` never
-// touches the database and doesn't need this URL at all, but it still loads
-// this file, so an eager throw here breaks `generate` in environments
-// without a .env (e.g. the Docker build, CI). `migrate`/`db` commands do
-// need a real URL; if it's missing, the underlying Postgres driver will
-// fail with a clear connection error when it actually tries to connect.
+// CONTRACT: Read process.env directly, NOT prisma/config's `env()` helper. `env()`
+// throws PrismaConfigEnvError while this module is evaluated, before Prisma knows
+// which command is running — which breaks `prisma generate` in any environment
+// without a .env (the Docker build, CI), even though it never touches the database.
+// See [[env-files]]
 export default defineConfig({
   schema: path.join(import.meta.dirname, "prisma", "schema.prisma"),
   migrations: {

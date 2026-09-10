@@ -17,13 +17,11 @@ export async function getUserByIdHandler(
   // interceptor and is already active here.
   // See shared/observability/grpc-tracing.ts.
   return withGrpcServerSpan("users.v1.Users/GetUserById", async () => {
-    // Logged from INSIDE the span so both lines carry its span_id. This is the
-    // service's only gRPC surface and it produced no log line at all: an
-    // inbound lookup from Tracking left no trace in the log stream, so "did
-    // Users answer, and with what?" was unanswerable without reading Jaeger.
-    //
-    // The request id is a `usr_` id OR a Cognito sub — neither is PII and the
-    // resolver accepts both, so it is logged as given rather than guessed at.
+    // CONTRACT: Log from INSIDE the span so both lines carry its span_id. This is the
+    // service's only gRPC surface, so without these lines an inbound lookup from
+    // Tracking leaves nothing in the log stream. The request id is a `usr_` id OR a
+    // Cognito sub — neither is PII, so it is logged as given.
+    // See [[ADR-0003-grpc-inter-service]]
     const user = await deps.userQueryService.getUserById(call.request.id);
 
     // A miss is a routine outcome (the server maps it to NOT_FOUND), not a

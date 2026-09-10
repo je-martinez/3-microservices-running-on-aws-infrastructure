@@ -4,48 +4,26 @@ namespace Orders.Infrastructure.Id;
 
 /// <summary>
 /// The cross-service correlation id — <c>req_</c> + a nano-id of
-/// <see cref="NanoIdConfig.Length"/> characters — carried on every log line of a request
-/// and forwarded to every downstream hop.
+/// <see cref="NanoIdConfig.Length"/> characters — carried on every log line of a request and
+/// forwarded to every downstream hop. See [[nano-id]]
 /// </summary>
-/// <remarks>
-/// <para>
-/// Lives in Infrastructure, next to <see cref="NanoId"/>, for two reasons. The generator
-/// IS <see cref="NanoId"/>, whose NanoidDotNet package is referenced here and nowhere else;
-/// and both consumers can reach it from here — Api (the ingress middleware and the log
-/// enricher) references Infrastructure, and the outbound hops (TrackingHttpClient,
-/// SqsEventPublisher) already live in it. Putting it in Application instead would either
-/// drag the nano-id dependency inward or force a hand-rolled second generator, and
-/// Application must not reference Infrastructure to reach back for the real one
-/// (services/orders/CLAUDE.md §3).
-/// </para>
-/// </remarks>
 public static class RequestId
 {
     /// <summary>
-    /// The header the id travels in, inbound and outbound.
+    /// The header the id travels in, inbound and outbound. Lowercase, matching every other
+    /// service here; ASP.NET Core's lookup is case-insensitive.
     /// </summary>
-    /// <remarks>
-    /// Lowercase to match what every other service in this repo sends and reads; ASP.NET
-    /// Core's header lookup is case-insensitive, so an inbound <c>X-Request-Id</c> still
-    /// matches.
-    /// </remarks>
     public const string HeaderName = "x-request-id";
 
     /// <summary>The <c>prefix_nanoid</c> prefix for a request id — see [[nano-id]].</summary>
     public const string Prefix = NanoIdConfig.RequestPrefix;
 
     /// <summary>
-    /// <c>req_</c> followed by <see cref="NanoIdConfig.Length"/> characters of the
-    /// service's alphabet.
+    /// <c>req_</c> plus <see cref="NanoIdConfig.Length"/> characters of the alphabet.
+    /// CONTRACT: Derive the pattern from <see cref="NanoIdConfig"/>, never write it out — a
+    /// copy drifts the day the format changes and then rejects every id the generator
+    /// produces. See [[nano-id]]
     /// </summary>
-    /// <remarks>
-    /// DERIVED from <see cref="NanoIdConfig"/>, never written out: this expression is the
-    /// only thing standing between an untrusted header and every log line of the request,
-    /// and a hand-written copy would silently drift the day the id format changes —
-    /// rejecting every id the generator produces. Compiled once in a static field because
-    /// <c>[GeneratedRegex]</c> needs a literal pattern, which is exactly the drift being
-    /// avoided here.
-    /// </remarks>
     private static readonly Regex Pattern = new(
         NanoIdConfig.PatternFor(Prefix),
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -54,30 +32,13 @@ public static class RequestId
     public static string New() => NanoId.NewId(Prefix);
 
     /// <summary>
-    /// The request id for an inbound request: the caller's own if it is one of ours,
-    /// otherwise a freshly minted one.
+    /// The caller's request id if it is one of ours, otherwise a freshly minted one.
+    /// CONTRACT: Validate the header — untrusted, yet stamped onto every log line and
+    /// forwarded to Tracking and SQS. An unbounded string bloats every record and an
+    /// <c>ord_</c>-shaped value makes log queries correlate the wrong things.
+    /// CONTRACT: Do NOT answer 400 on a bad one — a mangling proxy would turn an
+    /// observability nicety into an outage. See [[logging-context]]
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// WHY THIS IS VALIDATED. The header is untrusted input — it reaches us from the
-    /// gateway, from a sibling service, or straight from whoever is holding curl — and
-    /// whatever it says gets stamped onto EVERY log line the request produces and
-    /// forwarded to Tracking and onto the SQS envelope. That makes it the single most
-    /// widely-copied attacker-controlled value in the log stream: an unbounded string
-    /// would bloat every record of the flow, a control character would break the JSON a
-    /// dashboard parses, and a value shaped like an <c>ord_</c> or <c>usr_</c> id would
-    /// make a log query correlate the wrong things entirely. Accepting only our own shape
-    /// is what keeps the field trustworthy for the one job it has.
-    /// </para>
-    /// <para>
-    /// WHY A BAD ONE IS NOT A 400. A correlation header is a convenience, not part of any
-    /// route's contract, so it must never be able to fail a request that was otherwise
-    /// going to succeed — a mangling proxy or a mistyped curl flag turning into an error
-    /// response would trade an observability nicety for an outage. Discarding it silently
-    /// and generating a fresh id degrades exactly as far as needed: the flow is still
-    /// correlated end to end from here on, just not under the caller's chosen id.
-    /// </para>
-    /// </remarks>
     public static string Resolve(string? headerValue) =>
         headerValue is not null && Pattern.IsMatch(headerValue) ? headerValue : New();
 }

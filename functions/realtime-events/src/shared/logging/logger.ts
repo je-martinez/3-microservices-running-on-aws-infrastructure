@@ -12,27 +12,16 @@ const SEVERITY_NUMBER: Record<string, number> = {
   FATAL: 21,
 };
 
-// Matches the events-pipeline's logger so both packages emit the same shape.
-// Never log a token, a plaintext email, or a full payload — see the
-// logging-context convention.
-//
-// WHY THE FORMATTERS. Pino's default emits `level: 30` — its own numeric scale,
-// which nothing downstream reads. The shared schema is `severity_text` +
-// `severity_number` (OTel's scale, where INFO is 9, not 30), and the collector
-// promotes those onto the record's native severity fields. Without this, every
-// line from this Lambda arrived in OpenObserve at severity 0 (UNSPECIFIED):
-// measured at 53 such lines in an hour, including `ws_connect_denied` — a
-// genuine WARN that was indistinguishable from an INFO on every dashboard and
-// in every severity filter.
-//
-// The translation belongs HERE, in the producer, not in the collector. A
-// mapping rule downstream would leave this Lambda emitting a value that
-// violates the schema and hide it from anyone reading `docker logs` or the raw
-// CloudWatch stream — two sources of truth for one contract.
-//
-// `service` also became `service_name`: the schema field every other producer
-// uses, and what the dashboards group by. A line tagged `service` was invisible
-// to a `service_name` filter, so this Lambda's records were unattributable.
+// WARNING: PII. Never log a token, a plaintext email, or a full payload.
+
+// CONTRACT: Keep the formatters, and keep them HERE in the producer. Pino's
+// default `level: 30` is its own scale, which nothing downstream reads — every
+// line then lands at severity 0 (UNSPECIFIED) and a genuine WARN filters
+// identically to an INFO. A collector-side mapping would leave this Lambda
+// emitting a schema-violating value for anyone reading the raw CloudWatch
+// stream. The key is `service_name`, never `service`, or the dashboards group by
+// a field these records do not carry and the lines are unattributable.
+// See [[logging-context]]
 export const logger = pino({
   level: process.env.LOG_LEVEL ?? "info",
   base: {

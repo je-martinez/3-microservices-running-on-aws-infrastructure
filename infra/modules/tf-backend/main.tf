@@ -36,16 +36,12 @@ resource "aws_dynamodb_table" "this" {
 }
 
 # ─── Provisioning Script Execution Log ───────────────────────────────────────
-# Traceability for the awscli-fallback local-exec scripts (see
-# docs/shared/patterns/awscli-fallback-for-floci.md) — NOT a skip-on-record
-# cache. Every wrapped script ALWAYS runs; this table only records the outcome.
-# Declared here, next to the lock table, because this module runs first
-# (`make backend-up`): phase-1 scripts need the table before the post-infra
-# root exists.
-# Key: script name (partition) + "<resource_id>#<timestamp>" (sort), so a
-# recreated resource (e.g. after `make clean`, which makes Floci mint new ids)
-# starts a fresh, distinguishable history instead of colliding with the old
-# resource's records.
+# CONTRACT: NOT a skip-on-record cache — every wrapped script always runs and
+# this table only records the outcome. Declared here because this module runs
+# first (`make backend-up`) and phase-1 scripts need the table before the
+# post-infra root exists. The sort key carries the resource id so a recreated
+# resource starts a distinguishable history instead of colliding with the old
+# one's records. See [[awscli-fallback-for-floci]]
 resource "aws_dynamodb_table" "execution_log" {
   name         = local.execution_log_table
   billing_mode = "PAY_PER_REQUEST"

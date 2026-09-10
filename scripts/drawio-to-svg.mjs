@@ -1,16 +1,13 @@
-// scripts/drawio-to-svg.mjs
-// Convert a draw.io mxGraphModel (XML) into a self-rendering .drawio.svg:
-//   - draws every vertex (rounded/rect/cylinder) and edge (orthogonal, with arrow + label)
-//     deterministically from the model's own coordinates (no hand-placed SVG, no overlaps),
-//   - embeds the original mxGraphModel in the root <svg content="..."> attribute so the file
-//     stays fully editable in draw.io / the Obsidian Diagrams plugin.
+// Convert a draw.io mxGraphModel (XML) into a self-rendering .drawio.svg: every
+// vertex and edge is drawn deterministically from the model's own coordinates,
+// and the original mxGraphModel is embedded in the root <svg content="...">.
 //
-// Usage:
-//   node scripts/drawio-to-svg.mjs <input.drawio-xml> <output.drawio.svg> ["Optional Title"]
-// where <input.drawio-xml> is a file containing a raw <mxGraphModel>...</mxGraphModel>.
+// CONTRACT: Keep that embedded model. It is what keeps the committed file
+// editable in draw.io and the Obsidian Diagrams plugin rather than a flat image.
 //
-// This is the vault's diagram pipeline (see ADR-0015): author the model, run this to emit
-// the committed .drawio.svg that renders on GitHub and in Obsidian and remains editable.
+// Usage: node scripts/drawio-to-svg.mjs <input.drawio-xml> <output.drawio.svg>
+//        ["Optional Title"] — input holds a raw <mxGraphModel>…</mxGraphModel>.
+// See [[ADR-0015-drawio-diagrams]]
 
 import { readFileSync, writeFileSync } from "node:fs";
 

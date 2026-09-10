@@ -134,7 +134,7 @@ describe("buildLoggerOptions", () => {
     });
   });
 
-  // The logs<->traces join is string equality between OpenObserve and Jaeger, so
+  // The logs<->traces join is string equality inside OpenObserve, so
   // these assert the SHAPE of the ids as much as their presence — a truncated or
   // uppercased id matches nothing and reports no error. The real tracer provider
   // registered by tests/setup-tracing.ts is what makes these spans valid; a fake

@@ -1,23 +1,14 @@
-// Command genopenapi writes services/tracking-go/openapi.yaml from the Go routes.
+// Command genopenapi writes services/tracking-go/openapi.yaml from the Go
+// routes. Run it from the service directory: go run ./cmd/genopenapi
 //
-// # The output is a COMMITTED build artifact
+// CONTRACT: The output is a COMMITTED artifact. Re-run this and commit the
+// result in the SAME change as any route, schema or status-code edit — the
+// comparison test pins the document, so drift surfaces in CI rather than in a
+// consumer's generated client.
 //
-// Like the Python's, and like the gRPC stubs next door: the file is checked in and
-// regenerated deliberately. Any route, schema or status-code change must re-run
-// this and commit the result in the SAME change, because internal/openapi's
-// comparison test pins the document against the Python contract and the drift
-// therefore surfaces in CI rather than in a consumer's generated client.
-//
-// # No database, no environment, no flags
-//
-// openapi.BuildSpec() reads nothing and dials nothing, so this command is a pure
-// function of the source tree. It takes no arguments on purpose: an --output flag
-// would make it possible to generate the file somewhere the test does not look,
-// which is the one way a committed artifact silently goes stale.
-//
-// Run it from the service directory:
-//
-//	go run ./cmd/genopenapi
+// CONTRACT: Do NOT add an --output flag. BuildSpec reads and dials nothing, and
+// generating the file somewhere the test does not look is the one way a
+// committed artifact silently goes stale. See [[openapi-specs]]
 package main
 
 import (
@@ -49,16 +40,10 @@ func run() error {
 		return err
 	}
 
-	// Marshalled section by section rather than in one call, so the file reads
-	// openapi / info / servers / paths / components / tags top-down the way the
-	// Python's does. A Go map has no order and the YAML encoder therefore sorts
-	// alphabetically, which would put `components` first and bury `paths` in the
-	// middle of four hundred lines of schemas. The comparison test parses both
-	// documents into trees and does not care, but a committed artifact exists to
-	// be READ in a diff, and that is decided entirely by this ordering.
-	//
-	// Indent 2 and block style throughout for the same reason: a spec with inline
-	// {...} maps is one nobody can review a diff of.
+	// CONTRACT: Marshal section by section, indent 2, block style. A Go map has
+	// no order, so one call sorts alphabetically and buries `paths` under four
+	// hundred lines of schemas. The comparison test parses trees and does not
+	// care, but a committed artifact exists to be READ in a diff.
 	spec := openapi.BuildSpec()
 	var body []byte
 	for _, key := range documentOrder {
@@ -81,11 +66,10 @@ func run() error {
 			len(spec), len(documentOrder))
 	}
 
-	// 0644, not 0600. This is a committed, world-readable contract file that
-	// consumers import and CI reads; generating it 0600 would produce a file whose
-	// mode differs from every other tracked file in the repo, showing up as a
-	// spurious mode change in git the first time anyone regenerates it. It holds
-	// no secret: BuildSpec reads no environment and dials nothing.
+	// CONTRACT: 0644, not 0600. This is a committed contract file consumers
+	// import; 0600 differs from every other tracked file and shows up as a
+	// spurious mode change the first time anyone regenerates it. It holds no
+	// secret — BuildSpec reads no environment and dials nothing.
 	//
 	//nolint:gosec // G306: a public contract artifact, deliberately world-readable.
 	if err := os.WriteFile(out, body, 0o644); err != nil {
@@ -96,13 +80,10 @@ func run() error {
 	return nil
 }
 
-// outputPath resolves the destination from THIS SOURCE FILE's location rather than
-// from the working directory.
-//
-// `go run ./cmd/genopenapi` and `go run ./services/tracking-go/cmd/genopenapi` from
-// the repo root must write the same file. Deriving it from os.Getwd() would put the
-// artifact wherever the command happened to be invoked, leaving the committed one
-// untouched and the run looking successful.
+// CONTRACT: Resolve the destination from THIS SOURCE FILE's location, never
+// os.Getwd(). Invoking the command from the repo root or the service directory
+// must write the same file; a working-directory path leaves the committed
+// artifact untouched while the run looks successful.
 func outputPath() (string, error) {
 	_, thisFile, _, ok := runtime.Caller(0)
 	if !ok {

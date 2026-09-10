@@ -13,15 +13,11 @@ vi.stubEnv("DOCDB_DATABASE", "events");
 vi.stubEnv("SES_FROM_ADDRESS", "noreply@example.com");
 vi.stubEnv("ASSETS_BASE_URL", "http://assets.test/bucket");
 
-// The lines are captured off the REAL appLogger's destination rather than by
-// mocking it. That is the whole point of two of the assertions below: the task
-// is precisely to prove these lines went through this package's logger (and so
-// carry service_name and the severity fields) instead of a console.log, and a
-// mocked logger would assert nothing about that.
-//
-// pino writes to a destination, never through console, so a console spy would
-// capture nothing. `pino.destination` is stubbed before app-logger is imported,
-// which is when the singleton is built.
+// CONTRACT: Capture the REAL appLogger's destination — a mocked logger asserts
+// nothing about the thing under test, which is that these lines carry
+// service_name and the severity fields rather than coming from console.log. The
+// stub must be installed before app-logger is imported, when the singleton is
+// built.
 const lines: string[] = [];
 vi.mock("pino", async (importOriginal) => {
   const actual = await importOriginal<typeof import("pino")>();
@@ -37,12 +33,10 @@ const { attachCommandLogging, resetCommandLoggingForTests } = await import(
 );
 
 /**
- * A stand-in for MongoClient's EventEmitter surface.
- *
- * `attachCommandLogging` only ever calls `client.on(...)`, so an EventEmitter is
- * a faithful substitute for the part of the client under test — and it lets each
- * test emit exact driver event shapes (including ones that are awkward to
- * provoke against a real server, like a failure) without a live DocumentDB.
+ * A stand-in for MongoClient's EventEmitter surface. `attachCommandLogging` only
+ * calls `client.on(...)`, so this is faithful for the part under test and lets
+ * each test emit exact driver event shapes — including a failure, awkward to
+ * provoke against a real server — with no live DocumentDB.
  */
 function fakeClient(): EventEmitter & MongoClient {
   return new EventEmitter() as EventEmitter & MongoClient;

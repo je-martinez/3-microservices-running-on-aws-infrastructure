@@ -16,13 +16,11 @@ import (
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/platform/config"
 )
 
-// requireMySQL opens the REAL database, or skips with a message naming what is
-// missing.
+// requireMySQL opens the REAL database, or skips naming what is missing.
 //
-// No mocks here, deliberately. A mocked repository test passes while the real
-// schema rejects the write — a documented lesson in this repo. The unique-index
-// translation below is precisely the behaviour a mock cannot exercise: only the
-// server can produce error 1062.
+// CONTRACT: No mocks here. A mocked repository test passes while the real schema
+// rejects the write, and only the server produces error 1062 — the unique-index
+// translation below cannot be exercised any other way. See [[testing]]
 func requireMySQL(t *testing.T) *sql.DB {
 	t.Helper()
 	raw := os.Getenv("TRACKING_DATABASE_URL")
@@ -48,13 +46,12 @@ func requireMySQL(t *testing.T) *sql.DB {
 	return db
 }
 
-// deleteOrders removes the rows a test created. A hard DELETE, unlike anything
-// the application does: the test owns these rows and a soft delete would leave
-// the unique index occupied for the next run.
+// deleteOrders hard-DELETEs the rows a test created — the test owns them, and a
+// soft delete would leave the unique index occupied for the next run.
 //
-// It uses a FRESH context, deliberately not t.Context(): the test context is
-// cancelled before t.Cleanup runs, so a cleanup using it fails with "context
-// canceled" and leaves the rows behind for the next run to collide with.
+// CONTRACT: Use a FRESH context, not t.Context(). The test context is cancelled
+// before t.Cleanup runs, so a cleanup using it fails with "context canceled" and
+// leaves rows for the next run to collide with.
 func deleteOrders(t *testing.T, db *sql.DB, orderIDs ...string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -226,17 +223,13 @@ func TestCreateWritesBothRowsFromOneNow(t *testing.T) {
 }
 
 func TestCreateRollsBackWhenTheHistoryRowFails(t *testing.T) {
-	// A tracking without its opening history row is a shipment with no recorded
-	// beginning: the reads would answer with an empty history, and the next
-	// transition would compare against a status trail that does not exist. Only a
-	// shared transaction can guarantee both rows or neither.
-	//
-	// The failure is injected by RENAMING tracking_history for the duration of the
-	// call, so the FIRST insert succeeds and the SECOND cannot. That is the only
-	// window a missing rollback leaves a parentless tracking in, and no
-	// value-level trick reaches it: the two tables declare identical column
-	// widths, so anything the history INSERT rejects the tracking INSERT rejects
-	// first.
+	// CONTRACT: Both rows or neither. A tracking without its opening history row
+	// reads back empty and the next transition compares against a trail that
+	// does not exist.
+
+	// The failure is injected by RENAMING tracking_history so the first insert
+	// succeeds and the second cannot — the only window a missing rollback leaves
+	// a parentless tracking in.
 	db := requireMySQL(t)
 	repo := adaptermysql.NewTrackingRepository(db)
 

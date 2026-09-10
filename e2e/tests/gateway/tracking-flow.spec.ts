@@ -13,31 +13,19 @@ import {
   waitForOrderTrackingReadable,
 } from "../../support/tracking-readiness.js";
 
-// The full cross-service journey, through the gateway only, in the order a real
-// client would walk it:
-//
-//   register (with an address) → login → list products → create order (x-test-mode)
-//     → read the tracking → poll it to DELIVERED
-//
-// The load-bearing step is order creation. A client never calls Tracking to create
-// anything: `POST /v1/orders` is what brings a tracking into existence, because
-// Orders calls Tracking's `POST /v1/trackings/init-tracking` AFTER its own
-// transaction commits, forwarding the `x-user-id` it received from the gateway and
-// the `shipping_address` it resolved from Users. Three services and two hops
-// participate in producing the row this spec then reads — which is exactly why it
-// belongs at the gateway layer and cannot be faked with a direct service call.
-//
-// Every request path is RELATIVE (no leading slash) — see gateway-client.ts: a
-// leading slash replaces the whole baseURL path under WHATWG URL joining, so the
-// request would land on Floci's S3 root instead of the gateway integration.
+// The full cross-service journey through the gateway: register (with an address) →
+// login → list products → create order (x-test-mode) → read the tracking → poll to
+// DELIVERED. Order creation is the load-bearing step — `POST /v1/orders` is what
+// brings a tracking into existence, so three services and two hops produce the row
+// this spec reads, which is why it cannot be faked with a direct service call.
+// CONTRACT: Keep every request path RELATIVE (no leading slash). A leading slash
+// replaces the whole baseURL path under WHATWG URL joining and the request lands on
+// Floci's S3 root instead of the gateway integration. See [[testing]]
 
-//: How long to wait for TestMode progression to reach DELIVERED.
-//
-// The design specifies one transition every 10s over five statuses
-// (PLACED → PROCESSING → SHIPPED → OUT_FOR_DELIVERY → DELIVERED), so ~40s from
-// creation. 90s is that budget with room for a slow local stack, and it is BOUNDED
-// on purpose: an unbounded poll on a progression that can legitimately never finish
-// (see the restart caveat below) would hang the suite instead of failing it.
+//: TestMode progression is five statuses at one transition per 10s, so ~40s; 90s
+// leaves room for a slow local stack. BOUNDED on purpose — the progression can
+// legitimately never finish (see pollUntilDelivered), and an unbounded poll would
+// hang the whole suite instead of failing this one spec.
 const DELIVERY_TIMEOUT_MS = 90_000;
 
 //: Gap between polls. Well under the 10s cadence, so the poller observes each
@@ -78,20 +66,12 @@ type TrackingPayload = {
   history: TrackingHistoryEntry[];
 };
 
-// Registers a user through the gateway and logs them in, returning BOTH the token
-// and the internal `usr_` id from the register response.
-//
-// The existing `getGatewayToken()` helper returns only the token — enough for the
-// Orders specs, not enough here. The `usr_` id is the whole point of step 5's
-// assertion: the tracking's `user_id` must equal it, which proves Tracking resolved
-// sub → `usr_` through Users' gRPC `GetUserById`. Without the id from register there
-// is nothing to compare against, and the sub→`usr_` resolution would be untested.
-//
-// The address is passed deliberately: Users stores it, Orders reads it back during
-// order creation, and it becomes the tracking's `shipping_address` snapshot. The
-// snapshot is never rendered on any Tracking response (it is PII — see
-// schemas.py), so this spec cannot assert on its value; supplying it exercises the
-// path rather than verifying the payload.
+// CONTRACT: Return the `usr_` id alongside the token — `getGatewayToken()` returns
+// only the token, and without the id step 5 has nothing to compare against, leaving
+// the sub → `usr_` gRPC resolution untested.
+// The address is supplied so Users stores it, Orders reads it back, and it becomes
+// the tracking's `shipping_address` snapshot. That snapshot is PII and never
+// rendered on a Tracking response, so this exercises the path without asserting it.
 async function registerAndLogin(): Promise<{ token: string; userId: string; email: string }> {
   const rawBaseURL = process.env.API_GATEWAY_URL;
   if (!rawBaseURL) throw new Error("API_GATEWAY_URL is not set — run `make bootstrap`.");
@@ -123,13 +103,10 @@ async function registerAndLogin(): Promise<{ token: string; userId: string; emai
 }
 
 test("the full journey through the gateway: user → order → tracking → DELIVERED", async () => {
-  // Owns a ~40s progression plus a full register/login/order chain, so it needs
-  // more than Playwright's 30s default. Set from the poll budgets rather than a
-  // magic number, so they cannot drift apart. EMAIL_TIMEOUT_MS is part of the sum
-  // because step 7's inbox wait runs AFTER the progression completes: without it
-  // in the budget, an email that never arrives would abort the test on
-  // Playwright's timeout with a generic message instead of the diagnostic one
-  // waitForEmailTo raises.
+  // Summed from the poll budgets, not a magic number, so they cannot drift apart.
+  // EMAIL_TIMEOUT_MS belongs in the sum because step 7's inbox wait runs AFTER the
+  // progression: leave it out and a missing email aborts on Playwright's generic
+  // timeout instead of the diagnostic message waitForEmailTo raises.
   test.setTimeout(DELIVERY_TIMEOUT_MS + EMAIL_TIMEOUT_MS + 60_000);
 
   // Fail here, not 90s later inside an email poll, if the inbox is missing.
@@ -173,28 +150,13 @@ test("the full journey through the gateway: user → order → tracking → DELI
   expect(tracking.order_id).toBe(order.id);
   expect(tracking.id).toMatch(/^trk_/);
 
-  // Starts at PLACED, per the design's t=0 row — asserted on the FIRST HISTORY
-  // ROW, which is the durable record of where the tracking began, not on the live
-  // status.
-  //
-  // The live status is deliberately NOT pinned to PLACED here. TestMode
-  // progression starts the moment `init-tracking` returns, and this read happens
-  // after a register → login → catalogue → create-order chain plus
-  // `waitForTracking`'s own retry loop. Whether the first status is still on the
-  // wire by then is a function of `PROGRESSION_INTERVAL_SECONDS` (5s locally,
-  // 10s per the design), not of anything this spec controls — so
-  // `expect(tracking.status).toBe("PLACED")` was asserting that the test is
-  // faster than the service, which is a race, not a contract. Measured: 0/5
-  // passes in the gateway project at the 5s cadence, 3/3 when run alone.
-  //
-  // What IS invariant, and what replaces it: the live status must be a member of
-  // the five-status chain, and it must sit at or after PLACED and at or before
-  // DELIVERED — i.e. the tracking cannot start outside the progression, cannot
-  // start past the terminal state, and cannot report a status the design never
-  // defines. A tracking that came up as SHIPPED_TO_MARS, as DELIVERED at t=0, or
-  // with an empty history still fails here. The forward-only walk and the exact
-  // five-row chain are proven in full at step 6, on the settled history, where
-  // they can be asserted without racing the progression.
+  // CONTRACT: Do NOT pin the LIVE status to PLACED — assert PLACED on the first
+  // HISTORY row instead. Progression starts the moment `init-tracking` returns, so
+  // pinning the live value asserts the test is faster than the service: 0/5 passes
+  // in the gateway project at the 5s cadence, 3/3 when run alone.
+  // What is invariant: the live status is one of the five, at or after PLACED and
+  // before DELIVERED. The forward-only walk and the exact five-row chain are proven
+  // at step 6 on the settled history, where no race is possible. See [[testing]]
   const liveIndex = PROGRESSION.indexOf(tracking.status as never);
   expect(
     liveIndex,
@@ -209,14 +171,10 @@ test("the full journey through the gateway: user → order → tracking → DELI
   expect(tracking.history.length).toBeGreaterThanOrEqual(1);
   expect(tracking.history[0].status).toBe("PLACED");
 
-  // The sub → `usr_` resolution, and the single most valuable assertion in this
-  // file. The gateway injects `x-user-id` as the JWT's **sub**, never a `usr_` id
-  // (`proxy_set_header x-user-id $jwt_sub`). For `tracking.user_id` to be the
-  // `usr_` id that register returned, Tracking must have called Users' gRPC
-  // `GetUserById` with that sub and persisted what came back. If it had simply
-  // stored the header, this would be a Cognito UUID and would not match — which is
-  // precisely the class of bug that reads as "correctly implemented" while being
-  // wrong (services/tracking/CLAUDE.md §5b).
+  // CONTRACT: The gateway injects `x-user-id` as the JWT **sub**, never a `usr_` id.
+  // A `tracking.user_id` matching register's id proves Tracking resolved it through
+  // Users' gRPC `GetUserById`; a service that stored the header raw yields a Cognito
+  // UUID and fails here. See [[logging-context]]
   expect(tracking.user_id).toBe(userId);
   expect(tracking.user_id).toMatch(/^usr_/);
   for (const entry of tracking.history) {
@@ -261,25 +219,10 @@ test("the full journey through the gateway: user → order → tracking → DELI
   expect(settled.history).toHaveLength(PROGRESSION.length);
 
   // --- 7. The emails actually LANDED ---------------------------------------
-  // Asserted here, at the end of this journey, rather than in a suite of their
-  // own: this one test already triggers all three producers that publish an
-  // email-bearing event — Users (USER_CREATED at register), Orders
-  // (ORDER_CREATED at step 4), Tracking (TRACKING_STATUS_CHANGED on each of the
-  // five transitions above) — and they all land at ONE address. A parallel suite
-  // would have to re-walk the same register → order → deliver chain (~50s) to
-  // recreate a state this test has already reached, and would then be asserting
-  // on a second, unrelated journey.
-  //
-  // Everything below is a genuinely NEW hop. Up to this point the spec has only
-  // proven the three services' own HTTP surfaces agree with each other; nothing
-  // has touched the queue. Each of these events crossed SQS into the
-  // events-pipeline Lambda, was dispatched by type, rendered, and relayed
-  // through SES to the inbox — a path on which every previous assertion in this
-  // file stays green while a user receives nothing.
-  //
-  // Waiting for all three at once (minCount) rather than three sequential waits:
-  // they are produced concurrently and arrive in no guaranteed order, so a
-  // sequential wait would just be a slower version of the same assertion.
+  // This journey triggers all three email-bearing producers at ONE address, and this
+  // is the first assertion touching SQS → Lambda → SES → Mailpit — a path on which
+  // every earlier assertion stays green while the user receives nothing. One
+  // `minCount` wait, not three sequential ones: they arrive in no guaranteed order.
   const inbox = await waitForEmailTo(email, {
     minCount: 3,
     timeoutMs: EMAIL_TIMEOUT_MS,
@@ -295,39 +238,41 @@ test("the full journey through the gateway: user → order → tracking → DELI
   // 1. USER_CREATED → the welcome email.
   const welcome = findBySubject(inbox, "Welcome to 3MRAI");
   expect(welcome, `no welcome email among: ${subjectsOf(inbox)}`).toBeTruthy();
-  // The rendered body carries the registered address, which is what proves the
-  // template received the event's real payload rather than sample props — the
-  // catalog's sampleProps say "ada@example.com", so a handler that rendered the
-  // sample instead of the event would pass a subject check and fail this one.
-  // Read the FULL body, not `Snippet`. Mailpit truncates the snippet to ~150
-  // characters, and the rebranded template opens with the header chrome
-  // ("3MRAI COMPANY ✓ Welcome to 3MRAI! Hi <name>, …"), which pushed the
-  // address past that cut-off. The address is still in the message — asserting
-  // on the snippet was measuring how much of the body Mailpit chose to preview.
+  // CONTRACT: Read the FULL body, not `Snippet`. Mailpit truncates the snippet to
+  // ~150 chars and the template's header chrome pushes the address past that cut-off,
+  // so a snippet assertion measures Mailpit's preview length, not the render. The
+  // address itself proves the template got the event payload and not the catalog's
+  // sampleProps ("ada@example.com"), which would pass a subject check.
+  // See [[email-templates]]
   const welcomeBody = await getMessage(welcome!.ID);
   expect(welcomeBody.HTML).toContain(email);
 
   // 2. ORDER_CREATED → the confirmation, which must name THIS order.
+  //
+  // CONTRACT: By the customer-facing NUMBER, not the id. The receipt is read by a
+  // person, so it prints `order.orderNumber.formatted` — asserting on `order.id`
+  // here would fail against a correct email and pass against one that regressed to
+  // printing the raw id. Falls back to the id only for an order predating the
+  // backfill, which a freshly created one never is. See [[friendly-order-number]]
   const confirmation = findBySubject(inbox, "Order confirmed");
   expect(confirmation, `no order confirmation among: ${subjectsOf(inbox)}`).toBeTruthy();
   expect(
+    order.orderNumber?.formatted,
+    "the created order carries no orderNumber, so the email cannot name it",
+  ).toBeTruthy();
+  expect(
     confirmation?.Snippet,
     "the order email does not name this order — rendered from sample props?",
-  ).toContain(order.id);
+  ).toContain(order.orderNumber!.formatted);
 
   // 3. TRACKING_STATUS_CHANGED → at least the DELIVERED transition.
   //
-  // Matched on the DELIVERED subject specifically rather than counting five
-  // tracking emails. Both are true today, but the count is the wrong assertion:
-  // it would fail if the progression's cadence ever changed, while the real
-  // contract this covers is "a status transition produces an email for it".
-  // DELIVERED is the transition this test has already PROVEN happened (the
-  // history assertions above), so it is the one that can be demanded without
-  // racing the progression.
-  //
-  // Subject built exactly as the handler builds it
-  // (functions/events-pipeline/src/handlers/tracking-status-changed.ts):
-  // underscores to spaces, lowercased — so `DELIVERED` renders as "delivered".
+  // CONTRACT: Match the DELIVERED subject; do NOT count five tracking emails. The
+  // contract is "a status transition produces an email for it", so a count breaks the
+  // day the progression cadence changes. DELIVERED is the one transition already
+  // proven above, so demanding it races nothing. Subject is built as the handler
+  // builds it (tracking-status-changed.ts): underscores to spaces, lowercased.
+  // See [[email-templates]]
   const deliveredSubject = `Order ${order.id}: delivered`;
   const deliveredEmail = findBySubject(inbox, deliveredSubject);
   expect(
@@ -425,13 +370,10 @@ async function pollUntilDelivered(
   );
 }
 
-// The other half of the contract guard. Orders maps Tracking's payload into a DTO it
-// owns (Orders.Application.Tracking.TrackingDto), and the unit tests pin that DTO
-// against a committed fixture. A fixture only catches drift once somebody remembers to
-// update it, so this asserts the same shape against a tracking Tracking ACTUALLY
-// produced, end to end through the gateway. If Tracking renames or drops a field, the
-// mapped value arrives null here and this fails — which is the whole point of paying
-// for a typed DTO instead of forwarding opaque JSON.
+// CONTRACT: Assert Orders' TrackingDto shape against a tracking Tracking ACTUALLY
+// produced, end to end. The unit tests pin the DTO against a committed fixture, which
+// only catches drift once someone remembers to update it; here a renamed or dropped
+// Tracking field arrives null and fails. See [[testing]]
 test("includeTracking returns Tracking's payload mapped onto the shape Orders declares", async () => {
   test.setTimeout(120_000);
 
@@ -450,24 +392,12 @@ test("includeTracking returns Tracking's payload mapped onto the shape Orders de
   expect(created.status(), `order creation failed: ${await created.text()}`).toBe(201);
   const order = await created.json();
 
-  // Orders calls init-tracking after its own transaction commits, so give the row a
-  // moment to exist before asking for it.
-  //
-  // ## Waiting for Tracking's own 200 is NOT enough here — measured, not assumed
-  //
-  // `waitForTracking` proves the row exists in TRACKING. This spec asserts on what
-  // ORDERS returns, and the two are not the same instant: Orders reads Tracking over
-  // HTTP with a bounded 2s budget (`TrackingHttpClient.ReadTimeout`), and a read that
-  // overruns it degrades to `tracking: null` by design. Observed on this stack —
-  // `tracking_read_failed reason="unreachable" status=0` exactly 2006ms after the
-  // request, for an order whose tracking Tracking was already serving; the next read
-  // succeeded in 1262ms. Across three runs Orders lagged Tracking's 200 by 1.8–4.0s.
-  //
-  // That is what made this test fail once the cache stopped storing null trackings:
-  // the null it read was never a cache artefact, it was this window. So the wait is
-  // on ORDERS' OWN response — the thing actually asserted on — for both the single
-  // read and the list read, which fan out through DIFFERENT routes into Tracking
-  // (single vs. batch) and become ready independently.
+  // CONTRACT: Do NOT rely on `waitForTracking` alone here. It proves the row exists in
+  // TRACKING; this spec asserts on what ORDERS returns, and Orders reads Tracking with
+  // a 2s budget that degrades to `tracking: null` when it overruns — measured lag of
+  // 1.8-4.0s behind Tracking's own 200. So wait on ORDERS' response, separately for
+  // the single read and the list read: they fan out through different routes into
+  // Tracking (single vs. batch) and become ready independently. See [[testing]]
   await waitForTracking(api, order.id);
   await waitForOrderTrackingReadable(api, `v1/orders/${order.id}?includeTracking=true`);
   await waitForMyOrdersTrackingReadable(api, "v1/orders/my-orders?includeTracking=true");

@@ -2,15 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { CacheGateway } from "#shared/cache/cache-gateway";
 import { ME_KEY_PREFIX } from "#shared/cache/cache-keys";
 
-// A minimal in-memory stand-in for the ioredis commands the gateway uses.
-// Deliberately NOT a blanket mock: the tests below assert the exact `EX`-form
-// arguments to `set` and the PTTL semantics, which is precisely what a mocked
-// client lets silently regress — see [[mocks-hide-schema-bugs]] and the same
-// stance in tests/shared/cache/reset-code-store.test.ts.
-//
-// `pipeline()` is real-shaped too, because `get()` reads the value and its
-// remaining TTL in ONE round trip. A fake without it would make every get()
-// throw and report BYPASS, which reads exactly like a working fail-open.
+// CONTRACT: A real-shaped in-memory stand-in, NOT a blanket mock — these tests assert
+// the exact `EX`-form arguments and PTTL semantics, which a mocked client lets
+// silently regress. `pipeline()` is real-shaped too: `get()` reads value and TTL in one
+// round trip, and a fake without it makes every get() throw and report BYPASS, which
+// reads exactly like a working fail-open. See [[mocks-hide-schema-bugs]]
 function fakeRedis() {
   const data = new Map<string, string>();
   const ttls = new Map<string, number>();

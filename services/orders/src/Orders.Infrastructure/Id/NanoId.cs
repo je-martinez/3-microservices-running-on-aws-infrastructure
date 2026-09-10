@@ -6,26 +6,13 @@ namespace Orders.Infrastructure.Id;
 /// The one place the id format is defined for this service — see [[nano-id]].
 /// </summary>
 /// <remarks>
-/// <para>
-/// <see cref="Alphabet"/> is letters and digits only. Nanoid's default adds <c>_</c> and
-/// <c>-</c>, and those two characters are why this exists: an id is pasted into a shell,
-/// a URL, a log grep and a CSV, and a leading <c>-</c> reads as a flag while <c>_</c>
-/// disappears against an underscored column name. Restricting the alphabet costs nothing —
-/// 62^24 is MORE entropy than the 64^21 it replaces, so collision risk goes down, not up.
-/// </para>
-/// <para>
-/// <see cref="Length"/> is the nanoid portion only. A stored id is
-/// <see cref="PrefixLength"/> + <see cref="Length"/> = <see cref="TotalLength"/> = 28
-/// characters, which is what every id-bearing database column must be sized for. Getting
-/// that wrong truncates silently in MySQL rather than erroring.
-/// </para>
-/// <para>
-/// The same three values are defined in Users (<c>src/shared/id/nano-id.ts</c>) and
-/// Tracking (<c>shared/db/nano_id.py</c>). They are a CROSS-SERVICE CONTRACT: ids cross
-/// service boundaries in headers, envelopes and foreign keys, so a service that disagrees
-/// about the alphabet or the length produces ids the others reject. Changing any of them
-/// means changing all three together.
-/// </para>
+/// CONTRACT: The alphabet, length and prefix length are a CROSS-SERVICE contract — ids cross
+/// boundaries in headers, envelopes and foreign keys, so a service that disagrees produces
+/// ids the others reject. Change all three services together.
+/// CONTRACT: Size every id-bearing column for <see cref="TotalLength"/>; MySQL truncates
+/// silently rather than erroring. The alphabet excludes <c>_</c> and <c>-</c> because a
+/// leading <c>-</c> reads as a shell flag and <c>_</c> hides against underscored column
+/// names. See [[nano-id]]
 /// </remarks>
 public static class NanoIdConfig
 {
@@ -78,14 +65,11 @@ public static class NanoIdConfig
     ];
 
     /// <summary>
-    /// A regex source matching a full prefixed id. Built from the values above rather than
-    /// written out, so it cannot drift from what the generator actually produces.
+    /// A regex source matching a full prefixed id, built from the values above so it cannot
+    /// drift from what the generator produces.
+    /// CONTRACT: Anchored at both ends with an EXACT length, never a range — callers
+    /// validate untrusted input. See [[nano-id]]
     /// </summary>
-    /// <remarks>
-    /// Anchored at both ends and an EXACT length rather than a range — the callers of this
-    /// (notably <see cref="RequestId.Resolve"/>) validate untrusted input, where there is
-    /// no room for "close enough".
-    /// </remarks>
     public static string PatternFor(string prefix) =>
         $"^{Regex.Escape(prefix)}[A-Za-z0-9]{{{Length}}}$";
 }

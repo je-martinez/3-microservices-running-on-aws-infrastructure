@@ -1,22 +1,16 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-// Per-request log context, merged into EVERY log line by the `formatters.log`
-// hook in `logger.ts`. A sibling to `shared/audit/actor-context.ts`, which uses
-// the same mechanism for the audit actor — see that file for why
-// AsyncLocalStorage rather than the per-request Awilix scope (the Pino logger,
-// like the Prisma client, is a process-wide singleton and cannot read a scope).
-//
-// Every field is OPTIONAL and omitted when unknown. An emitted `user_id: null`
-// is worse than an absent key: it reads as a resolved value that happens to be
-// null, rather than "not known at this point in the request".
+// CONTRACT: Every field is optional and OMITTED when unknown, never null — a
+// `user_id: null` reads as a resolved value rather than "not known yet". Merged
+// into every line by `formatters.log` in logger.ts. AsyncLocalStorage rather than
+// the Awilix scope because the Pino logger is a process-wide singleton.
+// See [[logging-context]]
 export interface LogContextStore {
   /**
-   * Correlation id for one logical request, `req_` + nanoid. Seeded at ingress
-   * from a valid `x-request-id` header or generated, then carried on every line
-   * and forwarded on every outbound hop — see [[request-id]].
-   *
-   * Distinct from `trace_id`, which comes from the OTel SDK: the events-pipeline
-   * and the realtime Lambdas run no SDK, so this is the only id that spans them.
+   * Correlation id for one logical request, `req_` + nanoid, seeded at ingress and
+   * forwarded on every outbound hop. Distinct from `trace_id`: the events-pipeline
+   * and realtime Lambdas run no OTel SDK, so this is the only id spanning them.
+   * See [[2026-08-15-request-id-correlation-design]]
    */
   request_id?: string;
   /** Raw Cognito sub, from the x-user-id header. */
@@ -32,23 +26,16 @@ export interface LogContextStore {
   email?: string;
   order_id?: string;
   /**
-   * Cache outcome for this request: "hit" | "miss" | "bypass". Set by the
-   * response-cache hooks (see features/users/http/cache-hooks.ts) on cacheable
-   * routes only. OMITTED — never null — on every other route: an absent key
-   * reads as "this route is not cached", whereas a null reads as "it is cached
-   * and somehow produced no outcome".
+   * Cache outcome: "hit" | "miss" | "bypass", set by the response-cache hooks on
+   * cacheable routes. OMITTED elsewhere, never null — an absent key reads as "not
+   * cached", a null as "cached and somehow produced no outcome".
    */
   cache_result?: "hit" | "miss" | "bypass";
   /**
-   * E2E ONLY. The Playwright run that caused this request, seeded at ingress
-   * from the `x-e2e-run-id` header and ONLY when `E2E_TESTING_ENABLED` — the
-   * same gate `x-e2e-source` rides, so an unflagged environment ignores the
-   * header entirely.
-   *
-   * It lives here rather than on a parameter because it has to reach every
-   * event this request publishes without a single call site threading it,
-   * exactly like `request_id`. The events-pipeline reads it off the envelope to
-   * scope its per-run email fixtures — see [[e2e-email-support-store]].
+   * E2E ONLY. The Playwright run behind this request, seeded at ingress from
+   * `x-e2e-run-id` and only when `E2E_TESTING_ENABLED`, so an unflagged environment
+   * ignores the header. On the context rather than a parameter so it reaches every
+   * event published — see [[2026-08-29-e2e-email-support-store]].
    */
   run_id?: string;
 }
@@ -61,12 +48,9 @@ export function getLogContext(): LogContextStore {
 }
 
 /**
- * Merge fields into the ACTIVE store, for enrichment part-way through a request
- * — e.g. once registration produces a user_id, every later line of that request
- * carries it. No-op outside a request.
- *
- * Mutates in place rather than replacing the store, so continuations that
- * already captured the reference observe the update.
+ * Merge fields into the ACTIVE store, for enrichment part-way through a request.
+ * No-op outside one. Mutates in place so continuations that already captured the
+ * reference observe the update.
  */
 export function setLogContext(fields: Partial<LogContextStore>): void {
   const store = logContext.getStore();
@@ -76,15 +60,10 @@ export function setLogContext(fields: Partial<LogContextStore>): void {
 /**
  * Run `fn` with `fields` as the log context for its whole async call chain.
  *
- * NOTE the `async () => await fn()` shape — NOT `logContext.run(fields, fn)`.
- * Prisma's create/update/deleteMany return a LAZY PrismaPromise that starts no
- * work until awaited, and AsyncLocalStorage.run exits its store the moment the
- * callback returns synchronously. Passing `fn` directly therefore lets a
- * callback like `() => db.user.create(...)` hand back an un-started thenable,
- * exit the store, and run the query later under whatever store is active at the
- * AWAIT site. Awaiting inside keeps the store alive for the whole operation.
- * The same hazard is documented at length in shared/audit/actor-context.ts,
- * where it silently mis-stamped audit columns.
+ * CONTRACT: Keep the `async () => await fn()` shape — do NOT pass `fn` directly to
+ * `logContext.run`. Prisma promises are lazy, so a callback returning an un-started
+ * thenable exits the store before the query runs and it executes under whatever
+ * store is active at the AWAIT site. See [[2026-07-12-prisma-lazy-promise-als]]
  */
 export function runWithLogContext<T>(
   fields: LogContextStore,

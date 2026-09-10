@@ -168,6 +168,19 @@ export const UserIdHeader = z.object({
         "a request without it resolves no current user and is answered 404 (not a 400).",
     ),
 });
+// CONTRACT: `.optional()` like the headers above — the handler answers a missing or
+// malformed value with 401 `invalid_credentials`, and marking it required here would
+// hand back Fastify's generic 400 instead, breaking that contract.
+export const AuthorizationHeader = z.object({
+  authorization: z
+    .string()
+    .optional()
+    .describe(
+      "Bearer <Cognito access token>. The same header the gateway authorizer reads; " +
+        "the access token is what authorizes the revocation, so no body is needed.",
+    ),
+});
+
 export const WebhookSecretHeader = z.object({
   "x-webhook-secret": z
     .string()

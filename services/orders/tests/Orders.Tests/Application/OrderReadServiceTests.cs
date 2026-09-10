@@ -44,7 +44,7 @@ public class OrderReadServiceTests : IAsyncLifetime
         // A real tracer, not a fake: with no ActivityListener registered here it
         // records nothing (see WorkflowTracerTests), so the read behaves exactly
         // as it did before the span was added — which is the point.
-        var svc = new OrderReadService(r, new WorkflowTracer(), new SpanScopedLogger<OrderReadService>());
+        var svc = new OrderReadService(r, new WorkflowTracer(), "https://assets.test", new SpanScopedLogger<OrderReadService>());
         Assert.Null(await svc.GetByIdAsync("ord_test1", "sub-b"));      // other user → null (→ 404)
         Assert.NotNull(await svc.GetByIdAsync("ord_test1", "sub-a"));   // owner → found
     }
@@ -74,7 +74,7 @@ public class OrderReadServiceTests : IAsyncLifetime
 
         await using var r = ReadCtx();
         var logger = new SpanScopedLogger<OrderReadService>();
-        var orders = await new OrderReadService(r, new WorkflowTracer(), logger).GetMyOrdersAsync("sub-s");
+        var orders = await new OrderReadService(r, new WorkflowTracer(), "https://assets.test", logger).GetMyOrdersAsync("sub-s");
 
         Assert.Equal(2, orders.Count);
         var span = Assert.Single(recorded);
@@ -88,7 +88,7 @@ public class OrderReadServiceTests : IAsyncLifetime
         // No route/method tag: the AspNetCore span above already carries those,
         // and duplicating them onto the workflow span is what this asserts against.
         Assert.DoesNotContain(span.TagObjects, t => t.Key == "http.method" || t.Key == "http.route");
-        // Stopped, not merely started — a running activity never reaches Jaeger.
+        // CONTRACT: Stopped, not merely started — a running activity is never exported.
         Assert.NotEqual(default, span.Duration);
 
         // The span must not be MUTE: exactly one log line, carrying the flow's
@@ -119,5 +119,61 @@ public class OrderReadServiceTests : IAsyncLifetime
         Assert.DoesNotContain("cognito_sub", entry.Values.Keys);
         Assert.DoesNotContain("user_id", entry.Values.Keys);
         Assert.DoesNotContain("sub-s", entry.Rendered);
+    }
+
+    [Fact]
+    public async Task Reads_surface_the_lines_captured_name_and_absolute_image_url()
+    {
+        await using (var w = WriteCtx())
+        {
+            await w.Database.MigrateAsync();
+            w.Orders.Add(new Order
+            {
+                Id = "ord_snap1",
+                UserId = "usr_p",
+                CognitoSub = "sub-p",
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+                Details =
+                {
+                    new OrderDetail
+                    {
+                        Id = "odd_snap1", OrderId = "ord_snap1", ProductId = "prd_1",
+                        UserId = "usr_p", CognitoSub = "sub-p", Quantity = 2,
+                        SubtotalCents = 2000, TaxCents = 200, TotalCents = 2200,
+                        ProductName = "Runner Low Canvas",
+                        ProductImage = new ProductImage("products/runner.jpg", 1080, 720, "BLUR"),
+                        CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+                    },
+                    // Second line with NO snapshot at all: the shape an order placed
+                    // before these columns existed reads back as.
+                    new OrderDetail
+                    {
+                        Id = "odd_snap2", OrderId = "ord_snap1", ProductId = "prd_2",
+                        UserId = "usr_p", CognitoSub = "sub-p", Quantity = 1,
+                        SubtotalCents = 1000, TaxCents = 100, TotalCents = 1100,
+                        CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+                    },
+                },
+            });
+            await w.SaveChangesAsync();
+        }
+
+        await using var r = ReadCtx();
+        var svc = new OrderReadService(r, new WorkflowTracer(), "https://assets.test/", new SpanScopedLogger<OrderReadService>());
+        var order = await svc.GetByIdAsync("ord_snap1", "sub-p");
+
+        Assert.NotNull(order);
+        var withImage = order!.Lines.Single(l => l.ProductId == "prd_1");
+        Assert.Equal("Runner Low Canvas", withImage.Name);
+        // Composed on read, not persisted: relative key + base url, single slash.
+        Assert.Equal("https://assets.test/products/runner.jpg", withImage.Image!.Uri);
+        Assert.Equal("BLUR", withImage.Image.Blurhash);
+
+        // A pre-existing line is NOT backfilled from the catalogue — it reports null and
+        // the client falls back to its placeholder.
+        var bare = order.Lines.Single(l => l.ProductId == "prd_2");
+        Assert.Null(bare.Name);
+        Assert.Null(bare.Image);
     }
 }

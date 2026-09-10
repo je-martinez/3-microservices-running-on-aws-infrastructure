@@ -1,22 +1,12 @@
-// Package otel wires OpenTelemetry for this service.
-//
-// Go has NO `opentelemetry-instrument` equivalent, so every surface the Python
-// service got for free must be wired here in code: otelgin for inbound HTTP,
+// Package otel wires OpenTelemetry for this service: otelgin for inbound HTTP,
 // otelsql around the driver, otelgrpc on the outbound client, and a
-// hand-instrumented SQS producer.
+// hand-instrumented SQS producer. Logs and traces both reach OpenObserve.
 //
-// What does NOT live in code is the configuration. Endpoint, protocol and the
-// disabling of the metrics/logs exporters all come from the standard OTLP
-// environment variables, and that is a rule with three recorded silent failures
-// behind it in this repo:
-//
-//	OTEL_EXPORTER_OTLP_ENDPOINT=http://<collector>:4318
-//	OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
-//	OTEL_METRICS_EXPORTER=none
-//	OTEL_LOGS_EXPORTER=none
-//	OTEL_SERVICE_NAME=tracking          (set in the Dockerfile)
-//
-// Logs and traces BOTH go to OpenObserve; there is no Jaeger any more.
+// CONTRACT: Configuration goes in ENVIRONMENT VARIABLES, never code —
+// OTEL_EXPORTER_OTLP_ENDPOINT and _PROTOCOL, OTEL_METRICS_EXPORTER=none,
+// OTEL_LOGS_EXPORTER=none, OTEL_SERVICE_NAME. An SDK option whose value came out
+// empty loses to auto-detection with no error at all.
+// See [[ADR-0019-distributed-tracing-opentelemetry]]
 package otel
 
 import (
@@ -55,15 +45,12 @@ func SetTracerProvider(tp oteltrace.TracerProvider) { provider = tp }
 // Tracer returns a named tracer from the configured provider.
 func Tracer(name string) oteltrace.Tracer { return provider.Tracer(name) }
 
-// SetupTracing installs the OTLP exporter and the W3C propagator.
+// SetupTracing installs the OTLP exporter and the W3C propagator. Its returned
+// shutdown flushes pending spans; without it the last batch never leaves.
 //
-// No endpoint, protocol or header is passed here: otlptracehttp.New reads them
-// from OTEL_EXPORTER_OTLP_*. Passing an SDK option whose value came out
-// `undefined` is exactly how the three silent failures happened — an explicit
-// option LOSES to auto-detection in a way that produces no error at all.
-//
-// The returned shutdown flushes pending spans; call it on graceful exit or the
-// last batch never leaves the process.
+// CONTRACT: Pass no endpoint, protocol or header — otlptracehttp.New reads
+// OTEL_EXPORTER_OTLP_*, and an explicit empty option loses to auto-detection
+// with no error at all.
 func SetupTracing(ctx context.Context) (func(context.Context) error, error) {
 	exporter, err := otlptracehttp.New(ctx)
 	if err != nil {

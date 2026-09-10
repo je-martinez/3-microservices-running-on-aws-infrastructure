@@ -28,14 +28,11 @@ type logFieldsKey struct{}
 
 // WithLogFields merges fields into ctx's log context and returns a NEW context.
 //
-// It never mutates in place. A mutated slice would leak the change into every
-// context that copied the same reference — the Go analogue of the contextvars
-// trap the Python service documents, where a goroutine started earlier would
-// observe a merge it was never meant to see.
-//
-// Unknown keys are dropped, as are nil values and empty strings. An emitted
-// empty user_id reads as a resolved identity that happened to be blank, rather
-// than "not known at this point in the request".
+// CONTRACT: Never mutate in place — a mutated slice leaks into every context
+// holding the same reference, so a goroutine started earlier observes a merge it
+// was never meant to see. Unknown keys, nil values and empty strings are
+// dropped: an empty user_id reads as a resolved blank identity.
+// See [[logging-context]]
 func WithLogFields(ctx context.Context, fields ...slog.Attr) context.Context {
 	existing := LogFields(ctx)
 
@@ -91,12 +88,8 @@ func keep(a slog.Attr) bool {
 }
 
 // ContextHandler merges the ambient log context into every record before the
-// inner handler renders it.
-//
-// Wrapping the handler rather than the logger is what makes the enrichment
-// unconditional: a package that logs through the default slog logger, a library
-// whose records reach the same handler, and a use case deep in the call stack
-// all get the same fields with no logger threaded through their constructors.
+// inner handler renders it. Wrapping the HANDLER rather than the logger makes
+// the enrichment unconditional, with no logger threaded through constructors.
 type ContextHandler struct{ inner slog.Handler }
 
 // NewContextHandler wraps inner so records carry the context's log fields.
@@ -117,10 +110,9 @@ func (h *ContextHandler) WithGroup(name string) slog.Handler {
 // Handle appends the ambient fields AFTER the record's own, so a call-site
 // attribute of the same name is written first and wins.
 //
-// The precedence is deliberate: a handler logging about a different order than
-// the request's own is being specific on purpose, and silently overwriting that
-// with the request's order_id would make the log lie. Our JSON handler keeps the
-// FIRST occurrence of a key, so ordering is the whole mechanism here.
+// CONTRACT: Keep that order. The JSON handler keeps the FIRST occurrence of a
+// key, and overwriting a call site's deliberate order_id with the request's
+// makes the log lie. See [[logging-context]]
 func (h *ContextHandler) Handle(ctx context.Context, r slog.Record) error {
 	fields := LogFields(ctx)
 	if len(fields) == 0 {

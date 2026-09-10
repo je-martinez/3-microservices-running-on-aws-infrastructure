@@ -1,20 +1,13 @@
-// Parses the committed OpenObserve dashboards into (stream, field) references,
-// so a spec can assert every field a panel queries still exists in the stream's
-// schema.
+// Parses the committed OpenObserve dashboards into (stream, field) references, so a
+// spec can assert every field a panel queries still exists in the stream's schema.
+// Each panel's `queries[]` entry holds the literal query in `query`, the stream in
+// `fields.stream`, and its type in `fields.stream_type`; `panel.queryType` decides
+// whether `query` parses as SQL or PromQL.
 //
-// ## Where the truth lives in these files
-//
-// Verified by reading all six dashboards rather than assuming: each panel's
-// `queries[]` entry carries the LITERAL query string in `query`, the stream in
-// `fields.stream`, and the stream's type in `fields.stream_type`.
-// `panel.queryType` is `"sql"` or `"promql"` and decides how `query` parses.
-//
-// `fields.x[]` / `y[]` / `z[]` / `breakdown[]` also carry `column` and `alias`
-// keys, but those are NOT stream fields — in every panel here they name the
-// query's own output aliases (`x_axis_1`, `y_axis_1`, `total`), flagged
-// `isDerived: true` on the chart panels. Asserting on them would demand that
-// `x_axis_1` exist in the `logs` schema, which it never will. The SQL text is
-// the only place real field names appear, so that is what gets parsed.
+// CONTRACT: Parse the SQL text — do NOT read field names from `fields.x[]`/`y[]`/
+// `z[]`/`breakdown[]`. Those carry the query's OWN output aliases (`x_axis_1`,
+// `total`), so asserting on them demands `x_axis_1` exist in the `logs` schema, which
+// it never will. See [[logging-context]]
 
 import fs from "node:fs";
 import path from "node:path";
@@ -77,14 +70,12 @@ const SQL_RESERVED = new Set([
 /**
  * Extracts the column references from one SQL query.
  *
- * Order matters and each step removes a real source of false positives:
- *   1. blank out string literals — `service_name = 'orders'` must not yield `orders`
- *   2. blank out the FROM target — the stream name is not one of its own columns
- *   3. collect `AS <alias>` names — `x_axis_1`, `total`, `n` are outputs, not inputs
- *   4. every remaining identifier that is not reserved is a field
- *
- * Numeric literals never survive because the identifier pattern requires a
- * leading letter or underscore (which is also what keeps `_timestamp`).
+ * CONTRACT: Keep these steps in order — each removes a real false positive. Blank the
+ * string literals (`service_name = 'orders'` must not yield `orders`), then the FROM
+ * target (a stream is not one of its own columns), then collect `AS <alias>` names
+ * (outputs, not inputs); whatever identifier remains unreserved is a field. Numeric
+ * literals never survive: the pattern needs a leading letter or underscore, which is
+ * also what keeps `_timestamp`. See [[logging-context]]
  */
 export function extractSqlFields(sql: string): string[] {
   const withoutLiterals = sql.replace(/'[^']*'/g, "''");
@@ -105,13 +96,10 @@ export function extractSqlFields(sql: string): string[] {
 }
 
 /**
- * Extracts the label references from a PromQL expression.
- *
- * PromQL panels name the metric itself plus label matchers
- * (`{status!=""}`, `by (statusclass)`). The metric name maps to the stream, not
- * to a field, so only the labels are returned — those DO appear in the metrics
- * stream's schema (verified: `status`, `statusclass`, `emailtype` are all real
- * schema fields).
+ * Extracts the label references from a PromQL expression. A panel names the metric plus
+ * label matchers (`{status!=""}`, `by (statusclass)`); the metric maps to the STREAM,
+ * not a field, so only the labels are returned — and those do appear in the metrics
+ * stream's schema.
  */
 export function extractPromqlFields(promql: string): string[] {
   const fields = new Set<string>();

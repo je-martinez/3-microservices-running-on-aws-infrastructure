@@ -39,31 +39,19 @@ function isGone(error: unknown): boolean {
 
 /**
  * Fan a message out to every socket the user has open. NEVER throws.
- *
- * The WebSocket push must never change the outcome of event processing: the
- * email is the durable notification and this is an opportunistic enhancement on
- * top of it. Failing the event so SQS retries it would send a SECOND email for
- * a transition the user was already notified about — trading a realtime failure
- * for a duplicate email, which is the trade the pipeline's publish-failure
- * policy already rejects everywhere else.
+ * CONTRACT: The push must never change the outcome of event processing. The
+ * email is the durable notification; failing the event so SQS retries it sends
+ * a SECOND email for a transition the user was already notified about.
  */
 export async function publishToUser(
   cognitoSub: string,
   message: unknown,
 ): Promise<void> {
-  // Manual PRODUCER span. Same bundling constraint as the other two outbound
-  // calls (see #shared/observability/client-span): @aws-sdk/client-apigatewaymanagementapi
-  // is inlined, so nothing auto-instruments it. A child of `process_record`,
-  // from the ambient context.
-  //
-  // The `describeError` argument is defensive only — this function's contract is
-  // that it NEVER throws (see the docstring above), so the wrapper's catch is
-  // unreachable in practice and every real failure is swallowed and logged
-  // inside. That is why the span records its outcome through attributes below
-  // rather than through status alone: a fan-out where every push failed still
-  // ends OK, because the RECORD really did succeed. `ws_push_failed` on the
-  // matching log line is where that detail lives, and the span carries the
-  // counts so the two agree.
+  // Manual PRODUCER span — the SDK is inlined by esbuild, so nothing
+  // auto-instruments it. `describeError` is defensive: this function never
+  // throws, so the outcome rides on the attributes below rather than the span
+  // status. A fan-out where every push failed still ends OK, because the RECORD
+  // succeeded; `ws_push_failed` on the log line carries that detail.
   return withClientSpan(
     "ws publish",
     SpanKind.PRODUCER,

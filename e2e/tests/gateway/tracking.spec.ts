@@ -4,17 +4,11 @@ import { gatewayClient } from "../../support/gateway-client.js";
 import { carrierHeaders } from "../../support/tracking-carrier-key.js";
 
 // Gateway coverage of Tracking's security and contract properties, beyond the
-// happy-path journey in tracking-flow.spec.ts: ownership isolation, the batch
-// read's omission rule, creation idempotency, the carrier PUT's separate auth
-// scheme, and the authorizer's 401.
-//
-// These belong at the gateway layer specifically. Ownership depends on the caller's
-// identity arriving as `x-user-id` derived from a **verified** JWT sub; a direct
-// service call fakes that header and therefore cannot prove the gateway wires it
-// from the right claim. The carrier PUT's `auth = false` route declaration is a
-// gateway artifact with no internal equivalent at all.
-//
-// All request paths are RELATIVE — see gateway-client.ts.
+// happy-path journey in tracking-flow.spec.ts: ownership isolation, the batch read's
+// omission rule, creation idempotency, the carrier PUT's separate auth scheme, and the
+// authorizer's 401. These belong here specifically — ownership depends on `x-user-id`
+// arriving from a VERIFIED JWT sub, which a direct call fakes, and the carrier PUT's
+// `auth = false` declaration is a gateway artifact with no internal equivalent.
 
 //: The gateway route for the carrier PUT is declared `auth = false`, so the whole
 // point is that these calls carry NO Authorization header. `gatewayClient()` with
@@ -107,18 +101,14 @@ test("GET v1/trackings/{orderId} for a nonexistent order is 404", async () => {
   expect(res.status()).toBe(404);
 });
 
-// THE ownership test. User B reading user A's tracking must be answered 404, not
-// 403: a 403 would confirm that a tracking exists for that order id, turning the
-// endpoint into an oracle for other people's order ids. The response must be
-// indistinguishable from "no such tracking" — asserted by comparing it against the
-// genuinely-nonexistent case above and requiring the same code.
-//
-// Two DIFFERENT users, and therefore two different Cognito subs, is what makes this
-// test able to fail at all. Tracking stores both `user_id` (internal `usr_`) and
-// `cognito_sub`, and only the latter is the ownership key. A suite that created and
-// read with a single identity passes whether the filter is right or wrong — that
-// exact blind spot let a `user_id`-scoped filter ship past 253 tests
-// (services/tracking/CLAUDE.md §5b).
+// CONTRACT: Use TWO different users, and expect 404, never 403. A 403 confirms a
+// tracking exists for that order id, turning the endpoint into an oracle for other
+// people's ids — the response must be indistinguishable from "no such tracking", which
+// is why it is compared against the genuinely-nonexistent case. And only two distinct
+// Cognito subs let this test fail at all: Tracking stores both `user_id` and
+// `cognito_sub` but keys ownership on the latter, so a single-identity suite passes
+// whether the filter is right or wrong — that blind spot let a `user_id`-scoped filter
+// ship past 253 tests. See [[testing]]
 test("ownership isolation: another user's tracking is 404, never 403", async () => {
   test.setTimeout(90_000);
 

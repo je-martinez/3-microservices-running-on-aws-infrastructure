@@ -4,28 +4,14 @@ import { deleteMeExpect204 } from "../support/account-deletion.js";
 import { pickProductWithStock } from "../support/catalogue.js";
 import { makeUser } from "../support/chance-factory.js";
 
-// Account deletion, driven against the SERVICE PORTS directly (Users 3000,
-// Orders 3001, Tracking 3002) with a faked `x-user-id` standing in for the
-// authorizer's output. The gateway counterpart — real Cognito JWT, real
-// authorizer, and the re-registration case that is the point of the whole
-// feature — lives in `tests/gateway/account-deletion.spec.ts`.
-//
-// This file is the EXHAUSTIVE layer: it carries the cases that would make the
-// gateway spec slow and noisy — the internal routes' key checks, their
-// idempotency, and the empty-identity guard. That split is deliberate
-// ([[testing]] §three layers): the gateway spec proves the URL a user hits
-// resolves; this one proves the behaviour behind it.
-//
-// ## Why one identity value plays both `cognitoSub` and `userId` here
-//
-// The cascade routes take BOTH identities and match `cognito_sub OR user_id`.
-// On the direct path there is no Cognito token, so a service records whatever
-// `x-user-id` carried as its ownership key — here the `usr_` id returned by
-// register (Users' gRPC `GetUserById` resolves a `usr_` id OR a Cognito sub,
-// which is what makes that work; see `support/api-client.ts`). So passing the
-// same `usr_` id in both fields is not a shortcut around the contract — it is
-// the honest value of both fields for a user created this way. Verified live
-// against the running stack, 2026-08-26.
+// Account deletion against the SERVICE PORTS directly, with a faked `x-user-id`
+// standing in for the authorizer's output. The gateway counterpart — real JWT and the
+// re-registration case that is the feature's point — is in
+// `tests/gateway/account-deletion.spec.ts`; this is the EXHAUSTIVE layer.
+
+// One `usr_` id plays both `cognitoSub` and `userId`, honestly rather than as a
+// shortcut: the cascade routes match `cognito_sub OR user_id`, and on the direct path
+// a service records whatever `x-user-id` carried as its ownership key.
 
 const INTERNAL_KEY = process.env.GRPC_API_KEY;
 
@@ -202,16 +188,11 @@ test("DELETE /v1/trackings/by-user rejects the CARRIER key — the two credentia
 
   const tracking = await trackingClient();
 
-  // Tracking holds TWO inbound keys under the SAME header name: this internal
-  // one (GRPC_API_KEY) and the EXTERNAL carrier's, which authenticates
-  // `PUT /v1/trackings/{orderId}/status`. Accepting the carrier's key here would
-  // let an outside vendor erase a user's entire delivery history — so the check
-  // that they are distinct belongs in a test, not only in a comment.
-  //
-  // Asserted with the REAL carrier key rather than a random string: a random
-  // string proves nothing beyond the wrong-key case above, and the failure mode
-  // being guarded is a handler wired to `carrier_api_key` instead of
-  // `grpc_api_key`, which only a genuine carrier key can expose.
+  // CONTRACT: Assert with the REAL carrier key, not a random string. Tracking holds two
+  // inbound keys under the same header name, and the failure guarded here is a handler
+  // wired to `carrier_api_key` instead of `grpc_api_key` — only a genuine carrier key
+  // exposes it, and accepting one would let an outside vendor erase a user's entire
+  // delivery history.
   const res = await tracking.delete("/v1/trackings/by-user", {
     headers: { "x-api-key": carrierKey! },
     data: { cognito_sub: "usr_whatever", user_id: "usr_whatever" },
@@ -267,19 +248,13 @@ test("both internal routes are idempotent: the second call reports 0", async () 
   expect(await trackingSecond.json()).toEqual({ deleted: 0 });
 });
 
-// ## The empty-identity guard, and why it is worth two tests
-//
-// Both cascade predicates are `cognito_sub = ? OR user_id = ?`, and in MySQL both
-// columns are NOT NULL varchar — which still permits the EMPTY STRING. An empty
-// value on either side of that OR matches every row whose column was left blank
-// or never backfilled: a mass erasure of other people's data from one malformed
-// call. The refusal is the only thing standing between the two.
-//
-// The two services refuse differently and that is fine — Orders validates in the
-// handler (400 with a named reason), Tracking in its Pydantic model (422 with
-// FastAPI's validation shape). Asserting each service's ACTUAL status rather than
-// a shared one is the point: a service that started accepting the empty string
-// would return 200 here, and either expectation would catch it.
+// CONTRACT: Keep both empty-identity tests, each asserting its service's ACTUAL status
+// (Orders 400 from the handler, Tracking 422 from Pydantic) rather than a shared one.
+// The cascade predicates are `cognito_sub = ? OR user_id = ?` over NOT NULL varchars,
+// which still permit the EMPTY STRING — and an empty value on either side matches every
+// row whose column was blank or never backfilled, mass-erasing other people's data from
+// one malformed call. A service that started accepting it returns 200 here.
+// See [[soft-delete]]
 
 test("Orders' internal route refuses an empty identity with 400", async () => {
   const orders = await ordersClient();

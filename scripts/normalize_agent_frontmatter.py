@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
 """Normalize Claude subagent frontmatter for consumers with weak YAML parsers.
 
-Folds block scalars into single-line double-quoted strings so downstream
-consumers with limited YAML parsers read the value rather than the literal
-block indicator ('>-'). Normalizing at the boundary means we never depend on
-a downstream parser's block-scalar support.
-
-Deterministic by construction: the same input bytes always produce the same
-output bytes. Parallel Orca worktrees must not diverge, so nothing here may
-depend on ordering, time, or model output.
-
-Usage:
-    python scripts/normalize_agent_frontmatter.py <src_dir> <dst_dir>
+Folds block scalars into single-line double-quoted strings, so a consumer that
+cannot parse them reads the value, not the literal '>-' indicator.
 """
+
+# CONTRACT: Stay deterministic — the same input bytes must always produce the
+# same output bytes. Nothing here may depend on ordering, time, or model output,
+# or parallel worktrees diverge.
+#
+# Usage: python scripts/normalize_agent_frontmatter.py <src_dir> <dst_dir>
 from __future__ import annotations
 
 import re
@@ -68,14 +65,11 @@ def fold_block_scalars(fm: str) -> tuple[str, list[str]]:
         out.append(f'{key}: "{value}"')
         folded.append(key)
     result = "\n".join(out)
-    # normalize_file concatenates this string directly against the closing
-    # "---\n" delimiter, so it must always end in a newline. fm always ends
-    # in "\n" (split_frontmatter guarantees it), which normally survives as
-    # a trailing "" element from fm.split("\n") and is passed through
-    # unchanged by the loop above. But when the LAST frontmatter line opens
-    # a block scalar, that trailing "" is consumed as part of the scalar's
-    # body instead of appended to `out`, so the join loses it — restore it
-    # here rather than gluing the closing delimiter onto the folded value.
+    # CONTRACT: This string must always end in a newline — normalize_file
+    # concatenates it straight against the closing "---" delimiter. The trailing
+    # "" from the split is consumed by a block scalar opened on the LAST
+    # frontmatter line, so restore it here rather than gluing the delimiter onto
+    # the folded value.
     if not result.endswith("\n"):
         result += "\n"
     return result, folded

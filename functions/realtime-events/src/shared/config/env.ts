@@ -10,15 +10,11 @@ export function getEnv() {
   return {
     userPoolId: required("COGNITO_USER_POOL_ID"),
     clientId: required("COGNITO_CLIENT_ID"),
-    // The JWT issuer to verify tokens against — CONFIGURATION, not derived.
-    // Floci stamps a fixed "http://localhost:4566/<pool-id>" `iss` claim on
-    // every token it mints, which never matches the real-AWS
-    // "https://cognito-idp.<region>.amazonaws.com/<pool-id>" shape a verifier
-    // would otherwise assume. Real AWS also never has this pool at all, so
-    // deriving the issuer from userPoolId+region is wrong even before the
-    // local/prod split — it must be supplied, the same way
-    // modules/cognito/outputs.tf's `issuer` output already is for the REST
-    // API Gateway's native JWT authorizer (infra/modules/api-gateway/main.tf).
+    // CONTRACT: The issuer is CONFIGURATION, never derived from
+    // userPoolId+region. Floci stamps a fixed host-facing `iss` that never
+    // matches the real-AWS shape, and real AWS does not have this pool at all,
+    // so a derived issuer rejects every token.
+    // See [[floci-websocket-apigw-dynamodb-support]]
     issuer: required("COGNITO_ISSUER"),
     tableName: required("WS_CONNECTIONS_TABLE"),
     gsiName: process.env.WS_CONNECTIONS_GSI ?? "by-cognito-sub",

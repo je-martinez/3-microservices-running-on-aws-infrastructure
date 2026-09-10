@@ -5,10 +5,8 @@ import { Button } from "./components/button.tsx";
 import { DetailRow } from "./components/detail-row.tsx";
 import { emailAssets } from "./assets.ts";
 
-// `createdAt` is the ISO-8601 string the producer serialized (Users'
-// SqsEventPublisher calls `.toISOString()`), not a Date: it crossed a JSON
-// boundary, and typing it as a Date here would be a lie the renderer would
-// eventually trip over.
+// `createdAt` is the producer's ISO-8601 STRING, not a Date — it crossed a JSON
+// boundary, and typing it as a Date is a lie the renderer trips over.
 export interface UserCreatedEmailProps {
   fullName: string;
   email: string;
@@ -16,28 +14,17 @@ export interface UserCreatedEmailProps {
   createdAt: string;
 }
 
-// The "Account Details" panel fill (`#F9FAFB`) is a one-off in the `.pen` rather
-// than a named variable, so it is not in `theme.ts` — same treatment as the
-// footer divider in `components/layout.tsx`.
-//
-// It is NOT promoted into the Tailwind config either, even though the same tint
-// appears in three templates (here, the OTP digit boxes, the order items panel
-// and the tracking timeline). Each is a local panel fill the `.pen` treats as an
-// unnamed one-off; naming it in the shared config would invent a brand token the
-// design does not have, and the next `.pen` change would have to decide whether
-// all four move together. It stays an arbitrary value at its call site, where
-// the hex is visible.
+// A one-off panel fill in the `.pen`, so it is neither in `theme.ts` nor the
+// Tailwind config. The same tint appears in other templates, but each is a local
+// one-off the design does not name — a shared token would invent a brand value
+// and force the next `.pen` change to decide whether all of them move together.
 const DETAILS_PANEL_BG = "#F9FAFB";
 
-// The `.pen`'s "Member Since" row shows a human date ("August 5, 2026"), not the
-// ISO-8601 string the envelope carries. Formatting is pinned to `en-US` and
-// **UTC**: the renderer runs in a Lambda whose TZ is UTC anyway, and letting the
-// host zone decide would make the same event render two different dates
-// depending on where it was processed — and make the snapshot machine-dependent.
-//
-// A malformed or absent timestamp must never reach the reader as "Invalid Date":
-// the row is dropped instead (see the conditional render below), which is why
-// this returns null rather than a placeholder string.
+// CONTRACT: Pin the formatting to `en-US` and UTC. Letting the host zone decide
+// renders the same event as two different dates depending on where it was
+// processed, and makes the snapshot machine-dependent. Return null, never a
+// placeholder — a malformed timestamp must never reach the reader as
+// "Invalid Date"; the row is dropped instead.
 function formatMemberSince(createdAt: string | undefined): string | null {
   if (!createdAt) return null;
   const parsed = new Date(createdAt);
@@ -50,43 +37,19 @@ function formatMemberSince(createdAt: string | undefined): string | null {
   });
 }
 
-// The `.pen`'s "Icon Circle" — the brand-orange disc AND the lucide `user-check`
-// inside it — is ONE remote PNG from the assets bucket (`emails/assets.ts`),
-// rendered at its full 64px.
-//
-// Two of the three ways to ship an icon are still dead ends: an icon font needs
-// @font-face (a <style> block, which Gmail and Outlook strip), and inline SVG has
-// 40.48% support and renders in NO version of Outlook on Windows
-// (caniemail.com/features/html-svg). The third — a remote <img> — is the one that
-// works: 100% client support, and Gmail has displayed remote images by default
-// since 2013. This REPLACES the base64 `data:` URI this file used to embed, whose
-// 80.95% support left ~19% of readers with nothing and no way to fix it. Full
-// argument in `emails/assets.ts`.
-//
-// THERE IS NO CSS CIRCLE HERE ANY MORE, AND ADDING ONE BACK IS A BUG.
-// `user-check.png` already contains the rgb(255,244,229) disc — the exact tint
-// the removed `bg-brand-orange-light` class emitted. Drawing both nested two
-// discs: the PNG's own disc was invisible against the identical CSS one, so all
-// the reader saw was the glyph inside it, shrunk to whatever display size the
-// image was given (14px in a 64px disc — 22%, measured on a screenshot). Showing
-// the image at the full 64px is what puts the glyph back at the 41% the artwork
-// was drawn at.
-//
-// It also closes the Outlook Windows gap for this element for free: that client
-// supports no `border-radius` at all and rendered the CSS disc as a SQUARE. A
-// PNG of a circle is a circle everywhere — the same reason the timeline dots
-// became images (see [[email-templates]] § Authoring rules).
-//
-// WITH IMAGES BLOCKED the reader now loses the marker entirely rather than
-// keeping a tinted disc. The layout does not move: `width`/`height` are HTML
-// ATTRIBUTES (spread from the asset entry, never CSS-only — Outlook sizes images
-// from the attributes), so the 64x64 box is reserved and "Welcome to 3MRAI!"
-// stays exactly where it is. The `alt` carries the meaning and the heading
-// directly below states it in text.
-//
-// The `Row`/`Column` wrapper stays because it is what CENTRES the image;
-// `width="auto"` on the inner `Row` keeps that table shrink-to-fit rather than
-// `Row`'s default full width, and `align="center"` is already its default.
+// CONTRACT: The disc AND the glyph are ONE remote PNG. Do NOT add a CSS circle
+// back: the PNG already contains the tint, so both nested makes the artwork's
+// own disc invisible and shrinks the glyph to a fraction of the box. It also
+// keeps Outlook on Windows correct, which supports no `border-radius` and draws
+// a CSS disc as a SQUARE. An icon font needs @font-face and inline SVG renders
+// in no Outlook on Windows, so a remote <img> is the only option that works.
+// See [[email-templates]]
+
+// CONTRACT: `width`/`height` are HTML ATTRIBUTES, never CSS-only — Outlook sizes
+// images from the attributes, and they reserve the box so the heading does not
+// move when images are blocked. The `alt` carries the meaning. The `Row`/
+// `Column` wrapper is what CENTRES the image; `width="auto"` keeps the inner
+// table shrink-to-fit rather than full width.
 function IconCircle() {
   return (
     <Row>
@@ -105,23 +68,15 @@ function IconCircle() {
   );
 }
 
-// Default export, because react-email's `email dev` previews the default
-// export of each file under `emails/`. The catalog imports the same symbol, so
-// preview and production render the identical component.
-//
-// Ported from the "User Created Email" frame of `assets/email/emails.pen`. The
-// `.pen` stacks the card's children with `layout: vertical` + `gap: 24` and
-// centres them with `alignItems: center`; email clients support neither flexbox
-// nor `gap`, so the INTENT is translated — vertical rhythm becomes explicit
-// margins on each block, and centring becomes `textAlign`/`align` on the
-// elements that need it. Never copy the `.pen`'s `justifyContent`/`gap` through.
-//
-// `userId` and `createdAt` are rendered DEFENSIVELY. `renderTemplate` erases the
-// catalog's prop type to `unknown` (see `src/email/renderer.ts`), so a caller
-// that omits one is a runtime possibility TypeScript cannot rule out here —
-// and the existing snapshot test renders this template with only `fullName` and
-// `email`. A missing value drops its row rather than printing "undefined" into
-// a welcome email.
+// Default export, because `email dev` previews the default export of each file
+// under `emails/` — preview and production then render the identical component.
+// CONTRACT: Never copy the `.pen`'s `justifyContent`/`gap` through; email
+// clients support neither flexbox nor `gap`, so rhythm becomes explicit margins
+// and centring becomes `textAlign`/`align`. Render `userId` and `createdAt`
+// DEFENSIVELY: `renderTemplate` erases the prop type to `unknown`, so a missing
+// value is a runtime possibility and must drop its row rather than print
+// "undefined" into a welcome email.
+// See [[email-templates]]
 export default function UserCreatedEmail({ fullName, email, userId, createdAt }: UserCreatedEmailProps) {
   const memberSince = formatMemberSince(createdAt);
 

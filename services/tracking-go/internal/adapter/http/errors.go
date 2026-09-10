@@ -18,18 +18,13 @@ type NestedErrorBody struct {
 	Reason string `json:"reason"`
 }
 
-// NestedError — Shape B: {"detail": {"detail": "...", "reason": "..."}}.
+// NestedError — Shape B: {"detail": {"detail": "...", "reason": "..."}}. Used
+// ONLY by the 404 and 409 on POST /init-tracking.
 //
-// ONLY the 404 and 409 on POST /init-tracking. The Python raises
-// HTTPException(detail={"detail": …, "reason": …}) and FastAPI wraps a structured
-// detail this way.
-//
-// !! THE GENERATED openapi.yaml DECLARES THESE AS FLAT, AND IT IS WRONG !!
-// FastAPI cannot express the wrapping in its schema, so the spec describes the
-// inner object as if it were the whole body. The Python CODE is the contract a
-// client actually receives; the equivalence check records the spec difference in
-// its allowlist rather than "fixing" the code to match a spec no deployed service
-// has ever served.
+// CONTRACT: The generated openapi.yaml declares these FLAT and is wrong — it
+// describes the inner object as the whole body. Do NOT flatten the code to match
+// it; shipped clients receive the nested shape, and the equivalence check
+// records the difference in its allowlist. See [[openapi-specs]]
 type NestedError struct {
 	Detail NestedErrorBody `json:"detail"`
 }

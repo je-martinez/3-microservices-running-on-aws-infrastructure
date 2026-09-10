@@ -1,4 +1,9 @@
-import { ApplicationConfig, provideBrowserGlobalErrorListeners } from '@angular/core';
+import { provideHttpClient, withInterceptors, withXhr } from '@angular/common/http';
+import {
+  ApplicationConfig,
+  provideAppInitializer,
+  provideBrowserGlobalErrorListeners,
+} from '@angular/core';
 import { provideRouter, withViewTransitions } from '@angular/router';
 import { provideStore } from '@ngrx/store';
 import {
@@ -19,6 +24,7 @@ import {
   LucideLockKeyhole,
   LucideLogOut,
   LucideMail,
+  LucideMap,
   LucideMapPin,
   LucideMinus,
   LucidePackage,
@@ -31,6 +37,7 @@ import {
   LucideShieldCheck,
   LucideShoppingBag,
   LucideSparkles,
+  LucideStore,
   LucideTimer,
   LucideTruck,
   LucideUser,
@@ -40,16 +47,36 @@ import {
 } from '@lucide/angular';
 
 import { routes } from './app.routes';
+import { authInterceptor } from './core/auth/auth-interceptor';
+import { refreshInterceptor } from './core/auth/refresh-interceptor';
+import { loadRestoredProfile } from './core/auth/profile-loader';
+import { rehydrateSession } from './core/auth/session-rehydration';
 
 export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
+    // CONTRACT: Boot waits on this before the first navigation resolves. Drop
+    // it and authGuard runs against an unread token store, so a reload on
+    // /orders redirects to /login even with a valid session persisted.
+    // See [[2026-09-04-web-gateway-integration-design]]
+    provideAppInitializer(rehydrateSession),
+    // CONTRACT: Runs AFTER rehydrateSession, and needs it: the profile fetch
+    // goes out with the restored token, so it must not start before the token
+    // store has been read. Rehydration only proves a session exists — without
+    // this the header, account menu and profile render an empty user after
+    // every reload, while routing works.
+    // See [[2026-09-04-web-gateway-integration-design]]
+    provideAppInitializer(loadRestoredProfile),
     // Route changes cross-fade instead of hard-cutting; the shared chrome
     // (brand panel, app header) is pinned by `view-transition-name` in
     // styles.css so only the changing content animates.
     // WHY: `skipInitialTransition` — landing directly on a URL has nothing to
     // transition from, and a fade on first paint reads as slowness.
     provideRouter(routes, withViewTransitions({ skipInitialTransition: true })),
+    // CONTRACT: Interceptor order is execution order. refreshInterceptor stays
+    // BEFORE authInterceptor, so its retry re-enters that one and picks up the
+    // new token instead of replaying the expired header already set.
+    provideHttpClient(withXhr(), withInterceptors([refreshInterceptor, authInterceptor])),
     // Phase 1 exercises almost none of this. It is registered up front so
     // phase 2 adds reducers rather than rewiring bootstrap.
     provideStore({}),
@@ -74,6 +101,7 @@ export const appConfig: ApplicationConfig = {
       LucideLockKeyhole,
       LucideLogOut,
       LucideMail,
+      LucideMap,
       LucideMapPin,
       LucideMinus,
       LucidePackage,
@@ -86,6 +114,7 @@ export const appConfig: ApplicationConfig = {
       LucideShieldCheck,
       LucideShoppingBag,
       LucideSparkles,
+      LucideStore,
       LucideTimer,
       LucideTruck,
       LucideUser,

@@ -19,30 +19,20 @@ import (
 
 // ─── the real database ──────────────────────────────────────────────────────
 //
-// REAL MySQL, never a mock. A mocked repository test passes against a schema
-// that does not exist and a driver that never runs: it cannot catch a column
-// name that drifted, a DATETIME rounding a timestamp up a second, or an
-// `IN ()` that MySQL rejects outright. Those are exactly the defects this file
-// exists to catch.
+// CONTRACT: Real MySQL, never a mock. A mock cannot catch a drifted column name,
+// a DATETIME rounding a timestamp up a second, or an `IN ()` MySQL rejects.
 //
-// # It runs against its OWN schema, never the shared local `tracking` database
-//
-// The local `tracking` database is the one docker compose serves and the one the
-// E2E suite reads. A test that TRUNCATEs it destroys a running environment, and
-// this repo has already paid for that once (tables gone, the migration tool's
-// version row intact, so re-migrating was a silent no-op). Every test here
-// creates a throwaway schema, applies the baseline DDL to it, and drops it at
-// the end.
+// CONTRACT: Run against a THROWAWAY schema, never the shared local `tracking`
+// database compose serves and E2E reads. Truncating it destroys a running
+// environment, and re-migrating is then a silent no-op because the migration
+// tool's version row survives. See [[testing]]
 
 const readsTestSchema = "tracking_go_test_reads"
 
 // readsServerDSN strips the database name off TRACKING_DATABASE_URL, leaving the
-// server address these tests attach their own schema to.
-//
-// Same environment variable the sibling repository tests use, so the suite has
-// ONE switch rather than one per file — but the database segment is discarded
-// deliberately: pointing these tests at the shared `tracking` database is what
-// this file exists not to do.
+// server address these tests attach their own schema to. Same variable as the
+// sibling suites, so there is one switch — but the database segment is discarded
+// on purpose, since these tests must never touch the shared `tracking` database.
 func readsServerDSN(t *testing.T) (string, bool) {
 	t.Helper()
 	raw := strings.TrimSpace(os.Getenv("TRACKING_DATABASE_URL"))

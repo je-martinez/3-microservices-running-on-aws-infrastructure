@@ -12,22 +12,11 @@ namespace Orders.Tests.Infrastructure;
 /// behaviour most likely to be silently broken later.
 /// </summary>
 /// <remarks>
-/// <para>
-/// The three doubles below are backed by REAL behaviour (a dictionary, a throw, a delay),
-/// not by a blanket mock returning <c>default</c> for everything: a blanket mock would let
-/// a gateway that never actually reads or writes anything pass every one of these tests.
-/// </para>
-/// <para>
-/// <b>Why Moq is used to build them rather than a hand-written class.</b>
-/// <c>IDatabase</c> declares <b>480</b> abstract members across
-/// <c>IDatabase</c>/<c>IRedis</c>/<c>IRedisAsync</c>/<c>IDatabaseAsync</c>, so a
-/// hand-written fake would be thousands of lines of <c>NotSupportedException</c> throws
-/// before the six methods that matter. Moq supplies that surface; the six members the
-/// gateway actually calls are then given genuine implementations, and
-/// <see cref="MockBehavior.Strict"/> makes any OTHER member throw
-/// <c>MockException</c> — the same "this was not part of the contract" signal a
-/// <c>NotSupportedException</c> would have given.
-/// </para>
+/// CONTRACT: Back the doubles with REAL behaviour (a dictionary, a throw, a delay). A
+/// blanket mock returning <c>default</c> lets a gateway that reads and writes nothing pass
+/// every one of these tests. Moq only supplies the ~480-member <c>IDatabase</c> surface; the
+/// six methods the gateway calls carry genuine implementations, and
+/// <see cref="MockBehavior.Strict"/> makes any other member throw. See [[testing]]
 /// </remarks>
 public class CacheGatewayTests
 {
@@ -46,17 +35,11 @@ public class CacheGatewayTests
     }
 
     /// <summary>
-    /// A multiplexer timeout degrades to BYPASS, exactly like any other Redis failure.
+    /// A multiplexer timeout degrades to BYPASS, like any other Redis failure.
+    /// CONTRACT: The timeout belongs to StackExchange.Redis (AsyncTimeout in Program.cs),
+    /// not a WaitAsync wrapper — no IDatabaseAsync method takes a token, so WaitAsync would
+    /// abandon the await while the command stayed in flight. See [[x-cache-response-header]]
     /// </summary>
-    /// <remarks>
-    /// The timeout now belongs to StackExchange.Redis itself (AsyncTimeout/SyncTimeout,
-    /// set in Program.cs) rather than to a WaitAsync wrapper in the gateway, because no
-    /// IDatabaseAsync method accepts a CancellationToken and WaitAsync could therefore
-    /// only abandon the await while the command stayed in flight. So the behaviour worth
-    /// pinning here is that the exception the library raises when it gives up —
-    /// RedisTimeoutException — is caught and fails open, and is reported as a timeout
-    /// rather than as a generic error.
-    /// </remarks>
     [Fact]
     public async Task Get_returns_Bypass_when_the_multiplexer_times_out()
     {
@@ -68,7 +51,7 @@ public class CacheGatewayTests
 
         Assert.Equal(CacheResult.Bypass, outcome.Result);
         Assert.Null(outcome.Value);
-        // No stall: the gateway must not add a wait of its own on top of the library's.
+        // CONTRACT: The gateway must not add a wait of its own on top of the library's.
         Assert.True(
             sw.ElapsedMilliseconds < 300,
             $"the gateway stalled on a timed-out read; it took {sw.ElapsedMilliseconds}ms");
@@ -76,13 +59,10 @@ public class CacheGatewayTests
 
     /// <summary>
     /// A cached read costs exactly ONE Redis round trip.
+    /// CONTRACT: One command, not two. Reading the TTL separately doubles what every hit
+    /// puts on the multiplexer, a regression invisible in behaviour and visible only as
+    /// latency under concurrency. See [[x-cache-response-header]]
     /// </summary>
-    /// <remarks>
-    /// The value and its TTL used to be two commands (StringGetAsync then
-    /// KeyTimeToLiveAsync), doubling what every hit put on the multiplexer for a number
-    /// that only feeds the X-Cache-TTL header. A regression here is invisible in behaviour
-    /// and only shows up as latency under concurrency, so it is asserted directly.
-    /// </remarks>
     [Fact]
     public async Task A_hit_costs_a_single_round_trip()
     {
@@ -166,14 +146,10 @@ public class CacheGatewayTests
 }
 
 /// <summary>
-/// A real-behaviour <see cref="IDatabase"/> double: a dictionary-backed store, a
-/// connection that always throws, or one that stalls past the gateway's timeout.
+/// A real-behaviour <see cref="IDatabase"/> double: a dictionary-backed store, a connection
+/// that always throws, or one that stalls past the gateway's timeout. See
+/// <see cref="CacheGatewayTests"/> for why a strict Moq supplies the interface surface.
 /// </summary>
-/// <remarks>
-/// See the rationale on <see cref="CacheGatewayTests"/> for why the 480-member interface
-/// surface is supplied by a strict Moq while the six methods the gateway calls carry real
-/// implementations.
-/// </remarks>
 internal sealed class RedisDatabaseFake
 {
     private readonly Dictionary<string, (string Value, DateTimeOffset? ExpiresAt)> _strings = new();
@@ -195,17 +171,13 @@ internal sealed class RedisDatabaseFake
 
     /// <summary>
     /// A Redis whose multiplexer gives up, as it does once AsyncTimeout is configured.
+    /// CONTRACT: Throw synchronously, as the library does, rather than stalling — the wait
+    /// being GONE from the gateway is what this pins. See [[x-cache-response-header]]
     /// </summary>
-    /// <remarks>
-    /// The library raises this synchronously from the command call once it decides the
-    /// operation cannot complete in budget; the fake does the same rather than stalling,
-    /// because the wait being GONE from the gateway is precisely what is under test.
-    /// </remarks>
     public static IDatabase TimingOut() => Build(_ => throw NewTimeoutException());
 
-    // StackExchange.Redis's exceptions have no public constructor taking just a message,
-    // so the fake raises the one it CAN construct. The gateway catches Exception, and the
-    // distinction it cares about (cancellation vs anything else) is preserved.
+    // WHY: StackExchange.Redis's exceptions take no message-only constructor, so the fake
+    // raises the one it can build; the gateway catches Exception either way.
     private static Exception NewConnectionException() =>
         new RedisConnectionException(ConnectionFailureType.SocketFailure, "fake redis failure");
 

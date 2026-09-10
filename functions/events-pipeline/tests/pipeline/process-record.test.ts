@@ -3,20 +3,14 @@ import { PermanentError, TransientError } from "#pipeline/errors";
 import type { EventDocument } from "#domain/event";
 import type { Envelope } from "#domain/envelope";
 
-// #pipeline/process-record logs its status transitions, and the real
-// #shared/logging/app-logger reaches #shared/config/env, which Zod-parses
-// process.env at MODULE LOAD (ADR-0014) and throws without the full DOCDB/SES
-// set. This file tests a PURE function over an injected repository and has no
-// business needing a database configuration to import — so the logger is
-// redirected to an array here instead of stubbing five unrelated env vars.
-//
-// The real `buildLoggerOptions` is kept: the assertions below check what is
-// actually serialized (in particular that the payload never reaches a line), so
-// the production formatter has to be the one under test. The level is left at
-// pino's DEFAULT (`info`) on purpose: the status lines must survive an
-// unconfigured logger, which is exactly what they failed to do in the deployed
-// Lambda. Lowering it to "debug" here would make these tests pass whether the
-// lines are INFO or DEBUG.
+// The logger is redirected to an array rather than stubbing five unrelated env
+// vars: this file tests a PURE function and has no business needing a database
+// configuration to import.
+// CONTRACT: Keep the real `buildLoggerOptions`, and keep the level at pino's
+// DEFAULT. The assertions check what is actually serialized (that the payload
+// never reaches a line), and lowering the level to "debug" makes them pass
+// whether the status lines are INFO or DEBUG — the failure that shipped.
+// See [[logging-context]]
 const { rawLines } = vi.hoisted(() => ({ rawLines: [] as string[] }));
 
 vi.mock("#shared/logging/app-logger", async () => {
@@ -114,7 +108,7 @@ describe("processRecord", () => {
 
     const result = await processRecord(envelope, { repository, handlers });
 
-    expect(result).toEqual({ ok: false, transient: false });
+    expect(result).toEqual({ ok: false, transient: false, persisted: true });
     expect(handler).not.toHaveBeenCalled();
     expect(repository.transition).toHaveBeenCalledWith("evt_test1", "FAILED", {
       error: "Unknown event type",
@@ -131,7 +125,7 @@ describe("processRecord", () => {
 
     const result = await processRecord(envelope, { repository, handlers: {} });
 
-    expect(result).toEqual({ ok: false, transient: false });
+    expect(result).toEqual({ ok: false, transient: false, persisted: true });
     expect(repository.transition).toHaveBeenCalledWith("evt_test1", "FAILED", {
       error: "Unknown event type",
     });
@@ -147,7 +141,7 @@ describe("processRecord", () => {
 
     const result = await processRecord(makeEnvelope(), { repository, handlers });
 
-    expect(result).toEqual({ ok: false, transient: false });
+    expect(result).toEqual({ ok: false, transient: false, persisted: true });
     expect(repository.transition).toHaveBeenCalledWith("evt_test1", "FAILED", {
       error: "invalid payload",
     });
@@ -163,7 +157,7 @@ describe("processRecord", () => {
 
     const result = await processRecord(makeEnvelope(), { repository, handlers });
 
-    expect(result).toEqual({ ok: false, transient: true });
+    expect(result).toEqual({ ok: false, transient: true, persisted: true });
     expect(repository.transition).toHaveBeenCalledWith("evt_test1", "FAILED", {
       error: "SES unreachable",
     });
@@ -179,7 +173,7 @@ describe("processRecord", () => {
 
     const result = await processRecord(makeEnvelope(), { repository, handlers });
 
-    expect(result).toEqual({ ok: false, transient: true });
+    expect(result).toEqual({ ok: false, transient: true, persisted: true });
   });
 
   it("a non-Error thrown value is stringified into the FAILED error", async () => {
@@ -192,7 +186,7 @@ describe("processRecord", () => {
 
     const result = await processRecord(makeEnvelope(), { repository, handlers });
 
-    expect(result).toEqual({ ok: false, transient: true });
+    expect(result).toEqual({ ok: false, transient: true, persisted: true });
     expect(repository.transition).toHaveBeenCalledWith("evt_test1", "FAILED", {
       error: "a string was thrown",
     });
@@ -446,7 +440,7 @@ describe("processRecord", () => {
 
     const result = await processRecord(makeEnvelope(), { repository, handlers });
 
-    expect(result).toEqual({ ok: false, transient: true });
+    expect(result).toEqual({ ok: false, transient: true, persisted: false });
     expect(handler).not.toHaveBeenCalled();
   });
 });
@@ -550,19 +544,12 @@ describe("processRecord — status logging", () => {
   });
 
   it("the FAILED reason is the handler's message verbatim — which the handlers keep PII-free", async () => {
-    // This test pins a CONTRACT, not an implementation detail. `reason` is the
-    // string the handler threw, and it is also what src/handler.ts already logs
-    // as `event_processing_failed.reason` and what the document persists — one
-    // fact in three places, which only stays safe because every handler builds
-    // that message from FIELD PATHS and ERROR NAMES, never from the input (see
-    // the comments in #handlers/user-created and #handlers/auth-otp-requested,
-    // and `observe()` in src/handler.ts, which reduces a Mongo error to
-    // `err.name` precisely because the driver's message embeds the rejected
-    // document).
-    //
-    // So the leak this file can still catch is the one processRecord itself
-    // owns: it holds the whole document, payload included, and must not put any
-    // of it on a line by its own hand.
+    // CONTRACT: `reason` is the handler's thrown string verbatim — the same
+    // fact logged by src/handler.ts and persisted on the document. It stays safe
+    // only because every handler builds that message from FIELD PATHS and ERROR
+    // NAMES, never from the input. The leak this file catches is processRecord's
+    // own: it holds the whole document, payload included.
+    // See [[logging-context]]
     const repository = makeRepository();
     const handlers: HandlerMap = {
       USER_CREATED: vi.fn(async () => {

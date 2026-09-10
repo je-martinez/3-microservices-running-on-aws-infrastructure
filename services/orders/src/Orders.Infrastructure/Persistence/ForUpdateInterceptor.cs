@@ -3,16 +3,11 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace Orders.Infrastructure.Persistence;
 
-// Applies a pessimistic row lock (FOR UPDATE) to a query tagged with `Tag`, so the
-// service can lock in pure LINQ instead of raw SQL — which lets EF Core's global
-// soft-delete query filter (deleted_at IS NULL) apply automatically (ADR-0004).
-//
-// The service writes: _db.Products.TagWith(ForUpdateInterceptor.Tag).First...(...).
-// EF emits that tag as a leading `-- orders:for-update` SQL comment; this
-// interceptor detects it and appends ` FOR UPDATE`.
-//
-// MySQL-SPECIFIC: `FOR UPDATE` is InnoDB/Postgres syntax (Aurora MySQL here).
-// If the engine ever changes, this is the single place to adjust.
+// Appends FOR UPDATE to any query tagged with `Tag`, which EF emits as a leading SQL
+// comment. Locking in pure LINQ rather than raw SQL is what keeps the global soft-delete
+// query filter applying automatically.
+// CONTRACT: MySQL-specific syntax. If the engine changes, this is the single place to adjust.
+// See [[ADR-0004-soft-delete-only]]
 public sealed class ForUpdateInterceptor : DbCommandInterceptor
 {
     public const string Tag = "orders:for-update";

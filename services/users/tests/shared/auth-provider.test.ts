@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { CognitoAuthProvider } from "#shared/auth/cognito-auth-provider";
+import { GlobalSignOutCommand } from "@aws-sdk/client-cognito-identity-provider";
 import { InvalidCredentialsError, EmailAlreadyExistsError } from "#shared/auth/auth-errors";
 
 describe("CognitoAuthProvider", () => {
@@ -169,5 +170,56 @@ describe("CognitoAuthProvider", () => {
     };
     const p = new CognitoAuthProvider(client as any, "pool", "client");
     await expect(p.refresh("rt")).rejects.toBe(boom);
+  });
+
+  // Asserts the real command object, not just that `send` was called: GlobalSignOut
+  // takes the access token and NOTHING else, and a pool id or client id smuggled in
+  // would be the sign someone reached for an Admin* operation instead.
+  it("signOut sends GlobalSignOut carrying only the access token", async () => {
+    const client = { send: vi.fn().mockResolvedValue({}) };
+    const p = new CognitoAuthProvider(client as any, "pool", "client");
+
+    await p.signOut("access-token");
+
+    const sent = client.send.mock.calls[0]![0];
+    expect(sent).toBeInstanceOf(GlobalSignOutCommand);
+    expect(sent.input).toEqual({ AccessToken: "access-token" });
+  });
+
+  // The idempotency contract: Cognito answers NotAuthorizedException for an expired,
+  // malformed or already-revoked token, and all three mean the session is gone —
+  // which is exactly what the caller asked for.
+  it("signOut resolves on NotAuthorizedException (already signed out)", async () => {
+    const client = {
+      send: vi.fn(async () => {
+        const e: any = new Error("Access Token has been revoked");
+        e.name = "NotAuthorizedException";
+        throw e;
+      }),
+    };
+    const p = new CognitoAuthProvider(client as any, "pool", "client");
+    await expect(p.signOut("revoked")).resolves.toBeUndefined();
+  });
+
+  it("signOut resolves when the user no longer exists", async () => {
+    const client = {
+      send: vi.fn(async () => {
+        const e: any = new Error("User not found");
+        e.name = "UserNotFoundException";
+        throw e;
+      }),
+    };
+    const p = new CognitoAuthProvider(client as any, "pool", "client");
+    await expect(p.signOut("orphan")).resolves.toBeUndefined();
+  });
+
+  // Throttling and Cognito outages are NOT the idempotent case — swallowing them
+  // would report a revocation that never happened.
+  it("signOut rethrows an unexpected Cognito error", async () => {
+    const boom: any = new Error("Rate exceeded");
+    boom.name = "TooManyRequestsException";
+    const client = { send: vi.fn(async () => { throw boom; }) };
+    const p = new CognitoAuthProvider(client as any, "pool", "client");
+    await expect(p.signOut("at")).rejects.toBe(boom);
   });
 });

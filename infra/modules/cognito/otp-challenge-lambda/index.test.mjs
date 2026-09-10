@@ -1,15 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// Unit tests for the CUSTOM_AUTH challenge Lambda, driven the way Cognito
-// actually drives it: through the single exported `handler`, dispatching on
-// `event.triggerSource`. The three per-trigger functions are deliberately not
-// exported, so testing through the front door is both the only option and the
-// more faithful one — it exercises the dispatch as well as the logic.
-//
-// The SQS publish is stubbed at the fetch boundary: these tests are about the
-// challenge state machine and must not require a queue. The publish CONTENT is
-// asserted where it matters (that the code leaves via SQS and not via the
-// client-facing response).
+// Unit tests for the CUSTOM_AUTH challenge Lambda, driven the way Cognito drives
+// it: through the single exported `handler`, dispatching on `triggerSource`.
+// The per-trigger functions are not exported, so this exercises the dispatch as
+// well as the logic. SQS is stubbed at the fetch boundary — the state machine
+// must not need a queue — and the publish content is asserted where it matters.
 
 const QUEUE_URL = "http://localhost:4566/000000000000/events";
 
@@ -163,16 +158,10 @@ describe("CreateAuthChallenge", () => {
     expect(envelope.author.actor).toBeTruthy();
   });
 
-  // The SQS hop's trace context. Cognito invokes this trigger itself, so there
-  // is no ambient trace to read here and no OTel SDK to read it with (this
-  // Lambda ships zero dependencies, deliberately). The Users service therefore
-  // hands its traceparent down through ClientMetadata, which is the only
-  // caller-controlled channel Cognito forwards, and the trigger copies it onto
-  // the SQS message the way the other three publishers do.
-  //
-  // Without this the OTP email's pipeline work lands in a trace of its own,
-  // detached from the request that asked for the code — verified in a live run
-  // before this was added.
+  // CONTRACT: The traceparent must travel via ClientMetadata. Cognito invokes
+  // this trigger itself, so there is no ambient trace and no OTel SDK here to
+  // read one with; without the hand-off the OTP email's pipeline work lands in
+  // a trace of its own, detached from the request that asked for the code.
   it("forwards the caller's traceparent from ClientMetadata onto the SQS message", async () => {
     const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 

@@ -87,3 +87,36 @@ test("PATCH v1/users/me updates the profile and the change is visible on GET", a
   expect(after.status()).toBe(200);
   expect((await after.json()).fullName).toBe(newFullName);
 });
+
+// The route the user actually hits: JWT authorizer → njs → nginx → service. The
+// gateway forwards the SAME Authorization header the authorizer validated, which
+// is what makes a body field unnecessary — this spec is what proves it arrives.
+test("POST v1/users/logout revokes the caller's session through the gateway", async () => {
+  const { token } = await getGatewayToken();
+  const api = await gatewayClient(token);
+
+  // Proves the token is live before revoking it, so a later 401 means the
+  // sign-out worked rather than the token never having been valid.
+  const before = await api.get("v1/users/me");
+  expect(before.status()).toBe(200);
+
+  const res = await api.post("v1/users/logout");
+  expect(res.status()).toBe(204);
+  expect(await res.text()).toBe("");
+});
+
+test("POST v1/users/logout answers 204 again for an already-revoked session", async () => {
+  const { token } = await getGatewayToken();
+  const api = await gatewayClient(token);
+
+  expect((await api.post("v1/users/logout")).status()).toBe(204);
+  // Idempotent by contract: a client that already dropped its tokens must not be
+  // handed an error for signing out twice.
+  expect((await api.post("v1/users/logout")).status()).toBe(204);
+});
+
+test("POST v1/users/logout is 401 without a Bearer token", async () => {
+  const api = await gatewayClient(); // no token — the authorizer rejects it
+  const res = await api.post("v1/users/logout");
+  expect(res.status()).toBe(401);
+});

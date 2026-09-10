@@ -1,15 +1,10 @@
-// Brand tokens for every transactional email — the single source of truth IN
-// CODE. The values mirror the `variables` object of `assets/email/emails.pen`,
-// the Pencil document that is the visual design space for these templates.
-//
-// The mirroring is MANUAL and deliberate: nothing generates this file from the
-// `.pen`, and nothing reads the `.pen` at build or run time. The two are kept in
-// sync BY HAND — change a token in the design and you must change it here (and
-// vice versa) in the same commit, or the rendered email and the mockup drift
-// apart silently.
-//
-// Keys are camelCase here (`brandNavy`) where the `.pen` uses kebab-case
-// (`brand-navy`), so templates can use dot access instead of bracket lookups.
+// Brand tokens for every transactional email — the source of truth in code,
+// mirroring the `variables` object of `assets/email/emails.pen`.
+// CONTRACT: The mirroring is MANUAL. Nothing generates this file from the `.pen`
+// and nothing reads the `.pen` at build or run time, so a token changed in one
+// place and not the other drifts silently. Keys are camelCase here where the
+// `.pen` uses kebab-case, so templates can use dot access.
+// See [[email-templates]]
 export const theme = Object.freeze({
   // Brand
   brandNavy: "#2D3748",

@@ -12,20 +12,13 @@ using Orders.Infrastructure.Carts;
 using Orders.Infrastructure.Id;
 using Orders.Infrastructure.Observability;
 using Orders.Infrastructure.Persistence;
+using Orders.Infrastructure.Persistence.Configurations;
 
 namespace Orders.Infrastructure.Orders;
 
-// Every write runs inside a transaction. Resolves identity via IUserDirectory
-// (gRPC), locks each product row FOR UPDATE, validates + decrements stock,
-// persists order+lines with BOTH identifiers, emits ORDER_CREATED. Any failure
-// rolls the whole thing back.
-//
-// Lives in Infrastructure (not Application, as the plan drafted) because it
-// depends on OrdersWriteDbContext + EF Core; Application must not reference
-// Infrastructure or that would invert the Clean Architecture dependency
-// direction. It mirrors OrderReadService. Application owns the command records,
-// exceptions, and ports (IUserDirectory / IEventPublisher); the Api wires this
-// concrete service.
+// Every write runs inside a transaction: resolve identity via IUserDirectory (gRPC), lock
+// each product row FOR UPDATE, validate and decrement stock, persist order + lines with
+// both identifiers, emit ORDER_CREATED. Any failure rolls the whole thing back.
 public class CreateOrderService
 {
     private readonly OrdersWriteDbContext _db;
@@ -35,8 +28,13 @@ public class CreateOrderService
     private readonly ITrackingInitiator _tracking;
     private readonly IWorkflowTracer _tracer;
     private readonly ICacheInvalidator _cache;
+    private readonly string _assetsBaseUrl;
     private readonly ILogger<CreateOrderService> _logger;
 
+    /// <param name="assetsBaseUrl">
+    /// Assets base URL used ONLY to render the response's image URLs; the row stores the
+    /// bucket-relative key. A trailing slash is tolerated. See ProductReadService.
+    /// </param>
     public CreateOrderService(
         OrdersWriteDbContext db,
         IUserDirectory users,
@@ -45,6 +43,7 @@ public class CreateOrderService
         ITrackingInitiator tracking,
         IWorkflowTracer tracer,
         ICacheInvalidator cache,
+        string assetsBaseUrl,
         ILogger<CreateOrderService> logger)
     {
         _db = db;
@@ -54,19 +53,16 @@ public class CreateOrderService
         _tracking = tracking;
         _tracer = tracer;
         _cache = cache;
+        _assetsBaseUrl = assetsBaseUrl.TrimEnd('/');
         _logger = logger;
     }
 
-    /// <param name="testMode">
-    /// Forwarded to Tracking as <c>x-test-mode</c>. The Api layer is responsible for the
-    /// <c>E2E_TESTING_ENABLED</c> guard, so a production runtime always passes false here
-    /// regardless of what the client sent.
-    /// </param>
+    /// <param name="testMode">Forwarded to Tracking as <c>x-test-mode</c>.</param>
     /// <param name="e2eSource">
-    /// Tags the order with <c>"E2E Source"</c> so the e2e-cleanup endpoint can find it, and
-    /// is forwarded to Tracking as <c>x-e2e-source</c> so its record is tagged too. Same
-    /// division of responsibility as <paramref name="testMode"/>: the Api layer applies the
-    /// <c>E2E_TESTING_ENABLED</c> guard, so production always passes false.
+    /// Tags the order with <c>"E2E Source"</c> for the e2e-cleanup endpoint and forwards
+    /// <c>x-e2e-source</c> to Tracking.
+    /// CONTRACT: The Api layer owns the <c>E2E_TESTING_ENABLED</c> guard for both flags, so
+    /// production passes false whatever the client sent. See [[testing]]
     /// </param>
     public async Task<OrderDto> CreateAsync(
         CreateOrderCommand command,
@@ -75,9 +71,8 @@ public class CreateOrderService
         bool e2eSource = false,
         CancellationToken ct = default)
     {
-        // The workflow span for the ONE Orders flow that carries flow logs. Its
-        // attributes mirror the create_order_started/_succeeded/_failed log lines
-        // below, so the trace and the log stream say the same thing.
+        // WHY: The span's attributes mirror the create_order_* log lines below, so the
+        // trace and the log stream say the same thing. See [[logging-context]]
         return await _tracer.TraceWorkflowAsync(
             "create_order",
             new Dictionary<string, object?> { ["app_event"] = "create_order_started" },
@@ -95,15 +90,10 @@ public class CreateOrderService
             "Starting order creation {app_event} {line_count}",
             "create_order_started", command.Lines.Count);
 
-        // Failure branches are logged HERE, at the step that produces them: by
-        // the time the endpoint maps the exception to a status code it is just
-        // a typed error, and "the caller is unknown" versus "the product is out
-        // of stock" are different operational problems. Each rethrows
-        // untouched, so the 404/409 HTTP contract is unchanged.
-        //
-        // ResolveCallerAsync, not ResolveInternalUserIdAsync: order creation needs the
-        // delivery address as well as the id, and both ride on the SAME GetUserById
-        // response — asking twice would spend an extra round trip for data already in hand.
+        // WHY: Failure branches are logged at the step that produces them — by the endpoint
+        // they are indistinguishable typed errors. Each rethrows untouched, so the 404/409
+        // contract is unchanged. ResolveCallerAsync (not the id-only call) because the
+        // address rides on the same GetUserById response. See [[logging-context]]
         var caller = await _users.ResolveCallerAsync(cognitoSub, ct);
         if (caller is null)
         {
@@ -116,26 +106,23 @@ public class CreateOrderService
 
         var userId = caller.InternalUserId;
 
-        // Serialized ONCE, here, and then used for two things: persisted on the order and
-        // handed to Tracking after the commit. Serializing separately per destination is
-        // how the two copies would drift. PII — never logged, never put in an exception.
+        // CONTRACT: Serialize the address ONCE and reuse it for the order row and Tracking —
+        // per-destination serialization is how the two copies drift. PII: never log it and
+        // never put it in an exception. See [[logging-context]]
         var shippingAddressJson = ShippingAddressSnapshot.Serialize(caller.Address);
 
         // Tax rate is read per-request from the configuration table (not an env var).
         var taxRate = await _config.GetTaxRateAsync(ct);
 
-        // Same source as the tax rate: a flat, ORDER-level delivery charge, read per-request
-        // so it can change without a redeploy. Read here, next to the rate, but applied ONCE
-        // to the order below — never inside the per-line pricing loop. It is charged for the
-        // shipment, not per product, so it deliberately never reaches OrderPricing.PriceLine
-        // or any OrderDetail: a line whose total exceeded unit_price * quantity could not be
-        // explained from its own columns.
+        // CONTRACT: Apply shipping ONCE at order level, never inside the per-line pricing
+        // loop. It is charged per shipment, so it must not reach OrderPricing.PriceLine or
+        // any OrderDetail — a line total exceeding unit_price * quantity cannot be explained
+        // from its own columns. See [[money-representation]]
         var shippingCents = await _config.GetShippingCentsAsync(ct);
 
-        // Wrap the whole transactional write so the audit interceptor stamps
-        // CreatedBy/UpdatedBy with `orders_api:create_order` rather than the
-        // buyer's id. The buyer is still traced via UserId/CognitoSub on the row;
-        // CreatedBy now describes WHAT produced it (mirrors Users' runAsActor).
+        // WHY: The audit interceptor stamps CreatedBy/UpdatedBy with the actor, describing
+        // WHAT produced the row; the buyer is traced via UserId/CognitoSub.
+        // See [[audit-fields]]
         return await AmbientActor.RunAsync(AuditActor.CreateOrder, async () =>
         {
             await using var tx = await _db.Database.BeginTransactionAsync(ct);
@@ -144,10 +131,15 @@ public class CreateOrderService
             var order = new Order
             {
                 Id = NanoId.NewId(NanoId.OrderPrefix),
+                // CONTRACT: Minted from the order's OWN creation instant, in UTC, so the
+                // number stays reproducible from created_at and does not depend on which
+                // host served the request. Re-minted on a unique-index collision below.
+                // See [[friendly-order-number]]
+                OrderNumber = OrderNumber.New(now),
                 UserId = userId,
                 CognitoSub = cognitoSub,
-                // Point-in-time snapshot: a later edit to the user's profile address must
-                // not rewrite where THIS shipment was sent. Null when none is on file.
+                // WHY: Point-in-time snapshot — a later profile edit must not rewrite where
+                // THIS shipment was sent. Null when none is on file.
                 ShippingAddress = shippingAddressJson,
                 // Empty list, not null, when this is an ordinary order (see Order.Tags).
                 Tags = e2eSource ? new List<string> { Order.E2eSourceTag } : new List<string>(),
@@ -157,31 +149,25 @@ public class CreateOrderService
 
             long subtotal = 0, tax = 0, total = 0;
 
-            // Consolidate duplicate lines (same ProductId) BEFORE locking/pricing so
-            // each product is locked, validated, priced, and decremented exactly ONCE
-            // per order, and produces a single OrderDetail row with the summed
-            // quantity. Ordered by ProductId for a stable, deterministic lock order.
+            // CONTRACT: Consolidate duplicate ProductIds BEFORE locking, so each product is
+            // locked, priced and decremented exactly once. Ordered by ProductId for a
+            // deterministic lock order — otherwise two concurrent orders deadlock.
             var consolidatedLines = command.Lines
                 .GroupBy(l => l.ProductId)
                 .Select(g => new CreateOrderLine(g.Key, (uint)g.Sum(l => (long)l.Quantity)))
                 .OrderBy(l => l.ProductId, StringComparer.Ordinal)
                 .ToList();
 
-            // The emailed receipt's line items, assembled IN the pricing loop below rather
-            // than after it. That loop is the only place a Product entity is in hand:
-            // OrderDetail records ProductId alone, so once it ends the names are gone and
-            // recovering them would cost a second query for rows this transaction has
-            // already read and locked. One entry per consolidated line, so it matches
-            // order.Details exactly.
+            // WHY: Filled inside the pricing loop, the only place a Product entity is in
+            // hand — OrderDetail records ProductId alone, so recovering names afterwards
+            // costs a second query for rows already read and locked.
             var eventItems = new List<OrderCreatedItem>(consolidatedLines.Count);
 
             foreach (var line in consolidatedLines)
             {
-                // Pessimistic lock so concurrent orders cannot oversell. Pure LINQ
-                // tagged with ForUpdateInterceptor.Tag — the interceptor appends
-                // FOR UPDATE, and EF Core's global query filter applies deleted_at
-                // IS NULL automatically (ADR-0004), so a soft-deleted product is
-                // never locked/read/sold. Requires the open write transaction above.
+                // CONTRACT: Keep the ForUpdateInterceptor.Tag — it appends FOR UPDATE, and
+                // without the pessimistic lock concurrent orders oversell the same stock.
+                // Requires the open write transaction above. See [[ADR-0004-soft-delete-only]]
                 var product = await _db.Products
                     .TagWith(ForUpdateInterceptor.Tag)
                     .FirstOrDefaultAsync(p => p.Id == line.ProductId, ct);
@@ -213,10 +199,8 @@ public class CreateOrderService
                 product.UnitsInStock -= line.Quantity;
                 product.UpdatedAt = now;
 
-                // Captured here, from the entity already loaded above, so it is a
-                // point-in-time snapshot of the catalogue: a later rename or repricing must
-                // never rewrite what a past receipt said, exactly like the money columns
-                // being persisted on the line below.
+                // WHY: A point-in-time snapshot of the catalogue — a later rename or
+                // repricing must never rewrite what a past receipt said.
                 eventItems.Add(new OrderCreatedItem(product.Name, line.Quantity, product.UnitPriceCents));
 
                 order.Details.Add(new OrderDetail
@@ -227,6 +211,11 @@ public class CreateOrderService
                     UserId = userId,
                     CognitoSub = cognitoSub,
                     Quantity = line.Quantity,
+                    // Same snapshot as eventItems above, and for the same reason: the
+                    // receipt must not change when the catalogue does. The Uri stays
+                    // relative — OrderLineMapper composes the absolute form on read.
+                    ProductName = product.Name,
+                    ProductImage = product.Image,
                     SubtotalCents = lineSub,
                     TaxCents = lineTax,
                     TotalCents = lineTotal,
@@ -239,135 +228,139 @@ public class CreateOrderService
             order.TaxCents = tax;
             order.ShippingCents = shippingCents;
 
-            // `total` accumulated above is the LINE total (subtotal + tax summed across
-            // details); shipping is added once here because it is charged per shipment.
-            // This is the one place the order's total diverges from the sum of its lines,
-            // and it is why the emailed receipt's Subtotal/Shipping/Tax/Total adds up.
+            // CONTRACT: Shipping is added once, here — the one place the order total
+            // diverges from the sum of its lines. See [[money-representation]]
             total += shippingCents;
             order.TotalCents = total;
 
             _db.Orders.Add(order);
 
-            // The cart the buyer just converted has served its purpose. Inside THIS
-            // transaction on purpose: if the order rolls back (insufficient stock, a
-            // failed write), the cart must survive — losing the selection AND the
-            // order is the worst outcome for the user.
-            //
-            // Routed through CartWriteService's shared deletion path rather than
-            // reimplemented here, so the three ways a cart dies cannot drift apart.
-            // No-ops when the caller had no cart, which is the common API-only case.
+            // CONTRACT: Delete the cart INSIDE this transaction. Outside it, a rollback
+            // (insufficient stock, a failed write) loses the buyer's selection AND the
+            // order. Routed through CartWriteService so the three deletion paths cannot
+            // drift apart; no-ops when the caller had no cart. See [[soft-delete]]
             await CartWriteService.DeleteForUserAsync(_db, cognitoSub, ct);
 
-            await _db.SaveChangesAsync(ct);
-            // caller.Email and caller.FullName both come from the GetUserById round
-            // trip this method already makes: the pipeline's ORDER_CREATED handler
-            // renders the confirmation mail and needs a recipient and a greeting, and
-            // Orders stores neither of its own. No extra call for either.
-            //
-            // The money breakdown travels as four separate figures — subtotal, tax,
-            // shipping, total — because the mail is an itemised RECEIPT that prints all
-            // four and a reader checks the arithmetic. The consumer must never derive one
-            // from the others; they are computed once, here, by the code that priced the
-            // order.
-            //
-            // shippingAddressJson is the SAME serialization persisted on the order and
-            // handed to Tracking, not a third rendering of the address — null when the
-            // buyer has none on file, which the publisher omits from the wire rather than
-            // sending as null.
-            //
-            // eventItems carries the product NAMES, which is the one thing the consumer
-            // could not obtain for itself: it has no access to this database, and
-            // OrderDetail stores only ProductId.
-            //
-            // cognitoSub is the request's own identity, already in hand and already
-            // stamped onto the order above. It lands in the envelope's `author` block —
-            // WHO originated the event, alongside the userId that says who it is about
-            // (the same person here; not on every event).
+            await SaveWithOrderNumberRetryAsync(order, ct);
+            // CONTRACT: The consumer has no access to this database, so everything the
+            // receipt prints travels here — recipient, greeting, product names, and all four
+            // money figures, which it must never derive from one another. The address is the
+            // same serialization persisted above, not a third rendering.
+            // See [[events-pipeline-design]]
             await _events.PublishOrderCreatedAsync(
-                order.Id, userId, caller.Email, caller.FullName,
+                order.Id, order.OrderNumber, userId, caller.Email, caller.FullName,
                 subtotal, tax, shippingCents, total,
                 shippingAddressJson, eventItems, now, cognitoSub, ct);
             await tx.CommitAsync(ct);
 
-            // AFTER the commit, alongside the success log and the tracking init that
-            // already live here for the same reason: at this point the order genuinely
-            // exists.
-            //
-            // ONE commit, THREE stale things. The cart was deleted INSIDE the transaction
-            // above (via CartWriteService.DeleteForUserAsync), so its cached entry is
-            // wrong the moment this commit lands; my-orders is missing the order that was
-            // just created; and the catalogue entry is holding stock counts this order
-            // just decremented. InvalidateOrderCreationAsync removes all three — the cart
-            // and every my-orders variant through the caller's key index, the catalogue by
-            // name.
-            //
-            // Invalidating BEFORE the commit would be wrong in a way tests do not usually
-            // catch: a concurrent read landing in the window between the delete and the
-            // commit would repopulate the entry with the pre-order state, and it would
-            // then sit there, stale, for its full TTL.
-            //
-            // ICacheInvalidator swallows its own failures, so this cannot fail an order
-            // that was already paid for — the same rule the tracking init below follows.
+            // CONTRACT: Invalidate AFTER the commit, never before. A concurrent read landing
+            // between the delete and the commit repopulates the pre-order state, which then
+            // sits stale for its full TTL. One commit staled three entries — cart, my-orders,
+            // catalogue stock counts — and this removes all three. ICacheInvalidator swallows
+            // its own failures so it cannot fail a paid order.
+            // See [[x-cache-response-header]]
             await _cache.InvalidateOrderCreationAsync(cognitoSub, ct);
 
-            // AFTER the commit: the order genuinely exists at this point, so the
-            // success line never claims something a rollback later undid.
+            // WHY: After the commit, so the success line never claims something a rollback
+            // later undid.
             _logger.LogInformation(
                 "Order creation completed {app_event} {order_id} {line_count} {total_cents}",
                 "create_order_succeeded", order.Id, order.Details.Count, total);
-            // The span carries the same identity the success log line does. Set
-            // here, not in CreateAsync: the id only exists once the transaction
+            // WHY: Set here, not in CreateAsync — the id only exists once the transaction
             // that minted it has committed.
             _tracer.SetAttribute("app_event", "create_order_succeeded");
             _tracer.SetAttribute("order_id", order.Id);
 
-            // Tracking is initiated AFTER the commit, deliberately, for two reasons.
-            //
-            //   1. Locks. The loop above holds `SELECT ... FOR UPDATE` on every product in
-            //      the order. A network call inside the transaction would hold those row
-            //      locks for the duration of that call (up to the client's 5s timeout),
-            //      blocking every other order touching the same products — one slow
-            //      downstream would serialize the whole catalog's checkout path.
-            //   2. Durability. The client's entire failure design assumes the order already
-            //      exists: it never throws, precisely so a tracking hiccup cannot roll back
-            //      a committed order. Calling it inside the transaction would invert that —
-            //      Tracking could create a record for an order a later rollback erased.
-            //
-            // The outcome therefore only ever affects the log stream: the order is created
-            // and its 201 response is identical regardless of what Tracking answers.
+            // CONTRACT: Call Tracking AFTER the commit, never inside the transaction. The
+            // loop above holds FOR UPDATE on every product, and a network call would hold
+            // those row locks for its whole timeout, serializing the entire catalogue's
+            // checkout. It also would let Tracking record an order a later rollback erased.
+            // The outcome only affects the log stream; the 201 is identical either way.
+            // See [[orders-service-design]]
             var trackingResult = await _tracking.InitTrackingAsync(
-                order.Id, shippingAddressJson, cognitoSub, testMode, e2eSource, ct);
+                order.Id, order.OrderNumber, shippingAddressJson, cognitoSub, testMode, e2eSource, ct);
 
             if (!trackingResult.IsTracked)
             {
-                // IsTracked (not `== Created`) is the success predicate: a 409 means the
-                // order is already tracked, which is the end state we wanted.
-                //
-                // The order itself succeeded, so this is a WARNING, not an ERROR: the
-                // request did what the customer asked and returns 201. What is degraded is
-                // a downstream side effect — a real, backfillable gap worth alerting on,
-                // but not a failed order. Never log the address here (PII).
+                // CONTRACT: Never log the address here (PII). WARNING, not ERROR — the order
+                // succeeded and returns 201; only a downstream side effect is degraded.
+                // IsTracked (not `== Created`) is the predicate: a 409 is already tracked.
                 _logger.LogWarning(
                     "Tracking initiation did not succeed for a created order {app_event} {reason} {order_id} {status_code}",
                     "init_tracking_failed", ReasonFor(trackingResult.Outcome), order.Id, trackingResult.StatusCode);
             }
 
-            // Map the in-memory order (order.Details already populated) instead of
-            // re-querying — mirrors OrderReadService.Map exactly; keep both in sync.
+            // CONTRACT: Keep this mapping in sync with OrderReadService.Map — it maps the
+            // in-memory order rather than re-querying, so the two can silently diverge.
             return new OrderDto(
-                order.Id, order.UserId, order.CognitoSub,
+                order.Id, OrderNumberDto.FromCanonical(order.OrderNumber), order.UserId, order.CognitoSub,
                 Money.FromCents(order.SubtotalCents), Money.FromCents(order.TaxCents), Money.FromCents(order.ShippingCents), Money.FromCents(order.TotalCents),
                 order.CreatedAt,
-                order.Details.Select(d => new OrderLineDto(
-                    d.ProductId, d.Quantity,
-                    Money.FromCents(d.SubtotalCents), Money.FromCents(d.TaxCents), Money.FromCents(d.TotalCents)))
-                    .ToList());
+                order.Details.Select(d => OrderLineMapper.Map(d, _assetsBaseUrl)).ToList());
         });
     }
 
-    // One `reason` per outcome that can actually reach this branch, per the logging
-    // convention (a reason vocabulary describes real code paths, not speculative ones).
-    // Created/AlreadyTracked are unreachable here — both satisfy IsTracked.
+    /// <summary>
+    /// Saves the order, re-minting its order number if the unique index rejects it.
+    /// </summary>
+    /// <remarks>
+    /// CONTRACT: Detect by INDEX NAME (<see cref="OrderConfiguration.OrderNumberIndexName"/>),
+    /// never the bare MySQL error number — that also fires on the order's other constraints,
+    /// where re-minting hides a real bug.
+    /// CONTRACT: Bounded, and the last failure RETHROWS. An unbounded loop holds FOR UPDATE on
+    /// every product in the order and serializes the catalogue's checkout.
+    /// See [[friendly-order-number]]
+    /// </remarks>
+    private async Task SaveWithOrderNumberRetryAsync(Order order, CancellationToken ct)
+    {
+        const int maxAttempts = 3;
+
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await _db.SaveChangesAsync(ct);
+                return;
+            }
+            catch (DbUpdateException ex) when (IsOrderNumberCollision(ex) && attempt < maxAttempts)
+            {
+                // WHY: Log the ATTEMPT and the order id, never the colliding number — it is
+                // the customer-facing label and has no business in the log stream, which
+                // keys on order_id. See [[logging-context]]
+                _logger.LogWarning(
+                    "Order number collided; re-minting {app_event} {reason} {order_id} {attempt}",
+                    "create_order_number_retried", "order_number_collision", order.Id, attempt);
+
+                // CONTRACT: Re-mint from the SAME created_at, not from "now". A retry that
+                // crossed UTC midnight would otherwise place the order on the following day.
+                order.OrderNumber = OrderNumber.New(order.CreatedAt);
+            }
+        }
+    }
+
+    /// <summary>Whether this failure is the order-number unique index rejecting a duplicate.</summary>
+    /// <remarks>
+    /// WHY: Match on the index name anywhere in the exception chain — Pomelo surfaces the
+    /// constraint name inside the inner MySqlException's message, and the outer
+    /// DbUpdateException does not carry it.
+    /// </remarks>
+    private static bool IsOrderNumberCollision(DbUpdateException exception)
+    {
+        for (Exception? error = exception; error is not null; error = error.InnerException)
+        {
+            if (error.Message.Contains(
+                    OrderConfiguration.OrderNumberIndexName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // WHY: One reason per outcome that can actually reach this branch. Created and
+    // AlreadyTracked are unreachable — both satisfy IsTracked. See [[logging-context]]
     private static string ReasonFor(TrackingInitOutcome outcome) => outcome switch
     {
         TrackingInitOutcome.UnknownUser => "tracking_unknown_user",

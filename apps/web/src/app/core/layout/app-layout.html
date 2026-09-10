@@ -1,5 +1,6 @@
 <div class="flex h-dvh w-full flex-col">
   <app-app-header
+    [cartCount]="cart.itemCount()"
     [hasUnreadNotifications]="hasUnreadNotifications"
     (notificationsClicked)="overlay.toggleNotifications()"
     (profileClicked)="overlay.toggleAccountMenu()"

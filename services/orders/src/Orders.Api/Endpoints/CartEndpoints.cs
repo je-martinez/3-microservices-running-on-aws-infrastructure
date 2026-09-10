@@ -75,15 +75,10 @@ public static class CartEndpoints
         CartWriteService writes,
         CancellationToken ct)
     {
-        // Validate BEFORE anything else. `Items` is declared nullable precisely because
-        // System.Text.Json does not enforce non-nullable annotations: a body that omits
-        // the key, misspells it, or sends an explicit null binds it to null. Without
-        // this guard the first dereference downstream becomes a 500 — a server fault
-        // reported for what is entirely a caller mistake. This is the same bug that
-        // POST /v1/orders had to be guarded against.
-        //
-        // An EMPTY array is NOT rejected here: it is the documented way to empty (and
-        // therefore delete) the cart.
+        // CONTRACT: Validate BEFORE anything else. System.Text.Json does not enforce
+        // non-nullable annotations, so a body omitting or misspelling the key binds null and
+        // the first dereference downstream becomes a 500 for a caller mistake. An EMPTY array
+        // is NOT rejected — it is the documented way to empty the cart.
         if (body?.Items is null)
         {
             return Results.BadRequest(new

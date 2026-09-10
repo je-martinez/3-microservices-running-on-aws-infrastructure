@@ -7,39 +7,21 @@ import {
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
 
-// Shared harness standing in for `#shared/observability/tracing` in every test
-// that imports the handler.
-//
-// WHY THE REAL MODULE MUST NEVER LOAD HERE. It calls `sdk.start()` at import
-// time, which registers a global tracer provider and opens a real OTLP
-// exporter. In a unit test there is no collector listening, so the handler's
-// `await flushTraces()` sits on a connection to 127.0.0.1:4318 until Vitest's
-// 5s timeout kills the test — taking out every pre-existing handler test, not
-// just the tracing ones. That is exactly what happened in
-// functions/realtime-events the first time this was wired up, because only the
-// tracing tests installed the mock and the plain ones loaded the real module.
-//
-// So the mock is registered FILE-WIDE, via a hoisted `vi.mock` at the top of
-// the test file, never per-`describe`. The exporter and the spy below are module
-// state precisely so that hoisted factory has something stable to return — a
-// `vi.mock` factory runs before any test body, so it cannot close over a value
-// created inside one.
-//
-// The spy matters as much as the exporter: `flushTraces` must be ASSERTED, not
-// assumed. Lambda freezes the process on return, so a missing flush costs this
-// function every span it produced, silently.
-//
-// SimpleSpanProcessor, not Batch: the test needs the span in the exporter the
-// moment span.end() returns, with no flush and no timer.
+// Shared harness standing in for `#shared/observability/tracing`.
+// CONTRACT: The real module must NEVER load here — `sdk.start()` at import time
+// opens a real OTLP exporter, and with no collector listening the handler's
+// `await flushTraces()` hangs until Vitest's 5s timeout kills EVERY handler
+// test, not just the tracing ones. So register the mock FILE-WIDE via a hoisted
+// `vi.mock`, never per-`describe`, and keep the exporter and spy as module state
+// for that factory to return. `flushTraces` must be ASSERTED: Lambda freezes the
+// process on return, so a missing flush loses every span silently.
+// See [[testing]]
 export const spanExporter = new InMemorySpanExporter();
 
-// The context manager NodeSDK installs for us in production, installed by hand
-// here. Without it `startActiveSpan` still creates spans but nothing is ever
-// ACTIVE: every span comes out a root of its own trace, unparented. The nesting
-// this suite asserts — record spans as children of the batch span, and (with the
-// manual DocumentDB/SES/WS wrappers) their children in turn — would then be
-// untestable, and a real regression in the handler's context handling would pass
-// unnoticed because the harness never nested anything either.
+// CONTRACT: Install the context manager NodeSDK gives us in production. Without
+// it `startActiveSpan` still creates spans but none is ever ACTIVE, so every
+// span comes out an unparented root — the nesting this suite asserts becomes
+// untestable and a real regression passes unnoticed.
 context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
 
 const provider = new BasicTracerProvider({
@@ -56,14 +38,10 @@ export const flushTraces = vi.fn(async () => {});
 export const originTracer = provider.getTracer("origin-test");
 
 // Installs the file-wide mock. Call it at the TOP LEVEL of a test file.
-//
-// It wraps `vi.mock` instead of the test file calling `vi.mock` with an imported
-// factory, because `vi.mock` is HOISTED above every import: a factory referenced
-// by name from this module would be evaluated before this module is initialized,
-// which fails with "Cannot access '__vi_import_1__' before initialization".
-// Declaring the factory inline here — where `pipelineTracer` and `flushTraces`
-// are resolved lazily, at call time, inside the factory body — sidesteps the
-// hoisting entirely.
+// CONTRACT: The factory is declared INLINE here, not imported by the test file.
+// `vi.mock` is hoisted above every import, so a factory referenced by name is
+// evaluated before this module initializes and fails with "Cannot access
+// '__vi_import_1__' before initialization".
 export function mockTracingModule() {
   vi.mock("#shared/observability/tracing", () => ({
     pipelineTracer,

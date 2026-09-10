@@ -1,24 +1,39 @@
-// Phase-1 web verification (spec D9): every route mounts and renders clean.
-// This is the whole verification layer for phase 1 — no screen calls the
-// gateway, and component unit tests arrive in phase 2 with the logic they test.
+// Every route mounts and renders clean, and the chrome around them works.
 //
-// CONTRACT: Assert on RENDERED CONTENT, never a status code — an Angular SPA
-// serves `index.html` for every path, so a route deleted from `app.routes.ts`
-// still returns 200 while the wildcard redirects it home. Attach the console
-// listener BEFORE `goto`, or errors thrown during initial load go uncaught and
-// this spec turns decorative. Print WHAT arrived on failure, not a count.
-// Headings come from each component's real markup, not from the route name.
-// See [[testing]]
+// CONTRACT: Assert on RENDERED CONTENT, never a status code — an SPA serves
+// `index.html` for every path, so a deleted route still returns 200. Attach the
+// console listener BEFORE `goto`, or load-time errors go uncaught and this spec
+// turns decorative. See [[testing]]
+//
+// CONTRACT: The two route groups are split by their GUARD. `authGuard` covers the
+// app layout and `guestGuard` the auth layout, so no single session state can visit
+// both — a file-wide `beforeEach` is wrong in one direction or the other.
+// See [[2026-09-04-web-gateway-integration-design]]
 
 import { expect, test, type Page } from "@playwright/test";
+import {
+  addFirstProductToCart,
+  CART_WRITE_TIMEOUT_MS,
+  signInAsNewUser,
+} from "../../support/web-session";
 
 /**
- * Every route in `apps/web/src/app/app.routes.ts`, with the exact `<h1>` its
- * component renders. A route added there without an entry here is an
- * unverified screen.
+ * The routes behind `authGuard`, with the exact `<h1>` each component renders.
+ * A route added to the app layout without an entry here is an unverified screen.
+ *
+ * CONTRACT: No `/orders/:orderId` row — its heading is an order id minted at
+ * checkout, so a fresh user has none to visit. A stale id renders the not-found
+ * screen, which has no `<h1>`. That branch has its own test. See [[testing]]
  */
-const ROUTES = [
+const APP_ROUTES = [
   { path: "/", heading: /new arrivals/i },
+  { path: "/checkout", heading: /checkout/i },
+  { path: "/orders", heading: /my orders/i },
+  { path: "/profile", heading: /profile/i },
+] as const;
+
+/** The routes behind `guestGuard` — visited signed OUT, or they redirect to `/`. */
+const AUTH_ROUTES = [
   { path: "/login", heading: /welcome back/i },
   { path: "/login/passwordless", heading: /sign in without a password/i },
   { path: "/verify", heading: /check your inbox/i },
@@ -26,12 +41,6 @@ const ROUTES = [
   { path: "/register/passwordless", heading: /sign up with just your email/i },
   { path: "/password/reset", heading: /reset your password/i },
   { path: "/password/new", heading: /set a new password/i },
-  { path: "/checkout", heading: /checkout/i },
-  { path: "/orders", heading: /my orders/i },
-  // This id must exist in `orders.fixture.ts` — the heading IS the order id, and
-  // an unknown one renders the not-found screen with no <h1> (own test below).
-  { path: "/orders/ord_fB6rEjN4uK", heading: /ord_fB6rEjN4uK/i },
-  { path: "/profile", heading: /profile/i },
 ] as const;
 
 /**
@@ -53,7 +62,7 @@ function collectPageErrors(page: Page): string[] {
   return errors;
 }
 
-for (const route of ROUTES) {
+for (const route of AUTH_ROUTES) {
   test(`${route.path} mounts and renders clean`, async ({ page }) => {
     const errors = collectPageErrors(page);
 
@@ -73,12 +82,37 @@ for (const route of ROUTES) {
   });
 }
 
-// The wildcard is the one route whose correct behaviour IS a redirect, so this
-// asserts the URL *and* home's content — a redirect onto a blank page satisfies
-// the URL alone.
-test("an unknown route redirects home", async ({ page }) => {
+for (const route of APP_ROUTES) {
+  test(`${route.path} mounts and renders clean`, async ({ page, baseURL }) => {
+    const errors = collectPageErrors(page);
+
+    // CONTRACT: Collect errors from the sign-in navigation too, not just from
+    // `route.path`. Listeners attached after signing in would miss anything the
+    // login screen and the post-sign-in landing throw, which is most of the
+    // session plumbing this suite exercises.
+    await signInAsNewUser(page, baseURL!);
+    await page.goto(route.path);
+
+    await expect(
+      page.getByRole("heading", { level: 1, name: route.heading }),
+      `no <h1> matching ${route.heading} on ${route.path} — the route may be missing from ` +
+        "app.routes.ts (the ** wildcard would redirect it home), or its screen is still a placeholder",
+    ).toBeVisible();
+
+    expect(
+      errors,
+      `console errors on ${route.path}:\n${errors.join("\n") || "(none captured)"}`,
+    ).toHaveLength(0);
+  });
+}
+
+// The wildcard is the one route whose correct behaviour IS a redirect. Asserts
+// the URL *and* home's content — a redirect onto a blank page satisfies the URL
+// alone. Signed in, so the landing is home rather than authGuard's /login.
+test("an unknown route redirects home", async ({ page, baseURL }) => {
   const errors = collectPageErrors(page);
 
+  await signInAsNewUser(page, baseURL!);
   await page.goto("/no-such-page");
 
   await expect(page).toHaveURL(/\/$/);
@@ -87,6 +121,41 @@ test("an unknown route redirects home", async ({ page }) => {
     errors,
     `console errors on /no-such-page:\n${errors.join("\n") || "(none captured)"}`,
   ).toHaveLength(0);
+});
+
+/**
+ * CONTRACT: An anonymous visitor is SENT TO /login, not shown the screen. This is
+ * the guard itself, and nothing else in this file can fail when it breaks — every
+ * other app-route test signs in first, so a deleted `canActivate` leaves them all
+ * green. See [[2026-09-04-web-gateway-integration-design]]
+ */
+for (const route of APP_ROUTES) {
+  test(`${route.path} bounces an anonymous visitor to /login`, async ({ page }) => {
+    await page.goto(route.path);
+
+    await expect(
+      page,
+      `${route.path} rendered for a signed-out visitor — authGuard is missing from the app ` +
+        "layout in app.routes.ts, or it resolved before session rehydration settled",
+    ).toHaveURL(/\/login$/);
+    await expect(page.getByRole("heading", { level: 1, name: /welcome back/i })).toBeVisible();
+  });
+}
+
+/**
+ * The mirror of the rule above, and the reason this file splits its routes:
+ * `guestGuard` sends a signed-in visitor away from the auth screens.
+ */
+test("a signed-in visitor is bounced off /login", async ({ page, baseURL }) => {
+  await signInAsNewUser(page, baseURL!);
+
+  await page.goto("/login");
+
+  await expect(
+    page,
+    "the login form rendered for a signed-in user — guestGuard is missing from the auth layout",
+  ).toHaveURL(/\/$/);
+  await expect(page.getByRole("heading", { level: 1, name: /new arrivals/i })).toBeVisible();
 });
 
 /**
@@ -124,16 +193,31 @@ test("the forgot-password link on /login reaches the reset screen", async ({ pag
 });
 
 // The branch a deep-linked stale URL hits: an explicit empty state, not a crash
-// and not a redirect.
-test("an unknown order id renders the not-found state", async ({ page }) => {
+// and not a redirect. Signed in, so the 404 comes from Orders rather than from
+// authGuard turning this into a trip to /login.
+test("an unknown order id renders the not-found state", async ({ page, baseURL }) => {
   const errors = collectPageErrors(page);
 
+  await signInAsNewUser(page, baseURL!);
   await page.goto("/orders/ord_doesNotExist");
 
-  await expect(page.getByText(/order not found/i)).toBeVisible();
+  // CONTRACT: Use the cart write's headroom, not the default 5s. This screen waits
+  // on `GET /v1/orders/{id}` over the same slow gateway path, so the default sits
+  // right on the response time — it passed alone and failed in BOTH projects under
+  // a parallel run, looking like a missing empty state. See [[testing]]
+  await expect(page.getByText(/order not found/i)).toBeVisible({
+    timeout: CART_WRITE_TIMEOUT_MS,
+  });
+
+  // CONTRACT: Filter out the 404 this test DELIBERATELY provokes, and nothing else.
+  // Chromium logs every failed request as a console error. Dropping the assertion
+  // entirely would hide a real crash in the not-found branch. See [[testing]]
+  const unexpected = errors.filter((message) => !/ord_doesNotExist/.test(message));
   expect(
-    errors,
-    `console errors on an unknown order:\n${errors.join("\n") || "(none captured)"}`,
+    unexpected,
+    `console errors on an unknown order, beyond the expected 404:\n${
+      unexpected.join("\n") || "(none captured)"
+    }`,
   ).toHaveLength(0);
 });
 
@@ -145,12 +229,21 @@ test("an unknown order id renders the not-found state", async ({ page }) => {
  * and RESTARTING `pnpm web:dev` between two runs of this suite.
  * See [[env-files]]
  */
-test("checkout renders exactly one payment path", async ({ page }) => {
+test("checkout renders exactly one payment path", async ({ page, baseURL }) => {
+  await signInAsNewUser(page, baseURL!);
+  // CONTRACT: Seed the cart. Both payment paths sit behind `@else if
+  // (cart.isEmpty())` in checkout-payment.html, so an empty cart renders neither
+  // and this test fails reporting `stripe=false plain=false` — which reads as a
+  // broken NG_APP_STRIPE_ENABLED rather than as an empty cart.
+  await addFirstProductToCart(page);
   await page.goto("/checkout");
 
   // Wait for the screen first, so "neither visible" means the flag rendered
   // nothing rather than the page not having mounted.
   await expect(page.getByRole("heading", { level: 1, name: /checkout/i })).toBeVisible();
+  // And for the cart to have loaded: the payment branch is chosen only after
+  // `cart.loading()` clears, so sampling earlier reads neither path.
+  await expect(page.locator("app-cart-line").first()).toBeVisible();
 
   const stripeVisible = await page.getByTestId("checkout-stripe").isVisible();
   const plainVisible = await page.getByTestId("checkout-plain").isVisible();
@@ -175,46 +268,14 @@ test("checkout renders exactly one payment path", async ({ page }) => {
 // UTC and `4:24 am` at UTC-6, and this suite passed throughout. See [[testing]]
 
 /**
- * The year asymmetry below is the DESIGN, verified against the Pencil exports:
- * the order timeline carries it (`Aug 15, 2026 · 6:22 pm`), notifications do not
- * (`Aug 12 · 2:30 pm`). "Fixing" one to match the other breaks a frame.
+ * CONTRACT: Only the notifications panel is asserted against a literal here — it is
+ * the one surface whose instant is still a fixture. The order and profile surfaces
+ * are server-backed since JE-245, so their instants are minted during the run and
+ * there is nothing to hardcode. See [[2026-09-04-web-gateway-integration-design]]
+ *
+ * The year asymmetry is the DESIGN, per the Pencil exports: the order timeline
+ * carries the year, notifications do not.
  */
-const DATE_SURFACES = [
-  {
-    name: "orders list — order card",
-    path: "/orders",
-    // `ord_3kLpQx8vRn`, createdAt 2026-08-15T18:22:41Z, one line.
-    text: "Placed Aug 15, 2026 · 1 item",
-  },
-  {
-    name: "order detail — tracking timeline",
-    // Its tracking history has the single PLACED step, at the same instant.
-    path: "/orders/ord_3kLpQx8vRn",
-    text: "Aug 15, 2026 · 6:22 pm",
-  },
-  {
-    name: "profile — member since",
-    path: "/profile",
-    // CURRENT_USER.createdAt 2026-02-11T15:04:22Z. Month granularity: verified
-    // to survive a local-time regression in BOTH zones, so this row asserts the
-    // label's shape, not the normalisation. The other three carry that.
-    text: "Member since Feb 2026",
-  },
-] as const;
-
-for (const surface of DATE_SURFACES) {
-  test(`${surface.name} renders its date in UTC`, async ({ page }) => {
-    await page.goto(surface.path);
-
-    await expect(
-      page.getByText(surface.text, { exact: true }).first(),
-      `"${surface.text}" not rendered on ${surface.path}. If the text is present but the ` +
-        "time differs, formatting has regressed to the viewer's local zone — check that " +
-        "apps/web/src/app/shared/date/format-date.ts still normalises to UTC. If the DATE " +
-        "differs, a fixture instant changed and this literal needs updating with it.",
-    ).toBeVisible();
-  });
-}
 
 /**
  * The notifications panel is an OVERLAY over `/`, not a route: its frames wrap a
@@ -222,8 +283,8 @@ for (const surface of DATE_SURFACES) {
  * real header control the app binds `notificationsClicked` to — asserting
  * against a panel forced open another way would not prove it is reachable.
  */
-test("notifications panel renders its date in UTC", async ({ page }) => {
-  await page.goto("/");
+test("notifications panel renders its date in UTC", async ({ page, baseURL }) => {
+  await signInAsNewUser(page, baseURL!);
 
   const panel = page.getByRole("heading", { level: 2, name: /notifications/i });
   await expect(panel, "the panel is visible before anything opened it").toBeHidden();
@@ -239,13 +300,26 @@ test("notifications panel renders its date in UTC", async ({ page }) => {
   ).toBeVisible();
 
   // Unread is the default tab; this is `ntf_9kDpXmR3vL`, createdAt
-  // 2026-08-12T14:30:05Z. No year, unlike the order timeline above.
+  // 2026-08-12T14:30:05Z. No year, unlike the order timeline.
   await expect(
     page.getByText("Aug 12 · 2:30 pm", { exact: true }),
     'the panel is open but "Aug 12 · 2:30 pm" is not in it — a differing TIME means ' +
       "formatShortDateTime has regressed to the viewer's local zone",
   ).toBeVisible();
 });
+
+/**
+ * CONTRACT: The notifications test above is the ONLY end-to-end guard on the UTC
+ * contract. Do not delete it as "just a fixture assertion" — its instant is fixed
+ * and its format shows a TIME OF DAY, which is what makes a local-zone regression
+ * visible. Verified by mutation on 2026-09-08.
+ *
+ * The per-formatter cases live in `apps/web/src/app/shared/date/format-date.spec.ts`,
+ * which drives fixed instants under a pinned TZ — cheaper and more exhaustive than a
+ * browser. An equality-across-zones check on `Member since` is NOT a substitute: it
+ * is month-granularity and passes against that same mutation. See [[testing]]
+ */
+
 
 /**
  * CONTRACT: The brand panel spans the FULL page height, not the viewport's.
@@ -326,8 +400,9 @@ test("a router navigation transitions, a direct load does not", async ({ page })
  * See [[angular-component-authoring]]
  */
 for (const route of ["/", "/orders", "/profile", "/checkout"] as const) {
-  test(`the app header spans the viewport on ${route}`, async ({ page }) => {
+  test(`the app header spans the viewport on ${route}`, async ({ page, baseURL }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
+    await signInAsNewUser(page, baseURL!);
     await page.goto(route);
 
     const header = await page.locator("app-app-header header").boundingBox();
@@ -372,8 +447,8 @@ const accountMenu = (page: Page) => page.getByText("Sign out", { exact: true });
  * rather than detached — `toBeHidden` passes for a removed node too, while a
  * `count()` of 0 races the leave animation and flakes. See [[testing]]
  */
-test("the bell toggles the notifications panel", async ({ page }) => {
-  await page.goto("/");
+test("the bell toggles the notifications panel", async ({ page, baseURL }) => {
+  await signInAsNewUser(page, baseURL!);
 
   await expect(notificationsPanel(page), "the panel is up before anything opened it").toBeHidden();
 
@@ -392,8 +467,8 @@ test("the bell toggles the notifications panel", async ({ page }) => {
   ).toBeHidden();
 });
 
-test("the profile button toggles the account menu", async ({ page }) => {
-  await page.goto("/");
+test("the profile button toggles the account menu", async ({ page, baseURL }) => {
+  await signInAsNewUser(page, baseURL!);
 
   await expect(accountMenu(page), "the menu is up before anything opened it").toBeHidden();
 
@@ -419,8 +494,8 @@ test("the profile button toggles the account menu", async ({ page }) => {
  * coexistable. This is the case the two tests above cannot catch.
  * See [[angular-component-authoring]]
  */
-test("opening one panel over another switches between them", async ({ page }) => {
-  await page.goto("/");
+test("opening one panel over another switches between them", async ({ page, baseURL }) => {
+  await signInAsNewUser(page, baseURL!);
 
   await bell(page).click();
   await expect(notificationsPanel(page)).toBeVisible();
@@ -450,8 +525,8 @@ test("opening one panel over another switches between them", async ({ page }) =>
  * with `active`. The waits here are deliberately absent — clicking twice with
  * no delay is the whole point. See [[angular-component-authoring]]
  */
-test("a rapid double-click leaves the panel closed, not stranded", async ({ page }) => {
-  await page.goto("/");
+test("a rapid double-click leaves the panel closed, not stranded", async ({ page, baseURL }) => {
+  await signInAsNewUser(page, baseURL!);
 
   await bell(page).dblclick();
 
@@ -483,10 +558,15 @@ test("a rapid double-click leaves the panel closed, not stranded", async ({ page
  * Mounting the header without handlers is the regression this guards.
  * See [[angular-component-authoring]]
  */
-const ROUTES_WITH_HEADER = ["/", "/checkout", "/orders", "/orders/ord_fB6rEjN4uK", "/profile"] as const;
+// CONTRACT: `/orders/:orderId` is absent for the same reason it left APP_ROUTES —
+// its id came from the deleted `orders.fixture.ts`. The order-detail route still
+// renders the header (it is an AppLayout child), but reaching it needs an order
+// this user placed, which is checkout's job and not this file's.
+const ROUTES_WITH_HEADER = ["/", "/checkout", "/orders", "/profile"] as const;
 
 for (const route of ROUTES_WITH_HEADER) {
-  test(`the header's controls work on ${route}`, async ({ page }) => {
+  test(`the header's controls work on ${route}`, async ({ page, baseURL }) => {
+    await signInAsNewUser(page, baseURL!);
     await page.goto(route);
 
     // Exactly one: two layouts nesting, or a page that kept its own copy after
@@ -522,8 +602,8 @@ for (const route of ROUTES_WITH_HEADER) {
  * apart now that one handler serves five routes.
  * See [[angular-component-authoring]]
  */
-test("the cart button opens the drawer on / and navigates home elsewhere", async ({ page }) => {
-  await page.goto("/");
+test("the cart button opens the drawer on / and navigates home elsewhere", async ({ page, baseURL }) => {
+  await signInAsNewUser(page, baseURL!);
 
   const cartButton = page.locator("header button").filter({ has: page.locator("svg.lucide-shopping-bag") });
   await cartButton.click();
@@ -550,13 +630,23 @@ test("the cart button opens the drawer on / and navigates home elsewhere", async
  * `view-transition-name`, and a duplicate name in one snapshot makes the browser
  * skip the transition entirely rather than fail loudly. See [[angular-component-authoring]]
  */
-test("each named view-transition element is unique per document", async ({ page }) => {
+test("the app layout's named elements are unique per document", async ({ page, baseURL }) => {
+  await signInAsNewUser(page, baseURL!);
+
   for (const route of ["/", "/checkout", "/orders", "/profile"] as const) {
     await page.goto(route);
     await expect(page.locator("app-app-header"), `duplicate header on ${route}`).toHaveCount(1);
     await expect(page.locator("app-brand-panel"), `brand panel leaked onto ${route}`).toHaveCount(0);
   }
+});
 
+/**
+ * The auth half of the rule above, split off because it must run SIGNED OUT:
+ * `guestGuard` redirects a signed-in visitor from `/login` to `/`, where the
+ * brand panel legitimately does not exist — so a single signed-in test reads
+ * "0 brand panels" and fails against a perfectly correct layout.
+ */
+test("the auth layout's named elements are unique per document", async ({ page }) => {
   for (const route of ["/login", "/register", "/verify"] as const) {
     await page.goto(route);
     await expect(page.locator("app-brand-panel"), `duplicate brand panel on ${route}`).toHaveCount(1);
@@ -574,7 +664,8 @@ test("each named view-transition element is unique per document", async ({ page 
  * into the template leaves it lit on `/orders` too, which is what shipped.
  * See [[angular-component-authoring]]
  */
-test("the account menu highlights the route it is on", async ({ page }) => {
+test("the account menu highlights the route it is on", async ({ page, baseURL }) => {
+  await signInAsNewUser(page, baseURL!);
   const ACTIVE = /bg-surface-subtle/;
   const item = (name: string) => page.locator("app-account-menu button", { hasText: name });
 
@@ -604,8 +695,9 @@ test("the account menu highlights the route it is on", async ({ page }) => {
  * See [[angular-component-authoring]]
  */
 for (const width of [414, 390, 375] as const) {
-  test(`no horizontal overflow at ${width}px`, async ({ page }) => {
+  test(`no horizontal overflow at ${width}px`, async ({ page, baseURL }) => {
     await page.setViewportSize({ width, height: 736 });
+    await signInAsNewUser(page, baseURL!);
 
     for (const route of ["/profile", "/orders", "/"] as const) {
       await page.goto(route);
@@ -640,17 +732,32 @@ for (const width of [414, 390, 375] as const) {
 
 /**
  * CONTRACT: A product with no image gets a LABELLED placeholder, not a bare
- * surface. `catalogue.fixture.ts` keeps one `image: null` row on purpose; an
- * unlabelled box reads as a failed load beside cards that do have artwork.
- * See [[angular-component-authoring]]
+ * surface — an unlabelled box reads as a failed load beside cards that do have
+ * artwork.
+ *
+ * CONTRACT: A SKIP, not a deletion. Every product in `ProductSeed.cs` carries
+ * artwork, so this branch is unreachable from the web app; rewriting the assertion
+ * to pass would leave a green test proving nothing, and deleting it would lose the
+ * record that `product-card.html`'s `@else` is untested end to end. Orders covers
+ * the branch in `ProductReadServiceTests`. Give one seed product a null image and
+ * the skip comes off. See [[angular-component-authoring]]
  */
-test("a product without artwork says so", async ({ page }) => {
-  await page.goto("/");
+test("a product without artwork says so", async ({ page, baseURL }) => {
+  await signInAsNewUser(page, baseURL!);
 
-  const card = page.locator("app-product-card").filter({ hasText: "Basalt Ceramic Mug" });
-  await expect(card).toBeVisible();
-  await expect(card.locator("img")).toHaveCount(0);
-  await expect(card, "the no-image card renders an unlabelled box").toContainText("No image");
+  const cards = page.locator("app-product-card");
+  await expect(cards.first()).toBeVisible();
+
+  const withoutArtwork = cards.filter({ hasText: "No image" });
+  const count = await withoutArtwork.count();
+  test.skip(
+    count === 0,
+    "no seeded product lacks artwork — every row in ProductSeed.cs carries a ProductImage, " +
+      "so the placeholder branch in product-card.html cannot be reached from the web app",
+  );
+
+  const card = withoutArtwork.first();
+  await expect(card.locator("img"), "a card labelled 'No image' still rendered an <img>").toHaveCount(0);
 });
 
 /**
@@ -681,7 +788,8 @@ test("the reset screen states the backend's real code length and expiry", async 
  * reload wipes it, so `undefined` IS the failure.
  * See [[angular-component-authoring]]
  */
-test("in-app links navigate through the router, not by reloading", async ({ page }) => {
+test("in-app links navigate through the router, not by reloading", async ({ page, baseURL }) => {
+  await signInAsNewUser(page, baseURL!);
   await page.goto("/checkout");
   await expect(page.getByText(/back to cart/i)).toBeVisible();
 
@@ -735,8 +843,8 @@ test("no template ships an internal href", async () => {
  * div takes outside-click dismissal with it.
  * See [[angular-component-authoring]]
  */
-test("clicking outside the cart closes it, and nothing dims the page", async ({ page }) => {
-  await page.goto("/");
+test("clicking outside the cart closes it, and nothing dims the page", async ({ page, baseURL }) => {
+  await signInAsNewUser(page, baseURL!);
   await page
     .locator("app-app-header button")
     .filter({ has: page.locator("svg.lucide-shopping-bag") })

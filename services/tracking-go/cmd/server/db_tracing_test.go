@@ -20,22 +20,14 @@ import (
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
-// The SQL half of the tracing wiring.
+// The SQL half of the tracing wiring. Wrapping the driver turns "this request
+// was slow" into "slow IN THIS QUERY"; without it a workflow span shows a gap
+// with nothing inside it.
 //
-// otelsql was named in provider.go's docstring and in the plan's surface table
-// alongside otelgin, and was in exactly the same state: mentioned everywhere,
-// wired nowhere. Wrapping the driver is what turns "this request was slow" into
-// "this request was slow IN THIS QUERY" — without it a workflow span shows a
-// 300ms gap with nothing inside it.
-//
-// # WHY THE SEAM IS openPool AND NOT THE REPOSITORIES
-//
-// Every repository takes a plain *sql.DB (NewTrackingRepository, NewStatusRepository,
-// NewSoftDeleteRepository, NewMetricsRepository). otelsql.Open returns a *sql.DB
-// too, so instrumenting at the ONE place pools are opened covers all four with
-// no adapter change and no interface widened — and, more to the point, leaves no
-// second uninstrumented way to open a pool that a later repository could reach
-// for.
+// CONTRACT: The seam is openPool, not the repositories. Every repository takes a
+// plain *sql.DB and otelsql.Open returns one, so instrumenting the ONE place
+// pools are opened leaves no second uninstrumented way to open one.
+// See [[ADR-0019-distributed-tracing-opentelemetry]]
 
 // dbSpanRecorder installs an in-memory exporter as the global provider.
 func dbSpanRecorder(t *testing.T) func() []sdktrace.ReadOnlySpan {
@@ -57,14 +49,10 @@ func dbSpanRecorder(t *testing.T) func() []sdktrace.ReadOnlySpan {
 	return func() []sdktrace.ReadOnlySpan { return exporter.GetSpans().Snapshots() }
 }
 
-// TestOpenPoolProducesDatabaseSpans is the assertion that otelsql is wired.
-//
-// The pool points at a port nothing is listening on, so the query FAILS — and
-// that is deliberate: the span is emitted either way, and a failing connection
-// proves the instrumentation sits around the driver rather than depending on a
-// live server. A repository test with real MySQL covers the success path; this
-// one covers "is it instrumented at all", which is the part that silently
-// regresses.
+// TestOpenPoolProducesDatabaseSpans asserts otelsql is wired at all — the part
+// that silently regresses. The pool points at a dead port so the query fails,
+// which proves the instrumentation sits around the driver rather than depending
+// on a live server.
 func TestOpenPoolProducesDatabaseSpans(t *testing.T) {
 	spansOf := dbSpanRecorder(t)
 
@@ -144,27 +132,14 @@ func TestOpenPoolDoesNotDial(t *testing.T) {
 	}
 }
 
-// TestDatabaseSpansCarryNoQueryText is a PII regression test, and it pins a
-// DEFAULT that works against us.
+// TestDatabaseSpansCarryNoQueryText is a PII regression test pinning a default
+// that works against us: otelsql records db.query.text unless told not to, and
+// this service's writes carry shipping_address. It fails if DisableQuery is
+// dropped or a future otelsql changes the default back. See [[logging-context]]
 //
-// otelsql records db.query.text unless told not to. Verified against v0.43.0
-// with no options set, an instrumented UPDATE emitted:
-//
-//	db.query.text = "UPDATE trackings SET shipping_address='221B Baker Street' ..."
-//
-// shipping_address is PII by this repo's logging rules, and a span attribute
-// reaches the collector and OpenObserve exactly as a log line does — so the
-// prohibition is the same one. openPool passes DisableQuery, and this test fails
-// if that option is ever dropped or if a future otelsql changes the default back.
-//
-// # WHY A FAKE DRIVER AND NOT THE REAL POOL
-//
-// The query span is only created once a CONNECTION EXISTS. Against a dead
-// address (openPool's usual test target) the driver fails at sql.connector.connect
-// and the query path is never reached — so a version of this test written that
-// way passes whether DisableQuery is set or not. Measured: dropping the option
-// left it green. It was a vacuous test, which is the very failure mode this task
-// is about, so the driver below is what makes the assertion real.
+// CONTRACT: Use the FAKE DRIVER, not the real pool. The query span is created
+// only once a connection exists, so against a dead address the driver fails at
+// connect and this passes whether DisableQuery is set or not — a vacuous test.
 func TestDatabaseSpansCarryNoQueryText(t *testing.T) {
 	spansOf := dbSpanRecorder(t)
 
@@ -199,13 +174,11 @@ func TestDatabaseSpansCarryNoQueryText(t *testing.T) {
 	}
 }
 
-// openInstrumentedFakePool wraps a driver that CONNECTS and executes, so the
-// query span is really produced — using the SAME option set openPool applies.
+// openInstrumentedFakePool wraps a driver that CONNECTS and executes, so a query
+// span is really produced, using the SAME options openPool applies.
 //
-// The options come from poolTracingOptions(), the one place they are declared,
-// so this test cannot drift away from production the way a duplicated literal
-// would. openPool hard-codes the mysql driver, which is why the DRIVER is faked
-// here while the OPTIONS are shared.
+// CONTRACT: Take the options from poolTracingOptions(), never a duplicated
+// literal — a restated set can silently stop matching production.
 func openInstrumentedFakePool(t *testing.T) *sql.DB {
 	t.Helper()
 
@@ -233,33 +206,16 @@ func (fakeConn) ExecContext(context.Context, string, []driver.NamedValue) (drive
 	return driver.RowsAffected(1), nil
 }
 
-// TestDatabaseSpansDoNotRecordErrSkip pins the second otelsql default that works
-// against us, and it is the mirror image of the PII one above: that test asserts
-// something is ABSENT from the attributes, this one asserts something is absent
-// from the EVENTS and the STATUS.
+// TestDatabaseSpansDoNotRecordErrSkip pins the second otelsql default working
+// against us — the mirror of the PII test: absent from the EVENTS and STATUS
+// rather than the attributes.
 //
-// driver.ErrSkip is a database/sql SENTINEL, not a failure. A driver returns it
-// to say "I do not implement this optional fast path, use the generic one", and
-// database/sql then falls back and the call succeeds. go-sql-driver/mysql
-// returns it in the ORDINARY course of business — mysqlConn.Exec and
-// mysqlConn.query both return it whenever a statement carries arguments and
-// InterpolateParams is off, which is the default and therefore every
-// parameterized statement this service runs. otelsql's own conn.go returns it
-// too, from every optional interface the wrapped driver does not implement.
-//
-// otelsql nevertheless calls span.RecordError + SetStatus(codes.Error) on it,
-// so traces fill with exception events for something that never went wrong.
-// That is worse than noise: it teaches whoever reads the waterfall that errors
-// on DB spans are normal, which is precisely when a real one gets scrolled past,
-// and the error status makes successful spans render as failed.
-//
-// # THE FAKE DRIVER MIMICS go-sql-driver/mysql, IT DOES NOT INVENT A CASE
-//
-// errSkipConn.ExecContext returns driver.ErrSkip exactly as mysqlConn does with
-// args and no interpolation. otelsql wraps that call in sql.conn.exec and passes
-// the returned error to recordSpanError, so the sentinel travels the real code
-// path — this is an observation of a genuine ErrSkip span, not an assertion
-// about a boolean field.
+// CONTRACT: driver.ErrSkip is a database/sql sentinel, not a failure, and
+// go-sql-driver returns it for every parameterized statement here. Recorded, the
+// traces fill with exceptions for something that never went wrong, which teaches
+// readers that errors on DB spans are normal. The fake driver mimics
+// go-sql-driver rather than inventing a case, so the sentinel travels the real
+// code path. See [[logging-context]]
 func TestDatabaseSpansDoNotRecordErrSkip(t *testing.T) {
 	spansOf := dbSpanRecorder(t)
 
@@ -328,14 +284,10 @@ func (errSkipConn) ExecContext(context.Context, string, []driver.NamedValue) (dr
 	return nil, driver.ErrSkip
 }
 
-// Prepare SUCCEEDS, and that is not incidental. database/sql answers ErrSkip by
-// falling back to prepare-then-exec, which is what really happens against MySQL:
-// the fast path is declined, the statement is prepared, and the call SUCCEEDS.
-// A Prepare that failed here would put a genuine error on the fallback's own
-// span and measurement — measured: it stamped
-// error.type="*errors.errorString" on db.client.operation.duration — and the
-// tests would then be asserting against that failure rather than against
-// ErrSkip, which is the one thing they exist to isolate.
+// CONTRACT: Prepare must SUCCEED. database/sql answers ErrSkip by falling back
+// to prepare-then-exec, and a failing Prepare puts a genuine error on the
+// fallback's own span — the tests would then assert against that failure rather
+// than ErrSkip. See [[logging-context]]
 func (errSkipConn) Prepare(string) (driver.Stmt, error) { return errSkipStmt{}, nil }
 
 type errSkipStmt struct{}
@@ -346,21 +298,12 @@ func (errSkipStmt) Exec([]driver.Value) (driver.Result, error) { return driver.R
 func (errSkipStmt) Query([]driver.Value) (driver.Rows, error)  { return nil, io.EOF }
 
 // TestDatabaseMetricsDoNotCountErrSkipAsAnError is the METRICS half of the same
-// non-event, and it exists as a separate test because it fails on a separate
-// option.
+// non-event, separate because it fails on a separate option.
 //
-// DisableErrSkip governs SPANS only. Left to its default,
-// DisableSkipErrMeasurement stamps error.type="database/sql/driver.ErrSkip" on
-// the db.client.operation.duration measurement, so every fast-path fallback is
-// counted as a failed database call. Setting one flag and not the other is the
-// worst of the three states: the trace waterfall would say the query was fine
-// while the dashboard said it errored, over the same non-event, and whoever
-// noticed the disagreement would have to rediscover ErrSkip from scratch to
-// resolve it.
-//
-// Measured through a real SDK reader rather than by reading the option back,
-// for the same reason as the span test: the assertion is what the collector
-// receives.
+// CONTRACT: DisableErrSkip governs SPANS only. Without DisableSkipErrMeasurement
+// every fast-path fallback counts as a failed database call, so one flag alone
+// leaves the waterfall and dashboard disagreeing over one non-event.
+// See [[logging-context]]
 func TestDatabaseMetricsDoNotCountErrSkipAsAnError(t *testing.T) {
 	reader := sdkmetric.NewManualReader()
 	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))

@@ -1,42 +1,24 @@
 # 3MRAI local development orchestrator.
-# Floci emulates AWS locally (SQS, Lambda, ECS, RDS, S3, DocumentDB, …) on a
-# single port :4566 — it is where the project's AWS resources are created for
-# local dev. The four services run on one network with docker-watch (live
-# reload) and point their AWS SDKs at Floci via AWS_ENDPOINT_URL.
-# Skeleton: service build contexts use per-service skeleton Dockerfiles; real
-# per-service config (ports, depends-on details, healthchecks) is filled in per
-# service milestone.
+# Floci emulates AWS locally (SQS, Lambda, ECS, RDS, S3, DocumentDB, …) on the
+# single port :4566, and is where this project's AWS resources are created for
+# local dev. The services share one network with docker-watch (live reload) and
+# point their AWS SDKs at Floci via AWS_ENDPOINT_URL.
 name: 3mrai
 
 networks:
   3mrai-network:
     driver: bridge
 
-# RULE: runtime-generated state goes in a NAMED VOLUME, never a ./data bind
-# mount. Versioned files a container reads (configs, source) stay bind mounts —
-# those you want to edit in the repo and see take effect; see the collector's
-# `:ro` config mount below for the one legitimate case.
-#
-# The reason is `docker compose down -v`: it removes named volumes and CANNOT
-# remove a bind mount. Under the old ./data layout there was no compose command
-# that cleared this state — it outlived every teardown and had to be deleted by
-# hand, through a `make clean` prompt that DEFAULTED TO KEEPING IT.
-#
-# That default caused a silent, hard-to-diagnose failure. A teardown destroys
-# the backing containers (DocumentDB, ElastiCache, RDS) but left Floci's state
-# claiming they exist. On the next apply Terraform asked "is there a cluster?",
-# Floci answered `available` from the stale JSON, and Terraform created
-# nothing — leaving a cluster that is `available` in the API with no container
-# behind it. Nothing failed until a service dialled it and got
-# `getaddrinfo ENOTFOUND floci-docdb-…`.
-#
-# It only bites SOME services, which is why it looked intermittent: Floci
-# relaunches RDS containers from persisted state at boot (`RdsContainerManager`),
-# but has no equivalent for DocumentDB or ElastiCache — so one teardown leaves
-# some resources real and others phantom.
-#
-# `make clean` now runs `down -v`, so state and containers die together, and
-# `make doctor` cross-checks the two if they ever drift again.
+# CONTRACT: Runtime-generated state goes in a NAMED VOLUME, never a ./data bind
+# mount. Only `docker compose down -v` clears this state, and it cannot remove a
+# bind mount — state that outlives a teardown leaves Floci reporting phantom
+# DocumentDB/ElastiCache clusters as `available` with no container behind them,
+# so Terraform creates nothing and a service later fails on
+# `getaddrinfo ENOTFOUND floci-docdb-…`. It looks intermittent because Floci
+# relaunches RDS containers at boot but not DocumentDB or ElastiCache.
+# Versioned files a container reads (configs, source) stay bind mounts — see the
+# collector's `:ro` config mount below.
+# See [[floci-recreate-destroys-backing-containers]]
 volumes:
   # What resources Floci believes exist (its emulated control plane).
   floci-state:
@@ -52,41 +34,25 @@ services:
     image: floci/floci:latest
     ports:
       - "4566:4566"
-      # RDS proxy ports (7000-7010): Floci assigns one per cluster at apply time
-      # in the 7000-7099 range, BY CREATION ORDER — which is NOT stable across
-      # applies, so Postgres/MySQL can flip between 7001/7002. The actual per-
-      # engine ports are DISCOVERED from describe-db-clusters (Engine per cluster)
-      # by scripts/discover_db_port.py and written into .env as USERS_DB_PORT /
-      # ORDERS_DB_PORT — never hardcoded. Published to the host so host-side
-      # clients — the phase-2 post-effects Terraform postgresql/mysql providers,
-      # and any SQL client — can reach the DBs at localhost:<port>. In-network
-      # containers still use floci:<port>.
+      # RDS proxy ports. Floci assigns one per cluster BY CREATION ORDER, so
+      # Postgres/MySQL flip between 7001/7002 across applies — never hardcode a
+      # port. scripts/discover_db_port.py reads them from describe-db-clusters
+      # into .env as USERS_DB_PORT / ORDERS_DB_PORT. Published so host-side
+      # clients (the phase-2 postgresql/mysql providers, any SQL client) reach
+      # localhost:<port>; in-network containers use floci:<port>.
       - "7000-7010:7000-7010"
-      # ElastiCache proxy ports — the SAME proxy arrangement as the RDS range
-      # above: Floci launches a real `valkey/valkey:8` container per replication
-      # group and PROXIES TCP to it, so a host-side client can reach it at
-      # localhost:<port>. Publishing the range is REQUIRED for that; without it
-      # the port is simply closed, which reads exactly like "the emulator doesn't
-      # really serve Redis" (it does — see the floci skill, quirk 14).
-      #
-      # DELIBERATELY NOT FLOCI'S 6379-6399 DEFAULT. 6379 is Redis's well-known
-      # port, so the default range collides with any local Redis a developer runs
-      # (here: a `redis_alpine` container publishing 6379). Whoever binds first
-      # wins and the other silently fails — Floci refusing to start with "port is
-      # already allocated", or worse, a client reaching the WRONG Redis. Moved to
-      # 6479-6499: same 21-port width, clear of both 6379 and this machine's other
-      # 6xxx listeners.
-      #
-      # The published range and FLOCI_SERVICES_ELASTICACHE_PROXY_BASE_PORT/
-      # _MAX_PORT below MUST agree — publishing ports Floci does not allocate from
-      # (or vice versa) yields a closed port with no error anywhere.
-      #
-      # THIS RANGE IS HOST-SIDE ONLY, and that is why REDIS_PORT stays 6379.
-      # In-network containers (users, and anything else on 3mrai-network) do not
-      # go through this proxy at all: they dial the backing container directly at
-      # `floci-valkey-<replication-group-id>:6379`, which is unaffected by the
-      # range chosen here. Only clients on the HOST — redis-cli, a GUI, a test run
-      # outside Docker — use these ports. Do not "fix" REDIS_PORT to 6479.
+      # ElastiCache proxy ports — same arrangement as the RDS range above: Floci
+      # proxies TCP to a real valkey container per replication group, and without
+      # the range published the port is closed, which reads like "the emulator
+      # doesn't really serve Redis" (it does).
+      # WORKAROUND(local): Do NOT use Floci's 6379-6399 default. It collides with
+      # any local Redis on 6379 — whoever binds first wins and the other fails
+      # silently, or a client reaches the WRONG Redis.
+      # CONTRACT: This range and FLOCI_SERVICES_ELASTICACHE_PROXY_BASE_PORT /
+      # _MAX_PORT below MUST agree; a mismatch yields a closed port, no error.
+      # CONTRACT: HOST-SIDE ONLY — do NOT "fix" REDIS_PORT to 6479. In-network
+      # containers dial `floci-valkey-<group-id>:6379` directly, bypassing this
+      # proxy entirely. See [[floci-elasticache-two-ports-and-provider-panic]]
       - "6479-6499:6479-6499"
     environment:
       # ECS tasks launched by Floci join the compose network and can resolve
@@ -107,20 +73,15 @@ services:
       # top-level `volumes:` block for why it is not a ./data bind mount).
       # `persistent` flushes on every write; `hybrid` batches on a 5s async timer
       # and loses writes on an unclean stop — do not "optimize" this to hybrid.
-      # See docs/lessons/floci-storage-modes-and-tmp-corruption.md
+      # See [[floci-storage-modes-and-tmp-corruption]]
       - FLOCI_STORAGE_MODE=persistent
       - FLOCI_STORAGE_PERSISTENT_PATH=/app/data
-      # SES relay → Mailpit, so an email the events-pipeline Lambda sends lands
-      # in a real, inspectable inbox at http://localhost:8025 instead of only
-      # being recorded inside the emulator. `mailpit` resolves through Docker
-      # DNS on 3mrai-network.
-      #
-      # Floci stores every sent email locally REGARDLESS of this relay (its
-      # /_aws/ses endpoint), so the relay is for human/E2E inspection, not for
-      # delivery correctness. The relay also does not preserve arbitrary
-      # headers, attachments, or complex multipart bodies — fine for the simple
-      # HTML this pipeline sends; if attachments ever appear, inspect via
-      # /_aws/ses instead. See the milestone design spec's "Mailpit" section.
+      # SES relay → Mailpit (resolved via Docker DNS), so pipeline email lands in
+      # an inspectable inbox at http://localhost:8025. Floci records every sent
+      # email locally regardless (its /_aws/ses endpoint), so this relay serves
+      # inspection, not delivery correctness. It drops arbitrary headers,
+      # attachments and complex multipart bodies — fine for the plain HTML sent
+      # here; inspect anything richer through /_aws/ses instead.
       - FLOCI_SERVICES_SES_SMTP_HOST=mailpit
       - FLOCI_SERVICES_SES_SMTP_PORT=1025
     volumes:
@@ -128,18 +89,12 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     networks: [3mrai-network]
     depends_on:
-      # `service_started`, NOT `service_healthy`, and the difference matters:
-      # floci gates users, orders, tracking and the nginx ECS task, so a
-      # `service_healthy` gate here would let an unpullable or unhealthy Mailpit
-      # image stop the entire API from booting. An email inbox must not have
-      # that power — SES stores mail locally regardless of the relay, so a
-      # missing Mailpit costs inspectability, not correctness.
-      #
-      # What this still buys: ordering. Mailpit is created before Floci, so the
-      # first email of a session is very likely relayed rather than dropped on a
-      # refused connection. It is a best-effort ordering hint, not a guarantee
-      # (a started container is not yet a listening SMTP server) — which is the
-      # right trade for a non-critical dependency.
+      # `service_started`, NOT `service_healthy`. Floci gates users, orders,
+      # tracking and the nginx ECS task, so a health gate here would let an
+      # unhealthy inbox stop the whole API from booting — and a missing Mailpit
+      # costs inspectability, not correctness. What it buys is ordering only:
+      # Mailpit starts first, so the session's first email is usually relayed
+      # rather than refused. Best-effort, not a guarantee.
       mailpit:
         condition: service_started
     healthcheck:
@@ -153,27 +108,19 @@ services:
   # OTel collector: fluentd from the compose services + CloudWatch (ECS/RDS) on
   # Floci, exported to self-hosted OpenObserve. Pinned image; do not use :latest.
   # Logs AND traces both live in OpenObserve, joined by the trace_id every log
-  # line carries. Jaeger was removed on 2026-08-21: it existed only because
-  # ADR-0019 found this OpenObserve build rejecting trace batches with HTTP 400,
-  # and that stopped reproducing on v0.91.1.
+  # line carries. See [[ADR-0019-distributed-tracing-opentelemetry]]
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.156.0
     profiles: [observability]
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     ports:
       - "24224:24224"   # fluent_forward — published so the Docker daemon (host) can reach it
-      # OTLP trace ingest. The services reach it in-network at
-      # http://otel-collector:4318, so publishing is only for host-side probing.
-      # NOTE: this service sits behind `profiles: [observability]`, so a plain
-      # `docker compose up` does NOT start it and the SDKs' exports fail DNS.
-      # That is NOT harmless, which this comment used to claim: each failure
-      # writes a full `getaddrinfo ENOTFOUND otel-collector` stack trace to the
-      # service log — measured at 8 in 2 minutes in Users alone on an IDLE stack,
-      # one per metrics tick, 24/7.
-      #
-      # `make bootstrap` therefore starts this (via `observability-up` inside
-      # bootstrap-converge, before the services boot). The profile is what keeps
-      # a bare `docker compose up` from pulling it in, not an opt-out.
+      # OTLP trace ingest. Services reach it in-network at otel-collector:4318;
+      # publishing is for host-side probing only.
+      # WARNING: Behind `profiles: [observability]`, so a bare `docker compose
+      # up` leaves it down and every SDK export fails DNS, spamming full
+      # `getaddrinfo ENOTFOUND otel-collector` traces (8 in 2 min on an idle
+      # stack). Start the stack with `make bootstrap`, which brings this up.
       - "4317:4317"     # OTLP/gRPC
       - "4318:4318"     # OTLP/HTTP
       # health_check extension — published because `make doctor` probes it from
@@ -188,18 +135,12 @@ services:
       # base64("admin@3mrai.local:Complexpass#123") — the OpenObserve Basic auth
       # header value. Local dev only; prod injects this from Secrets Manager.
       - O2_BASIC_AUTH=YWRtaW5AM21yYWkubG9jYWw6Q29tcGxleHBhc3MjMTIz
-      # The OpenObserve organization everything lands in.
-      #
-      # It does not need creating: OpenObserve auto-creates an org on first
-      # ingestion for the root user (ZO_CREATE_ORG_THROUGH_INGESTION, default
-      # true), and the identifier is taken FROM THE URL — so ingesting into
-      # /api/3mrai/... yields the org `3mrai`, deterministically, on every
-      # rebuild.
-      #
-      # Creating it through POST /api/organizations instead would NOT work:
-      # that path generates a random identifier (e.g. 3HuXDuClKORqCzEQ7sOCIJ…)
-      # and ignores any identifier in the body, which would change on every
-      # `make clean` and force every consumer to discover it at runtime.
+      # The OpenObserve organization everything lands in. It needs no creating:
+      # ingesting into /api/3mrai/... auto-creates the org `3mrai` from the URL
+      # (ZO_CREATE_ORG_THROUGH_INGESTION), deterministically on every rebuild.
+      # Do NOT create it via POST /api/organizations instead — that path ignores
+      # the identifier in the body and generates a random one, which would change
+      # on every `make clean` and force consumers to discover it at runtime.
       - O2_ORG=3mrai
     volumes:
       - ./observability/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
@@ -227,15 +168,10 @@ services:
       - openobserve-data:/data
     networks: [3mrai-network]
 
-  # Real Users service (Fastify + Prisma).
-  # Build context is the REPO ROOT so pnpm-lock.yaml and pnpm-workspace.yaml
-  # are available to the multi-stage Dockerfile.
-  # The container is reachable as `users` on 3mrai-network so the Nginx ECS
-  # task can proxy_pass to http://users:3000 via Docker embedded DNS.
-  #
-  # COGNITO_USER_POOL_ID / COGNITO_CLIENT_ID come from ./.env, which
-  # `make infra-up` regenerates from `terraform output` after every apply —
-  # Floci mints new IDs on each apply, so they must never be hardcoded here.
+  # Users service (Fastify + Prisma). Build context is the REPO ROOT so
+  # pnpm-lock.yaml and pnpm-workspace.yaml reach the multi-stage Dockerfile.
+  # Reachable as `users` on 3mrai-network, so the Nginx ECS task can
+  # proxy_pass to http://users:3000 through Docker embedded DNS.
   users:
     build:
       context: .
@@ -320,26 +256,12 @@ services:
         - action: rebuild
           path: ./services/orders/src
 
-  # Tracking service (Go 1.26 + Gin, sqlc/database-sql → MySQL).
-  #
-  # THIS IS THE GO SERVICE. It was `tracking-go`, running beside a Python
-  # FastAPI service of the same name, for the duration of the migration; at
-  # cutover it took the `tracking` key, the host port and the env file the
-  # Python service used, so nothing downstream had to learn a new name. The
-  # nginx `set $backend tracking;` lines, TRACKING_BASE_URL, `make doctor`'s
-  # port map and every doc that says "Tracking runs on 3002" all keep meaning
-  # what they meant — they now resolve to this container.
-  #
-  # Build context is ./services/tracking-go — NOT the repo root like Users and
-  # Orders. It needs nothing from outside its own tree: the Users gRPC stubs
-  # generated from proto/users.proto are COMMITTED under
-  # internal/adapter/grpcusers/gen/, so the shared .proto is read neither at
-  # build nor at run time (contrast Users, whose gRPC SERVER loads
-  # /app/proto/users.proto at boot).
-  #
-  # Reachable as `tracking` on 3mrai-network so the Nginx ECS task can
-  # proxy_pass to http://tracking:8000. REST-only: Tracking serves no gRPC
-  # (JE-108), so there is no second port to publish.
+  # Tracking service (Go 1.26 + Gin, sqlc/database-sql → MySQL). Reachable as
+  # `tracking` on 3mrai-network so the Nginx ECS task can proxy_pass to
+  # http://tracking:8000. REST-only — no gRPC server, so no second port.
+  # WHY: Build context is ./services/tracking-go, not the repo root like Users
+  # and Orders: the Users gRPC stubs are COMMITTED under
+  # internal/adapter/grpcusers/gen/, so no shared .proto is read here at all.
   tracking:
     build: ./services/tracking-go
     networks: [3mrai-network]
@@ -351,43 +273,29 @@ services:
     depends_on:
       floci:
         condition: service_healthy
-      # NOT depends_on: users. Tracking's only gRPC is an OUTBOUND client to
-      # Users, and main.go dials it LAZILY (grpc.NewClient returns without
-      # connecting); a dial failure there is logged and swallowed, so nothing at
-      # boot touches Users at all. Orders declares `users: service_started` for
-      # the same lazy client; the difference is only that Orders' compose block
-      # predates this reasoning being written down. `service_started` buys no
-      # ordering guarantee that matters here (a started container is not a
-      # listening gRPC server), so adding it would be coupling that looks like a
-      # guarantee without being one.
-    # Environment comes from the GENERATED .env.local.tracking — see the note on
-    # the users service above for why nothing is declared inline. An
-    # `environment:` block here would silently WIN over env_file, so the service
-    # would never see its generated DB URLs, gRPC target, or API keys.
+      # WHY: No `depends_on: users`. Tracking's only gRPC is an OUTBOUND client
+      # dialled LAZILY, and a dial failure is logged and swallowed, so nothing at
+      # boot touches Users. `service_started` would not help either — a started
+      # container is not a listening gRPC server.
+
+    # CONTRACT: Environment comes from the GENERATED .env.local.tracking. Do NOT
+    # add an `environment:` block — it silently WINS over env_file, and the
+    # service would never see its generated DB URLs, gRPC target or API keys.
+    # See [[env-files]]
     env_file:
       - .env.local.tracking
-    # NO healthcheck, and NO in-image HEALTHCHECK either. The runtime stage is
-    # gcr.io/distroless/static-debian12, which ships no shell, no curl and no
-    # wget, so there is no command inside the container that can probe it — and
-    # the Python predecessor's trick (`python -c ...`) has no analogue, because
-    # the only executable in this image is the server binary itself.
-    #
-    # Nothing depends_on this service, so no `condition: service_healthy` is left
-    # unsatisfiable by the omission. Probe it from the host instead:
+    # WHY: No healthcheck, in compose or in the image. The runtime stage is
+    # distroless — no shell, no curl, no wget — so the only executable in the
+    # container is the server binary. Nothing depends_on this service, so no
+    # `condition: service_healthy` is left unsatisfiable. Probe from the host:
     #   curl -fsS http://localhost:3002/v1/health
-    # Adding a probe would mean either giving the binary a `-healthcheck` mode or
-    # dropping to a distro base — both real options, neither taken yet.
-    #
-    # stdout → the observability collector's fluent_forward receiver.
-    # localhost:24224 because the Docker daemon resolves fluentd-address from the
-    # HOST, not this network. fluentd-async so the service still starts when the
-    # observability profile (and thus the collector) is not running.
-    #
-    # tag: "tracking" — the same value the Python service used, so every saved
-    # OpenObserve query, dashboard panel and collector pipeline that filters on
-    # it keeps working across the cutover. During the migration this was
-    # "tracking-go" precisely so a log query could tell the two runtimes apart;
-    # with one runtime left there is nothing to tell apart.
+
+    # stdout → the collector's fluent_forward receiver. localhost:24224 because
+    # the Docker daemon resolves fluentd-address from the HOST, not this network;
+    # fluentd-async so the service still starts without the observability
+    # profile.
+    # CONTRACT: Keep tag "tracking" — saved OpenObserve queries, dashboard panels
+    # and collector pipelines all filter on it. See [[logging-context]]
     logging:
       driver: fluentd
       options:
@@ -401,55 +309,41 @@ services:
     # this reason; that is a real option here too. Pick up a code change with:
     #   docker compose up -d --build tracking
 
-  # NOTE: there is deliberately NO `events-pipeline` compose service.
-  # The pipeline is a REAL Lambda on Floci, deployed by Terraform together with
-  # its SQS event source mapping (see functions/events-pipeline/CLAUDE.md §1).
-  # The previous build+watch worker here was a skeleton that never ran the
-  # actual trigger: a compose worker polling SQS by hand would have exercised
-  # neither the event source mapping, the batching, nor the partial-batch
-  # responses — the three things most likely to break. Code changes ship via
-  # `pnpm run build` + `terraform apply` (archive_file's hash triggers the
-  # function update), which is why it also has no docker-watch block.
+  # WHY: There is deliberately NO `events-pipeline` compose service. The
+  # pipeline is a REAL Lambda on Floci, deployed by Terraform with its SQS event
+  # source mapping (see functions/events-pipeline/CLAUDE.md §1). A compose
+  # worker polling SQS by hand would exercise neither that mapping, nor
+  # batching, nor partial-batch responses. Ship code with `pnpm run build` +
+  # `terraform apply` — archive_file's hash triggers the function update.
 
   # Mailpit — the local inbox. Floci's SES relays here (see the floci service's
-  # FLOCI_SERVICES_SES_SMTP_* above), so emails the pipeline sends are readable
-  # at http://localhost:8025 and assertable over its HTTP API from the
-  # layer-2 integration test.
-  #
-  # NOT behind a profile, unlike email-preview: it is part of the running system
-  # (Floci's relay target and the E2E assertion point), not a developer tool.
+  # FLOCI_SERVICES_SES_SMTP_* above), so pipeline email is readable at
+  # http://localhost:8025 and assertable over its HTTP API from the layer-2
+  # integration test. NOT behind a profile, unlike email-preview: it is part of
+  # the running system — Floci's relay target and the E2E assertion point — and
+  # not a developer tool.
   mailpit:
     # Pinned, like every other image here — `latest` would silently change the
     # API this project's tests query.
     image: axllent/mailpit:v1.20
     networks: [3mrai-network]
     environment:
-      # Mailpit's default cap is 500 messages, and on reaching it it evicts the
-      # OLDEST to make room. The inbox HAD hit that cap after accumulating runs
-      # (`/api/v1/info`: SMTPAccepted 511 / Messages 500 / MessagesDeleted 11).
-      #
-      # That eviction was NOT, however, why the 11 email specs were failing —
-      # raising this cap and purging in global-setup left the inbox healthy and
-      # the same specs still failed. The real cause is events-pipeline
-      # throughput (~50 events/min against a suite that publishes far faster),
-      # so mail arrives after the specs' 45s budget rather than being lost. See
-      # e2e/support/purge-mailpit.ts for the measurements.
-      #
-      # 5000 is still right: ~25x a full suite's volume, so capacity eviction
-      # cannot become a SECOND cause layered on the first, and a suite's own
-      # mail can never push out mail from earlier in the same run.
+      # WHY: 5000, not Mailpit's default 500 — at the cap it evicts the OLDEST
+      # message, and accumulated runs do reach it. 5000 is ~25x a full suite's
+      # volume, so capacity eviction can never push out a suite's own mail.
+      # It is NOT the cause of slow email specs: that is events-pipeline
+      # throughput (~50 events/min), measured in e2e/support/purge-mailpit.ts.
       MP_MAX_MESSAGES: "5000"
     ports:
       - "8025:8025" # web UI + HTTP API (/api/v1/…)
       - "1025:1025" # SMTP — what Floci's SES relay connects to
     healthcheck:
-      # busybox wget, verified present in this image (it also ships nc, but no
-      # curl). NOT `mailpit healthcheck`: that subcommand does not exist in
-      # v1.20 — it was added in a later release, and using it here left the
-      # container stuck in `health: starting` forever with
-      # `unknown command "healthcheck"`, which in turn blocks floci (it waits
-      # on service_healthy). Probing the HTTP API is also the stronger check:
-      # it is the endpoint the integration test queries.
+      # busybox wget — present in this image, unlike curl. Do NOT switch to
+      # `mailpit healthcheck`: v1.20 has no such subcommand, and it leaves the
+      # container in `health: starting` forever with
+      # `unknown command "healthcheck"`, which blocks floci behind it. Probing
+      # the HTTP API is the stronger check anyway — it is the endpoint the
+      # integration test queries.
       test: ["CMD", "wget", "-qO-", "http://localhost:8025/api/v1/info"]
       interval: 5s
       timeout: 3s
@@ -482,59 +376,68 @@ services:
           path: ./functions/events-pipeline/emails
           target: /app/emails
 
-  # Web app (Angular 21 + Tailwind 4 SPA) — the browser front end.
-  # Build context is the REPO ROOT so pnpm-lock.yaml and pnpm-workspace.yaml are
-  # available to the multi-stage Dockerfile, like users and orders.
-  #
-  # Served as STATIC FILES by nginx (see apps/web/Dockerfile): the build emits a
-  # browser bundle only — angular.json declares no ssr/server options — so there
-  # is no Node process in the runtime image.
-  #
-  # NO depends_on, deliberately. Phase 1 makes no backend calls at all: every
-  # screen renders typed fixtures. Declaring a dependency on floci/users would
-  # make the front end wait on services it never contacts, turning a broken
-  # emulator into a broken web app for no reason. Add one when, and only when,
-  # the app starts calling the gateway.
+  # Web app (Angular 21 + Tailwind 4 SPA). Build context is the REPO ROOT so
+  # pnpm-lock.yaml and pnpm-workspace.yaml reach the multi-stage Dockerfile.
+  # Served as STATIC FILES by nginx — the build emits a browser bundle only, so
+  # there is no Node process in the runtime image.
+  # WHY: No depends_on — a dependency on floci/users would turn a broken
+  # emulator into a broken web app. Add one if the app ever needs one at boot.
   web:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        # BUILD-TIME, not runtime — this is why there is no env_file: below.
-        # @ngx-env/builder inlines NG_APP_* into the JS bundle at compile time
-        # (the app reads import.meta.env; a browser has no process.env), so a
-        # runtime variable would be read by nothing and the container would
-        # silently keep serving whatever was compiled in.
-        #
-        # CHANGING THIS REQUIRES A REBUILD, NOT A RESTART:
+        # CONTRACT: BUILD-TIME, not runtime. @ngx-env/builder inlines NG_APP_*
+        # into the bundle at compile time, so moving these to the env_file below
+        # leaves them read by nothing — the container keeps serving what was
+        # compiled in, with no error. Changing one needs a REBUILD:
         #     docker compose build web && docker compose up -d web
-        # `docker compose restart web` re-serves the same bundle and looks
-        # exactly like the flag being ignored.
-        #
-        # false matches apps/web/.env.example: checkout uses the plain
-        # "Checkout — Payment" screen rather than the Stripe step.
+        # `restart` re-serves the same bundle and looks like the flag being
+        # ignored. false matches apps/web/.env.example (plain payment screen).
+        # See [[env-files]]
         NG_APP_STRIPE_ENABLED: "false"
+        # The base path every gateway call hangs off, and the one NG_APP_* that
+        # is effectively fixed. RELATIVE on purpose: nothing in this repo sends
+        # CORS headers, so an absolute gateway origin would be blocked at the
+        # preflight on every request. Floci's per-apply <api-id> stays out of
+        # the bundle entirely — it lives in the nginx proxy below.
+        NG_APP_API_GATEWAY_URL: "/v1"
+        # A FLAG, not the Geoapify key. The key is server-side only, read by
+        # nginx from GEOAPIFY_API_KEY in the env_file below — an NG_APP_* value
+        # is compiled into the bundle and readable in devtools, so a key there
+        # would be public. false by default: with no key the proxy answers 503,
+        # and offering an autocomplete that always fails is worse than not
+        # offering it. Turn both on together.
+        NG_APP_GEOCODE_ENABLED: "true"
     networks: [3mrai-network]
     ports:
       # Host 3004 → container 80 (nginx). 3000/3001/3002 are taken by users,
       # orders and tracking, and 3003 by email-preview, so this continues the
       # sequence.
       - "3004:80"
-    # NO env_file, on purpose. Every other service reads a generated
-    # .env.local.<service>, but this one has nothing to read at runtime: its
-    # only configuration is the build arg above, baked into the bundle. A file
-    # here would be loaded by nginx and ignored, which reads like configuration
-    # that works.
-    #
-    # NO fluentd logging driver either, unlike users/orders/tracking. Those emit
-    # structured JSON that the collector parses into service_name + severity;
-    # nginx emits the combined ACCESS LOG format, which transform/parse_body has
-    # no rule for, so every line would land with no service_name and severity 0
-    # and be routed straight to the `unclassified` stream — the stream whose
-    # entire value is being empty (see observability/otel-collector-config.yaml,
-    # filter/drop_unclassified). The pipeline already drops nginx records from
-    # the gateway task for the same reason. Static-file access logs stay on
-    # stdout, readable with `docker compose logs web`.
+    # Read at RUNTIME by nginx, not by the bundle — the two halves of this
+    # service's configuration are deliberately split. The build args above are
+    # compiled in; these two values are rendered into the nginx config at
+    # container start (see apps/web/Dockerfile's templates COPY), because Floci
+    # mints a new <api-id> on every apply and a baked-in one would 404.
+    env_file:
+      - .env.local.web
+    # stdout → the collector's fluent_forward receiver, to count /geocode/ calls
+    # against Geoapify's 3,000/day free tier. fluentd-async so the app starts
+    # without the observability profile; a side effect is that
+    # `docker compose logs web` shows nothing (the count lives in OpenObserve's
+    # `logs` stream under service_name = web-geocode).
+    # CONTRACT: Safe only because apps/web/nginx.conf sets `access_log off`
+    # globally and re-enables it for /geocode/ ALONE, in a JSON format carrying
+    # service_name + severity_text/_number. Do NOT log static-file requests —
+    # combined format has no service_name, so every line lands in the
+    # `unclassified` stream. See [[openobserve-cloudwatch]]
+    logging:
+      driver: fluentd
+      options:
+        fluentd-address: "localhost:24224"
+        fluentd-async: "true"
+        tag: "web"
     develop:
       watch:
         # `rebuild`, not `sync`: the image serves a COMPILED bundle out of

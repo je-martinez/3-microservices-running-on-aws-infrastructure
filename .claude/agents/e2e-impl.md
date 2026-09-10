@@ -46,7 +46,24 @@ time.
   commented, **rewrite that comment to describe the final state** — never append
   what failed or what you tried. Keep the prohibition and one concrete failure
   symptom inline (`CONTRACT:` / `WORKAROUND(<scope>):` + `See [[vault-id]]`);
-  a block over 12 lines is an error. Report a costly debugging discovery as a
+  a block over 12 lines is an error.
+  - **The test is the TENSE, not a word list.** Before writing a comment, read
+    each sentence and ask: *does this describe the code as it stands, or does it
+    tell the reader what changed?* A sentence in the past tense about this
+    codebase is the failure — `became`, `was broken`, `we switched`, `after the
+    fix`, `used to`, `previously` are only the common spellings of it, and the
+    linter's marker list is a net, not the rule. Past tense about RUNTIME
+    ("a cart the order just consumed") is fine; past tense about the SOURCE is
+    not.
+  - **A comment that restates the code earns nothing.** `?? undefined` already
+    says "or nothing"; a comment saying so is noise. Write only what the code
+    cannot: the prohibition, the failure it prevents, the non-local reason.
+    Prefer deleting a comment to padding it.
+  - **Run the gate on what you wrote**, before reporting done:
+    `python3 scripts/validate-comments.py <the files you touched>`. It must be
+    clean. It covers `.ts .tsx .js .jsx .mjs .py .cs .go .tf .tfvars .yml .yaml
+    .html` and `Makefile*`/`Dockerfile*` — a config or template file you edited
+    counts. Report a costly debugging discovery as a
   **lesson candidate** in your handoff instead of narrating it in the source.
   Full convention: `docs/shared/conventions/code-comments.md`.
 

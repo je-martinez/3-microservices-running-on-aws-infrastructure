@@ -1,9 +1,8 @@
-// NOTE: tracing is NOT imported here. It is loaded via `node --import` (see the
-// Dockerfile CMD and the start/dev scripts), which is the only thing that works
-// under ESM: static imports are hoisted and resolved before any module body
-// runs, so importing the SDK "first" in this file still left @grpc/grpc-js
-// loaded before sdk.start() could patch it — leaving the gRPC server
-// uninstrumented. --import gives the SDK its own module graph, ahead of ours.
+// CONTRACT: Do NOT import tracing here. It loads via `node --import` (Dockerfile CMD
+// and the start/dev scripts), the only thing that works under ESM: static imports are
+// hoisted before any module body runs, so importing the SDK "first" still leaves
+// @grpc/grpc-js loaded before sdk.start() can patch it and the gRPC server comes out
+// uninstrumented. See [[logging-context]]
 import { env } from "#shared/config/env";
 import { buildApp } from "#features/users/http/routes";
 import { startGrpcServer } from "#shared/grpc/server";
@@ -15,13 +14,10 @@ await app.listen({ port: env.PORT, host: "0.0.0.0" }).catch((err) => {
   process.exit(1);
 });
 
-// Resolve the SAME UserQueryService the HTTP layer uses from the app's DI
-// container (registered as `userQueryService` in shared/di/awilix-container.ts).
-// It is a SCOPED registration whose only dependency (`db`) is a root SINGLETON,
-// so resolving it from the root container is safe and yields the shared reader.
-// Started here, not in buildApp(): buildApp is also called by the test suite, and a
-// live metrics timer in every test run would hit the database from outside any
-// test's control. server.ts runs only for the real process.
+// CONTRACT: Start the metrics poller here, NOT in buildApp() — the test suite calls
+// buildApp too, and a live timer in every run would hit the database outside any
+// test's control. The SCOPED `userQueryService` resolves safely from the root
+// container because its only dependency is a root singleton.
 const businessMetricsPoller = app.diContainer.resolve("businessMetricsPoller");
 businessMetricsPoller.start();
 process.on("SIGTERM", () => {

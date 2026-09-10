@@ -4,8 +4,10 @@
   <!-- 390 only: the brand becomes a header above the form -->
   <app-mobile-brand-header class="lg:hidden" />
 
-  <!-- The brand chrome stays outside; only the form column scrolls. -->
-  <div class="app-scroll flex w-full flex-col lg:flex-1">
+  <!-- The brand chrome stays outside; only the form column scrolls. `data-page-bg`
+       paints the reserved gutter white — every auth screen is white, so this
+       layout answers for all seven rather than each page tagging itself. -->
+  <div class="app-scroll flex w-full flex-col lg:flex-1" data-page-bg="white">
     <router-outlet />
   </div>
 </main>

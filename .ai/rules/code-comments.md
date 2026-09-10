@@ -5,11 +5,18 @@ paths:
   - "**/*.ts"
   - "**/*.tsx"
   - "**/*.js"
+  - "**/*.jsx"
   - "**/*.mjs"
   - "**/*.py"
   - "**/*.cs"
   - "**/*.go"
   - "**/*.tf"
+  - "**/*.tfvars"
+  - "**/*.yml"
+  - "**/*.yaml"
+  - "**/*.html"
+  - "**/Makefile*"
+  - "**/Dockerfile*"
 ---
 
 # Code comments — describe the final state, never append debugging history
@@ -18,9 +25,10 @@ Code keeps the **invariant**, the **failure consequence**, and a **pointer**. Th
 vault keeps the history, the rejected alternatives, the measurements, the error
 transcripts, and the verification dates.
 
-Applies to comments in `.tf`, `.py`, `.ts`, `.js`, `.mjs`, `.cs`, and `.go`
-source files. It does **not** apply to vault notes, generated files, or vendored
-code. `spike/` is excluded as throwaway.
+Applies to comments in `.tf`, `.py`, `.ts`, `.js`, `.mjs`, `.cs`, `.go`, `.yml`,
+`.yaml`, Angular `.html` templates, and `Makefile`/`Dockerfile`. It does **not**
+apply to vault notes, generated files, or vendored code. `spike/` is excluded as
+throwaway.
 
 ## Rewrite on edit, never append
 
@@ -32,6 +40,16 @@ This is the loop that produces 100-line comment essays: the code gets fixed, the
 comment only grows. Past-tense narration of earlier attempts — *used to*,
 *previously*, *tried*, *turned out*, *the fix was*, *no longer* — does not belong
 in source.
+
+**The test is the tense, not that word list.** Read each sentence back and ask:
+*does this describe the code as it stands, or tell the reader what changed?*
+Past tense about the CODEBASE is the violation; the words above are only its
+common spellings, and the linter's markers are a net rather than the rule.
+Past tense about RUNTIME — "a cart the order just consumed" — is fine.
+
+**A comment that restates the code earns nothing.** `?? undefined` already says
+"or nothing". Write only what the code cannot: the prohibition, the failure it
+prevents, the non-local reason. Prefer deleting a comment to padding it.
 
 This axis is **narrative accumulation, not line count**. A 3-line comment can be
 a diary and a 12-line comment can be a clean description; it is independent of

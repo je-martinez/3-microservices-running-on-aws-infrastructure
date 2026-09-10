@@ -6,10 +6,10 @@ import {
   resolveRequestId,
 } from "#shared/logging/request-id";
 
-// `request_id` correlates one logical request across every service and every
-// hop. Unlike `trace_id` it needs no OTel SDK, which is why it exists: the
-// events-pipeline and the realtime Lambdas run none. See
-// docs/superpowers/specs/2026-08-15-request-id-correlation-design.md.
+// `request_id` correlates one logical request across every service and every hop.
+// Unlike `trace_id` it needs no OTel SDK, which is why it exists: the events-pipeline
+// and the realtime Lambdas run none.
+// See [[2026-08-15-request-id-correlation-design]]
 describe("request-id", () => {
   describe("resolveRequestId", () => {
     it("honours a valid inbound id", () => {

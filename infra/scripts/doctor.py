@@ -1,29 +1,14 @@
 #!/usr/bin/env python3
 """Report which state the local stack is actually in.
 
-WHY THIS EXISTS
----------------
-`make bootstrap` is a twelve-step chain, and when it dies partway there was no
-way to ask "what got done?" — you inferred it from whatever broke later, which
-is how a real session spent its time chasing a 502 at the gateway and a 500 from
-Tracking before finding the actual causes: an unattached nginx alias and missing
-Alembic migrations, both simply steps that never ran (JE-112).
+The blind spot this exists for: a database can exist while its tables do not.
+Phase 1 creates the `tracking` database, migrations create its tables, and
+everything between reports healthy until the first query fails.
 
-The blind spot this exists for above all others: **a database can exist while
-its tables do not**. Phase-1 terraform creates the `tracking` database;
-`make migrate-tracking`, much later in the chain, creates its tables. Everything
-downstream reports healthy — the container starts, /v1/health answers 200,
-`SHOW DATABASES` lists `tracking` — right up until the first real query returns
-"Table 'tracking.tracking' doesn't exist". Nothing else in this repo surfaces
-that gap.
-
-Read-only by construction: every check is a SELECT, a SHOW, an HTTP GET or a
-`docker inspect`. It fixes nothing and changes nothing — it tells you which
-command to run. That is deliberate. A doctor that repairs is a doctor you cannot
-trust to diagnose, because you can no longer tell whether it found the system
-healthy or made it so.
-
-Exit codes: 0 everything checked passed, 1 at least one check failed.
+CONTRACT: Keep every check READ-ONLY. A doctor that repairs cannot be trusted to
+diagnose: its report stops saying whether it found the system healthy or made it
+so. Exit 0 everything passed, 1 at least one check failed.
+See [[2026-08-27-accumulated-local-state-degrades-the-stack-silently]]
 """
 
 from __future__ import annotations
@@ -34,6 +19,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -43,31 +29,33 @@ from lib3mrai.db import COMPOSE_NETWORK, discover_port
 FLOCI_URL = "http://localhost:4566"
 NGINX_ALIAS = "nginx-stable"
 
-# The generated env files whose services export traces. Read as files rather
-# than asked of a running container: the question is whether a service is
-# CONFIGURED to export, which is true whether or not it is currently up.
+# WHY: Read as files, not from a running container — the question is whether a
+# service is CONFIGURED to export, true whether or not it is currently up.
 TRACE_EXPORTING_ENV_FILES = (
     ".env.local.users",
     ".env.local.orders",
     ".env.local.tracking",
 )
 
-# Repo root, derived from this file's location (infra/scripts/doctor.py) rather
-# than the working directory, so the check reads the same env file no matter
-# where the doctor is invoked from.
+# WHY: Derived from this file's location, not the cwd, so the checks read the
+# same env files wherever the doctor is invoked from.
 ROOT = Path(__file__).resolve().parents[2]
 
-# Database -> the tables its migrations are expected to have created. Checked by
-# name rather than counted: a partially-applied migration set is a real state,
-# and "3 of 4 tables" is the kind of thing that otherwise reads as fine.
-# Names are SINGULAR for Orders (`order`, `product`) and match the db-naming
-# convention; they were verified against a live database rather than guessed,
-# because a doctor that reports tables missing when they are merely named
-# differently is worse than no doctor at all.
+# CONTRACT: Check tables BY NAME, never by count. A partially-applied migration
+# set is a real state, and "3 of 4 tables" reads as fine. Orders' names are
+# singular (`order`, `product`) per the db-naming convention.
 EXPECTED_TABLES = {
     "orders": {"order", "order_details", "product", "configuration"},
     "tracking": {"tracking", "tracking_history"},
 }
+
+# CONTRACT: Derive the expected migration head from these directories, never
+# from a hardcoded version. A pinned number passes forever after the next
+# migration lands, which is the exact failure this check exists to catch.
+TRACKING_MIGRATIONS_DIR = ROOT / "services" / "tracking-go" / "migrations"
+ORDERS_MIGRATIONS_DIR = (
+    ROOT / "services" / "orders" / "src" / "Orders.Infrastructure" / "Migrations"
+)
 
 # HOST ports, as published in docker-compose.yml — not the container-side ports,
 # which differ for two of the three ("3001:8080" for orders, "3002:8000" for
@@ -149,7 +137,10 @@ def check_containers(report: Report) -> None:
         for line in result.stdout.strip().splitlines()
         if "\t" in line and line.split("\t")[1] == "running"
     }
-    for service in ("floci", "users", "orders", "tracking"):
+    # `web` is in this list because leaving it out is what let a from-scratch
+    # bootstrap report "all checks passed" with nothing serving :3004 — the
+    # frontend absent from a stack that called itself complete.
+    for service in ("floci", "users", "orders", "tracking", "web"):
         if service in running:
             report.passed(f"container '{service}' running")
         else:
@@ -162,20 +153,9 @@ def check_containers(report: Report) -> None:
 def check_assets(report: Report) -> None:
     """Assert the email templates' images are actually being served.
 
-    Same shape of blind spot as the tables-without-a-database check: every
-    service reports healthy, the emails send, and the defect appears only in a
-    DELIVERED message, as broken-image placeholders where the logo and icons
-    should be. Nothing else in the stack notices, because nothing else reads
-    these objects.
-
-    The bucket lives in the PHASE-2 root, so the failure this catches is a
-    bootstrap that never ran phase 2 — which was the whole reason `bootstrap`
-    now calls `post-infra` itself. Kept as a check anyway: `make clean` destroys
-    the bucket, and a resume through `bootstrap-converge` does not recreate it.
-
-    One object is fetched rather than the bucket listed. A bucket can exist and
-    be empty (created, never synced), and an empty bucket renders exactly the
-    same broken images as a missing one.
+    CONTRACT: Fetch an object, do NOT list the bucket. A bucket created but never
+    synced is empty, and an empty bucket renders the same broken images as a
+    missing one — visible only in a delivered message.
     """
     env_file = ROOT / ".env.local.events-pipeline"
     if not env_file.exists():
@@ -219,11 +199,9 @@ def check_assets(report: Report) -> None:
 def check_docdb_host(report: Report) -> None:
     """Assert the container DOCDB_HOST names actually exists.
 
-    Read from the generated env file rather than the AWS API because Floci's
-    docdb API does not report this cluster (see check_phantom_resources). The
-    events-pipeline resolves this exact hostname over Docker DNS, so a missing
-    container here IS the `getaddrinfo ENOTFOUND floci-docdb-…` that aborts
-    every batch — and the reason no email is ever sent.
+    CONTRACT: Read the generated env file, NOT the AWS API — Floci's docdb API
+    does not report this cluster. A missing container here is the `getaddrinfo
+    ENOTFOUND floci-docdb-…` that aborts every batch and mails nothing.
     """
     env_file = ROOT / ".env.local.events-pipeline"
     if not env_file.exists():
@@ -251,30 +229,14 @@ def check_docdb_host(report: Report) -> None:
 def check_phantom_resources(report: Report) -> None:
     """Catch resources the emulator reports `available` with no container behind them.
 
-    The same blind spot as the database-without-tables check above, one layer
-    down: Floci answers `available` from its persisted state, so a resource whose
-    backing container is gone still looks healthy to every AWS API call —
-    including the ones Terraform makes. A `terraform apply` against that state
-    creates NOTHING and reports success. The gap surfaces much later and far from
-    its cause, as `getaddrinfo ENOTFOUND floci-docdb-…` inside a Lambda.
-
-    Only DocumentDB and ElastiCache are checked, and that is not an arbitrary
-    subset: Floci relaunches RDS containers from persisted state at boot
-    (`RdsContainerManager`), and Lambda containers respawn on the next
-    invocation. These two have no such reconciler, so they are the two that go
-    phantom — which is exactly why the failure looked intermittent (a teardown
-    left some resources real and others not).
-
-    The container names are deterministic — Floci derives them from identifiers
-    WE choose — so they can be asserted rather than discovered.
-
-    DocumentDB is NOT read from its own AWS API, and that is deliberate. Floci's
-    `docdb describe-db-clusters` does not list the DocumentDB cluster at all — it
-    answers with the RDS ones (mysql, postgres) instead, so querying it yields
-    both false phantoms and a missed real one (measured, not hypothesised). The
-    generated env file is the honest source: DOCDB_HOST *is* the container name
-    the events-pipeline actually dials, so checking it asks the only question
-    that matters — can the thing the service connects to be found?
+    WORKAROUND(local): Floci answers `available` from persisted state, so a
+    resource whose backing container is gone looks healthy to every AWS API call,
+    Terraform's included — an apply against that state creates NOTHING and reports
+    success, surfacing much later as `getaddrinfo ENOTFOUND floci-docdb-…`.
+    Only DocumentDB and ElastiCache go phantom: Floci relaunches RDS containers at
+    boot and Lambda containers respawn on invocation, but these two have no such
+    reconciler. Container names are deterministic, so they are asserted, not
+    discovered. See [[floci-recreate-destroys-backing-containers]]
     """
     check_docdb_host(report)
 
@@ -395,15 +357,110 @@ def check_databases_and_tables(report: Report) -> None:
                 "make migrate-tracking" if database == "tracking" else "check EF Core migrations",
             )
 
+    # Tables present is a weaker claim than schema current, so the version check
+    # runs after and independently of the names above.
+    check_migration_heads(report, port)
+
+
+def _tracking_expected_version() -> int | None:
+    """Highest `NNNNNN_` prefix under the tracking migrations directory."""
+    versions = set()
+    for path in TRACKING_MIGRATIONS_DIR.glob("*.up.sql"):
+        prefix = path.name.split("_", 1)[0]
+        if prefix.isdigit():
+            versions.add(int(prefix))
+    return max(versions) if versions else None
+
+
+def _orders_expected_ids() -> list[str]:
+    """Every EF migration id on disk, ordered by its timestamp prefix.
+
+    The migration classes are the `*.cs` files that are neither the generated
+    `*.Designer.cs` companions nor the single model snapshot.
+    """
+    return sorted(
+        path.stem
+        for path in ORDERS_MIGRATIONS_DIR.glob("*.cs")
+        if not path.name.endswith(".Designer.cs")
+        and not path.name.endswith("ModelSnapshot.cs")
+    )
+
+
+def check_migration_heads(report: Report, port: int) -> None:
+    """Assert each database is at the migration head, not merely populated.
+
+    CONTRACT: Compare VERSIONS, not table names. Every expected table can be
+    present while a column added by a later migration is not, and `make
+    migrate-tracking` stamps `force 1` on an existing database — later
+    migrations then never run and every table-name check still passes.
+    000002_add_order_number was missing locally while the doctor printed
+    "all checks passed". See [[2026-08-27-accumulated-local-state-degrades-the-stack-silently]]
+    """
+    expected = _tracking_expected_version()
+    if expected is None:
+        inf(f"    tracking: no migrations found in {TRACKING_MIGRATIONS_DIR} (skipped)")
+    else:
+        queried = _mysql(port, "SELECT version, dirty FROM tracking.schema_migrations;")
+        fields = queried.stdout.split()
+        if queried.returncode != 0 or len(fields) < 2:
+            report.failed(
+                "tracking has no readable schema_migrations row — golang-migrate "
+                "never ran against this database",
+                "make migrate-tracking",
+            )
+        elif fields[1] != "0":
+            # A dirty row means a migration died part-way: the schema is neither
+            # the old version nor the new one, and migrate refuses to continue.
+            report.failed(
+                f"tracking migrations are DIRTY at version {fields[0]} — a migration "
+                "failed part-way and the schema is in neither state",
+                f"migrate ... force {fields[0]} then re-run: make migrate-tracking",
+            )
+        elif int(fields[0]) != expected:
+            report.failed(
+                f"tracking is at migration {fields[0]} but the repo's head is "
+                f"{expected:06d} — columns from the later migration(s) are MISSING",
+                "make migrate-tracking",
+            )
+        else:
+            report.passed(f"tracking at migration head {expected:06d} (clean)")
+
+    expected_ids = _orders_expected_ids()
+    if not expected_ids:
+        inf(f"    orders: no migrations found in {ORDERS_MIGRATIONS_DIR} (skipped)")
+        return
+
+    queried = _mysql(
+        port, "SELECT MigrationId FROM orders.__EFMigrationsHistory ORDER BY MigrationId;"
+    )
+    applied = queried.stdout.split()
+    if queried.returncode != 0 or not applied:
+        report.failed(
+            "orders has no readable __EFMigrationsHistory — EF Core never migrated "
+            "this database",
+            "docker compose up -d --build orders  (it self-migrates)",
+        )
+        return
+
+    # Compared as a set, not by last-id: EF applies migrations in order, but a
+    # gap in the middle is a real state and reporting only the tail hides it.
+    missing = sorted(set(expected_ids) - set(applied))
+    if missing:
+        report.failed(
+            f"orders is missing {len(missing)} EF migration(s), latest "
+            f"'{missing[-1]}' — columns it adds are NOT in the database",
+            "docker compose up -d --build orders  (it self-migrates)",
+        )
+    else:
+        report.passed(f"orders at migration head '{expected_ids[-1]}'")
+
 
 def check_services(report: Report, attempts: int = 3, sleep_s: int = 2) -> None:
     """Probe each service's health endpoint, retrying briefly.
 
-    A few seconds of grace rather than a single shot: a container that started
-    moments ago is not a broken container, and reporting it as one is precisely
-    the mistake this whole exercise came from (JE-112). Short, though — this is
-    a diagnostic, and a doctor that hangs for a minute per service is one nobody
-    runs.
+    CONTRACT: Keep the grace short but non-zero. A container that started moments
+    ago is not a broken one, and a doctor that hangs a minute per service is one
+    nobody runs.
     """
     for service, port in SERVICE_PORTS.items():
         detail = ""
@@ -427,26 +484,153 @@ def check_services(report: Report, attempts: int = 3, sleep_s: int = 2) -> None:
             )
 
 
+def _env_values(name: str) -> dict[str, str]:
+    """Parse a generated env file into a dict, ignoring comments and blanks."""
+    path = ROOT / name
+    if not path.exists():
+        return {}
+    values = {}
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            values[key.strip()] = value.strip()
+    return values
+
+
+def check_service_dependencies(report: Report) -> None:
+    """Prove each service can actually reach its datastore.
+
+    CONTRACT: Do NOT deepen /v1/health to do this. That endpoint is shallow by
+    contract — it must not touch the database, so a blip cannot cycle otherwise
+    healthy tasks — which also means its 200 is NOT evidence that the service
+    can reach anything. Every read endpoint is authenticated, so the
+    dependencies are asserted directly, from the same env files the services
+    read, with the same credentials. See [[health-check-logging]]
+    """
+    probes = (
+        ("users", ".env.local.users", "postgres"),
+        ("orders", ".env.local.orders", "mysql"),
+        ("tracking", ".env.local.tracking", "mysql"),
+    )
+
+    for service, env_name, engine in probes:
+        values = _env_values(env_name)
+        url = values.get("DATABASE_WRITER_URL", "")
+        if not url:
+            inf(f"    {service}: no DATABASE_WRITER_URL in {env_name} (skipped)")
+            continue
+
+        credentials = _parse_database_url(url, engine)
+        if credentials is None:
+            inf(f"    {service}: could not parse DATABASE_WRITER_URL (skipped)")
+            continue
+
+        host, port, user, password, database = credentials
+        if engine == "postgres":
+            probe = subprocess.run(
+                ["docker", "run", "--rm", "--network", COMPOSE_NETWORK,
+                 "-e", f"PGPASSWORD={password}", "postgres:14.6-alpine",
+                 "psql", "-h", host, "-p", str(port), "-U", user,
+                 "-d", database, "-tAc", "SELECT 1"],
+                capture_output=True,
+                text=True,
+            )
+        else:
+            # --ssl-mode=DISABLED for the same reason as _mysql: Floci's proxy
+            # does not terminate TLS.
+            probe = subprocess.run(
+                ["docker", "run", "--rm", "--network", COMPOSE_NETWORK, "mysql:8",
+                 "mysql", "--ssl-mode=DISABLED", "-h", host, "-P", str(port),
+                 "-u", user, f"-p{password}", "-N", "-B", "-D", database,
+                 "-e", "SELECT 1"],
+                capture_output=True,
+                text=True,
+            )
+
+        if probe.returncode == 0 and probe.stdout.split():
+            report.passed(
+                f"{service} can reach its database ({database} on {host}:{port})"
+            )
+        else:
+            report.failed(
+                f"{service} answers /v1/health but its OWN credentials CANNOT "
+                f"query {database} on {host}:{port} "
+                f"({probe.stderr.strip().splitlines()[-1][:120] if probe.stderr.strip() else 'no rows'}) "
+                "— health is shallow by contract and does not cover this",
+                f"make env-file && docker compose up -d {service}",
+            )
+
+    # Redis is shared by all three services and read from the same key in each
+    # env file, so it is probed once rather than per service.
+    values = _env_values(".env.local.orders")
+    host = values.get("REDIS_HOST", "")
+    port = values.get("REDIS_PORT", "6379")
+    if not host:
+        inf("    Redis: no REDIS_HOST in .env.local.orders (skipped)")
+        return
+
+    pinged = subprocess.run(
+        ["docker", "run", "--rm", "--network", COMPOSE_NETWORK, "redis:7-alpine",
+         "redis-cli", "-h", host, "-p", str(port), "PING"],
+        capture_output=True,
+        text=True,
+    )
+    if "PONG" in pinged.stdout:
+        report.passed(f"Redis answers PING at {host}:{port}")
+    else:
+        report.failed(
+            f"Redis does NOT answer PING at {host}:{port} "
+            f"({pinged.stderr.strip()[:120] or pinged.stdout.strip()[:120]}) — the "
+            "services will fail on their first cache read, not at startup",
+            "make clean && make bootstrap",
+        )
+
+
+def _parse_database_url(url: str, engine: str) -> tuple[str, int, str, str, str] | None:
+    """Pull (host, port, user, password, database) out of a generated URL.
+
+    CONTRACT: Read the port from the env file, never hardcode it. Floci assigns
+    RDS-proxy ports by cluster creation order and reassigns them on every apply.
+    See [[floci-rds-apigw-limits]]
+
+    Two shapes reach here: a URI (users, tracking) and the ADO.NET keyword
+    string Orders uses (`Server=…;Port=…;Database=…;User=…;Password=…;`).
+    """
+    if "=" in url and ";" in url:
+        pairs = {}
+        for part in url.split(";"):
+            if "=" in part:
+                key, value = part.split("=", 1)
+                pairs[key.strip().lower()] = value.strip()
+        try:
+            return (
+                pairs["server"], int(pairs["port"]), pairs["user"],
+                pairs.get("password", ""), pairs["database"],
+            )
+        except (KeyError, ValueError):
+            return None
+
+    parsed = urllib.parse.urlparse(url)
+    if not parsed.hostname or not parsed.port or not parsed.username:
+        return None
+    return (
+        parsed.hostname, parsed.port, parsed.username,
+        parsed.password or "", parsed.path.lstrip("/").split("?")[0],
+    )
+
+
 def check_otel_collector(report: Report) -> None:
     """Catch services configured to export traces at a collector that is not running.
 
-    Same family of blind spot as the tables-without-a-database check: every
-    service reports healthy, every request succeeds, and the defect lives
-    entirely in what is MISSING. A span export is not part of a request — when
-    the collector refuses the connection the SDK drops the batch and the service
-    carries on answering 200. Nothing in the service's logs says so.
+    CONTRACT: Every component of the tracing path must appear in a
+    `make observability-*` target, not only in a compose profile — one left out
+    of the targets simply never runs. The defect is invisible from the service
+    side: a span export is not part of a request, so the SDK drops the batch and
+    the service keeps answering 200, with the exporter's retries buried in the
+    collector's own log. See [[logging-context]]
 
-    That failure has already been paid for here once. `make observability-up`
-    recreates a named list of services, and jaeger sat in
-    `profiles: [observability]` and in no target — so it was the one component
-    of the tracing path that never ran. The only symptom was an empty Jaeger UI:
-    the exporter's retries ("no children to pick from", then "Exporting failed.
-    Dropping data.") were buried in the collector's own log, which nobody reads
-    when the thing they are debugging appears to work.
-
-    Reported only when a service is actually CONFIGURED to export, so a stack
-    that has never generated its env files is not nagged about a collector it
-    does not use.
+    Reported only for services actually configured to export.
     """
     configured = [
         name for name in TRACE_EXPORTING_ENV_FILES
@@ -508,6 +692,9 @@ def main() -> int:
 
     print("\n== Service health ==")
     check_services(report)
+
+    print("\n== Service dependencies ==")
+    check_service_dependencies(report)
 
     print("\n== Tracing ==")
     check_otel_collector(report)

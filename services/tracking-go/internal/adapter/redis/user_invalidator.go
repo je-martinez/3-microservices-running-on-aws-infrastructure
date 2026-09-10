@@ -24,13 +24,12 @@ func NewUserInvalidator(gw Gateway, log *slog.Logger) *UserInvalidator {
 	return &UserInvalidator{gw: gw, log: log}
 }
 
-// InvalidateUser clears every cache entry belonging to the user — their response
-// entries under both identifiers plus their cognito_sub -> user_id mapping.
+// InvalidateUser clears every cache entry belonging to the user — response
+// entries under both identifiers plus the cognito_sub -> user_id mapping.
 //
-// It returns NO error, deliberately. By the time it runs the deletion has already
-// COMMITTED, so a Redis outage that could fail the caller would tell Users the
-// cascade did not happen when it did, and fail the whole account deletion for the
-// person. Failures are logged by the gateway and swallowed here.
+// CONTRACT: It returns NO error. The deletion has already committed, so a Redis
+// outage escaping here tells Users the cascade did not happen when it did and
+// fails the whole account deletion. Failures are logged by the gateway.
 func (i *UserInvalidator) InvalidateUser(ctx context.Context, cognitoSub, userID string) {
 	InvalidateUser(ctx, i.gw, i.log, cognitoSub, userID)
 }

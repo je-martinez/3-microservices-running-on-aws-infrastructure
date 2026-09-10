@@ -3,18 +3,12 @@
 
 Usage: discover_db_port.py <engine:postgres|mysql>
 
-Prints ONLY the port to stdout so callers can capture it — the Makefile does
-`pgport="$($(PY) $(DISCOVER_DB_PORT) postgres)"`, so any stray output would end
-up inside a connection string. Diagnostics go to stderr.
-
-Exit codes: 0 ok, 1 engine's cluster/port not found, 2 usage error.
-
-This is the SINGLE reusable discovery mechanism: the Makefile calls it as a CLI
-and bootstrap.py imports lib3mrai.db.discover_port directly (DRY).
-
-AWS creds/endpoint for Floci come from the environment (AWS_ENDPOINT_URL /
-AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION); the Makefile exports
-them, and lib3mrai.aws defaults them so the script also works standalone.
+CONTRACT: Do NOT hardcode an RDS proxy port. Floci assigns 7000-7099 by cluster
+CREATION ORDER, not stable across applies — postgres and mysql have been seen
+swapped. This is the single discovery mechanism.
+CONTRACT: Print ONLY the port to stdout — the Makefile captures it straight into
+a connection string, so stray output corrupts it. Diagnostics go to stderr.
+Exit codes: 0 ok, 1 not found, 2 usage. See [[floci-rds-apigw-limits]]
 """
 
 import sys

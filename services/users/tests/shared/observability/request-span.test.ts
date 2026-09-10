@@ -7,15 +7,11 @@ import { withHttpServerSpan } from "#shared/observability/request-span";
 import { buildLoggerOptions } from "#shared/logging/logger";
 import { testSpanExporter } from "../../setup-tracing.ts";
 
-// THE REGRESSION THIS PINS DOWN. `@fastify/otel` wraps every Fastify hook in a
-// span of its own, so a log emitted from the `onResponse` hook is stamped with
-// the HOOK's span id — and "request completed", the one line carrying
-// http_route/status/duration, stopped being reachable from the request span in
-// OpenObserve ("View logs" filters on span_id + trace_id and matched nothing).
-//
-// The assertion is on the span id that ENDS UP ON THE LOG RECORD, produced by
-// the real logger options, rather than on `trace.getActiveSpan()` at some point
-// in the hook. That is the thing that was broken and the thing the user reads.
+// CONTRACT: Assert the span id that ENDS UP ON THE LOG RECORD, via the real logger
+// options — not `trace.getActiveSpan()` somewhere in the hook. `@fastify/otel` wraps
+// every hook in its own span, so "request completed" is stamped with the HOOK's id and
+// becomes unreachable from the request span in OpenObserve.
+// See [[logging-context]]
 const instrumentation = new FastifyOtelInstrumentation();
 
 beforeEach(() => {
@@ -32,20 +28,12 @@ describe("request-span", () => {
         stream: { write: (s: string) => lines.push(s) },
       } as never,
     });
-    // Stands in for @opentelemetry/instrumentation-http, which cannot patch
-    // node:http under vitest's ESM pipeline. It publishes its SERVER span the
-    // same way the real one does — as RPC metadata on the active context — and
-    // that is the exact channel the fix reads. Without it @fastify/otel would
-    // make its own `request` span a SERVER root and there would be no upstream
-    // span to distinguish, so the test could not tell the bug from the fix.
-    //
-    // Registered BEFORE the plugin ON PURPOSE: Fastify runs onRequest hooks in
-    // registration order, and @fastify/otel reads the RPC metadata off the
-    // active context when it creates its `request` span. Registered after, this
-    // hook runs too late, the metadata is invisible to the plugin, and the fix
-    // finds no server span — which is a property of this stand-in, not of the
-    // real stack, where instrumentation-http patches node:http and is always
-    // upstream of every Fastify hook.
+    // CONTRACT: Register this stand-in BEFORE the plugin. It replaces
+    // instrumentation-http, which cannot patch node:http under vitest's ESM pipeline,
+    // and publishes its SERVER span as RPC metadata exactly as the real one does.
+    // Fastify runs onRequest hooks in registration order, so registered after, the
+    // metadata is invisible to @fastify/otel and no server span is found — a property
+    // of this stand-in, not of the real stack.
     const serverSpan = trace.getTracer("test").startSpan("POST /v1/users/register");
     const serverSpanId = serverSpan.spanContext().spanId;
     app.addHook("onRequest", (_req, _reply, done) => {

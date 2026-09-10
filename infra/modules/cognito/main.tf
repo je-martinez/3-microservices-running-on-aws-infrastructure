@@ -28,16 +28,12 @@ resource "aws_cognito_user_pool" "this" {
     }
   }
 
-  # Mirror of the app's `users.must_change_password` column, read by the same
-  # Pre-Token-Generation V2 Lambda and emitted as a `must_change_password`
-  # token claim. Postgres remains the source of truth: Users writes the column
-  # and then mirrors it here, so the trigger needs no database access.
-  #
-  # String, not Boolean: Cognito has no boolean attribute type — the values are
-  # the strings "true"/"false", and the Lambda compares against "true".
-  # `mutable = true` is load-bearing here in a way it is not for app_user_id:
-  # this value genuinely changes over an account's life (set on a forced reset,
-  # cleared when the user picks their own password).
+  # CONTRACT: String, not Boolean — Cognito has no boolean attribute type, so the
+  # values are the strings "true"/"false" and the Lambda compares against "true".
+  # Keep mutable = true: this flips over an account's life (set on a forced
+  # reset, cleared when the user picks their own password). Postgres stays the
+  # source of truth; Users mirrors the column here so the trigger needs no DB.
+  # See [[cognito-pre-token-lambda]]
   schema {
     name                = "must_change_password"
     attribute_data_type = "String"
@@ -52,25 +48,15 @@ resource "aws_cognito_user_pool" "this" {
 }
 
 # ─── Cognito App Client ───────────────────────────────────────────────────────
-# Auth flows proven in the spike (infra/environments/local/spike/terraform.tfstate).
-# The API Gateway JWT authorizer validates tokens issued by this pool/client. The
-# issuer URL is emulator-specific (see the `issuer` output and var.issuer_style):
-# Ministack/real-AWS want the AWS-format URL; Floci wants http://localhost:4566/<pool-id>
-# (floci skill quirk #5). The correct style per environment is selected via issuer_style.
-#
-# var.manage_client_via_provider gates which implementation creates the client:
-# - true (default, prod/Ministack): the native aws_cognito_user_pool_client
-#   resource below.
-# - false (Floci only): Floci returns AnalyticsConfiguration: {} (and
-#   RefreshTokenRotation: {}) in its CREATE response. The AWS provider's SDKv2
-#   post-apply consistency check reads that empty struct as "block count
-#   changed from 0 to 1" and ABORTS THE APPLY on resource creation itself —
-#   this happens before any plan-diff is computed, so `lifecycle.ignore_changes`
-#   (which only suppresses diffs between two plans, never the provider's
-#   internal Create-response validation) cannot prevent it. Verified empirically
-#   (floci skill, quirk #2): a clean `terraform apply` against Floci fails here
-#   even with ignore_changes present. The awscli fallback below bypasses the
-#   provider's resource lifecycle entirely.
+# CONTRACT: The issuer URL is emulator-specific and selected by var.issuer_style —
+# real AWS wants the AWS-format URL, Floci wants http://localhost:4566/<pool-id>.
+# WORKAROUND(local): manage_client_via_provider = false. Floci returns
+# AnalyticsConfiguration: {} in its CREATE response and the provider's SDKv2
+# consistency check reads it as "block count changed from 0 to 1", aborting the
+# apply during creation. Do NOT reach for lifecycle.ignore_changes — it only
+# suppresses plan diffs, never the provider's Create-response validation. The
+# awscli fallback below bypasses the resource lifecycle entirely.
+# See [[awscli-fallback-for-floci]]
 resource "aws_cognito_user_pool_client" "this" {
   count = var.manage_client_via_provider ? 1 : 0
 
@@ -80,18 +66,12 @@ resource "aws_cognito_user_pool_client" "this" {
   # generate_secret=false: the service uses the public client flow
   generate_secret = false
 
-  # The first three flows are the minimum required for ADMIN_USER_PASSWORD_AUTH
-  # (used by CognitoAuthProvider.login) and ALLOW_USER_PASSWORD_AUTH
-  # (used by the smoke test / USER_PASSWORD_AUTH flow). ALLOW_CUSTOM_AUTH enables
-  # the passwordless email-OTP path: AdminInitiateAuth with AuthFlow=CUSTOM_AUTH,
-  # served by the Define/Create/VerifyAuthChallenge triggers below. Native
-  # USER_AUTH/EMAIL_OTP is deliberately NOT used — Floci returns tokens for it
-  # with no challenge issued at all.
-  #
-  # NOTE: this whole resource is dead code locally (count = 0 when
-  # manage_client_via_provider = false); the local client is created by
-  # scripts/create_user_pool_client.py, whose EXPLICIT_AUTH_FLOWS list must stay
-  # identical to this one.
+  # CONTRACT: Keep this list identical to EXPLICIT_AUTH_FLOWS in
+  # scripts/create_user_pool_client.py — that script, not this resource, creates
+  # the client locally. ALLOW_CUSTOM_AUTH serves the passwordless email-OTP path
+  # through the Define/Create/VerifyAuthChallenge triggers below.
+  # CONTRACT: Do NOT switch to native USER_AUTH/EMAIL_OTP — Floci returns tokens
+  # for it with no challenge issued at all. See [[awscli-fallback-for-floci]]
   explicit_auth_flows = [
     "ALLOW_ADMIN_USER_PASSWORD_AUTH",
     "ALLOW_USER_PASSWORD_AUTH",
@@ -101,24 +81,20 @@ resource "aws_cognito_user_pool_client" "this" {
 
   allowed_oauth_flows_user_pool_client = false
 
-  # Kept even though this path is unaffected by the Floci quirk (prod/Ministack
-  # only): a genuine future drift of these Floci-only-empty blocks is still
-  # safe to ignore here for the same reason the original comment gave.
+  # WHY: This path is unaffected by the Floci quirk, but a genuine drift of these
+  # blocks is safe to ignore here too.
   lifecycle {
     ignore_changes = [analytics_configuration]
   }
 }
 
 # ─── Cognito App Client — Floci fallback (bypasses the aws provider) ─────────
-# Only created when var.manage_client_via_provider = false. Creates the client
-# via the AWS CLI (a plain SDK call outside Terraform's resource lifecycle, so
-# the SDKv2 consistency check above never runs) and idempotently reuses an
-# existing client with the same name on re-apply instead of creating
-# duplicates (see scripts/create_user_pool_client.py). The resulting client id
-# is written to a JSON file under the ROOT module's working directory
-# (var.local_state_dir, default path.root/.terraform-cognito — NOT
-# path.module, which points at shared, possibly read-only module source) that
-# `data.local_file.client_via_cli` reads back into `output.client_id`.
+# WORKAROUND(local): Creates the client through the AWS CLI, outside Terraform's
+# resource lifecycle, so the SDKv2 consistency check above never runs. The script
+# reuses an existing client of the same name rather than duplicating it.
+# CONTRACT: The client id lands under the ROOT module's directory
+# (var.local_state_dir), NOT path.module — module source may be read-only.
+# See [[awscli-fallback-for-floci]]
 resource "terraform_data" "client_via_cli" {
   count = var.manage_client_via_provider ? 0 : 1
 
@@ -229,38 +205,21 @@ resource "terraform_data" "pre_token_trigger" {
 }
 
 # ─── OTP Challenge Lambda (CUSTOM_AUTH: Define/Create/VerifyAuthChallenge) ────
-# ONE Lambda serving all three triggers, dispatched on event.triggerSource — see
-# otp-challenge-lambda/index.mjs. Keeping it to one function means one IAM role
-# and one log group, and matches pre-token-lambda as the repo's only precedent
-# for a Cognito trigger Lambda.
-#
-# Unlike pre_token (whose role holds NO policies at all — it only reads
-# attributes off the trigger event), this role needs sqs:SendMessage:
-# CreateAuthChallenge publishes AUTH_OTP_REQUESTED to the shared events queue so
-# the events-pipeline Lambda mails the code.
-#
-# The function has no npm dependencies, so source_dir is zipped as-is (a single
-# index.mjs), exactly like pre-token-lambda. The AWS SDK is deliberately NOT
-# imported — see that file's header for why an SDK import is unsafe here.
+# WHY: One Lambda serves all three triggers, dispatched on event.triggerSource.
+# Its role needs sqs:SendMessage — CreateAuthChallenge publishes
+# AUTH_OTP_REQUESTED so the events-pipeline Lambda mails the code.
+# CONTRACT: Do NOT import the AWS SDK in the function — see index.mjs's header.
 data "archive_file" "otp_challenge" {
   type        = "zip"
   source_dir  = "${path.module}/otp-challenge-lambda"
   output_path = "${path.module}/otp-challenge-lambda.zip"
 
-  # The directory is a pnpm workspace so its tests actually RUN — they existed
-  # and nothing invoked them until this was wired up. That brings three files
-  # the Lambda must not ship, and `source_dir` zips everything it finds:
-  #
-  #   - node_modules/ is vitest and its tree. The runtime needs none of it: this
-  #     Lambda imports nothing outside node:crypto.
-  #   - package.json would make the nodejs runtime treat the directory as a
-  #     package and could change how index.mjs resolves.
-  #   - the test file is dead weight in a deployed artifact.
-  #
-  # Excluding them is not only about size. `source_code_hash` is computed from
-  # this archive, so without these lines every `pnpm install` that touched the
-  # dependency tree would change the hash and Terraform would redeploy a Lambda
-  # whose actual code never changed.
+  # CONTRACT: Keep these exclusions. The directory is a pnpm workspace so its
+  # tests run, and source_dir zips everything it finds — package.json would make
+  # the runtime treat the directory as a package and change how index.mjs
+  # resolves. source_code_hash is computed from this archive, so without the
+  # exclusions every `pnpm install` touching the tree redeploys a Lambda whose
+  # code never changed.
   excludes = [
     "node_modules",
     "package.json",
@@ -309,13 +268,11 @@ resource "aws_lambda_function" "otp_challenge" {
   # room for a cold start plus that call.
   timeout = 10
 
-  # Empty-valued optional keys are DROPPED rather than sent as "". AWS_REGION is
-  # a RESERVED Lambda environment key in real AWS — including it at all (even
-  # empty) fails a production apply — while locally it must be set, because
-  # whether Floci's Lambda containers inject it is unverified and the SigV4
-  # signer needs a region. Same reasoning the events-pipeline Lambda applies in
-  # environments/local/main.tf. AWS_ENDPOINT_URL is dropped in production so the
-  # function falls back to the queue URL's own origin (the real SQS endpoint).
+  # CONTRACT: Drop empty-valued optional keys rather than sending "". AWS_REGION
+  # is a RESERVED Lambda environment key in real AWS, so including it even empty
+  # fails a production apply; locally it must be set because Floci may not inject
+  # it and the SigV4 signer needs a region. AWS_ENDPOINT_URL is dropped in
+  # production so the function falls back to the queue URL's own origin.
   environment {
     variables = merge(
       {

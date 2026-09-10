@@ -1,6 +1,6 @@
-import { Component, computed, input } from '@angular/core';
+import { Component, computed, input, ChangeDetectionStrategy } from '@angular/core';
 import { LucideDynamicIcon } from '@lucide/angular';
-import type { AppNotification } from '../../fixtures/api-types';
+import type { AppNotification } from '../../core/api/types';
 import { formatShortDateTime } from '../date/format-date';
 import { TrackingStatusIcon } from './tracking-status-icon';
 
@@ -17,6 +17,7 @@ import { TrackingStatusIcon } from './tracking-status-icon';
 @Component({
   selector: 'app-notification-item',
   imports: [LucideDynamicIcon, TrackingStatusIcon],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './notification-item.html',
 })
 export class NotificationItem {
@@ -26,7 +27,5 @@ export class NotificationItem {
    * `Aug 3 · 8:15 am` — the notification frames omit the year, unlike the
    * order timeline's `Aug 2, 2026 · 10:24 am`, hence the separate helper.
    */
-  protected readonly timeLabel = computed(() =>
-    formatShortDateTime(this.notification().createdAt),
-  );
+  protected readonly timeLabel = computed(() => formatShortDateTime(this.notification().createdAt));
 }

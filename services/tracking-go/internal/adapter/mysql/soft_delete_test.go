@@ -16,14 +16,11 @@ import (
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/domain/audit"
 )
 
-// REAL MySQL, never a mock. The whole point of these tests is the behaviour of
-// the SERVER — collation, JSON_CONTAINS, the derived-table wrapper MySQL demands
-// when an UPDATE's subquery reads the table it targets. A mock would agree with
-// whatever the Go code believed and prove none of it.
-//
-// Its own schema, dropped at the end of the run. Pointing these tests at the
-// shared `tracking` database would silently destroy the running Python service's
-// data — a mistake this repo has already paid for once.
+// CONTRACT: Real MySQL, never a mock — these assert SERVER behaviour (collation,
+// JSON_CONTAINS, the derived-table wrapper MySQL demands), and a mock agrees
+// with whatever the Go code believed. Own schema, dropped at the end: pointing
+// these at the shared `tracking` database destroys a running environment.
+// See [[testing]]
 const softDeleteSchema = "tracking_go_test_softdelete"
 
 // softDeleteDSNEnv is the connection string. It falls back to the local compose
@@ -245,13 +242,10 @@ func TestSoftDeleteByUser(t *testing.T) {
 
 	t.Run("matches EITHER identity", func(t *testing.T) {
 		truncateSoftDelete(t, db)
-		// One row reachable only by cognito_sub (its user_id belongs to someone
-		// else), one only by user_id (its cognito_sub is NULL, like rows
-		// predating the migration), and one belonging to nobody involved.
-		//
-		// The two identities are DIFFERENT VALUES on purpose: a test using the
-		// same string for both cannot fail when the predicate matches the wrong
-		// column.
+		// CONTRACT: Keep the two identities DIFFERENT VALUES. A test reusing one
+		// string for both cannot fail when the predicate matches the wrong
+		// column. Rows: one reachable only by cognito_sub, one only by user_id
+		// (NULL sub, like pre-migration rows), one belonging to nobody.
 		seedSoftDelete(t, db, softDeleteSeedRow{orderID: "ord_a", userID: "usr_other", cognitoSub: "sub-1",
 			historyStatuses: []domain.Status{domain.StatusPlaced}}, now)
 		seedSoftDelete(t, db, softDeleteSeedRow{orderID: "ord_b", userID: "usr_1", nullSub: true,

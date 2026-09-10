@@ -1,10 +1,16 @@
-import type { AppNotification } from "./api-types";
+import type { AppNotification } from "../core/api/types";
 
 /**
- * NOT from a contract — no service exposes a notifications endpoint today (see
- * api-types.ts's AppNotification comment). Read from the design's Notification
- * Item (qwO6X) and Toast (jYz4h) frames. Two unread and two read, because the
- * panel has distinct Read and Unread tabs to fill.
+ * The LAST fixture, and deliberately so: the catalogue, orders and user fixtures
+ * are gone, replaced by real gateway calls.
+ *
+ * CONTRACT: Do NOT go looking for a notifications endpoint to wire this to —
+ * none exists. No service in this repo exposes notifications: not Users, not
+ * Orders, not Tracking, not the events-pipeline. This data is read from the
+ * design's Notification Item (qwO6X) and Toast (jYz4h) frames, and the panel
+ * stays fixture-backed until a service owns the concept. Two unread and two
+ * read, because the panel has distinct Read and Unread tabs to fill.
+ * See [[openapi-specs]]
  */
 export const NOTIFICATIONS: readonly AppNotification[] = [
   {

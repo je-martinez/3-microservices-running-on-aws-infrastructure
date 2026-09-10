@@ -2,20 +2,14 @@ import pino from "pino";
 import { env } from "#shared/config/env";
 import { buildLoggerOptions } from "#shared/logging/logger";
 
-// The single process-wide logger for this Lambda. There is no per-request
-// logger to mirror (no HTTP server here), so every module — the entrypoint, the
-// state machine, the SES sender — logs through this one instance and gets the
-// same enriched schema, because the per-record identity travels through the
-// AsyncLocalStorage log context (#shared/logging/log-context) that
-// `buildLoggerOptions`' formatter merges into every line. No logger is
-// threaded through constructors or call sites.
-//
-// DESTINATION: pino's default synchronous stdout write, deliberately. No
-// transport, no pino-pretty, no pino/file — transports spawn a worker thread
-// that loads its target by module path, which does not survive esbuild's
-// single-file bundle (scripts/build.mjs), and would fail at runtime inside the
-// Lambda after building cleanly. Plain JSON on stdout is also exactly what
-// CloudWatch (and the OTel collector tailing it) wants.
+// The single process-wide logger. Every module logs through this instance; the
+// per-record identity rides the AsyncLocalStorage context that
+// `buildLoggerOptions`' formatter merges into each line, so no logger is
+// threaded through call sites.
+// CONTRACT: Do NOT add a pino transport (pino-pretty, pino/file). A transport
+// spawns a worker thread that loads its target by module path, which esbuild's
+// single-file bundle does not carry — it builds cleanly and dies at runtime.
+// See [[logging-context]]
 export const appLogger = pino(
   buildLoggerOptions({
     serviceName: "events-pipeline",

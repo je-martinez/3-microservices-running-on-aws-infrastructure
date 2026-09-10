@@ -4,27 +4,14 @@ using Orders.Application.Tracking;
 namespace Orders.Tests.Infrastructure;
 
 /// <summary>
-/// Guards Orders' copy of Tracking's response contract.
+/// Guards Orders' copy of Tracking's response contract, so a drift fails in CI rather than
+/// arriving as a quietly empty field in a UI.
+/// CONTRACT: Do NOT make the deserializer reject unknown members — a Tracking deploy adding
+/// a field must not break an Orders read in production. Detection belongs in CI.
+/// CONTRACT: This is the fast half only. A fixture catches drift only once somebody updates
+/// it, so the gateway E2E suite asserts the same shape against a live tracking.
+/// See [[testing]]
 /// </summary>
-/// <remarks>
-/// <para>
-/// Orders maps Tracking's payload into <see cref="TrackingDto"/> rather than forwarding
-/// it opaquely, which buys an explicit schema and a compiler that knows the shape — at
-/// the cost of a second copy of someone else's contract. These tests are what makes that
-/// cost payable: they fail when the two drift, so the divergence surfaces in CI instead
-/// of as a field that quietly arrives empty in a UI.
-/// </para>
-/// <para>
-/// <b>Runtime stays tolerant.</b> Nothing here asks the deserializer to reject unknown
-/// members — a Tracking deploy that adds a field must not break an Orders read in
-/// production. Detection belongs in CI, not in the request path.
-/// </para>
-/// <para>
-/// This is the fast half. The other half lives in the gateway E2E suite, which asserts
-/// the same shape against a tracking Tracking actually produced — a fixture only catches
-/// drift once somebody updates it, so the live check is what catches the rest.
-/// </para>
-/// </remarks>
 public class TrackingContractTests
 {
     /// <summary>

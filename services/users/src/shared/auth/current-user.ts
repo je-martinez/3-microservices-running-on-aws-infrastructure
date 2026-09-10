@@ -21,20 +21,16 @@ export class CurrentUser {
     return this.cached;
   }
 
-  // Resolving identity is where a request first learns its internal `usr_` id,
-  // so it is also where the log context gets enriched: every later line of the
-  // request then carries `user_id` without any call site passing it. This is
-  // the single choke point for it — the onRequest hook only knows the raw
-  // x-user-id (which may be a Cognito sub), and both authenticated routes
-  // (GET/PATCH /v1/users/me) reach their user through here. Enriching here
-  // rather than in an onRequest hook also keeps it free for routes that never
-  // need the user: `resolve()` is lazy, so no request pays a lookup it wasn't
-  // already making.
+  // CONTRACT: Enrich the log context HERE. This is the single point where a request
+  // learns its internal `usr_` id — the onRequest hook only knows the raw x-user-id,
+  // which may be a Cognito sub — so every later line carries `user_id` without a call
+  // site passing it. `resolve()` is lazy, so routes that never need the user pay no
+  // lookup. See [[logging-context]]
   private async lookup() {
     // The await MUST happen inside this async method, not at the call site:
     // `findByIdOrCognitoSub` returns a LAZY PrismaPromise, and the log context
     // is an AsyncLocalStorage store. Awaiting here keeps the enrichment on the
-    // request's own store (see [[prisma-lazy-promise-als]] and the note in
+    // request's own store (see [[2026-07-12-prisma-lazy-promise-als]] and the note in
     // shared/logging/log-context.ts).
     const row = await this.db.user.findByIdOrCognitoSub(this.identity);
     // Best-effort: a valid token whose user no longer exists (deleted account)

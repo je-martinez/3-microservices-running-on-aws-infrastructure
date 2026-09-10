@@ -12,18 +12,12 @@ using Orders.Infrastructure.Persistence;
 namespace Orders.Tests.Observability;
 
 /// <summary>
-/// The metrics tick runs on a PeriodicTimer, outside any request, so nothing else
-/// creates an ambient span for it. Before this, each tick's EF Core and
-/// CloudWatch.PutMetricData spans arrived at Jaeger as their own ROOT traces —
-/// 60 orphans measured in an hour — which buried the traces of real requests and
-/// left whoever opened one with no way to tell which process produced it.
-///
-/// These tests pin the fix at the level that actually failed: not "a span named
-/// metrics-tick exists" (which a span wrapping an empty body would satisfy), but
-/// that the tick's work runs INSIDE it. The recording publisher and the
-/// <see cref="SpanScopedLogger{T}"/> both capture <c>Activity.Current</c> at the
-/// moment they are called, which is the only way to distinguish a child of the
-/// tick span from a sibling that merely ran next to it.
+/// CONTRACT: Assert the tick's work runs INSIDE the span, not merely that a span named
+/// metrics-tick exists — a span wrapping an empty body satisfies the latter while every
+/// EF Core and PutMetricData span still roots its own trace and buries real requests.
+/// The recording publisher and <see cref="SpanScopedLogger{T}"/> capture
+/// <c>Activity.Current</c> when called, which is the only way to tell a child of the tick
+/// span from a sibling beside it. See [[ADR-0019-distributed-tracing-opentelemetry]]
 /// </summary>
 public class OrdersMetricsPublisherTracingTests
 {
@@ -119,19 +113,16 @@ public class OrdersMetricsPublisherTracingTests
 
         var span = Assert.Single(recorded);
         Assert.Equal("metrics-tick", span.DisplayName);
-        // INTERNAL, not CONSUMER: events-pipeline's identically-named span is
-        // CONSUMER because EventBridge wakes it; this one is our own timer and
-        // consumes nothing from anybody.
+        // WHY: INTERNAL, not CONSUMER — this is our own timer and consumes nothing.
         Assert.Equal(ActivityKind.Internal, span.Kind);
         Assert.Equal(ActivityStatusCode.Ok, span.Status);
-        // Stopped, not merely started — a running activity never reaches Jaeger.
+        // CONTRACT: Stopped, not merely started — a running activity is never exported.
         Assert.NotEqual(default, span.Duration);
         Assert.Null(Activity.Current);
 
-        // THE point of the change: every publication happened while the tick span
-        // was current, so the CloudWatch.PutMetricData spans hang off it instead of
-        // rooting their own trace. A sibling would show a different (or null)
-        // ambient activity here even though the span above still existed.
+        // CONTRACT: Every publication must happen while the tick span is current, so the
+        // PutMetricData spans hang off it instead of rooting their own trace. A sibling shows
+        // a different (or null) ambient activity here even though the span above exists.
         Assert.NotEmpty(metrics.Published);
         Assert.All(metrics.Published, p => Assert.Same(span, p.Activity));
 

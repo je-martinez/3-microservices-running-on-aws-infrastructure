@@ -166,13 +166,10 @@ describe("cross-cutting Prisma extension", () => {
     });
   });
 
-  // ADR-0004 hardening (delicate part): a business `update` on a unique row now
-  // also requires that row to be non-deleted. Because `update` targets ONE
-  // unique row, excluding a soft-deleted target makes Prisma raise P2025, which
-  // the handler catches and translates into a typed RecordNotFoundError (mapped
-  // to 404 by the HTTP error handler). The soft-delete rewrite (delete ->
-  // update -> BASE client) bypasses this handler and is unaffected (asserted in
-  // the "soft delete" block).
+  // A business `update` on a unique row also requires that row to be non-deleted.
+  // Excluding a soft-deleted target makes Prisma raise P2025, which the handler
+  // translates into a typed RecordNotFoundError and the HTTP layer maps to 404. The
+  // soft-delete rewrite bypasses this handler. See [[soft-delete]]
   describe("update excludes soft-deleted rows", () => {
     it("injects deletedAt: null into where for a business update", async () => {
       const client: CrossCuttingBaseClient = {};
@@ -287,19 +284,11 @@ describe("cross-cutting Prisma extension", () => {
       expect(calledWith.where).toEqual({ deletedAt: { not: null } });
     });
 
-    // JE-40 item 3: findUnique/findUniqueOrThrow used to be flagged as a
-    // latent break because injecting `deletedAt: null` alongside a unique
-    // field (e.g. `id`) was assumed to make Prisma reject the `where` shape
-    // (true for the classic Prisma engine's UserWhereUniqueInput
-    // validation). That assumption does not hold for this stack: Prisma 7's
-    // `prisma-client` generator + driver-adapter engine accepts extra
-    // non-unique `where` fields alongside a unique one, applying them as
-    // additional AND filters (verified live against the compose Postgres —
-    // a findUnique({ where: { id } }) call with `deletedAt: null` injected
-    // returns the row when live and `null` when soft-deleted, matching
-    // findFirst's behavior). These tests lock in the contract that makes
-    // that safe: excludeSoftDeleted only ADDS deletedAt, it never removes or
-    // replaces the caller's unique field.
+    // CONTRACT: `excludeSoftDeleted` only ADDS `deletedAt` — it never removes or
+    // replaces the caller's unique field. That is what makes injection safe on
+    // findUnique: the driver-adapter engine accepts extra non-unique `where` fields
+    // beside a unique one and applies them as additional AND filters.
+    // See [[soft-delete]]
     it("findUnique keeps the caller's unique field and only adds deletedAt: null", async () => {
       const client: CrossCuttingBaseClient = {};
       const queries = buildCrossCuttingQueries(client);
@@ -343,10 +332,8 @@ describe("cross-cutting Prisma extension", () => {
       expect(calledWith.where).toEqual({ id: "usr_1", deletedAt: { not: null } });
     });
 
-    // ADR-0004 hardening: the three read ops that previously had NO handler
-    // (so no `deletedAt: null` injection) now get the same shallow top-level
-    // injection as the other reads, closing a latent leak if code ever calls
-    // them.
+    // CONTRACT: These three read ops get the same shallow top-level injection as the
+    // other reads — without a handler they leak soft-deleted rows. See [[soft-delete]]
     it("injects deletedAt: null into where for findFirstOrThrow", async () => {
       const queries = buildCrossCuttingQueries({});
       const query = passthroughQuery();

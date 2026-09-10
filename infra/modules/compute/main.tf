@@ -40,17 +40,13 @@ resource "aws_iam_role_policy_attachment" "ecs_execution_policy" {
 
 # ─── ECS Task Definition (nginx:alpine reverse proxy) ────────────────────────
 #
-# The nginx config (auth.js + nginx.conf, checked into infra/modules/compute/nginx/)
-# is bind-mounted from local.nginx_dir into the container at /etc/nginx/mounted/.
-# ADR-0016 assumed Ministack ECS could not mount host volumes; Floci does
-# support them, so nginx now starts directly against the mounted config instead
-# of writing conf.d/default.conf via a printf/shell command.
+# The nginx config (auth.js + nginx.conf) is bind-mounted from local.nginx_dir
+# into the container at /etc/nginx/mounted/.
 #
-# nginx uses Docker's embedded DNS resolver (127.0.0.11) and a variable
-# `$backend` so that the service name is resolved at request time — not at
-# startup — which avoids "host not found" errors when the compose service
-# restarts.  The backend name comes from var.backend_service_name (e.g.
-# "users") and the port from var.backend_port (e.g. 3000).
+# CONTRACT: nginx must resolve the backend through Docker's embedded resolver
+# (127.0.0.11) into a `$backend` variable, so the name is resolved per request
+# rather than at startup — a literal upstream fails "host not found" whenever
+# the compose service restarts. See [[ADR-0016-local-apigw-nginx-ecs]]
 resource "aws_ecs_task_definition" "nginx" {
   family                   = "${var.context.id}-nginx"
   cpu                      = tostring(var.cpu)

@@ -1,14 +1,11 @@
 # Engine-parameterized least-privilege application DB user.
 #
-# The application user is created WITHOUT the DELETE privilege: this project
-# enforces soft-delete only (ADR-0004), so hard DELETE is intentionally
-# unavailable and queries always filter `deleted_at IS NULL`. Grants are
-# SELECT / INSERT / UPDATE only.
+# CONTRACT: Do NOT grant DELETE. This project is soft-delete only, and the
+# missing privilege is what forces every query to filter `deleted_at IS NULL`.
+# Grants are SELECT / INSERT / UPDATE. See [[ADR-0004-soft-delete-only]]
 #
-# The Postgres branch is the app-user logic extracted from modules/rds-aurora;
-# the MySQL branch is its sibling. Only one branch is active per instantiation,
-# gated by var.engine (count). The providers are configured by the CALLER (the
-# phase-2 post-effects root) against now-live endpoints.
+# One branch is active per instantiation, gated by var.engine (count). The
+# providers are configured by the CALLER against now-live endpoints.
 locals {
   is_pg    = var.engine == "postgres"
   is_mysql = var.engine == "mysql"

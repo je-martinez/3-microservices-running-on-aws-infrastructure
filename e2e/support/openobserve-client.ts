@@ -1,15 +1,8 @@
-// Minimal OpenObserve read client for the dashboard-contract specs.
-//
-// Scope is deliberately narrow: reachability and stream schemas. Nothing here
-// writes, and nothing here queries panel data — see
-// tests/observability/dashboards.spec.ts for why asserting on ROWS would be the
-// wrong contract to hold a dashboard to.
-//
-// Credentials: the local stack ships a fixed admin account (see
-// observability/docker-compose.observability.yml). It is a local-only
-// development credential, not a secret — the same literal appears in the
-// dashboards README and in `make observability-up` output. Overridable so a
-// differently-provisioned stack still works.
+// Minimal OpenObserve read client for the dashboard-contract specs: reachability and
+// stream schemas only. Nothing writes, and nothing queries panel data — see
+// tests/observability/dashboards.spec.ts for why asserting on ROWS is the wrong
+// contract for a dashboard. The default credential is the local stack's fixed admin
+// account (docker-compose.observability.yml), not a secret, and is overridable.
 
 const DEFAULT_BASE_URL = "http://localhost:5080";
 const DEFAULT_ORG = "3mrai";
@@ -19,13 +12,9 @@ export const openobserveBaseURL = process.env.OPENOBSERVE_URL ?? DEFAULT_BASE_UR
 const org = process.env.OPENOBSERVE_ORG ?? DEFAULT_ORG;
 const authHeader = process.env.OPENOBSERVE_AUTH ?? DEFAULT_AUTH;
 
-// OpenObserve models a stream's type as part of its IDENTITY, not as a filter:
-// `logs` and a metrics stream can coexist under the same name, so the schema
-// endpoint answers 404 — not an empty schema — when the type is omitted or
-// wrong. Verified live: GET .../amazonaws_com_3mrai_users_total/schema returns
-// `{"code":404,"message":"stream not found"}` while the same URL with
-// `?type=metrics` returns the full schema. Dropping the param would therefore
-// make every metrics panel look like a broken dashboard.
+// CONTRACT: Always send the stream `type`. OpenObserve treats it as part of a
+// stream's IDENTITY, not a filter, so an omitted or wrong type answers 404 — not an
+// empty schema — and every metrics panel then looks like a broken dashboard.
 export type StreamType = "logs" | "metrics" | "traces";
 
 export type StreamSchema = {
@@ -90,12 +79,10 @@ export type LogSample = {
 /**
  * Runs a SQL query against a log stream over the last `minutes`, newest first.
  *
- * Returns `[]` for a stream that does not exist yet, which is NOT an error
- * here: OpenObserve infers a stream's schema from ingested data, so a stream
- * that has never received a record 404s rather than answering empty. The
- * unclassified-stream spec depends on that distinction — an absent stream is
- * the healthy state it asserts, so treating the 404 as a failure would invert
- * the test.
+ * CONTRACT: Return `[]`, never an error, for a stream that does not exist. OpenObserve
+ * infers a schema from ingested data, so a never-written stream 404s; the
+ * unclassified-stream spec asserts absence as the HEALTHY state, and failing on the
+ * 404 would invert that test. See [[logging-context]]
  */
 export async function queryLogs(
   stream: string,
@@ -114,15 +101,11 @@ export async function queryLogs(
     }),
   });
 
-  // A stream that has never been written to is reported as an ERROR by
-  // `_search`, and NOT as a 404: it answers HTTP 400 with the OpenObserve-
-  // specific code 20002, "Search stream not found". Verified live — the first
-  // version of this client treated only 404 as absence and the spec died on a
-  // 400 in the very state it exists to assert (an empty `unclassified` stream
-  // IS the healthy outcome).
-  //
-  // Matched on the numeric `code`, not on the message text, so a reworded error
-  // does not silently turn "stream is empty" back into a hard failure.
+  // CONTRACT: Treat OpenObserve code 20002 as absence, matched on the numeric `code`
+  // and never on the message text. `_search` reports a never-written stream as HTTP
+  // 400, not 404, so handling only 404 kills the spec in the very state it asserts —
+  // an empty `unclassified` stream IS the healthy outcome — and a reworded message
+  // would silently turn "stream is empty" back into a hard failure.
   const raw = await res.text();
   if (res.status === 404) return [];
   if (!res.ok) {

@@ -1,6 +1,6 @@
-import { Component, input, output } from '@angular/core';
+import { Component, input, output, ChangeDetectionStrategy } from '@angular/core';
 import { LucideDynamicIcon, LucideX } from '@lucide/angular';
-import type { AppNotification } from '../../fixtures/api-types';
+import type { AppNotification } from '../../core/api/types';
 import { TrackingStatusIcon } from './tracking-status-icon';
 
 /**
@@ -16,6 +16,7 @@ import { TrackingStatusIcon } from './tracking-status-icon';
 @Component({
   selector: 'app-toast-notification',
   imports: [LucideDynamicIcon, LucideX, TrackingStatusIcon],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './toast-notification.html',
 })
 export class ToastNotification {

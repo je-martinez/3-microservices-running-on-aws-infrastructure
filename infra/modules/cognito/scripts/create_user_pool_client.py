@@ -1,27 +1,19 @@
 #!/usr/bin/env python3
 """Idempotent Cognito App Client creation via boto3.
 
-Used ONLY by modules/cognito/main.tf's terraform_data.client_via_cli, which is
-gated by var.manage_client_via_provider = false (Floci local only — see that
-variable's description for why the native aws_cognito_user_pool_client resource
-cannot be used against Floci).
-
-Idempotent: if a client with CLIENT_NAME already exists under USER_POOL_ID, it
-is reused (its id written to STATE_FILE) instead of creating a duplicate on
-every re-apply.
-
-Required env vars (set by the calling local-exec provisioner):
-  USER_POOL_ID  - Cognito User Pool id the client belongs to
-  CLIENT_NAME   - name of the App Client (used for idempotent lookup)
-  STATE_FILE    - path to write the resulting {"ClientId": "..."} JSON
-  ENDPOINT_URL  - optional endpoint override (empty = default resolution)
-  AWS_REGION    - AWS region
-
-Optional:
-  EXECUTION_LOG_TABLE - DynamoDB table recording this run for traceability
-                        (lib3mrai.execution_log). Unset = record nothing and
-                        behave exactly as before; the log never skips a run.
+WORKAROUND(local): Used only by terraform_data.client_via_cli, gated by
+manage_client_via_provider = false, because the native
+aws_cognito_user_pool_client cannot apply against Floci.
+CONTRACT: Stay idempotent — an existing CLIENT_NAME under USER_POOL_ID is reused
+rather than duplicated on every re-apply. See [[awscli-fallback-for-floci]]
 """
+
+# Env vars set by the calling local-exec provisioner. Required: USER_POOL_ID,
+# CLIENT_NAME (the idempotent lookup key), STATE_FILE (where the resulting
+# {"ClientId": "..."} JSON is written), ENDPOINT_URL (empty = default
+# resolution), AWS_REGION. Optional: EXECUTION_LOG_TABLE, a DynamoDB table
+# recording this run for traceability; unset means record nothing, and the log
+# never skips a run.
 
 import json
 import os
@@ -72,15 +64,11 @@ def write_state(state_file: pathlib.Path, client_id: str, pool_id: str) -> None:
 def reconcile_auth_flows(idp, pool_id: str, client_id: str) -> bool:
     """Bring a REUSED client's ExplicitAuthFlows up to EXPLICIT_AUTH_FLOWS.
 
-    The reuse branch used to return the existing client untouched, which meant a
-    flow added to EXPLICIT_AUTH_FLOWS only took effect on a pool created from
-    scratch — on an existing pool the client kept the old flow set and the new
-    flow was rejected at auth time with no sign of why. Adding ALLOW_CUSTOM_AUTH
-    is exactly that case.
-
-    UpdateUserPoolClient is a PUT, so the current client description is read and
-    re-sent with only ExplicitAuthFlows replaced. Read-only/create-only fields
-    the API rejects on update are dropped. Returns True when an update was sent.
+    CONTRACT: Do NOT return a reused client untouched. A flow added to
+    EXPLICIT_AUTH_FLOWS would then take effect only on a pool built from scratch;
+    on an existing pool it is rejected at auth time with no sign of why.
+    UpdateUserPoolClient is a PUT, so the description is read back and re-sent
+    with only ExplicitAuthFlows replaced. See [[awscli-fallback-for-floci]]
     """
     described = idp.describe_user_pool_client(UserPoolId=pool_id, ClientId=client_id)[
         "UserPoolClient"
