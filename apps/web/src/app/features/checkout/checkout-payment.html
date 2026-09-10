@@ -184,7 +184,7 @@
                   icon="map-pin"
                   placeholder="Street, number, apartment"
                   help="Pick your street from the list, then add your house number."
-                  [value]="street()"
+                  [formField]="addressForm.street"
                   (valueChange)="onStreetTyped($event)"
                   (addressSelected)="onAddressSuggested($event)"
                 />
@@ -192,40 +192,37 @@
                   label="Apartment"
                   icon="building-2"
                   placeholder="Apt, suite, floor (optional)"
-                  [value]="line2()"
-                  (valueChange)="line2.set($event)"
+                  [formField]="addressForm.line2"
                 />
                 <app-field
                   label="City"
                   icon="map"
                   placeholder="Santo Domingo"
-                  [value]="city()"
-                  (valueChange)="onResolvedFieldTyped(city, $event)"
+                  [formField]="addressForm.city"
+                  (valueChange)="onResolvedFieldTyped()"
                 />
                 <app-field
                   label="State"
                   icon="map"
                   placeholder="Distrito Nacional"
-                  [value]="state()"
-                  (valueChange)="onResolvedFieldTyped(state, $event)"
+                  [formField]="addressForm.state"
+                  (valueChange)="onResolvedFieldTyped()"
                 />
                 <app-field
                   label="ZIP Code"
                   type="numeric"
                   autocomplete="postal-code"
-                  [maxLength]="5"
                   icon="map"
                   placeholder="10604"
-                  [value]="postalCode()"
-                  (valueChange)="onResolvedFieldTyped(postalCode, $event)"
+                  [formField]="addressForm.postalCode"
+                  (valueChange)="onResolvedFieldTyped()"
                 />
                 <app-phone-field
                   label="Phone number"
                   icon="phone"
                   placeholder="+1 809 000 0000"
-                  [value]="phoneInput()"
                   [defaultCountry]="seedCountry()"
-                  (valueChange)="phoneInput.set($event)"
+                  [formField]="addressForm.phoneNumber"
                 />
 
                 @if (addressError(); as message) {
@@ -319,7 +316,7 @@
                         placeholder="1234 1234 1234 1234"
                         data-testid="card-number"
                         class="text-ink-primary placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
-                        [value]="cardNumber()"
+                        [value]="cardForm.cardNumber().value()"
                         (input)="onCardNumberInput($any($event.target))"
                       />
                     </span>
@@ -339,7 +336,7 @@
                           placeholder="MM / YY"
                           data-testid="card-expiry"
                           class="text-ink-primary placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
-                          [value]="cardExpiry()"
+                          [value]="cardForm.cardExpiry().value()"
                           (input)="onCardExpiryInput($any($event.target))"
                         />
                       </span>
@@ -357,7 +354,7 @@
                           placeholder="CVC"
                           data-testid="card-cvc"
                           class="text-ink-muted placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
-                          [value]="cardCvc()"
+                          [value]="cardForm.cardCvc().value()"
                           (input)="onCardCvcInput($any($event.target))"
                         />
                       </span>
@@ -375,8 +372,8 @@
                         placeholder="Name on card"
                         data-testid="card-holder"
                         class="text-ink-primary placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
-                        [value]="cardHolder()"
-                        (input)="cardHolder.set($any($event.target).value)"
+                        [value]="cardForm.cardHolder().value()"
+                        (input)="onCardHolderInput($any($event.target))"
                       />
                     </span>
                   </label>

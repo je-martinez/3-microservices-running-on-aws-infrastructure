@@ -66,6 +66,17 @@ describe('LoginPasswordPage', () => {
     expect(navigate).toHaveBeenCalledWith('/');
   });
 
+  it('blocks a malformed email client-side, so no request leaves', async () => {
+    fillField(fixture, 'Email', 'not-an-email');
+    fillField(fixture, 'Password', 'hunter2!');
+    submitForm(fixture);
+    await settle(fixture);
+
+    // controller.verify() in afterEach is the other half of this assertion.
+    controller.expectNone('/v1/users/login');
+    expect(textOf(fixture, '[role="alert"]')).toContain('valid email');
+  });
+
   it('shows a credentials message on a 401 and does NOT navigate', async () => {
     const navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
 

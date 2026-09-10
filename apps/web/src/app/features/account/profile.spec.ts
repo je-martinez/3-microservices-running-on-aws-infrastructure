@@ -160,6 +160,31 @@ describe('ProfilePage', () => {
     await settle(fixture);
   });
 
+  /**
+   * CONTRACT: A name of spaces is not a name. `required` on its own rejects only
+   * the empty string, so without the pattern beside it a profile saves with a
+   * blank `fullName` and the account renders with no name anywhere.
+   */
+  it('refuses to save a full name that is blank or only spaces', async () => {
+    create();
+    (await awaitRequest(fixture, controller, ME)).flush(MORGAN);
+    await settle(fixture);
+
+    const saveButton = () => root().querySelector<HTMLButtonElement>('app-button-primary button');
+    expect(saveButton()?.disabled).toBe(false);
+
+    fillField(fixture, 'Full name', '');
+    expect(saveButton()?.disabled).toBe(true);
+
+    fillField(fixture, 'Full name', '   ');
+    expect(saveButton()?.disabled).toBe(true);
+
+    fillField(fixture, 'Full name', 'Morgan Reyes');
+    expect(saveButton()?.disabled).toBe(false);
+
+    controller.verify();
+  });
+
   it('discards edits when Cancel is pressed', async () => {
     create();
     (await awaitRequest(fixture, controller, ME)).flush(MORGAN);

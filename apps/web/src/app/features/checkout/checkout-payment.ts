@@ -1,4 +1,5 @@
-import { Component, computed, inject, signal, type WritableSignal } from '@angular/core';
+import { Component, computed, inject, signal, ChangeDetectionStrategy } from '@angular/core';
+import { form, maxLength, pattern, required, FormField } from '@angular/forms/signals';
 import { Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import {
@@ -27,6 +28,40 @@ import { DevFillButton } from '../../core/dev/dev-fill-button';
 import type { DevData } from '../../core/dev/dev-fill';
 import { digitsOnly, groupCardDigits } from '../../shared/ui/numeric-input';
 
+/** The visible delivery-address fields; `country` is derived, never typed. */
+interface AddressForm {
+  street: string;
+  line2: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  phoneNumber: string;
+}
+
+/** The plain card fields, which nothing submits — see `cardForm`. */
+interface CardForm {
+  cardNumber: string;
+  cardHolder: string;
+  cardExpiry: string;
+  cardCvc: string;
+}
+
+const EMPTY_ADDRESS_FORM: AddressForm = {
+  street: '',
+  line2: '',
+  city: '',
+  state: '',
+  postalCode: '',
+  phoneNumber: '',
+};
+
+const EMPTY_CARD_FORM: CardForm = {
+  cardNumber: '',
+  cardHolder: '',
+  cardExpiry: '',
+  cardCvc: '',
+};
+
 /**
  * Design: `Checkout — Payment` (`DOtD2`, 1440) / `Mobile — Checkout Payment`
  * (`P0lhqj`). `App Header` + `Body` — a real page, unlike the cart overlays.
@@ -44,6 +79,7 @@ import { digitsOnly, groupCardDigits } from '../../shared/ui/numeric-input';
     RouterLink,
     CartLine,
     Field,
+    FormField,
     PhoneField,
     StreetAutocomplete,
     DevFillButton,
@@ -56,6 +92,7 @@ import { digitsOnly, groupCardDigits } from '../../shared/ui/numeric-input';
     LucideShoppingBag,
     LucideTriangleAlert,
   ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './checkout-payment.html',
 })
 export class CheckoutPaymentPage {
@@ -79,30 +116,49 @@ export class CheckoutPaymentPage {
   protected readonly phoneNumber = computed(() => this.session.user()?.phoneNumber ?? null);
   protected readonly fullName = computed(() => this.session.user()?.fullName ?? '');
 
-  /** Form state for the no-address branch, in the design's three fields. */
   /**
-   * One signal per field of the address contract — see ShippingAddressSnapshot
-   * in services/orders. `country` has NO input: it is DERIVED, never typed.
+   * The delivery-address form, one model over the fields of the address
+   * contract — see ShippingAddressSnapshot in services/orders.
+   *
+   * CONTRACT: `country` is NOT a field of this model: it is DERIVED from
+   * `resolvedAddress`, never typed. Adding it here gives the buyer an input the
+   * design has no frame for, and `parseAddress` would then save a guess.
+   * See [[angular-component-authoring]]
    */
-  protected readonly street = signal('');
-  protected readonly line2 = signal('');
-  protected readonly city = signal('');
-  protected readonly state = signal('');
-  protected readonly postalCode = signal('');
-  protected readonly phoneInput = signal('');
+  protected readonly addressModel = signal<AddressForm>(EMPTY_ADDRESS_FORM);
 
   /**
-   * The plain card form's fields.
+   * CONTRACT: Street and city gate saving, and `required` alone accepts a value
+   * of spaces — it rejects only the empty string — so each pairs with a pattern.
+   * Without it a form of blanks saves an address that ships nowhere.
    *
-   * CONTRACT: Local state only — nothing submits these. There is no payment
-   * backend, and the Stripe path renders no fields at all because Stripe's own
-   * element would own them. They exist so the dev fill can populate a form a
-   * developer is looking at. See [[2026-09-07-dev-form-autofill]]
+   * CONTRACT: The ZIP's 5-digit cap belongs HERE, not on the template's
+   * `app-field`. `[formField]` owns `maxLength` as a control binding and the
+   * compiler rejects binding it alongside (NG8022); the schema is what reaches
+   * the input's `maxlength` and the numeric truncation.
+   * See [[angular-component-authoring]]
    */
-  protected readonly cardNumber = signal('');
-  protected readonly cardHolder = signal('');
-  protected readonly cardExpiry = signal('');
-  protected readonly cardCvc = signal('');
+  protected readonly addressForm = form(this.addressModel, (path) => {
+    required(path.street, { message: 'Enter your street address' });
+    pattern(path.street, /\S/, { message: 'Enter your street address' });
+    required(path.city, { message: 'Enter your city' });
+    pattern(path.city, /\S/, { message: 'Enter your city' });
+    maxLength(path.postalCode, 5);
+  });
+
+  /**
+   * CONTRACT: Local state only — nothing submits these, and the Stripe path
+   * renders no fields at all. They exist so the dev fill can populate a form a
+   * developer is looking at, which is why this form carries no validators.
+   *
+   * CONTRACT: Its inputs stay RAW `<input>`s driven by the handlers below, NOT
+   * `[formField]` — the directive reads the element's raw value and would undo
+   * the grouping applied on each keystroke, showing an unspaced
+   * `4242424242424242`. See [[2026-09-07-dev-form-autofill]]
+   */
+  protected readonly cardModel = signal<CardForm>(EMPTY_CARD_FORM);
+  protected readonly cardForm = form(this.cardModel);
+
   protected readonly savingAddress = signal(false);
   protected readonly addressError = signal<string | null>(null);
 
@@ -165,10 +221,7 @@ export class CheckoutPaymentPage {
   protected readonly seedCountry = computed(() => this.address()?.country ?? 'DO');
 
   protected readonly canSaveAddress = computed(
-    () =>
-      this.street().trim() !== '' &&
-      this.city().trim() !== '' &&
-      !this.savingAddress(),
+    () => this.addressForm().valid() && !this.savingAddress(),
   );
 
   /**
@@ -195,10 +248,7 @@ export class CheckoutPaymentPage {
    */
   protected readonly canPay = computed(
     () =>
-      this.cart.canCheckout() &&
-      !this.cart.saving() &&
-      !this.placing() &&
-      this.address() !== null,
+      this.cart.canCheckout() && !this.cart.saving() && !this.placing() && this.address() !== null,
   );
 
   constructor() {
@@ -212,42 +262,50 @@ export class CheckoutPaymentPage {
    * See dev-fill.ts
    */
   protected devFill(data: DevData): void {
-    this.street.set(data.street);
     const [devCity, devPostal] = data.cityAndPostalCode.split(',').map((part) => part.trim());
-    this.line2.set(data.apartment);
-    this.city.set(devCity ?? '');
-    this.state.set(data.state);
-    this.postalCode.set(devPostal ?? '');
-    this.phoneInput.set(data.phoneNumber);
+    this.addressModel.set({
+      street: data.street,
+      line2: data.apartment,
+      city: devCity ?? '',
+      state: data.state,
+      postalCode: devPostal ?? '',
+      phoneNumber: data.phoneNumber,
+    });
     // The card fields render only on the plain path; setting them when Stripe
     // is enabled is a harmless no-op rather than a branch to keep in sync.
     // CONTRACT: Fill through the same formatter typing uses, never the raw
     // generated digits — Stripe's test number arrives unspaced, and setting it
     // directly shows `4242424242424242` in a field whose maxlength is sized for
     // the grouped `4242 4242 4242 4242`.
-    this.cardNumber.set(groupCardDigits(data.cardNumber));
-    this.cardHolder.set(data.fullName);
-    this.cardExpiry.set(data.cardExpiry);
-    this.cardCvc.set(data.cardCvc);
+    this.cardModel.set({
+      cardNumber: groupCardDigits(data.cardNumber),
+      cardHolder: data.fullName,
+      cardExpiry: data.cardExpiry,
+      cardCvc: data.cardCvc,
+    });
   }
 
   protected onCardNumberInput(element: HTMLInputElement): void {
     const value = groupCardDigits(element.value);
     element.value = value;
-    this.cardNumber.set(value);
+    this.cardForm.cardNumber().value.set(value);
   }
 
   protected onCardExpiryInput(element: HTMLInputElement): void {
     const digits = digitsOnly(element.value, 4);
     const value = digits.length > 2 ? `${digits.slice(0, 2)} / ${digits.slice(2)}` : digits;
     element.value = value;
-    this.cardExpiry.set(value);
+    this.cardForm.cardExpiry().value.set(value);
   }
 
   protected onCardCvcInput(element: HTMLInputElement): void {
     const value = digitsOnly(element.value, 4);
     element.value = value;
-    this.cardCvc.set(value);
+    this.cardForm.cardCvc().value.set(value);
+  }
+
+  protected onCardHolderInput(element: HTMLInputElement): void {
+    this.cardForm.cardHolder().value.set(element.value);
   }
 
   /**
@@ -262,12 +320,14 @@ export class CheckoutPaymentPage {
 
     this.resolvedAddress.set(null);
     this.addressError.set(null);
-    this.street.set(saved.line1);
-    this.line2.set(saved.line2 ?? '');
-    this.city.set(saved.city);
-    this.state.set(saved.state);
-    this.postalCode.set(saved.postalCode);
-    this.phoneInput.set(this.phoneNumber() ?? '');
+    this.addressModel.set({
+      street: saved.line1,
+      line2: saved.line2 ?? '',
+      city: saved.city,
+      state: saved.state,
+      postalCode: saved.postalCode,
+      phoneNumber: this.phoneNumber() ?? '',
+    });
     this.editingAddress.set(true);
   }
 
@@ -288,15 +348,20 @@ export class CheckoutPaymentPage {
    * the service normalised. One PATCH covers add and edit alike.
    */
   protected async saveAddress(): Promise<void> {
+    // CONTRACT: Mark the fields touched before the validity gate, or a save
+    // attempted on a blank form renders no message at all — `Field` hides an
+    // error until its field is touched.
+    this.addressForm().markAsTouched();
     if (!this.canSaveAddress()) return;
 
     this.savingAddress.set(true);
     this.addressError.set(null);
+    const phone = this.addressModel().phoneNumber.trim();
     try {
       const updated = await firstValueFrom(
         this.usersApi.updateMe({
           address: this.parseAddress(),
-          ...(this.phoneInput().trim() === '' ? {} : { phoneNumber: this.phoneInput().trim() }),
+          ...(phone === '' ? {} : { phoneNumber: phone }),
         }),
       );
       this.session.setUser(updated);
@@ -316,10 +381,13 @@ export class CheckoutPaymentPage {
    */
   protected onAddressSuggested(address: Address): void {
     this.resolvedAddress.set(address);
-    this.street.set(address.line1);
-    this.city.set(address.city);
-    this.state.set(address.state);
-    this.postalCode.set(address.postalCode);
+    this.addressModel.update((current) => ({
+      ...current,
+      street: address.line1,
+      city: address.city,
+      state: address.state,
+      postalCode: address.postalCode,
+    }));
   }
 
   /**
@@ -330,17 +398,21 @@ export class CheckoutPaymentPage {
    */
   protected onStreetTyped(value: string): void {
     if (value.trim() === '') this.resolvedAddress.set(null);
-    this.street.set(value);
   }
 
   /**
    * CONTRACT: Hand-editing any field a suggestion resolved DROPS the resolution.
    * Keeping it saves the suggestion's value while the buyer looks at the one
    * they just corrected, and keeps its `country` for a different address.
+   *
+   * CONTRACT: Bound as `(valueChange)` BESIDE `[formField]`, which writes the
+   * value itself. The directive pushes a programmatic value through the model's
+   * INPUT, which emits nothing — so only a buyer's keystroke reaches here, and
+   * `onAddressSuggested` filling the same fields does not erase its own
+   * resolution. See [[angular-component-authoring]]
    */
-  protected onResolvedFieldTyped(field: WritableSignal<string>, value: string): void {
+  protected onResolvedFieldTyped(): void {
     this.resolvedAddress.set(null);
-    field.set(value);
   }
 
   /**
@@ -350,20 +422,21 @@ export class CheckoutPaymentPage {
    * looks like one, and the code is left empty rather than guessed.
    */
   private parseAddress(): Address {
+    const values = this.addressModel();
     const resolved = this.resolvedAddress();
     // The street still comes from the field: the buyer adds the house number
     // the suggestion has no data for.
-    if (resolved) return { ...resolved, line1: this.street().trim() };
+    if (resolved) return { ...resolved, line1: values.street.trim() };
 
     // CONTRACT: `country` is '' when no suggestion resolved one, NEVER a guess.
     // A default of 'DO' stores every hand-typed foreign address as Dominican.
     // The form has no country input by design: the autocomplete knows it.
     return {
-      line1: this.street().trim(),
-      line2: this.line2().trim() || null,
-      city: this.city().trim(),
-      state: this.state().trim(),
-      postalCode: this.postalCode().trim(),
+      line1: values.street.trim(),
+      line2: values.line2.trim() || null,
+      city: values.city.trim(),
+      state: values.state.trim(),
+      postalCode: values.postalCode.trim(),
       country: '',
     };
   }

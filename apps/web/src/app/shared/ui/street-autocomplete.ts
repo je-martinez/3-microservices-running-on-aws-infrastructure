@@ -1,4 +1,14 @@
-import { Component, DestroyRef, computed, inject, input, output, signal } from '@angular/core';
+import {
+  Component,
+  DestroyRef,
+  computed,
+  inject,
+  input,
+  model,
+  output,
+  signal,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { LucideDynamicIcon } from '@lucide/angular';
 import { Subject, debounceTime, distinctUntilChanged, of, switchMap } from 'rxjs';
@@ -32,6 +42,7 @@ const NO_ACTIVE_INDEX = -1;
   // CONTRACT: Keep `block w-full` on the host, for the reason field.ts states —
   // a bare custom element is display:inline and shrinks to its content as a
   // flex item. See [[angular-component-authoring]]
+  changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block w-full' },
 })
 export class StreetAutocomplete {
@@ -40,12 +51,11 @@ export class StreetAutocomplete {
 
   readonly label = input.required<string>();
   readonly placeholder = input('');
-  readonly value = input('');
+  readonly value = model('');
   /** Leading glyph, e.g. "map-pin". */
   readonly icon = input<string>();
   readonly help = input<string>();
 
-  readonly valueChange = output<string>();
   /** Emits the resolved address when a suggestion is chosen, never on typing. */
   readonly addressSelected = output<Address>();
 
@@ -139,7 +149,7 @@ export class StreetAutocomplete {
    * long as it does with no indicator at all.
    */
   protected onInput(raw: string): void {
-    this.valueChange.emit(raw);
+    this.value.set(raw);
     this.dismissed.set(false);
 
     const query = raw.trim();
@@ -184,9 +194,7 @@ export class StreetAutocomplete {
         // WHY: The -1 "nothing highlighted" state is handled apart from the
         // wrap. Folding it into the modulo lands on the FIRST option, where
         // ArrowUp from nothing is expected to reach the last.
-        this.activeIndex.set(
-          this.activeIndex() <= 0 ? count - 1 : this.activeIndex() - 1,
-        );
+        this.activeIndex.set(this.activeIndex() <= 0 ? count - 1 : this.activeIndex() - 1);
         break;
       case 'Enter': {
         const active = this.suggestions()[this.activeIndex()];
@@ -207,7 +215,7 @@ export class StreetAutocomplete {
    * suggestion exists to replace.
    */
   protected select(suggestion: StreetSuggestion): void {
-    this.valueChange.emit(suggestion.address.line1);
+    this.value.set(suggestion.address.line1);
     this.addressSelected.emit(suggestion.address);
     this.dismiss();
   }

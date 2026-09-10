@@ -94,6 +94,23 @@ describe('RegisterPasswordPage', () => {
     expect(textOf(fixture, '[role="alert"]')).toContain('at least 8 characters');
   });
 
+  // CONTRACT: Signal Forms' `required` counts a value of spaces as present, so
+  // it alone is weaker than the `.trim()` guard it replaced. Every other field
+  // is valid here, so this fails the moment the name's /\S/ pattern is dropped.
+  it('refuses a name of nothing but spaces', async () => {
+    const fixture = TestBed.createComponent(RegisterPasswordPage);
+    fixture.detectChanges();
+
+    fillField(fixture, 'Full name', '   ');
+    fillField(fixture, 'Email', 'jane@example.com');
+    fillField(fixture, 'Password', 'hunter2!X');
+    acceptTerms(fixture);
+    submitForm(fixture);
+    await settle(fixture);
+
+    controller.expectNone('/v1/users/register');
+  });
+
   it('surfaces the SERVER message when the pool policy rejects a locally valid password', async () => {
     const fixture = TestBed.createComponent(RegisterPasswordPage);
     fixture.detectChanges();

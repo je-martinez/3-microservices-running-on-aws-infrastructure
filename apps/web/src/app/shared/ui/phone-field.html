@@ -25,11 +25,11 @@
       class="text-ink-primary placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-base outline-none"
       [placeholder]="placeholder()"
       [value]="value()"
-      [attr.aria-invalid]="invalid() ? 'true' : null"
+      [attr.aria-invalid]="incomplete() ? 'true' : null"
       (input)="onInput($any($event.target))"
     />
   </span>
-  @if (invalid()) {
+  @if (incomplete()) {
     <span role="status" data-testid="phone-invalid" class="text-warn-ink text-body-sm">
       This number looks incomplete — you can still save it.
     </span>

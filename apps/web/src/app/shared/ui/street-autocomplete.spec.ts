@@ -180,7 +180,7 @@ describe('StreetAutocomplete', () => {
 
     it('still propagates what the buyer types', () => {
       const emitted: string[] = [];
-      fixture.componentInstance.valueChange.subscribe((v) => emitted.push(v));
+      fixture.componentInstance.value.subscribe((v) => emitted.push(v));
 
       type('Calle El Conde 42');
 
@@ -263,7 +263,7 @@ describe('StreetAutocomplete', () => {
       const addresses: Address[] = [];
       const values: string[] = [];
       fixture.componentInstance.addressSelected.subscribe((a) => addresses.push(a));
-      fixture.componentInstance.valueChange.subscribe((v) => values.push(v));
+      fixture.componentInstance.value.subscribe((v) => values.push(v));
 
       suggest('Avenida', [CHURCHILL]);
       options()[0].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));

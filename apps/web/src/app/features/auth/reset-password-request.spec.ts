@@ -98,6 +98,17 @@ describe('ResetPasswordRequestPage', () => {
     expect(TestBed.inject(PasswordResetStore).email()).toBe('jane@example.com');
   });
 
+  it('blocks a malformed email client-side, and shows no confirmation', async () => {
+    const fixture = build();
+    fillField(fixture, 'Email', 'not-an-email');
+    submitForm(fixture);
+    await settle(fixture);
+
+    controller.expectNone('/v1/users/password/forgot');
+    expect(textOf(fixture, '[role="status"]')).toBe('');
+    expect(textOf(fixture, '[role="alert"]')).toContain('valid email');
+  });
+
   it('surfaces a transport failure rather than a false confirmation', async () => {
     const fixture = build();
     fillField(fixture, 'Email', 'jane@example.com');

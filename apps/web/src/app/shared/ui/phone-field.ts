@@ -1,4 +1,4 @@
-import { Component, computed, input, output, signal } from '@angular/core';
+import { Component, computed, input, model, output, signal, ChangeDetectionStrategy } from '@angular/core';
 import { LucideDynamicIcon } from '@lucide/angular';
 // CONTRACT: Import from `/min`, NEVER the package root. The root pulls the
 // `max` metadata — 153 kB raw against `min`'s 82 kB — for number-*type* data
@@ -45,7 +45,10 @@ function flagEmoji(country: string): string {
 
 function sanitizePhoneInput(raw: string): string {
   const hasLeadingPlus = raw.trimStart().startsWith('+');
-  const body = raw.replace(/\+/g, '').replace(/[^\d\s()-]/g, '').trimStart();
+  const body = raw
+    .replace(/\+/g, '')
+    .replace(/[^\d\s()-]/g, '')
+    .trimStart();
   return `${hasLeadingPlus ? '+' : ''}${body}`;
 }
 
@@ -64,12 +67,13 @@ function sanitizePhoneInput(raw: string): string {
   // CONTRACT: Keep `block w-full` on the host, for the reason field.ts states —
   // a bare custom element is display:inline and shrinks to its content as a
   // flex item. See [[angular-component-authoring]]
+  changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block w-full' },
 })
 export class PhoneField {
   readonly label = input.required<string>();
   readonly placeholder = input('');
-  readonly value = input('');
+  readonly value = model('');
   /** Leading glyph, shown only while no country is known. */
   readonly icon = input<string>();
   readonly help = input<string>();
@@ -79,7 +83,6 @@ export class PhoneField {
    */
   readonly defaultCountry = input<string>();
 
-  readonly valueChange = output<string>();
   readonly countryChange = output<string | null>();
 
   /** Mirrors `value()` so the reading follows typing, not just the bound input. */
@@ -95,16 +98,16 @@ export class PhoneField {
 
   /**
    * CONTRACT: The warning NEVER blocks. It is advisory only — no disabled
-   * button, no swallowed `valueChange` — because a false negative from the
+   * button, no swallowed value — because a false negative from the
    * parser must not stop someone completing an order.
    */
-  protected readonly invalid = computed(() => this.reading().invalid);
+  protected readonly incomplete = computed(() => this.reading().invalid);
 
   protected onInput(element: HTMLInputElement): void {
     const value = sanitizePhoneInput(element.value);
     element.value = value;
     this.typed.set(value);
-    this.valueChange.emit(value);
+    this.value.set(value);
     this.countryChange.emit(read(value, this.defaultCountry()).country);
   }
 }

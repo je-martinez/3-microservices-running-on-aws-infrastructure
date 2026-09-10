@@ -1,4 +1,5 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, signal, ChangeDetectionStrategy } from '@angular/core';
+import { form, required, email as emailValidator, FormField } from '@angular/forms/signals';
 import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 
@@ -19,33 +20,44 @@ import { WRONG_CREDENTIALS, authErrorMessage } from './auth-errors';
  */
 @Component({
   selector: 'app-login-password',
-  imports: [RouterLink, Field, ButtonPrimary, ButtonGhost, DevFillButton],
+  imports: [RouterLink, FormField, Field, ButtonPrimary, ButtonGhost, DevFillButton],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './login-password.html',
 })
 export class LoginPasswordPage {
   private readonly usersApi = inject(UsersApi);
   private readonly signIn = inject(SignIn);
 
-  protected readonly email = signal('');
-  protected readonly password = signal('');
+  protected readonly model = signal({ email: '', password: '' });
+
+  protected readonly loginForm = form(this.model, (path) => {
+    required(path.email, { message: 'Enter your email' });
+    emailValidator(path.email, { message: 'Enter a valid email' });
+    required(path.password, { message: 'Enter your password' });
+  });
+
   protected readonly showPassword = signal(false);
   protected readonly submitting = signal(false);
   protected readonly error = signal<string | null>(null);
 
   /** Dev-only: fills the inputs this form owns. See dev-fill.ts. */
   protected devFill(data: DevData): void {
-    this.email.set(data.email);
-    this.password.set(data.password);
+    this.model.set({ email: data.email, password: data.password });
   }
 
   protected async submit(): Promise<void> {
     if (this.submitting()) return;
+    // CONTRACT: Mark the fields touched before the validity gate, or an empty
+    // form submitted straight from the keyboard renders no message at all —
+    // `Field` hides an error until its field is touched.
+    this.loginForm().markAsTouched();
+    if (this.loginForm().invalid()) return;
+
     this.error.set(null);
     this.submitting.set(true);
     try {
-      const tokens = await firstValueFrom(
-        this.usersApi.login(this.email().trim(), this.password()),
-      );
+      const { email, password } = this.model();
+      const tokens = await firstValueFrom(this.usersApi.login(email.trim(), password));
       await this.signIn.complete(tokens);
     } catch (error: unknown) {
       // CONTRACT: A 401 here is wrong credentials, shown in place. Do NOT

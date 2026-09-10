@@ -1,4 +1,5 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, signal, ChangeDetectionStrategy } from '@angular/core';
+import { form, required, email as emailValidator, FormField } from '@angular/forms/signals';
 import { Router, RouterLink } from '@angular/router';
 import { LucideArrowLeft } from '@lucide/angular';
 import { firstValueFrom } from 'rxjs';
@@ -29,7 +30,8 @@ const RESET_CODE_LENGTH = 6;
  */
 @Component({
   selector: 'app-reset-password-request',
-  imports: [RouterLink, LucideArrowLeft, Field, ButtonPrimary, DevFillButton],
+  imports: [RouterLink, LucideArrowLeft, FormField, Field, ButtonPrimary, DevFillButton],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './reset-password-request.html',
 })
 export class ResetPasswordRequestPage {
@@ -40,7 +42,13 @@ export class ResetPasswordRequestPage {
   protected readonly codeLength = RESET_CODE_LENGTH;
   protected readonly ttlMinutes = RESET_CODE_TTL_MINUTES;
 
-  protected readonly email = signal('');
+  protected readonly model = signal({ email: '' });
+
+  protected readonly resetForm = form(this.model, (path) => {
+    required(path.email, { message: 'Enter your email' });
+    emailValidator(path.email, { message: 'Enter a valid email' });
+  });
+
   protected readonly submitting = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly sent = signal(false);
@@ -54,12 +62,18 @@ export class ResetPasswordRequestPage {
    */
   /** Dev-only: fills the inputs this form owns. See dev-fill.ts. */
   protected devFill(data: DevData): void {
-    this.email.set(data.email);
+    this.model.set({ email: data.email });
   }
 
   protected async submit(): Promise<void> {
     if (this.submitting()) return;
-    const email = this.email().trim();
+    // CONTRACT: Mark the fields touched before the validity gate, or an empty
+    // form submitted straight from the keyboard renders no message at all —
+    // `Field` hides an error until its field is touched.
+    this.resetForm().markAsTouched();
+    if (this.resetForm().invalid()) return;
+
+    const email = this.model().email.trim();
     this.error.set(null);
     this.submitting.set(true);
     try {

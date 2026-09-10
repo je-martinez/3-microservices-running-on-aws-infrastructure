@@ -87,7 +87,7 @@ describe('PhoneField', () => {
   it('warns on an invalid number while still propagating the value', () => {
     const emitted: string[] = [];
     fixture.componentRef.setInput('value', '');
-    fixture.componentInstance.valueChange.subscribe((v) => emitted.push(v));
+    fixture.componentInstance.value.subscribe((v) => emitted.push(v));
     fixture.detectChanges();
 
     const input = (fixture.nativeElement as HTMLElement).querySelector('input');
@@ -125,7 +125,7 @@ describe('PhoneField', () => {
 
   it('strips letters while preserving a leading plus and phone separators', () => {
     const emitted: string[] = [];
-    fixture.componentInstance.valueChange.subscribe((value) => emitted.push(value));
+    fixture.componentInstance.value.subscribe((value) => emitted.push(value));
     fixture.detectChanges();
 
     const input = (fixture.nativeElement as HTMLElement).querySelector('input');

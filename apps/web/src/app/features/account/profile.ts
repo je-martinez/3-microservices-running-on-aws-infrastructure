@@ -1,4 +1,12 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import {
+  Component,
+  computed,
+  effect,
+  inject,
+  signal,
+  ChangeDetectionStrategy,
+} from '@angular/core';
+import { form, maxLength, pattern, required, FormField } from '@angular/forms/signals';
 import { Router } from '@angular/router';
 import { LucideLock, LucideRefreshCw, LucideTriangleAlert } from '@lucide/angular';
 import { firstValueFrom } from 'rxjs';
@@ -12,6 +20,27 @@ import { PhoneField } from '../../shared/ui/phone-field';
 import { DevFillButton } from '../../core/dev/dev-fill-button';
 import type { DevData } from '../../core/dev/dev-fill';
 
+/** Every editable field of the two cards, minus `country` — see the class doc. */
+interface ProfileForm {
+  fullName: string;
+  phoneNumber: string;
+  street: string;
+  line2: string;
+  city: string;
+  state: string;
+  postalCode: string;
+}
+
+const EMPTY_PROFILE_FORM: ProfileForm = {
+  fullName: '',
+  phoneNumber: '',
+  street: '',
+  line2: '',
+  city: '',
+  state: '',
+  postalCode: '',
+};
+
 /**
  * Design: `Profile` (`hZ87b`, 1440 / `nyVEI`, 390). Save/Cancel are
  * presentational, with no backing mutation.
@@ -23,7 +52,17 @@ import type { DevData } from '../../core/dev/dev-fill';
  */
 @Component({
   selector: 'app-profile',
-  imports: [ButtonPrimary, DevFillButton, Field, PhoneField, LucideLock, LucideRefreshCw, LucideTriangleAlert],
+  imports: [
+    ButtonPrimary,
+    DevFillButton,
+    Field,
+    FormField,
+    PhoneField,
+    LucideLock,
+    LucideRefreshCw,
+    LucideTriangleAlert,
+  ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './profile.html',
 })
 export class ProfilePage {
@@ -40,17 +79,28 @@ export class ProfilePage {
   protected readonly saveError = signal<string | null>(null);
 
   /**
-   * One signal per editable field, per the design's two sections.
-   * CONTRACT: `country` has no input, as at checkout — the autocomplete resolves
-   * it, so this form preserves the saved value rather than guessing.
+   * One model for the whole screen, over the design's two sections.
+   * CONTRACT: `country` is NOT a field here, as at checkout — the autocomplete
+   * resolves it, so this form preserves the saved value rather than guessing.
    */
-  protected readonly fullName = signal('');
-  protected readonly phoneInput = signal('');
-  protected readonly street = signal('');
-  protected readonly line2 = signal('');
-  protected readonly city = signal('');
-  protected readonly state = signal('');
-  protected readonly postalCode = signal('');
+  protected readonly model = signal<ProfileForm>(EMPTY_PROFILE_FORM);
+
+  /**
+   * CONTRACT: `required` alone accepts a value of spaces — it rejects only the
+   * empty string — so the pattern is what keeps "   " from being saved as a
+   * name. Dropping it re-enables saving a profile with a blank `fullName`.
+   *
+   * CONTRACT: The ZIP's 5-digit cap belongs HERE, not on the template's
+   * `app-field`. `[formField]` owns `maxLength` as a control binding and the
+   * compiler rejects binding it alongside (NG8022); the schema is what reaches
+   * the input's `maxlength` and the numeric truncation.
+   * See [[angular-component-authoring]]
+   */
+  protected readonly profileForm = form(this.model, (path) => {
+    required(path.fullName, { message: 'Enter your full name' });
+    pattern(path.fullName, /\S/, { message: 'Enter your full name' });
+    maxLength(path.postalCode, 5);
+  });
 
   constructor() {
     // CONTRACT: Seed the form from whatever the session already holds, then
@@ -82,18 +132,24 @@ export class ProfilePage {
    * address still describe one plausible person. See dev-fill.ts
    */
   protected devFillPersonal(data: DevData): void {
-    this.fullName.set(data.fullName);
-    this.phoneInput.set(data.phoneNumber);
+    this.model.update((current) => ({
+      ...current,
+      fullName: data.fullName,
+      phoneNumber: data.phoneNumber,
+    }));
   }
 
   /** @see devFillPersonal */
   protected devFillAddress(data: DevData): void {
-    this.street.set(data.street);
-    this.line2.set(data.apartment);
     const [devCity, devPostal] = data.cityAndPostalCode.split(',').map((part) => part.trim());
-    this.city.set(devCity ?? '');
-    this.state.set(data.state);
-    this.postalCode.set(devPostal ?? '');
+    this.model.update((current) => ({
+      ...current,
+      street: data.street,
+      line2: data.apartment,
+      city: devCity ?? '',
+      state: data.state,
+      postalCode: devPostal ?? '',
+    }));
   }
 
   /** Discards edits by re-seeding every field from the saved profile. */
@@ -102,18 +158,18 @@ export class ProfilePage {
     if (!current) return;
 
     this.saveError.set(null);
-    this.fullName.set(current.fullName);
-    this.phoneInput.set(current.phoneNumber ?? '');
-    this.street.set(current.address?.line1 ?? '');
-    this.line2.set(current.address?.line2 ?? '');
-    this.city.set(current.address?.city ?? '');
-    this.state.set(current.address?.state ?? '');
-    this.postalCode.set(current.address?.postalCode ?? '');
+    this.model.set({
+      fullName: current.fullName,
+      phoneNumber: current.phoneNumber ?? '',
+      street: current.address?.line1 ?? '',
+      line2: current.address?.line2 ?? '',
+      city: current.address?.city ?? '',
+      state: current.address?.state ?? '',
+      postalCode: current.address?.postalCode ?? '',
+    });
   }
 
-  protected readonly canSave = computed(
-    () => this.fullName().trim() !== '' && !this.saving(),
-  );
+  protected readonly canSave = computed(() => this.profileForm().valid() && !this.saving());
 
   /**
    * CONTRACT: Send the address only when a street is present. Orders drops an
@@ -121,25 +177,30 @@ export class ProfilePage {
    * erases a saved address the user never touched.
    */
   protected async save(): Promise<void> {
+    // CONTRACT: Mark the fields touched before the validity gate, or a form
+    // saved with an empty name renders no message at all — `Field` hides an
+    // error until its field is touched.
+    this.profileForm().markAsTouched();
     if (!this.canSave()) return;
 
     this.saving.set(true);
     this.saveError.set(null);
+    const values = this.model();
     try {
-      const phone = this.phoneInput().trim();
+      const phone = values.phoneNumber.trim();
       const updated = await firstValueFrom(
         this.usersApi.updateMe({
-          fullName: this.fullName().trim(),
+          fullName: values.fullName.trim(),
           ...(phone === '' ? {} : { phoneNumber: phone }),
-          ...(this.street().trim() === ''
+          ...(values.street.trim() === ''
             ? {}
             : {
                 address: {
-                  line1: this.street().trim(),
-                  line2: this.line2().trim() || null,
-                  city: this.city().trim(),
-                  state: this.state().trim(),
-                  postalCode: this.postalCode().trim(),
+                  line1: values.street.trim(),
+                  line2: values.line2.trim() || null,
+                  city: values.city.trim(),
+                  state: values.state.trim(),
+                  postalCode: values.postalCode.trim(),
                   // Preserved, never guessed — this form has no country input.
                   country: this.user()?.address?.country ?? '',
                 },

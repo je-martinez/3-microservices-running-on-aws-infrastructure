@@ -1,4 +1,5 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, signal, ChangeDetectionStrategy } from '@angular/core';
+import { form, required, email as emailValidator, FormField } from '@angular/forms/signals';
 import { Router, RouterLink } from '@angular/router';
 import { LucideArrowLeft } from '@lucide/angular';
 import { firstValueFrom } from 'rxjs';
@@ -22,7 +23,16 @@ const NO_ACCOUNT = 'We could not start a sign-in code for that email.';
  */
 @Component({
   selector: 'app-login-passwordless',
-  imports: [RouterLink, LucideArrowLeft, Field, ButtonPrimary, ButtonGhost, DevFillButton],
+  imports: [
+    RouterLink,
+    LucideArrowLeft,
+    FormField,
+    Field,
+    ButtonPrimary,
+    ButtonGhost,
+    DevFillButton,
+  ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './login-passwordless.html',
 })
 export class LoginPasswordlessPage {
@@ -30,18 +40,30 @@ export class LoginPasswordlessPage {
   private readonly challenge = inject(OtpChallengeStore);
   private readonly router = inject(Router);
 
-  protected readonly email = signal('');
+  protected readonly model = signal({ email: '' });
+
+  protected readonly otpForm = form(this.model, (path) => {
+    required(path.email, { message: 'Enter your email' });
+    emailValidator(path.email, { message: 'Enter a valid email' });
+  });
+
   protected readonly submitting = signal(false);
   protected readonly error = signal<string | null>(null);
 
   /** Dev-only: fills the inputs this form owns. See dev-fill.ts. */
   protected devFill(data: DevData): void {
-    this.email.set(data.email);
+    this.model.set({ email: data.email });
   }
 
   protected async submit(): Promise<void> {
     if (this.submitting()) return;
-    const email = this.email().trim();
+    // CONTRACT: Mark the fields touched before the validity gate, or an empty
+    // form submitted straight from the keyboard renders no message at all —
+    // `Field` hides an error until its field is touched.
+    this.otpForm().markAsTouched();
+    if (this.otpForm().invalid()) return;
+
+    const email = this.model().email.trim();
     this.error.set(null);
     this.submitting.set(true);
     try {

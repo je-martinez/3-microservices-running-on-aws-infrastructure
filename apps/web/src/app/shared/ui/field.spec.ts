@@ -32,7 +32,7 @@ describe('Field', () => {
     const emitted: string[] = [];
     fixture.componentRef.setInput('type', 'numeric');
     fixture.componentRef.setInput('maxLength', 5);
-    fixture.componentInstance.valueChange.subscribe((value) => emitted.push(value));
+    fixture.componentInstance.value.subscribe((value) => emitted.push(value));
     fixture.detectChanges();
 
     const element = (fixture.nativeElement as HTMLElement).querySelector('input');

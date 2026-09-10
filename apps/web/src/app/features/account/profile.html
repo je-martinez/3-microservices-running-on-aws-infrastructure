@@ -74,20 +74,14 @@
           </div>
           <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 md:flex-row">
             <div class="w-full flex-1">
-              <app-field
-                label="Full name"
-                icon="user"
-                [value]="fullName()"
-                (valueChange)="fullName.set($event)"
-              />
+              <app-field label="Full name" icon="user" [formField]="profileForm.fullName" />
             </div>
             <div class="w-full flex-1">
               <app-phone-field
                 label="Phone number"
                 icon="phone"
-                [value]="phoneInput()"
                 [defaultCountry]="seedCountry()"
-                (valueChange)="phoneInput.set($event)"
+                [formField]="profileForm.phoneNumber"
               />
             </div>
           </div>
@@ -103,8 +97,7 @@
               <app-field
                 label="Address"
                 icon="map-pin"
-                [value]="street()"
-                (valueChange)="street.set($event)"
+                [formField]="profileForm.street"
                 help="Used as the default delivery address at checkout."
               />
             </div>
@@ -113,21 +106,18 @@
                 label="Apartment"
                 icon="building-2"
                 placeholder="Apt, suite, floor (optional)"
-                [value]="line2()"
-                (valueChange)="line2.set($event)"
+                [formField]="profileForm.line2"
               />
             </div>
           </div>
-          <app-field label="City" icon="map" [value]="city()" (valueChange)="city.set($event)" />
-          <app-field label="State" icon="map" [value]="state()" (valueChange)="state.set($event)" />
+          <app-field label="City" icon="map" [formField]="profileForm.city" />
+          <app-field label="State" icon="map" [formField]="profileForm.state" />
           <app-field
             label="ZIP Code"
             type="numeric"
             autocomplete="postal-code"
-            [maxLength]="5"
             icon="map"
-            [value]="postalCode()"
-            (valueChange)="postalCode.set($event)"
+            [formField]="profileForm.postalCode"
             help="Used as the default delivery address at checkout."
           />
 

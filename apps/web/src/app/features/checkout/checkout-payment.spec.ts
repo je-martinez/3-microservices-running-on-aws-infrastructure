@@ -481,6 +481,36 @@ describe('CheckoutPaymentPage', () => {
   });
 
   /**
+   * CONTRACT: Street AND city gate saving, and a value of spaces does not count
+   * as either. `required` on its own rejects only the empty string, so a form
+   * of blanks would otherwise save an address that ships nowhere.
+   */
+  it('refuses to save an address whose street or city is blank or spaces', async () => {
+    signIn(null);
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    const saveButton = () =>
+      root().querySelector<HTMLButtonElement>('[data-testid="checkout-save-address"]');
+    expect(saveButton()?.disabled).toBe(true);
+
+    fillField(fixture, 'Street address', 'Calle Duarte 87');
+    expect(saveButton()?.disabled).toBe(true);
+
+    fillField(fixture, 'City', '   ');
+    expect(saveButton()?.disabled).toBe(true);
+
+    fillField(fixture, 'City', 'Santiago');
+    expect(saveButton()?.disabled).toBe(false);
+
+    fillField(fixture, 'Street address', '   ');
+    expect(saveButton()?.disabled).toBe(true);
+
+    controller.verify();
+  });
+
+  /**
    * CONTRACT: A chosen suggestion's city/state/postal code are KNOWN and go to
    * the service verbatim, each into its own field. `country` rides along too —
    * it is the one contract field the form has no input for.

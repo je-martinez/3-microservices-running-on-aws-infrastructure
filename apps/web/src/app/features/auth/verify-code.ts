@@ -1,4 +1,5 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal, ChangeDetectionStrategy } from '@angular/core';
+import { form, pattern, required } from '@angular/forms/signals';
 import { RouterLink } from '@angular/router';
 import { LucideArrowLeft, LucideShieldCheck, LucideTimer } from '@lucide/angular';
 import { firstValueFrom } from 'rxjs';
@@ -32,6 +33,7 @@ const NO_CHALLENGE = 'This code request has expired. Start again to get a new co
 @Component({
   selector: 'app-verify-code',
   imports: [RouterLink, LucideArrowLeft, LucideTimer, LucideShieldCheck, OtpDigit, ButtonPrimary],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './verify-code.html',
 })
 export class VerifyCodePage {
@@ -39,7 +41,19 @@ export class VerifyCodePage {
   private readonly challenge = inject(OtpChallengeStore);
   private readonly signIn = inject(SignIn);
 
-  protected readonly code = signal('');
+  protected readonly model = signal({ code: '' });
+
+  /**
+   * CONTRACT: Do NOT bind the code input with `[formField]`. `onCodeInput` is
+   * what strips non-digits, and the native binding writes the raw DOM value
+   * into `controlValue` alongside it — typing `12a34b` then reaches the
+   * request. This schema validates what that handler already wrote.
+   */
+  protected readonly codeForm = form(this.model, (path) => {
+    required(path.code);
+    pattern(path.code, CODE_PATTERN);
+  });
+
   protected readonly submitting = signal(false);
   protected readonly resending = signal(false);
   protected readonly error = signal<string | null>(null);
@@ -47,17 +61,18 @@ export class VerifyCodePage {
 
   protected readonly maxLength = CODE_LENGTH;
   protected readonly email = this.challenge.email;
+  protected readonly code = computed(() => this.model().code);
   /** One slot per box, so the template renders the typed digits positionally. */
   protected readonly digits = computed(() =>
     Array.from({ length: CODE_LENGTH }, (_, index) => this.code()[index] ?? ''),
   );
-  protected readonly canSubmit = computed(() => CODE_PATTERN.test(this.code()));
+  protected readonly canSubmit = computed(() => this.codeForm().valid());
 
   /** Keeps non-digits and overlong pastes out of the model entirely. */
   protected onCodeInput(element: HTMLInputElement): void {
     const value = digitsOnly(element.value, CODE_LENGTH);
     element.value = value;
-    this.code.set(value);
+    this.model.set({ code: value });
     this.error.set(null);
   }
 
@@ -69,7 +84,7 @@ export class VerifyCodePage {
       return;
     }
     // Client-side gate: no request leaves for a code that cannot possibly pass.
-    if (!CODE_PATTERN.test(this.code())) {
+    if (this.codeForm().invalid()) {
       this.error.set(`Enter the ${this.maxLength}-digit code from your email.`);
       return;
     }
@@ -111,7 +126,7 @@ export class VerifyCodePage {
     try {
       const { session } = await firstValueFrom(this.usersApi.startOtp(email));
       this.challenge.renew(session);
-      this.code.set('');
+      this.model.set({ code: '' });
       this.notice.set('We sent you a new code.');
     } catch (error: unknown) {
       this.error.set(authErrorMessage(error));
