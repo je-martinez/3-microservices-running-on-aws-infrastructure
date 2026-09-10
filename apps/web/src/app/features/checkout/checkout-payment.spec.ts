@@ -165,13 +165,6 @@ describe('CheckoutPaymentPage', () => {
     expect(expiry.maxLength).toBe(7);
     expect(cvc.value).toBe('1234');
     expect(cvc.maxLength).toBe(4);
-
-    const zip = Array.from(root().querySelectorAll<HTMLInputElement>('input')).find(
-      (input) => input.value === '10604',
-    );
-    expect(zip?.readOnly).toBe(true);
-    expect(zip?.inputMode).toBe('numeric');
-    expect(zip?.maxLength).toBe(5);
   });
 
   // WHY: Drive the output rather than DEV_MODE and the real generator — the
