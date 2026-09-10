@@ -47,6 +47,14 @@ export interface AuthProvider {
   // value the token must carry has to be pushed there by whoever changes it.
   setMustChangePassword(email: string, mustChangePassword: boolean): Promise<void>;
 
+  // CONTRACT: Takes an ACCESS token, not an id or refresh token, and the token itself
+  // is the only authorization — no pool id, no client id, no IAM policy is evaluated.
+  // It must carry the `aws.cognito.signin.user.admin` scope, which tokens minted by
+  // AdminInitiateAuth do; a hosted-UI token without that scope is rejected.
+  // WARNING: The token is a credential. Never log it, on a span or anywhere else.
+  // Resolves for an already-invalid token so signing out twice is not an error.
+  signOut(accessToken: string): Promise<void>;
+
   // CONTRACT: AdminDeleteUser, NOT AdminDisableUser — deleting is what frees the
   // email address, and a disabled account keeps occupying it so a returning user hits
   // UsernameExistsException forever. A narrow, deliberate departure from

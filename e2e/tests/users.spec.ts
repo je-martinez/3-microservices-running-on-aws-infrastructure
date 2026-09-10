@@ -134,3 +134,53 @@ test("replaying the same Cognito event does not add a second event row (D4)", as
   ).json();
   expect(after.events).toBe(1);
 });
+
+// Sign-out over the SERVICE port. The internal project fakes the authorizer, so
+// `x-user-id` is set by hand — but the Authorization header is NOT faked: it
+// carries the real access token from login, because that token is the only thing
+// GlobalSignOut accepts.
+test("POST /v1/users/logout revokes the session and is idempotent", async () => {
+  const api = await apiClient();
+  const user = makeUser();
+  const registered = await api.post("/v1/users/register", { data: user });
+  const { id } = await registered.json();
+
+  const login = await api.post("/v1/users/login", {
+    data: { email: user.email, password: user.password },
+  });
+  expect(login.status()).toBe(200);
+  const { accessToken } = await login.json();
+  expect(accessToken).toBeTruthy();
+
+  const headers = { "x-user-id": id, authorization: `Bearer ${accessToken}` };
+
+  const first = await api.post("/v1/users/logout", { headers });
+  expect(first.status()).toBe(204);
+  expect(await first.text()).toBe("");
+
+  // The token is revoked now, so Cognito answers NotAuthorizedException — which
+  // this endpoint deliberately reports as success: the session is gone, which is
+  // what the caller asked for.
+  const second = await api.post("/v1/users/logout", { headers });
+  expect(second.status()).toBe(204);
+});
+
+test("POST /v1/users/logout is 401 without an identity", async () => {
+  const api = await apiClient();
+  const res = await api.post("/v1/users/logout", {
+    headers: { authorization: "Bearer whatever" },
+  });
+  expect(res.status()).toBe(401);
+  expect(await res.json()).toEqual({ error: "unauthenticated" });
+});
+
+test("POST /v1/users/logout is 401 when no bearer token is sent", async () => {
+  const api = await apiClient();
+  const user = makeUser();
+  const registered = await api.post("/v1/users/register", { data: user });
+  const { id } = await registered.json();
+
+  const res = await api.post("/v1/users/logout", { headers: { "x-user-id": id } });
+  expect(res.status()).toBe(401);
+  expect(await res.json()).toEqual({ error: "invalid_credentials" });
+});

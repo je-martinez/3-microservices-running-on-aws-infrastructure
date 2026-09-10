@@ -421,6 +421,34 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /v1/users/logout:
+    post:
+      operationId: logoutUser
+      summary: Revoke the caller's Cognito session
+      tags:
+        - users
+      description: "Globally signs the caller out, invalidating the id, access and
+        refresh tokens Cognito issued to them. Idempotent: an already-revoked or
+        expired token also answers 204, because the session being gone is the
+        requested outcome."
+      parameters:
+        - schema:
+            type: string
+          in: header
+          name: authorization
+          required: false
+          description: Bearer <Cognito access token>. The same header the gateway
+            authorizer reads; the access token is what authorizes the
+            revocation, so no body is needed.
+      responses:
+        "204":
+          description: Default Response
+        "401":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /v1/users/otp/start:
     post:
       operationId: startOtpChallenge

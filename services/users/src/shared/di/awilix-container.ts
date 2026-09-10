@@ -21,6 +21,7 @@ import { LoginUserCommand } from "#features/users/commands/login";
 import { StartOtpChallengeCommand } from "#features/users/commands/start-otp-challenge";
 import { VerifyOtpChallengeCommand } from "#features/users/commands/verify-otp-challenge";
 import { RefreshTokenCommand } from "#features/users/commands/refresh";
+import { SignOutCommand } from "#features/users/commands/sign-out";
 import { UpdateProfileCommand } from "#features/users/commands/update-profile";
 import { ForgotPasswordCommand } from "#features/users/commands/forgot-password";
 import { ConfirmPasswordResetCommand } from "#features/users/commands/confirm-password-reset";
@@ -54,6 +55,7 @@ declare module "@fastify/awilix" {
     startOtpChallengeCommand: StartOtpChallengeCommand;
     verifyOtpChallengeCommand: VerifyOtpChallengeCommand;
     refreshTokenCommand: RefreshTokenCommand;
+    signOutCommand: SignOutCommand;
     updateProfileCommand: UpdateProfileCommand;
     forgotPasswordCommand: ForgotPasswordCommand;
     confirmPasswordResetCommand: ConfirmPasswordResetCommand;
@@ -175,6 +177,7 @@ export function registerServices(): void {
     startOtpChallengeCommand: asClass(StartOtpChallengeCommand, { lifetime: Lifetime.SCOPED }),
     verifyOtpChallengeCommand: asClass(VerifyOtpChallengeCommand, { lifetime: Lifetime.SCOPED }),
     refreshTokenCommand: asClass(RefreshTokenCommand, { lifetime: Lifetime.SCOPED }),
+    signOutCommand: asClass(SignOutCommand, { lifetime: Lifetime.SCOPED }),
     updateProfileCommand: asClass(UpdateProfileCommand, { lifetime: Lifetime.SCOPED }),
     forgotPasswordCommand: asClass(ForgotPasswordCommand, { lifetime: Lifetime.SCOPED }),
     confirmPasswordResetCommand: asClass(ConfirmPasswordResetCommand, { lifetime: Lifetime.SCOPED }),

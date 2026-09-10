@@ -4,6 +4,7 @@ import {
   AdminSetUserPasswordCommand,
   AdminUpdateUserAttributesCommand,
   AdminInitiateAuthCommand,
+  GlobalSignOutCommand,
   RespondToAuthChallengeCommand,
   type CognitoIdentityProviderClient,
 } from "@aws-sdk/client-cognito-identity-provider";
@@ -265,5 +266,21 @@ export class CognitoAuthProvider implements AuthProvider {
     }
     const r = res.AuthenticationResult;
     return { idToken: r?.IdToken ?? "", accessToken: r?.AccessToken ?? "" };
+  }
+
+  // GlobalSignOut, NOT RevokeToken: RevokeToken kills only the refresh token and
+  // leaves the access token usable until it expires on its own.
+  // CONTRACT: Swallow NotAuthorizedException rather than mapping it to a 401 — Cognito
+  // answers it for an expired, malformed or ALREADY revoked token, all of which mean
+  // the session is gone, which is what the caller asked for. A 401 here fails the
+  // second of two clicks for a client that already dropped its tokens.
+  // See [[users-service-design]]
+  async signOut(accessToken: string): Promise<void> {
+    try {
+      await this.client.send(new GlobalSignOutCommand({ AccessToken: accessToken }));
+    } catch (e: any) {
+      if (e?.name === "NotAuthorizedException" || e?.name === "UserNotFoundException") return;
+      throw e;
+    }
   }
 }

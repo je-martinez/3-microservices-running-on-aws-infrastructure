@@ -70,7 +70,7 @@ import {
   PasswordResetAcceptedSchema, PasswordResetConfirmedSchema,
   UserSchema, AuthTokensSchema, ErrorSchema,
   HealthResponseSchema, E2ECleanupResponseSchema,
-  UserIdHeader, WebhookSecretHeader,
+  UserIdHeader, WebhookSecretHeader, AuthorizationHeader,
 } from "./schemas.ts";
 
 // `User` (the domain shape returned by commands/queries) carries real `Date`
@@ -84,6 +84,16 @@ export function serializeUser(user: User) {
     updatedAt: user.updatedAt.toISOString(),
     deletedAt: user.deletedAt ? user.deletedAt.toISOString() : null,
   };
+}
+
+// Extracts the raw token from an `Authorization: Bearer <token>` header, or null
+// when the header is absent or not a Bearer one. The scheme match is
+// case-insensitive because HTTP auth schemes are, and a client sending `bearer`
+// holds a perfectly valid token.
+// WARNING: The return value is a credential — pass it on, never log it.
+export function bearerToken(header: string | undefined): string | null {
+  const match = /^Bearer[ ]+(.+)$/i.exec(header?.trim() ?? "");
+  return match?.[1]?.trim() || null;
 }
 
 // Builds the Fastify app wired to an Awilix container. Commands/queries resolve
@@ -364,6 +374,33 @@ export function buildApp(
       const { refreshTokenCommand } = req.diScope.cradle;
       const tokens = await refreshTokenCommand.execute(req.body);
       return reply.send(tokens);
+    });
+
+    // CONTRACT: Read the token from the Authorization header, NOT a body field — a
+    // body field could name a DIFFERENT session than the one that authenticated the
+    // request. Do NOT add this route to `shared/http/public-routes.ts`: that absence
+    // is what makes the onRequest hook 401 a caller with no identity.
+    // See [[users-service-design]]
+    r.post("/v1/users/logout", {
+      schema: {
+        tags: ["users"], operationId: "logoutUser",
+        summary: "Revoke the caller's Cognito session",
+        description:
+          "Globally signs the caller out, invalidating the id, access and refresh tokens " +
+          "Cognito issued to them. Idempotent: an already-revoked or expired token also " +
+          "answers 204, because the session being gone is the requested outcome.",
+        headers: AuthorizationHeader,
+        response: { 204: z.null(), 401: ErrorSchema },
+      },
+    }, async (req, reply) => {
+      const { signOutCommand } = req.diScope.cradle;
+      const accessToken = bearerToken(req.headers.authorization);
+      // A caller past the onRequest guard holds an x-user-id but may still have sent
+      // no parseable Bearer token (a direct internal call, or a gateway misconfigured
+      // to drop the header). There is no token to revoke, so this cannot be a 204.
+      if (!accessToken) return reply.code(401).send({ error: "invalid_credentials" });
+      await signOutCommand.execute({ accessToken });
+      return reply.code(204).send(null);
     });
 
     // OTP login, step 1 of 2. Cognito CUSTOM_AUTH: the challenge Lambda mints

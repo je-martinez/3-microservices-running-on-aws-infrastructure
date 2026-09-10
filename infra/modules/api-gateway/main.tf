@@ -75,6 +75,13 @@ locals {
       # on a missing x-user-id, so both layers agree.
       patch_me_password = { key = "PATCH /v1/users/me/password", path = "/v1/users/me/password", auth = true }
 
+      # WHY: auth = true — the caller's own access token is what GlobalSignOut
+      # revokes, so a request without one has no session to end. The authorizer
+      # validating that header is also what forwards it to the service, which
+      # reads the token from it rather than from a body field. No nginx
+      # `location` needed: /v1/users/logout falls under `location /`.
+      logout = { key = "POST /v1/users/logout", path = "/v1/users/logout", auth = true }
+
       # WHY: Per-service health, prefixed. nginx rewrites each to the service's
       # unprefixed /v1/health.
       users_health  = { key = "GET /v1/users/health", path = "/v1/users/health", auth = false }
