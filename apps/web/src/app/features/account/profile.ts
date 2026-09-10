@@ -10,12 +10,14 @@ import { form, maxLength, pattern, required, FormField } from '@angular/forms/si
 import { Router } from '@angular/router';
 import { LucideLock, LucideRefreshCw, LucideTriangleAlert } from '@lucide/angular';
 import { firstValueFrom } from 'rxjs';
+import type { Address } from '../../core/api/types';
 import { UsersApi } from '../../core/api/users-api';
 import { SessionStore } from '../../core/auth/session-store';
 import { authErrorMessage } from '../auth/auth-errors';
 import { formatMonthYear } from '../../shared/date/format-date';
 import { ButtonPrimary } from '../../shared/ui/button-primary';
 import { Field } from '../../shared/ui/field';
+import { StreetAutocomplete } from '../../shared/ui/street-autocomplete';
 import { PhoneField } from '../../shared/ui/phone-field';
 import { DevFillButton } from '../../core/dev/dev-fill-button';
 import type { DevData } from '../../core/dev/dev-fill';
@@ -58,6 +60,7 @@ const EMPTY_PROFILE_FORM: ProfileForm = {
     Field,
     FormField,
     PhoneField,
+    StreetAutocomplete,
     LucideLock,
     LucideRefreshCw,
     LucideTriangleAlert,
@@ -139,6 +142,38 @@ export class ProfilePage {
     }));
   }
 
+  /**
+   * CONTRACT: What a suggestion resolved, kept so `country` survives the save —
+   * it is the one contract field this form has no input for. Null while the
+   * user types freehand, which is why the saved country is preserved then.
+   */
+  protected readonly resolvedAddress = signal<Address | null>(null);
+
+  /**
+   * CONTRACT: Mirror the resolved city, state and postal code into the VISIBLE
+   * fields as well as into `resolvedAddress`. A value saved but never shown is
+   * one the user cannot correct.
+   */
+  protected onAddressSuggested(address: Address): void {
+    this.resolvedAddress.set(address);
+    this.model.update((current) => ({
+      ...current,
+      street: address.line1,
+      city: address.city,
+      state: address.state,
+      postalCode: address.postalCode,
+    }));
+  }
+
+  /**
+   * CONTRACT: Editing the street KEEPS the resolution — appending a house number
+   * is the expected next action, since no Dominican suggestion carries one. Only
+   * clearing it starts over.
+   */
+  protected onStreetTyped(value: string): void {
+    if (value.trim() === '') this.resolvedAddress.set(null);
+  }
+
   /** @see devFillPersonal */
   protected devFillAddress(data: DevData): void {
     const [devCity, devPostal] = data.cityAndPostalCode.split(',').map((part) => part.trim());
@@ -201,8 +236,11 @@ export class ProfilePage {
                   city: values.city.trim(),
                   state: values.state.trim(),
                   postalCode: values.postalCode.trim(),
-                  // Preserved, never guessed — this form has no country input.
-                  country: this.user()?.address?.country ?? '',
+                  // CONTRACT: A suggestion's country wins over the saved one —
+                  // that is the only way moving abroad ever corrects it. With no
+                  // suggestion the saved value is preserved, never guessed:
+                  // this form has no country input.
+                  country: this.resolvedAddress()?.country ?? this.user()?.address?.country ?? '',
                 },
               }),
         }),

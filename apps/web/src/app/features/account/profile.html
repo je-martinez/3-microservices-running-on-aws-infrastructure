@@ -96,18 +96,21 @@
           </div>
           <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 md:flex-row">
             <div class="w-full flex-1">
-              <app-field
-                label="Address"
+              <app-street-autocomplete
+                label="Address Line 1"
                 icon="map-pin"
-                [formField]="profileForm.street"
+                placeholder="Av. Rómulo Betancourt 1204"
                 help="Used as the default delivery address at checkout."
+                [formField]="profileForm.street"
+                (valueChange)="onStreetTyped($event)"
+                (addressSelected)="onAddressSuggested($event)"
               />
             </div>
             <div class="w-full flex-1">
               <app-field
-                label="Apartment"
+                label="Address Line 2"
                 icon="building-2"
-                placeholder="Apt, suite, floor (optional)"
+                placeholder="Apartment, suite, floor (optional)"
                 [formField]="profileForm.line2"
               />
             </div>

@@ -3,10 +3,12 @@ import 'fake-indexeddb/auto';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
 
 import { ProfilePage } from './profile';
 import { SessionStore } from '../../core/auth/session-store';
+import { StreetAutocomplete } from '../../shared/ui/street-autocomplete';
 import { awaitRequest, fillField, settle, textOf, USER } from '../auth/testing';
 
 import { SCREEN_TEST_PROVIDERS } from '../../shared/testing/fixtures';
@@ -57,7 +59,9 @@ describe('ProfilePage', () => {
 
   function fieldValues(): string[] {
     const root = fixture.nativeElement as HTMLElement;
-    return Array.from(root.querySelectorAll('app-field input')).map((i) => (i as HTMLInputElement).value);
+    // The address field is an app-street-autocomplete, the rest are app-field.
+    const controls = 'app-field input, app-street-autocomplete input';
+    return Array.from(root.querySelectorAll(controls)).map((i) => (i as HTMLInputElement).value);
   }
 
   function create(): void {
@@ -142,6 +146,39 @@ describe('ProfilePage', () => {
   });
 
   /**
+   * CONTRACT: A suggestion's country REPLACES the saved one. The form has no
+   * country input, so this is the only way a user who moved abroad ever
+   * corrects it — preserving the old value would save a Spanish street as US.
+   */
+  it('saves the country a suggestion resolved, over the stored one', async () => {
+    create();
+    (await awaitRequest(fixture, controller, ME)).flush(MORGAN);
+    await settle(fixture);
+
+    fixture.debugElement
+      .query(By.directive(StreetAutocomplete))
+      .componentInstance.addressSelected.emit({
+        line1: 'Gran Via 1',
+        line2: null,
+        city: 'Madrid',
+        state: 'Madrid',
+        postalCode: '28013',
+        country: 'ES',
+      });
+    await settle(fixture);
+
+    root().querySelector<HTMLButtonElement>('app-button-primary button')?.click();
+    await settle(fixture);
+
+    const patch = await awaitRequest(fixture, controller, ME);
+    expect(patch.request.body).toMatchObject({
+      address: { line1: 'Gran Via 1', city: 'Madrid', country: 'ES' },
+    });
+    patch.flush(MORGAN);
+    await settle(fixture);
+  });
+
+  /**
    * CONTRACT: Orders drops an all-null address snapshot to NULL, so posting a
    * blank address erases one the user never touched. No street, no address key.
    */
@@ -150,7 +187,7 @@ describe('ProfilePage', () => {
     (await awaitRequest(fixture, controller, ME)).flush(MORGAN);
     await settle(fixture);
 
-    fillField(fixture, 'Address', '');
+    fillField(fixture, 'Address Line 1', '');
     root().querySelector<HTMLButtonElement>('app-button-primary button')?.click();
     await settle(fixture);
 

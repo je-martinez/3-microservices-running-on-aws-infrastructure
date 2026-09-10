@@ -10,7 +10,7 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { LucideDynamicIcon } from '@lucide/angular';
+import { LucideDynamicIcon, LucideMapPin } from '@lucide/angular';
 import { Subject, debounceTime, distinctUntilChanged, of, switchMap } from 'rxjs';
 
 import { APP_CONFIG } from '../../core/config/app-config';
@@ -37,7 +37,7 @@ const NO_ACTIVE_INDEX = -1;
  */
 @Component({
   selector: 'app-street-autocomplete',
-  imports: [LucideDynamicIcon],
+  imports: [LucideDynamicIcon, LucideMapPin],
   templateUrl: './street-autocomplete.html',
   // CONTRACT: Keep `block w-full` on the host, for the reason field.ts states —
   // a bare custom element is display:inline and shrinks to its content as a

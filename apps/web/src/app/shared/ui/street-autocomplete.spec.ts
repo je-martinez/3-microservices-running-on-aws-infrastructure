@@ -68,7 +68,7 @@ describe('StreetAutocomplete', () => {
     });
     controller = TestBed.inject(HttpTestingController);
     fixture = TestBed.createComponent(StreetAutocomplete);
-    fixture.componentRef.setInput('label', 'Street address');
+    fixture.componentRef.setInput('label', 'Address Line 1');
     fixture.detectChanges();
   }
 

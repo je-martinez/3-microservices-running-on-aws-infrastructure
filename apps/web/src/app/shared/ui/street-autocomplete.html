@@ -64,16 +64,22 @@
           <li class="w-full shrink-0">
             <!-- WHY: `mousedown`, not `click` — the input's `blur` fires first
                  on a click and closes the list, so the click never lands. -->
+            <!-- WHY: Hover and keyboard highlight paint the SAME row style, so
+                 a mouse user and a keyboard user see one affordance. The active
+                 row also goes semibold: on `bg-surface-subtle`, a 1.1:1 tint
+                 against white, weight is what carries the highlight. -->
             <button
               type="button"
               role="option"
               [id]="optionId(i)"
               [attr.aria-selected]="i === activeIndex()"
-              class="text-ink-primary flex h-fit w-full flex-row items-center justify-start rounded-lg px-3 py-md text-left text-body-lg"
+              class="text-ink-primary hover:bg-surface-subtle flex h-fit w-full flex-row items-center justify-start gap-md rounded-lg px-3 py-md text-left text-label"
               [class.bg-surface-subtle]="i === activeIndex()"
+              [class.font-semibold]="i === activeIndex()"
               (mousedown)="$event.preventDefault(); select(suggestion)"
             >
-              {{ suggestion.label }}
+              <svg lucideMapPin class="text-ink-muted h-4 w-4 shrink-0"></svg>
+              <span class="min-w-0 flex-1 truncate">{{ suggestion.label }}</span>
             </button>
           </li>
         }

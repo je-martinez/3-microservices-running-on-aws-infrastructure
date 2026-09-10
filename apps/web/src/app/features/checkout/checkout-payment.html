@@ -175,23 +175,23 @@
                   <app-dev-fill-button (filled)="devFill($event)" />
                 </div>
 
-                <!-- WHY: The help text promises the STREET only. OpenStreetMap
-                     has no house numbers for Santo Domingo, so a suggestion
-                     fills the street and everything above it while the buyer
-                     types the number. -->
+                <!-- WHY: The help sits on line 1 rather than line 2, where the
+                     design frame draws it: it describes what searching does,
+                     and a hint under the field it does not govern reads as
+                     belonging to that one. -->
                 <app-street-autocomplete
-                  label="Street address"
+                  label="Address Line 1"
                   icon="map-pin"
-                  placeholder="Street, number, apartment"
-                  help="Pick your street from the list, then add your house number."
+                  placeholder="Rómulo Betancourt"
+                  help="Search your street and pick a suggestion — we'll fill in City, State and ZIP Code."
                   [formField]="addressForm.street"
                   (valueChange)="onStreetTyped($event)"
                   (addressSelected)="onAddressSuggested($event)"
                 />
                 <app-field
-                  label="Apartment"
+                  label="Address Line 2"
                   icon="building-2"
-                  placeholder="Apt, suite, floor (optional)"
+                  placeholder="Apartment, suite, floor (optional)"
                   [formField]="addressForm.line2"
                 />
                 <app-field

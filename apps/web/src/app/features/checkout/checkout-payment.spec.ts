@@ -437,7 +437,7 @@ describe('CheckoutPaymentPage', () => {
     (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
     await settle(fixture);
 
-    fillField(fixture, 'Street address', 'Calle Duarte 87');
+    fillField(fixture, 'Address Line 1', 'Calle Duarte 87');
     fillField(fixture, 'City', 'Santiago');
     fillField(fixture, 'ZIP Code', '51000');
     fillField(fixture, 'Phone number', '+1 809 555 0142');
@@ -488,7 +488,7 @@ describe('CheckoutPaymentPage', () => {
       root().querySelector<HTMLButtonElement>('[data-testid="checkout-save-address"]');
     expect(saveButton()?.disabled).toBe(true);
 
-    fillField(fixture, 'Street address', 'Calle Duarte 87');
+    fillField(fixture, 'Address Line 1', 'Calle Duarte 87');
     expect(saveButton()?.disabled).toBe(true);
 
     fillField(fixture, 'City', '   ');
@@ -497,7 +497,7 @@ describe('CheckoutPaymentPage', () => {
     fillField(fixture, 'City', 'Santiago');
     expect(saveButton()?.disabled).toBe(false);
 
-    fillField(fixture, 'Street address', '   ');
+    fillField(fixture, 'Address Line 1', '   ');
     expect(saveButton()?.disabled).toBe(true);
 
     controller.verify();
@@ -539,7 +539,7 @@ describe('CheckoutPaymentPage', () => {
 
     // Adding the house number keeps the resolution — the whole point of a
     // STREET autocomplete against a dataset with no house numbers.
-    fillField(fixture, 'Street address', 'Avenida Winston Churchill 42');
+    fillField(fixture, 'Address Line 1', 'Avenida Winston Churchill 42');
 
     root().querySelector<HTMLButtonElement>('[data-testid="checkout-save-address"]')?.click();
     await settle(fixture);
@@ -631,7 +631,7 @@ describe('CheckoutPaymentPage', () => {
     (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
     await settle(fixture);
 
-    fillField(fixture, 'Street address', 'Calle Duarte 87');
+    fillField(fixture, 'Address Line 1', 'Calle Duarte 87');
     fillField(fixture, 'City', 'Santiago');
     fillField(fixture, 'ZIP Code', '51000');
     root().querySelector<HTMLButtonElement>('[data-testid="checkout-save-address"]')?.click();
@@ -729,7 +729,7 @@ describe('CheckoutPaymentPage', () => {
     root().querySelector<HTMLButtonElement>('[data-testid="checkout-edit-address"]')?.click();
     await settle(fixture);
 
-    fillField(fixture, 'Street address', 'Calle Duarte 87');
+    fillField(fixture, 'Address Line 1', 'Calle Duarte 87');
     fillField(fixture, 'City', 'Santiago');
     fillField(fixture, 'ZIP Code', '51000');
     root().querySelector<HTMLButtonElement>('[data-testid="checkout-save-address"]')?.click();
@@ -774,7 +774,7 @@ describe('CheckoutPaymentPage', () => {
 
     root().querySelector<HTMLButtonElement>('[data-testid="checkout-edit-address"]')?.click();
     await settle(fixture);
-    fillField(fixture, 'Street address', 'Calle Duarte 87');
+    fillField(fixture, 'Address Line 1', 'Calle Duarte 87');
 
     root().querySelector<HTMLButtonElement>('[data-testid="checkout-cancel-edit-address"]')?.click();
     await settle(fixture);
