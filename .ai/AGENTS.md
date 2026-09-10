@@ -226,6 +226,21 @@ Comments use a **closed set of five tags** — `CONTRACT:`, `WORKAROUND(<scope>)
 Untagged comments stay **up to 6 lines** (keep to 3 where the point fits); a
 block **over 12 lines is an error**.
 
+**The test is the TENSE, not a word list.** Read each sentence back before you
+commit it and ask: *does this describe the code as it stands, or tell the reader
+what changed?* Past tense about THIS CODEBASE is the violation — `became`,
+`was broken`, `we switched`, `after the fix`, `used to`, `previously` are only
+its common spellings, and the linter's marker list is a net, not the rule. Past
+tense about RUNTIME ("a cart the order just consumed") is fine. This matters
+because the rule was broken twice in one day, and the second time happened
+*after* the linter was extended — the offending word (`became`) was simply not
+on any list. Satisfying the word list is not satisfying the rule.
+
+**A comment that restates the code earns nothing.** `?? undefined` already says
+"or nothing"; a comment saying so is noise. Write only what the code cannot: the
+prohibition, the failure it prevents, the non-local reason. Prefer deleting a
+comment to padding it.
+
 **Load-bearing history is relocated, not deleted.** "We tried X and it broke Y"
 becomes a present-tense prohibition plus one concrete failure symptom
 (`CONTRACT: Do NOT …` / `WORKAROUND(local): Do NOT rely on …`); the narrative,
@@ -496,3 +511,13 @@ plain Python linter with no Claude Code dependency. Run it with the repo venv:
 **new** violations; pre-existing ones are frozen and are not yours to fix as a
 side effect. `make lint-comments` and `make lint-comments-diff` wrap it, and
 `make install-comment-hook` installs the pre-commit gate once per clone.
+
+Its scope is wider than source code: beyond `.tf .tfvars .py .ts .tsx .js .jsx
+.mjs .cs .go` it also lints `.yml`/`.yaml`, Angular `.html` templates, and
+extensionless `Makefile*`/`Dockerfile*` (matched on the stem, so `Dockerfile.dev`
+and `Makefile.local` count). A comment budget in a file nothing opens is not a
+budget — each of those was added after narrative blocks accumulated unchecked.
+The pre-commit hook in `.githooks/pre-commit` keeps its own suffix list, and it
+**must mirror the script's**: a language the script lints but the hook's case
+statement misses is ungated at commit time, which is a silent hole rather than a
+visible failure.

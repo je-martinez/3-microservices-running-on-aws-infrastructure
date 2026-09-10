@@ -131,7 +131,14 @@ LEGACY_REFERENCE_RE = re.compile(r"See\s+(?:@vault\s+)?docs/[^\s)\]]+")
 NARRATIVE_MARKER_RE = re.compile(
     r"\b("
     r"used\s+to|previously|no\s+longer|tried|did\s+not\s+work|turned\s+out|"
-    r"originally|initially|instead\s+we|eventually|the\s+fix\s+was|now\s+we"
+    r"originally|initially|instead\s+we|eventually|the\s+fix\s+was|now\s+we|"
+    # Past-transition verbs: the shape a rewrite takes when it narrates what a
+    # value or behaviour changed FROM. Each measured at 0 hits across the repo's
+    # existing comments, so they cost no baseline churn.
+    r"became|has\s+since|this\s+fix(?:es|ed)|after\s+the\s+fix|reverted|"
+    r"we\s+(?:changed|moved|renamed|removed|switched|replaced)|"
+    r"(?:was|were)\s+broken|"
+    r"stopped\s+(?:being|working)"
     r")\b",
     re.IGNORECASE,
 )
@@ -158,7 +165,13 @@ RUNTIME_NARRATIVE_WHITELIST_RE = re.compile(
     r"hardcoded\s+address\s+eventually|somebody\s+eventually\s+mounts)|"
     r"used\s+to\s+(?:build|distinguish|resolve|skip|tell)|"
     r"(?:be\s+tried|tried\s+block)|"
-    r"\b(?:is|be|are)\s+retried\b"
+    r"\b(?:is|be|are)\s+retried\b|"
+    # Hypothetical, not history: "fails as if the backend were broken".
+    r"as\s+if\s+(?:the|it|they|that)\s+\w*\s*(?:was|were)\s+broken|"
+    # Lifecycle position, not chronology: "branches at first render".
+    r"at\s+first\s+(?:render|paint|load|run|call|use)|"
+    # Present-tense consequence: "is silently reverted on the next apply".
+    r"(?:is|are|gets?)\s+(?:\w+\s+)?reverted"
     r")",
     re.IGNORECASE,
 )
@@ -656,7 +669,15 @@ def check_narrative(block: CommentBlock) -> list[str]:
     for offset, body in enumerate(block.bodies):
         if not body:
             continue
-        context = " ".join(block.bodies[offset : offset + 2])
+        # CONTRACT: The window reaches one line BACK as well as forward. A
+        # wrapped comment splits a whitelisted phrase across the join, and a
+        # marker opening its line has its qualifier on the previous one.
+        # `body_at` maps a position in `body` onto the joined context, or the
+        # whitelist spans would be compared against the wrong offsets.
+        first = max(0, offset - 1)
+        prefix = " ".join(block.bodies[first:offset])
+        body_at = len(prefix) + 1 if prefix else 0
+        context = " ".join(block.bodies[first : offset + 2])
         whitelist_spans = [
             match.span() for match in RUNTIME_NARRATIVE_WHITELIST_RE.finditer(context)
         ]
@@ -664,8 +685,8 @@ def check_narrative(block: CommentBlock) -> list[str]:
             match
             for match in NARRATIVE_MARKER_RE.finditer(body)
             if not any(
-                start <= match.start() and match.end() <= end
-                for start, end in whitelist_spans
+                span_start <= body_at + match.start() and body_at + match.end() <= span_end
+                for span_start, span_end in whitelist_spans
             )
         ]
         if not matches:

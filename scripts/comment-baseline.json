@@ -119,84 +119,10 @@
         "message": "density: 77% (406/528) exceeds 60% for yaml"
       }
     ],
-    "apps/web/.angular/cache/21.2.21/web/vite/deps/@lucide_angular.js": [
+    "Makefile": [
       {
-        "fingerprint": "238d1288979c",
-        "message": "L180863: length: block 12 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-      }
-    ],
-    "apps/web/.angular/cache/21.2.21/web/vite/deps/@ngrx_store.js": [
-      {
-        "fingerprint": "3494a0935322",
-        "message": "L467: length: block 22 lines exceeds hard max 12; move narrative to the vault"
-      }
-    ],
-    "apps/web/.angular/cache/21.2.21/web/vite/deps/date-fns.js": [
-      {
-        "fingerprint": "34ea05676bc2",
-        "message": "L1879: length: block 9 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-      }
-    ],
-    "apps/web/.angular/cache/21.2.21/web/vite/deps/libphonenumber-js_min.js": [
-      {
-        "fingerprint": "e97c21fb9372",
-        "message": "L346: length: block 12 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-      },
-      {
-        "fingerprint": "052321fc77bd",
-        "message": "L1209: length: block 13 lines exceeds hard max 12; move narrative to the vault"
-      },
-      {
-        "fingerprint": "454e6545280e",
-        "message": "L1659: length: block 27 lines exceeds hard max 12; move narrative to the vault"
-      },
-      {
-        "fingerprint": "454e6545280e",
-        "message": "L1659: narrative-marker: 'originally' narrates history; describe the current state and move the story to the vault"
-      },
-      {
-        "fingerprint": "454e6545280e",
-        "message": "L1673: narrative-marker: 'eventually' narrates history; describe the current state and move the story to the vault"
-      },
-      {
-        "fingerprint": "1ef039e5358c",
-        "message": "L2244: narrative-marker: 'used to' narrates history; describe the current state and move the story to the vault"
-      },
-      {
-        "fingerprint": "d8588378f2f0",
-        "message": "L2860: length: block 18 lines exceeds hard max 12; move narrative to the vault"
-      },
-      {
-        "fingerprint": "dfdcd4a8f959",
-        "message": "L3079: length: block 12 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-      },
-      {
-        "fingerprint": "82717cb0e1db",
-        "message": "L3101: length: block 11 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-      },
-      {
-        "fingerprint": "5bf379af9522",
-        "message": "L3401: narrative-marker: 'used to' narrates history; describe the current state and move the story to the vault"
-      },
-      {
-        "fingerprint": "e40023818c4e",
-        "message": "L3534: length: block 9 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-      },
-      {
-        "fingerprint": "f8f5a294136e",
-        "message": "L3898: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-      },
-      {
-        "fingerprint": "13c11a499eee",
-        "message": "L4800: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-      },
-      {
-        "fingerprint": "4f5ff18df44b",
-        "message": "L5057: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-      },
-      {
-        "fingerprint": "99cbc1a84598",
-        "message": "L5548: length: block 18 lines exceeds hard max 12; move narrative to the vault"
+        "fingerprint": "dd07583f6d67",
+        "message": "L638: narrative-marker: 'after the fix' narrates history; describe the current state and move the story to the vault"
       }
     ],
     "apps/web/Dockerfile": [
@@ -513,6 +439,12 @@
       {
         "fingerprint": "131a55feeff3",
         "message": "L66: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
+      }
+    ],
+    "services/orders/tests/Orders.Tests/Messaging/SqsEventPublisherTests.cs": [
+      {
+        "fingerprint": "2224fe06f642",
+        "message": "L550: narrative-marker: 'stopped being' narrates history; describe the current state and move the story to the vault"
       }
     ],
     "services/tracking-go/Dockerfile": [
