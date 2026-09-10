@@ -1,4 +1,4 @@
-import { Component, computed, input } from '@angular/core';
+import { Component, computed, input, ChangeDetectionStrategy } from '@angular/core';
 import type { TrackingStatus } from '../../core/api/types';
 
 /**
@@ -13,6 +13,7 @@ import type { TrackingStatus } from '../../core/api/types';
  */
 @Component({
   selector: 'app-status-badge',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './status-badge.html',
 })
 export class StatusBadge {

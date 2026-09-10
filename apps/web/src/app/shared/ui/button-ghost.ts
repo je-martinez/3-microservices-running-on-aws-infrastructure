@@ -1,4 +1,4 @@
-import { Component, input, output } from '@angular/core';
+import { Component, input, output, ChangeDetectionStrategy } from '@angular/core';
 import { LucideDynamicIcon } from '@lucide/angular';
 
 /**
@@ -10,6 +10,7 @@ import { LucideDynamicIcon } from '@lucide/angular';
 @Component({
   selector: 'app-button-ghost',
   imports: [LucideDynamicIcon],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './button-ghost.html',
 })
 export class ButtonGhost {

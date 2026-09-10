@@ -1,4 +1,4 @@
-import { Component, computed, input } from '@angular/core';
+import { Component, computed, input, ChangeDetectionStrategy } from '@angular/core';
 import { LucideChevronRight } from '@lucide/angular';
 import { type OrderWithTracking } from '../../core/api/types';
 import { formatPlacedLabel } from '../date/format-date';
@@ -18,6 +18,7 @@ import { StatusBadge } from './status-badge';
 @Component({
   selector: 'app-order-card',
   imports: [LucideChevronRight, StatusBadge],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './order-card.html',
 })
 export class OrderCard {

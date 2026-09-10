@@ -6,15 +6,10 @@ every time. Cross-cutting rules are **referenced**, never duplicated.
 
 ## 1. Stack & versions
 - Runtime: Node.js (repo-pinned via `.nvmrc`, currently 24.18.0 — run `nvm use`).
-- Framework: **Angular 21.x** (`@angular/core` ^21.2.0, `@angular/cli` ^21.2.21) —
-  **not 22.** NgRx has no stable Angular-22 release (`@ngrx/signals` 22 is only
-  `rc.0`), and NgRx is a hard requirement. Do not "upgrade" Angular alone; it
-  drags the app into an unstable NgRx.
-- State: **NgRx** (`@ngrx/signals`, `@ngrx/store`) `21.1.1` — pinned to the last
-  version with an Angular-21 peer. `next`/`latest` targets Angular 22.
-- Build: `@ngx-env/builder` **21.0.1**, not its `latest` (22.0.0), which peers
-  `@angular/build ^22`. Installing `latest` here breaks the build. This is the
-  package that inlines `NG_APP_*` env vars at build time — see §2c.
+- Framework: **Angular 22.x** (`@angular/core` ^22.1.6, `@angular/cli` ^22.1.7).
+- State: **NgRx** (`@ngrx/signals`, `@ngrx/store`) `22.0.0`.
+- Build: `@ngx-env/builder` **22.0.0**, which peers `@angular/build ^22`. This is
+  the package that inlines `NG_APP_*` env vars at build time — see §2c.
 - Styling: **Tailwind 4.3.3**, CSS-first (`@theme` in `src/styles.css`) — see
   §2a. `@tailwindcss/postcss` + `postcss` do the compilation; there is
   deliberately no `tailwind.config.ts`.
@@ -22,10 +17,17 @@ every time. Cross-cutting rules are **referenced**, never duplicated.
 - Test runner: **Vitest** (not Karma/Jasmine) with `jsdom`.
 - Lint: `angular-eslint` + `typescript-eslint` + `@eslint/js`, flat config
   (`eslint.config.js`).
-- Do **not** upgrade Angular, NgRx, or `@ngx-env/builder` independently of one
-  another — they are pinned as a set for the reasons above. When NgRx ships a
-  stable Angular-22 release, upgrading all three together is a deliberate,
-  separate piece of work, not a drive-by bump.
+- Do **not** upgrade Angular, NgRx, `@ngx-env/builder`, or `angular-eslint`
+  independently of one another — each peers a matching major, so a lone bump
+  leaves the tree with unmet peers. Move all four together, as a deliberate
+  piece of work rather than a drive-by bump.
+- **Every component declares `ChangeDetectionStrategy.OnPush`**, and
+  `angular-eslint` fails the build otherwise. The app has no `zone.js` — it is
+  zoneless, so rendering is driven by signals and `OnPush` is the correct
+  strategy, not an optimisation. Note the trap when running `ng update`: the
+  v22 migration writes `ChangeDetectionStrategy.Eager` into every component to
+  preserve pre-v22 behaviour, which the lint rule then rejects on all of them.
+  Convert those to `OnPush` rather than silencing the rule.
 
 ## 2. Commands
 All commands assume `nvm use` first and run from `apps/web/` (or via

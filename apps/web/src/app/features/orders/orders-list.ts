@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, signal, ChangeDetectionStrategy } from '@angular/core';
 import { Router } from '@angular/router';
 import { LucideRefreshCw, LucideTriangleAlert } from '@lucide/angular';
 import { firstValueFrom } from 'rxjs';
@@ -18,6 +18,7 @@ import { OrderCard } from '../../shared/ui/order-card';
 @Component({
   selector: 'app-orders-list',
   imports: [LucideRefreshCw, LucideTriangleAlert, OrderCard],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './orders-list.html',
 })
 export class OrdersListPage {

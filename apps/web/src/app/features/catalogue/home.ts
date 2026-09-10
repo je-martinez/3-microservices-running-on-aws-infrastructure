@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal, ChangeDetectionStrategy } from '@angular/core';
 import { LucideRefreshCw, LucideTriangleAlert } from '@lucide/angular';
 import { firstValueFrom } from 'rxjs';
 import { CatalogueApi } from '../../core/api/catalogue-api';
@@ -19,6 +19,7 @@ import { CartDrawer } from '../cart/cart-drawer';
 @Component({
   selector: 'app-home',
   imports: [CartDrawer, LucideRefreshCw, LucideTriangleAlert, ProductCard],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './home.html',
 })
 export class HomePage {

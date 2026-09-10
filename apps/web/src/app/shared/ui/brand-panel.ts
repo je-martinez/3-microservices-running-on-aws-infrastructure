@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { LucidePackage, LucideShieldCheck, LucideTruck } from '@lucide/angular';
 import { LogoLockup } from './logo-lockup';
 
@@ -16,6 +16,7 @@ import { LogoLockup } from './logo-lockup';
 @Component({
   selector: 'app-brand-panel',
   imports: [LogoLockup, LucidePackage, LucideShieldCheck, LucideTruck],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './brand-panel.html',
 })
 export class BrandPanel {}

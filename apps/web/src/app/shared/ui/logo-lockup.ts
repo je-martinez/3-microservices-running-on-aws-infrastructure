@@ -1,4 +1,4 @@
-import { Component, input } from '@angular/core';
+import { Component, input, ChangeDetectionStrategy } from '@angular/core';
 
 /**
  * Design: frame `Logo Lockup` (M8f7U). Mark + wordmark ("3M" navy, "RAI"
@@ -8,6 +8,7 @@ import { Component, input } from '@angular/core';
  */
 @Component({
   selector: 'app-logo-lockup',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './logo-lockup.html',
 })
 export class LogoLockup {

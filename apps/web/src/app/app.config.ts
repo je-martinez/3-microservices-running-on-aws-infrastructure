@@ -1,4 +1,4 @@
-import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { provideHttpClient, withInterceptors, withXhr } from '@angular/common/http';
 import {
   ApplicationConfig,
   provideAppInitializer,
@@ -76,7 +76,7 @@ export const appConfig: ApplicationConfig = {
     // CONTRACT: Interceptor order is execution order. refreshInterceptor stays
     // BEFORE authInterceptor, so its retry re-enters that one and picks up the
     // new token instead of replaying the expired header already set.
-    provideHttpClient(withInterceptors([refreshInterceptor, authInterceptor])),
+    provideHttpClient(withXhr(), withInterceptors([refreshInterceptor, authInterceptor])),
     // Phase 1 exercises almost none of this. It is registered up front so
     // phase 2 adds reducers rather than rewiring bootstrap.
     provideStore({}),

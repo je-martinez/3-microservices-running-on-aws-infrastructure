@@ -1,4 +1,4 @@
-import { Component, inject, output, signal } from '@angular/core';
+import { Component, inject, output, signal, ChangeDetectionStrategy } from '@angular/core';
 import { LucideWand } from '@lucide/angular';
 
 import { DEV_MODE, DevData, resetDevData, sessionDevData } from './dev-fill';
@@ -17,6 +17,7 @@ import { DEV_MODE, DevData, resetDevData, sessionDevData } from './dev-fill';
   selector: 'app-dev-fill-button',
   imports: [LucideWand],
   templateUrl: './dev-fill-button.html',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'contents' },
 })
 export class DevFillButton {

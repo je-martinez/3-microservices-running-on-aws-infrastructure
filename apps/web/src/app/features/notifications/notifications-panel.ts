@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal, ChangeDetectionStrategy } from '@angular/core';
 import { OverlayStore } from '../../core/overlay/overlay-store';
 import { NOTIFICATIONS } from '../../fixtures/notifications.fixture';
 import { NotificationItem } from '../../shared/ui/notification-item';
@@ -28,8 +28,9 @@ import { NotificationItem } from '../../shared/ui/notification-item';
   selector: 'app-notifications-panel',
   imports: [NotificationItem],
   templateUrl: './notifications-panel.html',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
-    'class': 'block',
+    class: 'block',
     'animate.enter': 'popover-enter',
     'animate.leave': 'popover-leave',
   },

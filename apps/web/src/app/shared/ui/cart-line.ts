@@ -1,4 +1,4 @@
-import { Component, computed, input, output } from '@angular/core';
+import { Component, computed, input, output, ChangeDetectionStrategy } from '@angular/core';
 import { LucideMinus, LucidePlus, LucideTriangleAlert } from '@lucide/angular';
 import { type CartLine as CartLineDto, toInt } from '../../core/api/types';
 
@@ -28,6 +28,7 @@ const UNAVAILABLE_COPY: Record<string, string> = {
   // text and the template's `w-full` resolves against that: each line gets a
   // different width and the prices stop sharing a right edge, worst on the
   // widest one ($149.00 juts past its neighbours). See [[angular-component-authoring]]
+  changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block w-full' },
 })
 export class CartLine {

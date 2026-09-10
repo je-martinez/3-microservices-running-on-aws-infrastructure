@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
 import { Router, RouterOutlet } from '@angular/router';
 import { NOTIFICATIONS } from '../../fixtures/notifications.fixture';
 import { CartStore } from '../cart/cart-store';
@@ -15,6 +15,7 @@ import { AppHeader } from './app-header';
 @Component({
   selector: 'app-app-layout',
   imports: [AppHeader, RouterOutlet],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './app-layout.html',
 })
 export class AppLayout {

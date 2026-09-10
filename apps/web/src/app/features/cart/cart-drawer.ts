@@ -1,4 +1,4 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, computed, inject, ChangeDetectionStrategy } from '@angular/core';
 import { Router } from '@angular/router';
 import {
   LucideArrowRight,
@@ -49,8 +49,9 @@ import { CartLine } from '../../shared/ui/cart-line';
   ],
   templateUrl: './cart-drawer.html',
   hostDirectives: [DeferEnterAnimation],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
-    'class': 'block',
+    class: 'block',
     'animate.enter': 'drawer-enter',
     'animate.leave': 'drawer-leave',
   },
@@ -84,9 +85,7 @@ export class CartDrawer {
    * succeeds — another buyer can take the last unit before checkout charges.
    * The failure branch lives in CheckoutPaymentPage, which does the charging.
    */
-  protected readonly canContinue = computed(
-    () => this.cart.canCheckout() && !this.cart.saving(),
-  );
+  protected readonly canContinue = computed(() => this.cart.canCheckout() && !this.cart.saving());
 
   constructor() {
     void this.cart.load();

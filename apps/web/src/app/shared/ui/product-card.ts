@@ -1,4 +1,4 @@
-import { Component, computed, input, output } from '@angular/core';
+import { Component, computed, input, output, ChangeDetectionStrategy } from '@angular/core';
 import { LucideImageOff, LucidePlus } from '@lucide/angular';
 import { type Product, toInt } from '../../core/api/types';
 
@@ -17,6 +17,7 @@ import { type Product, toInt } from '../../core/api/types';
 @Component({
   selector: 'app-product-card',
   imports: [LucideImageOff, LucidePlus],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './product-card.html',
 })
 export class ProductCard {

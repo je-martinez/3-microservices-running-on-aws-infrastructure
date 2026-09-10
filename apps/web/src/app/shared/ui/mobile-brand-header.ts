@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { LogoLockup } from './logo-lockup';
 
 /**
@@ -10,6 +10,7 @@ import { LogoLockup } from './logo-lockup';
 @Component({
   selector: 'app-mobile-brand-header',
   imports: [LogoLockup],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './mobile-brand-header.html',
 })
 export class MobileBrandHeader {}

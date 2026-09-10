@@ -1,4 +1,4 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, computed, inject, ChangeDetectionStrategy } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
@@ -37,8 +37,9 @@ import { OverlayStore } from '../../core/overlay/overlay-store';
   selector: 'app-account-menu',
   imports: [LucideLogOut, LucidePackage, LucideUser],
   templateUrl: './account-menu.html',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
-    'class': 'block',
+    class: 'block',
     'animate.enter': 'popover-enter',
     'animate.leave': 'popover-leave',
   },

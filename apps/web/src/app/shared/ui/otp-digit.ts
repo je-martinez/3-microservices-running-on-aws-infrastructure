@@ -1,4 +1,4 @@
-import { Component, input } from '@angular/core';
+import { Component, input, ChangeDetectionStrategy } from '@angular/core';
 
 /**
  * Design: frame `OTP Digit` (NZ7jF). A single 60x68 box holding one
@@ -7,6 +7,7 @@ import { Component, input } from '@angular/core';
  */
 @Component({
   selector: 'app-otp-digit',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './otp-digit.html',
 })
 export class OtpDigit {

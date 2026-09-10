@@ -1,4 +1,4 @@
-import { Component, inject, input, output } from '@angular/core';
+import { Component, inject, input, output, ChangeDetectionStrategy } from '@angular/core';
 import { LucideBell, LucideSearch, LucideShoppingBag, LucideUser } from '@lucide/angular';
 import { CatalogueSearchStore } from '../catalogue/catalogue-search-store';
 import { LogoLockup } from '../../shared/ui/logo-lockup';
@@ -23,6 +23,7 @@ import { RouterLink } from '@angular/router';
   // `w-full` resolves against that shrunken width — the bar stops short of
   // the viewport edge instead of spanning it. Setting it here rather than on
   // each of the five call sites means a new one cannot forget it.
+  changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block w-full' },
 })
 export class AppHeader {

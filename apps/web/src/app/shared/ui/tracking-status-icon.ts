@@ -1,4 +1,4 @@
-import { Component, computed, input } from '@angular/core';
+import { Component, computed, input, ChangeDetectionStrategy } from '@angular/core';
 import { LucideDynamicIcon } from '@lucide/angular';
 import type { TrackingStatus } from '../../core/api/types';
 
@@ -15,6 +15,7 @@ import type { TrackingStatus } from '../../core/api/types';
 @Component({
   selector: 'app-tracking-status-icon',
   imports: [LucideDynamicIcon],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './tracking-status-icon.html',
 })
 export class TrackingStatusIcon {
