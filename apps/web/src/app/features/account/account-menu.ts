@@ -5,6 +5,7 @@ import { filter, map, startWith } from 'rxjs';
 import { LucideLogOut, LucidePackage, LucideUser } from '@lucide/angular';
 import { SessionStore } from '../../core/auth/session-store';
 import { OverlayStore } from '../../core/overlay/overlay-store';
+import { SignOut } from '../auth/sign-out';
 
 /**
  * Design: `Account Menu` (`B6fdc`) — one responsive component (spec D8) for the
@@ -47,6 +48,7 @@ import { OverlayStore } from '../../core/overlay/overlay-store';
 export class AccountMenu {
   protected readonly overlay = inject(OverlayStore);
   private readonly router = inject(Router);
+  private readonly signOutService = inject(SignOut);
 
   /**
    * WHY: reads the store rather than fetching. Boot loads the profile once
@@ -79,9 +81,8 @@ export class AccountMenu {
     void this.router.navigateByUrl(path);
   }
 
-  // TODO(JE-246): Tear down the session here. This issue wires reads only;
-  // sign-out needs TokenStore.clear plus a redirect, which is its own change.
   protected signOut(): void {
     this.overlay.close();
+    void this.signOutService.complete();
   }
 }

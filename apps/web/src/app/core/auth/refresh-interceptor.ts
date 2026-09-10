@@ -6,12 +6,11 @@ import {
   HttpRequest,
 } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Router } from '@angular/router';
 import { Observable, catchError, finalize, from, of, shareReplay, switchMap, throwError } from 'rxjs';
 
 import { APP_CONFIG } from '../config/app-config';
-import { isPublic } from './auth-interceptor';
-import { SessionStore } from './session-store';
+import { gatewayPath, isPublic } from './auth-interceptor';
+import { SignOut } from '../../features/auth/sign-out';
 import { StoredTokens, TokenStore } from './token-store';
 
 /**
@@ -28,6 +27,7 @@ interface RefreshResponse {
 }
 
 const REFRESH_PATH = '/users/refresh';
+const SIGN_OUT_PATH = '/users/logout';
 
 /**
  * Runs the single in-flight refresh, shared by every request that needs it.
@@ -43,8 +43,7 @@ const REFRESH_PATH = '/users/refresh';
 export class RefreshCoordinator {
   private readonly http = inject(HttpClient);
   private readonly tokenStore = inject(TokenStore);
-  private readonly sessionStore = inject(SessionStore);
-  private readonly router = inject(Router);
+  private readonly signOutService = inject(SignOut);
 
   private inFlight: Observable<StoredTokens> | null = null;
 
@@ -81,14 +80,12 @@ export class RefreshCoordinator {
   }
 
   /**
-   * WHY: A failed refresh is a logged-out user, not a page-level error. The
-   * in-memory session, the persisted tokens and the URL all have to agree, or
-   * the app keeps rendering a signed-in shell over calls that all 401.
+   * WHY: A failed refresh is a logged-out user, not a page-level error.
+   * `discard`, not `complete`: the token that just failed to refresh cannot
+   * authorize a revocation, so calling the server would only delay the redirect.
    */
   private async signOut(): Promise<void> {
-    this.sessionStore.clear();
-    await this.tokenStore.clear();
-    await this.router.navigateByUrl('/login');
+    await this.signOutService.discard();
   }
 }
 
@@ -108,6 +105,13 @@ export function refreshInterceptor(
   // A public path has no token to refresh, and `/users/refresh` is in that list
   // — which is what stops a 401 from the refresh call recursing into another.
   if (isPublic(req.url)) return next(req);
+
+  // CONTRACT: Sign-out is unrefreshable, but NOT public — it needs the very
+  // token it revokes, so it cannot join PUBLIC_PATHS without losing its
+  // Authorization header. Retrying it instead loops forever: a 401 here
+  // refreshes, the refresh fails, the failure signs out, and signing out calls
+  // this path again. See [[2026-09-04-web-gateway-integration-design]]
+  if (gatewayPath(req.url) === SIGN_OUT_PATH) return next(req);
 
   const coordinator = inject(RefreshCoordinator);
   return next(req).pipe(

@@ -133,4 +133,13 @@ export class UsersApi {
   updateMe(input: UpdateProfileInput): Observable<User> {
     return this.api.patch<User>('/users/me', input);
   }
+
+  /**
+   * POST /users/logout — revokes the Cognito session, 204 with no body.
+   * CONTRACT: No payload. Cognito revokes the access token authInterceptor
+   * already attaches; a body would send the same credential twice.
+   */
+  logout(): Observable<void> {
+    return this.api.post<void>('/users/logout', {});
+  }
 }

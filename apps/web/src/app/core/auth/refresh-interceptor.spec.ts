@@ -238,6 +238,28 @@ describe('refreshInterceptor', () => {
     controller.verify();
   });
 
+  /**
+   * CONTRACT: Sign-out is unrefreshable but NOT public — it needs the token it
+   * revokes. Retrying it loops: the 401 refreshes, the refresh fails, the
+   * failure signs out, and signing out calls this path again.
+   */
+  it('does not refresh or recurse when /v1/users/logout answers 401', async () => {
+    const { http, controller } = configure();
+    const onError = vi.fn();
+
+    http.post('/v1/users/logout', {}).subscribe({ error: onError });
+    await settle();
+
+    controller
+      .expectOne('/v1/users/logout')
+      .flush({ error: 'invalid_credentials' }, { status: 401, statusText: 'Unauthorized' });
+    await settle();
+
+    expect(refreshRequests(controller)).toHaveLength(0);
+    expect(onError).toHaveBeenCalled();
+    controller.verify();
+  });
+
   it('passes a 401 through untouched when no refresh token is stored', async () => {
     const { http, controller, tokenStore } = configure();
     tokenStore.tokens = null;
