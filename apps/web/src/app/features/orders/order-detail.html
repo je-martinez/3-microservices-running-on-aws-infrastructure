@@ -51,6 +51,34 @@
   } @else if (entry(); as entry) {
     <div class="flex w-full flex-1 flex-col items-center justify-start gap-0 p-5 md:p-9">
       <div class="flex h-fit w-full max-w-260 shrink-0 flex-col items-start justify-start gap-4 md:gap-[1.375rem]">
+        @if (justPlaced()) {
+          <!-- WHY: One grid, not two breakpoint variants of the same text. The
+               icon spans both text rows on desktop and only the title row on
+               mobile, which is the sole difference between the two frames;
+               duplicating the title behind `md:hidden` would read it twice to a
+               screen reader. -->
+          <div
+            role="status"
+            data-testid="order-placed-banner"
+            class="bg-success-bg grid h-fit w-full shrink-0 grid-cols-[auto_1fr] items-center gap-x-md gap-y-md rounded-xl p-4 md:grid-cols-[auto_1fr_auto] md:gap-x-2xl md:gap-y-1 md:p-5"
+          >
+            <svg
+              lucideCircleCheck
+              class="text-success-ink h-icon-lg w-icon-lg shrink-0 md:row-span-2 md:h-5xl md:w-5xl"
+            ></svg>
+            <h2 class="text-success-ink font-heading text-subtitle font-bold tracking-[-0.01875rem] md:col-start-2 md:self-end md:text-title md:tracking-[-0.025rem]">
+              Thank you for your order
+            </h2>
+            <p class="text-success-ink font-body col-span-2 text-body-sm/[1.25rem] md:col-span-1 md:col-start-2 md:self-start md:text-body/[1.25rem]">
+              {{ confirmationSentTo() }} We'll notify you at every step — you can follow it right
+              here.
+            </p>
+            <div class="col-span-2 w-full md:col-span-1 md:col-start-3 md:row-span-2 md:row-start-1 md:w-[11.875rem]">
+              <app-button-ghost label="Continue shopping" icon="store" [compact]="true" (clicked)="goTo('/')" />
+            </div>
+          </div>
+        }
+
         <button
           type="button"
           class="text-ink-secondary flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-[0.4375rem]"

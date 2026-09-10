@@ -1,7 +1,13 @@
+import { DOCUMENT } from '@angular/common';
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { LucideArrowLeft, LucideRefreshCw, LucideTriangleAlert } from '@lucide/angular';
+import {
+  LucideArrowLeft,
+  LucideCircleCheck,
+  LucideRefreshCw,
+  LucideTriangleAlert,
+} from '@lucide/angular';
 import { firstValueFrom, map } from 'rxjs';
 import { CatalogueApi } from '../../core/api/catalogue-api';
 import { OrdersApi } from '../../core/api/orders-api';
@@ -19,8 +25,16 @@ import { SessionStore } from '../../core/auth/session-store';
 import { ApiError } from '../../core/http/api-client';
 import { authErrorMessage } from '../auth/auth-errors';
 import { formatDateTime, formatPlacedLabel } from '../../shared/date/format-date';
+import { ButtonGhost } from '../../shared/ui/button-ghost';
 import { StatusBadge } from '../../shared/ui/status-badge';
 import { TrackingStatusIcon } from '../../shared/ui/tracking-status-icon';
+
+/** Narrows the untyped navigation-state bag to the one flag this page reads. */
+function readJustPlaced(state: unknown): boolean {
+  return typeof state === 'object' && state !== null && 'justPlaced' in state
+    ? state.justPlaced === true
+    : false;
+}
 
 /**
  * Design: `Orders — Detail` (`x7ABM`, 1040 desktop / `eq3Tk`, mobile).
@@ -32,12 +46,21 @@ import { TrackingStatusIcon } from '../../shared/ui/tracking-status-icon';
  */
 @Component({
   selector: 'app-order-detail',
-  imports: [LucideArrowLeft, LucideRefreshCw, LucideTriangleAlert, StatusBadge, TrackingStatusIcon],
+  imports: [
+    ButtonGhost,
+    LucideArrowLeft,
+    LucideCircleCheck,
+    LucideRefreshCw,
+    LucideTriangleAlert,
+    StatusBadge,
+    TrackingStatusIcon,
+  ],
   templateUrl: './order-detail.html',
 })
 export class OrderDetailPage {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly document = inject(DOCUMENT);
   private readonly ordersApi = inject(OrdersApi);
   private readonly catalogueApi = inject(CatalogueApi);
   private readonly session = inject(SessionStore);
@@ -54,6 +77,19 @@ export class OrderDetailPage {
   protected readonly notFound = signal(false);
 
   private readonly catalogue = signal<readonly Product[]>([]);
+
+  /**
+   * CONTRACT: Read the navigation state HERE, in a field initializer — NOT in
+   * an effect or lifecycle hook. `getCurrentNavigation()` is non-null only
+   * mid-navigation, so by then it returns null and the banner never appears
+   * after checkout. `history.state` outlives the navigation but is absent on a
+   * reload and on a later visit, which is what keeps this one-shot.
+   * See [[angular-component-authoring]]
+   */
+  protected readonly justPlaced = signal(
+    readJustPlaced(this.router.getCurrentNavigation()?.extras.state) ||
+      readJustPlaced(this.document.defaultView?.history.state),
+  );
 
   private readonly orderId = toSignal(
     this.route.paramMap.pipe(map((params) => params.get('orderId'))),
@@ -136,6 +172,17 @@ export class OrderDetailPage {
   protected readonly address = computed(() => this.session.user()?.address ?? null);
   protected readonly userName = computed(() => this.session.user()?.fullName ?? '');
   protected readonly userPhone = computed(() => this.session.user()?.phoneNumber ?? '');
+
+  /**
+   * CONTRACT: The address comes from the signed-in user. When the profile has
+   * not loaded there is no address to name, so the sentence drops the clause
+   * entirely — rendering an empty gap reads as a bug, and the design's
+   * `jose@3mrai.com` is mock copy that must never ship.
+   */
+  protected readonly confirmationSentTo = computed(() => {
+    const email = this.session.user()?.email;
+    return email ? `We sent the confirmation to ${email}.` : 'We sent you the confirmation.';
+  });
 
   protected historyFor(tracking: Tracking, status: TrackingStatus) {
     return tracking.history.find((h) => h.status === status) ?? null;

@@ -135,6 +135,7 @@
   --spacing-stepper: 1.875rem; /* 30px — quantity stepper button width */
   --spacing-control: 2.375rem; /* 38px — filter chip */
   --spacing-control-md: 2.625rem; /* 42px — desktop menu row */
+  --spacing-control-base: 2.75rem; /* 44px — in-card action button */
   --spacing-control-lg: 2.875rem; /* 46px — payment field */
   --spacing-control-xl: 3.125rem; /* 50px — mobile menu row */
   --spacing-control-2xl: 3.625rem; /* 58px — primary CTA / payment row (NOT --spacing-field, 56px) */

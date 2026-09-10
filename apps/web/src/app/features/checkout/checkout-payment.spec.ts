@@ -238,7 +238,12 @@ describe('CheckoutPaymentPage', () => {
     order.flush({ id: 'ord_3kLpQx8vRn' });
     await settle(fixture);
 
-    expect(navigate).toHaveBeenCalledWith(['/orders', 'ord_3kLpQx8vRn']);
+    // The `justPlaced` state is what raises the success banner on the order
+    // page; a query param would survive a share or a bookmark, so it must not
+    // become one.
+    expect(navigate).toHaveBeenCalledWith(['/orders', 'ord_3kLpQx8vRn'], {
+      state: { justPlaced: true },
+    });
     controller.verify();
   });
 

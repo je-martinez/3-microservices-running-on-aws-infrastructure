@@ -50,7 +50,26 @@ describe('OrderDetailPage', () => {
   afterEach(() => {
     controller.verify({ ignoreCancelled: true });
     TestBed.resetTestingModule();
+    history.replaceState(null, '', location.pathname);
   });
+
+  /**
+   * Rebuilds the page after seeding the navigation state the checkout redirect
+   * carries. The default fixture is already built by `beforeEach`, and
+   * `justPlaced` is read once at construction — so a banner test has to
+   * construct its own.
+   */
+  function recreateWithState(state: unknown): void {
+    fixture.destroy();
+    // CONTRACT: Drain the first fixture's in-flight requests before building
+    // the second. `awaitPath` returns the FIRST match for a URL, so leaving
+    // them queued makes it flush the dead page's request and the new one hangs
+    // on a load that never resolves.
+    controller.match(() => true).forEach((request) => request.flush(null));
+    history.replaceState(state, '', location.pathname);
+    fixture = TestBed.createComponent(OrderDetailPage);
+    fixture.detectChanges();
+  }
 
   /** Answers both in-flight requests; the page loads them in parallel. */
   async function loadOrder(entry: object = ORDER_WITH_TRACKING): Promise<void> {
@@ -207,6 +226,32 @@ describe('OrderDetailPage', () => {
     const root = fixture.nativeElement as HTMLElement;
     expect(root.textContent).toContain('Morgan Reyes');
     expect(root.textContent).toContain('482 Birch Hollow Lane');
+  });
+
+  /**
+   * CONTRACT: The banner is one-shot — it rides in navigation state, so it must
+   * NOT come back on a reload or a later visit to the same order. The two tests
+   * below are the pair that proves it; keep them together.
+   */
+  it('greets the buyer with the success banner right after checkout', async () => {
+    TestBed.inject(SessionStore).setUser({ ...USER, email: 'morgan@example.com' });
+    recreateWithState({ justPlaced: true });
+    await loadOrder();
+
+    const banner = fixture.nativeElement.querySelector('[data-testid="order-placed-banner"]');
+    expect(banner).toBeTruthy();
+    expect(banner.textContent).toContain('Thank you for your order');
+    expect(banner.textContent).toContain('morgan@example.com');
+    expect(banner.textContent).not.toContain('jose@3mrai.com');
+  });
+
+  it('hides the success banner when the order is opened without that state', async () => {
+    recreateWithState({});
+    await loadOrder();
+
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('[data-testid="order-placed-banner"]')).toBeNull();
+    expect(root.textContent).not.toContain('Thank you for your order');
   });
 
   it('renders a not-found state for a 404, distinct from an error', async () => {

@@ -380,7 +380,10 @@ export class CheckoutPaymentPage {
     try {
       const order = await firstValueFrom(this.ordersApi.createOrder(lines));
       this.cart.forgetAfterCheckout();
-      await this.router.navigate(['/orders', order.id]);
+      // CONTRACT: `justPlaced` rides in navigation state, NOT a query param, so
+      // the success banner cannot be resurrected by sharing or bookmarking the
+      // order URL. See [[angular-component-authoring]]
+      await this.router.navigate(['/orders', order.id], { state: { justPlaced: true } });
     } catch (error: unknown) {
       // 409 is the race `canCheckout` cannot rule out: stock went in the gap
       // between reading the cart and charging it.
