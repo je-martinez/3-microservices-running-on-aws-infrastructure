@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-08-19
-updated: 2026-09-04
+updated: 2026-09-10
 tags:
   - type/convention
   - area/shared
@@ -17,6 +17,9 @@ related:
   - "[[2026-09-03-cart-drawer-first-open-flicker]]"
   - "[[2026-09-04-web-gateway-integration-design]]"
   - "[[web-gateway-integration-milestone]]"
+  - "[[2026-09-10-signal-forms-required-accepts-whitespace]]"
+  - "[[2026-09-10-formfield-reads-the-raw-dom-value]]"
+  - "[[2026-09-10-formfield-owns-its-control-bindings-ng8022]]"
 ---
 
 # Angular Component Authoring
@@ -149,6 +152,34 @@ token store on boot — an inherently asynchronous read. A guard that checks a s
 must `await` the rehydration before making its allow/deny decision — this is not an edge case,
 it is the default path every reload of `/orders`, `/checkout`, or `/profile` takes.
 
+## Rule 7 — a gating `required` is paired with `pattern(path.x, /\S/)`
+
+Angular Signal Forms' `required()` counts a value of nothing but spaces as **present**: its
+`isEmpty()` rejects only `''`, `false`, `null`/`undefined` (and `NaN` for numbers). So
+`required()` alone is **weaker** than the `fullName().trim().length > 0` guard it typically
+replaces during a migration — it compiles, it passes the existing tests, and it lets a user
+register with a name of three spaces or save a delivery address that ships nowhere.
+
+Whenever a `required` is what **gates submission**, pair it:
+
+```ts
+required(path.fullName, { message: 'Enter your full name' });
+pattern(path.fullName, /\S/, { message: 'Enter your full name' });
+```
+
+Same message on both, so which validator fired is invisible to the user.
+
+**Scope:** this applies to a `required` that gates submission. A `required` used purely to mark
+a field visually does not carry the same risk.
+
+**The regression test must hold every other field valid**, so the field under test is the only
+thing that can block submission. A test that blanks several fields at once can pass for an
+unrelated reason and be inert — an `<input type="email">` reports `""` for an invalid value, so
+a blank email blocks submission on its own and masks a missing name check entirely.
+
+Full incident, the `file:line` evidence in the installed Angular, and the mutation check that
+proves the test is not inert: [[2026-09-10-signal-forms-required-accepts-whitespace]].
+
 ## Where this bites — the extraction workflow, not just the component
 
 The Pencil `html-tailwind` export emits fixed `px` for every value and has no `.html`/`.ts`
@@ -187,3 +218,11 @@ colours — and it was the half that got missed when the app was first built.
   (`apps/web/src/app/core/overlay/defer-enter-animation.ts`) this app uses to hold an overlay's
   enter animation until its first frame is actually presented, and why its deferred flag must
   be a `signal` rather than a plain field.
+- [[2026-09-10-signal-forms-required-accepts-whitespace]] — the lesson behind Rule 7: the
+  incident, the `isEmpty()` source evidence in the installed Angular, and the mutation check
+  that distinguishes a real regression test from an inert one.
+- [[2026-09-10-formfield-reads-the-raw-dom-value]] — the same directive Rule 7 validates:
+  `[formField]` registers its own `input` listener and takes the element's raw value, so a
+  sanitising `(input)` handler races it rather than filtering it.
+- [[2026-09-10-formfield-owns-its-control-bindings-ng8022]] — `[formField]` claims a fixed set
+  of control bindings and feeds them itself; binding one by hand is a compile error (NG8022).
