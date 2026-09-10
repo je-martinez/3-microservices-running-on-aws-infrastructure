@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-08-27
-updated: 2026-08-31
+updated: 2026-09-10
 tags:
   - type/convention
   - area/shared
@@ -17,6 +17,7 @@ related:
   - "[[floci-elasticache-two-ports-and-provider-panic]]"
   - "[[logging-context]]"
   - "[[testing]]"
+  - "[[angular-component-authoring]]"
 ---
 
 # Code Comments
@@ -330,16 +331,49 @@ shrinks as files are touched. This is the standard pattern for adopting a lint r
 codebase (Betterer; Meta's automated debt management). A repo-wide gate without the ratchet would
 fail on day one, which is why the ratchet is mandatory.
 
-Calibrated to this convention, the linter reports **1,235 violations across 421 files** —
-`length` 1069, `density` 51, `narrative-marker` 63, `reference` 12, `stale-term` 30, `tag`
-10. The baseline freezes them, so `make lint-comments` reports **0 new** and exits 0. A freshly
-introduced 14-line block is caught as 1 new violation.
+**Languages covered.** `scripts/validate-comments.py` maps a file to a language by suffix
+(`.tf`, `.tfvars`, `.cs`, `.ts`, `.tsx`, `.js`, `.mjs`, `.jsx`, `.py`, `.go`, `.yml`, `.yaml`,
+`.html`) and, for extensionless files, by stem (`Makefile`, `Dockerfile`, and their qualified
+variants). **Angular templates count**: `.html` is scanned for `<!-- -->` blocks, with a
+lower density threshold (`density_warn` 0.40 over 60 lines) because a template is mostly markup
+and the tag it sits above usually says what it does. The tag rules, the ≤6-line untagged budget
+and the >12-line hard error apply to a template comment exactly as to code.
+
+A suffix that maps to no language is not merely unlinted — it is held to this convention by
+review alone, and review lets narrative blocks through. That is the gap the `.yml`/`.yaml` and
+`Makefile`/`Dockerfile` entries were added to close, and the gap `.html` closed on 2026-09-10
+after a narrative block survived review in `apps/web`.
+
+> [!warning] The pre-commit hook must mirror the script's language list
+> `.githooks/pre-commit` filters staged files through its **own** `case` list of suffixes and
+> stems. When that list drifts from `LANG_BY_SUFFIX`/`LANG_BY_STEM`, the affected language is
+> gated by `make lint-comments` **alone** and passes silently on every commit. This actually
+> happened: the hook listed only `.tf .tfvars .py .ts .tsx .js .mjs .jsx .cs .go`, so `.yml`,
+> `.yaml`, `Makefile` and `Dockerfile` were already linted by the Make target but skipped at
+> commit time — and `.html` would have been too. Both lists now match, and the hook carries a
+> `CONTRACT:` comment saying they must stay matched. **Adding a language means editing both
+> files.**
+
+Vendored and generated trees are excluded by directory name (`node_modules`, `dist`, `.venv`,
+`.terraform`, `generated`, … and `.angular`). Vite's prebundled dependency cache under
+`apps/web/.angular/cache/` is gitignored library JS regenerated on demand; before it was
+excluded, an `--all` run reported **2142** violations from it and swamped the real findings.
+That noise was pre-existing — those are `.js` files, unrelated to the HTML change — and surfaced
+only because `--all` is rarely run.
+
+The baseline freezes existing violations, so `make lint-comments` reports **0 new** and exits 0.
+A freshly introduced 14-line block is caught as 1 new violation. Measured on 2026-09-10, a full
+`--all` run scans **1,306 files** and finds **107 violations across 58 files** — `length` 85,
+`density` 11, `narrative-marker` 7, `tag` 2, `reference` 1, `stale-term` 1 — all baselined, so
+the gate is green. These are a point-in-time snapshot, not a target: the ratchet only ever
+shrinks them, so re-measure rather than trusting the figure printed here.
 
 Narrative history is not detectable by length, so the linter carries two further checks. A
 **stale-term check** — comments naming decommissioned components, listed in
 `scripts/comment-stale-terms.json` rather than hardcoded — is an error and freezes its existing
-hits in the baseline like every other rule; it currently flags the 30 comments still naming
-Jaeger. A **narrative-marker check** (63 hits) is an error by default: it runs at roughly 90%
+hits in the baseline like every other rule; the Jaeger comments it was introduced for have since
+been cleaned up, and the 2026-09-10 run flags 1. A **narrative-marker check** (7 hits on that
+same run, down from 63 at calibration) is an error by default: it runs at roughly 90%
 precision at line level, and each hit needs a human to judge whether the sentence is history or
 a legitimate present-tense mention. `--allow-narrative` demotes it to a warning for exploratory
 runs; the pre-commit hook does not pass that flag.
@@ -382,3 +416,4 @@ baseline shrinks monotonically.
 - [[floci-elasticache-two-ports-and-provider-panic]]
 - [[logging-context]]
 - [[testing]]
+- [[angular-component-authoring]]

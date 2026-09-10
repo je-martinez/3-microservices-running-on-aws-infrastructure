@@ -38,6 +38,10 @@ EXCLUDE_DIR_NAMES = frozenset(
         "playwright-report",
         "test-results",
         "generated",
+        # Vite's prebundled dependencies — vendored library code, regenerated on
+        # demand and gitignored. Scanning it reports thousands of violations in
+        # files nobody here writes, which is how a gate stops being run at all.
+        ".angular",
     }
 )
 
@@ -62,6 +66,11 @@ LANG_BY_SUFFIX = {
     # file — a budget nothing measures is not a budget.
     ".yml": "yaml",
     ".yaml": "yaml",
+    # CONTRACT: Angular templates count. `.html` mapped to nothing, so every
+    # `<!-- -->` in apps/web was held to the convention by review alone — and
+    # review let a narrative block through. Same gap the YAML and Makefile
+    # entries were added to close.
+    ".html": "html",
 }
 
 # CONTRACT: extensionless files count too. classify() matched on suffix alone,
@@ -88,6 +97,10 @@ THRESHOLDS = {
     "go": {"density_warn": 0.50, "density_min_lines": 60},
     # Config is declarative and legitimately needs more prose per line than code.
     "yaml": {"density_warn": 0.60, "density_min_lines": 80},
+    # A template is mostly markup, so a comment earns its place less often than
+    # in code — the tag it sits above usually says what it does. The tag budget
+    # and the >12-line hard error apply unchanged.
+    "html": {"density_warn": 0.40, "density_min_lines": 60},
     # Declarative like YAML, and each carries one extra source of legitimate
     # prose. A Makefile line is a target or a one-shot shell directive whose
     # purpose is invisible from the command itself, and `## help text` on the
@@ -293,6 +306,39 @@ def _scan_c_like_comment(line: str, lang: str, state: dict) -> str | None:
     return " ".join(body for body in bodies if body) if saw_comment else None
 
 
+def _scan_html_comment(line: str, state: dict) -> str | None:
+    """Extract `<!-- -->` comments, which are the only comment form in a template."""
+    bodies: list[str] = []
+    cursor = 0
+    saw_comment = False
+
+    if state.get("in_block"):
+        saw_comment = True
+        close = line.find("-->")
+        if close == -1:
+            return line.strip()
+        bodies.append(line[:close].strip())
+        state["in_block"] = False
+        cursor = close + 3
+
+    while True:
+        open_at = line.find("<!--", cursor)
+        if open_at == -1:
+            break
+        saw_comment = True
+        close = line.find("-->", open_at + 4)
+        if close == -1:
+            state["in_block"] = True
+            bodies.append(line[open_at + 4 :].strip())
+            break
+        bodies.append(line[open_at + 4 : close].strip())
+        cursor = close + 3
+
+    if not saw_comment:
+        return None
+    return " ".join(part for part in bodies if part)
+
+
 def _scan_python_comment(line: str, state: dict) -> str | None:
     """Extract Python comments and leading docstrings without parsing code."""
     if state.get("python_docstring"):
@@ -365,6 +411,8 @@ def is_comment_line(line: str, lang: str, state: dict) -> bool:
         if lang == "makefile" and stripped.startswith("@#"):
             stripped = stripped[1:]
         body = stripped[1:].strip() if stripped.startswith("#") else None
+    elif lang == "html":
+        body = _scan_html_comment(line, state)
     elif lang == "python":
         body = _scan_python_comment(line, state)
     elif lang in ("hcl", "typescript", "csharp", "go"):
