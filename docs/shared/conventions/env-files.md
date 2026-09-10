@@ -4,7 +4,7 @@ type: convention
 area: infra
 status: active
 created: 2026-07-20
-updated: 2026-09-07
+updated: 2026-09-10
 tags:
   - type/convention
   - area/infra
@@ -22,6 +22,8 @@ related:
   - "[[web-gateway-integration-milestone]]"
   - "[[2026-09-06-address-geocoding-proxy-design]]"
   - "[[2026-09-07-a-dead-path-is-not-fail-closed-against-an-external-host]]"
+  - "[[2026-07-30-post-infra-root-design]]"
+  - "[[2026-07-30-post-infra-root]]"
 ---
 
 # Env Files
@@ -108,6 +110,40 @@ files as AUTO values, alongside it — see
 > `e2e/support/mailpit-client.ts`.
 
 `.env*` is git-ignored except `.env.example`, which needs an explicit `!.env.example` negation.
+
+## Not every generated value is an env file — `EXECUTION_LOG_TABLE`
+
+`EXECUTION_LOG_TABLE` names the DynamoDB table the `local-exec` provisioning scripts record
+their runs to (traceability only — a record never skips a re-run; see
+`infra/scripts/lib3mrai/execution_log.py`). It is the one infrastructure identifier in this repo
+that is deliberately **not** in any generated env file, and this section exists so nobody looks
+for it in `.env.local.infra` and concludes the generator dropped it.
+
+It reaches its consumers by two paths, neither of them `generate_env_files.py`:
+
+| Consumer | How it arrives |
+|---|---|
+| Scripts the Makefile invokes directly | `export EXECUTION_LOG_TABLE ?= 3mrai-local-tfstate-execution-log` (`Makefile:54`), exported like `AWS_ENDPOINT_URL` so `terraform` and every `local-exec` it spawns inherit it |
+| Scripts a provisioner spawns | Each provisioner sets it explicitly in its own `environment` block from `var.execution_log_table` (`infra/environments/local/main.tf`, `post/gate.tf`, `post/grants.tf`, `post/assets.tf`, and the `cognito`/`redis`/`docdb` modules) |
+
+Both paths carry the same literal, and the provisioners set it explicitly **on top of** the
+Makefile's export so a by-hand `terraform apply` records too, without going through `make`.
+
+> [!note] Why this one is a literal rather than a Terraform output
+> The table is created by the `backend/` root (`infra/modules/tf-backend`), which keeps **local**
+> state by design — it creates the S3 bucket every other root's backend points at. Phase 1's
+> outputs are readable through `terraform_remote_state`; this root's are not, and reading them
+> would need a `backend = "local"` data source hardcoding a relative path between two roots, a
+> mechanism used nowhere else here. The name is deterministic
+> (`"<context.id>-execution-log"`), so a literal is safe: `Makefile:54` uses `?=` to yield to an
+> environment override, `infra/environments/local/variables.tf:91-103` carries the same value as
+> a plain `default`, and the backend root exposes an `execution_log_table_name` output
+> (`infra/environments/local/backend/outputs.tf`) to confirm it against.
+
+**An unset value is a legitimate state, not a misconfiguration.** `execution_log.py` treats an
+absent variable as "the log is not wired up" and runs the script exactly as it did before the log
+existed, and the shared modules default `execution_log_table` to `""` because production never
+runs these awscli-fallback scripts at all.
 
 ## Editing rule
 
@@ -199,3 +235,8 @@ When changing env plumbing, verify against a real bring-up, not by inspection:
   `apps/web/proxy.conf.mjs`/`proxy.conf.example.mjs`.
 - [[2026-09-07-a-dead-path-is-not-fail-closed-against-an-external-host]] — the `bypass`
   fail-closed trap found converting the proxy's "key unset" branch to the module shape.
+- [[2026-07-30-post-infra-root-design]] — the design behind the execution log; it proposed
+  emitting the table name into `.env.local.infra` as a `tf-backend` output, whereas the shipped
+  path is the `Makefile` export plus per-provisioner `environment` blocks documented above.
+- [[2026-07-30-post-infra-root]] — the plan that shipped the execution-log table and the
+  `bootstrap`/`post-infra` split.

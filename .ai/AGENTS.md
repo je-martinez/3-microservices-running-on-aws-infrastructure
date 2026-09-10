@@ -335,6 +335,12 @@ rather than repeated in each entry:
   failed or what you tried. Keep the prohibition and one concrete failure symptom
   inline (`CONTRACT:` / `WORKAROUND(<scope>):` plus `See [[vault-id]]`); a block
   over 12 lines is an error. See **Code comments** above.
+- **Run the comment gate on what you wrote, before reporting done:**
+  `.venv/bin/python scripts/validate-comments.py <the files you touched>`. It
+  must come back clean. The check is portable — a plain Python linter with no
+  Claude Code dependency — and covers `.ts .tsx .js .jsx .mjs .py .cs .go .tf
+  .tfvars .yml .yaml .html` plus `Makefile*`/`Dockerfile*`, so a config file,
+  a YAML, or an Angular template you edited counts.
 - **Report lesson candidates in the handoff.** Along with the paths changed, the
   actual command output, anything you could not verify, and a proposed
   Conventional-Commits message, list any **lesson candidates** the work uncovered

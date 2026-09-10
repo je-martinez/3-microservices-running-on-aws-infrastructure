@@ -19,6 +19,14 @@
         "-c",
         "set -a && [ -f .env ] && . ./.env; set +a; exec npx -y apidog-mcp-server@latest --project-id=\"$APIDOG_PROJECT_ID\""
       ]
+    },
+    "pencil": {
+      "type": "local",
+      "command": [
+        "sh",
+        "-c",
+        "set -a && [ -f .env ] && . ./.env; set +a; exec python3 scripts/pencil_mcp.py"
+      ]
     }
   }
 }

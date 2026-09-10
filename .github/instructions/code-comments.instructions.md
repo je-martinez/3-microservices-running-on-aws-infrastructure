@@ -200,6 +200,18 @@ make lint-comments-diff   # the current diff (COMMENT_DIFF_REF=main)
 make install-comment-hook # once per clone — installs the pre-commit gate
 ```
 
+**Run the gate on what you wrote, before you report a task done:**
+
+```
+.venv/bin/python scripts/validate-comments.py <the files you touched>
+```
+
+It must come back clean. The Make targets scan the repo or the whole diff; the
+explicit-paths form above scans exactly your work, which is the one that belongs
+in a handoff. Its scope is wider than source code — `.ts .tsx .js .jsx .mjs .py
+.cs .go .tf .tfvars .yml .yaml .html` plus `Makefile*`/`Dockerfile*` — so a
+config file, a YAML, or an Angular template you edited counts.
+
 It operates as a **baseline/ratchet** against `scripts/comment-baseline.json`:
 pre-existing violations are frozen and it fails only on **new** ones. Do not run
 `--update-baseline` to make your own violation disappear — that flag is for

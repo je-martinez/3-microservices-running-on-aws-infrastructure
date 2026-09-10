@@ -92,6 +92,24 @@ rules:
   # lnai's Codex/Gemini plugins create a literal directory of that name.
   code-comments: universal
 
+  # comment-gate-before-handoff: `validate-comments.py` is plain Python, so the
+  # per-file run travels. Lands in code-comments.md AND the AGENTS.md implementer
+  # block — the Make targets scan the repo or the whole diff, and neither is the
+  # check an implementer owes on its own files.
+  comment-gate-before-handoff: universal
+
+# Project-level servers from .mcp.json. Distinct from `plugin-mcp-servers`
+# above: those ship inside Claude Code plugins and have no config to project.
+mcp:
+  drawio: universal
+  apidog: universal
+
+  # pencil: stdio server behind scripts/pencil_mcp.py, which resolves the Pen
+  # desktop binary per platform — no Claude Code dependency, so the config
+  # projects. The pencil-design-extraction SKILL stays excluded (see below);
+  # server reachable, workflow not.
+  pencil: universal
+
 skills:
   # Portable knowledge worth having in any tool.
   # WORKAROUND(provider): .ai/skills/floci/SKILL.md needs its `description`

@@ -4,7 +4,7 @@ type: spec
 area: tracking
 status: accepted
 created: 2026-06-26
-updated: 2026-08-28
+updated: 2026-09-10
 tags: [type/spec, area/tracking, status/accepted]
 related:
   - "[[2026-08-25-response-caching-layer-design]]"
@@ -45,6 +45,8 @@ related:
   - "[[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]]"
   - "[[2026-08-27-a-producer-side-test-proves-nothing-about-what-the-consumer-accepts]]"
   - "[[2026-08-27-a-librarys-defaults-encode-assumptions-about-a-generic-service]]"
+  - "[[2026-08-05-email-payload-enrichment-design]]"
+  - "[[friendly-order-number]]"
 ---
 
 # Tracking Service Design
@@ -736,6 +738,7 @@ All IDs use prefixed nano-IDs ([[nano-id]]). All tables apply soft-delete ([[sof
 | `user_id`    | VARCHAR(28)  | The internal `usr_` id, as Orders resolved it from Users. For reporting/joins only — **not** the ownership key reads filter by (see `cognito_sub` below). |
 | `cognito_sub` | VARCHAR(255), nullable | **The ownership key every user-scoped REST read filters by** — see [[user-id-vs-cognito-sub-ownership-key]] and [Ownership & scoping](#ownership--scoping). Nullable: a row created before this field existed, or by a caller that omitted it, is simply unreachable over the user-scoped reads rather than mis-attributed to someone else. |
 | `order_id`   | VARCHAR(28)  | Reference to order, unique         |
+| `tracking_number` | VARCHAR(20), `NOT NULL`, `uq_tracking_tracking_number` | The customer-facing shipment number, **minted by Tracking** at creation — see [Tracking number](#tracking-number--minted-by-tracking-not-a-carriers) below. |
 | `status`     | VARCHAR(50)  | Current delivery status — enum: `PLACED`, `PROCESSING`, `SHIPPED`, `OUT_FOR_DELIVERY`, `DELIVERED` (see [Tracking statuses](#tracking-statuses)) |
 | `shipping_address` | JSON  | Snapshot of the delivery address, received as-is in the `init-tracking` request body — see [Delivery address snapshot](#delivery-address-snapshot) below. |
 | `tags`       | JSON, `NOT NULL DEFAULT (JSON_ARRAY())` | Free-form labels; today only `"E2E Source"` is ever written, by [`init-tracking`](#api--endpoints) when the request carries `x-e2e-source: true` under `E2E_TESTING_ENABLED` — see [E2E cleanup](#e2e-cleanup-delete-v1trackingse2e-cleanup). MySQL has no array type, so this is a JSON array queried with `JSON_CONTAINS` rather than a Postgres-style `text[]`. |
@@ -743,6 +746,41 @@ All IDs use prefixed nano-IDs ([[nano-id]]). All tables apply soft-delete ([[sof
 | `created_at` | DATETIME     | Audit — see [[audit-fields]]       |
 | `updated_at` | DATETIME     | Audit — see [[audit-fields]]       |
 | `deleted_at` | DATETIME     | Soft-delete — see [[soft-delete]]  |
+
+#### Tracking number — minted by Tracking, not a carrier's
+
+`tracking_number` is `VARCHAR(20)`, `NOT NULL`, and unique
+(`uq_tracking_tracking_number`, `migrations/000001_baseline.up.sql`). It is generated inside
+`TrackingRepository.Create` (`internal/adapter/mysql/create_tracking.go`) by
+`domain.NewTrackingNumber` (`internal/domain/id.go`), in the same transaction that writes the
+tracking row and its opening history entry.
+
+**The number is minted here, never accepted as an input.** `Create` takes no id and no number
+from its caller — a caller supplying either could deliberately collide two shipments. A
+unique-index rejection surfaces as `ErrTrackingAlreadyExists`, so a lost race answers `409`
+rather than `500`.
+
+**It is ours, not a carrier's.** A tracking row is created at `PLACED` (see
+[Tracking statuses](#tracking-statuses)), long before any carrier is involved, so there is no
+carrier number to record; the `3MRAI` prefix says so on the face of the value. A real carrier
+number, the day one arrives, is a second differently-named column, not an overwrite of this one.
+
+The format is `3MRAI-K7P2-9WXM-4TQB`: the prefix plus three hyphen-separated groups of four
+characters, 20 characters total — the width the column is sized for. The alphabet is the 32
+uppercase alphanumerics minus `I`, `O`, `0`, and `1`
+(`23456789ABCDEFGHJKLMNPQRSTUVWXYZ`), the pairs a reader confuses when transcribing from an
+email or reading a number aloud, which is the whole trip this value has to survive. Characters
+are drawn from `crypto/rand` over a `big.Int` bound — never `math/rand`, whose state is
+reconstructable from a handful of outputs, and never modulo, which favours the alphabet's first
+symbols. A guessable number would let somebody enumerate other people's shipments. There is no
+checksum: the column is `UNIQUE`, so a collision is a failed `INSERT`, not two shipments sharing
+one number.
+
+Because it is always present from creation, no consumer branches on its absence:
+`TRACKING_STATUS_CHANGED` carries `tracking_number` as a plain, always-set envelope field (see
+[Events](#events)), unlike the mirrored `order_number`, which is optional. Contrast
+[[friendly-order-number]]: the **order** number is Orders' to mint and Tracking only mirrors it,
+while the **tracking** number is Tracking's own and no other service generates one.
 
 #### Delivery address snapshot
 
@@ -1335,3 +1373,9 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
 - [[2026-08-26-cache-keys-built-from-a-raw-identity-header]] — the data leak this service's
   account-deletion cascade (`invalidate_user`) exists to close: a response key built from the
   raw `x-user-id` header, not the canonical identity pair the cascade receives.
+- [[2026-08-05-email-payload-enrichment-design]] — the design this note propagates for
+  [Tracking number](#tracking-number--minted-by-tracking-not-a-carriers): a NOT NULL, unique
+  column minted in `init-tracking` alongside the row, so no email template branches on its
+  absence.
+- [[friendly-order-number]] — the **order** number Orders mints and Tracking only mirrors,
+  the counterpart to the tracking number this service owns.
