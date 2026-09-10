@@ -76,6 +76,27 @@ describe('SetNewPasswordPage', () => {
     expect(textOf(fixture, '[role="alert"]')).toContain('6-digit code');
   });
 
+  // WHY: the shared numeric Field strips non-digits before it emits, so this
+  // guarantee lives in the template rather than the screen's handler. Assert
+  // the rendered input and the request body, not the handler.
+  it('strips non-digits from the reset code so a letter can never reach the request', async () => {
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+    fillValidForm(fixture, '12a34b56');
+
+    const codeField = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('app-field'),
+    ).find((element) => element.querySelector('span')?.textContent?.trim().startsWith('Reset code'));
+    expect(codeField?.querySelector('input')?.value).toBe('123456');
+
+    submitForm(fixture);
+    const request = await awaitRequest(fixture, controller, '/v1/users/password/confirm');
+    expect(request.request.body).toMatchObject({ code: '123456' });
+    request.flush({ status: 'password_updated' });
+    await settle(fixture);
+
+    expect(navigate).toHaveBeenCalledWith('/login');
+  });
+
   it('rejects a password under eight characters without issuing a request', async () => {
     fillField(fixture, 'Reset code', '123456');
     fillField(fixture, 'New password', 'Short1!');

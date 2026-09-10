@@ -25,6 +25,7 @@ import { PhoneField } from '../../shared/ui/phone-field';
 import { StreetAutocomplete } from '../../shared/ui/street-autocomplete';
 import { DevFillButton } from '../../core/dev/dev-fill-button';
 import type { DevData } from '../../core/dev/dev-fill';
+import { digitsOnly } from '../../shared/ui/numeric-input';
 
 /**
  * Design: `Checkout — Payment` (`DOtD2`, 1440) / `Mobile — Checkout Payment`
@@ -222,6 +223,25 @@ export class CheckoutPaymentPage {
     this.cardNumber.set(data.cardNumber);
     this.cardExpiry.set(data.cardExpiry);
     this.cardCvc.set(data.cardCvc);
+  }
+
+  protected onCardNumberInput(element: HTMLInputElement): void {
+    const value = digitsOnly(element.value, 19).replace(/(.{4})/g, '$1 ').trimEnd();
+    element.value = value;
+    this.cardNumber.set(value);
+  }
+
+  protected onCardExpiryInput(element: HTMLInputElement): void {
+    const digits = digitsOnly(element.value, 4);
+    const value = digits.length > 2 ? `${digits.slice(0, 2)} / ${digits.slice(2)}` : digits;
+    element.value = value;
+    this.cardExpiry.set(value);
+  }
+
+  protected onCardCvcInput(element: HTMLInputElement): void {
+    const value = digitsOnly(element.value, 4);
+    element.value = value;
+    this.cardCvc.set(value);
   }
 
   /**

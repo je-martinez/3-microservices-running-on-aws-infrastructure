@@ -78,7 +78,7 @@ export class SetNewPasswordPage {
   );
 
   protected onCodeInput(value: string): void {
-    this.code.set(value.replace(/\D/g, '').slice(0, CODE_LENGTH));
+    this.code.set(value);
     this.error.set(null);
   }
 

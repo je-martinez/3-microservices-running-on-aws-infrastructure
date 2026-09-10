@@ -38,7 +38,7 @@
           aria-label="Verification code"
           [attr.maxlength]="maxLength"
           [value]="code()"
-          (input)="onCodeInput($any($event.target).value)"
+          (input)="onCodeInput($any($event.target))"
         />
       </div>
       <div class="flex items-center gap-xs">

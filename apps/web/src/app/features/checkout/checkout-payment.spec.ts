@@ -123,6 +123,40 @@ describe('CheckoutPaymentPage', () => {
     controller.verify();
   });
 
+  it('sanitizes and constrains every plain card field', async () => {
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    const fillCardInput = (testId: string, value: string): HTMLInputElement => {
+      const input = root().querySelector<HTMLInputElement>(`[data-testid="${testId}"]`);
+      if (!input) throw new Error(`No card input with test id ${testId}`);
+      input.value = value;
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      return input;
+    };
+
+    const number = fillCardInput('card-number', '4242-4242a4242 4242 1239');
+    const expiry = fillCardInput('card-expiry', '1a2/3b45');
+    const cvc = fillCardInput('card-cvc', '1a2-345');
+
+    expect(number.value).toBe('4242 4242 4242 4242 123');
+    expect(number.inputMode).toBe('numeric');
+    expect(number.maxLength).toBe(23);
+    expect(expiry.value).toBe('12 / 34');
+    expect(expiry.maxLength).toBe(7);
+    expect(cvc.value).toBe('1234');
+    expect(cvc.maxLength).toBe(4);
+
+    const zip = Array.from(root().querySelectorAll<HTMLInputElement>('input')).find(
+      (input) => input.value === '10604',
+    );
+    expect(zip?.readOnly).toBe(true);
+    expect(zip?.inputMode).toBe('numeric');
+    expect(zip?.maxLength).toBe(5);
+  });
+
   /**
    * CONTRACT: Every figure is the server's `formatted` string. This one is
    * unreachable by any local arithmetic on `cents`, so a page rebuilding it

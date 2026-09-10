@@ -43,6 +43,12 @@ function flagEmoji(country: string): string {
     .replace(/./g, (letter) => String.fromCodePoint(0x1f1e6 + letter.charCodeAt(0) - 65));
 }
 
+function sanitizePhoneInput(raw: string): string {
+  const hasLeadingPlus = raw.trimStart().startsWith('+');
+  const body = raw.replace(/\+/g, '').replace(/[^\d\s()-]/g, '').trimStart();
+  return `${hasLeadingPlus ? '+' : ''}${body}`;
+}
+
 /**
  * A phone variant of `Field`, not a widening of it: `Field` backs every auth
  * screen and does not need a parser.
@@ -94,9 +100,11 @@ export class PhoneField {
    */
   protected readonly invalid = computed(() => this.reading().invalid);
 
-  protected onInput(raw: string): void {
-    this.typed.set(raw);
-    this.valueChange.emit(raw);
-    this.countryChange.emit(read(raw, this.defaultCountry()).country);
+  protected onInput(element: HTMLInputElement): void {
+    const value = sanitizePhoneInput(element.value);
+    element.value = value;
+    this.typed.set(value);
+    this.valueChange.emit(value);
+    this.countryChange.emit(read(value, this.defaultCountry()).country);
   }
 }

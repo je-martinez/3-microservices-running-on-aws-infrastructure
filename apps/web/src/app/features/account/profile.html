@@ -122,6 +122,9 @@
           <app-field label="State" icon="map" [value]="state()" (valueChange)="state.set($event)" />
           <app-field
             label="ZIP Code"
+            type="numeric"
+            autocomplete="postal-code"
+            [maxLength]="5"
             icon="map"
             [value]="postalCode()"
             (valueChange)="postalCode.set($event)"

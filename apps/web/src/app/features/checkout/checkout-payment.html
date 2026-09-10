@@ -211,6 +211,9 @@
                 />
                 <app-field
                   label="ZIP Code"
+                  type="numeric"
+                  autocomplete="postal-code"
+                  [maxLength]="5"
                   icon="map"
                   placeholder="10604"
                   [value]="postalCode()"
@@ -307,11 +310,14 @@
                       <svg lucideCreditCard class="text-ink-muted h-icon w-icon shrink-0"></svg>
                       <input
                         type="text"
+                        inputmode="numeric"
+                        autocomplete="cc-number"
+                        maxlength="23"
                         placeholder="1234 1234 1234 1234"
                         data-testid="card-number"
                         class="text-ink-primary placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
                         [value]="cardNumber()"
-                        (input)="cardNumber.set($any($event.target).value)"
+                        (input)="onCardNumberInput($any($event.target))"
                       />
                     </span>
                   </label>
@@ -324,11 +330,14 @@
                       >
                         <input
                           type="text"
+                          inputmode="numeric"
+                          autocomplete="cc-exp"
+                          maxlength="7"
                           placeholder="MM / YY"
                           data-testid="card-expiry"
                           class="text-ink-primary placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
                           [value]="cardExpiry()"
-                          (input)="cardExpiry.set($any($event.target).value)"
+                          (input)="onCardExpiryInput($any($event.target))"
                         />
                       </span>
                     </label>
@@ -339,11 +348,14 @@
                       >
                         <input
                           type="text"
+                          inputmode="numeric"
+                          autocomplete="cc-csc"
+                          maxlength="4"
                           placeholder="CVC"
                           data-testid="card-cvc"
                           class="text-ink-muted placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
                           [value]="cardCvc()"
-                          (input)="cardCvc.set($any($event.target).value)"
+                          (input)="onCardCvcInput($any($event.target))"
                         />
                       </span>
                     </label>
@@ -371,7 +383,11 @@
                       >
                         <input
                           type="text"
+                          inputmode="numeric"
+                          autocomplete="postal-code"
+                          maxlength="5"
                           value="10604"
+                          readonly
                           class="text-ink-primary w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
                         />
                       </span>

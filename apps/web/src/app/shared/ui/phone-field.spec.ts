@@ -122,4 +122,18 @@ describe('PhoneField', () => {
 
     expect(countries).toEqual(['US']);
   });
+
+  it('strips letters while preserving a leading plus and phone separators', () => {
+    const emitted: string[] = [];
+    fixture.componentInstance.valueChange.subscribe((value) => emitted.push(value));
+    fixture.detectChanges();
+
+    const input = (fixture.nativeElement as HTMLElement).querySelector('input');
+    if (!input) throw new Error('no input rendered');
+    input.value = '+1 (809) CALL-0142+';
+    input.dispatchEvent(new Event('input'));
+
+    expect(input.value).toBe('+1 (809) -0142');
+    expect(emitted).toEqual(['+1 (809) -0142']);
+  });
 });

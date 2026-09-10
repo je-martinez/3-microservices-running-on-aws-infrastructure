@@ -6,6 +6,7 @@ import { firstValueFrom } from 'rxjs';
 import { UsersApi } from '../../core/api/users-api';
 import { OtpDigit } from '../../shared/ui/otp-digit';
 import { ButtonPrimary } from '../../shared/ui/button-primary';
+import { digitsOnly } from '../../shared/ui/numeric-input';
 import { OtpChallengeStore } from './otp-challenge';
 import { authErrorMessage } from './auth-errors';
 import { SignIn } from './sign-in';
@@ -53,8 +54,10 @@ export class VerifyCodePage {
   protected readonly canSubmit = computed(() => CODE_PATTERN.test(this.code()));
 
   /** Keeps non-digits and overlong pastes out of the model entirely. */
-  protected onCodeInput(value: string): void {
-    this.code.set(value.replace(/\D/g, '').slice(0, CODE_LENGTH));
+  protected onCodeInput(element: HTMLInputElement): void {
+    const value = digitsOnly(element.value, CODE_LENGTH);
+    element.value = value;
+    this.code.set(value);
     this.error.set(null);
   }
 

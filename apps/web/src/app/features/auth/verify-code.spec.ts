@@ -124,6 +124,10 @@ describe('VerifyCodePage', () => {
 
   it('strips non-digits so a letter can never reach the request', async () => {
     fillInput(fixture, 'Verification code', '12a34b');
+    const input = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
+      'input[aria-label="Verification code"]',
+    );
+    expect(input?.value).toBe('1234');
     submitForm(fixture);
     await settle(fixture);
 

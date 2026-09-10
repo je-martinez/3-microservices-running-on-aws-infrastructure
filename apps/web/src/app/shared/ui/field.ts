@@ -1,5 +1,8 @@
-import { Component, input, output } from '@angular/core';
+import { Component, computed, input, output } from '@angular/core';
 import { LucideDynamicIcon } from '@lucide/angular';
+import { digitsOnly } from './numeric-input';
+
+type FieldType = 'text' | 'email' | 'password' | 'numeric';
 
 /**
  * Design: frame `Field` (TLRTA). Label + icon input box + optional trailing icon
@@ -21,7 +24,9 @@ export class Field {
   readonly label = input.required<string>();
   readonly placeholder = input('');
   readonly value = input('');
-  readonly type = input<'text' | 'email' | 'password'>('text');
+  readonly type = input<FieldType>('text');
+  readonly autocomplete = input<string>();
+  readonly maxLength = input<number>();
   /** Leading glyph, e.g. "mail". */
   readonly icon = input<string>();
   /** Trailing glyph, e.g. "eye-off" for the password show/hide toggle. Absent by default. */
@@ -30,4 +35,12 @@ export class Field {
 
   readonly valueChange = output<string>();
   readonly trailingIconClick = output<void>();
+
+  protected readonly nativeType = computed(() => (this.type() === 'numeric' ? 'text' : this.type()));
+
+  protected onInput(element: HTMLInputElement): void {
+    const value = this.type() === 'numeric' ? digitsOnly(element.value, this.maxLength()) : element.value;
+    element.value = value;
+    this.valueChange.emit(value);
+  }
 }

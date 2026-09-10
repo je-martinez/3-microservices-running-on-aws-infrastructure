@@ -26,7 +26,7 @@
       [placeholder]="placeholder()"
       [value]="value()"
       [attr.aria-invalid]="invalid() ? 'true' : null"
-      (input)="onInput($any($event.target).value)"
+      (input)="onInput($any($event.target))"
     />
   </span>
   @if (invalid()) {

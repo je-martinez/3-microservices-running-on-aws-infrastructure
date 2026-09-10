@@ -8,10 +8,13 @@
     }
     <input
       class="text-ink-primary placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-base outline-none"
-      [type]="type()"
+      [type]="nativeType()"
+      [attr.inputmode]="type() === 'numeric' ? 'numeric' : null"
+      [attr.autocomplete]="autocomplete()"
+      [attr.maxlength]="maxLength()"
       [placeholder]="placeholder()"
       [value]="value()"
-      (input)="valueChange.emit($any($event.target).value)"
+      (input)="onInput($any($event.target))"
     />
     @if (trailingIcon(); as trailingIconName) {
       <button
