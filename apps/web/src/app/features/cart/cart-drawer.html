@@ -77,10 +77,12 @@
         </button>
       </div>
     } @else {
+      <!-- WHY: No `[disabled]` on the stepper. `saving()` flips on every click,
+           so binding it kills the +/- button under the finger mid-click; the
+           quantity updates optimistically and the write is debounced instead. -->
       @for (line of cart.lines(); track line.productId) {
         <app-cart-line
           [line]="line"
-          [disabled]="cart.saving()"
           (increment)="increment(line)"
           (decrement)="decrement(line)"
           (removed)="remove(line)"
@@ -95,24 +97,52 @@
     <div
       class="border-line bg-surface-white flex h-fit w-full shrink-0 flex-col items-start justify-start gap-3xl border-t px-6 py-4xl"
     >
+      <!-- WHY: Only the MONEY is skeletoned, from the first stepper click until
+           the server answers. The labels, the lines and the checkout button keep
+           their place, so the panel does not shift; each bar carries the
+           line-height of the figure it stands in for, or the footer would jump. -->
       <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-base">
         <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
           <span class="text-ink-secondary text-sm">Subtotal</span>
-          <span class="text-ink-primary text-sm font-semibold">{{ summary.subtotal }}</span>
+          @if (totalsStale()) {
+            <span class="flex h-5 shrink-0 items-center" aria-busy="true">
+              <span class="bg-line h-3 w-16 animate-pulse rounded-full"></span>
+            </span>
+          } @else {
+            <span class="text-ink-primary text-sm font-semibold">{{ summary.subtotal }}</span>
+          }
         </div>
         <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
           <span class="text-ink-secondary text-sm">Taxes</span>
-          <span class="text-ink-primary text-sm font-semibold">{{ summary.tax }}</span>
+          @if (totalsStale()) {
+            <span class="flex h-5 shrink-0 items-center" aria-busy="true">
+              <span class="bg-line h-3 w-12 animate-pulse rounded-full"></span>
+            </span>
+          } @else {
+            <span class="text-ink-primary text-sm font-semibold">{{ summary.tax }}</span>
+          }
         </div>
         <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
           <span class="text-ink-secondary text-sm">Shipping</span>
-          <span class="text-ink-primary text-sm font-semibold">{{ summary.shipping }}</span>
+          @if (totalsStale()) {
+            <span class="flex h-5 shrink-0 items-center" aria-busy="true">
+              <span class="bg-line h-3 w-12 animate-pulse rounded-full"></span>
+            </span>
+          } @else {
+            <span class="text-ink-primary text-sm font-semibold">{{ summary.shipping }}</span>
+          }
         </div>
         <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
           <span class="text-ink-primary text-label-lg font-bold">Total</span>
-          <span class="text-ink-primary text-lg font-bold tracking-[-0.01875rem]">{{
-            summary.total
-          }}</span>
+          @if (totalsStale()) {
+            <span class="flex h-7 shrink-0 items-center" aria-busy="true">
+              <span class="bg-line h-4 w-20 animate-pulse rounded-full"></span>
+            </span>
+          } @else {
+            <span class="text-ink-primary text-lg font-bold tracking-[-0.01875rem]">{{
+              summary.total
+            }}</span>
+          }
         </div>
       </div>
 

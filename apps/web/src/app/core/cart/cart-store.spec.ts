@@ -195,6 +195,173 @@ describe('CartStore', () => {
     });
   });
 
+  describe('quantity changes are debounced per product', () => {
+    /** Loads a two-line cart and arms fake timers for the debounce window. */
+    async function loadedTwoLines(store: Store, controller: HttpTestingController): Promise<void> {
+      const loaded = store.load();
+      (await awaitCartRequest(controller, 'GET')).flush(
+        cart([
+          cartLine({ quantity: 1, unitsInStock: 20 }),
+          cartLine({ productId: 'prd_other', quantity: 1, unitsInStock: 20 }),
+        ]),
+      );
+      await loaded;
+      vi.useFakeTimers();
+    }
+
+    /** Fires the armed timers, then hands the macrotask queue back to the store. */
+    async function flushDebounce(): Promise<void> {
+      vi.advanceTimersByTime(500);
+      vi.useRealTimers();
+      await tick();
+    }
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /**
+     * CONTRACT: N clicks on ONE product are ONE PUT at the FINAL quantity. The
+     * assertion is on the request COUNT as well as the body — a store writing
+     * per click reaches quantity 6 too, and would pass a body-only assertion
+     * while making the buyer wait out five sequential round trips.
+     */
+    it('coalesces five rapid increments into a single PUT', async () => {
+      const { store, controller } = setup();
+      await loadedTwoLines(store, controller);
+
+      for (let click = 2; click <= 6; click += 1) {
+        store.adjustQuantity('prd_V1StGXR8Z5', click);
+      }
+      await flushDebounce();
+
+      const puts = await awaitCartRequests(controller, 'PUT');
+      expect(puts).toHaveLength(1);
+      expect(puts[0].request.body).toEqual({
+        items: [
+          { productId: 'prd_other', quantity: 1 },
+          { productId: 'prd_V1StGXR8Z5', quantity: 6 },
+        ],
+      });
+      puts[0].flush(cart([cartLine({ quantity: 6 }), cartLine({ productId: 'prd_other' })]));
+      await tick();
+      controller.verify();
+    });
+
+    /**
+     * CONTRACT: The timers are keyed by PRODUCT. A single shared timer makes a
+     * click on B cancel A's pending write, so A silently reverts to whatever the
+     * server last confirmed — one PUT would arrive here instead of two.
+     */
+    it('writes both products when two are adjusted in the same window', async () => {
+      const { store, controller } = setup();
+      await loadedTwoLines(store, controller);
+
+      store.adjustQuantity('prd_V1StGXR8Z5', 3);
+      store.adjustQuantity('prd_other', 4);
+      await flushDebounce();
+
+      // Serialized by the queue, so they arrive one at a time — but BOTH arrive.
+      const first = await awaitCartRequest(controller, 'PUT');
+      const firstBody = first.request.body as { items: { productId: string; quantity: number }[] };
+      expect(firstBody.items).toContainEqual({ productId: 'prd_V1StGXR8Z5', quantity: 3 });
+      first.flush(
+        cart([
+          cartLine({ quantity: 3, unitsInStock: 20 }),
+          cartLine({ productId: 'prd_other', quantity: 1, unitsInStock: 20 }),
+        ]),
+      );
+
+      const second = await awaitCartRequest(controller, 'PUT');
+      const secondBody = second.request.body as { items: { productId: string; quantity: number }[] };
+      expect(secondBody.items).toContainEqual({ productId: 'prd_other', quantity: 4 });
+      // The second write builds on the first one's result, not on a stale cart.
+      expect(secondBody.items).toContainEqual({ productId: 'prd_V1StGXR8Z5', quantity: 3 });
+      second.flush(
+        cart([
+          cartLine({ quantity: 3, unitsInStock: 20 }),
+          cartLine({ productId: 'prd_other', quantity: 4, unitsInStock: 20 }),
+        ]),
+      );
+      await tick();
+      controller.verify();
+    });
+
+    /** The optimistic quantity is visible before any request leaves. */
+    it('shows the clicked quantity while no PUT has been sent', async () => {
+      const { store, controller } = setup();
+      await loadedTwoLines(store, controller);
+
+      store.adjustQuantity('prd_V1StGXR8Z5', 5);
+
+      expect(store.lines().find((l) => l.productId === 'prd_V1StGXR8Z5')?.quantity).toBe(5);
+      expect(store.itemCount()).toBe(6);
+      expect(controller.match(() => true)).toHaveLength(0);
+
+      await flushDebounce();
+      (await awaitCartRequest(controller, 'PUT')).flush(
+        cart([
+          cartLine({ quantity: 5, unitsInStock: 20 }),
+          cartLine({ productId: 'prd_other', quantity: 1, unitsInStock: 20 }),
+        ]),
+      );
+      await tick();
+      controller.verify();
+    });
+
+    /**
+     * CONTRACT: A failed write must not leave the optimistic number on screen as
+     * if it had succeeded. The overlay is dropped once the write settles, so the
+     * displayed quantity falls back to what the server last confirmed.
+     */
+    it('drops the optimistic quantity when the write fails outright', async () => {
+      const { store, controller } = setup();
+      await loadedTwoLines(store, controller);
+
+      store.adjustQuantity('prd_V1StGXR8Z5', 9);
+      await flushDebounce();
+
+      (await awaitCartRequest(controller, 'PUT')).flush(null, {
+        status: 500,
+        statusText: 'Internal Server Error',
+      });
+      // The retry re-reads, and the server still holds the original quantity.
+      (await awaitCartRequest(controller, 'GET')).flush(
+        cart([
+          cartLine({ quantity: 1, unitsInStock: 20 }),
+          cartLine({ productId: 'prd_other', quantity: 1, unitsInStock: 20 }),
+        ]),
+      );
+      (await awaitCartRequest(controller, 'PUT')).flush(null, {
+        status: 500,
+        statusText: 'Internal Server Error',
+      });
+      await tick();
+      await tick();
+
+      expect(store.error()).toBeTruthy();
+      expect(store.lines().find((l) => l.productId === 'prd_V1StGXR8Z5')?.quantity).toBe(1);
+      controller.verify();
+    });
+
+    /**
+     * CONTRACT: An armed timer is cancelled on checkout. One left running fires
+     * a PUT after POST /orders and recreates the cart the order just consumed.
+     */
+    it('cancels an armed debounce when the cart is forgotten after checkout', async () => {
+      const { store, controller } = setup();
+      await loadedTwoLines(store, controller);
+
+      store.adjustQuantity('prd_V1StGXR8Z5', 4);
+      store.forgetAfterCheckout();
+      await flushDebounce();
+
+      expect(store.cart()).toBeNull();
+      expect(controller.match(() => true)).toHaveLength(0);
+      controller.verify();
+    });
+  });
+
   describe('mutating', () => {
     it('removes a line by omitting it from the replacement items', async () => {
       const { store, controller } = setup();

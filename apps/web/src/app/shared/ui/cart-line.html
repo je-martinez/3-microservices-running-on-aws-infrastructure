@@ -43,7 +43,9 @@
             <svg lucideMinus class="text-ink-secondary h-3.5 w-3.5"></svg>
           </button>
           <div class="flex h-control-sm w-stepper shrink-0 flex-row items-center justify-center">
-            <span class="text-ink-primary text-sm font-semibold">{{ quantity() }}</span>
+            <span data-testid="cart-line-quantity" class="text-ink-primary text-sm font-semibold">{{
+              quantity()
+            }}</span>
           </div>
           <button
             type="button"

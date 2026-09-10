@@ -84,21 +84,44 @@ export class CartDrawer {
    * CONTRACT: `canCheckout` gates the button but never guarantees the order
    * succeeds — another buyer can take the last unit before checkout charges.
    * The failure branch lives in CheckoutPaymentPage, which does the charging.
+   *
+   * CONTRACT: Do NOT add `saving()` here. Every stepper click flips it
+   * true→false, so the button disables and re-enables under the cursor — a
+   * flicker, and a click landing in that window does nothing. Continue only
+   * NAVIGATES to /checkout, which re-reads the cart and gates paying on its own
+   * `canPay`, so leaving it enabled mid-write cannot buy an unbuyable cart.
+   * See [[2026-09-04-web-gateway-integration-design]]
    */
-  protected readonly canContinue = computed(() => this.cart.canCheckout() && !this.cart.saving());
+  protected readonly canContinue = computed(() => this.cart.canCheckout());
+
+  /**
+   * CONTRACT: Drive the totals' skeleton from the FIRST click, not from the PUT.
+   * `saving()` alone leaves the debounce window showing figures the buyer has
+   * already invalidated — the quantity beside them has moved. `adjusting()`
+   * covers click → debounce → write → response as one span.
+   */
+  protected readonly totalsStale = computed(() => this.cart.adjusting() || this.cart.saving());
 
   constructor() {
     void this.cart.load();
   }
 
-  // CONTRACT: Coerce `quantity` with toInt — it is IntLike, so `+ 1` on the
-  // string form concatenates and PUTs a quantity of "21" for 2 plus one.
+  /**
+   * CONTRACT: Coerce `quantity` with toInt — it is IntLike, so `+ 1` on the
+   * string form concatenates and PUTs a quantity of "21" for 2 plus one.
+   *
+   * CONTRACT: `line` comes from `cart.lines()`, which already carries the
+   * optimistic quantity. Stepping off the server's cart instead makes the
+   * second of five fast clicks recompute from the same base, so all five
+   * resolve to the same number and the buyer's clicks are lost.
+   * See [[2026-09-04-web-gateway-integration-design]]
+   */
   protected increment(line: CartLineDto): void {
-    void this.cart.setQuantity(line.productId, toInt(line.quantity) + 1);
+    this.cart.adjustQuantity(line.productId, toInt(line.quantity) + 1);
   }
 
   protected decrement(line: CartLineDto): void {
-    void this.cart.setQuantity(line.productId, toInt(line.quantity) - 1);
+    this.cart.adjustQuantity(line.productId, toInt(line.quantity) - 1);
   }
 
   protected remove(line: CartLineDto): void {

@@ -10,12 +10,37 @@ interface CartState {
   /** The server's cart. Null until the first successful read. */
   cart: Cart | null;
   loading: boolean;
-  /** Set while a mutation is in flight, so the UI can disable its steppers. */
+  /** Set while a mutation is in flight, so the UI can skeleton stale money. */
   saving: boolean;
+  /**
+   * Quantities the buyer has clicked to but the server has not confirmed,
+   * keyed by productId. Empty between debounce windows.
+   *
+   * CONTRACT: This is an OVERLAY on `cart`, never a replacement. An entry is
+   * dropped the moment its PUT settles, so the server's answer wins — it can
+   * clamp to stock, and a store that kept the optimistic number would show a
+   * quantity the buyer cannot actually buy.
+   * See [[2026-09-04-web-gateway-integration-design]]
+   */
+  pendingQuantities: Readonly<Record<string, number>>;
   error: string | null;
 }
 
-const INITIAL: CartState = { cart: null, loading: false, saving: false, error: null };
+const INITIAL: CartState = {
+  cart: null,
+  loading: false,
+  saving: false,
+  pendingQuantities: {},
+  error: null,
+};
+
+/**
+ * How long the steppers coalesce clicks before writing.
+ *
+ * WHY: 350ms sits above the ~200ms a deliberate second click takes and below
+ * the ~500ms at which the cart feels unresponsive after the last click.
+ */
+const QUANTITY_DEBOUNCE_MS = 350;
 
 const UNREACHABLE = 'We could not reach your cart. Check your connection and try again.';
 const FAILED = 'We could not update your cart. Please try again.';
@@ -63,30 +88,56 @@ function withQuantity(
 export const CartStore = signalStore(
   { providedIn: 'root' },
   withState<CartState>(INITIAL),
-  withComputed(({ cart }) => ({
-    lines: computed<readonly CartLine[]>(() => cart()?.items ?? []),
+  withComputed(({ cart, pendingQuantities }) => {
     /**
-     * CONTRACT: Sum the QUANTITIES, not the line count — the header badge is a
-     * count of goods, and counting lines shows "1" for a cart holding five of
-     * one product. `quantity` is IntLike, so a string would concatenate.
+     * CONTRACT: Every quantity the UI reads comes from here, not from
+     * `cart().items`. The optimistic overlay is what makes the number track the
+     * buyer's finger during a debounce window; a template reading the raw cart
+     * shows the pre-click quantity until the PUT answers ~350ms later.
      */
-    itemCount: computed(() =>
-      (cart()?.items ?? []).reduce((sum, line) => sum + toInt(line.quantity), 0),
-    ),
-    /**
-     * CONTRACT: An empty cart still reports a non-zero `total` — the server
-     * always charges shipping, and `total = subtotal + tax + shipping` holds
-     * with no exceptions. Presenting that as money owed bills a buyer for an
-     * empty basket, so the UI branches on this instead of on `total.cents`.
-     */
-    isEmpty: computed(() => (cart()?.items.length ?? 0) === 0),
-    /**
-     * CONTRACT: `canCheckout` is a HINT, not a guarantee — another buyer can
-     * take the last unit between this read and POST /orders, which then fails.
-     * Use it to disable the button, never to assume checkout cannot fail.
-     */
-    canCheckout: computed(() => cart()?.canCheckout === true),
-  })),
+    const lines = computed<readonly CartLine[]>(() => {
+      const items = cart()?.items ?? [];
+      const pending = pendingQuantities();
+      if (Object.keys(pending).length === 0) return items;
+      return items
+        .map((line) =>
+          line.productId in pending
+            ? { ...line, quantity: pending[line.productId] as CartLine['quantity'] }
+            : line,
+        )
+        .filter((line) => toInt(line.quantity) > 0);
+    });
+
+    return {
+      lines,
+      /**
+       * CONTRACT: Sum the QUANTITIES, not the line count — the header badge is a
+       * count of goods, and counting lines shows "1" for a cart holding five of
+       * one product. `quantity` is IntLike, so a string would concatenate.
+       */
+      itemCount: computed(() => lines().reduce((sum, line) => sum + toInt(line.quantity), 0)),
+      /**
+       * CONTRACT: An empty cart still reports a non-zero `total` — the server
+       * always charges shipping, and `total = subtotal + tax + shipping` holds
+       * with no exceptions. Presenting that as money owed bills a buyer for an
+       * empty basket, so the UI branches on this instead of on `total.cents`.
+       */
+      isEmpty: computed(() => lines().length === 0),
+      /**
+       * CONTRACT: `canCheckout` is a HINT, not a guarantee — another buyer can
+       * take the last unit between this read and POST /orders, which then fails.
+       * Use it to disable the button, never to assume checkout cannot fail.
+       *
+       * CONTRACT: Read the SERVER's cart, never `lines()`. An optimistic
+       * quantity is unverified against stock, so deriving buyability from it
+       * would enable checkout on a cart the server is about to clamp.
+       * See [[2026-09-04-web-gateway-integration-design]]
+       */
+      canCheckout: computed(() => cart()?.canCheckout === true),
+      /** True while a debounced quantity change is armed but not yet written. */
+      adjusting: computed(() => Object.keys(pendingQuantities()).length > 0),
+    };
+  }),
   withMethods((store) => {
     const api = inject(CartApi);
 
@@ -109,6 +160,53 @@ export const CartStore = signalStore(
           resolve();
         });
       });
+    }
+
+    /**
+     * One armed debounce timer per productId.
+     *
+     * CONTRACT: Key by PRODUCT, never a single shared timer. A global timer
+     * makes a click on product B cancel product A's pending write, so A's
+     * quantity silently reverts to whatever the server last confirmed.
+     * See [[2026-09-04-web-gateway-integration-design]]
+     */
+    const timers = new Map<string, ReturnType<typeof setTimeout>>();
+
+    /** Drops one product's optimistic overlay, leaving the others armed. */
+    function clearPending(productId: string): void {
+      const rest = { ...store.pendingQuantities() };
+      delete rest[productId];
+      patchState(store, { pendingQuantities: rest });
+    }
+
+    /**
+     * Shows `quantity` immediately and writes it once the clicks stop.
+     *
+     * CONTRACT: Restarting the timer is what coalesces — five clicks on one
+     * line must produce ONE PUT carrying the FINAL quantity, not five sequential
+     * round trips the buyer waits out one by one.
+     * See [[2026-09-04-web-gateway-integration-design]]
+     */
+    function debouncedSetQuantity(productId: string, quantity: number): void {
+      patchState(store, {
+        pendingQuantities: { ...store.pendingQuantities(), [productId]: quantity },
+      });
+
+      clearTimeout(timers.get(productId));
+      timers.set(
+        productId,
+        setTimeout(() => {
+          timers.delete(productId);
+          const target = store.pendingQuantities()[productId];
+          if (target === undefined) return;
+          // CONTRACT: Drop the overlay only AFTER the write settles. Clearing it
+          // when the timer fires re-exposes the server's stale quantity for the
+          // whole round trip, which reads as the number snapping back.
+          void enqueue(() => write((lines) => withQuantity(lines, productId, target))).finally(() =>
+            clearPending(productId),
+          );
+        }, QUANTITY_DEBOUNCE_MS),
+      );
     }
 
     async function read(): Promise<Cart> {
@@ -169,13 +267,30 @@ export const CartStore = signalStore(
           }),
         ),
 
-      /** Sets an absolute quantity; zero or less removes the line. */
+      /** Sets an absolute quantity and writes it now; zero or less removes the line. */
       setQuantity: (productId: string, quantity: number): Promise<void> =>
         enqueue(() => write((lines) => withQuantity(lines, productId, quantity))),
 
+      /**
+       * The steppers' entry point: shows `quantity` at once, writes it once the
+       * clicks stop.
+       *
+       * CONTRACT: Use this for +/-, never `setQuantity`. Writing per click makes
+       * five taps five sequential PUTs, each one a round trip the buyer waits
+       * out with a stale total on screen.
+       * See [[2026-09-04-web-gateway-integration-design]]
+       */
+      adjustQuantity: (productId: string, quantity: number): void =>
+        debouncedSetQuantity(productId, quantity),
+
       /** Removes a line outright. */
-      remove: (productId: string): Promise<void> =>
-        enqueue(() => write((lines) => withQuantity(lines, productId, 0))),
+      remove: (productId: string): Promise<void> => {
+        // A queued debounce for this line would resurrect it after the removal.
+        clearTimeout(timers.get(productId));
+        timers.delete(productId);
+        clearPending(productId);
+        return enqueue(() => write((lines) => withQuantity(lines, productId, 0)));
+      },
 
       /** DELETE /cart, then drop what is held. Answers 204 with no body. */
       clear: (): Promise<void> =>
@@ -196,8 +311,17 @@ export const CartStore = signalStore(
        * DELETES the cart server-side, so the lines still held here describe
        * something that no longer exists — a drawer left open would offer to
        * check them out a second time.
+       *
+       * CONTRACT: Cancel the armed debounce timers too. One left running fires
+       * a PUT after the order is placed and recreates the cart the order just
+       * consumed, so the buyer returns to a basket they have already paid for.
+       * See [[2026-09-04-web-gateway-integration-design]]
        */
-      forgetAfterCheckout: (): void => patchState(store, { ...INITIAL }),
+      forgetAfterCheckout: (): void => {
+        timers.forEach(clearTimeout);
+        timers.clear();
+        patchState(store, { ...INITIAL });
+      },
     };
   }),
 );
