@@ -25,7 +25,7 @@ import { PhoneField } from '../../shared/ui/phone-field';
 import { StreetAutocomplete } from '../../shared/ui/street-autocomplete';
 import { DevFillButton } from '../../core/dev/dev-fill-button';
 import type { DevData } from '../../core/dev/dev-fill';
-import { digitsOnly } from '../../shared/ui/numeric-input';
+import { digitsOnly, groupCardDigits } from '../../shared/ui/numeric-input';
 
 /**
  * Design: `Checkout — Payment` (`DOtD2`, 1440) / `Mobile — Checkout Payment`
@@ -100,6 +100,7 @@ export class CheckoutPaymentPage {
    * developer is looking at. See [[2026-09-07-dev-form-autofill]]
    */
   protected readonly cardNumber = signal('');
+  protected readonly cardHolder = signal('');
   protected readonly cardExpiry = signal('');
   protected readonly cardCvc = signal('');
   protected readonly savingAddress = signal(false);
@@ -220,13 +221,18 @@ export class CheckoutPaymentPage {
     this.phoneInput.set(data.phoneNumber);
     // The card fields render only on the plain path; setting them when Stripe
     // is enabled is a harmless no-op rather than a branch to keep in sync.
-    this.cardNumber.set(data.cardNumber);
+    // CONTRACT: Fill through the same formatter typing uses, never the raw
+    // generated digits — Stripe's test number arrives unspaced, and setting it
+    // directly shows `4242424242424242` in a field whose maxlength is sized for
+    // the grouped `4242 4242 4242 4242`.
+    this.cardNumber.set(groupCardDigits(data.cardNumber));
+    this.cardHolder.set(data.fullName);
     this.cardExpiry.set(data.cardExpiry);
     this.cardCvc.set(data.cardCvc);
   }
 
   protected onCardNumberInput(element: HTMLInputElement): void {
-    const value = digitsOnly(element.value, 19).replace(/(.{4})/g, '$1 ').trimEnd();
+    const value = groupCardDigits(element.value);
     element.value = value;
     this.cardNumber.set(value);
   }

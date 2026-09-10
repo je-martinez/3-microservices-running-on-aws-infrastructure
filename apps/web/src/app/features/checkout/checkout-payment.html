@@ -288,9 +288,12 @@
               >
                 <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
                   <span class="text-ink-muted text-xs font-semibold tracking-overline">PAYMENT</span>
-                  <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-xs">
-                    <svg lucideLock class="text-ink-muted h-icon-xs w-icon-xs"></svg>
-                    <span class="text-ink-muted text-caption">Encrypted</span>
+                  <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-md">
+                    <app-dev-fill-button (filled)="devFill($event)" />
+                    <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-xs">
+                      <svg lucideLock class="text-ink-muted h-icon-xs w-icon-xs"></svg>
+                      <span class="text-ink-muted text-caption">Encrypted</span>
+                    </div>
                   </div>
                 </div>
 
@@ -360,6 +363,23 @@
                       </span>
                     </label>
                   </div>
+
+                  <label class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-xs">
+                    <span class="text-ink-primary text-body-sm font-medium">Cardholder name</span>
+                    <span
+                      class="border-line bg-surface-white flex h-control-lg w-full items-center gap-md rounded-md border px-3"
+                    >
+                      <input
+                        type="text"
+                        autocomplete="cc-name"
+                        placeholder="Name on card"
+                        data-testid="card-holder"
+                        class="text-ink-primary placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
+                        [value]="cardHolder()"
+                        (input)="cardHolder.set($any($event.target).value)"
+                      />
+                    </span>
+                  </label>
 
                   <div class="flex h-fit w-full shrink-0 flex-row items-start justify-start gap-3">
                     <label class="flex h-fit flex-1 flex-col items-start justify-start gap-xs">

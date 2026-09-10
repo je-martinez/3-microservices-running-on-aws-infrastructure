@@ -21,6 +21,8 @@ import {
 } from '@lucide/angular';
 
 import { CheckoutPaymentPage } from './checkout-payment';
+import { DevFillButton } from '../../core/dev/dev-fill-button';
+import type { DevData } from '../../core/dev/dev-fill';
 import { USER, awaitRequest, fillField, settle } from '../auth/testing';
 import { SessionStore } from '../../core/auth/session-store';
 import { StreetAutocomplete } from '../../shared/ui/street-autocomplete';
@@ -33,6 +35,21 @@ import {
   money,
   unavailableLine,
 } from '../../shared/testing/fixtures';
+
+const DEV_DATA: DevData = {
+  fullName: 'Jane Doe',
+  email: 'jane@example.com',
+  password: 'Aa1!abcdefghijkl',
+  phoneNumber: '+18095550123',
+  street: 'Calle Duarte 12',
+  apartment: 'Apto 4B',
+  state: 'Distrito Nacional',
+  cityAndPostalCode: 'Santo Domingo, 10604',
+  cardNumber: '4242424242424242',
+  cardExpiry: '09 / 28',
+  cardCvc: '321',
+  otpCode: '123456',
+};
 
 describe('CheckoutPaymentPage', () => {
   let fixture: ComponentFixture<CheckoutPaymentPage>;
@@ -155,6 +172,63 @@ describe('CheckoutPaymentPage', () => {
     expect(zip?.readOnly).toBe(true);
     expect(zip?.inputMode).toBe('numeric');
     expect(zip?.maxLength).toBe(5);
+  });
+
+  // WHY: Drive the output rather than DEV_MODE and the real generator — the
+  // formatting contract is what matters here, and the button's own dev-mode
+  // gating already has its coverage in dev-fill.spec.ts.
+  it('fills the card in the same shape typing produces', async () => {
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    const buttons = fixture.debugElement.queryAll(By.directive(DevFillButton));
+    expect(buttons.length).toBeGreaterThan(0);
+    buttons[0].componentInstance.filled.emit({
+      ...DEV_DATA,
+      cardNumber: '4242424242424242',
+      cardExpiry: '09 / 28',
+      cardCvc: '321',
+    });
+    fixture.detectChanges();
+
+    const number = root().querySelector<HTMLInputElement>('[data-testid="card-number"]');
+    const holder = root().querySelector<HTMLInputElement>('[data-testid="card-holder"]');
+    const expiry = root().querySelector<HTMLInputElement>('[data-testid="card-expiry"]');
+    const cvc = root().querySelector<HTMLInputElement>('[data-testid="card-cvc"]');
+
+    expect(number?.value).toBe('4242 4242 4242 4242');
+    expect(number!.value.length).toBeLessThanOrEqual(number!.maxLength);
+    expect(holder?.value).toBe('Jane Doe');
+    expect(expiry?.value).toBe('09 / 28');
+    expect(cvc?.value).toBe('321');
+  });
+
+  // The cardholder is the one card field that is NOT numeric — a digit filter
+  // here would reject every real name.
+  it('keeps the cardholder name as free text', async () => {
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    const holder = root().querySelector<HTMLInputElement>('[data-testid="card-holder"]');
+    if (!holder) throw new Error('No cardholder input');
+    holder.value = "José O'Brien-Núñez";
+    holder.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    expect(holder.value).toBe("José O'Brien-Núñez");
+    expect(holder.autocomplete).toBe('cc-name');
+    expect(holder.hasAttribute('inputmode')).toBe(false);
+  });
+
+  it('offers the dev fill beside the card fields, not only the address', async () => {
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    const plain = root().querySelector('[data-testid="checkout-plain"]');
+    expect(plain?.querySelector('app-dev-fill-button')).not.toBeNull();
   });
 
   /**
