@@ -39,12 +39,13 @@ describe('GeocodeApi', () => {
     request.flush({ features: [] });
   });
 
-  it('sends the query, the country filter and a limit', () => {
+  it('sends no country filter or bias, so any country can resolve', () => {
     geocodeApi.suggest('Av Winston').subscribe();
 
     const request = expectRequest();
     expect(request.request.params.get('text')).toBe('Av Winston');
-    expect(request.request.params.get('filter')).toBe('countrycode:do');
+    expect(request.request.params.get('filter')).toBeNull();
+    expect(request.request.params.get('bias')).toBeNull();
     expect(request.request.params.get('limit')).toBe('5');
     request.flush({ features: [] });
   });

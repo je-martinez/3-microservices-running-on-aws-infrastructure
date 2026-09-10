@@ -87,7 +87,9 @@ export class GeocodeApi {
       .get<GeocodeFeatureCollection>('/geocode/', {
         params: {
           text: query,
-          filter: 'countrycode:do',
+          // CONTRACT: Send no country parameter. `filter=countrycode:` answers a
+          // same-named place in that country instead of the real match, and
+          // `bias=` ranks one country's streets above the buyer's own.
           limit: SUGGESTION_LIMIT,
         },
       })

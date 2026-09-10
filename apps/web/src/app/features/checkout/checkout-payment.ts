@@ -214,11 +214,8 @@ export class CheckoutPaymentPage {
    */
   protected readonly resolvedAddress = signal<Address | null>(null);
 
-  /**
-   * The phone flag's pre-typing default only. Once a digit is typed the NUMBER
-   * decides the country, so this never overrides what the buyer entered.
-   */
-  protected readonly seedCountry = computed(() => this.address()?.country ?? 'DO');
+  /** The flag's pre-typing default; a typed number overrides it. */
+  protected readonly seedCountry = computed(() => this.address()?.country ?? undefined);
 
   protected readonly canSaveAddress = computed(
     () => this.addressForm().valid() && !this.savingAddress(),
@@ -430,7 +427,7 @@ export class CheckoutPaymentPage {
 
     // CONTRACT: `country` is '' when no suggestion resolved one, NEVER a guess.
     // A default of 'DO' stores every hand-typed foreign address as Dominican.
-    // The form has no country input by design: the autocomplete knows it.
+    // The form has no country input by design: the autocomplete resolves it.
     return {
       line1: values.street.trim(),
       line2: values.line2.trim() || null,
